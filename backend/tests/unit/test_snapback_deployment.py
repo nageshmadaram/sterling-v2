@@ -109,10 +109,10 @@ def test_main_starts_every_runner_unconditionally(runner, task_var, monkeypatch)
     ("adaptive_edge_runner", "_adaptive_edge_scan"),
     ("intraday_runner", "_intraday_scan"),
 ])
-def test_archived_strategy_loops_start_with_runtime_opt_in(module, starter):
+def test_archived_strategy_loops_only_manage_existing_positions(module, starter):
     source = _main_source()
 
-    call = re.search(rf"{starter}\(\s*interval=\d+,\s*manage_only=False\s*\)", source)
+    call = re.search(rf"{starter}\(\s*interval=\d+,\s*manage_only=True\s*\)", source)
     assert call, f"{module} must consult per-user archive permission"
 
 

@@ -240,7 +240,7 @@ async def test_concurrent_fresh_readers_still_share_the_read_that_finished_while
 async def test_an_order_placed_inside_the_ttl_fills_at_the_price_of_that_moment(ledger, clock):
     from app.services.simulation.virtual_exchange import VirtualExchange
     real = FakeReal(owner="default", clock=clock)
-    src = q.QuoteSource(lambda: real, owner="default", ttl_s=60.0, use_websocket=False)     # a cache that would hide the move
+    src = q.QuoteSource(lambda: real, owner="default", ttl_s=60.0, use_websocket=False, wall_clock=lambda: clock().timestamp())     # a cache that would hide the move
     ex = VirtualExchange("default", ledger, src, clock=clock)
     real.set_quote(OPT, 100.0, bid=99.95, ask=100.05)
     await src.books([OPT])

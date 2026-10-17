@@ -21,6 +21,7 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
       if (request.method() !== 'GET') mutations.push({ path, body });
       let payload: unknown;
       if (path === '/config' && request.method() === 'GET') payload = config;
+      else if (path.includes('/stock-registry')) payload = [];
       else if (path === '/config' && request.method() === 'PATCH') {
         expect(body.expected_revision).toBe(config.revision);
         config = { ...config, config: { ...config.config, ...body.changes }, revision: config.revision + 1 }; payload = config;
@@ -67,6 +68,7 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
       await route.fulfill({ status: unknown.includes(url.pathname) ? 500 : 200, json: payload });
     });
     await page.goto('/e2e/fixtures/ema-trend-harness.html');
+    await page.getByText('Advanced: edit exact exchange symbols').click();
     await page.getByLabel('EMA Trend instruments').fill('NSE:TCS');
     await page.getByLabel('Paper allocation (₹)').fill('100000');
     await page.getByRole('switch', { name: '10/21 EMA + Supertrend engine' }).click();
@@ -77,7 +79,6 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     await page.getByRole('button', { name: 'Apply changes' }).click();
     await expect(page.getByRole('button', { name: 'Apply changes' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Signals workspace' }).click();
-    await expect(page.getByRole('group', { name: 'EMA Trend visible profiles' })).toBeVisible();
     await page.getByRole('button', { name: 'EMA TREND' }).click();
     const profiles = page.getByRole('group', { name: 'EMA Trend visible profiles' });
     await expect(profiles).toBeVisible();
@@ -132,7 +133,7 @@ test('EMA empty universe shows one clear setup action; Profiles and Columns menu
   });
   await page.goto('/e2e/fixtures/ema-trend-harness.html');
   await page.getByRole('button', { name: 'Signals workspace' }).click();
-  await expect(page.getByText(/No equities selected\. Open EMA Trend settings/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Set up EMA Trend signals' })).toBeVisible();
   await expect(page.getByText('Nothing to show.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
@@ -157,6 +158,54 @@ test('EMA empty universe shows one clear setup action; Profiles and Columns menu
 
 
 
+test('EMA empty universe can start safe read-only scans with a single explicit action', async ({ page }) => {
+  let saved = emaConfig();
+  saved.config = { ...saved.defaults, enabled: false, auto_execute: true, symbols: [], modes: ['swing'] };
+  const requests: Array<{ path: string; method: string; body?: Record<string, unknown> }> = [];
+  await page.route('**/api/v1/ema-trend/**', async route => {
+    const req = route.request();
+    const url = new URL(req.url());
+    const path = url.pathname;
+    const method = req.method();
+    const body = method === 'GET' ? {} : req.postDataJSON();
+    if (method !== 'GET') requests.push({ path, method, body });
+    if (path.endsWith('/config')) {
+      if (method === 'PATCH') {
+        expect(body.expected_revision).toBe(saved.revision);
+        saved = { ...saved, revision: saved.revision + 1,
+          config: { ...saved.config, ...body.changes } };
+      }
+      await route.fulfill({ json: saved });
+    } else if (path.endsWith('/snapshot')) {
+      await route.fulfill({ json: { ...saved, rows: [], campaigns: [],
+        scan: { status: 'IDLE', errors: [] }, generated_ms: Date.now() } });
+    } else if (path.endsWith('/scan') && method === 'POST') {
+      await route.fulfill({ json: { id: 'starter-scan', status: 'COMPLETED', errors: [] } });
+    } else if (path.endsWith('/scans/starter-scan')) {
+      await route.fulfill({ json: { id: 'starter-scan', status: 'COMPLETED', errors: [] } });
+    } else {
+      await route.fulfill({ status: 500, json: { detail: 'Unknown EMA fixture route' } });
+    }
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  const button = page.getByRole('button', { name: 'Start scanning 5 NSE stocks · All profiles' });
+  await expect(button).toBeEnabled();
+  expect(requests).toEqual([]); // Merely opening the board never changes strategy config.
+  await button.click();
+  await expect.poll(() => requests.some(row => row.method === 'PATCH')).toBe(true);
+  const patch = requests.find(row => row.method === 'PATCH');
+  expect(patch?.body?.changes).toMatchObject({
+    enabled: true, auto_execute: false,
+    modes: ['swing', 'intraday', 'scalping', 'ultra_scalping'],
+    symbols: ['NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK'],
+  });
+  await expect.poll(() => requests.some(row => row.path.endsWith('/scan'))).toBe(true);
+  expect(requests.every(row => !row.path.endsWith('/arm') && !row.path.endsWith('/actions'))).toBe(true);
+  expect(saved.config.auto_execute).toBe(false);
+});
+
+
 test('EMA Profiles menu shows multiple selected modes and updates without manual Refresh', async ({ page }) => {
   const config = emaConfig();
   config.config = {
@@ -171,15 +220,15 @@ test('EMA Profiles menu shows multiple selected modes and updates without manual
   await page.route('**/api/v1/ema-trend/**', async route => {
     const url = new URL(route.request().url());
     const path = url.pathname;
-    const mode = url.searchParams.get('mode');
+    const modes = (url.searchParams.get('modes') || url.searchParams.get('mode') || '').split(',').filter(Boolean);
     if (route.request().method() !== 'GET') writes.push(path);
     if (path.endsWith('/config')) {
       await route.fulfill({ json: config });
     } else if (path.endsWith('/snapshot')) {
-      if (mode) requestedModes.push(mode);
+      requestedModes.push(...modes);
       await route.fulfill({ json: {
         ...config,
-        rows: rows.filter(row => !mode || row.mode === mode),
+        rows: rows.filter(row => !modes.length || modes.includes(row.mode)),
         campaigns: [], next_cursor: null, generated_ms: Date.now(),
         scan: { id: 'job-1', status: 'COMPLETED', finished_ms: Date.now(), errors: [] },
       } });
@@ -301,7 +350,8 @@ test('Exact option selector → whole-lot paper entry → quarter → close', as
     const req = route.request(), path = new URL(req.url()).pathname.replace('/api/v1/ema-trend', '');
     const body = req.method() === 'GET' ? {} : req.postDataJSON();
     let data: unknown;
-    if (path === '/config' && req.method() === 'GET') data = config;
+    if (path.includes('/stock-registry')) data = [];
+    else if (path === '/config' && req.method() === 'GET') data = config;
     else if (path === '/config') { config = { ...config, config: { ...config.config, ...body.changes }, revision: config.revision + 1 }; data = config; }
     else if (path === '/instruments') data = { items: [
       { symbol, name: 'NIFTY', exchange: 'NFO', instrument_type: 'CE', lot_size: 25, tick_size: '.05', expiry: contract.expiry, execution_supported: true, blocker: null, contract },
@@ -324,6 +374,7 @@ test('Exact option selector → whole-lot paper entry → quarter → close', as
     await route.fulfill({ status: unknown.includes(path) ? 500 : 200, json: data });
   });
   await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByText(/Add more stocks or exact derivative contracts/).click();
   await page.getByLabel('EMA Trend instrument search').fill('NIFTY');
   await page.getByRole('checkbox', { name: symbol, exact: true }).check();
   await expect(page.getByRole('checkbox', { name: 'MCX:GOLD26NOVFUT', exact: true })).toBeDisabled();
@@ -349,4 +400,27 @@ test('Exact option selector → whole-lot paper entry → quarter → close', as
   await expect(page.getByText(/Units: 0/)).toBeVisible();
   expect(armed).toBe(1); expect(unknown).toEqual([]);
   await page.screenshot({ path: `test-results/ema-trend/${testInfo.project.name}-contract-workflow.png` });
+});
+
+test('EMA profile menu stays usable within a phone viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const config = emaConfig();
+  config.config = { ...config.config, enabled: false, symbols: [] };
+  await page.route('**/api/v1/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    const payload = path.endsWith('/config') ? config : path.endsWith('/snapshot')
+      ? { ...config, rows: [], campaigns: [], scan: null } : [];
+    await route.fulfill({ json: payload });
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  await page.getByRole('button', { name: 'EMA TREND' }).click();
+  const menu = page.getByRole('group', { name: 'EMA Trend visible profiles' });
+  await menu.getByRole('checkbox', { name: 'Swing', exact: true }).uncheck();
+  await expect(menu.getByRole('checkbox', { name: 'Swing', exact: true })).not.toBeChecked();
+  const bounds = await menu.boundingBox();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
 });

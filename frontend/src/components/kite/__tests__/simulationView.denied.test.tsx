@@ -91,13 +91,13 @@ const wrap = (ui: React.ReactElement) => (
 );
 const openSection = (name: RegExp) => fireEvent.click(screen.getByRole('button', { name }));
 
-beforeEach(() => { localStorage.clear(); useViewStore.setState({ view: 'live' }); });
+beforeEach(() => { localStorage.clear(); sessionStorage.clear(); useViewStore.setState({ view: 'live' }); });
 afterEach(() => { cleanup(); useViewStore.setState({ view: 'live' }); });
 
 describe('Settings in the live view', () => {
   it('still offers broker accounts, the data credentials, the loss limit and Telegram', () => {
     render(wrap(<ConnectPane />));
-    expect(screen.getByRole('button', { name: '+ ADD KITE ACCOUNT' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '+ Add broker account' })).toBeInTheDocument();
     openSection(/TrueData Feed\s*Market data connection/i);
     expect(screen.getByText('TrueData credentials')).toBeInTheDocument();
     expect(screen.queryByTestId('sim-denied-note')).toBeNull();
@@ -117,9 +117,10 @@ describe('Settings in the Simulation view', () => {
 
   it('replaces broker login, logout and accounts with a reason', () => {
     render(wrap(<ConnectPane />));
-    expect(screen.queryByRole('button', { name: '+ ADD KITE ACCOUNT' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '+ Add broker account' })).toBeNull();
     const note = screen.getByTestId('sim-denied-note');
-    expect(note).toHaveTextContent('Broker login, logout and accounts is not available in the Simulation view');
+    expect(note).toHaveTextContent('Broker login, logout and accounts');
+    expect(note).toHaveTextContent('Simulation');
     expect(note).toHaveTextContent(/never signs in to Zerodha/);
   });
 

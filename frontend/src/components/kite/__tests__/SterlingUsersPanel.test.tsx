@@ -16,20 +16,21 @@ beforeEach(() => {
 describe('Sterling users', () => {
   it('lists password status and protects the primary login', async () => {
     show(); await screen.findByText('Sterling');
-    expect(screen.getByText('Administrator · You')).toBeInTheDocument();
+    expect(screen.getByText('Admin')).toBeInTheDocument();
+    expect(screen.getByText('You')).toBeInTheDocument();
     expect(screen.queryByText(/one-way hashes/)).toBeNull();
-    fireEvent.click(screen.getByLabelText('More actions for Member'));
+    fireEvent.click(screen.getByRole('button', { name: 'Manage Member' }));
     expect(screen.getAllByRole('button', { name: 'Delete login' })).toHaveLength(1);
     expect(api.post).not.toHaveBeenCalled();
   });
   it('requires matching passwords before adding a user', async () => {
-    show(); fireEvent.click(await screen.findByRole('button', { name: 'Add user' }));
+    show(); fireEvent.click(await screen.findByRole('button', { name: /Add user/ }));
     fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'new-user' } });
-    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'Synthetic-password-123' } });
+    fireEvent.change(screen.getByLabelText('Password', { exact: true }), { target: { value: 'Synthetic-password-123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save user' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Passwords do not match');
     expect(api.post).not.toHaveBeenCalled();
-    fireEvent.change(screen.getByLabelText('Repeat new password'), { target: { value: 'Synthetic-password-123' } });
+    fireEvent.change(screen.getByLabelText('Repeat password'), { target: { value: 'Synthetic-password-123' } });
     api.post.mockResolvedValue({ id: 'new' });
     fireEvent.click(screen.getByRole('button', { name: 'Save user' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/v1/auth/users', { username: 'new-user', password: 'Synthetic-password-123', role: 'user', active: true }));

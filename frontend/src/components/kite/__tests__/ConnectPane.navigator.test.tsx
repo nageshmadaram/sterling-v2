@@ -47,7 +47,7 @@ vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => 
 describe('ConnectPane — release strategy scope', () => {
   it('opens Sterling Users from Connect', () => {
     render(<ConnectPane />);
-    fireEvent.click(screen.getByRole('button', { name: /^Sterling Users/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Users & Broker Logins/i }));
     expect(screen.getByText('Sterling user management')).toBeInTheDocument();
   });
   it('opens Price Rules using the mobile section picker', () => {

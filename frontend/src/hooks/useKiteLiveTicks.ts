@@ -14,7 +14,7 @@
  */
 import { useCallback, useSyncExternalStore } from 'react';
 import { api } from '../utils/api';
-import { getAccessToken, getRefreshToken, refreshSterlingAccess } from '../utils/auth';
+import { clearAuthTokens, getAccessToken, getRefreshToken, refreshSterlingAccess } from '../utils/auth';
 import {
   TAB_ID, onPeerMessage, postToPeers, requestResync, notifyAuthExpired,
 } from '../utils/liveSync';
@@ -458,17 +458,31 @@ function _connect() {
       socket.send(JSON.stringify({ action: 'auth', token }));
     } else if (getRefreshToken()) {
       void refreshSterlingAccess().then((refreshed) => {
+        if (_ws !== socket || socket.readyState !== WebSocket.OPEN) return;
         const fresh = getAccessToken();
-        if (fresh && _ws === socket && socket.readyState === WebSocket.OPEN) {
+        if (refreshed && fresh) {
           socket.send(JSON.stringify({ action: 'auth', token: fresh }));
+        } else if (getRefreshToken()) {
+          // Network/5xx refresh failures retain credentials and retry with backoff.
+          socket.close(1013, 'Authentication temporarily unavailable');
         } else {
-          _subscribeVerifiedChannel(socket, 'default');
+          clearAuthTokens();
+          notifyAuthExpired();
+          _ws = null;
+          health.setTransport('closed');
+          socket.close(4401, 'Sign in required');
         }
       });
     } else {
-      // Development/test compatibility. Production is behind LoginGate and the
-      // backend refuses subscriptions until a verified auth frame arrives.
-      _subscribeVerifiedChannel(socket, 'default');
+      // WS-05 fix: no access token and no refresh token — the operator must
+      // sign in. Subscribing as 'default' caused backend rejections and silent
+      // order-update failures in both dev and prod.
+      notifyAuthExpired();
+      if (_ws === socket) {
+        _ws = null;
+        health.setTransport('closed');
+        socket.close(4401, 'Sign in required');
+      }
     }
   };
 
@@ -556,7 +570,11 @@ function _connect() {
     if (event?.code === 4401) {
       // An expired access token can refresh; a revoked/deleted user must sign in.
       void refreshSterlingAccess().then(refreshed => {
-        if (!refreshed && !getRefreshToken()) { notifyAuthExpired(); return; }
+        if (!refreshed && !getRefreshToken()) {
+          clearAuthTokens();
+          notifyAuthExpired();
+          return;
+        }
         _scheduleReconnect();
       });
       return;

@@ -377,11 +377,31 @@ jobs:
           STERLING_ADMIN_PASSWORD: "ci-admin-password-not-for-production"
         run: docker compose down -v --remove-orphans
 
+  mobile-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: mobile
+      - run: npm run ts:check
+        working-directory: mobile
+      - run: npm test
+        working-directory: mobile
+      - run: npx expo install --check
+        working-directory: mobile
+      - run: npx expo export --platform all --max-workers 2 --output-dir dist
+        working-directory: mobile
+
   release-gate:
     name: Sterling Release Gate
     runs-on: ubuntu-latest
     if: ${{ always() }}
-    needs: [backend-tests, frontend-typecheck, frontend-tests, e2e, orb-options-gate, parity-matrix, docker-smoke]
+    needs: [backend-tests, frontend-typecheck, frontend-tests, e2e, orb-options-gate, parity-matrix, docker-smoke, mobile-checks]
     steps:
       - name: Evaluate All Upstream Jobs
         run: |
@@ -404,8 +424,11 @@ jobs:
           echo "parity-matrix:       $PARITY"
           echo "docker-smoke:        $DOCKER"
 
+          MOBILE="${{ needs.mobile-checks.result }}"
+          echo "mobile-checks:       $MOBILE"
+
           FAILED=0
-          for status in "$BACKEND" "$TYPECHECK" "$FRONTEND_TESTS" "$E2E" "$SAFETY" "$PARITY" "$DOCKER"; do
+          for status in "$BACKEND" "$TYPECHECK" "$FRONTEND_TESTS" "$E2E" "$SAFETY" "$PARITY" "$DOCKER" "$MOBILE"; do
             if [ "$status" != "success" ]; then
               FAILED=1
             fi

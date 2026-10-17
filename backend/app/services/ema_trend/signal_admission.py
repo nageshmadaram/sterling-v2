@@ -5,9 +5,14 @@ from app.engines.ema_trend.config import PROFILES
 
 def current(row: dict, settings: dict, now: datetime) -> dict:
     from app.core.session_calendar import is_trading_session, next_trading_session
+    if (row.get('mode') not in PROFILES or not isinstance(row.get('symbol'), str)
+            or ':' not in row['symbol'] or not isinstance(row.get('close_ms'), (int, float))):
+        return {'signal_source': 'BROKER_COMPLETED_CANDLES', 'entry_expires_ms': None,
+                'entry_window_open': False, 'runtime_blockers': ['SIGNAL_EVIDENCE_INCOMPLETE'],
+                'observed_ms': int(now.timestamp() * 1000)}
     profile = PROFILES[row["mode"]]
     exchange = row["symbol"].split(":", 1)[0]
-    blockers = []
+    blockers = ["INDEX_SPOT_WATCH_ONLY_NO_ORDERS"] if row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY" else []
     expiry = None
     if row["close_ms"] > int(now.timestamp()*1000):
         blockers.append("SIGNAL_NOT_CLOSED")
@@ -32,6 +37,6 @@ def current(row: dict, settings: dict, now: datetime) -> dict:
         blockers.append("SETUP_NOT_ARMED")
     if not settings["config"]["enabled"] or settings.get("paused"):
         blockers.append("NEW_EXPOSURE_DISABLED_OR_PAUSED")
-    return {"signal_source": "BROKER_COMPLETED_CANDLES", "entry_expires_ms": expiry,
+    return {"signal_source": ("INDEX_SPOT_WATCH_ONLY" if row.get("watch_only") else "BROKER_COMPLETED_CANDLES"), "entry_expires_ms": expiry,
             "entry_window_open": not blockers, "runtime_blockers": blockers,
             "observed_ms": int(now.timestamp()*1000)}

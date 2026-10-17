@@ -15,9 +15,9 @@ import { EngineTerminal } from './EngineTerminal';
 import { formatInstrument } from '../../lib/instrument';
 import { KiteTicker } from './KiteTicker';
 import { useKiteAutoSession, useKiteStatus } from '../../hooks/useKite';
-import { OrderWindow } from './OrderWindow';
+const OrderWindow = lazy(() => import('./OrderWindow').then(m => ({ default: m.OrderWindow })));
 import { useOrderWindowStore } from '../../store/useOrderWindowStore';
-import { BasketPane } from './BasketPane';
+const BasketPane = lazy(() => import('./BasketPane').then(m => ({ default: m.BasketPane })));
 import { useKiteBasketStore } from '../../store/useKiteBasketStore';
 import { useKiteSettings } from '../../store/useKiteSettings';
 import {
@@ -280,8 +280,10 @@ export function KiteTab() {
         <PendingGttProtectionWatcher />
         <KiteSessionGuard onOpenAccountSettings={() => openSettingsSection('account')} />
         <KiteAuthOverlay />
+        <Suspense fallback={<div role="status">Loading order controls…</div>}>
         {isOpen && options && <OrderWindow options={options} onClose={closeOrderWindow} />}
         {basketOpen && <BasketPane onClose={() => setBasketOpen(false)} />}
+        </Suspense>
     </KiteInteractionMotion>
   );
 }

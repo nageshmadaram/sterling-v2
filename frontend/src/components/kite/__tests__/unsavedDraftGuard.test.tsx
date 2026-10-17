@@ -1,3 +1,5 @@
+vi.mock('../SterlingUsersPanel', () => ({ SterlingUsersPanel: () => <div>users</div> }));
+vi.mock('../../../hooks/useEmaTrend', () => ({ useEmaTrendConfig: () => ({ data: undefined }), useUpdateEmaTrend: () => ({ mutate: vi.fn(), isPending: false }) }));
 /**
  * The settings hub mounts exactly one section at a time, so navigating away
  * unmounts the panel and its unapplied draft goes with it — silently.

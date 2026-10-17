@@ -244,7 +244,7 @@ def test_section_17_the_master_live_floor_is_on_with_an_operator_kill_switch():
     from app.core.lane_registry import LIVE_EXECUTION_ENABLED, parse_live_execution
 
     assert isinstance(LIVE_EXECUTION_ENABLED, bool)
-    assert parse_live_execution(None) is True
+    assert parse_live_execution(None) is False
     assert parse_live_execution("0") is False
 
 

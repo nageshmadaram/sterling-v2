@@ -79,6 +79,10 @@ class EmaTrendConfig(BaseModel):
     execution_mode: Literal["PAPER"] = "PAPER"
     modes: list[Mode] = Field(default_factory=lambda: ["swing"], min_length=1, max_length=4)
     symbols: list[str] = Field(default_factory=list, max_length=30)
+    # Spot indices are read-only signal sources, never an executable contract.
+    scan_indices: list[str] = Field(default_factory=list, max_length=4)
+    # Preserve stock selection while the stock scanner is switched off.
+    scan_stocks_enabled: bool = True
     allocation_inr: Decimal = Field(default=Decimal("0"), ge=0, le=Decimal("100000000"))
     risk_fraction: Decimal = Field(default=Decimal("0.0025"), gt=0, le=Decimal("0.005"))
     strategy_risk_fraction: Decimal = Field(default=Decimal("0.0075"), gt=0, le=Decimal("0.0075"))
@@ -102,6 +106,14 @@ class EmaTrendConfig(BaseModel):
         if len(set(result)) != len(result):
             raise ValueError("duplicate modes")
         return result
+
+    @field_validator("scan_indices")
+    @classmethod
+    def indices_valid(cls, values):
+        accepted={"NIFTY 50","NIFTY BANK","NIFTY FIN SERVICE","SENSEX"}
+        if not isinstance(values,list) or len(values)!=len(set(values)) or any(v not in accepted for v in values):
+            raise ValueError("unsupported or duplicate EMA index selection")
+        return values
 
     @field_validator("symbols")
     @classmethod

@@ -90,11 +90,21 @@ async def _supervise_telegram(name: str, runner, *, restart_delay: float = 5.0) 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.services import db
+    from app.core.runtime_lease import engine_lease
+    with engine_lease(db._DB_PATH):
+        async with _application_lifespan(app):
+            yield
+
+
+@asynccontextmanager
+async def _application_lifespan(app: FastAPI):
     setup_logging()
     configure_json_logging()  # no-op unless settings.log_json (Phase 2 observability)
     # The SQLite store must be open BEFORE anything reads it (including production security credential inspection).
     from app.services import db as _db
-    _db.init()
+    if not _db.init():
+        raise RuntimeError("Durable trading database unavailable; execution startup refused.")
     log.info("Database: %s", getattr(_db, "_DB_PATH", "?"))
 
     # >>> live-posture: a stable deployment id (generated once, exported to this process) so the
@@ -281,15 +291,15 @@ async def lifespan(app: FastAPI):
     from app.services.snapback_board_loop import auto_scan_loop as _snapback_board_scan
     snapback_board_task = asyncio.create_task(_snapback_board_scan(interval=900))
 
-    # Archived runners always maintain existing positions. New scans and entries
-    # require durable per-user opt-in, defaulting off even for legacy configs.
+    # Archived runners: maintain existing positions (exits/stops) but do NOT scan
+    # for new entries. This reduces CPU, memory and polling overhead (SC-01).
     from app.services.adaptive_edge_runner import auto_scan_loop as _adaptive_edge_scan
     adaptive_edge_task = asyncio.create_task(
-        _adaptive_edge_scan(interval=60, manage_only=False)
+        _adaptive_edge_scan(interval=60, manage_only=True)
     )
     from app.services.intraday_runner import auto_scan_loop as _intraday_scan
     intraday_task = asyncio.create_task(
-        _intraday_scan(interval=300, manage_only=False)
+        _intraday_scan(interval=300, manage_only=True)
     )
     # Startup invariant: the frozen prospective runner starts only when the evidence
     # database is writable, the manifest verifies, and the Snapback config loaded from
@@ -394,6 +404,18 @@ async def lifespan(app: FastAPI):
     from app.services.notifications.web_push import run as run_web_push
     web_push_task = asyncio.create_task(run_web_push())
 
+    app.state.critical_workers = {
+        'supertrend': kite_engine_task,
+        'gamma_unwind': gamma_move_task,
+        'snapback_board': snapback_board_task,
+        'snapback_execution': snapback_dispatcher_task,
+        'ema_trend': ema_trend_task,
+        'ticker_watchdog': ticker_watchdog_task,
+        'broker_session_keeper': kite_session_task,
+        'telegram_control': tg_bot_task,
+        'telegram_alerts': tg_kite_alert_task,
+    }
+    app.state.critical_workers.update({f'live_safety_{i}': task for i, task in enumerate(live_runtime_handles.tasks)})
     yield
 
     web_push_task.cancel()

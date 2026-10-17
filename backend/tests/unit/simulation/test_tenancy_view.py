@@ -205,13 +205,15 @@ def test_reads_of_global_state_stay_available_in_the_simulation_view(client, ten
 
 # ── every non-denied mutating route under /api/v1/kite resolves to the sim tenant ──
 def _kite_routes():
-    out = []
-    for module in (kite, kite_engine, navigator, kite_telegram):
-        for route in module.router.routes:
-            if isinstance(route, APIRoute):
-                for verb in sorted(route.methods - {"HEAD", "OPTIONS"}):
-                    out.append((verb, "/api/v1" + route.path, route))
-    return out
+    # Walk included routers too; newer FastAPI retains inclusion contexts.
+    try:
+        from fastapi.routing import iter_route_contexts
+        contexts = ((context.original_route, context.path) for context in iter_route_contexts(main.app.routes))
+    except ImportError:
+        contexts = ((route, getattr(route, 'path', '')) for route in main.app.routes)
+    return [(verb, path, route) for route, path in contexts
+            if isinstance(route, APIRoute) and path.startswith('/api/v1/kite')
+            for verb in sorted(route.methods - {'HEAD', 'OPTIONS'})]
 
 
 def _depends_on_current_user(dep) -> bool:

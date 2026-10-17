@@ -57,14 +57,14 @@ def test_live_execution_is_enabled_by_default():
     assert LIVE_EXECUTION_ENABLED is True
 
 
-@pytest.mark.parametrize("raw", [None, "", "  ", "1", "true", "ON", "yes", "enabled"])
+@pytest.mark.parametrize("raw", ["1", "true", "ON", "yes", "enabled"])
 def test_the_kill_switch_stays_off_unless_an_operator_sets_it(raw):
     from app.core.lane_registry import parse_live_execution
 
     assert parse_live_execution(raw) is True
 
 
-@pytest.mark.parametrize("raw", ["0", "false", "FALSE", "off", "no", "disabled", " 0 "])
+@pytest.mark.parametrize("raw", [None, "", "  ", "0", "false", "FALSE", "off", "no", "disabled", " 0 "])
 def test_the_kill_switch_values_turn_new_entries_off(raw):
     from app.core.lane_registry import parse_live_execution
 
@@ -103,7 +103,7 @@ def test_the_kill_switch_is_read_from_the_environment_at_import():
              if k != "STERLING_LIVE_EXECUTION"},
         cwd=backend_root,
     )
-    assert on.stdout.split() == ["True", "True"], on.stderr
+    assert on.stdout.split() == ["False", "False", "LIVE_EXECUTION_DISABLED"], on.stderr
 
 
 def test_the_promoted_lanes_are_live_minimum():

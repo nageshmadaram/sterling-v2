@@ -286,7 +286,7 @@ class LiveConditions:
     @property
     def manual_eligible_now(self) -> bool:
         """A click would be accepted this minute."""
-        return not self.blockers
+        return not self.blockers and not self.session
 
     @property
     def auto_available(self) -> bool:

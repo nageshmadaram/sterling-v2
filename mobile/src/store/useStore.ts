@@ -21,6 +21,8 @@ interface StoreState {
   setSterlingV2: (on: boolean) => void;
   apiHost: string;
   setApiHost: (host: string) => void;
+  refreshToken: string;
+  setSession: (access: string, refresh: string) => void;
   authToken: string;
   setAuthToken: (token: string) => void;
 }
@@ -50,7 +52,9 @@ export const useStore = create<StoreState>((set) => ({
   // Default to localhost, but on actual Android emulators it is 10.0.2.2.
   // The user can modify this inside the Settings tab.
   apiHost: 'http://10.0.2.2:8000', 
-  setApiHost: (host) => set({ apiHost: host }),
+  setApiHost: (host) => set({ apiHost: host.trim().replace(/\/+$/, ''), authToken: '', refreshToken: '' }),
+  refreshToken: '',
+  setSession: (access, refresh) => set({ authToken: access, refreshToken: refresh }),
   authToken: '',
   setAuthToken: (token) => set({ authToken: token }),
 }));

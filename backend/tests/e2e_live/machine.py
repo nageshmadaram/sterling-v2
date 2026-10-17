@@ -137,6 +137,8 @@ class LiveMachine:
         mp = self.monkeypatch
         for name in _ABSENT_ENV:
             mp.delenv(name, raising=False)
+        # The fake-broker lifecycle suite explicitly authorizes synthetic entries.
+        mp.setenv("STERLING_LIVE_EXECUTION", "true")
         self.state_root.mkdir(parents=True, exist_ok=True)
         data = self.state_root / "data"
         data.mkdir(parents=True, exist_ok=True)

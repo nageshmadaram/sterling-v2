@@ -28,7 +28,7 @@ describe('orderEngines', () => {
   const tabs = ENGINE_ORDER.map((id) => ({ id }));
 
   it('carries the three release strategies only', () => {
-    expect(ENGINE_ORDER).toEqual(['supertrend', 'gamma_move', 'snapback']);
+    expect(ENGINE_ORDER).toEqual(['supertrend', 'gamma_move', 'snapback', 'ema_trend']);
   });
 
   it('follows the operator’s order', () => {
@@ -94,7 +94,7 @@ describe('Signal board settings card', () => {
   it('cannot move the first engine up or the last one down', () => {
     render(<SignalEngineOrderSettings />);
     expect(screen.getByRole('button', { name: /Move SuperTrend up/ })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /Move Snapback down/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Move EMA Trend down/ })).toBeDisabled();
   });
 
   it('discards a draft without writing it', () => {

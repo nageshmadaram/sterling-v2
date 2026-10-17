@@ -14,10 +14,10 @@ services:
       - sterling_data:/app/data
     environment:
       ENVIRONMENT: production
-      # Operator kill switch for NEW entries. true (default) = live trading is on.
+      # Operator kill switch for NEW entries. false (default) = new entries are halted.
       # 0/false/off/no/disabled stops every new entry; exits, protection and
       # reconciliation keep working. An unrecognised value also stops entries.
-      STERLING_LIVE_EXECUTION: ${STERLING_LIVE_EXECUTION:-true}
+      STERLING_LIVE_EXECUTION: ${STERLING_LIVE_EXECUTION:-false}
       # Day-one caps. One lot per entry by default; raise deliberately. Blank
       # values for the other caps mean "not set".
       STERLING_LIVE_MINIMUM_MAX_LOTS: ${STERLING_LIVE_MINIMUM_MAX_LOTS:-1}

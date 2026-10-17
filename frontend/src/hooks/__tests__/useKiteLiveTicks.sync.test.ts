@@ -145,7 +145,7 @@ describe('reconnect', () => {
 
   it('stops reconnecting when a revoked identity cannot refresh', async () => {
     sessionStorage.setItem('sterling.auth.refresh', 'revoked-refresh');
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 401 })));
     const off = mod.registerTokens([111]);
     const ws = await connectAndAuth();
     ws.drop(4401);

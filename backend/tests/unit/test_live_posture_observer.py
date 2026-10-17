@@ -117,26 +117,23 @@ class TestTrustOnFirstUse:
         alerts = Alerts()
         outcome = await observe(echo_all(IP), alerts)
 
-        assert outcome.outcome == "registered" and outcome.ip == IP
+        assert outcome.outcome == 'awaiting_registration' and outcome.ip == IP
         store = DeploymentIdentityStore()
-        assert store.registration()["registered_ip"] == IP
-        assert store.registration()["source"] == "first-observation"
+        assert store.registration() is None
         assert [o.outbound_ip for o in store.read()] == [IP]
         assert len(alerts.sent) == 1
-        message = alerts.sent[0]["detail"]
-        assert f"Registered outbound IP {IP} — it must be the static IP whitelisted at Zerodha" in message
-        assert alerts.sent[0]["key"] == f"egress-registered:{IP}"
-        status = egress_status()
-        assert status.verified is True and status.expected == IP
+        assert 'New entries remain blocked' in alerts.sent[0]['detail']
+        assert egress_status().verified is False
 
     async def test_a_second_look_at_the_same_address_is_quiet(self):
         alerts = Alerts()
+        DeploymentIdentityStore().register(IP, source="operator")
         await observe(echo_all(IP), alerts)
         later = datetime.now(timezone.utc) + timedelta(minutes=10)
         outcome = await observe(echo_all(IP), alerts, now=lambda: later)
 
         assert outcome.outcome == "confirmed"
-        assert len(alerts.sent) == 1                       # still only the registration notice
+        assert len(alerts.sent) == 0                       # registered address is quiet
         history = DeploymentIdentityStore().read()
         assert len(history) == 1                           # confirmed in place, not appended
         assert history[0].observed_at == later.isoformat()
@@ -166,6 +163,7 @@ class TestTrustOnFirstUse:
 
 class TestAChangedAddress:
     async def _registered(self, alerts):
+        DeploymentIdentityStore().register(IP, source="operator")
         await observe(echo_all(IP), alerts)
         alerts.sent.clear()
 
@@ -224,6 +222,10 @@ class TestAChangedAddress:
 
 
 class TestGraceOnSilence:
+    @pytest.fixture(autouse=True)
+    def registered_address(self):
+        DeploymentIdentityStore().register(IP, source='operator')
+
     async def test_the_last_good_reading_stays_valid_inside_the_grace_period(self):
         alerts = Alerts()
         lp._STATE.running = True                    # the observer is what judges freshness
@@ -290,6 +292,7 @@ class TestGraceOnSilence:
 
 class TestAcceptingANewAddress:
     async def _changed(self):
+        DeploymentIdentityStore().register(IP, source="operator")
         alerts = Alerts()
         await observe(echo_all(IP), alerts)
         await observe(echo_all(NEW), alerts)
@@ -333,6 +336,7 @@ class TestAcceptingANewAddress:
 
 class TestTheLoop:
     async def test_the_loop_observes_at_boot_and_marks_the_observer_active(self):
+        DeploymentIdentityStore().register(IP, source="operator")
         alerts = Alerts()
         cycles = []
 
@@ -367,7 +371,7 @@ class TestTheLoop:
             interval=0.01, retry=0.01, fetch=flaky, services=SERVICES, alert=Alerts()))
         for _ in range(300):
             await asyncio.sleep(0.02)
-            if lp.observer_status()["last_outcome"] in {"registered", "confirmed"}:
+            if lp.observer_status()["last_outcome"] in {"awaiting_registration", "confirmed"}:
                 break
         task.cancel()
         with pytest.raises(asyncio.CancelledError):

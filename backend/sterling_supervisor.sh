@@ -8,9 +8,10 @@ set -uo pipefail
 
 cd "$(dirname "$0")"
 
-PROBE_URL="${STERLING_PROBE_URL:-http://127.0.0.1:8000/docs}"
+# Liveness must stay independent of broker, database and readiness failures.
+PROBE_URL="${STERLING_PROBE_URL:-http://127.0.0.1:8000/api/v1/health/live}"
 PROBE_INTERVAL="${STERLING_PROBE_INTERVAL:-60}"
-PROBE_TIMEOUT="${STERLING_PROBE_TIMEOUT:-15}"
+PROBE_TIMEOUT="${STERLING_PROBE_TIMEOUT:-30}"
 MAX_FAILURES="${STERLING_PROBE_MAX_FAILURES:-3}"
 STARTUP_GRACE="${STERLING_STARTUP_GRACE:-120}"
 
@@ -28,16 +29,23 @@ start_backend() {
   sleep "$STARTUP_GRACE"
 }
 
+# RT-01 fix: use SIGTERM first with a 30-second grace period so the Python
+# lifespan handler can run record_shutdown(), checkpoint WAL, and cancel tasks.
+# SIGKILL only as last resort. Previous pkill -9 caused instant termination
+# with no shutdown record, no WAL checkpoint, and no traceback.
 stop_backend() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
-    kill "$BACKEND_PID" 2>/dev/null || true
-    for _ in $(seq 1 10); do
+    log "sending SIGTERM to backend pid=$BACKEND_PID"
+    kill -TERM "$BACKEND_PID" 2>/dev/null || true
+    for _ in $(seq 1 30); do
       kill -0 "$BACKEND_PID" 2>/dev/null || break
       sleep 1
     done
-    kill -9 "$BACKEND_PID" 2>/dev/null || true
+    if kill -0 "$BACKEND_PID" 2>/dev/null; then
+      log "backend did not stop gracefully after 30s; escalating to SIGKILL"
+      kill -9 "$BACKEND_PID" 2>/dev/null || true
+    fi
   fi
-  pkill -9 -f "uvicorn main:app" 2>/dev/null || true
   sleep 2
 }
 

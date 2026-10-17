@@ -93,10 +93,10 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('the dock follows the running switches', () => {
-  it('always exposes Price Rules and opens its signals board', () => {
+  it('always exposes Price Rules and opens its signals board', async () => {
     renderPane();
     fireEvent.click(screen.getByRole('tab', { name: 'Open Price Rules strategy' }));
-    expect(screen.getByTestId('price-rules-board')).toBeTruthy();
+    expect(await screen.findByTestId('price-rules-board')).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Open Price Rules strategy' }).getAttribute('aria-selected')).toBe('true');
   });
 

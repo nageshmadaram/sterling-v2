@@ -80,7 +80,8 @@ def runtime_exchange(owner: str, *, ledger: Optional[SimLedger] = None,
     ex = _exchanges.get(o)
     if ex is None:
         led = ledger or get_ledger()
-        quotes = QuoteSource(provider or owner_provider(o), owner=o)
+        quotes = QuoteSource(provider or owner_provider(o), owner=o,
+                             wall_clock=(lambda: clock().timestamp()) if clock else time.time)
         ex = VirtualExchange(o, led, quotes, clock=clock)
         ex.set_postback_sink(default_postback_sink(o))
         _exchanges[o] = ex

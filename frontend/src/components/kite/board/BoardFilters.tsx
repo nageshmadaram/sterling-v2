@@ -1,4 +1,5 @@
 import {useMobileBackLayer} from '../../../hooks/useMobileBackLayer';
+import { layoutViewport, toLayoutPx } from '../../../styles/applyViewportScale';
 /**
  * The view-filter row: search, then the toggles that have something to act on.
  *
@@ -86,7 +87,7 @@ export interface ColumnChoice {
  * toggles were buried in an unlabelled gear inside the search bar, next to BEST
  * LEG, in a panel that also carried watchlist-only settings like Change type.
  */
-export function ColumnsMenu({ items: allItems, onShowAll, buttonText = 'COLUMNS',
+export function ColumnsMenu({ items: allItems, onShowAll, buttonText = 'Columns',
   menuLabel = 'Visible columns', buttonTitle = 'Choose which columns this table shows',
   showAllText = 'Show all columns' }: {
   items: readonly ColumnChoice[];
@@ -108,11 +109,14 @@ export function ColumnsMenu({ items: allItems, onShowAll, buttonText = 'COLUMNS'
       const anchor = ref.current?.getBoundingClientRect();
       if (!anchor) return;
       const gap = 4;
-      const below = window.innerHeight - anchor.bottom - gap;
-      const above = anchor.top - gap;
+      const viewport = layoutViewport();
+      const bottom = toLayoutPx(anchor.bottom);
+      const anchorTop = toLayoutPx(anchor.top);
+      const below = viewport.height - bottom - gap;
+      const above = anchorTop - gap;
       const height = Math.max(100, Math.min(320, Math.max(below, above) - 8));
-      const top = below >= 130 || below >= above ? anchor.bottom + gap : Math.max(8, anchor.top - Math.min(320, above) - gap);
-      setPlacement({ top, right: Math.max(8, window.innerWidth - anchor.right),
+      const top = below >= 130 || below >= above ? bottom + gap : Math.max(8, anchorTop - Math.min(320, above) - gap);
+      setPlacement({ top, right: Math.max(8, Math.min(viewport.width - 188, viewport.width - toLayoutPx(anchor.right))),
         maxHeight: height });
     };
     position();
@@ -173,7 +177,7 @@ export function ColumnsMenu({ items: allItems, onShowAll, buttonText = 'COLUMNS'
           aria-label={menuLabel}
           style={{
             position: 'fixed', top: placement.top, right: placement.right,
-            zIndex: 2147483000, minWidth: 168, maxHeight: placement.maxHeight,
+            zIndex: 2147483000, width: 180, boxSizing: 'border-box', maxHeight: placement.maxHeight,
             overflowY: 'auto', overscrollBehavior: 'contain',
             background: k.bg, border: '1px solid var(--k-border-strong)', borderRadius: 6,
             boxShadow: '0 10px 26px rgba(0, 0, 0, .26)', padding: 6,

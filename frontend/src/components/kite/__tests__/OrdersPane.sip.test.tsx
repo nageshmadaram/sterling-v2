@@ -36,6 +36,8 @@ const SIP = {
 };
 
 beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
   h.cancelMutate.mockClear();
   h.sipData = [];
   vi.spyOn(window, 'confirm').mockReturnValue(true);

@@ -49,3 +49,16 @@ def test_schema_created_once_but_cas_writes_remain_strict(storage, monkeypatch):
     with pytest.raises(repo.Conflict):
         repo.put("alice", "signal", "id", {"mode": "intraday"}, 0)
     assert repo.put("alice", "signal", "id", {"mode": "intraday"}, 1)["revision"] == 2
+
+
+def test_schema_is_recreated_after_database_replacement_at_same_path(storage):
+    from pathlib import Path
+    repo.put('alice', 'signal', 'before', {'mode': 'swing'}, 0)
+    path = Path(db._DB_PATH)
+    # All connections above have closed; simulate an isolated restore/replacement.
+    path.unlink()
+    for suffix in ('-wal', '-shm'):
+        Path(str(path) + suffix).unlink(missing_ok=True)
+    assert db.init()
+    assert repo.list_documents('alice', 'signal') == []
+    assert repo.put('alice', 'signal', 'after', {'mode': 'swing'}, 0)['revision'] == 1

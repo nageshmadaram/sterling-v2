@@ -129,15 +129,15 @@ def test_the_lane_manifest_page_lists_every_declared_lane():
         assert lane_key in text, f"{lane_key} is undocumented"
 
 
-def test_live_execution_is_on_by_default_and_has_an_operator_kill_switch():
+def test_live_execution_requires_opt_in_and_has_an_operator_kill_switch():
     # Sterling is a live product: with nothing set, new entries are allowed. The
     # kill switch is the operator's way to stop them, and the operator docs
     # promise exactly these spellings.
     from app.core.lane_registry import LIVE_EXECUTION_ENV, parse_live_execution
 
     assert LIVE_EXECUTION_ENV == "STERLING_LIVE_EXECUTION"
-    assert parse_live_execution(None) is True
-    assert parse_live_execution("") is True
+    assert parse_live_execution(None) is False
+    assert parse_live_execution("") is False
     for off in ("0", "false", "off", "no", "disabled", "OFF", " False "):
         assert parse_live_execution(off) is False, off
     # A typo in a safety control must not leave real money flowing.

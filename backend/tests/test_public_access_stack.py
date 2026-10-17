@@ -288,6 +288,11 @@ def test_secondary_ngrok_never_exposes_unverified_or_local_hostname():
 
 
 def test_dual_launcher_starts_optional_secondary_and_dev_on_same_backend(monkeypatch,tmp_path):
+ class VacantPort:
+  def __enter__(self):return self
+  def __exit__(self,*args):return None
+  def connect_ex(self,address):return 1
+ monkeypatch.setattr(stack.socket,'socket',lambda:VacantPort())
  from types import SimpleNamespace
  args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='https://secondary.ngrok-free.app',
                       port=5180,dev=True,dev_port=5174)

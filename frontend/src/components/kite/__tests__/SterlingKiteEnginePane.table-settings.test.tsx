@@ -128,7 +128,7 @@ describe('SterlingKiteEnginePane — table-only settings', () => {
     renderPane();
 
     fireEvent.click(screen.getByRole('switch', { name: 'BEST LEG' }));
-    expect(localStorage.getItem('kite_st_best_only')).toBe('true');
+    expect(localStorage.getItem('kite_st_best_only')).toBe('false');
 
     expect(screen.queryByRole('checkbox', { name: 'Best signal per instrument' })).not.toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: 'Show ended setups' })).not.toBeInTheDocument();

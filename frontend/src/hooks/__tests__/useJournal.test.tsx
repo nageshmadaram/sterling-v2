@@ -82,9 +82,9 @@ describe('journal requests', () => {
       reasons: [{ reason: url.includes('strategy=gamma') ? 'SL' : 'TARGET', label: 'x', count: 1, pct_of_trades: 100, wins: 0, losses: 0, net_pnl: 0, avg_pnl: 0 }],
     }));
     const { result } = renderHook(() => useJournalStrategyExitReasons(filters({ strategy: 'snapback' })), { wrapper: wrapper() });
-    await waitFor(() => expect(Object.keys(result.current)).toHaveLength(3));
+    await waitFor(() => expect(Object.keys(result.current)).toHaveLength(4));
     const urls = get.mock.calls.map((c) => String(c[0]));
-    for (const s of ['supertrend', 'snapback', 'gamma']) expect(urls.some((u) => u.includes(`strategy=${s}`))).toBe(true);
+    for (const s of ['supertrend', 'snapback', 'gamma', 'ema_trend']) expect(urls.some((u) => u.includes(`strategy=${s}`))).toBe(true);
     expect(result.current.gamma?.[0].reason).toBe('SL');
     expect(result.current.supertrend?.[0].reason).toBe('TARGET');
   });

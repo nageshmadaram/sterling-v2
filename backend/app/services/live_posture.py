@@ -9,9 +9,8 @@ refusing whenever a fact is genuinely wrong:
 * **Static egress.** An in-process observer asks 2+ independent HTTPS echo
   services where this host's traffic comes from and writes the answer into the
   deployment identity store (the one ``sterlingctl egress record`` writes).
-  Trust on first use: with no address registered yet, the first consensus
-  address becomes the registered one and the owner is told to confirm it is the
-  address whitelisted at Zerodha. Once one is registered a different address is
+  With no address registered yet, observations remain untrusted until the
+  operator confirms the address whitelisted at Zerodha. A different address is
   NEVER adopted automatically: entries are refused and a critical alert says
   Kite will refuse orders until the whitelist and the registration agree. An
   unreadable observation (every echo service down) keeps the last good one valid
@@ -284,7 +283,7 @@ async def observe_once(
 ) -> ObservationOutcome:
     """One look at this host's outbound address, and what to do about it.
 
-    * nothing registered yet  -> register this address (trust on first use) and say so;
+    * nothing registered yet  -> record observation; require operator registration;
     * registered, same        -> confirm it (moves "last confirmed" forward);
     * registered, different   -> record what was seen, change NOTHING registered,
       alert critically; entries are refused until an operator accepts the new
@@ -323,18 +322,16 @@ async def observe_once(
                          runtime_sha=sha, release_tag=tag)
 
     if not registered:
-        await asyncio.to_thread(identity.register, ip, source="first-observation",
-                                note="trust on first use by the in-process observer")
         await asyncio.to_thread(record)
-        _ok(ip, moment, "registered")
-        emit(key=f"egress-registered:{ip}", event_type="STATIC IP", title="ALL STRATEGIES",
+        _STATE.last_outcome = 'awaiting_registration'
+        _STATE.last_ip = ip
+        _STATE.last_detail = 'Operator confirmation of broker-whitelisted address required'
+        emit(key=f"egress-unregistered:{ip}", event_type="STATIC IP", title="ALL STRATEGIES",
              severity="WARNING",
-             detail=f"Registered outbound IP {ip} — it must be the static IP whitelisted at "
-                    "Zerodha. If it is not, orders will be refused by Kite; whitelist this "
-                    "address, or put the right one in place and run: sterlingctl egress accept "
-                    "<ip>. It is registered once and never changed automatically.")
-        log.warning("Registered outbound IP %s on first observation (trust on first use)", ip)
-        return ObservationOutcome("registered", ip, ip, "first observation")
+             detail=f"Observed outbound IP {ip}. New entries remain blocked until the operator "
+                    "confirms this address is whitelisted at Zerodha and registers it with "
+                    "sterlingctl egress accept <ip>.")
+        return ObservationOutcome('awaiting_registration', ip, '', _STATE.last_detail)
 
     await asyncio.to_thread(record)
     if ip == registered:

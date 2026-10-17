@@ -82,7 +82,9 @@ async def test_pcr_never_scrapes_closed_market(stamp,monkeypatch):
  now=datetime.fromisoformat(stamp).replace(tzinfo=ZoneInfo('Asia/Kolkata'))
  monkeypatch.setattr(pcr,'datetime',SimpleNamespace(now=lambda tz:now))
  monkeypatch.setitem(pcr._CACHE,'payload',None)
- scrape=AsyncMock();monkeypatch.setattr(pcr,'_scrape_all',scrape)
+ # A recent history attempt prevents a separate after-close recovery fetch.
+ monkeypatch.setattr(pcr, '_history_retry_at', __import__('time').time())
+ scrape=AsyncMock(return_value={});monkeypatch.setattr(pcr,'_scrape_all',scrape)
  result=await pcr.pcr_session(None)
  assert result['marketOpen'] is False and result['source']=='snapshot';scrape.assert_not_awaited()
 

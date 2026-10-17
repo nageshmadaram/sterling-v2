@@ -41,6 +41,10 @@ def _app() -> FastAPI:
     async def outside():
         return {"ok": True}
 
+    @app.get('/health/deep')
+    async def deep():
+        return {'status': 'degraded'}
+
     install_http_hardening(app)
     return app
 
@@ -70,6 +74,7 @@ def test_api_responses_are_not_cacheable_and_explicit_headers_survive(audit_path
     assert client.get("/api/v1/thing").headers["cache-control"] == "no-store"
     assert client.get("/api/v1/kite/callback").headers["cache-control"] == "max-age=5"
     assert "cache-control" not in client.get("/outside").headers
+    assert client.get("/health/deep").headers["cache-control"] == "no-store"
 
 
 def test_mutations_are_audited_with_identity_and_without_secrets(audit_path):

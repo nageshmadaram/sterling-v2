@@ -12,8 +12,18 @@ export default defineConfig({
     },
   },
   // Preserve hashed assets still referenced by open tabs during local rebuilds.
-  build: { emptyOutDir: false },
-  // Default splitting preserves module initialization order across shared live-tick state.
+  build: {
+    emptyOutDir: false,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
+          if (id.includes('/node_modules/@tanstack/')) return 'vendor-query';
+          if (id.includes('/node_modules/lightweight-charts/')) return 'vendor-charts';
+        },
+      },
+    },
+  },
   server: {
     allowedHosts: true,
     port: parseInt(process.env.PORT || '5173', 10),

@@ -807,3 +807,37 @@ def test_snapshot_filters_profile_in_sql_before_1000_row_limit():
 
     with pytest.raises(ValueError, match="INVALID_EMA_MODE"):
         repo.list_signals_by_mode("alice", "undefined")
+
+
+def test_index_and_stock_universe_is_explicit_and_preserved_when_stocks_disabled():
+    cfg=EmaTrendConfig(scan_indices=["NIFTY 50","NIFTY BANK","SENSEX"],
+                       symbols=["NSE:TCS","NSE:INFY"],scan_stocks_enabled=False)
+    assert scanner.watch_symbols(cfg)==[
+        "NSE:NIFTY 50","NSE:NIFTY BANK","BSE:SENSEX"]
+    cfg.scan_stocks_enabled=True
+    assert scanner.watch_symbols(cfg)[-2:]==["NSE:TCS","NSE:INFY"]
+    with pytest.raises(ValueError,match="unsupported or duplicate"):
+        EmaTrendConfig(scan_indices=["NIFTY 50","NIFTY 50"])
+    with pytest.raises(ValueError,match="unsupported or duplicate"):
+        EmaTrendConfig(scan_indices=["NIFTY", "SENSEX"])
+
+
+async def test_index_spot_requires_exact_broker_master_and_cannot_create_a_trade_plan():
+    class Master:
+        def __init__(self,token):self.token=token
+        async def load(self, exchange):
+            assert exchange=="NSE"
+            return [{"exchange":"NSE","tradingsymbol":"NIFTY 50",
+                     "segment":"INDICES","instrument_token":self.token}]
+    index=await scanner.index_watch_metadata(
+        "NSE:NIFTY 50",SimpleNamespace(_instruments=Master(256265)))
+    assert index.token==256265 and index.as_meta()["instrument_type"]=="INDEX"
+    with pytest.raises(ValueError,match="INDEX_SPOT_BROKER_MASTER_NOT_VERIFIED"):
+        await scanner.index_watch_metadata(
+            "NSE:NIFTY 50",SimpleNamespace(_instruments=Master(123456)))
+
+    repo.put("alice","signal","index-watch",
+             {"id":"index-watch","symbol":"NSE:NIFTY 50","mode":"swing",
+              "watch_only":True,"signal_source":"INDEX_SPOT_WATCH_ONLY"},0)
+    with pytest.raises(ValueError,match="INDEX_SPOT_WATCH_ONLY_NO_ORDERS"):
+        await execution.build_plan("alice","index-watch",0)

@@ -6,8 +6,8 @@ import {
 import Header from '../../src/components/Header';
 import { api } from '../../src/services/api';
 import { theme } from '../../src/styles/theme';
+import { useStore } from '../../src/store/useStore';
 
-type RouterMode = 'paper' | 'shadow' | 'live';
 
 export default function SettingsDashboard() {
   const [loading, setLoading] = useState(false);
@@ -15,7 +15,9 @@ export default function SettingsDashboard() {
   
   // States
   const [killSwitch, setKillSwitch] = useState({ enabled: false, reason: '' });
-  const [routerMode, setRouterMode] = useState<RouterMode>('paper');
+  const [killKnown, setKillKnown] = useState(false);
+  const [lossKnown, setLossKnown] = useState(false);
+  const [loadError, setLoadError] = useState('');
   // INR, and stored negative. The USD fields these used to carry went with the
   // crypto surface, along with every route this screen called.
   const [dailyLoss, setDailyLoss] = useState({ enabled: true, soft_warn_inr: 1000, hard_halt_inr: 1500 });
@@ -33,6 +35,9 @@ export default function SettingsDashboard() {
         api.get<any>('/api/v1/kite/telegram'),
       ]);
 
+      setKillKnown(ks.status === 'fulfilled' && typeof ks.value.enabled === 'boolean');
+      setLossKnown(dl.status === 'fulfilled');
+      setLoadError(ks.status === 'rejected' || dl.status === 'rejected' ? 'Trading safety settings could not be verified. Refresh before changing them.' : '');
       if (ks.status === 'fulfilled') {
         setKillSwitch({ enabled: ks.value.enabled, reason: ks.value.reason || '' });
       }
@@ -66,6 +71,7 @@ export default function SettingsDashboard() {
   }, []);
 
   const handleToggleKill = async () => {
+    if (!killKnown || busy) return;
     setBusy(true);
     try {
       const next = !killSwitch.enabled;
@@ -73,7 +79,7 @@ export default function SettingsDashboard() {
         enabled: next,
         reason: next ? 'manual mobile operator halt' : ''
       });
-      Alert.alert(next ? 'SYSTEM HALTED' : 'SYSTEM ARMED', next ? 'All auto-trading has been paused.' : 'System is active.');
+      Alert.alert(next ? 'New entries halted' : 'Entry halt removed', 'Existing positions remain managed. Other entry checks still apply.');
       await fetchSettings();
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Failed to update kill switch.');
@@ -82,28 +88,14 @@ export default function SettingsDashboard() {
     }
   };
 
-  const handleChangeMode = async (mode: RouterMode) => {
-    // No backend. /api/v1/trading/algo-router-mode went with the crypto surface
-    // and Kite has no equivalent: paper vs live is a property of the ACCOUNT
-    // (kite_accounts.is_paper), not a router setting. Left visible and inert
-    // rather than posting into a 404 and reporting "Mode Switched".
-    Alert.alert('Not available', 'Paper or live is set per Kite account, from the desktop app.');
-    return;
-    // eslint-disable-next-line no-unreachable
-    setBusy(true);
-    try {
-      await api.post('/api/v1/trading/algo-router-mode', { mode });
-      setRouterMode(mode);
-      Alert.alert('Mode Switched', `Trading engine router is now in ${mode.toUpperCase()} mode.`);
-      await fetchSettings();
-    } catch (e: any) {
-      Alert.alert('Error', e.message || 'Failed to switch router mode.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleSaveDailyLoss = async () => {
+    if (!lossKnown || busy) return;
+    const soft = Math.abs(Number(dailyLoss.soft_warn_inr));
+    const hard = Math.abs(Number(dailyLoss.hard_halt_inr));
+    if (!Number.isFinite(soft) || !Number.isFinite(hard) || (dailyLoss.enabled && (hard <= 0 || soft > hard))) {
+      Alert.alert('Invalid loss limits', 'Use finite rupee values. The halt limit must be positive and at least the warning limit.');
+      return;
+    }
     setBusy(true);
     try {
       await api.put('/api/v1/kite/risk/daily-loss', {
@@ -150,34 +142,13 @@ export default function SettingsDashboard() {
       <Header />
       <ScrollView contentContainerStyle={styles.scrollContainer}>
         
-        {/* Trading Mode Selector */}
+        {loadError ? <View style={styles.card}><Text accessibilityRole="alert" style={{ color: theme.colors.red }}>{loadError}</Text><TouchableOpacity onPress={fetchSettings}><Text style={{ color: theme.colors.blue, paddingVertical: 12 }}>Refresh safety settings</Text></TouchableOpacity></View> : null}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>ROUTER MODE</Text>
-          <View style={styles.modeRow}>
-            {(['paper', 'shadow', 'live'] as RouterMode[]).map((mode) => {
-              const isActive = routerMode === mode;
-              let activeColor = theme.colors.textMuted;
-              if (mode === 'paper') activeColor = theme.colors.textDim;
-              if (mode === 'shadow') activeColor = theme.colors.blue;
-              if (mode === 'live') activeColor = theme.colors.red;
-
-              return (
-                <TouchableOpacity
-                  key={mode}
-                  style={[
-                    styles.modeButton,
-                    isActive ? { backgroundColor: 'rgba(255,255,255,0.05)', borderColor: activeColor } : null
-                  ]}
-                  onPress={() => handleChangeMode(mode)}
-                  disabled={busy}
-                >
-                  <Text style={[styles.modeButtonText, { color: isActive ? activeColor : theme.colors.textMuted }]}>
-                    {mode.toUpperCase()}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+          <Text style={styles.sectionTitle}>BROKER ACCOUNT</Text>
+          <Text style={styles.cardSubtitle}>Orders use your connected Kite account. Check account readiness and entry safeguards before trading.</Text>
+          <TouchableOpacity onPress={() => useStore.getState().setSession('', '')}>
+            <Text style={{ color: theme.colors.blue, paddingVertical: 12 }}>Sign out</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Global Safety (Kill Switch) */}
@@ -188,13 +159,13 @@ export default function SettingsDashboard() {
               <View>
                 <Text style={styles.cardTitle}>Kill Switch</Text>
                 <Text style={styles.cardSubtitle}>
-                  {killSwitch.enabled ? `HALTED: ${killSwitch.reason}` : 'System is ARMED and operating'}
+                  {!killKnown ? 'Status unavailable — refresh safety settings' : killSwitch.enabled ? `NEW ENTRIES HALTED: ${killSwitch.reason}` : 'Entry halt is off; other safety checks still apply'}
                 </Text>
               </View>
               <Switch
                 value={killSwitch.enabled}
                 onValueChange={handleToggleKill}
-                disabled={busy}
+                disabled={busy || !killKnown}
                 trackColor={{ false: '#3f3f46', true: theme.colors.red }}
                 thumbColor={killSwitch.enabled ? '#fff' : '#a1a1aa'}
               />
@@ -237,7 +208,7 @@ export default function SettingsDashboard() {
               />
             </View>
 
-            <TouchableOpacity style={styles.saveButton} onPress={handleSaveDailyLoss} disabled={busy}>
+            <TouchableOpacity style={styles.saveButton} disabled={busy || !lossKnown} onPress={handleSaveDailyLoss}>
               <Text style={styles.saveButtonText}>SAVE LOSS PARAMETERS</Text>
             </TouchableOpacity>
           </View>

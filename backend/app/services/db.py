@@ -674,6 +674,7 @@ def _configure(conn: sqlite3.Connection) -> None:
 
 def init() -> bool:
     global _available
+    conn = None
     try:
         conn = sqlite3.connect(_DB_PATH, timeout=30.0)
         conn.row_factory = sqlite3.Row
@@ -681,7 +682,6 @@ def init() -> bool:
         # Wait for a concurrent writer instead of failing init with 'database is locked'.
         conn.execute("PRAGMA busy_timeout=30000")
         _create_tables(conn)
-        conn.close()
         _available = True
         log.info("SQLite positions store: %s", _DB_PATH)
         return True
@@ -689,12 +689,14 @@ def init() -> bool:
         log.warning("SQLite unavailable — running in-memory only: %s", exc)
         _available = False
         return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 @contextmanager
 def _conn():
     c = sqlite3.connect(_DB_PATH, timeout=30.0)
-    c.execute("PRAGMA journal_mode=WAL")
     c.row_factory = sqlite3.Row
     _configure(c)
     try:

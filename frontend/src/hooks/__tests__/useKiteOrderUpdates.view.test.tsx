@@ -6,6 +6,8 @@ import { useKiteOrderUpdates } from '../useKite';
 import { useViewStore } from '../../store/useViewStore';
 
 class MockWebSocket {
+  static OPEN = 1;
+  readyState = 1;
   static instances: MockWebSocket[] = [];
   sent: Array<Record<string, unknown>> = [];
   onopen: (() => void) | null = null;
@@ -25,8 +27,10 @@ beforeEach(() => {
   MockWebSocket.instances = [];
   vi.stubGlobal('WebSocket', MockWebSocket);
   useViewStore.setState({ view: 'live' });
+  sessionStorage.setItem('sterling.auth.access', 'test-access');
 });
 afterEach(() => {
+  sessionStorage.clear();
   vi.unstubAllGlobals();
   useViewStore.setState({ view: 'live' });
 });
@@ -37,7 +41,9 @@ describe('useKiteOrderUpdates follows the view', () => {
     const ws = MockWebSocket.instances[0];
     expect(ws.url).not.toContain('view=');
     ws.onopen?.();
-    expect(ws.sent).toEqual([{ action: 'subscribe', channel: 'kite_orders:default' }]);
+    expect(ws.sent).toEqual([{ action: 'auth', token: 'test-access' }]);
+    act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'auth_ok', user_id: 'default' }) }));
+    expect(ws.sent).toContainEqual({ action: 'subscribe', channel: 'kite_orders:default' });
   });
 
   it('listens on the virtual tenant\'s channel, with the view in the URL, in the Simulation view', () => {
@@ -46,7 +52,9 @@ describe('useKiteOrderUpdates follows the view', () => {
     const ws = MockWebSocket.instances[0];
     expect(ws.url).toMatch(/\/api\/v1\/stream\/ws\?view=simulation$/);
     ws.onopen?.();
-    expect(ws.sent).toEqual([{ action: 'subscribe', channel: 'kite_orders:sim:default' }]);
+    expect(ws.sent).toEqual([{ action: 'auth', token: 'test-access' }]);
+    act(() => ws.onmessage?.({ data: JSON.stringify({ type: 'auth_ok', user_id: 'sim:default' }) }));
+    expect(ws.sent).toContainEqual({ action: 'subscribe', channel: 'kite_orders:sim:default' });
   });
 
   it('reconnects when the view changes', () => {

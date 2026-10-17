@@ -280,4 +280,4 @@ def test_family_template_uses_real_account_with_code_level_live_floor():
     assert "KITE_PAPER" not in text.replace("# KITE_PAPER is no longer read", "")
 
     from app.core.lane_registry import parse_live_execution
-    assert parse_live_execution(None) is True
+    assert parse_live_execution(None) is False

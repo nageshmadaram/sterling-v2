@@ -83,7 +83,7 @@ describe('ConnectPane settings hub', () => {
 
   it('requires both credentials before adding an account', () => {
     render(<ConnectPane />);
-    fireEvent.click(screen.getByRole('button', { name: '+ ADD KITE ACCOUNT' }));
+    fireEvent.click(screen.getByRole('button', { name: '+ Add broker account' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'API key' }), { target: { value: ' test-key ' } });
     fireEvent.keyDown(screen.getByRole('textbox', { name: 'API key' }), { key: 'Enter' });
     expect(addMutate).not.toHaveBeenCalled();

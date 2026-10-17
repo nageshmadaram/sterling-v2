@@ -12,6 +12,7 @@ export interface EmaTrendProfile {
 }
 export interface EmaTrendConfig {
   enabled: boolean; auto_execute: boolean; execution_mode: 'PAPER'; modes: EmaTrendMode[]; symbols: string[];
+  scan_indices?: string[]; scan_stocks_enabled?: boolean;
   allocation_inr: DecimalValue; risk_fraction: DecimalValue; strategy_risk_fraction: DecimalValue;
   daily_loss_fraction: DecimalValue; drawdown_fraction: DecimalValue; max_campaigns: number;
   max_sector_campaigns: number; fee_bps: DecimalValue; brokerage_per_order: DecimalValue;

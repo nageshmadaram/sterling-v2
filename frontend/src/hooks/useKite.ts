@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { authenticatedWebSocketUrl } from '../utils/auth';
-import { useView, withViewQuery } from '../store/useViewStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { underlyingSpotKey } from '../utils/computeGreeks';
-import { registerTokens, getTick, useTokenVersion, tickFeedAgeMs } from './useKiteLiveTicks';
+import { registerTokens, getTick, useTokenVersion, tickFeedAgeMs, subscribeKiteOrderUpdates } from './useKiteLiveTicks';
 import { notifyOrder } from '../store/useKiteNotifications';
 import { authConnecting, authIdle } from '../store/useAuthFeedback';
 import type {
@@ -515,13 +513,13 @@ export function useKiteHoldings(enabled = true) {
   });
 }
 
-export function useKitePositions(enabled = true, refetchInterval = 1_000) {
+export function useKitePositions(enabled = true, refetchInterval = 5_000) {
   return useQuery<{ net: any[]; day: any[] }>({
     queryKey: ['kite-positions'],
     queryFn: () => api.get(`${K}/positions`),
     enabled,
     refetchInterval,
-    staleTime: 0,
+    staleTime: 1_000,
   });
 }
 
@@ -1174,60 +1172,22 @@ export function useKiteAlertHistory(uuid: string | null) {
 }
 
 // ─── Live order updates (Kite postbacks over the stream WS) ───────────────────
-// Subscribes to the per-user `kite_orders` channel on /api/v1/stream/ws. On every
-// order-state change it refreshes the orders/positions/trades caches and surfaces
-// the latest update (for a toast). Mirrors the binary tick fan-out path.
-const STREAM_WS_URL =
-  ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '')
-    ? (import.meta.env.VITE_API_BASE_URL as string).replace(/^http/, 'ws') + '/api/v1/stream/ws'
-    : (typeof window !== 'undefined'
-        ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/stream/ws`
-        : 'ws://localhost:8000/api/v1/stream/ws');
-
-export function useKiteOrderUpdates(enabled = true, userId = 'default') {
+// Subscribes to the per-user `kite_orders` channel on the shared tick/order
+// WebSocket managed by useKiteLiveTicks. The shared socket authenticates before
+// subscribing, so order updates actually reach the browser (WS-01 fix).
+export function useKiteOrderUpdates(enabled = true) {
   const qc = useQueryClient();
-  const view = useView();
   const [last, setLast] = useState<KiteOrderUpdate | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (!enabled) return;
-    let alive = true;
-    let retry: number | null = null;
-
-    const connect = () => {
-      if (!alive) return;
-      // The Simulation view is the virtual tenant (`sim:<owner>`): its own socket scope and channel.
-      const ws = new WebSocket(withViewQuery(authenticatedWebSocketUrl(STREAM_WS_URL), view));
-      wsRef.current = ws;
-      const tenant = view === 'simulation' ? `sim:${userId}` : userId;
-      ws.onopen = () => ws.send(JSON.stringify({ action: 'subscribe', channel: `kite_orders:${tenant}` }));
-      ws.onmessage = (ev) => {
-        try {
-          const msg = JSON.parse(ev.data);
-          if (msg.type === 'kite_order_update' && msg.order) {
-            setLast(msg.order as KiteOrderUpdate);
-            qc.invalidateQueries({ queryKey: ['kite-orders'] });
-            qc.invalidateQueries({ queryKey: ['kite-positions'] });
-            qc.invalidateQueries({ queryKey: ['kite-trades'] });
-          }
-        } catch { /* ignore non-JSON frames */ }
-      };
-      ws.onclose = () => {
-        wsRef.current = null;
-        if (alive) retry = window.setTimeout(connect, 3000);
-      };
-      ws.onerror = () => ws.close();
-    };
-    connect();
-
-    return () => {
-      alive = false;
-      if (retry) window.clearTimeout(retry);
-      wsRef.current?.close();
-      wsRef.current = null;
-    };
-  }, [enabled, userId, qc, view]);
+    return subscribeKiteOrderUpdates((order) => {
+      setLast(order as KiteOrderUpdate);
+      qc.invalidateQueries({ queryKey: ['kite-orders'] });
+      qc.invalidateQueries({ queryKey: ['kite-positions'] });
+      qc.invalidateQueries({ queryKey: ['kite-trades'] });
+    });
+  }, [enabled, qc]);
 
   return last;
 }

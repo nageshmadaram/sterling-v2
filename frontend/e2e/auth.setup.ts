@@ -1,5 +1,6 @@
 import { test as setup, expect } from '@playwright/test';
 import path from 'node:path';
+import { offlineSession } from './fixtures/offline-session';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -17,14 +18,20 @@ setup('app shell + storageState', async ({ page }) => {
   // broker account in the shared setup makes every browser test fail for an
   // unrelated operational prerequisite and previously tempted setup code to
   // mutate a real account.
+  await offlineSession(page);
   await page.goto('/');
 
   // The navigation rail is part of the authenticated Sterling application shell
   // and does not require an active broker session.
-  const shell = page.getByTestId('rail-more');
+  const shell = page.getByTestId('kite-workspace');
   await expect(shell).toBeVisible({ timeout: 25_000 });
 
   // Playwright storageState persists cookies/localStorage. Sterling JWTs are kept
   // in sessionStorage, so no bearer credential is written to this reusable file.
+  await page.evaluate(() => {
+    for (const storage of [sessionStorage, localStorage]) {
+      storage.removeItem('sterling.auth.access'); storage.removeItem('sterling.auth.refresh');
+    }
+  });
   await page.context().storageState({ path: authFile });
 });

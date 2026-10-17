@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   Modal, View, Text, StyleSheet, TouchableOpacity, TextInput, 
   TouchableWithoutFeedback, Keyboard, ActivityIndicator, Alert 
@@ -21,20 +21,24 @@ export default function OrderModal({ visible, onClose, symbol }: OrderModalProps
   const [product, setProduct] = useState<'MIS' | 'CNC'>('MIS');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
-    const qty = parseInt(quantity, 10);
-    const limitPrice = parseFloat(price);
+  const submitting = useRef(false);
 
-    if (isNaN(qty) || qty <= 0) {
+  const handleSubmit = async () => {
+    if (submitting.current) return;
+    const qty = Number(quantity);
+    const limitPrice = Number(price);
+
+    if (!Number.isSafeInteger(qty) || qty <= 0) {
       Alert.alert('Invalid Quantity', 'Please enter a valid positive integer.');
       return;
     }
 
-    if (orderType === 'LIMIT' && (isNaN(limitPrice) || limitPrice <= 0)) {
+    if (orderType === 'LIMIT' && (!Number.isFinite(limitPrice) || limitPrice <= 0)) {
       Alert.alert('Invalid Price', 'Please enter a valid positive price.');
       return;
     }
 
+    submitting.current = true;
     setLoading(true);
 
     try {
@@ -54,6 +58,7 @@ export default function OrderModal({ visible, onClose, symbol }: OrderModalProps
     } catch (e: any) {
       Alert.alert('Order Failed', e.message || 'Unknown error occurred.');
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };

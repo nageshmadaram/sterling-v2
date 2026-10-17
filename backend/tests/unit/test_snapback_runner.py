@@ -37,6 +37,8 @@ def _observed_opening_window(monkeypatch):
     the opening window is presented as continuously observed so the invariant under
     test is the one that decides.
     """
+    monkeypatch.delenv('STERLING_FAMILY_USER_ID', raising=False)
+    monkeypatch.delenv('STERLING_FAMILY_ACCOUNT_ID', raising=False)
     from app.services.snapback_entry_observation import ContinuityVerdict
 
     monkeypatch.setattr(

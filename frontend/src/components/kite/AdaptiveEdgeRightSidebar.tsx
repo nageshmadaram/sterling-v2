@@ -1,14 +1,14 @@
 import {useSavedSelection} from '../../hooks/useSavedSelection';
-import { PriceRulesBoard } from './board/PriceRulesBoard';
+const PriceRulesBoard = lazy(() => import('./board/PriceRulesBoard').then(m => ({ default: m.PriceRulesBoard })));
 import { openSettingsSection } from './config/registry';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useEffectiveNowMs } from '../../hooks/useReplayStore';
-import { SterlingKiteEngineWithExpiry } from './SterlingKiteEngineWithExpiry';
-import { GammaMoveBoard } from './board/GammaMoveBoard';
-import { EmaTrendBoard } from './board/EmaTrendBoard';
+const SterlingKiteEngineWithExpiry = lazy(() => import('./SterlingKiteEngineWithExpiry').then(m => ({ default: m.SterlingKiteEngineWithExpiry })));
+const GammaMoveBoard = lazy(() => import('./board/GammaMoveBoard').then(m => ({ default: m.GammaMoveBoard })));
+const EmaTrendBoard = lazy(() => import('./board/EmaTrendBoard').then(m => ({ default: m.EmaTrendBoard })));
 import { useEmaTrendSnapshot } from '../../hooks/useEmaTrend';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './board/emaTrendAdapter';
-import { SnapbackBoard } from './board/SnapbackBoard';
+const SnapbackBoard = lazy(() => import('./board/SnapbackBoard').then(m => ({ default: m.SnapbackBoard })));
 import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
 import { supertrendToBoard } from './board/supertrendAdapter';
@@ -23,7 +23,7 @@ import { orderEngines, useKiteSettings } from '../../store/useKiteSettings';
 import { PaneHeaderActions } from './PaneHeaderActions';
 import { ToolbarButton } from './board/EngineToolbar';
 import { ScanCountdownRing } from './board/ScanCountdownRing';
-import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
+const SignalTableSettingsPanel = lazy(() => import('./SterlingKiteEnginePane').then(m => ({ default: m.SignalTableSettingsPanel })));
 import { SCANNABLE_ENGINE_LABEL, useScanStrategies, type ScannableEngine } from '../../hooks/useScanStrategies';
 import { useScanActivity } from '../../store/useScanActivity';
 import { useCancelScan } from '../../hooks/useSterlingKiteEngine';
@@ -270,11 +270,12 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
       {settingsOpen && (
         <div style={{ flexShrink: 0, overflow: 'hidden' }}>
-          <SignalTableSettingsPanel />
+          <Suspense fallback={<p role="status">Loading board settings…</p>}><SignalTableSettingsPanel /></Suspense>
         </div>
       )}
 
       <div className="signal-engine-viewport" style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <Suspense fallback={<p role="status">Loading strategy signals…</p>}>
         {engine === 'supertrend' && (
           <SterlingKiteEngineWithExpiry onSelectSignal={onSelectSignal} onOpenChart={onOpenChart} />
         )}
@@ -286,6 +287,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         {engine === 'snapback' && (
           <SnapbackBoard onOpenChart={openChartFor} onOpenDetail={onOpenBoardDetail} />
         )}
+        </Suspense>
       </div>
     </div>
   );

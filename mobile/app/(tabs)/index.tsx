@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, Text, StyleSheet, FlatList, TouchableOpacity, 
-  ScrollView, RefreshControl, ActivityIndicator 
+import React, { useState, useCallback, useRef } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  ScrollView, RefreshControl, ActivityIndicator, AppState
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import Header from '../../src/components/Header';
 import OrderModal from '../../src/components/OrderModal';
 import { api } from '../../src/services/api';
@@ -28,12 +29,16 @@ export default function IndianMarketsTerminal() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const inFlight = useRef(false);
 
   // Order modal states
   const [orderModalVisible, setOrderModalVisible] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState('');
 
   const fetchKiteData = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       if (activeTab === 'WATCHLIST') {
         // Kite Connect has no saved-marketwatch endpoint; the backend synthesises
@@ -64,21 +69,25 @@ export default function IndianMarketsTerminal() {
         const res = await api.get<any[]>('/api/v1/kite/orders');
         setOrders(res || []);
       }
+      setError('');
     } catch (e) {
-      console.warn('Error fetching Kite data:', e);
+      setError(e instanceof Error ? e.message : 'Market data is unavailable.');
+    } finally {
+      inFlight.current = false;
     }
   };
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     setLoading(true);
-    fetchKiteData().finally(() => setLoading(false));
-  }, [activeTab]);
-
-  // Periodic polling for real-time rates
-  useEffect(() => {
-    const interval = setInterval(fetchKiteData, 4000);
-    return () => clearInterval(interval);
-  }, [activeTab]);
+    void fetchKiteData().finally(() => setLoading(false));
+    const interval = setInterval(() => {
+      if (AppState.currentState === 'active') void fetchKiteData();
+    }, 5_000);
+    const listener = AppState.addEventListener('change', state => {
+      if (state === 'active') void fetchKiteData();
+    });
+    return () => { clearInterval(interval); listener.remove(); };
+  }, [activeTab]));
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -152,10 +161,10 @@ export default function IndianMarketsTerminal() {
 
   const renderPositions = () => {
     if (loading) return <ActivityIndicator style={styles.loader} size="large" color={theme.colors.orange} />;
-    
+
     if (positions.length === 0) {
       return (
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.emptyContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
@@ -196,7 +205,7 @@ export default function IndianMarketsTerminal() {
 
     if (holdings.length === 0) {
       return (
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.emptyContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
@@ -239,7 +248,7 @@ export default function IndianMarketsTerminal() {
 
     if (orders.length === 0) {
       return (
-        <ScrollView 
+        <ScrollView
           contentContainerStyle={styles.emptyContainer}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
@@ -278,6 +287,7 @@ export default function IndianMarketsTerminal() {
   return (
     <View style={styles.container}>
       <Header />
+      {error ? <Text accessibilityRole="alert" style={{ color: theme.colors.red, padding: 12 }}>{error} Displayed values may be out of date.</Text> : null}
       {renderSubTabs()}
 
       <View style={styles.contentContainer}>
@@ -400,4 +410,3 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 });
-

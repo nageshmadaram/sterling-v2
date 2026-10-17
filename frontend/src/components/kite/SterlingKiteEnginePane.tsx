@@ -78,6 +78,16 @@ function countdown(ms: number): string {
   return s >= 60 ? `${Math.floor(s / 60)}m` : `${s}s`;
 }
 
+function readTableFlag(key: string, fallback: boolean): boolean {
+  try {
+    const value = localStorage.getItem(key);
+    return value === null ? fallback : value === 'true';
+  } catch { return fallback; }
+}
+function saveTableFlag(key: string, value: boolean): void {
+  try { localStorage.setItem(key, String(value)); } catch { /* storage may be unavailable */ }
+}
+
 export function Arrow({ v }: { v: number }) {
   const flat = v === 0;
   return <span style={{ color: flat ? k.dim : v > 0 ? k.green : k.red, fontSize: 11, fontWeight: 700 }}>{flat ? '·' : v > 0 ? '▲' : '▼'}</span>;
@@ -1973,7 +1983,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   // real signal could vanish — and the two were indistinguishable on screen.
   const rowKey = (r: EngineSignalRow) => `${r.source}:${r.token}:${r.option_type}:${r.timestamp_ms}`;
   const lastStableRows = React.useRef<EngineSignalRow[]>([]);
-  const rawRows = (signals?.rows ?? []).filter((row) => row.source !== 'navigator');
+  const rawRows = React.useMemo(() => (signals?.rows ?? []).filter((row) => row.source !== 'navigator'), [signals?.rows]);
   const isScanning = signals?.scanning ?? false;
   const rows = React.useMemo(() => {
     if (!isScanning) {
@@ -1986,9 +1996,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     return Array.from(merged.values());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawRows, isScanning]);
-  const [todayOnly, setTodayOnly] = React.useState<boolean>(false);
+  const [todayOnly, setTodayOnly] = React.useState<boolean>(() => readTableFlag('kite_st_today_only', false));
   const changeTodayOnly = (next: boolean) => {
     setTodayOnly(next);
+    saveTableFlag('kite_st_today_only', next);
   };
 
   const filteredRows = React.useMemo(() => {
@@ -2084,13 +2095,15 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const [userToggledGroups, setUserToggledGroups] = React.useState<Map<string, boolean>>(
     () => new Map(),
   );
-  const [showEnded, setShowEnded] = React.useState<boolean>(true);
-  const [bestOnly, setBestOnly] = React.useState<boolean>(true);
+  const [showEnded, setShowEnded] = React.useState<boolean>(() => readTableFlag('kite_st_show_ended', true));
+  const [bestOnly, setBestOnly] = React.useState<boolean>(() => readTableFlag('kite_st_best_only', true));
   const changeShowEnded = (next: boolean) => {
     setShowEnded(next);
+    saveTableFlag('kite_st_show_ended', next);
   };
   const changeBestOnly = (next: boolean) => {
     setBestOnly(next);
+    saveTableFlag('kite_st_best_only', next);
   };
   const toggleGroup = (label: string, expandedNow: boolean) => {
     setUserToggledGroups(prev => {

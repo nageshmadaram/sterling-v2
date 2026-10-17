@@ -6,6 +6,8 @@ import os
 # every test that relies on the development identity seam. Tests that need
 # production set it explicitly with monkeypatch.setenv.
 os.environ.setdefault("ENVIRONMENT", "development")
+# Synthetic broker fixtures explicitly opt in; production defaults remain off.
+os.environ.setdefault("STERLING_LIVE_EXECUTION", "true")
 # Many fixtures create LIVE Kite accounts and call routes with the anonymous
 # development identity. The runtime refuses that identity once a live account exists
 # (app.core.auth); the suite opts out explicitly. Tests of the refusal delenv this.
@@ -164,7 +166,7 @@ def _cleanup_test_db():
 def allow_live_execution(monkeypatch):
     """Explicit opt-in for tests whose subject is the live execution machinery.
 
-    Production defaults LIVE_EXECUTION_ENABLED to True and exposes the operator
+    Production defaults LIVE_EXECUTION_ENABLED to False and exposes the operator
     kill switch STERLING_LIVE_EXECUTION=0. Tests that need to reach sizing,
     journaling, protection or broker-rejection branches pin it explicitly here,
     so a kill switch left in the developer's environment cannot leak into them.

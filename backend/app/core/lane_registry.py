@@ -17,7 +17,7 @@ Each is checked separately and reports its own reason. Collapsing them into
 one boolean is how "why did nothing trade today?" becomes unanswerable.
 
 Sterling is a live-money product: there is one execution mode. The master live
-switch (:data:`LIVE_EXECUTION_ENABLED`) is ON by default and exists as an
+switch (:data:`LIVE_EXECUTION_ENABLED`) is OFF by default and exists as an
 operator KILL SWITCH -- ``STERLING_LIVE_EXECUTION=0`` stops every new entry
 while exits, protection and reconciliation keep working.
 """
@@ -33,7 +33,7 @@ from app.core.horizon import HorizonMode, LaneState, canonical_mode
 
 log = logging.getLogger(__name__)
 
-#: The operator kill switch. Unset or blank means ENABLED (the product default).
+#: The operator kill switch. Unset or blank means DISABLED; enabling entries requires explicit opt-in.
 #: ``0``/``false``/``off``/``no``/``disabled`` turn new-entry origination off.
 LIVE_EXECUTION_ENV: Final[str] = "STERLING_LIVE_EXECUTION"
 
@@ -48,13 +48,15 @@ _ENABLED_VALUES: Final[frozenset[str]] = frozenset(
 def parse_live_execution(raw: str | None) -> bool:
     """Resolve the kill-switch setting. ``True`` means new entries are allowed.
 
-    Unset or blank is the shipped default (enabled). A recognised "off" token
+    Unset or blank is the shipped default (disabled). A recognised "off" token
     engages the kill switch. Any other value is a typo in a safety control, and
     a typo must not leave real money flowing, so it also engages the kill switch
     (and is logged, so the operator can see why entries stopped).
     """
     text = (raw or "").strip().lower()
-    if not text or text in _ENABLED_VALUES:
+    if not text:
+        return False
+    if text in _ENABLED_VALUES:
         return True
     if text in _KILL_SWITCH_VALUES:
         return False
@@ -75,11 +77,11 @@ def live_execution_state(env: Mapping[str, str] | None = None) -> dict[str, obje
     if (raw or "").strip():
         origin = f"{LIVE_EXECUTION_ENV}={raw.strip()}"
     else:
-        origin = f"{LIVE_EXECUTION_ENV} unset (default: enabled)"
+        origin = f"{LIVE_EXECUTION_ENV} unset (default: disabled)"
     return {"enabled": enabled, "source": origin, "env": LIVE_EXECUTION_ENV}
 
 
-#: Master live switch, resolved once at import. ENABLED by default; the operator
+#: Master live switch, resolved once at import. DISABLED by default; the operator
 #: kill switch ``STERLING_LIVE_EXECUTION=0`` turns new-entry origination off for
 #: the whole process. It never gates exits, protection or reconciliation: a
 #: switch that stopped Sterling closing a position would be a way to lose money.

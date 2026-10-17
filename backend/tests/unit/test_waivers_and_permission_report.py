@@ -249,7 +249,7 @@ def _ctl(*args: str, env_extra: dict[str, str] | None = None, tmp: Path) -> subp
     import os
 
     env = {**os.environ, "STERLING_STATE_ROOT": str(tmp), "ENVIRONMENT": "development"}
-    env.pop("STERLING_LIVE_EXECUTION", None)
+    env["STERLING_LIVE_EXECUTION"] = "true"
     env.update(env_extra or {})
     return subprocess.run(
         [str(STERLINGCTL), *args], capture_output=True, text=True, env=env, timeout=240,

@@ -57,23 +57,24 @@ describe('EMA Trend Connect drafts', () => {
           requires_operator_certification: true } as never
       : response as never);
     show();
-    await screen.findByLabelText('EMA Trend equities');
+    await screen.findByLabelText('EMA Trend instruments');
     expect(api.get).not.toHaveBeenCalledWith('/api/v1/ema-trend/live-readiness');
     fireEvent.click(screen.getByRole('button', { name: 'Check Kite live readiness' }));
     expect(await screen.findByLabelText('EMA live readiness')).toHaveTextContent('LIVE BLOCKED');
     expect(screen.getByLabelText('EMA live readiness')).toHaveTextContent('Broker orders: not enabled');
     expect(api.get).toHaveBeenCalledWith('/api/v1/ema-trend/live-readiness');
   });
-  it('offers a cash-equity starter universe as an unsaved explicit draft', async () => {
+  it('stages spot index watches without changing existing instruments or placing orders', async () => {
     show();
-    await screen.findByLabelText('EMA Trend equities');
-    fireEvent.click(screen.getByRole('button', { name: /Use NSE equity starter list/ }));
-    const field = screen.getByLabelText('EMA Trend equities') as HTMLTextAreaElement;
-    expect(field.value).toContain('NSE:RELIANCE');
-    expect(field.value).toContain('NSE:INFY');
+    await screen.findByLabelText('EMA Trend instruments');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'NIFTY' }));
     expect(api.patch).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
-    expect(field.value).toBe('NSE:INFY');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/v1/ema-trend/config', {
+      expected_revision: 7, changes: { scan_indices: ['NIFTY 50'] },
+    }));
+    expect(response.config.symbols).toEqual(['NSE:TCS']);
+    expect(response.config.auto_execute).toBe(false);
   });
   it('stages server defaults without changing the running backend until Apply', async () => {
     show();
@@ -95,6 +96,7 @@ it('adds an actual broker option contract to the draft and saves only its exact 
       lot_size: 1, tick_size: '1', execution_supported: false, blocker: 'MCX_MULTIPLIER_CALENDAR_ACCOUNTING_NOT_IMPLEMENTED', contract: null },
   ] } as never : response as never);
   show();
+  fireEvent.click(await screen.findByText(/Add more stocks or exact derivative contracts/));
   const search = await screen.findByLabelText('EMA Trend instrument search');
   fireEvent.change(search, { target: { value: 'NIFTY' } });
   const option = await screen.findByRole('checkbox', { name: 'NFO:NIFTY26NOV25000CE' });
@@ -105,4 +107,50 @@ it('adds an actual broker option contract to the draft and saves only its exact 
   await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/v1/ema-trend/config', {
     expected_revision: 7, changes: { symbols: [...emaConfig().config.symbols, 'NFO:NIFTY26NOV25000CE'] },
   }));
+});
+
+
+it('selects the curated F&O stock universe and preserves stocks when disabled', async () => {
+  vi.mocked(api.get).mockImplementation(async path =>
+    String(path).includes('/stock-registry')
+      ? [{ liquidity: 'Very High', stocks: [
+        { name: 'RELIANCE', label: 'Reliance' },
+        { name: 'HDFCBANK', label: 'HDFC Bank' },
+      ] }] as never
+      : response as never);
+  show();
+  const all = await screen.findByRole('switch', { name: 'EMA scan all eligible F&O stocks' });
+  await waitFor(() => expect(all).toBeEnabled());
+  fireEvent.click(all);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(response.config.symbols).toEqual([
+    'NSE:TCS', 'NSE:RELIANCE', 'NSE:HDFCBANK',
+  ]));
+  const stockSwitch = screen.getByRole('switch', { name: 'EMA scan single-stock underlyings' });
+  fireEvent.click(stockSwitch);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(response.config.scan_stocks_enabled).toBe(false));
+  expect(response.config.symbols).toContain('NSE:RELIANCE');
+});
+
+it('allows a cash stock outside curated F&O registry only after exact broker lookup', async () => {
+  vi.mocked(api.get).mockImplementation(async path => {
+    if (String(path).includes('/stock-registry')) return [] as never;
+    if (String(path).includes('/instruments?')) {
+      return { items: [{
+        symbol: 'NSE:VOLTAS', name: 'Voltas', exchange: 'NSE',
+        instrument_type: 'EQ', expiry: '', lot_size: 1, tick_size: '0.05',
+        execution_supported: true, blocker: null, contract: null,
+      }] } as never;
+    }
+    return response as never;
+  });
+  show();
+  fireEvent.click(await screen.findByText(/Add more stocks or exact derivative contracts/));
+  const input = await screen.findByLabelText('EMA Trend instrument search');
+  fireEvent.change(input, { target: { value: 'VOLTAS' } });
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'NSE:VOLTAS' }));
+  expect(api.patch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(response.config.symbols).toContain('NSE:VOLTAS'));
 });

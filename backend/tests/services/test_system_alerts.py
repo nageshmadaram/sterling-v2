@@ -139,14 +139,16 @@ def test_every_strategys_order_outcomes_use_the_same_alert_vocabulary(strategy, 
     sa.order_submission(_request(strategy), _result("UNKNOWN", error="timeout", intent_key="INT3"))
     sa.order_submission(_request(strategy), _result("HALTED", error="Kill switch active", intent_key=""))
     rows = _rows()
-    assert [r.event_type for r in rows] == [
-        "ENTRY SUBMITTED", "EXIT SUBMITTED", "ORDER OUTCOME UNKNOWN", "ENTRY BLOCKED",
-    ]
+    assert len(rows) == 4
+    by_type = {row.event_type: row for row in rows}
+    assert set(by_type) == {'ENTRY SUBMITTED', 'EXIT SUBMITTED', 'ORDER OUTCOME UNKNOWN', 'ENTRY BLOCKED'}
+    # Critical unknown submissions deliberately outrank informational entry alerts.
+    assert rows[0].event_type == 'ORDER OUTCOME UNKNOWN'
     assert {r.strategy for r in rows} == {label}
-    assert [r.severity for r in rows] == ["INFO", "INFO", "CRITICAL", "WARNING"]
-    entry = _render(rows[0])
+    assert {kind: row.severity for kind, row in by_type.items()} == {'ENTRY SUBMITTED': 'INFO', 'EXIT SUBMITTED': 'INFO', 'ORDER OUTCOME UNKNOWN': 'CRITICAL', 'ENTRY BLOCKED': 'WARNING'}
+    entry = _render(by_type['ENTRY SUBMITTED'])
     assert "· CE · BUY" in entry and "Qty 75" in entry and "Order 2501" in entry
-    assert "· CE · SELL" in _render(rows[1])
+    assert "· CE · SELL" in _render(by_type["EXIT SUBMITTED"])
 
 
 def test_blocked_entry_for_one_signal_is_not_repeated_every_scan():

@@ -83,7 +83,7 @@ def _write_audit(row: dict) -> None:
 
 
 def _is_api(path: str) -> bool:
-    return path.startswith("/api/") or path == "/health"
+    return path.startswith("/api/") or path == "/health" or path.startswith("/health/")
 
 
 def _should_audit(method: str, path: str) -> bool:

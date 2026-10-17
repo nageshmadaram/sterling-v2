@@ -139,7 +139,7 @@ describe('KiteSessionGuard floating card popover', () => {
     const onOpenAccountSettings = vi.fn();
     renderGuard(onOpenAccountSettings);
 
-    const link = screen.getByText(/Account & API Settings/i);
+    const link = screen.getByRole('button', { name: /Account & API Settings/i });
     fireEvent.click(link);
 
     expect(onOpenAccountSettings).toHaveBeenCalledTimes(1);

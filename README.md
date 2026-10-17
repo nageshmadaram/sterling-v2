@@ -244,3 +244,15 @@ hostname plus `/api/v1/kite/callback` in the Kite Developer Console once.
 The free ngrok plan may display a browser warning and has traffic limits.
 Public-access publication updates the Telegram menu without sending a chat
 notice unless `STERLING_ACCESS_NOTIFY=1` is explicitly configured.
+
+### Live-entry opt-in
+
+New deployments start with new live entries disabled. Set
+`STERLING_LIVE_EXECUTION=true` only after verifying the broker account, approved
+outbound IP, durable state and restart reconciliation. An unset, blank or invalid
+value blocks new entries. Exits, protective stops and reconciliation continue
+independently. Restart the backend after changing this setting.
+
+The outbound-IP observer records what it sees; it does not approve that address
+for the broker. Confirm the broker whitelist before accepting the address with
+`sterlingctl egress accept <ip>`.

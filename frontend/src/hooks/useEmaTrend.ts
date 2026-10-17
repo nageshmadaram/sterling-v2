@@ -96,7 +96,7 @@ export function useEmaTrendExecution() {
       throw new Error(`Paper request ${armed.status || 'unconfirmed'}. ${armed.execution?.error || 'Refresh campaign state before retrying.'}`);
     }
     return armed;
-  }, onSettled: () => qc.invalidateQueries({ queryKey: EMA_TREND_KEY }) });
+  }, onSettled: () => { void qc.invalidateQueries({ queryKey: EMA_TREND_KEY }); } });
 }
 export function useEmaTrendCampaignAction() {
   const qc = useQueryClient();
@@ -110,7 +110,7 @@ export function useEmaTrendCampaignAction() {
       if (!['CLOSED', 'ACKNOWLEDGED', 'PARTIAL', 'FILLED', 'UNRESOLVED'].includes(result.status)) throw new Error(`Paper action ${result.status || 'unconfirmed'}. ${result.execution?.error || 'Reconcile campaign state before retrying.'}`);
       return result;
     });
-  }, onSettled: () => qc.invalidateQueries({ queryKey: EMA_TREND_KEY }) });
+  }, onSettled: () => { void qc.invalidateQueries({ queryKey: EMA_TREND_KEY }); } });
 }
 export function useEmaTrendOperation() {
   const qc = useQueryClient();

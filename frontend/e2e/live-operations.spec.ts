@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { offlineSession } from './fixtures/offline-session';
 
 /**
  * The Operations screen, end to end.
@@ -82,6 +83,7 @@ function serve(page: any, body: Record<string, unknown>) {
 }
 
 async function openOperationsTab(page: any) {
+  await offlineSession(page);
   // The session guard renders a full-page overlay when Kite reads offline, and
   // in CI there is no broker session — the overlay then intercepts the click on
   // the Operations tab and every test in this file fails on navigation rather than
@@ -117,9 +119,10 @@ async function openOperationsTab(page: any) {
 
   await page.goto('/');
 
-  const more = page.getByTestId('rail-more');
-  await expect(more).toBeVisible({ timeout: 30_000 });
-  await more.click();
+  const tools = page.getByRole('button', { name: /^Tools/ });
+  await expect(tools).toBeVisible({ timeout: 30_000 });
+  await tools.click();
+  await page.getByRole('menuitem', { name: 'More', exact: true }).click();
 
   const operations = page.getByTestId('more-tab-operations');
   await expect(operations).toBeVisible({ timeout: 15_000 });

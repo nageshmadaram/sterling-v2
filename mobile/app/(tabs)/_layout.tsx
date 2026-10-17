@@ -29,7 +29,7 @@ export default function TabsLayout() {
         options={{
           title: 'Markets',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="stats-chart" size={size} color={color} />
+            <Ionicons name="stats-chart" size={size} color={typeof color === 'string' ? color : theme.colors.textMuted} />
           ),
         }}
       />
@@ -38,7 +38,7 @@ export default function TabsLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-sharp" size={size} color={color} />
+            <Ionicons name="settings-sharp" size={size} color={typeof color === 'string' ? color : theme.colors.textMuted} />
           ),
         }}
       />

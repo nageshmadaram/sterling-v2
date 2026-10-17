@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import LoginGate from '../src/components/LoginGate';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../src/store/useStore';
@@ -9,7 +9,8 @@ export default function RootLayout() {
 
   return (
     <>
-      <StatusBar style="light" backgroundColor={theme.colors.background} />
+      <StatusBar style="light" />
+      <LoginGate>
       <Stack
         screenOptions={{
           headerShown: false,
@@ -18,6 +19,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
+      </LoginGate>
     </>
   );
 }

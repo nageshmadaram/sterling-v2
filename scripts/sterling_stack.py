@@ -632,6 +632,7 @@ class Stack:
                      'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
                      'cloudflare_url':'','ngrok_url':'','urls':{},'public_ready':{}}
+        self.adopted_backend_pids=[];self.next_backend_restart=0
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
         self.last_public_signature=None;self.last_ngrok_retry=0;self.last_dev_retry=0
         self.ngrok_urls=queue.Queue();self.ngrok_binary=None
@@ -651,7 +652,12 @@ class Stack:
     def stop_child(self,name):
         proc=self.children.pop(name,None)
         if proc is None or proc.poll() is not None:return
-        proc.terminate()
+        if name == 'dev':
+            # npm launches Vite as a child. Stop only the session we created.
+            try: os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError: pass
+        else:
+            proc.terminate()
         try:proc.wait(15)
         except subprocess.TimeoutExpired:
             if name=='backend':return # Never force-kill broker protection during launcher shutdown.
@@ -731,13 +737,21 @@ class Stack:
     def start_dev(self):
         """Optional Vite hot-reload UI, bound to loopback, same single backend."""
         self.stop_child('dev')
-        env={**clean_env(),'PORT':str(self.args.dev_port),
+        # Leave unidentified listeners alone: another checkout may own this port.
+        dev_port = self.args.dev_port
+        with socket.socket() as probe:
+            occupied = probe.connect_ex(('127.0.0.1', dev_port)) == 0
+        if occupied:
+            self.status['dev_error'] = 'DEV_PORT_IN_USE'
+            return
+        self.status.pop('dev_error', None)
+        env={**clean_env(),'PORT':str(dev_port),
              'API_TARGET':'http://127.0.0.1:8000'}
         log=(STATE/'dev.log').open('a');os.chmod(STATE/'dev.log',0o600)
         self.logs.append(log)
         self.children['dev']=subprocess.Popen([
             'npm','run','dev','--','--host','127.0.0.1',
-            '--port',str(self.args.dev_port),'--strictPort',
+            '--port',str(dev_port),'--strictPort',
         ],cwd=ROOT/'frontend',env=env,stdout=log,stderr=log,start_new_session=True)
 
     def publish(self):
@@ -792,6 +806,8 @@ class Stack:
         except Exception:
             with socket.socket() as probe:
                 if probe.connect_ex(('127.0.0.1',8000)) != 0:self.start_backend()
+        if not self.backend_owned:
+            self.adopted_backend_pids=_gateway_listener_pids(8000)
         deadline=time.monotonic()+120
         while time.monotonic()<deadline:
             try:fetch('http://127.0.0.1:8000/docs',2);break
@@ -821,7 +837,21 @@ class Stack:
                 print(f"Dev hot-reload: {self.status['dev_url']}",flush=True)
         next_probe=0;retry_at=0
         while not self.stopping:
-            if self.backend_owned and self.children['backend'].poll() is not None:self.start_backend()
+            # A missing listener alone does not prove a trading process is dead.
+            # Never replace an adopted process that may still manage protection.
+            if not _backend_listener_present() and time.monotonic() >= self.next_backend_restart:
+                child = self.children.get('backend')
+                if self.backend_owned and child and child.poll() is not None:
+                    self.status['backend_exit_code'] = child.returncode
+                    self.start_backend()
+                elif not self.backend_owned:
+                    if (self.adopted_backend_pids and
+                            all(not Path(f'/proc/{pid}').exists() for pid in self.adopted_backend_pids)):
+                        print('Adopted backend exited; starting recovery with entry reconciliation gates.', flush=True)
+                        self.start_backend()
+                    else:
+                        self.status['backend_error'] = 'BACKEND_OWNERSHIP_UNVERIFIED'
+                        self.next_backend_restart = time.monotonic() + 30
             if self.children['web'].poll() is not None:self.start_web()
             now=time.monotonic()
             while not self.release_results.empty():
@@ -940,6 +970,8 @@ class Stack:
 
 
     def start_backend(self):
+        self.next_backend_restart=time.monotonic()+30
+        self.status.pop('backend_error',None)
         log=(STATE/'backend.log').open('a');self.logs.append(log);os.chmod(STATE/'backend.log',0o600)
         self.children['backend']=subprocess.Popen([str(self.python),'-m','uvicorn','main:app','--host','127.0.0.1','--port','8000','--workers','1','--no-access-log'],cwd=ROOT/'backend',env=clean_env(),stdout=log,stderr=log,start_new_session=True)
         self.backend_owned=True

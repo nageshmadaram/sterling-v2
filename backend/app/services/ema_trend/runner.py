@@ -200,13 +200,15 @@ async def run_user(uid:str):
         interval=60000 if any(m!="swing" for m in cfg.modes) else 300000
         scans=repo.list_documents(uid,"scan",limit=1)
         scanning=bool(scans and scans[0]["status"] in {"QUEUED","RUNNING"})
-        if cfg.enabled and cfg.symbols and not scanning and now-_last_scan.get(uid,0)>=interval:
+        if cfg.enabled and scanner.watch_symbols(cfg) and not scanning and now-_last_scan.get(uid,0)>=interval:
             _last_scan[uid]=now
             scanner.start_scan(uid,cfg.modes,settings["revision"])
         from app.services.kite_engine import state as shared_state
         master=bool(shared_state.get_config(execution.sim_uid(uid)).auto_execute)
         if cfg.enabled and cfg.auto_execute and master and not settings.get("paused"):
             for row in repo.list_documents(uid,"signal",limit=100):
+                if row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY":
+                    continue  # Spot indices are evidence only; no virtual or live order.
                 if row["status"]!="armed" or row["config_revision"]!=settings["revision"]:
                     continue
                 try:

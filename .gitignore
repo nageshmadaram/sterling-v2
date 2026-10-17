@@ -189,3 +189,6 @@ data/audit/
 # Local web/tunnel supervisor state and verified tool binaries
 .runtime/
 .tools/
+
+# Execution ownership lease contains only a local PID.
+*.engine.lock

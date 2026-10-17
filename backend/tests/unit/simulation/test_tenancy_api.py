@@ -51,7 +51,7 @@ def test_status_describes_the_virtual_account_and_the_three_strategies(client, l
     assert body["capital"] == body["cash"] == body["equity"] == 1_000_000
     assert body["today_pnl"] == 0 and body["open_positions"] == 0
     assert {"realised_today", "unrealised", "charges_today", "pnl_total", "available"} <= set(body)
-    assert set(body["strategies"]) == {"supertrend", "snapback", "gamma"}
+    assert set(body["strategies"]) == {"supertrend", "snapback", "gamma", "ema_trend"}
     assert {s["mode"] for s in body["strategies"].values()} == {"MANUAL"}
     assert set(body["runtime"]) >= {"running", "last_pass_ms", "passes", "last_error", "session_open"}
     assert body["price_feed"] == {"available": True, "detail": ""}

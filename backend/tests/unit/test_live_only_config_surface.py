@@ -44,14 +44,14 @@ def test_no_ops_file_offers_a_paper_trading_switch(path):
 )
 def test_env_templates_document_the_kill_switch_and_leave_it_on(path):
     body = _text(path)
-    assert re.search(r"^STERLING_LIVE_EXECUTION=true\s*$", body, re.M)
+    assert re.search(r"^STERLING_LIVE_EXECUTION=false\s*$", body, re.M)
     # The accepted kill-switch values are listed next to the setting.
     assert re.search(r"0\s*[|/]?\s*false\s*[|/]?\s*off\s*[|/]?\s*no\s*[|/]?\s*disabled", body)
 
 
 def test_compose_defaults_the_kill_switch_to_on_and_drops_paper():
     body = _text(REPO / "docker-compose.yml")
-    assert "STERLING_LIVE_EXECUTION: ${STERLING_LIVE_EXECUTION:-true}" in body
+    assert "STERLING_LIVE_EXECUTION: ${STERLING_LIVE_EXECUTION:-false}" in body
     assert "PAPER_TRADING" not in body
 
 

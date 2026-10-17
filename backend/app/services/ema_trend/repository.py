@@ -74,8 +74,13 @@ _SCHEMA_LOCK = threading.Lock()
 
 def _ensure_schema(conn):
     path = str(db._DB_PATH)
-    if path in _SCHEMA_READY:
+    # Restores may replace the database at the same pathname. Confirm the schema
+    # in this connection before trusting the process cache.
+    if path in _SCHEMA_READY and conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='ema_trend_schema'"
+    ).fetchone():
         return
+    _SCHEMA_READY.discard(path)
     with _SCHEMA_LOCK:
         if path not in _SCHEMA_READY:
             _schema(conn)
