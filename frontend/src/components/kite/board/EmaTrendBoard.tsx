@@ -40,7 +40,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
 
   const activeModes = config.data?.config.modes || [];
-  const hasSymbols = Boolean(config.data?.config.symbols.length);
+  const hasSymbols = Boolean(config.data &&
+    ((config.data.config.scan_stocks_enabled !== false && config.data.config.symbols.length > 0) ||
+      (config.data.config.scan_indices?.length || 0) > 0));
   const scannerEnabled = Boolean(config.data?.config.enabled);
   const scanning = ['QUEUED', 'RUNNING'].includes(job.data?.status || '') ||
     ['QUEUED', 'RUNNING'].includes(snapshot.data?.scan?.status || '') || scan.isPending;
@@ -93,6 +95,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       expected_revision: config.data.revision,
       changes: {
         symbols: [...EMA_TREND_QUICKSTART],
+        scan_stocks_enabled: true,
         modes: [...MODES],
         enabled: true,
         auto_execute: false,
@@ -191,7 +194,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       {!historical && !snapshot.isLoading && !hasSymbols && !config.isLoading && !config.isError &&
         <div role="region" aria-label="Set up EMA Trend signals" style={{ padding: 14, display: 'grid', gap: 8,
           border: '1px solid var(--k-border)', borderRadius: 8, margin: 10 }}>
-          <strong>No instruments selected for EMA Trend.</strong>
+          <strong>No scan universe selected for EMA Trend.</strong>
           <span>Choose exact stocks or listed contracts in Settings, or start with five NSE stocks across all four profiles.
             This enables read-only scans, not automatic paper entries or real orders.</span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
