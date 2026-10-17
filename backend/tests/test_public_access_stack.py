@@ -98,7 +98,8 @@ def gateway(tmp_path, callback_port):
  class Stub(BaseHTTPRequestHandler):
   def do_GET(self):
    if self.path=='/api/v1/test':
-    self.send_response(200);self.end_headers();self.wfile.write(json.dumps({'host':self.headers['Host'],'identity':self.headers.get('X-User-Id')}).encode())
+    self.send_response(200);self.end_headers();self.wfile.write(json.dumps({'host':self.headers['Host'],'identity':self.headers.get('X-User-Id'),
+                'proto':self.headers.get('X-Forwarded-Proto')}).encode())
    elif self.path.startswith('/api/v1/kite/callback?'):
     self.send_response(200);self.end_headers();self.wfile.write(self.path.encode())
    elif self.path=='/tma':self.send_response(503);self.end_headers()
@@ -110,7 +111,9 @@ def gateway(tmp_path, callback_port):
  import os
  shell=tmp_path/'shell.json'
  shell.write_text(json.dumps({'html':'<html>Telegram Mini App</html>','headers':{'content-type':'text/html'}}))
- process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],env={**os.environ,'STERLING_TMA_SHELL_CACHE':str(shell),'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':str(callback_port),'STERLING_API_TARGET':f'http://127.0.0.1:{backend.server_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],env={**os.environ,'STERLING_TMA_SHELL_CACHE':str(shell),'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':str(callback_port),
+     'STERLING_STACK_STATUS_FILE':str(tmp_path/'status.json'),
+     'STERLING_API_TARGET':f'http://127.0.0.1:{backend.server_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  origin=f'http://127.0.0.1:{port}'
  try:
   for _ in range(50):
@@ -124,7 +127,7 @@ def test_gateway_auth_and_identity(gateway):
  assert denied.value.code==401
  req=urllib.request.Request(gateway+'/api/v1/test',headers={'Host':'remote.example.test','Authorization':'Bearer synthetic','X-User-Id':'other-user'})
  with urllib.request.urlopen(req) as response:data=json.load(response)
- assert data=={'host':'remote.example.test','identity':None}
+ assert data=={'host':'remote.example.test','identity':None,'proto':'http'}
 
 def test_public_broker_callback_does_not_require_app_bearer_token(gateway):
  query='?request_token=synthetic&state=signed%2Bstate&status=success'
@@ -196,3 +199,633 @@ def test_ngrok_launch_preserves_fixed_hostname(monkeypatch):
  assert calls[0][1:]==['http','http://127.0.0.1:5180','--url',args.hostname,'--inspect=false','--log','stdout','--log-format','json']
  assert instance.status['app_url']==args.hostname
  assert instance.status['mode']=='ngrok'
+
+
+def test_dual_publication_is_atomic_and_fails_closed_for_invalid_secondary():
+ from app.services import db,public_access
+ db.init()
+ first=public_access.publish('https://primary.example.test',mode='both',
+     alternate_origins={'ngrok':'https://alternate.ngrok-free.app'})
+ assert first['app_url']=='https://primary.example.test'
+ assert first['urls']=={'cloudflare':'https://primary.example.test','ngrok':'https://alternate.ngrok-free.app'}
+ assert first['callback_url']=='https://primary.example.test/api/v1/kite/callback'
+ assert public_access.status()['urls']==first['urls']
+ assert db.get_config_strict('sterling_tma_url')=='https://primary.example.test/tma'
+ with pytest.raises(ValueError):
+  public_access.publish('https://changed.example.test',mode='both',
+      alternate_origins={'ngrok':'http://localhost:5180'})
+ assert public_access.status()['app_url']=='https://primary.example.test'
+ # A lost tunnel is removed from the published secondary set on next
+ # successful primary verification, without changing primary callback URL.
+ single=public_access.publish('https://primary.example.test',mode='both')
+ assert single['urls']=={'cloudflare':'https://primary.example.test'}
+ with db._conn() as connection:
+  connection.execute("DELETE FROM system_config WHERE key IN ('sterling_public_access','sterling_tma_url')")
+  connection.commit()
+
+
+def test_menu_links_both_verified_tunnels_and_one_primary_miniapp(monkeypatch):
+ from app.services.notifications import telegram_kite as desk
+ from app.services import public_access
+ monkeypatch.setattr(public_access,'status',lambda:{
+    'app_url':'https://cf.example.test',
+    'urls':{'cloudflare':'https://cf.example.test',
+            'ngrok':'https://secondary.ngrok-free.app'}})
+ monkeypatch.setattr(desk,'_get_tma_url',lambda:'https://cf.example.test/tma')
+ buttons=desk.kite_menu_kb()['inline_keyboard']
+ assert buttons[0]==[{'text':'☁️ Sterling · Cloudflare','url':'https://cf.example.test'}]
+ assert buttons[1]==[{'text':'🌐 Sterling · ngrok','url':'https://secondary.ngrok-free.app'}]
+ assert buttons[2][0]['web_app']['url']=='https://cf.example.test/tma'
+ assert sum('web_app' in entry for row in buttons for entry in row)==1
+
+
+def test_secondary_ngrok_never_exposes_unverified_or_local_hostname():
+ from types import SimpleNamespace
+ assert stack.safe_hostname('https://fixed.ngrok-free.app/','ngrok')=='https://fixed.ngrok-free.app'
+ for value in ('http://localhost:5180','https://127.0.0.1',
+               'https://example.test/path','https://bad.example.test?token=1',
+               'https://bad.example.test:5180'):
+  with pytest.raises(ValueError):
+   stack.safe_hostname(value,'ngrok')
+ good=json.dumps({'lvl':'info','msg':'started tunnel',
+                 'url':'https://auto.ngrok-free.app'})
+ assert stack.ngrok_url_from_log(good)=='https://auto.ngrok-free.app'
+ assert stack.ngrok_url_from_log(json.dumps({'msg':'authentication token error',
+      'url':'https://auto.ngrok-free.app'}))==''
+ assert stack.ngrok_url_from_log(json.dumps({'msg':'started tunnel',
+      'url':'http://localhost:5180'}))==''
+ assert stack.ngrok_url_from_log(json.dumps({'msg':'started tunnel',
+      'url':'https://attacker.example.test'}))==''
+
+
+def test_dual_launcher_starts_optional_secondary_and_dev_on_same_backend(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='https://secondary.ngrok-free.app',
+                      port=5180,dev=True,dev_port=5174)
+ instance=stack.Stack(args)
+ instance.ngrok_binary='/usr/local/bin/ngrok'
+ created=[]
+ class Process:
+  pid=321
+  stdout=[]
+  def poll(self):return None
+ def spawn(command,**kwargs):
+  created.append((command,kwargs))
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',spawn)
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setattr(instance,'stop_child',lambda *_:None)
+ instance.launch_ngrok()
+ instance.start_dev()
+ assert created[0][0]==[
+   '/usr/local/bin/ngrok','http','http://127.0.0.1:5180','--url',
+   'https://secondary.ngrok-free.app','--inspect=false','--log','stdout',
+   '--log-format','json']
+ assert created[1][0]==['npm','run','dev','--','--host','127.0.0.1',
+                        '--port','5174','--strictPort']
+ assert created[1][1]['env']['API_TARGET']=='http://127.0.0.1:8000'
+ assert instance.status['local_url']=='http://127.0.0.1:5180'
+ assert instance.status['dev_url']=='http://127.0.0.1:5174'
+ assert instance.status['ngrok_url']=='https://secondary.ngrok-free.app'
+
+
+def test_primary_publisher_receives_only_verified_secondary(monkeypatch):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False)
+ instance=stack.Stack(args)
+ instance.python='python'
+ instance.status.update(app_url='https://cf.example.test',
+     ngrok_url='https://secondary.ngrok-free.app',
+     public_ready={'cloudflare':True,'ngrok':True})
+ calls=[]
+ def publish(cmd,**kwargs):
+  calls.append(cmd)
+  return SimpleNamespace(returncode=0,stdout='{"published":true,"telegram_menu_updated":true}')
+ monkeypatch.setattr(stack.subprocess,'run',publish)
+ assert instance.publish()
+ assert calls[-1][-3:]==['https://cf.example.test','both',
+                         'https://secondary.ngrok-free.app']
+ assert instance.status['callback_url']=='https://cf.example.test/api/v1/kite/callback'
+ instance.status['public_ready']['ngrok']=False
+ assert instance.publish()
+ assert calls[-1][-1]==''
+
+
+def test_named_primary_and_single_ngrok_urls_are_reported_without_guessing(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ calls=[]
+ class Process:
+  pid=412
+  stdout=[]
+  def poll(self):return None
+ def fake_popen(command,**kwargs):
+  calls.append(command)
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',fake_popen)
+ for provider,host,key in [
+   ('both','https://named-cloudflare.example.test','cloudflare_url'),
+   ('ngrok','https://reserved.ngrok-free.app','ngrok_url'),
+ ]:
+  args=SimpleNamespace(provider=provider,hostname=host,port=5180,
+       dev=False,dev_port=5174,ngrok_hostname='')
+  supervisor=stack.Stack(args)
+  supervisor.binary='/usr/bin/cloudflared' if provider=='both' else '/usr/bin/ngrok'
+  supervisor.launch_tunnel()
+  assert supervisor.status['app_url']==host
+  assert supervisor.status[key]==host
+  assert supervisor.status['tunnel_started_at']
+ assert calls[0][:3]==['/usr/bin/cloudflared','tunnel','--no-autoupdate']
+ assert calls[1][:3]==['/usr/bin/ngrok','http','http://127.0.0.1:5180']
+
+
+def test_missing_ngrok_does_not_stop_cloudflare_or_backend(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='',
+      port=5180,dev=True,dev_port=5174)
+ supervisor=stack.Stack(args)
+ supervisor.ngrok_binary=None
+ supervisor.children['backend']=object()
+ supervisor.launch_ngrok()
+ assert supervisor.status['ngrok_error']=='NGROK_BINARY_NOT_INSTALLED'
+ assert supervisor.status['ngrok_url']==''
+ assert 'backend' in supervisor.children
+ assert supervisor.status['local_url']=='http://127.0.0.1:5180'
+
+
+def test_unverified_ngrok_republication_preserves_primary_without_secondary(monkeypatch):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False)
+ supervisor=stack.Stack(args)
+ supervisor.python='python'
+ supervisor.status.update(app_url='https://named.example.test',
+     ngrok_url='https://secondary.ngrok-free.app',
+     public_ready={'cloudflare':True,'ngrok':False})
+ calls=[]
+ def fake_publisher(command,**kwargs):
+  calls.append(command)
+  return SimpleNamespace(returncode=0,
+      stdout='{"published":true,"telegram_menu_updated":true}')
+ monkeypatch.setattr(stack.subprocess,'run',fake_publisher)
+ assert supervisor.publish()
+ assert calls[-1][-1]==''
+ assert supervisor.status['callback_url']=='https://named.example.test/api/v1/kite/callback'
+
+
+def test_ngrok_https_is_trusted_only_when_supervisor_owns_matching_tunnel(gateway,tmp_path):
+ status=tmp_path/'status.json'
+ status.write_text(json.dumps({
+   'ngrok_url':'https://verified.ngrok-free.app','children':{'ngrok':456},
+   'phase':'ready',
+ }))
+ def request(host):
+  req=urllib.request.Request(gateway+'/api/v1/test',headers={
+   'Host':host,'Authorization':'Bearer test','X-Forwarded-Proto':'https'})
+  with urllib.request.urlopen(req) as response:return json.load(response)
+ good=request('verified.ngrok-free.app')
+ assert good['proto']=='https'
+ assert good['host']=='verified.ngrok-free.app'
+ assert request('untrusted.example.test')['proto']=='http'
+ status.write_text(json.dumps({
+   'ngrok_url':'https://verified.ngrok-free.app','children':{'ngrok':456},
+   'phase':'stopped',
+ }))
+ assert request('verified.ngrok-free.app')['proto']=='http'
+
+
+def test_ss_listener_parser_recognizes_only_reported_listening_pid(monkeypatch):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack.shutil, 'which', lambda exe: '/usr/bin/ss' if exe == 'ss' else None)
+ def run(command, **kwargs):
+  assert command == ['ss','-H','-ltnp','sport = :5180']
+  return SimpleNamespace(stdout=('LISTEN 0 511 127.0.0.1:5180 0.0.0.0:* '
+   'users:(("node",pid=17937,fd=18))\n'))
+ monkeypatch.setattr(stack.subprocess,'run',run)
+ assert stack._gateway_listener_pids(5180)==[17937]
+
+
+def test_unverified_existing_gateway_is_not_terminated(monkeypatch):
+ import signal
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[5555])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:False)
+ sent=[]
+ monkeypatch.setattr(stack.os,'kill',lambda pid,sig:sent.append((pid,sig)))
+ with pytest.raises(RuntimeError,match='unverified process'):
+  stack._reclaim_gateway(5180)
+ assert sent == []
+
+
+def test_gateway_reclaimer_only_terminates_verified_same_checkout_web(monkeypatch):
+ import signal
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[6666])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:pid==6666)
+ sent=[]
+ closed={'yes':False}
+ monkeypatch.setattr(stack.os,'kill',lambda pid,sig:
+  (sent.append((pid,sig)),closed.__setitem__('yes',True)))
+ class Probe:
+  def __enter__(self):return self
+  def __exit__(self,*args):return None
+  def connect_ex(self,location):return 1 if closed['yes'] else 0
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
+ assert stack._reclaim_gateway(5180)==6666
+ assert sent==[(6666,signal.SIGTERM)]
+ assert not any(pid==8000 for pid,_ in sent)
+
+
+def test_ambiguous_multiple_gateway_owners_must_not_be_killed(monkeypatch):
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[111,222])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:True)
+ called=[]
+ monkeypatch.setattr(stack.os,'kill',lambda *a:called.append(a))
+ with pytest.raises(RuntimeError,match='unverified process'):
+  stack._reclaim_gateway(5180)
+ assert called == []
+
+
+def test_new_gateway_must_own_listening_socket_and_respond_to_health(monkeypatch):
+ from types import SimpleNamespace
+ child=SimpleNamespace(pid=789,poll=lambda:None)
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[789])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:pid==789)
+ monkeypatch.setattr(stack,'fetch',lambda url,timeout=2:
+  (200,'{"service":"sterling-web","ready":true}'))
+ stack._verify_gateway_child(child,5180)
+
+
+def test_old_gateway_serving_200_does_not_allow_ours_to_claim_readiness(monkeypatch):
+ from types import SimpleNamespace
+ child=SimpleNamespace(pid=789,poll=lambda:None)
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[555])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:False)
+ monkeypatch.setattr(stack,'fetch',lambda url,timeout=2:
+  (200,'{"service":"sterling-web","ready":true}'))
+ with pytest.raises(RuntimeError,match='unexpected listener'):
+  stack._verify_gateway_child(child,5180)
+
+
+def test_exited_gateway_does_not_count_as_started(monkeypatch):
+ from types import SimpleNamespace
+ child=SimpleNamespace(pid=789,poll=lambda:1)
+ with pytest.raises(RuntimeError,match='exited without binding'):
+  stack._verify_gateway_child(child,5180)
+
+
+def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,capsys):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ existing={'manager_pid':80808,'manager_protocol':3,'mode':'both',
+  'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
+  'local_url':'http://127.0.0.1:5180',
+  'public_ready':{'cloudflare':True,'ngrok':True},
+  'urls':{
+    'cloudflare':'https://cloudflare.example.test',
+    'ngrok':'https://ngrok.example.test'}}
+ monkeypatch.setattr(stack,'read_state',lambda:existing)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ def no_restart(*args,**kwargs):
+  raise AssertionError('Repeated ./sterling.sh up must reuse the manager')
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',no_restart)
+ monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ out=capsys.readouterr().out
+ assert 'reusing backend and tunnels' in out
+ assert 'https://cloudflare.example.test' in out
+ assert 'https://ngrok.example.test' in out
+
+
+def test_up_replaces_old_ui_manager_but_never_calls_backend_shutdown(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setattr(stack,'read_state',lambda:{
+   'manager_pid':6661,'mode':'ngrok','phase':'ready'})
+ active={'value':True}
+ monkeypatch.setattr(stack,'alive',lambda pid:active['value'])
+ stopped=[]
+ def stop(pid):
+  stopped.append(pid)
+  active['value']=False
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',stop)
+ started=[]
+ class Process:pass
+ def popen(command,**kwargs):
+  started.append(command)
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',popen)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ assert stopped==[6661]
+ assert len(started)==1
+ assert str(stack.ROOT/'scripts/sterling_stack.py') in started[0]
+ assert 'run' in started[0]
+ assert '--all' in started[0]
+ assert '--skip-build' not in started[0]
+
+
+def test_up_does_not_kill_unverifiable_old_manager(monkeypatch):
+ import signal
+ monkeypatch.setattr(stack,'alive',lambda pid:False)
+ delivered=[]
+ monkeypatch.setattr(stack.os,'kill',lambda *args:delivered.append(args))
+ stack._stop_old_managed_presentation(555)
+ assert delivered==[]
+
+
+def test_healthy_manager_must_own_listener_not_just_responsive_port(monkeypatch):
+ state={'web_port':5180,'children':{'web':789}}
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[555])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:True)
+ assert not stack._managed_web_owns_port(state)
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[789])
+ assert stack._managed_web_owns_port(state)
+
+
+def test_start_web_reclaims_old_matching_listener_before_spawning(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=True,dev_port=5174)
+ manager=stack.Stack(args)
+ order=[]
+ class Probe:
+  def __enter__(self):return self
+  def __exit__(self,*args):return False
+  def connect_ex(self,loc):return 0  # an old listener occupies 5180
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
+ monkeypatch.setattr(stack,'_reclaim_gateway',
+                     lambda port:(order.append('reclaim'),456)[1])
+ class Child:
+  pid=789
+  def poll(self):return None
+ monkeypatch.setattr(stack.subprocess,'Popen',
+                     lambda *a,**kw:(order.append('spawn'),Child())[1])
+ monkeypatch.setattr(stack,'_verify_gateway_child',
+                     lambda child,port:order.append('verify'))
+ manager.start_web()
+ assert order==['reclaim','spawn','verify']
+ assert manager.status['gateway_reclaimed_pid']==456
+ assert manager.status['web_ready_pid']==789
+ assert manager.children['web'].pid==789
+
+
+def test_start_web_refuses_unknown_listener_without_launching_second(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False,dev_port=5174)
+ manager=stack.Stack(args)
+ class Probe:
+  def __enter__(self):return self
+  def __exit__(self,*args):return False
+  def connect_ex(self,loc):return 0
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
+ def block(port):
+  raise RuntimeError('unverified process')
+ monkeypatch.setattr(stack,'_reclaim_gateway',block)
+ def no_spawn(*a,**kw):
+  raise AssertionError('must never start second web process')
+ monkeypatch.setattr(stack.subprocess,'Popen',no_spawn)
+ with pytest.raises(RuntimeError,match='unverified process'):
+  manager.start_web()
+
+
+def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setattr(stack,'read_state',lambda:{
+  'manager_pid':80808,'manager_protocol':3,'mode':'both',
+  'dev_url':'http://127.0.0.1:5174','web_port':5180,
+  'phase':'starting','local_url':'http://127.0.0.1:5180'})
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:False)
+ def no_restart(*a,**kwargs):
+  raise AssertionError('initializing supervisor must be reused')
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',no_restart)
+ monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+
+
+def test_committed_frontend_extraction_ignores_modified_and_untracked_source(tmp_path,monkeypatch):
+ import os
+ repo=tmp_path/'repo'
+ source=repo/'frontend'
+ source.mkdir(parents=True)
+ (source/'package.json').write_text('{"name":"sterling-fixture","version":"1.0.0"}')
+ (source/'package-lock.json').write_text('{"lockfileVersion":3}')
+ (source/'index.html').write_text('COMMITTED RELEASE')
+ subprocess.run(['git','init','-q',str(repo)],check=True)
+ subprocess.run(['git','-C',str(repo),'add','frontend'],check=True)
+ subprocess.run(['git','-C',str(repo),'-c','user.name=Test',
+                 '-c','user.email=test@example.test','commit','-qm','release'],check=True)
+ sha=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
+ (source/'index.html').write_text('DIRTY WORKING EDIT')
+ (source/'untracked-secret.txt').write_text('UNCOMMITTED CONTENT')
+ state=tmp_path/'release-state'
+ state.mkdir()
+ monkeypatch.setattr(stack,'ROOT',repo)
+ monkeypatch.setattr(stack,'STATE',state)
+ publisher=stack.CommittedFrontend('HEAD')
+ assert publisher.resolve_commit()==sha
+ publisher._extract(sha)
+ assert (publisher.frontend/'index.html').read_text()=='COMMITTED RELEASE'
+ assert not (publisher.frontend/'untracked-secret.txt').exists()
+ assert (source/'index.html').read_text()=='DIRTY WORKING EDIT'
+ assert (source/'untracked-secret.txt').is_file()
+
+
+def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_path,monkeypatch):
+ from types import SimpleNamespace
+ state=tmp_path/'release-state'
+ state.mkdir()
+ monkeypatch.setattr(stack,'STATE',state)
+ publisher=stack.CommittedFrontend()
+ current=['a'*40]
+ monkeypatch.setattr(publisher,'resolve_commit',lambda:current[0])
+ def committed_extract(sha):
+  publisher.frontend.mkdir(parents=True,exist_ok=True)
+  (publisher.frontend/'package-lock.json').write_text('{"lockfileVersion":3}')
+  # Deliberately leave stale contents: promotion must clear them before build.
+  (publisher.frontend/'dist').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/leftover.js').write_text('STALE')
+ monkeypatch.setattr(publisher,'_extract',committed_extract)
+ monkeypatch.setattr(publisher,'_dependencies',lambda:None)
+ fail=[False]
+ def simulated_build(command,**kwargs):
+  assert command==['npm','run','build']
+  assert not (publisher.frontend/'dist/leftover.js').exists()
+  if fail[0]:
+   raise subprocess.CalledProcessError(1,command)
+  (publisher.frontend/'dist').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/index.html').write_text(f'BUILD {current[0]}')
+  (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/assets/old.js').write_text('OLD HASHED ASSET')
+  return SimpleNamespace(returncode=0)
+ monkeypatch.setattr(stack.subprocess,'run',simulated_build)
+ sha,changed=publisher.publish()
+ assert changed and sha=='a'*40
+ assert publisher.current()==sha
+ assert (publisher.pointer/'index.html').read_text()==f'BUILD {sha}'
+ current[0]='b'*40
+ fail[0]=True
+ with pytest.raises(subprocess.CalledProcessError):
+  publisher.publish()
+ assert publisher.current()=='a'*40
+ assert (publisher.pointer/'index.html').read_text()=='BUILD '+('a'*40)
+ fail[0]=False
+ sha,changed=publisher.publish()
+ assert changed and sha=='b'*40
+ assert publisher.current()=='b'*40
+ assert (publisher.pointer/'assets/old.js').read_text()=='OLD HASHED ASSET'
+ assert publisher.publish()==('b'*40,False)
+
+
+def test_gateway_serves_new_committed_release_without_restart(tmp_path):
+ import os
+ with socket.socket() as sock:
+  sock.bind(('127.0.0.1',0))
+  port=sock.getsockname()[1]
+ first=tmp_path/'releases/a'
+ second=tmp_path/'releases/b'
+ first.mkdir(parents=True)
+ second.mkdir(parents=True)
+ (first/'index.html').write_text('<html><div id="root">COMMIT A</div></html>')
+ (second/'index.html').write_text('<html><div id="root">COMMIT B</div></html>')
+ pointer=tmp_path/'published'
+ pointer.symlink_to(first,target_is_directory=True)
+ manifest=tmp_path/'published.json'
+ manifest.write_text(json.dumps({'sha':'a'*40,'ref':'HEAD'}))
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
+   env={**os.environ,'STERLING_WEB_PORT':str(port),
+        'STERLING_CALLBACK_PORT':'0','STERLING_STATIC_ROOT':str(pointer),
+        'STERLING_RELEASE_MANIFEST':str(manifest)},
+   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ origin=f'http://127.0.0.1:{port}'
+ try:
+  for _ in range(80):
+   try:
+    with urllib.request.urlopen(origin+'/',timeout=.25) as response:
+     assert response.status==200
+     assert 'COMMIT A' in response.read().decode()
+     assert response.headers['Cache-Control']=='no-store'
+    break
+   except (ConnectionError,urllib.error.URLError):
+    time.sleep(.05)
+  else:pytest.fail('Committed gateway failed to start')
+  temp=tmp_path/'published.next'
+  temp.symlink_to(second,target_is_directory=True)
+  temp.replace(pointer)
+  manifest.write_text(json.dumps({'sha':'b'*40,'ref':'HEAD'}))
+  with urllib.request.urlopen(origin+'/',timeout=2) as response:
+   assert 'COMMIT B' in response.read().decode()
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   health=json.load(response)
+   assert health['ready'] is True
+   assert health['release_commit']=='b'*40
+  assert process.poll() is None
+ finally:
+  process.terminate()
+  process.wait(8)
+
+
+
+def test_release_update_worker_reports_committed_version_without_restarting_services(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ manager=stack.Stack(SimpleNamespace(provider='both',hostname='',
+                                     port=5180,dev=True,dev_port=5174))
+ monkeypatch.setattr(manager.publisher,'publish',lambda:('c'*40,True))
+ monkeypatch.setattr(stack.subprocess,'run',
+                     lambda *args,**kwargs:(_ for _ in ()).throw(
+                         AssertionError('No remote fetch requested')))
+ manager.refresh_committed_release(False)
+ assert manager.release_results.get_nowait()==('ready','c'*40,True)
+ assert manager.backend_owned is False
+ assert manager.children=={}
+
+
+def test_release_update_worker_fails_closed_and_retains_prior_release(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ manager=stack.Stack(SimpleNamespace(provider='both',hostname='',
+                                     port=5180,dev=True,dev_port=5174))
+ def fail_compile():
+  raise subprocess.CalledProcessError(2,['npm','run','build'])
+ monkeypatch.setattr(manager.publisher,'publish',fail_compile)
+ manager.refresh_committed_release(False)
+ assert manager.release_results.get_nowait()==('failed','CalledProcessError',False)
+
+
+def test_public_source_defaults_to_local_main_and_rejects_invalid_ref(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ assert publisher.ref=='main'
+ assert publisher.frontend==tmp_path/'committed-source/frontend'
+ for ref in ('--output=/tmp/leak', 'refs/heads/../foo', 'HEAD;rm -rf /'):
+  with pytest.raises(ValueError,match='Invalid published Git ref'):
+   stack.CommittedFrontend(ref)
+
+
+
+def test_up_dashboard_is_prominent_and_prints_only_verified_urls(monkeypatch,capsys):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
+ state={
+  'phase':'ready','release_ref':'main','release_commit':'a'*40,
+  'local_url':'http://127.0.0.1:5180',
+  'dev_url':'http://127.0.0.1:5174',
+  'public_ready':{'cloudflare':True,'ngrok':False},
+  'urls':{'cloudflare':'https://cf.example.test',
+          'ngrok':'https://OLD-UNVERIFIED.ngrok-free.app'},
+ }
+ stack.print_up_dashboard(state,reused=True,gateway_ready=True)
+ out=capsys.readouterr().out
+ assert 'S T E R L I N G' in out
+ assert 'reusing backend and tunnels' in out
+ assert 'LOCAL APP' in out and 'http://127.0.0.1:5180' in out
+ assert 'CLOUDFLARE' in out and 'https://cf.example.test' in out
+ assert 'NGROK' in out and 'CONNECTING' in out
+ assert 'OLD-UNVERIFIED' not in out
+ assert 'http://127.0.0.1:5174' in out
+ assert 'main · aaaaaaaaaaaa' in out
+ assert '\x1b[' not in out
+ assert 'uncommitted edits' in out
+
+
+def test_up_dashboard_contains_ansi_colors_only_for_terminal(monkeypatch,capsys):
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:True)
+ state={'phase':'ready','public_ready':{'cloudflare':True,'ngrok':True},
+        'urls':{'cloudflare':'https://cf.example.test',
+                'ngrok':'https://ngrok.example.test'}}
+ stack.print_up_dashboard(state,reused=True,gateway_ready=True)
+ out=capsys.readouterr().out
+ assert '\x1b[1;96m' in out  # bright cyan URLs / branding
+ assert '\x1b[1;92m' in out  # verified green status
+ assert '\x1b[1;95m' in out  # dev purple
+ assert 'https://cf.example.test' in out
+ assert 'https://ngrok.example.test' in out
+
+
+def test_up_dashboard_starting_never_displays_stale_public_urls(monkeypatch,capsys):
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
+ state={'phase':'starting',
+        'public_ready':{'cloudflare':True,'ngrok':True},
+        'urls':{'cloudflare':'https://stale-cf.example.test',
+                'ngrok':'https://stale-ngrok.example.test'}}
+ stack.print_up_dashboard(state,reused=False,gateway_ready=False)
+ output=capsys.readouterr().out
+ assert 'STARTING' in output
+ assert output.count('CONNECTING')==2
+ assert 'stale-cf' not in output and 'stale-ngrok' not in output
+ assert 'http://127.0.0.1:5180' in output
+ assert 'http://127.0.0.1:5174' in output
+
+
+def test_no_color_environment_disables_ansi_even_for_real_tty(monkeypatch):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack.sys,'stdout',SimpleNamespace(isatty=lambda:True))
+ monkeypatch.setenv('TERM','xterm-256color')
+ monkeypatch.setenv('NO_COLOR','1')
+ assert stack._terminal_color_enabled() is False
+ monkeypatch.delenv('NO_COLOR')
+ assert stack._terminal_color_enabled() is True
+ monkeypatch.setenv('TERM','dumb')
+ assert stack._terminal_color_enabled() is False

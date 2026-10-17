@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import io
+import tarfile
 import json
 import os
 import platform
@@ -184,6 +186,89 @@ def _stop_old_managed_presentation(pid):
         )
 
 
+def _terminal_color_enabled():
+    """ANSI color is for a real terminal, never logs, pipes, or NO_COLOR users."""
+    return bool(sys.stdout.isatty() and 'NO_COLOR' not in os.environ
+                and os.environ.get('TERM', '') != 'dumb')
+
+
+def _terminal_style(value, color, enabled):
+    palette={'brand':'\x1b[1;96m','green':'\x1b[1;92m',
+             'yellow':'\x1b[1;93m','magenta':'\x1b[1;95m',
+             'muted':'\x1b[2m','bold':'\x1b[1m'}
+    return f'{palette[color]}{value}\x1b[0m' if enabled else value
+
+
+def _clean_terminal_value(value):
+    return re.sub(r'[\x00-\x1f\x7f-\x9f]', '', str(value or ''))
+
+
+def print_up_dashboard(state, *, reused, gateway_ready=False):
+    """One prominent overview; report verified tunnel URLs, never guessed links."""
+    color=_terminal_color_enabled()
+    fmt=lambda text,tone: _terminal_style(text,tone,color)
+    phase=state.get('phase','starting')
+    ready=bool(gateway_ready and phase=='ready')
+    # Do not print cached URLs unless the running manager confirmed them.
+    healthy=state.get('public_ready') or {}
+    urls=state.get('urls') or {}
+    def public_origin(provider):
+        if not ready or not healthy.get(provider):
+            return None
+        origin=urls.get(provider,'')
+        try:
+            parsed=urlsplit(origin)
+            if (parsed.scheme=='https' and parsed.hostname and
+                    parsed.username is None and parsed.password is None
+                    and not parsed.query and not parsed.fragment):
+                return _clean_terminal_value(origin)
+        except (ValueError,TypeError):
+            pass
+        return None
+
+    def line(name, url, state_label, tone, icon='●'):
+        # Keep the actual URL as readable, copyable text (no hidden hyperlinks).
+        label=fmt(f'  {name:<14}', 'bold')
+        marker=fmt(f'{icon} {state_label:<14}',tone)
+        target=fmt(_clean_terminal_value(url),'brand' if url.startswith('http') else 'muted')
+        print(f'{label} {marker} {target}')
+
+    print()
+    print(fmt('  ╔══════════════════════════════════════════════════════════════════╗','brand'))
+    print(fmt('  ║  ✦ S T E R L I N G     ·     ONE-COMMAND WORKSPACE             ║','brand'))
+    print(fmt('  ╚══════════════════════════════════════════════════════════════════╝','brand'))
+    print('  '+fmt('● MANAGED — reusing backend and tunnels','green')
+          if reused else '  '+fmt('◉ STARTING — one backend, both public tunnels and dev','yellow'))
+    print()
+    local=_clean_terminal_value(state.get('local_url') or 'http://127.0.0.1:5180')
+    development=_clean_terminal_value(state.get('dev_url') or 'http://127.0.0.1:5174')
+    line('LOCAL APP',local,'READY' if ready else 'STARTING',
+         'green' if ready else 'yellow')
+    for name,provider in [('CLOUDFLARE','cloudflare'),('NGROK','ngrok')]:
+        found=public_origin(provider)
+        line(name,found or 'Connecting — awaiting HTTPS verification',
+             'VERIFIED' if found else 'CONNECTING','green' if found else 'yellow',
+             '●' if found else '◌')
+    # Vite is launched by the supervisor, but do not claim HTTP readiness from
+    # the existence of a remembered child PID alone.
+    line('DEV · HOT RELOAD',development,'LOCAL WORKTREE','magenta')
+    print()
+    print('  '+fmt('PUBLIC  ','green')+
+          'committed frontend · same release on local, Cloudflare and ngrok')
+    print('  '+fmt('DEV     ','magenta')+
+          'uncommitted edits appear only on the development URL')
+    release=_clean_terminal_value(state.get('release_commit',''))
+    if release:
+        print('  '+fmt('RELEASE ','brand')+
+              f'{_clean_terminal_value(state.get("release_ref","main"))} · {release[:12]}')
+    if state.get('release_stale'):
+        print('  '+fmt('! Previous committed release retained; latest build failed.','yellow'))
+    if state.get('ngrok_error'):
+        print('  '+fmt(f'! ngrok: {_clean_terminal_value(state["ngrok_error"])}','yellow'))
+    print('  '+fmt('DETAILS ','muted')+'./sterling.sh urls   ·   ./sterling.sh status')
+    print()
+
+
 def read_state():
     try:return json.loads((STATE/'status.json').read_text())
     except (OSError,ValueError):return {}
@@ -266,17 +351,161 @@ def ensure_runtime(skip_build):
     if not shutil.which('node') or not shutil.which('npm'):raise RuntimeError('Node.js and npm are required')
     if not (ROOT/'frontend/node_modules').exists():
         subprocess.run(['npm','ci'],cwd=ROOT/'frontend',check=True,stdout=subprocess.DEVNULL)
-    if not skip_build or not (ROOT/'frontend/dist/index.html').exists():
-        with (STATE/'build.log').open('w') as log:
-            subprocess.run(['npm','run','build'],cwd=ROOT/'frontend',env={**clean_env(),'VITE_API_BASE_URL':''},check=True,stdout=log,stderr=log)
+    # Never compile the public app from ROOT/frontend: local edits and
+    # untracked source are strictly for Vite dev on 5174.
+    # CommittedFrontend publishes the isolated build from Git archive.
     return python
+
+
+
+class CommittedFrontend:
+    """Publish ONLY Git-owned frontend files, never a dirty working tree.
+
+    The 5180 gateway dynamically reads the 'published' atomic symlink. This
+    class does not modify Git refs, local edits or the long-lived Kite backend.
+    """
+    def __init__(self, ref='main'):
+        if not re.fullmatch(
+            r'(?:HEAD|main|origin/main|refs/(?:heads|remotes/origin)/[A-Za-z0-9._/-]+)',
+            ref,
+        ) or any(part in {'', '.', '..'} for part in ref.split('/')):
+            raise ValueError('Invalid published Git ref')
+        self.ref=ref
+        self.stage=STATE/'committed-source'
+        self.frontend=self.stage/'frontend'
+        self.pointer=STATE/'published'
+        self.releases=STATE/'releases'
+        self.manifest=STATE/'published.json'
+        self.lock_stamp=STATE/'committed-npm-lock.sha256'
+
+    def resolve_commit(self):
+        rev=subprocess.run(['git','-C',str(ROOT),'rev-parse','--verify',
+                            f'{self.ref}^{{commit}}'],
+                           capture_output=True,text=True,timeout=12,check=True)
+        result=rev.stdout.strip()
+        if not re.fullmatch(r'[a-f0-9]{40,64}',result):
+            raise RuntimeError('Git did not return a commit SHA')
+        return result
+
+    def current(self):
+        try:
+            item=json.loads(self.manifest.read_text())
+            path=self.pointer.resolve(strict=True)
+            if (path==self.releases/item['sha'] and
+                    (path/'index.html').is_file()):
+                return item['sha']
+        except (OSError,ValueError,KeyError,TypeError):
+            pass
+        return ''
+
+    def _extract(self, sha):
+        """Use git archive, not checkout: uncommitted files cannot enter build."""
+        self.frontend.mkdir(parents=True,exist_ok=True)
+        # Preserve installed npm dependencies only; every other build input
+        # is restored from the same immutable Git commit.
+        for child in self.frontend.iterdir():
+            if child.name=='node_modules':
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        proc=subprocess.Popen(['git','-C',str(ROOT),'archive','--format=tar',
+                               sha,'frontend'],
+                              stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        try:
+            with tarfile.open(fileobj=proc.stdout,mode='r|') as archive:
+                for member in archive:
+                    name=Path(member.name)
+                    if (name.is_absolute() or '..' in name.parts or
+                            (not member.isfile() and not member.isdir())):
+                        raise RuntimeError('Unsafe frontend archive member')
+                    target=(self.stage/name).resolve()
+                    if not target.is_relative_to(self.stage.resolve()):
+                        raise RuntimeError('Git archive path escaped release staging')
+                    archive.extract(member,path=self.stage,filter='data')
+        except Exception:
+            proc.kill()
+            proc.wait()
+            raise
+        if proc.wait(timeout=30):
+            raise RuntimeError('Could not extract committed frontend')
+        if not (self.frontend/'package-lock.json').is_file():
+            raise RuntimeError('Committed frontend has no package-lock.json')
+
+    def _dependencies(self):
+        digest=hashlib.sha256((self.frontend/'package-lock.json').read_bytes()).hexdigest()
+        try:cached=self.lock_stamp.read_text().strip()
+        except OSError:cached=''
+        if cached==digest and (self.frontend/'node_modules/.bin/vite').exists():
+            return
+        with (STATE/'release-build.log').open('a') as log:
+            subprocess.run(['npm','ci','--no-audit','--no-fund'],
+                           cwd=self.frontend,stdout=log,stderr=log,
+                           timeout=600,check=True)
+        self.lock_stamp.write_text(digest)
+
+    def publish(self):
+        sha=self.resolve_commit()
+        if self.current()==sha:return sha,False
+        existing=self.releases/sha
+        if not (existing/'index.html').is_file():
+            # Remove only a leftover unpublished staging directory from an
+            # interrupted run. Published release directories are immutable.
+            self._extract(sha)
+            self._dependencies()
+            # Never carry a tracked or leftover dist into a new committed
+            # build; Vite intentionally has emptyOutDir=false for other flows.
+            old_dist=self.frontend/'dist'
+            if old_dist.exists():shutil.rmtree(old_dist)
+            with (STATE/'release-build.log').open('a') as log:
+                subprocess.run(['npm','run','build'],
+                               cwd=self.frontend,
+                               env={**clean_env(),'VITE_API_BASE_URL':''},
+                               stdout=log,stderr=log,
+                               timeout=360,check=True)
+            built=self.frontend/'dist'
+            if not (built/'index.html').is_file():
+                raise RuntimeError('Committed build did not produce index.html')
+            self.releases.mkdir(parents=True,exist_ok=True)
+            staged=self.releases/(sha+'.tmp')
+            if staged.exists():shutil.rmtree(staged)
+            shutil.copytree(built,staged)
+            # Keep already referenced content-hashed assets for open browser
+            # sessions across a release, avoiding broken tabs after promotion.
+            previous=self.pointer.resolve()
+            old_assets=previous/'assets'
+            new_assets=staged/'assets'
+            if old_assets.is_dir():
+                new_assets.mkdir(exist_ok=True)
+                for item in old_assets.iterdir():
+                    if item.is_file() and not (new_assets/item.name).exists():
+                        shutil.copy2(item,new_assets/item.name)
+            staged.rename(existing)
+        tmp=STATE/'published.next'
+        tmp.unlink(missing_ok=True)
+        tmp.symlink_to(existing,target_is_directory=True)
+        tmp.replace(self.pointer)
+        manifest={'sha':sha,'ref':self.ref,'updated_ms':int(time.time()*1000)}
+        pending=STATE/'published.json.tmp'
+        pending.write_text(json.dumps(manifest))
+        os.chmod(pending,0o600)
+        pending.replace(self.manifest)
+        # Retain the last two releases plus the new current release. Old
+        # hashed files are already carried into new current for open tabs.
+        previous=self.pointer.resolve()
+        old=sorted((x for x in self.releases.iterdir()
+                    if x.is_dir() and not x.name.endswith('.tmp')
+                    and x!=previous),key=lambda x:x.stat().st_mtime,reverse=True)
+        for path in old[2:]:shutil.rmtree(path)
+        return sha,True
 
 
 class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
         provider=getattr(args,'provider','cloudflare')
-        self.status={'manager_pid':os.getpid(),'manager_protocol':2,'phase':'starting','app_url':'','mini_app_url':'',
+        self.status={'manager_pid':os.getpid(),'manager_protocol':3,'phase':'starting','app_url':'','mini_app_url':'',
                      'mode':'both' if provider=='both' else 'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'),
                      'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
@@ -284,6 +513,13 @@ class Stack:
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
         self.last_public_signature=None;self.last_ngrok_retry=0;self.last_dev_retry=0
         self.ngrok_urls=queue.Queue();self.ngrok_binary=None
+        self.publisher=CommittedFrontend(os.environ.get('STERLING_PUBLISH_REF','main'))
+        self.last_release_check=0;self.last_fetch=0
+        self.status['release_ref']=self.publisher.ref
+        self.status['release_commit']=self.publisher.current()
+        self.status['release_error']=''
+        self.release_results=queue.Queue()
+        self.release_running=False
 
     def spawn(self,name,argv,**kwargs):
         log=(STATE/f'{name}.log').open('a');os.chmod(STATE/f'{name}.log',0o600);self.logs.append(log)
@@ -400,6 +636,18 @@ class Stack:
               + f"\nTelegram desk: {origin}/tma",flush=True)
         return True
 
+    def refresh_committed_release(self, fetch_remote: bool):
+        """Background build: do not block protection and tunnel checks."""
+        try:
+            if fetch_remote:
+                subprocess.run(['git','-C',str(ROOT),'fetch','origin','main'],
+                               timeout=45,check=True,
+                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            revision,promoted=self.publisher.publish()
+            self.release_results.put(('ready',revision,promoted))
+        except Exception as error:
+            self.release_results.put(('failed',type(error).__name__,False))
+
     def run(self):
         self.python=ensure_runtime(self.args.skip_build)
         self.binary=(shutil.which('ngrok') if self.args.provider=='ngrok'
@@ -420,6 +668,17 @@ class Stack:
             try:fetch('http://127.0.0.1:8000/docs',2);break
             except Exception:time.sleep(1)
         else:raise RuntimeError('Backend did not become ready')
+        # Fail closed before opening public URLs if no committed build exists.
+        try:
+            revision,promoted=self.publisher.publish()
+            self.status['release_commit']=revision
+        except Exception as error:
+            self.status['release_error']=type(error).__name__
+            previous=self.publisher.current()
+            if not previous:
+                raise RuntimeError('No valid committed frontend build. Check release-build.log.') from error
+            self.status['release_commit']=previous
+            self.status['release_stale']=True
         self.start_web()
         if getattr(self.args,'dev',False):self.start_dev()
         self.launch_tunnel()
@@ -430,6 +689,29 @@ class Stack:
             if self.backend_owned and self.children['backend'].poll() is not None:self.start_backend()
             if self.children['web'].poll() is not None:self.start_web()
             now=time.monotonic()
+            while not self.release_results.empty():
+                outcome,revision,promoted=self.release_results.get()
+                self.release_running=False
+                if outcome=='ready':
+                    self.status['release_commit']=revision
+                    self.status['release_error']=''
+                    self.status['release_stale']=False
+                    if promoted:
+                        print(f'Committed frontend updated: {revision[:12]} on all public URLs',flush=True)
+                else:
+                    self.status['release_error']=revision
+                    self.status['release_stale']=True
+                    self.last_release_check=max(self.last_release_check,now+60)
+                    print(f'Committed build failed ({revision}); retaining last good frontend.',flush=True)
+            if now>=self.last_release_check and not self.release_running:
+                self.last_release_check=now+15
+                should_fetch=(os.environ.get('STERLING_PUBLISH_FETCH')=='1'
+                              and self.publisher.ref=='origin/main'
+                              and now-self.last_fetch>=60)
+                if should_fetch:self.last_fetch=now
+                self.release_running=True
+                threading.Thread(target=self.refresh_committed_release,
+                                 args=(should_fetch,),daemon=True).start()
             if getattr(self.args,'dev',False) and self.children.get('dev') and self.children['dev'].poll() is not None and now>=self.last_dev_retry:
                 self.status['dev_error']='VITE_PROCESS_EXITED_CHECK_DEV_LOG'
                 self.last_dev_retry=now+45
@@ -512,7 +794,8 @@ class Stack:
             if probe.connect_ex(('127.0.0.1',self.args.port))==0:
                 old=_reclaim_gateway(self.args.port)
                 self.status['gateway_reclaimed_pid']=old
-        env={**clean_env(),'STERLING_WEB_PORT':str(self.args.port)}
+        env={**clean_env(),'STERLING_WEB_PORT':str(self.args.port),
+             'STERLING_STATIC_ROOT':str(self.publisher.pointer)}
         log=(STATE/'web.log').open('a');self.logs.append(log)
         child=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
                                cwd=ROOT,env=env,stdout=log,stderr=log,start_new_session=True)
@@ -586,6 +869,10 @@ def main():
             'primary_telegram_desk':state.get('mini_app_url',''),
             'kite_callback_guidance':state.get('callback_url',''),
             'ngrok_error':state.get('ngrok_error',''),
+            'release_ref':state.get('release_ref',''),
+            'release_commit':state.get('release_commit',''),
+            'release_stale':state.get('release_stale',False),
+            'release_error':state.get('release_error',''),
         },indent=2))
         return
     if args.command in {'stop','rotate'}:
@@ -594,17 +881,14 @@ def main():
     if args.command=='up' and running:
         # Re-running the one-command launcher is idempotent. A verified
         # current gateway is already supervised; do not churn its tunnels.
-        current=(state.get('manager_protocol',0)>=2 and
+        current=(state.get('manager_protocol',0)>=3 and
                  state.get('mode')=='both' and
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
                  state.get('web_port')==args.port)
         if current and state.get('phase')!='stopped':
             if state.get('phase')!='ready' or _managed_web_owns_port(state):
-                print('Sterling is already managed; reusing backend and tunnels.')
-                print('Local: '+state.get('local_url','http://127.0.0.1:5180'))
-                print('Cloudflare: '+(state.get('urls',{}).get('cloudflare') or 'connecting'))
-                print('ngrok: '+(state.get('urls',{}).get('ngrok') or 'connecting'))
-                print('Development: '+state.get('dev_url',''))
+                print_up_dashboard(state,reused=True,
+                                   gateway_ready=_managed_web_owns_port(state))
                 return
         # An old-version or unhealthy manager is stopped *gracefully*.
         # The manager's shutdown leaves the broker process alone. There
@@ -623,8 +907,12 @@ def main():
         log=(STATE/'manager.log').open('a');os.chmod(STATE/'manager.log',0o600)
         # Child inherits the singleton lock; no second launcher can race startup.
         subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'run',*forwarded],cwd=ROOT,env={**clean_env(),'STERLING_STACK_LOCK_FD':str(lock.fileno())},stdout=log,stderr=log,start_new_session=True,pass_fds=(lock.fileno(),))
-        print('Starting Sterling: local 5180, dev 5174, Cloudflare and ngrok.')
-        print('Check ./sterling.sh urls for verified links.')
+        # A new supervisor initializes in the background. Show pending URLs
+        # rather than repeating previously cached/public hostnames.
+        print_up_dashboard({'phase':'starting',
+            'local_url':f'http://127.0.0.1:{args.port}',
+            'dev_url':f'http://127.0.0.1:{args.dev_port}',
+            'public_ready':{},'urls':{}},reused=False)
         return
     stack=Stack(args)
     signal.signal(signal.SIGTERM,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGINT,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGUSR1,lambda *_:setattr(stack,'rotate',True))

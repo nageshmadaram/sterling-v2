@@ -41,8 +41,9 @@ export function emaTrendCampaignsToBoard(campaigns: readonly EmaTrendCampaign[])
   return campaigns.map(c => {
     const qty = c.qty ?? c.lots.reduce((sum, lot) => sum + lot.qty, 0);
     const current = number(c.last_mark), initial = number(c.p0), r = number(c.r_price), stop = number(c.stop);
+    const unsettled = Boolean(c.pending || c.pending_close);
     return { id: `campaign:${c.id}`, engine: 'ema_trend', underlying: c.symbol.split(':').pop()!, instrument: instrument(c.symbol,c),
-      direction: 'long', status: c.state === 'CLOSED' ? 'ended' : c.state === 'RECOVERY_REQUIRED' ? 'error' : c.below10 || c.below21 ? 'weakening' : 'running',
+      direction: 'long', status: (c.state === 'RECOVERY_REQUIRED' || (c.state === 'CLOSED' && unsettled)) ? 'error' : c.state === 'CLOSED' ? 'ended' : c.below10 || c.below21 ? 'weakening' : 'running',
       atMs: c.last_close_ms || null, historical: c.tenant_kind === 'REPLAY', executionEligible: false,
       levels: { ltp: current, entry: initial && initial > 0 ? initial : null, stop: number(c.initial_stop), trail: stop, target: null, exit: null },
       sizing: { lots: c.instrument_type && c.instrument_type!=='EQ' ? qty/(c.lot_size || 1) : null, quantity: qty, atRiskInr: current != null && stop != null ? Math.max(0, current - stop) * qty : null,
@@ -50,15 +51,16 @@ export function emaTrendCampaignsToBoard(campaigns: readonly EmaTrendCampaign[])
       score: null, reason: c.reason, exitProgress: `${c.below10}/2 · ${c.below21}/2`,
       origin: { label: EMA_TREND_MODE_LABEL[c.mode], hint: `${c.product} · ${c.state}`, tone: 'blue' },
       flags: [{ label: `${qty}/${c.q0} ${c.instrument_type && c.instrument_type!=='EQ' ? 'units' : 'shares'}`, hint: 'Confirmed held quantity / initial filled quantity.', tone: 'green' },
-        { label: c.pending ? `${c.pending.kind} pending` : 'PAPER', hint: c.protection, tone: 'amber' }],
+        { label: c.pending_close ? 'Emergency close pending' : c.flatten_requested ? 'Close requested' : c.pending ? `${c.pending.kind} pending` : 'PAPER', hint: c.protection, tone: 'amber' }],
       sections: [{ title: 'Campaign and risk', stats: [
         { label: 'State', value: c.state }, { label: 'Contract', value: `${c.instrument_type || 'EQ'} · lot ${c.lot_size || 1} · ${c.product}${c.expiry ? ` · ${c.expiry}` : ''}` }, { label: 'Held / initial units', value: `${qty} / ${c.q0}` },
         { label: 'Original R / unit', value: px(r) }, { label: '4R partial level', value: initial && r ? px(initial + 4 * r) : '—' },
         { label: 'Current inventory VWAP', value: px(c.vwap) }, { label: 'Realized net', value: fmtMoney(number(c.realized_net)) },
         { label: 'Fees', value: fmtMoney(number(c.total_fees)) }, { label: 'Protection', value: c.protection },
-        { label: 'Pending filled / requested', value: c.pending ? `${c.pending.filled_quantity} / ${c.pending.quantity}` : 'None' },
+        { label: 'Pending filled / requested', value: c.pending ? `${c.pending.filled_quantity} / ${c.pending.quantity}` : c.pending_close ? `${c.pending_close.filled_quantity} / ${c.pending_close.quantity} (emergency close)` : 'None' },
+        { label: 'Full close requested', value: c.flatten_requested ? 'Yes — verify reconciliation' : 'No' },
         { label: '4R milestone', value: c.took_4r ? 'Consumed' : 'Not consumed' },
-      ] }], emaTrend: { campaignId: c.id, stateRevision: c.revision, configRevision: c.config_revision, mode: c.mode, campaignState: c.state, pending: Boolean(c.pending) },
+      ] }], emaTrend: { campaignId: c.id, stateRevision: c.revision, configRevision: c.config_revision, mode: c.mode, campaignState: c.state, pending: unsettled, flattenRequested: Boolean(c.flatten_requested) },
     };
   });
 }

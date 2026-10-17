@@ -23,6 +23,8 @@ export function EmaTrendTicket({ signal: initialSignal, readOnly = false }: { si
   const busy = execute.isPending || action.isPending;
   const canEnter = !historical && Boolean(meta?.signalId) && signal.status === 'armed' && signal.executionEligible === true;
   const canReduce = !historical && !campaign.isError && Boolean(meta?.campaignId) && !meta?.pending && (signal.sizing.quantity || 0) > 0 && meta?.campaignState !== 'CLOSED';
+  // Pending entry/exit orders must not disable a full close request.
+  const canClose = !historical && !campaign.isError && Boolean(meta?.campaignId) && meta?.stateRevision != null && (meta?.campaignState !== 'CLOSED' || meta?.pending) && !meta?.flattenRequested;
   return <div style={{ padding: '10px 12px', fontSize: 12, lineHeight: 1.6 }}>
     <div><strong>PAPER · {signal.instrument.kind === 'equity' ? 'CASH EQUITY' : signal.instrument.kind === 'future' ? 'FUTURE' : 'LONG OPTION'}</strong> · {signal.instrument.exchange}:{signal.instrument.symbol}</div>
     <div>{signal.instrument.kind === 'equity' ? 'Shares' : 'Units'}: {signal.sizing.quantity ?? 'Sized by server'} · Entry: {fmtPx(signal.levels.entry)} · Stop: {fmtPx(signal.levels.trail ?? signal.levels.stop)} · Capital: {fmtMoney(signal.sizing.deployedInr)}</div>
@@ -48,8 +50,8 @@ export function EmaTrendTicket({ signal: initialSignal, readOnly = false }: { si
           }}>{evidenceBusy ? 'Reading execution evidence…' : 'Export execution evidence'}</button>
         <button type="button" className="sb-tool" disabled={!canReduce || busy}
           onClick={() => { if (canReduce) action.mutate({ campaignId: meta.campaignId!, revision: meta.stateRevision!, action: 'reduce', percent: 25 }); }}>Reduce 25% paper</button>
-        <button type="button" className="sb-tool" disabled={!canReduce || busy}
-          onClick={() => { if (canReduce) action.mutate({ campaignId: meta.campaignId!, revision: meta.stateRevision!, action: 'close' }); }}>Close paper campaign</button>
+        <button type="button" className="sb-tool" disabled={!canClose || busy}
+          onClick={() => { if (canClose) action.mutate({ campaignId: meta.campaignId!, revision: meta.stateRevision!, action: 'close' }); }}>Close paper campaign</button>
       </>}
     </div>
     {evidence && <p role="status">Evidence: {evidence.status}. {evidence.actions.length} order actions. Confirmed quantities are cumulative per order. {evidence.gaps.join(' · ')}</p>}
@@ -57,6 +59,6 @@ export function EmaTrendTicket({ signal: initialSignal, readOnly = false }: { si
     {(execute.error || action.error) && <p role="alert">{((execute.error || action.error) as Error).message}</p>}
     {campaign.error && <p role="alert">Campaign refresh failed: {(campaign.error as Error).message}. New actions are unavailable until state is verified.</p>}
     {execute.isSuccess && <p role="status">Paper request recorded. Confirmed fills and protection appear in the campaign; submission alone is not a fill.</p>}
-    {action.isSuccess && <p role="status">Paper action recorded. Confirmed inventory updates after reconciliation.</p>}
+    {action.isSuccess && <p role="status">{action.data?.status === 'UNRESOLVED' ? 'Close requested; order reconciliation is still pending. Do not assume the position is flat.' : 'Paper action recorded. Confirmed inventory updates after reconciliation.'}</p>}
   </div>;
 }

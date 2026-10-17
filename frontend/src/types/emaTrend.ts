@@ -59,7 +59,7 @@ export interface EmaTrendCampaign {
   q0: number; qty: number; vwap: DecimalValue; p0: DecimalValue; r_price: DecimalValue;
   initial_stop: DecimalValue; stop: DecimalValue; budget: DecimalValue; last_mark: DecimalValue;
   last_close_ms: number; below10: number; below21: number; took_4r: boolean;
-  realized_net: DecimalValue; total_fees: DecimalValue; pending: EmaTrendAction | null; pending_close?: EmaTrendAction | null;
+  realized_net: DecimalValue; total_fees: DecimalValue; pending: EmaTrendAction | null; pending_close?: EmaTrendAction | null; flatten_requested?: boolean;
   lots: Array<{ fill_id: string; qty: number; price: DecimalValue }>;
 }
 export interface EmaTrendConfigResponse {
@@ -68,8 +68,12 @@ export interface EmaTrendConfigResponse {
   capabilities: { live: boolean; paper: boolean }; blockers: string[];
 }
 export interface EmaTrendScan {
-  id: string; status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-  progress?: number; errors?: string[]; created_ms?: number; finished_ms?: number;
+  id: string; status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'IDLE';
+  progress?: number;
+  errors?: Array<string | { reason?: string; symbol?: string; mode?: EmaTrendMode }>;
+  results?: Array<{ symbol: string; mode: EmaTrendMode; bars: number; context_bars: number;
+    ready: boolean; rows: number; latest_close_ms?: number | null }>;
+  created_ms?: number; finished_ms?: number;
 }
 export interface EmaTrendSupervision {
   status: 'UNKNOWN' | 'STALE' | 'DEGRADED' | 'RUNNING'; age_ms: number | null;
@@ -77,7 +81,10 @@ export interface EmaTrendSupervision {
 }
 export interface EmaTrendSnapshot extends Omit<EmaTrendConfigResponse, 'defaults'> {
   supervision?: EmaTrendSupervision;
-  rows: EmaTrendSetup[]; campaigns: EmaTrendCampaign[]; scan: EmaTrendScan | null;
+  rows: EmaTrendSetup[]; campaigns: EmaTrendCampaign[];
+  scan: (Partial<EmaTrendScan> & Pick<EmaTrendScan, 'status'>) | null;
+  generated_ms?: number; next_cursor?: number | null;
+  truncatedModes?: EmaTrendMode[]; failedModes?: EmaTrendMode[];
 }
 export interface EmaTrendPlan {
   id: string; revision: number; status: 'READY' | 'BLOCKED'; blockers: string[];
@@ -99,3 +106,15 @@ export interface EmaTrendReplayReport {
   metrics: { completed_campaigns: number; open_campaigns: number; net_realized: DecimalValue; estimated_fees: DecimalValue; max_drawdown: DecimalValue; ending_equity: DecimalValue; starting_capital: DecimalValue };
 }
 export interface EmaTrendReplayRun { id: string; status: string; mode: EmaTrendMode; symbol: string; result?: EmaTrendReplayReport; error?: string }
+
+/** Broker-side read-only prerequisite diagnostic, never a live-order approval. */
+export interface EmaTrendLiveReadiness {
+  status: 'LIVE_BLOCKED';
+  live_orders_enabled: false;
+  account_id: string | null;
+  checks: Record<string, boolean>;
+  modes: Partial<Record<EmaTrendMode, { product: 'CNC' | 'MIS'; eligible: false; blockers: string[] }>>;
+  blockers: string[];
+  requires_operator_certification: boolean;
+  read_only: true;
+}

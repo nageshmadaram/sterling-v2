@@ -32,6 +32,27 @@ describe('EMA Trend equity projections', () => {
     expect(row.sections[0].stats).toContainEqual({ label: 'Realized net', value: '₹355.25' });
     expect(row.emaTrend?.stateRevision).toBe(4);
   });
+  it('surfaces pending emergency close and durable flatten rather than treating it as completed', () => {
+    const pending = { id: 'emergency', kind: 'FLATTEN', side: 'SELL' as const,
+      quantity: 28, filled_quantity: 0, status: 'UNKNOWN', limit: '100', at_ms: Date.now() };
+    const [row] = emaTrendCampaignsToBoard([{ ...emaCampaign(), flatten_requested: true, pending_close: pending }]);
+    expect(row.flags?.[1].label).toBe('Emergency close pending');
+    expect(row.emaTrend?.pending).toBe(true);
+    expect(row.emaTrend?.flattenRequested).toBe(true);
+    expect(row.sections[0].stats).toContainEqual({ label: 'Full close requested', value: 'Yes — verify reconciliation' });
+    expect(row.status).not.toBe('ended');
+  });
+  it('does not hide a CLOSED campaign while an order is still unsettled', () => {
+    const entry = { id: 'unknown-entry', kind: 'ENTRY', side: 'BUY' as const,
+      quantity: 4, filled_quantity: 0, status: 'UNKNOWN', limit: '100', at_ms: Date.now() };
+    const [unresolved] = emaTrendCampaignsToBoard([{ ...emaCampaign(), state: 'CLOSED', qty: 0,
+      lots: [], pending: entry, flatten_requested: true }]);
+    expect(unresolved.status).toBe('error');
+    expect(unresolved.emaTrend?.pending).toBe(true);
+    expect(unresolved.flags?.[1].label).toBe('Close requested');
+    const [settled] = emaTrendCampaignsToBoard([{ ...emaCampaign(), state: 'CLOSED', qty: 0, lots: [], pending: null }]);
+    expect(settled.status).toBe('ended');
+  });
   it('plots exact server-computed values and does not fill missing warmup or context with zero', () => {
     const f = emaSetup().feature;
     const series = emaTrendChartSeries([{ ...f, ema10: null, dema50: null, context_st_line: null },

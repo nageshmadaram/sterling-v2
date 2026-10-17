@@ -6,17 +6,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../frontend/dist');
+// All public origins and localhost:5180 read this ONE atomic committed build.
+ // The symlink target may change without restarting the Node gateway/tunnels.
+const gatewayDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = path.resolve(process.env.STERLING_STATIC_ROOT ||
+  path.join(gatewayDir, 'frontend/dist'));
 const port = Number(process.env.STERLING_WEB_PORT || 5180);
 const backend = new URL(process.env.STERLING_API_TARGET || 'http://127.0.0.1:8000');
 if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !== 'http:') throw new Error('Backend must be loopback HTTP');
+const releaseFile = process.env.STERLING_RELEASE_MANIFEST ||
+  path.join(gatewayDir, '.runtime/stack/published.json');
+function committedRelease() {
+  try {
+    const value = JSON.parse(fs.readFileSync(releaseFile, 'utf8'));
+    return /^[a-f0-9]{40,64}$/.test(value.sha) ? value.sha : null;
+  } catch { return null; }
+}
 const isApi = p => /^\/(api(?:\/|$)|tma(?:\/|$)|health(?:\/|$)|healthz(?:\/|$))/.test(p);
 const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff':'font/woff','.woff2':'font/woff2','.json':'application/json'};
 // The supervisor owns this 0600 state file. The secondary ngrok tunnel
 // reaches the gateway over local HTTP, but its PUBLIC hop is verified HTTPS.
 // Never trust a caller-provided X-Forwarded-Proto header on its own.
 const stackStatusFile = process.env.STERLING_STACK_STATUS_FILE ||
-  path.resolve(root, '../../.runtime/stack/status.json');
+  path.join(gatewayDir, '.runtime/stack/status.json');
 function isSupervisorNgrokHost(host) {
   if (typeof host !== 'string') return false;
   try {
@@ -42,7 +54,7 @@ function proxyHeaders(req) {
 }
 // Generic public shell contains no account data. Retain it during backend restarts
 // so availability monitoring cannot confuse a broker/API outage with a dead tunnel.
-const shellFile = process.env.STERLING_TMA_SHELL_CACHE || path.resolve(root, '../../.runtime/stack/mini-app-shell.json');
+const shellFile = process.env.STERLING_TMA_SHELL_CACHE || path.join(gatewayDir, '.runtime/stack/mini-app-shell.json');
 function cachedDesk(res) {
   try {
     const shell = JSON.parse(fs.readFileSync(shellFile, 'utf8'));
@@ -55,7 +67,8 @@ const server = http.createServer((req,res) => {
   const pathname = new URL(req.url,'http://localhost').pathname;
   if (pathname === '/__sterling_web_health') {
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-    res.end(JSON.stringify({service:'sterling-web',ready:fs.existsSync(path.join(root,'index.html'))})); return;
+    res.end(JSON.stringify({service:'sterling-web',ready:fs.existsSync(path.join(root,'index.html')),
+      release_commit:committedRelease()})); return;
   }
   if (['/tma/','/api/v1/tma/'].includes(pathname)) { res.writeHead(302, {Location:pathname.slice(0,-1), 'Cache-Control':'no-store'}); res.end(); return; }
   if (isApi(pathname)) {

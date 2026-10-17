@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEmaTrendConfig, useUpdateEmaTrend } from '../hooks/useEmaTrend';
+import { useEmaTrendConfig, useUpdateEmaTrend, useEmaTrendLiveReadiness } from '../hooks/useEmaTrend';
 import { EMA_TREND_MODE_LABEL, type EmaTrendConfig, type EmaTrendMode } from '../types/emaTrend';
 import { Section, Field, NumberField, Switch } from './kite/kiteSettingsPrimitives';
 import { ConfigNote, PanelCard, SettingsDraftBar } from './kite/config/ConfigPrimitives';
@@ -8,6 +8,15 @@ import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
 import { api } from '../utils/api';
 import { EmaTrendInstrumentPicker } from './kite/config/EmaTrendInstrumentPicker';
 import { EmaTrendReadiness } from './kite/config/EmaTrendReadiness';
+
+// A deliberate, read-only scanner starter universe; the operator must Apply.
+// Never silently add instruments to a strategy that can open exposure.
+const NSE_EQUITY_STARTER = [
+  'NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK',
+  'NSE:SBIN', 'NSE:AXISBANK', 'NSE:BHARTIARTL', 'NSE:ITC', 'NSE:LT',
+  'NSE:KOTAKBANK', 'NSE:BAJFINANCE', 'NSE:HINDUNILVR', 'NSE:SUNPHARMA',
+  'NSE:WIPRO',
+] as const;
 
 const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
   { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
@@ -25,6 +34,7 @@ const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max
 export function EmaTrendSettings() {
   const query = useEmaTrendConfig();
   const save = useUpdateEmaTrend();
+  const live = useEmaTrendLiveReadiness();
   // Hold the revision alongside the draft: background refresh must never rebase a stale draft silently.
   const [draft, setDraft] = React.useState<{ config: EmaTrendConfig; revision: number } | null>(null);
   const [resetConfirm, setResetConfirm] = React.useState(false);
@@ -82,7 +92,28 @@ export function EmaTrendSettings() {
         <Switch label="EMA Trend automatic paper entry" checked={cfg.auto_execute} onChange={() => patch({ auto_execute: !cfg.auto_execute })} />
       </Field>
       <ConfigNote>Execution: {cfg.execution_mode}. Revision {server.revision}. {server.paused ? 'New exposure is paused.' : 'New exposure is not paused.'} Evidence remains inconclusive; profits are not guaranteed.</ConfigNote>
-      {(server.blockers || []).map(reason => <p key={reason} style={{ fontSize: 11, color: 'var(--k-amber)' }}>{reason.replace(/_/g, ' ')}</p>)}
+      <button type="button" className="sb-tool" disabled={live.isFetching}
+        onClick={() => { void live.refetch(); }}>{live.isFetching ? 'Checking Kite account…' : 'Check Kite live readiness'}</button>
+      {live.error && <p role="alert">Kite live readiness check failed: {(live.error as Error).message}</p>}
+      {live.data && <div role="status" aria-label="EMA live readiness">
+        <strong>{live.data.status.replace(/_/g, ' ')}</strong>
+        <p>Live Kite account: {live.data.account_id ?? 'Not bound'} · Broker orders: not enabled.</p>
+        {Object.entries(live.data.checks).map(([key, ready]) =>
+          <p key={key}>{key.replace(/_/g, ' ')}: {ready ? 'Verified' : 'Not verified'}</p>)}
+        {Object.entries(live.data.modes).map(([mode, details]) => details &&
+          <p key={mode}><strong>{EMA_TREND_MODE_LABEL[mode as EmaTrendMode]} ({details.product})</strong>:
+            {' '}{details.blockers.join(' · ').replace(/_/g, ' ')}</p>)}
+        <p>A connected Kite account alone does not prove broker-side SL/TSL, sell authorization, order recovery or exit fillability.</p>
+      </div>}
+      <details style={{ fontSize: 11, color: 'var(--k-text-muted)' }}>
+        <summary style={{ cursor: 'pointer' }}>
+          Live trading blocked · {server.blockers?.length || 0} certification checks
+        </summary>
+        <p>These checks block real Kite orders, not read-only EMA signal scanning.</p>
+        {(server.blockers || []).map(reason => <p key={reason} style={{ color: 'var(--k-amber)' }}>
+          {reason.replace(/_/g, ' ')}
+        </p>)}
+      </details>
       <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
       <EmaTrendReadiness symbols={server.config.symbols} modes={server.config.modes} revision={server.revision} />
       <button type="button" className="sb-tool" disabled={exporting} onClick={exportRecords}>{exporting ? 'Exporting…' : 'Export saved paper records'}</button>
@@ -96,6 +127,11 @@ export function EmaTrendSettings() {
           style={{ width: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)' }}
           onChange={event => { setSymbolsText(event.target.value); patch({ symbols: event.target.value.split(/[,\n]/).map(v => v.trim().toUpperCase()).filter(Boolean) }); }} />
       </Field>
+      <button type="button" className="sb-tool"
+        onClick={() => { patch({ symbols: [...NSE_EQUITY_STARTER] }); setSymbolsText(null); }}>
+        Use NSE equity starter list (15)
+      </button>
+      <ConfigNote>This fills your unsaved instrument draft only. Review and Apply changes to enable scans; no order is submitted.</ConfigNote>
       <Field label="Enabled profiles" hint="At least one profile. A shared instrument owner prevents simultaneous mode positions.">
         <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
           <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
