@@ -718,3 +718,41 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
  finally:
   process.terminate()
   process.wait(8)
+
+
+
+def test_release_update_worker_reports_committed_version_without_restarting_services(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ manager=stack.Stack(SimpleNamespace(provider='both',hostname='',
+                                     port=5180,dev=True,dev_port=5174))
+ monkeypatch.setattr(manager.publisher,'publish',lambda:('c'*40,True))
+ monkeypatch.setattr(stack.subprocess,'run',
+                     lambda *args,**kwargs:(_ for _ in ()).throw(
+                         AssertionError('No remote fetch requested')))
+ manager.refresh_committed_release(False)
+ assert manager.release_results.get_nowait()==('ready','c'*40,True)
+ assert manager.backend_owned is False
+ assert manager.children=={}
+
+
+def test_release_update_worker_fails_closed_and_retains_prior_release(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ manager=stack.Stack(SimpleNamespace(provider='both',hostname='',
+                                     port=5180,dev=True,dev_port=5174))
+ def fail_compile():
+  raise subprocess.CalledProcessError(2,['npm','run','build'])
+ monkeypatch.setattr(manager.publisher,'publish',fail_compile)
+ manager.refresh_committed_release(False)
+ assert manager.release_results.get_nowait()==('failed','CalledProcessError',False)
+
+
+def test_public_source_defaults_to_local_main_and_rejects_invalid_ref(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ assert publisher.ref=='main'
+ assert publisher.frontend==tmp_path/'committed-source/frontend'
+ for ref in ('--output=/tmp/leak', 'refs/heads/../foo', 'HEAD;rm -rf /'):
+  with pytest.raises(ValueError,match='Invalid published Git ref'):
+   stack.CommittedFrontend(ref)
