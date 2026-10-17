@@ -179,6 +179,21 @@ def test_legacy_signal_store_migrates_all_event_days_but_live_board_loads_today(
 
 
 @pytest.mark.asyncio
+async def test_gamma_arm_refuses_unreadable_legacy_archive(monkeypatch):
+    cfg = GammaMoveConfig().validate()
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(
+        runner.positions_store,
+        "legacy_open_rows",
+        lambda _: (_ for _ in ()).throw(RuntimeError("archive I/O error")),
+    )
+    result = await runner.arm("u1", "any-signal")
+    assert result["ok"] is False
+    assert result["code"] == "legacy_position_state_unreadable"
+    assert "archive I/O error" in result["message"]
+
+
+@pytest.mark.asyncio
 async def test_strong_watchlist_is_alert_only_and_cannot_execute(monkeypatch):
     cfg = GammaMoveConfig().validate()
     sig = signal(tier=TIER_STRONG_WATCHLIST)
