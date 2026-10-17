@@ -850,9 +850,16 @@ const LIVE_HEARTBEAT_MS = 30_000;
 const STALE_HEARTBEAT_MS = 3_000;
 const LIVE_FEED_AGE_MS = 8_000;
 
-function quoteHeartbeatMs(requested: number): number {
+function quoteHeartbeatMs(requested: number, symbols?: readonly string[]): number {
   const age = tickFeedAgeMs();
-  if (age != null && age < LIVE_FEED_AGE_MS) return requested;
+  // "Some token is live" is not proof that every requested instrument is
+  // receiving quotes. Keep fast REST fallback for an unresolvable, illiquid or
+  // individually stale symbol even if other tokens are streaming normally.
+  const allRequestedTokensFresh = !symbols?.length || symbols.every(symbol => {
+    const token = _symTokenCache.get(symbol);
+    return token != null && getTick(token) != null;
+  });
+  if (age != null && age < LIVE_FEED_AGE_MS && allRequestedTokensFresh) return requested;
   return Math.min(requested, STALE_HEARTBEAT_MS);
 }
 
@@ -869,7 +876,7 @@ const _symTokenCache = new Map<string, number>();
 
 // Overlay live ticks on a REST snapshot: resolve+cache tokens, register them for
 // WS subscription (ref-counted union), and merge tick fields over REST per
-// symbol (tick wins). Re-renders on each tick batch via useTickVersion.
+// symbol (tick wins). Only subscribed token changes trigger a render.
 function useKiteLive(
   symbols: string[],
   rest: Record<string, any> | undefined,
@@ -933,7 +940,7 @@ export function useKiteQuote(symbols: string[], enabled = true, heartbeatMs = LI
     queryKey: ['kite-quote', syms.join(',')],
     queryFn: () => api.get(`${K}/quote?${iParams(syms)}`),
     enabled: enabled && syms.length > 0,
-    refetchInterval: () => quoteHeartbeatMs(heartbeatMs),
+    refetchInterval: () => quoteHeartbeatMs(heartbeatMs, syms),
   });
   const data = useKiteLive(syms, q.data, mode);
   return { ...q, data };
@@ -1094,7 +1101,7 @@ export function useKiteLtp(symbols: string[], enabled = true, heartbeatMs = LIVE
     queryKey: ['kite-ltp', syms.join(',')],
     queryFn: () => api.get(`${K}/ltp?${iParams(syms)}`),
     enabled: enabled && syms.length > 0,
-    refetchInterval: () => quoteHeartbeatMs(heartbeatMs),
+    refetchInterval: () => quoteHeartbeatMs(heartbeatMs, syms),
     staleTime: 0,
   });
   const data = useKiteLive(syms, q.data) as Record<string, { last_price?: number; instrument_token?: number }>;
