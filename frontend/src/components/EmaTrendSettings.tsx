@@ -7,6 +7,15 @@ import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
 import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
 import { api } from '../utils/api';
 
+// A deliberate, read-only scanner starter universe; the operator must Apply.
+// Never silently add instruments to a strategy that can open exposure.
+const NSE_EQUITY_STARTER = [
+  'NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK',
+  'NSE:SBIN', 'NSE:AXISBANK', 'NSE:BHARTIARTL', 'NSE:ITC', 'NSE:LT',
+  'NSE:KOTAKBANK', 'NSE:BAJFINANCE', 'NSE:HINDUNILVR', 'NSE:SUNPHARMA',
+  'NSE:WIPRO',
+] as const;
+
 const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
   { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
   { key: 'risk_fraction', label: 'Risk fraction per campaign', min: .0001, max: .005, step: .0001 },
@@ -106,6 +115,11 @@ export function EmaTrendSettings() {
           style={{ width: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)' }}
           onChange={event => { setSymbolsText(event.target.value); patch({ symbols: event.target.value.split(/[,\n]/).map(v => v.trim().toUpperCase()).filter(Boolean) }); }} />
       </Field>
+      <button type="button" className="sb-tool"
+        onClick={() => { patch({ symbols: [...NSE_EQUITY_STARTER] }); setSymbolsText(null); }}>
+        Use NSE equity starter list (15)
+      </button>
+      <ConfigNote>This fills your unsaved instrument draft only. Review and Apply changes to enable scans; no order is submitted.</ConfigNote>
       <Field label="Enabled profiles" hint="At least one profile. A shared instrument owner prevents simultaneous mode positions.">
         <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
           <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
