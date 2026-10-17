@@ -285,7 +285,7 @@ class CommittedFrontend:
         if not re.fullmatch(
             r'(?:HEAD|main|origin/main|refs/(?:heads|remotes/origin)/[A-Za-z0-9._/-]+)',
             ref,
-        ):
+        ) or any(part in {'', '.', '..'} for part in ref.split('/')):
             raise ValueError('Invalid published Git ref')
         self.ref=ref
         self.stage=STATE/'committed-source'
