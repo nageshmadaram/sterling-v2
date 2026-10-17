@@ -330,6 +330,27 @@ def read_state():
     except (OSError,ValueError):return {}
 
 
+def _backend_listener_present():
+    """Only a confirmed vacant loopback port permits a broker backend start.
+
+    An HTTP timeout alone does not mean the trading engine has stopped.
+    """
+    try:
+        with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
+            probe.settimeout(1)
+            return probe.connect_ex(('127.0.0.1',8000)) == 0
+    except OSError:
+        return True  # uncertain port state: fail closed
+
+
+def _backend_http_ready():
+    try:
+        status,payload=fetch('http://127.0.0.1:8000/health',2)
+        return status==200 and json.loads(payload).get('status')=='ok'
+    except (OSError,ValueError,urllib.error.URLError):
+        return False
+
+
 def live_presentation_status(state, running):
     """Never report remembered public verification as live after manager exit.
 
@@ -345,6 +366,8 @@ def live_presentation_status(state, running):
         **state,
         'manager_running':bool(running),
         'gateway_running':gateway,
+        'backend_listening':_backend_listener_present(),
+        'backend_ready':_backend_http_ready(),
         'public_ready':live_verified,
         'urls':{name:value for name,value in urls.items() if live_verified.get(name)},
         'mini_app_url':state.get('mini_app_url','') if live_verified.get(
@@ -959,6 +982,8 @@ def main():
         print(json.dumps({
             'manager_running':live['manager_running'],
             'gateway_running':live['gateway_running'],
+            'backend_listening':live['backend_listening'],
+            'backend_ready':live['backend_ready'],
             'local':live.get('local_url','http://127.0.0.1:5180'),
             'dev':live.get('dev_url',''),
             'cloudflare':(live.get('urls') or {}).get('cloudflare',''),
@@ -984,12 +1009,23 @@ def main():
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
                  state.get('web_port')==args.port)
         if current and state.get('phase')!='stopped':
-            if state.get('phase')!='ready' or _managed_web_owns_port(state):
+            # An adopted backend may disappear after launcher startup. The old
+            # idempotent path kept reusing a manager that could no longer
+            # serve /auth/me, even when an operator explicitly requested 'up'.
+            # Recover the presentation manager only if loopback 8000 is vacant;
+            # a slow but still-bound trading process must never be replaced.
+            backend_missing=(state.get('phase')!='starting'
+                             and not _backend_listener_present())
+            if not backend_missing and (state.get('phase')!='ready'
+                                        or _managed_web_owns_port(state)):
                 state=wait_for_up_status(state['manager_pid'],
                     seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','12'))
                 print_up_dashboard(state,reused=True,
                                    gateway_ready=_managed_web_owns_port(state))
                 return
+            if backend_missing:
+                print('Backend API not listening on 8000; recovering presentation '
+                      'manager without stopping an existing trading backend.')
         # An old-version or unhealthy manager is stopped *gracefully*.
         # The manager's shutdown leaves the broker process alone. There
         # can never be a second concurrent 8000 trading engine.
