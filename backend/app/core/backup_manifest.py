@@ -834,6 +834,29 @@ def prove_restore(
     target = Path(destination) if destination is not None else Path(
         tempfile.mkdtemp(prefix="sterling-restore-check-")
     )
+    if destination is not None:
+        # An isolated proof must never follow an operator-supplied symlink
+        # into live state or overwrite files left by a previous operation.
+        # A fresh/nonexistent or explicitly empty destination is permitted.
+        try:
+            unsafe = (
+                target.is_symlink()
+                or (target.exists() and (
+                    not target.is_dir() or any(target.iterdir())
+                ))
+            )
+        except (OSError, ValueError) as exc:
+            unsafe = True
+        if unsafe:
+            return RestoreProof(
+                backup_id=stored.backup_id,
+                passed=False,
+                checked_at=datetime.now(timezone.utc).isoformat(),
+                failures=(
+                    "isolated restore destination is a symlink, non-directory, "
+                    "or non-empty; refusing overwrite",
+                ),
+            )
 
     try:
         # Every physical artifact (except the self-describing manifest and
