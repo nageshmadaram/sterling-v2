@@ -9,14 +9,7 @@ import { api } from '../utils/api';
 import { EmaTrendInstrumentPicker } from './kite/config/EmaTrendInstrumentPicker';
 import { EmaTrendReadiness } from './kite/config/EmaTrendReadiness';
 
-// A deliberate, read-only scanner starter universe; the operator must Apply.
-// Never silently add instruments to a strategy that can open exposure.
-const NSE_EQUITY_STARTER = [
-  'NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK',
-  'NSE:SBIN', 'NSE:AXISBANK', 'NSE:BHARTIARTL', 'NSE:ITC', 'NSE:LT',
-  'NSE:KOTAKBANK', 'NSE:BAJFINANCE', 'NSE:HINDUNILVR', 'NSE:SUNPHARMA',
-  'NSE:WIPRO',
-] as const;
+import { NSE_EQUITY_STARTER } from '../config/emaTrendPreset';
 
 const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
   { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
