@@ -4,7 +4,7 @@ import type { EmaTrendCampaign, EmaTrendMode } from '../src/types/emaTrend';
 
 // API-contract browser acceptance. Canonical broker/runtime integration is tested by the backend suite.
 for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['scalping', 'Scalp'], ['ultra_scalping', 'Ultrascalp']] as const) {
-  test(`${label}: Connect → shared row → chart → paper fill → quarter → close → replay`, async ({ page }) => {
+  test(`${label}: Connect → auto-scan → profile tab → chart → paper fill → quarter → close`, async ({ page }) => {
     let config = emaConfig();
     config.config = { ...config.defaults };
     let rows: ReturnType<typeof emaSetup>[] = [];
@@ -68,14 +68,22 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     await page.getByRole('button', { name: 'Apply changes' }).click();
     await expect(page.getByRole('button', { name: 'Apply changes' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Signals workspace' }).click();
-    await page.getByRole('button', { name: 'Scan now' }).click();
+    await expect(page.getByRole('group', { name: 'EMA Trend profiles' })).toBeVisible();
+    await expect(page.getByRole('button', { name: label, exact: true })).toBeEnabled();
+    await page.getByRole('button', { name: label, exact: true }).click();
     await expect(page.getByRole('button', { name: 'Chart TCS' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Visible columns' })).toHaveCount(0);
+    await page.getByRole('button', { name: /Columns/i }).first().click();
+    await expect(page.getByRole('group', { name: 'Visible columns' })).toBeVisible();
+    await page.getByRole('button', { name: /Columns/i }).first().click();
     await page.getByRole('button', { name: 'Chart TCS' }).click();
     await expect(page.getByRole('region', { name: 'EMA Trend evidence chart' })).toBeVisible();
     await expect(page.getByText('DEMA50', { exact: true })).toBeVisible();
     await expect(page.getByText(/completed context ST: UP/)).toBeVisible();
     await page.getByRole('button', { name: 'Signals workspace' }).click();
-    await page.getByRole('button', { name: 'Paper', exact: true }).click();
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
     await page.getByRole('button', { name: 'Execute paper plan' }).click();
     await expect(page.getByText('103/103 shares', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Open TCS detail' }).click();
@@ -85,12 +93,8 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     await page.getByRole('button', { name: 'Close paper campaign' }).click();
     await expect(page.getByText(/Shares: 0/)).toBeVisible();
     await page.getByRole('button', { name: 'Close detail' }).click();
-    await page.getByRole('button', { name: 'Recorded replay', exact: true }).click();
-    await page.getByLabel('Replay profile').selectOption(mode);
-    await page.getByRole('button', { name: 'Replay recorded bars', exact: true }).click();
-    await expect(page.getByRole('region', { name: 'EMA Trend lifecycle report' })).toBeVisible();
-    await expect(page.getByRole('table', { name: 'Fill legs · read-only' })).toBeVisible();
     expect(unknown).toEqual([]);
+    expect(mutations.filter(m => m.path === '/scan')).toHaveLength(1);
     expect(mutations.filter(m => m.path.endsWith('/arm'))).toHaveLength(1);
     expect(mutations.filter(m => m.path.endsWith('/actions'))).toHaveLength(2);
     await page.screenshot({ path: `test-results/ema-trend/${mode}-workflow.png`, fullPage: true });
