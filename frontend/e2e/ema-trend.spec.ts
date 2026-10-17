@@ -4,7 +4,7 @@ import type { EmaTrendCampaign, EmaTrendMode } from '../src/types/emaTrend';
 
 // API-contract browser acceptance. Canonical broker/runtime integration is tested by the backend suite.
 for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['scalping', 'Scalp'], ['ultra_scalping', 'Ultrascalp']] as const) {
-  test(`${label}: Connect → auto-scan → profile tab → chart → paper fill → quarter → close`, async ({ page }) => {
+  test(`${label}: Connect → auto-scan → Profiles menu → chart → paper fill → quarter → close`, async ({ page }) => {
     let config = emaConfig();
     config.config = { ...config.defaults };
     let rows: ReturnType<typeof emaSetup>[] = [];
@@ -24,7 +24,15 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
       else if (path === '/config' && request.method() === 'PATCH') {
         expect(body.expected_revision).toBe(config.revision);
         config = { ...config, config: { ...config.config, ...body.changes }, revision: config.revision + 1 }; payload = config;
-      } else if (path === '/snapshot') payload = { ...config, rows, campaigns: campaign ? [campaign] : [], scan: scanned ? { id: 'job-1', status: 'COMPLETED', progress: 1, errors: [], finished_ms: completedAt } : null };
+      } else if (path === '/snapshot') {
+        const profile = url.searchParams.get('mode');
+        payload = { ...config,
+          rows: rows.filter(row => !profile || row.mode === profile),
+          campaigns: campaign && (!profile || campaign.mode === profile) ? [campaign] : [],
+          scan: scanned ? { id: 'job-1', status: 'COMPLETED', progress: 1, errors: [], finished_ms: completedAt } : null,
+          generated_ms: Date.now(), next_cursor: null,
+        };
+      }
       else if (path === '/scan') {
         expect(body.modes).toEqual([mode]);
         rows = [{ ...emaSetup(mode), config_revision: config.revision }]; scanned = true; completedAt = Date.now();
@@ -70,8 +78,14 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     await expect(page.getByRole('button', { name: 'Apply changes' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Signals workspace' }).click();
     await expect(page.getByRole('group', { name: 'EMA Trend profiles' })).toBeVisible();
-    await expect(page.getByRole('button', { name: label, exact: true })).toBeEnabled();
-    await page.getByRole('button', { name: label, exact: true }).click();
+    await page.getByRole('button', { name: 'PROFILES' }).click();
+    const profiles = page.getByRole('group', { name: 'EMA Trend visible profiles' });
+    await expect(profiles).toBeVisible();
+    for (const other of ['Swing', 'Intraday', 'Scalp', 'Ultrascalp'].filter(item => item !== label)) {
+      await profiles.getByRole('checkbox', { name: other, exact: true }).uncheck();
+    }
+    await expect(profiles.getByRole('checkbox', { name: label, exact: true })).toBeChecked();
+    await page.getByRole('button', { name: /PROFILES/ }).click();
     await expect(page.getByRole('button', { name: 'Chart TCS' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
@@ -103,7 +117,7 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
 }
 
 
-test('EMA empty universe shows one clear setup action; all mode tabs and portal Columns remain usable', async ({ page }) => {
+test('EMA empty universe shows one clear setup action; Profiles and Columns menus remain usable', async ({ page }) => {
   const config = emaConfig();
   config.config = { ...config.config, enabled: true, symbols: [] };
   const writes: string[] = [];
@@ -123,10 +137,16 @@ test('EMA empty universe shows one clear setup action; all mode tabs and portal 
   await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Emergency close (simulation)' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'PROFILES' }).click();
+  const profiles = page.getByRole('group', { name: 'EMA Trend visible profiles' });
   for (const label of ['Swing', 'Intraday', 'Scalp', 'Ultrascalp']) {
-    await page.getByRole('button', { name: label, exact: true }).click();
-    await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(profiles.getByRole('checkbox', { name: label, exact: true })).toBeChecked();
   }
+  await profiles.getByRole('checkbox', { name: 'Swing', exact: true }).uncheck();
+  await expect(profiles.getByRole('checkbox', { name: 'Swing', exact: true })).not.toBeChecked();
+  await profiles.getByText('Show all profiles').click();
+  await expect(profiles.getByRole('checkbox', { name: 'Swing', exact: true })).toBeChecked();
+  await page.getByRole('button', { name: /PROFILES/ }).click();
   await page.getByRole('button', { name: /Columns/i }).first().click();
   await expect(page.getByRole('group', { name: 'Visible columns' })).toBeVisible();
   const isPortalled = await page.getByRole('group', { name: 'Visible columns' }).evaluate(node =>
