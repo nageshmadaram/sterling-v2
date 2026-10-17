@@ -75,6 +75,41 @@ def _backup(
     return directory
 
 
+
+def test_restore_gate_rejects_symlinked_manifest_provenance(tmp_path, monkeypatch):
+    _ignore_global_coverage_contract(monkeypatch)
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    external = tmp_path / "external-manifest.json"
+    external.write_bytes((directory / "manifest.json").read_bytes())
+    (directory / "manifest.json").unlink()
+    (directory / "manifest.json").symlink_to(external)
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "symlinked backup manifest" in gate.detail
+
+
+def test_restore_gate_rejects_checksummed_parent_traversal(tmp_path, monkeypatch):
+    _ignore_global_coverage_contract(monkeypatch)
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    unrelated = tmp_path / "outside.txt"
+    unrelated.write_text("do not read this as a backup artifact", encoding="utf-8")
+    manifest_file = directory / "manifest.json"
+    payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+    payload["file_checksums"]["../outside.txt"] = sha256_file(unrelated)
+    manifest_file.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+
+    gate = certification._backup_restore_gate(expected)
+
+    assert gate.status == "FAIL"
+    assert "unsafe backup checksum path" in gate.detail
+
+
 def test_restore_gate_refuses_pass_from_another_sha(tmp_path, monkeypatch):
     _ignore_global_coverage_contract(monkeypatch)
     expected = "a" * 40
