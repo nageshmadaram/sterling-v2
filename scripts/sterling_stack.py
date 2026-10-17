@@ -356,10 +356,10 @@ class CommittedFrontend:
         except OSError:cached=''
         if cached==digest and (self.frontend/'node_modules/.bin/vite').exists():
             return
-        subprocess.run(['npm','ci','--no-audit','--no-fund'],
-                       cwd=self.frontend,stdout=subprocess.DEVNULL,
-                       stderr=(STATE/'release-build.log').open('a'),
-                       timeout=600,check=True)
+        with (STATE/'release-build.log').open('a') as log:
+            subprocess.run(['npm','ci','--no-audit','--no-fund'],
+                           cwd=self.frontend,stdout=log,stderr=log,
+                           timeout=600,check=True)
         self.lock_stamp.write_text(digest)
 
     def publish(self):
@@ -367,6 +367,8 @@ class CommittedFrontend:
         if self.current()==sha:return sha,False
         existing=self.releases/sha
         if not (existing/'index.html').is_file():
+            # Remove only a leftover unpublished staging directory from an
+            # interrupted run. Published release directories are immutable.
             self._extract(sha)
             self._dependencies()
             with (STATE/'release-build.log').open('a') as log:
