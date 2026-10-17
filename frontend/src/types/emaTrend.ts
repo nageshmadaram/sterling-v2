@@ -57,13 +57,18 @@ export interface EmaTrendConfigResponse {
 }
 export interface EmaTrendScan {
   id: string; status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'IDLE';
-  progress?: number; errors?: string[]; created_ms?: number; finished_ms?: number;
+  progress?: number;
+  errors?: Array<string | { reason?: string; symbol?: string; mode?: EmaTrendMode }>;
+  results?: Array<{ symbol: string; mode: EmaTrendMode; bars: number; context_bars: number;
+    ready: boolean; rows: number; latest_close_ms?: number | null }>;
+  created_ms?: number; finished_ms?: number;
 }
 export interface EmaTrendSnapshot extends Omit<EmaTrendConfigResponse, 'defaults'> {
   rows: EmaTrendSetup[]; campaigns: EmaTrendCampaign[];
   // An idle snapshot has status but no job id; POST /scan always returns an id.
   scan: (Partial<EmaTrendScan> & Pick<EmaTrendScan, 'status'>) | null;
-  generated_ms?: number; next_cursor?: number | null; truncatedModes?: EmaTrendMode[];
+  generated_ms?: number; next_cursor?: number | null;
+  truncatedModes?: EmaTrendMode[]; failedModes?: EmaTrendMode[];
 }
 export interface EmaTrendPlan {
   id: string; revision: number; status: 'READY' | 'BLOCKED'; blockers: string[];
