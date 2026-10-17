@@ -429,6 +429,36 @@ def test_restore_verifies_checksum_of_copied_bytes(
 
 
 
+
+def test_restore_rejects_symlinked_destination_before_copy(backup_dir, tmp_path):
+    victim_dir = tmp_path / "operator-live-state"
+    victim_dir.mkdir()
+    victim = victim_dir / "release.json"
+    victim.write_text("live release should never be overwritten", encoding="utf-8")
+    target = tmp_path / "restore-link"
+    target.symlink_to(victim_dir, target_is_directory=True)
+
+    proof = prove_restore(backup_dir, destination=target)
+
+    assert not proof.passed
+    assert any("isolated restore destination" in reason for reason in proof.failures)
+    assert victim.read_text(encoding="utf-8") == "live release should never be overwritten"
+
+
+def test_restore_rejects_nonempty_destination_without_overwrite(backup_dir, tmp_path):
+    target = tmp_path / "restore"
+    target.mkdir()
+    victim = target / "release.json"
+    victim.write_text("existing data must remain", encoding="utf-8")
+
+    proof = prove_restore(backup_dir, destination=target)
+
+    assert not proof.passed
+    assert any("refusing overwrite" in reason for reason in proof.failures)
+    assert victim.read_text(encoding="utf-8") == "existing data must remain"
+
+
+
 def test_latest_backup_dir_picks_the_newest(tmp_path):
     # "Newest" is the recorded creation time, not the directory name and not the
     # order the directories happened to be written, so give each its own manifest.
