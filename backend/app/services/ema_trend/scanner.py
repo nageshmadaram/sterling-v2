@@ -219,7 +219,7 @@ def start_scan(uid: str, modes: list[str] | None, expected_revision: int):
     if any(m not in cfg.modes for m in selected):
         raise ValueError("MODE_NOT_ENABLED")
     if not cfg.symbols:
-        raise ValueError("SELECT_CASH_EQUITIES_FIRST")
+        raise ValueError("SELECT_EXCHANGE_QUALIFIED_INSTRUMENTS_FIRST")
     if any(j["status"] in {"QUEUED", "RUNNING"} for j in repo.list_documents(uid, "scan", limit=10)):
         raise repo.Conflict("SCAN_ALREADY_RUNNING")
     ident = stable_id(uid, "scan", repo.now_ms())
