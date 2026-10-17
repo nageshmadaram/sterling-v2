@@ -32,7 +32,7 @@ export const KiteFooterPnl = React.memo(function KiteFooterPnl({
     const multiplier = Number(p.multiplier ?? 1) || 1;
     return sum + (live > 0 && brokerLast > 0 && qty !== 0
       ? brokerPnl + (live - brokerLast) * qty * multiplier : brokerPnl);
-  }, [positions, ltp]);
+  }, 0), [positions, ltp]);
   const openCount = (positions ?? []).filter((p: any) => Number(p.quantity ?? 0) !== 0).length;
   if (!positions?.length || (openCount === 0 && pnl === 0)) return null;
   const amount = Math.abs(pnl).toLocaleString('en-IN', {
