@@ -341,16 +341,23 @@ def snapshot_database(source: Path | str, destination: Path | str) -> str:
     that is wrong is the one you only discover during a restore.
     """
     source, destination = Path(source), Path(destination)
+    # SQLite's plain connect() CREATES a missing database. A source that
+    # disappears between declaration and snapshot must never be recreated as
+    # an empty "valid" database by the backup itself.
+    if not source.is_file():
+        raise FileNotFoundError(f"snapshot source database does not exist: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_suffix(destination.suffix + ".partial")
     partial.unlink(missing_ok=True)
 
+    source_uri = source.resolve(strict=True).as_uri()
     try:
-        src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        src = sqlite3.connect(f"{source_uri}?mode=ro", uri=True)
     except sqlite3.OperationalError:
-        # WAL databases can refuse a read-only open when shared memory cannot
-        # be attached. This path never writes to the source.
-        src = sqlite3.connect(str(source))
+        # WAL databases can require a read-write connection to attach shared
+        # memory. mode=rw refuses missing files; unlike bare connect() it will
+        # never create a new empty database when the source vanishes.
+        src = sqlite3.connect(f"{source_uri}?mode=rw", uri=True)
     try:
         dst = sqlite3.connect(str(partial))
         try:
