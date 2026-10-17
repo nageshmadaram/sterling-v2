@@ -47,6 +47,16 @@ def admission_blocker(uid: str, account_id: str) -> tuple[str, str]:
         if reason:
             raise RuntimeError(reason)
         from app.services.kite_engine import state
+        # Legacy Gamma positions were archived without a trusted account id.
+        # Until a broker operator reconciles them, they may belong to ANY
+        # account of this user. Never turn unreadable/unknown exposure into a
+        # permission to originate fresh risk in another strategy.
+        legacy_gamma = gamma_move_positions.legacy_open_rows(uid)
+        if legacy_gamma:
+            return (
+                "protection_integrity",
+                "Unreconciled legacy Gamma broker exposure; resolve archived positions",
+            )
         for position in gamma_move_positions.load(uid).values():
             if str(position.account_id or "").strip() == str(account_id).strip() and (
                 position.pnl_reconciliation_required
