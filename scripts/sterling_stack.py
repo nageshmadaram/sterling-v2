@@ -444,9 +444,11 @@ def main():
             'manager_running':running,
             'local':state.get('local_url','http://127.0.0.1:5180'),
             'dev':state.get('dev_url',''),
-            'cloudflare':state.get('cloudflare_url',''),
-            'ngrok':state.get('ngrok_url',''),
-            'verified':state.get('public_ready',{}),
+            'cloudflare':(state.get('cloudflare_url','')
+                          if running and state.get('public_ready',{}).get('cloudflare') else ''),
+            'ngrok':(state.get('ngrok_url','')
+                     if running and state.get('public_ready',{}).get('ngrok') else ''),
+            'verified':state.get('public_ready',{}) if running else {},
             'primary_telegram_desk':state.get('mini_app_url',''),
             'kite_callback_guidance':state.get('callback_url',''),
             'ngrok_error':state.get('ngrok_error',''),
