@@ -77,15 +77,15 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     await page.getByRole('button', { name: 'Apply changes' }).click();
     await expect(page.getByRole('button', { name: 'Apply changes' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Signals workspace' }).click();
-    await expect(page.getByRole('group', { name: 'EMA Trend profiles' })).toBeVisible();
-    await page.getByRole('button', { name: 'PROFILES' }).click();
+    await expect(page.getByRole('group', { name: 'EMA Trend visible profiles' })).toBeVisible();
+    await page.getByRole('button', { name: 'EMA TREND' }).click();
     const profiles = page.getByRole('group', { name: 'EMA Trend visible profiles' });
     await expect(profiles).toBeVisible();
     for (const other of ['Swing', 'Intraday', 'Scalp', 'Ultrascalp'].filter(item => item !== label)) {
       await profiles.getByRole('checkbox', { name: other, exact: true }).uncheck();
     }
     await expect(profiles.getByRole('checkbox', { name: label, exact: true })).toBeChecked();
-    await page.getByRole('button', { name: /PROFILES/ }).click();
+    await page.getByRole('button', { name: /EMA TREND/ }).click();
     await expect(page.getByRole('button', { name: 'Chart TCS' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
@@ -137,16 +137,16 @@ test('EMA empty universe shows one clear setup action; Profiles and Columns menu
   await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Emergency close (simulation)' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'PROFILES' }).click();
+  await page.getByRole('button', { name: 'EMA TREND' }).click();
   const profiles = page.getByRole('group', { name: 'EMA Trend visible profiles' });
   for (const label of ['Swing', 'Intraday', 'Scalp', 'Ultrascalp']) {
     await expect(profiles.getByRole('checkbox', { name: label, exact: true })).toBeChecked();
   }
   await profiles.getByRole('checkbox', { name: 'Swing', exact: true }).uncheck();
   await expect(profiles.getByRole('checkbox', { name: 'Swing', exact: true })).not.toBeChecked();
-  await profiles.getByText('Show all profiles').click();
+  await profiles.getByText('Select all profiles').click();
   await expect(profiles.getByRole('checkbox', { name: 'Swing', exact: true })).toBeChecked();
-  await page.getByRole('button', { name: /PROFILES/ }).click();
+  await page.getByRole('button', { name: /EMA TREND/ }).click();
   await page.getByRole('button', { name: /Columns/i }).first().click();
   await expect(page.getByRole('group', { name: 'Visible columns' })).toBeVisible();
   const isPortalled = await page.getByRole('group', { name: 'Visible columns' }).evaluate(node =>
@@ -192,7 +192,7 @@ test('EMA Profiles menu shows multiple selected modes and updates without manual
   await page.goto('/e2e/fixtures/ema-trend-harness.html');
   await page.getByRole('button', { name: 'Signals workspace' }).click();
   await expect(page.getByRole('button', { name: 'Chart TCS' })).toHaveCount(2);
-  await page.getByRole('button', { name: 'PROFILES' }).click();
+  await page.getByRole('button', { name: 'EMA TREND' }).click();
   const menu = page.getByRole('group', { name: 'EMA Trend visible profiles' });
   await menu.getByRole('checkbox', { name: 'Intraday' }).uncheck();
   await expect(page.getByRole('button', { name: 'Chart TCS' })).toHaveCount(1);
@@ -202,4 +202,88 @@ test('EMA Profiles menu shows multiple selected modes and updates without manual
   expect(writes).toEqual([]);
   await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
+});
+
+
+test('EMA scanner errors explain zero signals and live blockers remain available without modal', async ({ page }) => {
+  const config = emaConfig();
+  config.config = {
+    ...config.defaults, enabled: true, symbols: ['NSE:INFY'], modes: ['swing'],
+  };
+  let scansRequested = 0;
+  await page.route('**/api/v1/ema-trend/**', async route => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/config')) {
+      await route.fulfill({ json: config }); return;
+    }
+    if (url.pathname.endsWith('/snapshot')) {
+      await route.fulfill({ json: {
+        ...config, rows: [], campaigns: [],
+        scan: { id: 'failure-1', status: 'FAILED',
+          created_ms: Date.now(), finished_ms: Date.now(),
+          errors: [{ mode: 'swing', symbol: 'NSE:INFY', reason: 'MARKET_DATA_SESSION_UNAVAILABLE' }] },
+        generated_ms: Date.now(),
+      } }); return;
+    }
+    if (url.pathname.endsWith('/scans/failure-1')) {
+      await route.fulfill({ json: { id: 'failure-1', status: 'FAILED',
+        errors: [{ mode: 'swing', symbol: 'NSE:INFY',
+          reason: 'MARKET_DATA_SESSION_UNAVAILABLE' }] } }); return;
+    }
+    if (url.pathname.endsWith('/scan')) {
+      scansRequested += 1;
+      await route.fulfill({ json: { id: 'job-2', status: 'QUEUED', errors: [] } }); return;
+    }
+    await route.fulfill({ status: 500, json: { detail: 'Unexpected EMA test request' } });
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  await expect(page.getByRole('button', { name: 'EMA TREND' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Columns/i }).first()).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'EMA Trend options' })).toHaveCount(0);
+  await expect(page.getByRole('alert').filter({ hasText: 'MARKET_DATA_SESSION_UNAVAILABLE' }).first()).toBeVisible();
+  await expect(page.getByText('Nothing to show.')).toHaveCount(0);
+  const details = page.locator('details').filter({ hasText: 'Live trading blocked' });
+  await expect(details.locator('summary')).toBeVisible();
+  await details.locator('summary').click();
+  await expect(details.getByText(/ECONOMIC EVIDENCE INCONCLUSIVE/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
+  // Scan reports failures, but no broker orders can be triggered by profile selection.
+  await page.getByRole('button', { name: 'EMA TREND' }).click();
+  const menu = page.getByRole('group', { name: 'EMA Trend visible profiles' });
+  await menu.getByRole('checkbox', { name: 'Intraday' }).uncheck();
+  expect(scansRequested).toBe(0);
+});
+
+
+test('Unchecked signal profile cannot hide unresolved inventory from another profile', async ({ page }) => {
+  const config = emaConfig();
+  config.config = {
+    ...config.defaults, enabled: false, symbols: ['NSE:TCS'],
+    modes: ['swing', 'intraday'],
+  };
+  const campaign = emaCampaign('intraday');
+  await page.route('**/api/v1/ema-trend/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/config')) {
+      await route.fulfill({ json: config }); return;
+    }
+    if (url.pathname.endsWith('/snapshot')) {
+      const mode = url.searchParams.get('mode');
+      await route.fulfill({ json: {
+        ...config, rows: [], campaigns: mode ? [] : [campaign],
+        generated_ms: Date.now(),
+        scan: { status: 'IDLE', errors: [] },
+      } }); return;
+    }
+    await route.fulfill({ json: { items: [] } });
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  await expect(page.getByRole('button', { name: 'Open TCS detail' })).toBeVisible();
+  await page.getByRole('button', { name: 'EMA TREND' }).click();
+  const menu = page.getByRole('group', { name: 'EMA Trend visible profiles' });
+  await menu.getByRole('checkbox', { name: 'Intraday' }).uncheck();
+  await expect(page.getByRole('button', { name: 'Open TCS detail' })).toBeVisible();
 });
