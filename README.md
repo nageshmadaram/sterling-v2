@@ -57,6 +57,62 @@ Passwords are hashed and cannot be recovered; administrators can replace them.
 Telegram **Sterling Login** opens the signed private management form. Price Rules
 is available from Connect and the strategy strip; each plan is armed individually.
 
+## One-command local + dual public tunnels + development UI
+
+The existing Sterling stack supervisor can now start **one backend**, one
+authenticated HTTP gateway and three access surfaces together:
+
+```bash
+cd /home/nageshmadaram/Sterling
+./sterling.sh start --all
+./sterling.sh urls
+./sterling.sh status
+```
+
+- Main local app: **http://127.0.0.1:5180** (the same gateway tunneled to the public internet).
+- Local hot-reload Vite development view: **http://127.0.0.1:5174** (loopback only,
+  shares the *same* backend and trading state; never an independent sandbox).
+- Cloudflare: the verified generated `https://….trycloudflare.com` URL,
+  or your configured named tunnel address.
+- ngrok: the verified secondary public URL printed by `./sterling.sh urls`.
+
+For a fixed ngrok domain or Cloudflare named tunnel, set values in
+`backend/.env` without committing tokens:
+
+```dotenv
+# Optional: ./sterling.sh start --all overrides this automatically.
+STERLING_TUNNEL_PROVIDER=both
+# Optional Cloudflare named tunnel (requires your configured Cloudflare token).
+STERLING_CLOUDFLARE_HOSTNAME=
+# Optional ngrok reserved domain; ngrok CLI must already be authenticated.
+STERLING_NGROK_HOSTNAME=
+# Optional when running without --all.
+STERLING_DEV_FRONTEND=1
+```
+
+If ngrok is missing or its account cannot connect, Cloudflare and the single
+local backend continue running. The status includes the ngrok error; no
+public link is published until the tunnel passes authentication and service
+checks. You must install/login to ngrok yourself; the launcher neither stores
+your personal ngrok authtoken nor configures a domain in the ngrok dashboard.
+
+On Telegram, **/menu** displays separate Cloudflare and ngrok launch URLs when
+each is verified. **/url** reports both addresses. Telegram allows only one
+persistent Mini App Menu button; it continues to use the primary Cloudflare
+`/tma` URL. Kite OAuth continues to use the already registered *primary*
+callback URL: the launcher cannot register callbacks in the Kite developer
+console, and the ngrok link is not an alternate Kite OAuth redirect.
+
+To switch an already-running legacy launcher to dual mode, use
+`./sterling.sh stop`, confirm there is no presentation/tunnel stack still
+running, then `./sterling.sh start --all`. This intentionally **does not
+terminate or replace the trading backend** so protective exits and order
+reconciliation keep running. Do not manually run a second backend.
+
+The dual-tunnel changes require the `fix/dual-tunnel-one-command-20261017`
+branch or its reviewed merge, and tests must pass before production adoption.
+They do not automatically pull or deploy open EMA strategy PRs.
+
 ## Local development
 
     make setup
