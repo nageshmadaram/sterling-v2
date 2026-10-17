@@ -122,6 +122,7 @@ test('EMA empty universe shows one clear setup action; all mode tabs and portal 
   await expect(page.getByText('Nothing to show.')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Emergency close (simulation)' })).toHaveCount(0);
   for (const label of ['Swing', 'Intraday', 'Scalp', 'Ultrascalp']) {
     await page.getByRole('button', { name: label, exact: true }).click();
     await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
