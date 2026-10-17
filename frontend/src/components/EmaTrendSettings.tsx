@@ -9,7 +9,6 @@ import { api } from '../utils/api';
 import { EmaTrendInstrumentPicker } from './kite/config/EmaTrendInstrumentPicker';
 import { EmaTrendReadiness } from './kite/config/EmaTrendReadiness';
 
-import { NSE_EQUITY_STARTER } from '../config/emaTrendPreset';
 
 const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
   { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
