@@ -129,8 +129,33 @@ async def check_control(user: UserContext = Depends(get_current_user)) -> dict:
             expected = {row["command"] for row in telegram_bot.COMMANDS}
             if installed != expected:
                 return {"ok": False, "error_code": "STALE_COMMANDS", "message": "The Telegram command menu is out of date. The Sterling worker will refresh it; use /menu."}
-    return {"ok": True, "error_code": "", "message": "Bot credentials, private chat and command menu verified. Use /menu in Telegram.",
-            "polling": telegram_bot.poll_status()}
+    polling = telegram_bot.poll_status()
+    # getMe/getChat/getMyCommands prove credentials and settings, not that a
+    # Telegram worker is actually receiving updates. Report a 409 poll
+    # conflict, stalled worker or missing worker as an actionable failure.
+    if polling.get("state") != "polling" or not polling.get("commands_registered"):
+        state = polling.get("state")
+        code = polling.get("error_code") or (
+            "POLL_STALLED" if state == "stalled" else
+            "WORKER_STARTING" if state == "starting" else
+            "MISSING_CONFIGURATION" if state == "waiting_configuration" else
+            "POLLING_UNAVAILABLE"
+        )
+        messages = {
+            "POLL_CONFLICT": "Another process is polling this bot token. Stop the duplicate poller; do not reset the bot token.",
+            "POLL_STALLED": "Telegram polling has stalled. Check the backend and Telegram worker logs.",
+            "RATE_LIMITED": "Telegram rate-limited this bot; polling will retry.",
+            "NETWORK_ERROR": "The backend cannot reach Telegram; polling will retry.",
+            "WORKER_STARTING": "Telegram worker is still starting. Check again after it begins polling.",
+            "MISSING_CONFIGURATION": "Configure the control bot token and private chat on the backend.",
+            "POLLING_UNAVAILABLE": "Telegram worker is not receiving updates; check backend logs and webhook/poll conflicts.",
+        }
+        return {"ok": False, "error_code": code,
+                "message": messages.get(code, "Telegram polling is not healthy."),
+                "polling": polling}
+    return {"ok": True, "error_code": "",
+            "message": "Bot credentials and live polling verified. Use /menu in Telegram.",
+            "polling": polling}
 
 
 def _to_out(t: "store.Target") -> TargetOut:
