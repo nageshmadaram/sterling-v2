@@ -311,3 +311,24 @@ def test_durable_outbox_full_refuses_new_alert_without_deleting_pending(
     assert {event.event_id for event in outbox.due("u1", now_ms=6000)} == {
         first, second,
     }
+
+
+def test_new_alert_does_not_prune_undelivered_old_alert_by_age(lifecycle_db):
+    old = outbox.enqueue(
+        "u1", dedupe_key="old-pending", strategy="Gamma-Unwind",
+        event_type="PROTECTION FAILED", title="OPT",
+        detail="not yet delivered", severity="CRITICAL", created_at_ms=1000,
+    )
+    new = outbox.enqueue(
+        "u1", dedupe_key="new-pending", strategy="SuperTrend",
+        event_type="ENTRY FILLED", title="OPT", detail="new",
+        created_at_ms=1000 + outbox._MAX_AGE_MS + 60_000,
+    )
+    assert old and new
+    # Check stored rows before due() intentionally marks old entries expired.
+    with outbox._fast_conn() as conn:
+        rows = conn.execute(
+            f"SELECT event_id FROM {outbox._TABLE} WHERE uid = ? AND completed = 0",
+            ("u1",),
+        ).fetchall()
+    assert {row[0] for row in rows} == {old, new}
