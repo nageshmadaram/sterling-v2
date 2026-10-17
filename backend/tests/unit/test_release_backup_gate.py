@@ -294,7 +294,11 @@ def test_post_freeze_backup_passes_only_when_frozen_manifest_is_captured(
 ):
     expected = "a" * 40
     directory = _backup(tmp_path, sha=expected)
-    frozen = {"build": {"runtime_sha": expected, "release_tag": "candidate"}}
+    frozen = {
+        "build": {"runtime_sha": expected, "release_tag": "candidate"},
+        "lane_count": 1,
+        "lanes": [{"lane_key": "snapback:scalping", "note": "frozen rules"}],
+    }
     _make_post_freeze_backup(directory, frozen)
 
     monkeypatch.setattr(
@@ -326,13 +330,18 @@ def test_post_freeze_backup_rejects_different_frozen_manifest_bytes(
 ):
     expected = "a" * 40
     directory = _backup(tmp_path, sha=expected)
-    current = {"build": {"runtime_sha": expected, "release_tag": "candidate"}}
+    current = {
+        "build": {"runtime_sha": expected, "release_tag": "candidate"},
+        "lane_count": 1,
+        "lanes": [{"lane_key": "snapback:scalping", "note": "frozen rules"}],
+    }
     backed_up = {
+        **current,
         "build": {
             "runtime_sha": expected,
             "release_tag": "candidate",
             "different_contract": True,
-        }
+        },
     }
     _make_post_freeze_backup(directory, backed_up)
 
@@ -368,6 +377,7 @@ def test_post_freeze_gate_refuses_rechecksummed_stale_lane_file(
     frozen = {
         "build": {"runtime_sha": expected, "release_tag": "candidate"},
         "generated_at": "2026-10-18T00:00:00+00:00",
+        "lane_count": 1,
         "lanes": [{"lane_key": "snapback:scalping", "note": "frozen rules"}],
     }
     _make_post_freeze_backup(directory, frozen)
