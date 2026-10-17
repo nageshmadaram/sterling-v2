@@ -38,15 +38,30 @@ def fetch(url, timeout=8):
 
 
 def public_ready(origin):
-    """Publish only a reachable app + desk whose private data still requires authentication."""
-    try:
-        _,index=fetch(origin+'/')
-        _,desk=fetch(origin+'/tma')
-        if 'id="root"' not in index or 'Telegram Mini App' not in desk:return False
-        try:fetch(origin+'/api/v1/tma/data')
-        except urllib.error.HTTPError as error:return error.code==401
+    """Verify the HTTPS app, Telegram desk, and private API boundary concurrently.
+
+    Each request retains fetch()'s bounded timeout and full TLS certificate
+    verification. Parallel checks avoid serial timeout delays on a bad tunnel.
+    """
+    if not isinstance(origin, str) or not origin.startswith('https://'):
         return False
-    except Exception:return False
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            index_task = pool.submit(fetch, origin + '/')
+            desk_task = pool.submit(fetch, origin + '/tma')
+            private_task = pool.submit(fetch, origin + '/api/v1/tma/data')
+            index_status, index = index_task.result()
+            desk_status, desk = desk_task.result()
+            if (index_status != 200 or desk_status != 200 or
+                    'id="root"' not in index or 'Telegram Mini App' not in desk):
+                return False
+            try:
+                private_task.result()
+            except urllib.error.HTTPError as error:
+                return error.code == 401
+            return False
+    except Exception:
+        return False
 
 
 def tunnel_unavailable(origin, port):

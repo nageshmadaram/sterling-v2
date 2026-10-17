@@ -36,6 +36,24 @@ def test_publication_requires_live_app_desk_and_auth(monkeypatch):
  monkeypatch.setattr(stack,'fetch',lambda url:(_ for _ in ()).throw(TimeoutError()))
  assert not stack.public_ready('https://synthetic.example.test')
 
+def test_public_readiness_checks_are_concurrent_and_fail_closed(monkeypatch):
+ barrier=threading.Barrier(3,timeout=2)
+ def fetch(url):
+  barrier.wait()
+  if url.endswith('/api/v1/tma/data'):
+   raise urllib.error.HTTPError(url,401,'Unauthorized',{},None)
+  return 200,('Telegram Mini App' if url.endswith('/tma') else 'id="root"')
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert stack.public_ready('https://parallel.example.test')
+
+
+def test_public_readiness_rejects_plain_http_without_probe(monkeypatch):
+ def reject(url):
+  raise AssertionError('No HTTP probe should be made for a public origin')
+ monkeypatch.setattr(stack,'fetch',reject)
+ assert not stack.public_ready('http://parallel.example.test')
+
+
 async def test_menu_url_change_preserves_poll_offset(monkeypatch):
  from app.services.notifications import telegram_bot as bot,telegram_kite as desk
  monkeypatch.setattr(bot._tg,'TELEGRAM_TOKEN','synthetic');monkeypatch.setattr(bot._tg,'TELEGRAM_CHAT_ID','1')
