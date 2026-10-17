@@ -538,7 +538,7 @@ class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
         provider=getattr(args,'provider','cloudflare')
-        self.status={'manager_pid':os.getpid(),'manager_protocol':3,'phase':'starting','app_url':'','mini_app_url':'',
+        self.status={'manager_pid':os.getpid(),'manager_protocol':4,'phase':'starting','app_url':'','mini_app_url':'',
                      'mode':'both' if provider=='both' else 'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'),
                      'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
@@ -932,7 +932,7 @@ def main():
     if args.command=='up' and running:
         # Re-running the one-command launcher is idempotent. A verified
         # current gateway is already supervised; do not churn its tunnels.
-        current=(state.get('manager_protocol',0)>=3 and
+        current=(state.get('manager_protocol',0)>=4 and
                  state.get('mode')=='both' and
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
                  state.get('web_port')==args.port)
