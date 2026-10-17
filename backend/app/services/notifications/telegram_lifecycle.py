@@ -392,9 +392,19 @@ def pending_summary(uid: str, *, now_ms: int | None = None) -> dict:
             "oldest_age_s": max(0, (now - oldest) // 1000) if n and oldest else 0,
             "max_attempts": int(row["max_attempts"] or 0),
             "spooled": spooled_count(),
+            "readable": True,
         }
-    except Exception:  # noqa: BLE001
-        return {"pending": 0, "oldest_age_s": 0, "max_attempts": 0, "spooled": spooled_count()}
+    except Exception as exc:  # noqa: BLE001
+        # A failed outbox read must not masquerade as zero queued alerts.
+        log.warning("Telegram lifecycle queue health UNKNOWN: %s", type(exc).__name__)
+        return {
+            "pending": None,
+            "oldest_age_s": None,
+            "max_attempts": None,
+            "spooled": spooled_count(),
+            "readable": False,
+            "error": type(exc).__name__,
+        }
 
 
 def mark_delivered(event_id: str, destination: str) -> None:
