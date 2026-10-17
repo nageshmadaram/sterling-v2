@@ -70,6 +70,17 @@ def _env_path(variable: str, fallback: Callable[[Path], Path]) -> Callable[[Path
     return _locate
 
 
+def _default_runtime_database(root: Path, filename: str) -> Path:
+    """Match declared_databases() for legacy vs explicit persistent state roots.
+
+    A process declaring STERLING_STATE_ROOT stores DBs under state/data,
+    whereas legacy checkouts without it use source/backend. Backup coverage
+    must describe the same DB that the snapshot routine actually captured.
+    """
+    persistent_layout = bool((os.environ.get("STERLING_STATE_ROOT") or "").strip())
+    return root / ("data" if persistent_layout else "backend") / filename
+
+
 REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
     RequiredArtifact(
         "authoritative_evidence_db", ArtifactKind.DATABASE,
@@ -77,21 +88,27 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
             (
                 os.environ.get("STERLING_EVIDENCE_DB")
                 or os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
-                or str(r / "backend/snapback_observations.db")
+                or str(_default_runtime_database(r, "snapback_observations.db"))
             )
         ).expanduser(),
         "the forward sample every promotion decision is read from",
     ),
     RequiredArtifact(
         "canonical_intent_journal", ArtifactKind.DATABASE,
-        _env_path("STERLING_DB_PATH", lambda r: r / "backend/sterling_paper.db"),
+        _env_path(
+            "STERLING_DB_PATH",
+            lambda r: _default_runtime_database(r, "sterling_paper.db"),
+        ),
         "the durable order journal restart recovery reads to learn whether an "
         "order was ever sent; it also holds the execution-control state and the "
         "signed fill ledger",
     ),
     RequiredArtifact(
         "kite_engine_db", ArtifactKind.DATABASE,
-        lambda r: r / "backend/kite_engine.db",
+        _env_path(
+            "STERLING_KITE_ENGINE_DB",
+            lambda r: _default_runtime_database(r, "kite_engine.db"),
+        ),
         "the SuperTrend engine's own durable state",
         required_before_live=False,
     ),
