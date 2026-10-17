@@ -181,6 +181,29 @@ def test_a_snapshot_is_consistent_while_the_source_is_open(tmp_path):
         conn.close()
 
 
+
+def test_missing_source_snapshot_does_not_create_empty_database(tmp_path):
+    missing = tmp_path / "missing-source.db"
+    destination = tmp_path / "snapshot.db"
+
+    with pytest.raises(FileNotFoundError, match="source database does not exist"):
+        snapshot_database(missing, destination)
+
+    assert not missing.exists()
+    assert not destination.exists()
+
+
+def test_snapshot_handles_source_path_containing_question_mark(tmp_path):
+    source = _make_db(tmp_path / "observations?safe.db", rows=3)
+    destination = tmp_path / "safe-snapshot.db"
+
+    snapshot_database(source, destination)
+
+    with sqlite3.connect(destination) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 3
+
+
+
 class TestDeclaredDatabases:
     def test_runtime_observations_path_is_the_default_evidence_database(
         self, tmp_path, monkeypatch
