@@ -210,12 +210,23 @@ class Stack:
                     elif 'Registered tunnel connection' in line:log.write('Tunnel connection registered\n');log.flush()
                     elif 'ERR' in line:log.write('Tunnel transport error\n');log.flush()
         threading.Thread(target=collect,daemon=True).start()
-        if self.args.hostname:self.status['app_url']=self.args.hostname.rstrip('/')
+        if self.args.hostname:
+            self.status['app_url']=self.args.hostname.rstrip('/')
+            key='ngrok_url' if self.args.provider=='ngrok' else 'cloudflare_url'
+            self.status[key]=self.status['app_url']
+        elif self.args.provider=='ngrok':
+            self.status['ngrok_url']=''
+        else:
+            self.status['cloudflare_url']=''
         self.status['tunnel_started_at']=time.time()
 
     def launch_ngrok(self):
         """Independent optional tunnel to the SAME local gateway (never another API)."""
         self.stop_child('ngrok')
+        # Never show a prior generated tunnel hostname while its process
+        # has been stopped for restart or failed to authenticate.
+        self.status['ngrok_url']=''
+        self.status.setdefault('public_ready',{})['ngrok']=False
         if not self.ngrok_binary:
             self.status['ngrok_error']='NGROK_BINARY_NOT_INSTALLED'
             return
@@ -226,8 +237,7 @@ class Stack:
         process=subprocess.Popen(command,cwd=ROOT,env=clean_env(),stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT,text=True,start_new_session=True)
         self.children['ngrok']=process
-        if not hostname:self.status['ngrok_url']=''
-        else:self.status['ngrok_url']=hostname
+        if hostname:self.status['ngrok_url']=hostname
         self.status['ngrok_error']=''
         self.status['ngrok_started_at']=time.time()
         def collect():
@@ -322,7 +332,8 @@ class Stack:
                 pid,url=self.urls.get()
                 if pid==self.children['cloudflare'].pid:
                     self.status['app_url']=url
-                    if self.args.provider!='ngrok':self.status['cloudflare_url']=url
+                    key='ngrok_url' if self.args.provider=='ngrok' else 'cloudflare_url'
+                    self.status[key]=url
             while not self.ngrok_urls.empty():
                 pid,url=self.ngrok_urls.get()
                 child=self.children.get('ngrok')
