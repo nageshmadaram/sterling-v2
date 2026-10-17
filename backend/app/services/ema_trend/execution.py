@@ -139,6 +139,10 @@ async def build_plan(uid: str, signal_id: str, expected_revision: int) -> dict:
         raise repo.Conflict("STALE_CONFIG_REVISION")
     cfg = EmaTrendConfig.model_validate(settings["config"])
     row = repo.get(uid, "signal", signal_id)
+    # An index spot is a read-only underlying: refuse planning before any
+    # broker quote, sizing, or virtual/real order path is entered.
+    if row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY":
+        raise ValueError("INDEX_SPOT_WATCH_ONLY_NO_ORDERS")
     setup = Setup.model_validate({k:v for k,v in row.items() if k in Setup.model_fields})
     blockers = _risk_blockers(uid, cfg)
     origin=(row.get("provenance") or {}).get("origin")
