@@ -506,3 +506,49 @@ async def test_historical_replay_is_durable_deterministic_and_never_reads_market
     again=replay.start("alice","NSE:INFY","ultra_scalping",signal,context,1)
     assert again["id"]==run["id"]
     assert repo.list_documents("alice","campaign")==[]
+
+
+
+def test_snapshot_filters_profile_in_sql_before_1000_row_limit():
+    """Other modes' recent updates must not hide all intraday/swing setups."""
+    import json
+
+    def document(ident, mode, updated):
+        data = json.dumps({
+            "id": ident, "mode": mode, "status": "watching",
+            "close_ms": 1_760_000_000_000, "updated_ms": updated,
+        })
+        return ("alice", "signal", ident, 1, "watching", updated, updated, data)
+
+    with repo.transaction() as conn:
+        conn.executemany(
+            """INSERT INTO ema_trend_documents
+               (owner_uid,kind,id,revision,status,created_ms,updated_ms,data_json)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [document(f"swing-{i:04d}", "swing", 1000 + i) for i in range(1100)]
+            + [document(f"intraday-{i}", "intraday", i + 1) for i in range(3)]
+            + [("bob", "signal", "other-user", 1, "watching", 100_000, 100_000,
+                json.dumps({"id": "other-user", "mode": "intraday", "close_ms": 1_760_000_000_000}))],
+        )
+
+    all_modes = snapshot.snapshot("alice")
+    assert len(all_modes["rows"]) == 1000
+    assert all(row["mode"] == "swing" for row in all_modes["rows"])
+    assert all_modes["next_cursor"] == 1000
+
+    intraday = snapshot.snapshot("alice", mode="intraday")
+    assert {row["id"] for row in intraday["rows"]} == {
+        "intraday-0", "intraday-1", "intraday-2",
+    }
+    assert intraday["next_cursor"] is None
+    assert "other-user" not in {row["id"] for row in intraday["rows"]}
+
+    swing = snapshot.snapshot("alice", mode="swing")
+    assert len(swing["rows"]) == 1000
+    assert swing["next_cursor"] == 1000
+    following = snapshot.snapshot("alice", mode="swing", cursor=1000)
+    assert len(following["rows"]) == 100
+    assert following["next_cursor"] is None
+
+    with pytest.raises(ValueError, match="INVALID_EMA_MODE"):
+        repo.list_signals_by_mode("alice", "undefined")
