@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
 from app.engines.ema_trend.config import PROFILES, canonical_mode, stable_id
@@ -20,6 +21,54 @@ from . import config_store, repository as repo
 
 IST = ZoneInfo("Asia/Kolkata")
 _tasks: dict[str, asyncio.Task] = {}
+
+
+# Reuse Sterling's index master. These are spot signal sources, never paper
+# equity/future/option contracts and never admission into execution.build_plan.
+from app.services.kite_engine.universe import load_cfg as _index_universe_cfg
+_INDEX_SPOTS = {
+    f'{"BSE" if item["option_exchange"]=="BFO" else "NSE"}:{item["spot_symbol"]}': (
+        "BSE" if item["option_exchange"]=="BFO" else "NSE",
+        item["spot_symbol"], int(item["spot_token"]))
+    for item in _index_universe_cfg()["indices"]
+}
+
+
+def watch_symbols(cfg):
+    """Stable order and no duplicate broker reads across stock and index lists."""
+    index_names = set(cfg.scan_indices)
+    indices = [symbol for symbol in _INDEX_SPOTS if symbol.split(":",1)[1] in index_names]
+    stocks = cfg.symbols if cfg.scan_stocks_enabled else []
+    return list(dict.fromkeys([*indices,*stocks]))
+
+
+@dataclass(frozen=True)
+class _IndexSpotMeta:
+    token: int
+    exchange: str
+    tradingsymbol: str
+    lot_size: int = 0
+    tick_size: str = "0.05"
+
+    def as_meta(self):
+        return {"exchange":self.exchange,"tradingsymbol":self.tradingsymbol,
+                "instrument_token":self.token,"lot_size":self.lot_size,
+                "tick_size":self.tick_size,"instrument_type":"INDEX",
+                "segment":"INDICES","expiry":""}
+
+
+async def index_watch_metadata(symbol, client):
+    exchange, name, expected_token = _INDEX_SPOTS[symbol]
+    # The broker's master must confirm that the token still identifies exactly
+    # the selected spot index. No fallback to an arbitrary weekly derivative.
+    rows = await client._instruments.load(exchange)
+    matched = [row for row in rows
+               if str(row.get("tradingsymbol"))==name and
+                  str(row.get("exchange"))==exchange and
+                  "INDICES" in str(row.get("segment","")).upper()]
+    if len(matched)!=1 or int(matched[0].get("instrument_token") or 0)!=expected_token:
+        raise ValueError("INDEX_SPOT_BROKER_MASTER_NOT_VERIFIED")
+    return _IndexSpotMeta(token=expected_token,exchange=exchange,tradingsymbol=name)
 
 
 async def market_client(uid: str):
@@ -142,7 +191,9 @@ async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None
     profile = PROFILES[canonical_mode(mode)]
     now = now or datetime.now(IST)
     client = client or await market_client(uid)
-    meta = await equity_metadata(uid, symbol, client)
+    index_watch = symbol in _INDEX_SPOTS
+    meta = (await index_watch_metadata(symbol, client)
+            if index_watch else await equity_metadata(uid, symbol, client))
     bars = await fetch_bars(client, meta, profile.signal_minutes, now)
     context_base = 1440 if profile.context_minutes == 10080 else profile.context_minutes
     context = await fetch_bars(client, meta, context_base, now)
@@ -165,10 +216,14 @@ async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None
     for setup in setups[-100:]:
         value = setup.model_dump(mode="json")
         value["metadata"] = {**meta.as_meta(),"instrument_token":meta.token}
-        value["contract"]=contract({**meta.as_meta(),"instrument_token":meta.token},mode)
+        value["contract"]=(None if index_watch else
+            contract({**meta.as_meta(),"instrument_token":meta.token},mode))
+        if index_watch:
+            value["signal_source"]="INDEX_SPOT_WATCH_ONLY"
+            value["watch_only"]=True
         value["dataset_id"]=dataset_id
         value["dataset_sha256"]=audit["content_sha256"]
-        value["activation_eligible"] = setup.close_ms > current["activation_ms"]
+        value["activation_eligible"] = not index_watch and setup.close_ms > current["activation_ms"]
         value["scan_asof_ms"] = int(now.timestamp()*1000)
         repo.put(uid, "signal", setup.id, value)
     return {"symbol": symbol, "mode": mode, "bars": len(bars), "context_bars": len(context),
@@ -182,9 +237,10 @@ async def run_job(uid: str, job_id: str):
     cfg = config_store.config(uid)
     try:
         client = await market_client(uid)
-        total = max(1, len(cfg.symbols) * len(job["modes"]))
+        selected = watch_symbols(cfg)
+        total = max(1, len(selected) * len(job["modes"]))
         done, results, errors = 0, [], []
-        for symbol in cfg.symbols:
+        for symbol in selected:
             for mode in job["modes"]:
                 latest = repo.get(uid, "scan", job_id)
                 if latest["status"] == "CANCELLED":
@@ -218,8 +274,8 @@ def start_scan(uid: str, modes: list[str] | None, expected_revision: int):
     selected = [canonical_mode(m) for m in (modes or cfg.modes)]
     if any(m not in cfg.modes for m in selected):
         raise ValueError("MODE_NOT_ENABLED")
-    if not cfg.symbols:
-        raise ValueError("SELECT_EXCHANGE_QUALIFIED_INSTRUMENTS_FIRST")
+    if not watch_symbols(cfg):
+        raise ValueError("SELECT_SPOT_INDICES_OR_EXCHANGE_QUALIFIED_INSTRUMENTS_FIRST")
     if any(j["status"] in {"QUEUED", "RUNNING"} for j in repo.list_documents(uid, "scan", limit=10)):
         raise repo.Conflict("SCAN_ALREADY_RUNNING")
     ident = stable_id(uid, "scan", repo.now_ms())
