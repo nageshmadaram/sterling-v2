@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrendScan, useCancelEmaTrendScan } from '../../../hooks/useEmaTrend';
+import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrendScan, useCancelEmaTrendScan, useEmaTrendOperation } from '../../../hooks/useEmaTrend';
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
@@ -30,6 +30,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const scan = useRunEmaTrendScan();
   const job = useEmaTrendScan(scan.data?.id || snapshot.data?.scan?.id);
   const cancel = useCancelEmaTrendScan();
+  const operation = useEmaTrendOperation();
   const common = useSignalColumns();
   const [openId, setOpenId] = React.useState<string | null>(null);
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
@@ -112,13 +113,19 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             {scanning && <button type="button" className="sb-tool" disabled={cancel.isPending}
               onClick={() => { if (job.data?.id) cancel.mutate(job.data.id); }}>Stop scan</button>}
             <button type="button" className="sb-tool" onClick={() => openSettingsSection('emaTrend')}>EMA Trend settings</button>
+            <button type="button" className="sb-tool" disabled={historical || operation.isPending || !signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended')}
+              onClick={() => {
+                if (window.confirm('Request closure of all EMA simulation campaigns? This does NOT close any real Kite position, and unsettled orders still need reconciliation.')) operation.mutate('flatten');
+              }}>Emergency close (simulation)</button>
             <span>Execution: simulation · live orders unavailable</span>
           </div>
           <p>10/21 EMA · DEMA50 · ST(10,3). Signals use completed market candles. Status is observational, not an order recommendation.</p>
         </StrategyBoardFooter>
       </BoardFilters>
       {historical && <p role="status" style={{ padding: 12 }}>Historical view is read-only. Return to the current session to see refreshed EMA signals.</p>}
-      {[snapshot.error, config.error, scan.error, cancel.error].filter(Boolean).map((error, index) =>
+      {operation.isSuccess && operation.variables === 'flatten' &&
+        <p role="status" style={{ padding: 12 }}>EMA simulation close requested. Check outstanding orders and confirmed shares; this does not close real Kite positions.</p>}
+      {[snapshot.error, config.error, scan.error, cancel.error, operation.error].filter(Boolean).map((error, index) =>
         <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
       {job.data?.status === 'FAILED' && <p role="alert">EMA scan failed: {scanError.join(' · ')}</p>}
       {!historical && snapshot.isLoading && <p style={{ padding: 12 }}>Loading EMA Trend signals…</p>}
