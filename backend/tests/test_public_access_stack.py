@@ -474,7 +474,7 @@ def test_exited_gateway_does_not_count_as_started(monkeypatch):
 
 def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,capsys):
  monkeypatch.setattr(stack,'STATE',tmp_path)
- existing={'manager_pid':80808,'manager_protocol':2,'mode':'both',
+ existing={'manager_pid':80808,'manager_protocol':3,'mode':'both',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
   'local_url':'http://127.0.0.1:5180','urls':{
     'cloudflare':'https://cloudflare.example.test',
@@ -589,7 +589,7 @@ def test_start_web_refuses_unknown_listener_without_launching_second(monkeypatch
 def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp_path):
  monkeypatch.setattr(stack,'STATE',tmp_path)
  monkeypatch.setattr(stack,'read_state',lambda:{
-  'manager_pid':80808,'manager_protocol':2,'mode':'both',
+  'manager_pid':80808,'manager_protocol':3,'mode':'both',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,
   'phase':'starting','local_url':'http://127.0.0.1:5180'})
  monkeypatch.setattr(stack,'alive',lambda pid:True)
