@@ -77,6 +77,61 @@ cd /home/nageshmadaram/Sterling
   or your configured named tunnel address.
 - ngrok: the verified secondary public URL printed by `./sterling.sh urls`.
 
+### Committed release vs. uncommitted development
+
+`./sterling.sh up` uses two **separate frontend sources** without opening
+another Kite engine:
+
+| Where you open Sterling | Source and update rule |
+| --- | --- |
+| Local `http://127.0.0.1:5180` | A build from an immutable Git commit; never live working-tree edits |
+| Cloudflare HTTPS public URL | Exactly the same 5180 committed build and backend |
+| ngrok HTTPS public URL | Exactly the same 5180 committed build and backend |
+| Dev `http://127.0.0.1:5174` | Your local `frontend/` working directory, including uncommitted edits, with Vite hot reload |
+
+The stack checks `HEAD` every 15 seconds. After a local **`git commit`**,
+the committed frontend tree is extracted into the private
+`.runtime/stack/committed-source` workspace; npm dependencies are isolated
+there, and the new production assets are compiled and published by swapping
+the `.runtime/stack/published` symlink atomically. No backend or tunnel
+restart is required; all three gateway URLs show the new UI upon refresh.
+Existing browser tabs are not forcibly reloaded mid-trade. Previous hashed
+assets are preserved to avoid breaking open tabs.
+
+Uncommitted, untracked and modified files **never enter the public frontend
+build**, even if `frontend/dist` was generated from those files previously.
+The dev URL alone reflects them. Compilation failure leaves the last
+successful committed release in service; `./sterling.sh status` and
+`./sterling.sh urls` report `release_commit`, `release_error`, and
+`release_stale`. The failed build's logs are written to
+`.runtime/stack/release-build.log`.
+
+The default is the **local committed** ref:
+
+```dotenv
+STERLING_PUBLISH_REF=HEAD
+```
+
+To follow **only reviewed commits already on the remote `main` branch**
+without checking out, merging, pushing or changing local work:
+
+```dotenv
+STERLING_PUBLISH_REF=origin/main
+STERLING_PUBLISH_FETCH=1
+```
+
+The remote option fetches `origin/main` about once per minute, and still
+publishes only after a successful frontend build. It does **not** automatically
+merge branches or copy unreviewed PRs into `main`.
+
+**Trading safety boundary:** this automation updates only the static React
+frontend. The existing backend on port 8000, its Python code, Kite session,
+orders, exits, order reconciliation and risk controls are not restarted or
+deployed from Git. Backend code upgrades require a separate operator-certified
+release. A frontend commit alone cannot make backend-dependent new pages or
+new live trading strategies operational; never enable live entry merely
+because frontend URLs are synchronized.
+
 For a fixed ngrok domain or Cloudflare named tunnel, set values in
 `backend/.env` without committing tokens:
 
