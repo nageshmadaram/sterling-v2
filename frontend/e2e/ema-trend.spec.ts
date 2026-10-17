@@ -21,6 +21,7 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
       if (request.method() !== 'GET') mutations.push({ path, body });
       let payload: unknown;
       if (path === '/config' && request.method() === 'GET') payload = config;
+      else if (path.includes('/stock-registry')) payload = [];
       else if (path === '/config' && request.method() === 'PATCH') {
         expect(body.expected_revision).toBe(config.revision);
         config = { ...config, config: { ...config.config, ...body.changes }, revision: config.revision + 1 }; payload = config;
@@ -67,6 +68,7 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
       await route.fulfill({ status: unknown.includes(url.pathname) ? 500 : 200, json: payload });
     });
     await page.goto('/e2e/fixtures/ema-trend-harness.html');
+    await page.getByText('Advanced: edit exact exchange symbols').click();
     await page.getByLabel('EMA Trend instruments').fill('NSE:TCS');
     await page.getByLabel('Paper allocation (₹)').fill('100000');
     await page.getByRole('switch', { name: '10/21 EMA + Supertrend engine' }).click();
@@ -372,6 +374,7 @@ test('Exact option selector → whole-lot paper entry → quarter → close', as
     await route.fulfill({ status: unknown.includes(path) ? 500 : 200, json: data });
   });
   await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByText(/Add more stocks or exact derivative contracts/).click();
   await page.getByLabel('EMA Trend instrument search').fill('NIFTY');
   await page.getByRole('checkbox', { name: symbol, exact: true }).check();
   await expect(page.getByRole('checkbox', { name: 'MCX:GOLD26NOVFUT', exact: true })).toBeDisabled();
