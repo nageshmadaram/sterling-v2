@@ -67,7 +67,7 @@ def _gateway_listener_pids(port):
                               capture_output=True,text=True,timeout=4,check=True)
     except (OSError,subprocess.SubprocessError,ValueError):
         return []
-    return sorted({int(value) for value in re.findall(r'\\bpid=(\\d+),',result.stdout)})
+    return sorted({int(value) for value in re.findall(r'\bpid=(\d+),',result.stdout)})
 
 
 def _is_own_orphan_gateway(pid):
@@ -79,7 +79,7 @@ def _is_own_orphan_gateway(pid):
         if proc.stat().st_uid!=os.getuid():
             return False
         argv=[piece.decode('utf-8','replace') for piece in
-              (proc/'cmdline').read_bytes().split(b'\\x00') if piece]
+              (proc/'cmdline').read_bytes().split(b'\x00') if piece]
         expected=str(ROOT/'scripts/serve_frontend.mjs')
         return (expected in argv and (proc/'cwd').resolve()==ROOT.resolve()
                 and any(Path(argv[0]).name==name for name in ('node','nodejs')))
