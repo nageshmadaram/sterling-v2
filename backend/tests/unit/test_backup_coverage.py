@@ -156,6 +156,32 @@ class TestDatabaseDeclarations:
         assert evidence.name in result.databases
         assert str(missing) in result.missing
 
+    def test_foreign_same_named_db_cannot_count_as_canonical_journal(
+            self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup
+
+        canonical = host / "backend" / "sterling_paper.db"
+        with sqlite3.connect(canonical) as conn:
+            conn.execute("CREATE TABLE genuine_orders (id INTEGER)")
+
+        foreign = host / "foreign" / "sterling_paper.db"
+        foreign.parent.mkdir()
+        with sqlite3.connect(foreign) as conn:
+            conn.execute("CREATE TABLE unrelated (id INTEGER)")
+
+        result = create_full_backup(
+            backup_root=host / "backups",
+            root=host,
+            databases=[host / "backend/snapback_observations.db", foreign],
+        )
+
+        rows = json.loads((result.directory / "coverage.json").read_text())
+        coverage = {row["name"]: row["coverage"] for row in rows}
+        assert coverage["authoritative_evidence_db"] == "COPIED"
+        assert coverage["canonical_intent_journal"] == "GAP"
+        assert "canonical_intent_journal" in result.gaps
+
+
     def test_two_declared_databases_cannot_overwrite_each_other_by_basename(
             self, host, monkeypatch):
         from app.core.backup_manifest import declared_databases
