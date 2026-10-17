@@ -8,7 +8,6 @@ import { BoardFilters, ColumnsMenu } from './BoardFilters';
 import { useBoardView } from './useBoardView';
 import { useSignalColumns } from './useSignalColumns';
 import { EmaTrendTicket } from './EmaTrendTicket';
-import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { openSettingsSection } from '../config/registry';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend';
 
@@ -73,7 +72,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         snapshot.data.paused !== true && snapshot.data.capabilities?.paper === true,
     })),
   ], [snapshot.data, historical]);
-  const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v2', endedByDefault: true });
+  // v4 starts with an unrestricted view; stale TODAY/ENDED preferences must
+  // not make genuine older saved signals look like a broken scanner.
+  const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v4', endedByDefault: true });
   // Never let a view filter hide an active or unresolved held campaign.
   const visible = [...view.visible];
   for (const signal of signals) if (signal.emaTrend?.campaignId && signal.status !== 'ended' && !visible.some(row => row.id === signal.id)) visible.unshift(signal);
@@ -87,60 +88,82 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
     setOpenId(null);
   };
   const resetProfiles = () => { setSelectedModes([...MODES]); setOpenId(null); };
-  const scanError = (job.data?.errors || []).map(error => typeof error === 'string' ? error : (error as { reason?: string; symbol?: string; mode?: string }).reason || 'Unknown scan failure');
+  const currentScan = job.data || snapshot.data?.scan || null;
+  const scanError = (currentScan?.errors || []).map(error => {
+    if (typeof error === 'string') return error;
+    return [error.mode, error.symbol, error.reason || 'Unknown scan failure'].filter(Boolean).join(' · ');
+  });
+  const scanResults = currentScan?.results || [];
+  const processedPairs = scanResults.length;
+  const providerBars = scanResults.reduce((sum, result) => sum + result.bars, 0);
+  const noEvidence = signals.length === 0 && !snapshot.isLoading && !snapshot.error;
+  const safetyBlockers = (config.data?.blockers || [])
+    .filter((reason, index, all) => all.indexOf(reason) === index);
   const status = historical ? 'Historical view — trading disabled' : scanning ? 'Scanning completed bars…' :
     !hasSymbols ? 'Add NSE/BSE equities in EMA Settings to start scanning' :
     selectedEnabled.length === 0 ? 'Enable a selected profile in EMA Settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
-    lastScan?.status === 'FAILED' ? 'Last scan failed — see details below' :
-    'Automatic scans · signal view refreshes every 10s';
+    lastScan?.status === 'FAILED' ? 'Scan failed — review details' :
+    `${signals.length} saved records · auto-refresh every 10s`;
 
   return <div className="sb-strategy-layout" style={{ height: '100%', overflow: 'auto' }}>
     <div className="sb-strategy-rows">
-      <div role="group" aria-label="EMA Trend profiles" style={{
-        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 7,
-        padding: '7px 10px', borderBottom: '1px solid var(--k-border)',
-        background: 'var(--k-bg)',
-      }}>
-        <ColumnsMenu buttonText="PROFILES" menuLabel="EMA Trend visible profiles"
-          buttonTitle="Choose which EMA profiles appear in the signals table"
-          showAllText="Show all profiles"
+      <BoardFilters hideSearch view={{ ...view, ...common,
+        offers: { ...view.offers, best: false } }} columns={common.columns}>
+        <ColumnsMenu buttonText="EMA TREND" menuLabel="EMA Trend visible profiles"
+          buttonTitle="Filter EMA Trend signals by timeframe; this does not change scanning or orders"
+          showAllText="Select all profiles"
           items={MODES.map(mode => ({
             id: mode, label: EMA_TREND_MODE_LABEL[mode],
             on: selectedModes.includes(mode),
             toggle: () => toggleMode(mode),
           }))}
           onShowAll={resetProfiles} />
-        <span style={{ fontSize: 11, opacity: 0.9 }}>
-          {selectedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(' · ')}
+        <span aria-label="Selected EMA Trend profiles" style={{ fontSize: 10, opacity: 0.9 }}>
+          {selectedModes.length === MODES.length ? 'All profiles' :
+            selectedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(' · ')}
         </span>
-        <span role="status" style={{ fontSize: 10, opacity: 0.8, marginLeft: 'auto' }}>{status}</span>
-      </div>
-      <BoardFilters hideSearch view={{ ...view, ...common,
-        offers: { ...view.offers, best: false } }} columns={common.columns}>
-        <StrategyBoardFooter name="EMA Trend" onReset={resetProfiles}>
-          <div>
-            <button type="button" className="sb-tool" disabled={!canScan} onClick={() => scan.mutate(activeModes)}>
-              {scanning || scan.isPending ? 'Scanning…' : 'Refresh signals'}</button>
-            {scanning && <button type="button" className="sb-tool" disabled={cancel.isPending}
-              onClick={() => { if (job.data?.id) cancel.mutate(job.data.id); }}>Stop scan</button>}
-            <button type="button" className="sb-tool" onClick={() => openSettingsSection('emaTrend')}>EMA Trend settings</button>
-            {signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended') &&
-              <button type="button" className="sb-tool" disabled={historical || operation.isPending}
-                onClick={() => {
-                  if (window.confirm('Request closure of all EMA simulation campaigns? This does NOT close any real Kite position, and unsettled orders still need reconciliation.')) operation.mutate('flatten');
-                }}>Emergency close (simulation)</button>}
-            <span>Execution: simulation · live orders unavailable</span>
+        <button type="button" className="sb-tool" disabled={!canScan}
+          onClick={() => scan.mutate(activeModes)}>
+          {scanning ? 'Scanning…' : 'Refresh signals'}
+        </button>
+        {scanning && <button type="button" className="sb-tool"
+          disabled={cancel.isPending || !job.data?.id}
+          onClick={() => { if (job.data?.id) cancel.mutate(job.data.id); }}>Stop scan</button>}
+        <button type="button" className="sb-tool"
+          onClick={() => openSettingsSection('emaTrend')}>Settings</button>
+        <span role="status" style={{ fontSize: 10, opacity: 0.85 }}>{status}</span>
+        {signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended') &&
+          <button type="button" className="sb-tool" disabled={historical || operation.isPending}
+            onClick={() => {
+              if (window.confirm('Request closure of all EMA simulated campaigns? This will not close real Kite positions. Verify pending fills and reconciliation.')) operation.mutate('flatten');
+            }}>Close simulated campaigns</button>}
+        <details style={{ fontSize: 11, maxWidth: '100%' }}>
+          <summary style={{ cursor: 'pointer' }}>
+            Live trading blocked · {safetyBlockers.length} safety checks
+          </summary>
+          <div style={{ padding: '8px 10px', lineHeight: 1.5, maxWidth: 440 }}>
+            <strong>Execution: simulation only. Broker orders are unavailable.</strong>
+            {safetyBlockers.map(reason => <div key={reason}>{reason.replace(/_/g, ' ')}</div>)}
+            <p>EMA10/21 · DEMA50 · Supertrend (10,3). The strategy uses completed candles and is not live-certified.</p>
           </div>
-          <p>10/21 EMA · DEMA50 · ST(10,3). Signals use completed market candles. Status is observational, not an order recommendation.</p>
-        </StrategyBoardFooter>
+        </details>
       </BoardFilters>
       {historical && <p role="status" style={{ padding: 12 }}>Historical view is read-only. Return to the current session to see refreshed EMA signals.</p>}
       {operation.isSuccess && operation.variables === 'flatten' &&
         <p role="status" style={{ padding: 12 }}>EMA simulation close requested. Check outstanding orders and confirmed shares; this does not close real Kite positions.</p>}
       {[snapshot.error, config.error, scan.error, cancel.error, operation.error].filter(Boolean).map((error, index) =>
         <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
-      {job.data?.status === 'FAILED' && <p role="alert">EMA scan failed: {scanError.join(' · ')}</p>}
+      {(currentScan?.status === 'FAILED' || scanError.length > 0) && scanError.length > 0 &&
+        <p role="alert" style={{ padding: 12 }}>EMA scan errors: {scanError.slice(0, 8).join(' · ')}</p>}
+      {snapshot.data?.failedModes?.length ? <p role="alert" style={{ padding: 12 }}>
+        Could not load saved signals for {snapshot.data.failedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}.
+        Other profiles remain visible. Check the EMA API and refresh.
+      </p> : null}
+      {noEvidence && scanResults.length > 0 && <p role="status" style={{ padding: '6px 12px' }}>
+        Last scan processed {processedPairs} symbol/profile pairs and {providerBars} completed source candles,
+        but stored no setup records. Review scanner diagnostics and market-data gaps.
+      </p>}
       {!historical && snapshot.isLoading && <p style={{ padding: 12 }}>Loading EMA Trend signals…</p>}
       {!historical && !snapshot.isLoading && !signals.length && !snapshot.error &&
         <p role="status" style={{ padding: 12 }}>
@@ -148,7 +171,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             selectedEnabled.length === 0 ? 'None of the selected profiles is enabled for scanning. Enable a profile in EMA Trend settings.' :
             !scannerEnabled ? 'EMA scanner is off. Enable it in Settings to refresh signals.' :
             scanning ? 'Analyzing completed bars for the configured equities…' :
-            'No completed-bar signals for the selected profiles yet. The scanner checks completed candles automatically; review any errors.'}
+            currentScan?.status === 'FAILED' ? 'Latest scan failed. Check the scan errors above; no valid signals have been recorded.' :
+            currentScan?.status === 'IDLE' || !currentScan?.id ? 'No completed scan is recorded. Run Refresh signals or keep the automatic scanner enabled.' :
+            'No saved setup evidence yet. The scanner monitors completed candles; no signals have been fabricated.'}
         </p>}
       {snapshot.data?.truncatedModes?.length ? <p role="status" style={{ padding: 12 }}>
         Showing the newest 1,000 rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
