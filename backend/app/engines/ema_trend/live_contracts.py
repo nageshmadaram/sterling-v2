@@ -74,8 +74,8 @@ class LiveCampaign(Strict):
     config_hash: str = Field(min_length=1)
     signal_id: str = Field(min_length=1)
     phase: LivePhase = "PREPARED"
-    entry: BrokerIntent | None = None
-    exit: BrokerIntent | None = None
+    entries: list[BrokerIntent] = Field(default_factory=list)
+    exits: list[BrokerIntent] = Field(default_factory=list)
     confirmed_bought: int = Field(default=0, ge=0)
     confirmed_sold: int = Field(default=0, ge=0)
     stop: Decimal = Field(gt=0)
@@ -95,13 +95,15 @@ class LiveCampaign(Strict):
             raise ValueError("REAL_CAMPAIGN_CANNOT_BIND_SIMULATION_ACCOUNT")
         if self.confirmed_sold > self.confirmed_bought:
             raise ValueError("LIVE_CAMPAIGN_OVERSOLD")
-        if self.entry is not None and self.entry.side != "BUY":
+        if any(entry.side != "BUY" for entry in self.entries):
             raise ValueError("LIVE_ENTRY_MUST_BUY")
-        if self.exit is not None and self.exit.side != "SELL":
+        if any(exit_order.side != "SELL" for exit_order in self.exits):
             raise ValueError("LIVE_EXIT_MUST_SELL")
-        if self.entry is not None and self.confirmed_bought != self.entry.confirmed_qty:
+        if len({o.intent_key for o in self.entries + self.exits}) != len(self.entries + self.exits):
+            raise ValueError("LIVE_ORDER_INTENT_DUPLICATED")
+        if self.confirmed_bought != sum(o.confirmed_qty for o in self.entries):
             raise ValueError("LIVE_ENTRY_ACCOUNTING_DIVERGENCE")
-        if self.exit is not None and self.confirmed_sold != self.exit.confirmed_qty:
+        if self.confirmed_sold != sum(o.confirmed_qty for o in self.exits):
             raise ValueError("LIVE_EXIT_ACCOUNTING_DIVERGENCE")
         if self.protection is not None:
             stop = self.protection
@@ -121,7 +123,6 @@ class LiveCampaign(Strict):
         if self.phase == "CLOSED":
             if (self.held_qty or self.protection is not None
                     or self.protection_submission_unknown
-                    or (self.entry and self.entry.status not in {"COMPLETE", "CANCELLED", "REJECTED"})
-                    or (self.exit and self.exit.status not in {"COMPLETE", "CANCELLED", "REJECTED"})):
+                    or any(o.status not in {"COMPLETE", "CANCELLED", "REJECTED"} for o in self.entries + self.exits)):
                 raise ValueError("LIVE_CLOSED_REQUIRES_TERMINAL_ORDERS_AND_ZERO_INVENTORY")
         return self
