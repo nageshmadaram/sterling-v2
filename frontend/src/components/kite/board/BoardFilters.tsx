@@ -86,9 +86,15 @@ export interface ColumnChoice {
  * toggles were buried in an unlabelled gear inside the search bar, next to BEST
  * LEG, in a panel that also carried watchlist-only settings like Change type.
  */
-export function ColumnsMenu({ items: allItems, onShowAll }: {
+export function ColumnsMenu({ items: allItems, onShowAll, buttonText = 'COLUMNS',
+  menuLabel = 'Visible columns', buttonTitle = 'Choose which columns this table shows',
+  showAllText = 'Show all columns' }: {
   items: readonly ColumnChoice[];
   onShowAll?: () => void;
+  buttonText?: string;
+  menuLabel?: string;
+  buttonTitle?: string;
+  showAllText?: string;
 }) {
   const items = allItems.filter(item => item.id !== 'dir');
   const [open, setOpen] = React.useState(false);
@@ -142,8 +148,8 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
         type="button"
         aria-expanded={open}
         aria-haspopup="true"
-        aria-label={hiddenCount ? `Columns, ${hiddenCount} hidden` : 'Columns'}
-        title="Choose which columns this table shows"
+        aria-label={hiddenCount ? `${buttonText}, ${hiddenCount} hidden` : buttonText}
+        title={buttonTitle}
         onClick={() => setOpen((v) => !v)}
         className="sb-tool"
         style={{
@@ -157,14 +163,14 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden>
           <path d="M4 5h16M4 12h16M4 19h16" strokeLinecap="round" />
         </svg>
-        COLUMNS{hiddenCount ? ` ${items.length - hiddenCount}/${items.length}` : ''}
+        {buttonText}{hiddenCount ? ` ${items.length - hiddenCount}/${items.length}` : ''}
       </button>
 
       {open && createPortal(
         <div
           ref={menuRef}
           role="group"
-          aria-label="Visible columns"
+          aria-label={menuLabel}
           style={{
             position: 'fixed', top: placement.top, right: placement.right,
             zIndex: 2147483000, minWidth: 168, maxHeight: placement.maxHeight,
@@ -200,7 +206,7 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
                 cursor: 'pointer', textAlign: 'left',
               }}
             >
-              Show all columns
+              {showAllText}
             </button>
           )}
         </div>,
