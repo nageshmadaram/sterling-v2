@@ -111,7 +111,9 @@ def test_live_readiness_requires_real_account_and_never_enables_orders(client,mo
 
 def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,monkeypatch):
     from app.services.exchanges.kite import accounts,auth
-    from app.services.ema_trend import live_preflight
+    from app.services.kite_engine import order_journal
+    monkeypatch.setattr(order_journal,"unresolved",lambda uid,account_id: [])
+    monkeypatch.setattr(order_journal,"pending_projection",lambda uid,account_id: [])
     account=SimpleNamespace(id="KITE-TEST-1",is_paper=False,has_credentials=True,connected=True)
     monkeypatch.setattr(accounts,"get_active",lambda uid: account)
     monkeypatch.setattr(accounts,"is_sim_account",lambda account: False)
@@ -162,6 +164,9 @@ def test_valid_real_login_is_necessary_but_never_sufficient_to_arm_ema(client,mo
 
 def test_live_readiness_detects_existing_external_equity_holdings(client,monkeypatch):
     from app.services.exchanges.kite import accounts,auth
+    from app.services.kite_engine import order_journal
+    monkeypatch.setattr(order_journal,"unresolved",lambda uid,account_id: [])
+    monkeypatch.setattr(order_journal,"pending_projection",lambda uid,account_id: [])
     from app.services.ema_trend import config_store
     cfg=config_store.update("alice",0,{"symbols":["NSE:INFY"]})
     acct=SimpleNamespace(id="KITE-HOLDING-TEST",is_paper=False,
