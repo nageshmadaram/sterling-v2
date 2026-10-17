@@ -277,8 +277,15 @@ class Stack:
 
     def run(self):
         self.python=ensure_runtime(self.args.skip_build)
-        self.binary=shutil.which('ngrok') if getattr(self.args,'provider','cloudflare')=='ngrok' else cloudflared()
-        if not self.binary:raise RuntimeError('Install ngrok and configure its authtoken first')
+        self.binary=(shutil.which('ngrok') if self.args.provider=='ngrok'
+                     else cloudflared())
+        if not self.binary:
+            raise RuntimeError('Primary tunnel binary is unavailable')
+        if self.args.provider=='both':
+            self.ngrok_binary=shutil.which('ngrok')
+            if not self.ngrok_binary:
+                self.status['ngrok_error']='NGROK_BINARY_NOT_INSTALLED'
+        # Preserve any already-running backend; never start two trading engines.
         try:fetch('http://127.0.0.1:8000/docs',2)
         except Exception:
             with socket.socket() as probe:
@@ -288,35 +295,82 @@ class Stack:
             try:fetch('http://127.0.0.1:8000/docs',2);break
             except Exception:time.sleep(1)
         else:raise RuntimeError('Backend did not become ready')
-        self.start_web();self.launch_tunnel();next_probe=0;retry_at=0
+        self.start_web()
+        if getattr(self.args,'dev',False):self.start_dev()
+        self.launch_tunnel()
+        if self.args.provider=='both' and self.ngrok_binary:
+            self.launch_ngrok()
+        next_probe=0;retry_at=0
         while not self.stopping:
             if self.backend_owned and self.children['backend'].poll() is not None:self.start_backend()
             if self.children['web'].poll() is not None:self.start_web()
+            now=time.monotonic()
+            if getattr(self.args,'dev',False) and self.children.get('dev') and self.children['dev'].poll() is not None and now>=self.last_dev_retry:
+                self.status['dev_error']='VITE_PROCESS_EXITED_CHECK_DEV_LOG'
+                self.last_dev_retry=now+45
+                self.start_dev()
             if self.rotate or self.children['cloudflare'].poll() is not None:
                 self.rotate=False
-                if time.monotonic()>=retry_at:self.launch_tunnel();retry_at=time.monotonic()+15
+                if now>=retry_at:self.launch_tunnel();retry_at=now+15
+            if self.args.provider=='both' and self.ngrok_binary:
+                child=self.children.get('ngrok')
+                if (not child or child.poll() is not None) and now>=self.last_ngrok_retry:
+                    self.last_ngrok_retry=now+60
+                    self.status['ngrok_error']='NGROK_RESTARTING'
+                    self.launch_ngrok()
             while not self.urls.empty():
                 pid,url=self.urls.get()
-                if pid==self.children['cloudflare'].pid:self.status['app_url']=url
-            now=time.monotonic()
-            if now>=next_probe and self.status['app_url']:
+                if pid==self.children['cloudflare'].pid:
+                    self.status['app_url']=url
+                    if self.args.provider!='ngrok':self.status['cloudflare_url']=url
+            while not self.ngrok_urls.empty():
+                pid,url=self.ngrok_urls.get()
+                child=self.children.get('ngrok')
+                if child and pid==child.pid:self.status['ngrok_url']=url
+            if now>=next_probe:
                 next_probe=now+15
-                if public_ready(self.status['app_url']):
-                    self.failures=0;self.status['last_verified_at']=time.time()
-                    if not self.published or (not self.status.get('telegram_menu_updated') and now-self.last_publish>60):self.publish()
+                primary=self.status.get('app_url','')
+                primary_ready=bool(primary and public_ready(primary))
+                secondary=self.status.get('ngrok_url','') if self.args.provider=='both' else ''
+                ngrok_child=self.children.get('ngrok')
+                ngrok_ready=bool(secondary and ngrok_child and ngrok_child.poll() is None and public_ready(secondary))
+                primary_provider='ngrok' if self.args.provider=='ngrok' else 'cloudflare'
+                self.status['public_ready']={primary_provider:primary_ready}
+                if self.args.provider=='both':self.status['public_ready']['ngrok']=ngrok_ready
+                self.status['urls']={
+                    **({primary_provider:primary} if primary_ready else {}),
+                    **({'ngrok':secondary} if ngrok_ready else {}),
+                }
+                if primary_ready:
+                    self.failures=0
+                    self.status['last_verified_at']=time.time()
+                    signature=(primary,secondary if ngrok_ready else '')
+                    if (signature!=self.last_public_signature or
+                            (not self.status.get('telegram_menu_updated') and now-self.last_publish>60)):
+                        self.publish()
                 else:
-                    # Only count public tunnel failure when the local gateway is
-                    # healthy. Backend/app downtime never warrants a new hostname.
-                    self.failures=self.failures+1 if tunnel_unavailable(self.status['app_url'],self.args.port) else 0
                     self.status['phase']='reconnecting'
-                    # Allow DNS propagation and transient network trouble before replacing a URL.
-                    if self.failures>=4 and time.time()-self.status['tunnel_started_at']>90:self.launch_tunnel()
-            if not self.status['app_url'] and time.time()-self.status['tunnel_started_at']>120:self.launch_tunnel()
-            if self.args.rotate_hours and time.time()-self.status['tunnel_started_at']>=self.args.rotate_hours*3600:self.rotate=True
+                    # Do not rotate on backend failure. Only replace an
+                    # unavailable public transport after repeated probes.
+                    self.failures=(self.failures+1
+                        if primary and tunnel_unavailable(primary,self.args.port) else 0)
+                    if self.failures>=4 and time.time()-self.status.get('tunnel_started_at',time.time())>90:
+                        self.launch_tunnel()
+            if not self.status['app_url'] and time.time()-self.status['tunnel_started_at']>120:
+                self.launch_tunnel()
+            if (self.args.rotate_hours and
+                    time.time()-self.status['tunnel_started_at']>=self.args.rotate_hours*3600):
+                self.rotate=True
             self.status['children']={name:proc.pid for name,proc in self.children.items()}
-            save_state(self.status);time.sleep(1)
-        self.stop_child('cloudflare');self.stop_child('web')
-        self.status.update(phase='stopped');save_state(self.status)
+            save_state(self.status)
+            time.sleep(1)
+        self.stop_child('ngrok')
+        self.stop_child('dev')
+        self.stop_child('cloudflare')
+        self.stop_child('web')
+        self.status.update(phase='stopped')
+        save_state(self.status)
+
 
     def start_backend(self):
         log=(STATE/'backend.log').open('a');self.logs.append(log);os.chmod(STATE/'backend.log',0o600)
