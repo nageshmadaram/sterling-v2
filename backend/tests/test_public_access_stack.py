@@ -641,17 +641,21 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
  def committed_extract(sha):
   publisher.frontend.mkdir(parents=True,exist_ok=True)
   (publisher.frontend/'package-lock.json').write_text('{"lockfileVersion":3}')
+  # Deliberately leave stale contents: promotion must clear them before build.
   (publisher.frontend/'dist').mkdir(exist_ok=True)
-  (publisher.frontend/'dist/index.html').write_text(f'BUILD {sha}')
-  (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
-  (publisher.frontend/'dist/assets/old.js').write_text('OLD HASHED ASSET')
+  (publisher.frontend/'dist/leftover.js').write_text('STALE')
  monkeypatch.setattr(publisher,'_extract',committed_extract)
  monkeypatch.setattr(publisher,'_dependencies',lambda:None)
  fail=[False]
  def simulated_build(command,**kwargs):
   assert command==['npm','run','build']
+  assert not (publisher.frontend/'dist/leftover.js').exists()
   if fail[0]:
    raise subprocess.CalledProcessError(1,command)
+  (publisher.frontend/'dist').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/index.html').write_text(f'BUILD {current[0]}')
+  (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/assets/old.js').write_text('OLD HASHED ASSET')
   return SimpleNamespace(returncode=0)
  monkeypatch.setattr(stack.subprocess,'run',simulated_build)
  sha,changed=publisher.publish()
