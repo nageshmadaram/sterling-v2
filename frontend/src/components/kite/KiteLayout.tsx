@@ -8,7 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { k, Icons } from '../../styles/kiteUI';
 import { useEngineActivity } from '../../hooks/useSterlingKiteEngine';
 import { useLiveSignalCount } from '../../store/useLiveSignalCount';
-import { useKitePositions, useKiteLtp } from '../../hooks/useKite';
+import { KiteFooterPnl } from './KiteFooterPnl';
 import { KiteFooterStatus } from './KiteFooterStatus';
 import { ReplayDock } from './replay/ReplayDock';
 import { ReplayFooterChip } from './replay/ReplayFooterChip';
@@ -306,33 +306,6 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   }, []);
   const { data: activity } = useEngineActivity();
   const queryClient = useQueryClient();
-  const positionsQuery = useKitePositions(true, 1_000);
-  const netPositions = positionsQuery.data?.net ?? [];
-  const openPositions = useMemo(
-    () => netPositions.filter((p: any) => Number(p.quantity ?? 0) !== 0),
-    [netPositions],
-  );
-  const symbols = useMemo(
-    () => Array.from(new Set(netPositions.map((p: any) => `${p.exchange}:${p.tradingsymbol}`))),
-    [netPositions],
-  );
-  const { data: ltp } = useKiteLtp(symbols, symbols.length > 0, 1_000);
-
-  const totalPnl = useMemo(() => {
-    return netPositions.reduce((sum: number, p: any) => {
-      const brokerPnl = Number(p.pnl ?? p.m2m ?? 0);
-      const live = Number(ltp?.[`${p.exchange}:${p.tradingsymbol}`]?.last_price ?? 0);
-      const brokerLast = Number(p.last_price ?? 0);
-      const qty = Number(p.quantity ?? 0);
-      const mult = Number(p.multiplier ?? 1) || 1;
-      if (live > 0 && brokerLast > 0 && qty !== 0) {
-        return sum + (brokerPnl + (live - brokerLast) * qty * mult);
-      }
-      return sum + brokerPnl;
-    }, 0);
-  }, [netPositions, ltp]);
-
-  const hasOpenPositions = openPositions.length > 0 || (netPositions.length > 0 && totalPnl !== 0);
   // The footer's activity poll (10s) and the signals dock's own poll run on
   // independent timers — a scan can start right after the dock's last idle
   // (15s) tick, so the dock would sit on stale "no signals" data for up to
@@ -996,38 +969,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
             {!scanning && (activity?.last_scan_ms ?? 0) > 0 && <span style={{ opacity: .7 }}>· {fmtAgo(activity?.last_scan_ms ?? 0)}</span>}
             {!scanning && marketClosed ? <span style={{ opacity: .7 }}>· Market closed</span> : !scanning && autoScan && (activity?.next_scan_ms ?? 0) > 0 ? <span style={{ opacity: .7 }}>· Next Due {fmtNext(activity?.next_scan_ms ?? 0)}</span> : null}
 
-            {/* Total P&L when open positions exist */}
-            {hasOpenPositions && (
-              <>
-                <span style={{ width: 1, height: 14, background: 'var(--k-border)' }} />
-                <button
-                  type="button"
-                  onClick={() => onNavClick?.('positions')}
-                  title={`Total P&L: ${totalPnl > 0 ? '+' : totalPnl < 0 ? '−' : ''}₹${Math.abs(totalPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} across ${netPositions.length} position${netPositions.length === 1 ? '' : 's'} (${openPositions.length} open). Click to view positions.`}
-                  className="sb-tool"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    height: 20,
-                    padding: '0 6px',
-                    borderRadius: 4,
-                    background: totalPnl > 0 ? 'var(--k-tint-green, rgba(34, 197, 94, 0.1))' : totalPnl < 0 ? 'var(--k-tint-red, rgba(239, 68, 68, 0.1))' : 'var(--k-surface-hover)',
-                    border: `1px solid ${totalPnl > 0 ? 'rgba(34, 197, 94, 0.3)' : totalPnl < 0 ? 'rgba(239, 68, 68, 0.3)' : 'var(--k-border)'}`,
-                    color: totalPnl > 0 ? k.green : totalPnl < 0 ? k.red : 'var(--k-dim)',
-                    fontFamily: 'inherit',
-                    fontSize: 9.5,
-                    fontWeight: 800,
-                    letterSpacing: '.03em',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ fontSize: 8.5, color: 'var(--k-dim)', fontWeight: 700 }}>P&amp;L</span>
-                  <span>{totalPnl > 0 ? '+' : totalPnl < 0 ? '−' : ''}₹{Math.abs(totalPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </button>
-              </>
-            )}
+            <KiteFooterPnl onOpenPositions={() => onNavClick('positions')} />
           </div>
         </footer>
       </div>
