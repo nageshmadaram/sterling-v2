@@ -408,6 +408,37 @@ def test_augmentation_defaults_to_persistent_state_root(tmp_path, monkeypatch):
     )
 
 
+
+def test_full_backup_does_not_follow_symlink_to_external_file(host, monkeypatch):
+    from app.core.backup_manifest import create_full_backup
+
+    external = host / "confidential.txt"
+    external.write_text("private-not-for-backup", encoding="utf-8")
+    safety = host / "data/safe_mode.json"
+    safety.unlink()
+    safety.symlink_to(external)
+    result = create_full_backup(backup_root=host / "backups", root=host)
+
+    assert "safety_state" in result.gaps
+    assert not (result.directory / "state/safety_state.json").exists()
+    assert all(
+        "private-not-for-backup" not in p.read_text(errors="replace")
+        for p in (result.directory / "state").rglob("*.json")
+    )
+
+
+def test_full_backup_rejects_symlink_inside_strategy_directory(host, monkeypatch):
+    from app.core.backup_manifest import create_full_backup
+
+    external = host / "confidential.txt"
+    external.write_text("private-not-for-backup", encoding="utf-8")
+    (host / "data/manifests/strategies/secret.json").symlink_to(external)
+    result = create_full_backup(backup_root=host / "backups", root=host)
+
+    assert "lane_manifests" in result.gaps
+    assert not (result.directory / "state/lane_manifests/secret.json").exists()
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
