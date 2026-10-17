@@ -769,6 +769,25 @@ def prove_restore(
     )
 
     try:
+        # Every physical artifact (except the self-describing manifest and
+        # disposable SQLite sidecars) must be named in the stored checksum set.
+        # Otherwise an incomplete or mixed-generation backup can appear valid
+        # merely because unlisted files are never checked.
+        for member in directory.rglob("*"):
+            if member.is_symlink():
+                failures.append(
+                    f"{member.relative_to(directory).as_posix()}: symlink in backup"
+                )
+                continue
+            if not member.is_file():
+                continue
+            relative_name = member.relative_to(directory).as_posix()
+            if relative_name == "manifest.json" or _is_sqlite_sidecar(member.name):
+                continue
+            if relative_name not in stored.file_checksums:
+                failures.append(
+                    f"{relative_name}: backup file missing checksum evidence"
+                )
         # A mutable manifest must not be able to make a database disappear from
         # the verification surface. Every database physically present in the
         # backup is required to carry checksum, row-count and schema evidence.
@@ -1115,6 +1134,8 @@ def _count_failures(
 def _load_or_build(directory: Path) -> BackupManifest:
     """Load original backup provenance; never certify reconstructed metadata."""
     beside = directory / "manifest.json"
+    if beside.is_symlink():
+        raise ValueError("manifest.json: symlink provenance is not permitted")
     if not beside.is_file():
         raise FileNotFoundError(
             f"manifest.json: missing original backup manifest at {beside}"
