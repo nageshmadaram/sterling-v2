@@ -272,3 +272,42 @@ def test_readable_empty_lifecycle_queue_explicitly_reports_zero(lifecycle_db):
     status = outbox.pending_summary("u1")
     assert status["readable"] is True
     assert status["pending"] == 0
+
+
+def test_durable_outbox_full_refuses_new_alert_without_deleting_pending(
+    lifecycle_db, monkeypatch
+):
+    monkeypatch.setattr(outbox, "_MAX_ROWS_PER_USER", 2)
+    first = outbox.enqueue(
+        "u1", dedupe_key="first-critical", strategy="Snapback",
+        event_type="PROTECTION FAILED", title="OPT", detail="stop unknown",
+        severity="CRITICAL", created_at_ms=1000,
+    )
+    second = outbox.enqueue(
+        "u1", dedupe_key="second-critical", strategy="Gamma-Unwind",
+        event_type="PROTECTION FAILED", title="OPT", detail="stop unknown",
+        severity="CRITICAL", created_at_ms=2000,
+    )
+    assert first and second
+
+    with pytest.raises(RuntimeError, match="outbox_full"):
+        outbox.enqueue(
+            "u1", dedupe_key="third", strategy="SuperTrend",
+            event_type="ENTRY FILLED", title="OPT", detail="new event",
+            created_at_ms=3000,
+        )
+
+    events = outbox.due("u1", now_ms=4000)
+    assert {event.event_id for event in events} == {first, second}
+    assert {event.dedupe_key for event in events} == {
+        "first-critical", "second-critical",
+    }
+    # Best-effort producers get an explicit failed enqueue (not a fake ID).
+    assert outbox.enqueue_best_effort(
+        "u1", dedupe_key="fourth", strategy="SuperTrend",
+        event_type="TRAIL UPDATED", title="OPT", detail="alert",
+        created_at_ms=5000,
+    ) is None
+    assert {event.event_id for event in outbox.due("u1", now_ms=6000)} == {
+        first, second,
+    }
