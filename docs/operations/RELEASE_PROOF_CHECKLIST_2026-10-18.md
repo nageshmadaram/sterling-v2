@@ -33,6 +33,29 @@ positions before sharing outside the authorized operator group.
 | Native advisories | Current lockfile/SBOM and audit outputs listing direct/transitive affected versions, fixed version compatibility, reachability and a justified disposition for every high/moderate finding | Do not force incompatible downgrades. For an unfixed upstream issue, document mitigation, owner and review date |
 | Production performance | One fixed production SHA, comparable market/session load, browser CPU and long-task trace, backend API and WebSocket latency p50/p95/p99, samples/units/error rate, before/after comparison and reproducible measurement method | Record a real production browser profile and host metrics; report `UNKNOWN` until measurements exist. Synthetic performance does not establish a real-market baseline |
 
+## Additional release integrity checks
+
+- **Gamma-Unwind migration:** archived legacy positions with `pending` or `open`
+  status must be reconciled against the authorized Kite account before **any**
+  strategy adds new exposure. A corrupt/unreadable archive is UNKNOWN, never
+  zero positions. Verify the two-stage legacy migration under forced archive
+  write/read failures and confirm that legacy rows remain preserved.
+- **Telegram lifecycle durability:** exercise locked database, generic write
+  failure, full in-memory spool, service restart and recovery. An in-memory
+  spool cannot survive process loss: queue acceptance alone is **not** durable
+  receipt proof. Record Telegram `ok`, message identity and actual receipt.
+  Unreadable queue health must report UNKNOWN rather than zero pending.
+- **GitHub Actions execution:** CI, backend, frontend, mobile, Docker smoke and
+  release gates currently report failures. Latest observed failed jobs have
+  **no recorded execution steps**; therefore source tests cannot be marked
+  failed or passed on their merits. Inspect runner availability, repository
+  Actions configuration, spending/billing limits and job check annotations
+  through an authorized GitHub administrator. Re-run exact-SHA tests after
+  resolving job scheduling and retain logs and artifacts.
+- **Review/merge:** a mergeable GitHub draft pull request is not evidence of
+  completed tests or deployment acceptance. Keep it draft until scoped Python
+  and frontend regressions are green, then perform host-specific proofs.
+
 ## Release closeout
 
 1. Establish a stable deployment, account and storage identity; safeguard a
