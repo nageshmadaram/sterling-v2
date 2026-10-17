@@ -286,3 +286,69 @@ def test_canonical_unknown_broker_intent_blocks_live_symbol_clearance(client,mon
     assert not payload["checks"]["canonical_journal_reconciled"]
     assert not payload["checks"]["configured_symbols_unencumbered"]
     assert "CANONICAL_BROKER_ORDER_RECONCILIATION_PENDING" in payload["blockers"]
+
+
+def test_live_order_observation_denies_other_owners_intents(client,monkeypatch):
+    from app.services.kite_engine import order_journal
+    monkeypatch.setattr(order_journal,"get",lambda key:
+        SimpleNamespace(uid="bob",strategy_id="ema_trend"))
+    res=client.get("/api/v1/ema-trend/live-order-observations/unknown")
+    assert res.status_code==404
+
+
+def test_live_order_observation_requires_exact_non_sim_account(client,monkeypatch):
+    from app.services.kite_engine import order_journal
+    from app.services.exchanges.kite import accounts
+    fake=SimpleNamespace(uid="alice",strategy_id="ema_trend",
+        account_id="KITE-LIVE",order_id="B-1")
+    monkeypatch.setattr(order_journal,"get",lambda key:fake)
+    monkeypatch.setattr(accounts,"get_active",lambda user:None)
+    res=client.get("/api/v1/ema-trend/live-order-observations/own-intent")
+    assert res.status_code==403
+    assert "BOUND_LIVE_KITE_ACCOUNT_REQUIRED" in res.text
+
+
+def test_live_order_observation_reads_exact_order_but_never_writes(client,monkeypatch):
+    from app.services.kite_engine import order_journal
+    from app.services.exchanges.kite import accounts,auth
+    intent=SimpleNamespace(uid="alice",account_id="KITE-REAL-1",
+        strategy_id="ema_trend",order_id="REAL-ORDER-1",state="SUBMITTED",
+        exchange="NSE",symbol="INFY",side="BUY",quantity=4,
+        payload={"product":"CNC"},filled_quantity=0,filled_value=0,
+        reconciliation_required=False,projection_pending=False)
+    monkeypatch.setattr(order_journal,"get",lambda key:intent)
+    account=SimpleNamespace(id="KITE-REAL-1",is_paper=False,connected=True)
+    monkeypatch.setattr(accounts,"get_active",lambda user:account)
+    monkeypatch.setattr(accounts,"is_sim_account",lambda account:False)
+    async def session(*args,**kwargs):
+        return SimpleNamespace(connected=True,validated=True,transient=False,kite_user_id="BROKER-USER")
+    monkeypatch.setattr(auth,"ensure_session",session)
+    calls=[]
+    class FakeReadOnlyBroker:
+        _is_paper=False
+        _account_id="KITE-REAL-1"
+        async def get_order_history(self,order_id):
+            calls.append(("history",order_id))
+            return [
+                {"order_id":order_id,"exchange":"NSE","tradingsymbol":"INFY",
+                 "product":"CNC","transaction_type":"BUY","quantity":4,
+                 "filled_quantity":0,"average_price":0,"status":"OPEN"},
+                {"order_id":order_id,"exchange":"NSE","tradingsymbol":"INFY",
+                 "product":"CNC","transaction_type":"BUY","quantity":4,
+                 "filled_quantity":2,"average_price":100,"status":"OPEN"},
+            ]
+        async def place_order(self,*args,**kwargs):
+            raise AssertionError("no live order submission permitted")
+    async def acquire(account):
+        return FakeReadOnlyBroker()
+    monkeypatch.setattr(accounts,"acquire_client",acquire)
+    response=client.get("/api/v1/ema-trend/live-order-observations/own-intent")
+    assert response.status_code==200
+    body=response.json()
+    assert calls==[("history","REAL-ORDER-1")]
+    assert body["status"]=="RECONCILIATION_REQUIRED"
+    assert body["broker_confirmed_filled_quantity"]==2
+    assert body["unprojected_quantity"]==2
+    assert body["unprojected_value"]=="200"
+    assert "UNPROJECTED_BROKER_FILL_PRESENT" in body["blockers"]
+    assert body["live_orders_enabled"] is False and body["read_only"]
