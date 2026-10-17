@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import io
+import tarfile
 import json
 import os
 import platform
@@ -270,6 +272,144 @@ def ensure_runtime(skip_build):
         with (STATE/'build.log').open('w') as log:
             subprocess.run(['npm','run','build'],cwd=ROOT/'frontend',env={**clean_env(),'VITE_API_BASE_URL':''},check=True,stdout=log,stderr=log)
     return python
+
+
+
+class CommittedFrontend:
+    """Publish ONLY Git-owned frontend files, never a dirty working tree.
+
+    The 5180 gateway dynamically reads the 'published' atomic symlink. This
+    class does not modify Git refs, local edits or the long-lived Kite backend.
+    """
+    def __init__(self, ref='HEAD'):
+        if not re.fullmatch(
+            r'(?:HEAD|main|origin/main|refs/(?:heads|remotes/origin)/[A-Za-z0-9._/-]+)',
+            ref,
+        ):
+            raise ValueError('Invalid published Git ref')
+        self.ref=ref
+        self.stage=STATE/'committed-source'
+        self.frontend=self.stage/'frontend'
+        self.pointer=STATE/'published'
+        self.releases=STATE/'releases'
+        self.manifest=STATE/'published.json'
+        self.lock_stamp=STATE/'committed-npm-lock.sha256'
+
+    def resolve_commit(self):
+        rev=subprocess.run(['git','-C',str(ROOT),'rev-parse','--verify',
+                            f'{self.ref}^{{commit}}'],
+                           capture_output=True,text=True,timeout=12,check=True)
+        result=rev.stdout.strip()
+        if not re.fullmatch(r'[a-f0-9]{40,64}',result):
+            raise RuntimeError('Git did not return a commit SHA')
+        return result
+
+    def current(self):
+        try:
+            item=json.loads(self.manifest.read_text())
+            path=self.pointer.resolve(strict=True)
+            if (path==self.releases/item['sha'] and
+                    (path/'index.html').is_file()):
+                return item['sha']
+        except (OSError,ValueError,KeyError,TypeError):
+            pass
+        return ''
+
+    def _extract(self, sha):
+        """Use git archive, not checkout: uncommitted files cannot enter build."""
+        self.frontend.mkdir(parents=True,exist_ok=True)
+        # Preserve installed npm dependencies only; every other build input
+        # is restored from the same immutable Git commit.
+        for child in self.frontend.iterdir():
+            if child.name=='node_modules':
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+        proc=subprocess.Popen(['git','-C',str(ROOT),'archive','--format=tar',
+                               sha,'frontend'],
+                              stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+        try:
+            with tarfile.open(fileobj=proc.stdout,mode='r|') as archive:
+                for member in archive:
+                    name=Path(member.name)
+                    if (name.is_absolute() or '..' in name.parts or
+                            (not member.isfile() and not member.isdir())):
+                        raise RuntimeError('Unsafe frontend archive member')
+                    target=(self.stage/name).resolve()
+                    if not target.is_relative_to(self.stage.resolve()):
+                        raise RuntimeError('Git archive path escaped release staging')
+                    archive.extract(member,path=self.stage,filter='data')
+        except Exception:
+            proc.kill()
+            proc.wait()
+            raise
+        if proc.wait(timeout=30):
+            raise RuntimeError('Could not extract committed frontend')
+        if not (self.frontend/'package-lock.json').is_file():
+            raise RuntimeError('Committed frontend has no package-lock.json')
+
+    def _dependencies(self):
+        digest=hashlib.sha256((self.frontend/'package-lock.json').read_bytes()).hexdigest()
+        try:cached=self.lock_stamp.read_text().strip()
+        except OSError:cached=''
+        if cached==digest and (self.frontend/'node_modules/.bin/vite').exists():
+            return
+        subprocess.run(['npm','ci','--no-audit','--no-fund'],
+                       cwd=self.frontend,stdout=subprocess.DEVNULL,
+                       stderr=(STATE/'release-build.log').open('a'),
+                       timeout=600,check=True)
+        self.lock_stamp.write_text(digest)
+
+    def publish(self):
+        sha=self.resolve_commit()
+        if self.current()==sha:return sha,False
+        existing=self.releases/sha
+        if not (existing/'index.html').is_file():
+            self._extract(sha)
+            self._dependencies()
+            with (STATE/'release-build.log').open('a') as log:
+                subprocess.run(['npm','run','build'],
+                               cwd=self.frontend,
+                               env={**clean_env(),'VITE_API_BASE_URL':''},
+                               stdout=log,stderr=log,
+                               timeout=360,check=True)
+            built=self.frontend/'dist'
+            if not (built/'index.html').is_file():
+                raise RuntimeError('Committed build did not produce index.html')
+            self.releases.mkdir(parents=True,exist_ok=True)
+            staged=self.releases/(sha+'.tmp')
+            if staged.exists():shutil.rmtree(staged)
+            shutil.copytree(built,staged)
+            # Keep already referenced content-hashed assets for open browser
+            # sessions across a release, avoiding broken tabs after promotion.
+            previous=self.pointer.resolve()
+            old_assets=previous/'assets'
+            new_assets=staged/'assets'
+            if old_assets.is_dir():
+                new_assets.mkdir(exist_ok=True)
+                for item in old_assets.iterdir():
+                    if item.is_file() and not (new_assets/item.name).exists():
+                        shutil.copy2(item,new_assets/item.name)
+            staged.rename(existing)
+        tmp=STATE/'published.next'
+        tmp.unlink(missing_ok=True)
+        tmp.symlink_to(existing,target_is_directory=True)
+        tmp.replace(self.pointer)
+        manifest={'sha':sha,'ref':self.ref,'updated_ms':int(time.time()*1000)}
+        pending=STATE/'published.json.tmp'
+        pending.write_text(json.dumps(manifest))
+        os.chmod(pending,0o600)
+        pending.replace(self.manifest)
+        # Retain the last two releases plus the new current release. Old
+        # hashed files are already carried into new current for open tabs.
+        previous=self.pointer.resolve()
+        old=sorted((x for x in self.releases.iterdir()
+                    if x.is_dir() and not x.name.endswith('.tmp')
+                    and x!=previous),key=lambda x:x.stat().st_mtime,reverse=True)
+        for path in old[2:]:shutil.rmtree(path)
+        return sha,True
 
 
 class Stack:
