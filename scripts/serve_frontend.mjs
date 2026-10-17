@@ -6,7 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../frontend/dist');
+// All public origins and localhost:5180 read this ONE atomic committed build.
+ // The symlink target may change without restarting the Node gateway/tunnels.
+const gatewayDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = path.resolve(process.env.STERLING_STATIC_ROOT ||
+  path.join(gatewayDir, 'frontend/dist'));
 const port = Number(process.env.STERLING_WEB_PORT || 5180);
 const backend = new URL(process.env.STERLING_API_TARGET || 'http://127.0.0.1:8000');
 if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !== 'http:') throw new Error('Backend must be loopback HTTP');
@@ -16,7 +20,7 @@ const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':
 // reaches the gateway over local HTTP, but its PUBLIC hop is verified HTTPS.
 // Never trust a caller-provided X-Forwarded-Proto header on its own.
 const stackStatusFile = process.env.STERLING_STACK_STATUS_FILE ||
-  path.resolve(root, '../../.runtime/stack/status.json');
+  path.join(gatewayDir, '.runtime/stack/status.json');
 function isSupervisorNgrokHost(host) {
   if (typeof host !== 'string') return false;
   try {
@@ -42,7 +46,7 @@ function proxyHeaders(req) {
 }
 // Generic public shell contains no account data. Retain it during backend restarts
 // so availability monitoring cannot confuse a broker/API outage with a dead tunnel.
-const shellFile = process.env.STERLING_TMA_SHELL_CACHE || path.resolve(root, '../../.runtime/stack/mini-app-shell.json');
+const shellFile = process.env.STERLING_TMA_SHELL_CACHE || path.join(gatewayDir, '.runtime/stack/mini-app-shell.json');
 function cachedDesk(res) {
   try {
     const shell = JSON.parse(fs.readFileSync(shellFile, 'utf8'));
