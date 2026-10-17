@@ -122,7 +122,11 @@ class Campaign(StrictModel):
     tenant_kind: Literal["SIMULATION", "REPLAY"] = "SIMULATION"
     symbol: str
     mode: Mode
-    product: Literal["CNC", "MIS"]
+    product: Literal["CNC", "MIS", "NRML"]
+    instrument_token: int = Field(default=0,ge=0)
+    lot_size: int = Field(default=1,ge=1)
+    instrument_type: Literal["EQ", "FUT", "CE", "PE"] = "EQ"
+    expiry: str = ""
     tick_size: Decimal = Field(default=Decimal(".05"), gt=0)
     state: Literal["ENTRY_PENDING", "OPEN", "ACTION_PENDING", "CLOSING", "CLOSED", "RECOVERY_REQUIRED"] = "ENTRY_PENDING"
     revision: int = 1
@@ -178,4 +182,4 @@ class Campaign(StrictModel):
 
     @property
     def quarter(self) -> int:
-        return self.q0//4
+        return (self.q0//self.lot_size//4)*self.lot_size

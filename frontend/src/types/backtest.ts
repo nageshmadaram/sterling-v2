@@ -31,7 +31,7 @@ export interface UnifiedBacktestRequest {
   scan_indices?: string[];
   scan_stocks?: string[];
   scan_all_stocks?: boolean;
-  contract_type?: 'futures' | 'options_atm' | 'options_itm' | 'options_otm' | 'spot';
+  contract_type?: 'futures' | 'options_atm' | 'options_itm' | 'options_otm' | 'spot' | 'auto' | 'option' | 'future';
   expiry_cycle?: 'weekly' | 'monthly';
   strike_moneyness?: string[];
   data_source?: 'kite' | 'truedata' | 'auto';

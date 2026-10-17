@@ -1,0 +1,100 @@
+
+> sterling-frontend@0.1.0 build
+> tsc && vite build
+
+vite v8.3.2 building client environment for production...
+transforming...
+✓ 419 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/assets/jetbrains-mono-greek-400-normal-C190GLew.woff2            4.22 kB
+dist/assets/jetbrains-mono-greek-500-normal-JpySY46c.woff2            4.28 kB
+dist/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2         5.32 kB
+dist/assets/jetbrains-mono-cyrillic-500-normal-DmUKJPL_.woff2         5.35 kB
+dist/assets/jetbrains-mono-vietnamese-400-normal-CqNFfHCs.woff        5.37 kB
+dist/assets/jetbrains-mono-vietnamese-500-normal-DNRqzVM1.woff        5.47 kB
+dist/assets/jetbrains-mono-greek-400-normal-B9oWc5Lo.woff             5.66 kB
+dist/assets/jetbrains-mono-greek-500-normal-D7SFKleX.woff             5.72 kB
+dist/index.html                                                       5.84 kB │ gzip:   2.17 kB
+dist/assets/ibm-plex-sans-vietnamese-400-normal-fK1oJ5dG.woff         6.39 kB
+dist/assets/ibm-plex-sans-vietnamese-700-normal-BV5B8Are.woff         6.42 kB
+dist/assets/ibm-plex-sans-vietnamese-600-normal-DgdngZtN.woff         6.58 kB
+dist/assets/jetbrains-mono-cyrillic-400-normal-ugxPyKxw.woff          6.97 kB
+dist/assets/jetbrains-mono-cyrillic-500-normal-DJqRU3vO.woff          7.02 kB
+dist/assets/jetbrains-mono-latin-ext-400-normal-Bc8Ftmh3.woff2        7.33 kB
+dist/assets/jetbrains-mono-latin-ext-500-normal-Cut-4mMH.woff2        7.52 kB
+dist/assets/ibm-plex-sans-vietnamese-400-normal-DG4YqDda.woff2        8.20 kB
+dist/assets/ibm-plex-sans-vietnamese-700-normal-CkEo6LDy.woff2        8.22 kB
+dist/assets/ibm-plex-sans-vietnamese-600-normal-DpPYBSTl.woff2        8.46 kB
+dist/assets/ibm-plex-sans-greek-700-normal-CkZN0sRy.woff              8.74 kB
+dist/assets/ibm-plex-sans-greek-400-normal-D9ESIMu3.woff              8.76 kB
+dist/assets/ibm-plex-sans-greek-600-normal-D-CqTdkO.woff              9.22 kB
+dist/assets/ibm-plex-sans-greek-700-normal-wyJ6jzdA.woff2             9.92 kB
+dist/assets/ibm-plex-sans-greek-400-normal-_efipK4i.woff2             9.94 kB
+dist/assets/jetbrains-mono-latin-ext-400-normal-fXTG6kC5.woff        10.12 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-700-normal-DCQwxkRk.woff      10.16 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-Dsrv2Tcn.woff      10.28 kB
+dist/assets/jetbrains-mono-latin-ext-500-normal-ckzbgY84.woff        10.33 kB
+dist/assets/ibm-plex-sans-greek-600-normal-DzTrcv_p.woff2            10.36 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-600-normal-Bz0x94Yp.woff      10.61 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-700-normal-BmRLXWpJ.woff2     12.05 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-400-normal-g30qAdWV.woff2     12.14 kB
+dist/assets/ibm-plex-sans-cyrillic-ext-600-normal-DUMzJB7m.woff2     12.30 kB
+dist/assets/ibm-plex-sans-cyrillic-700-normal-RFb1v-CK.woff          13.32 kB
+dist/assets/ibm-plex-sans-cyrillic-400-normal-BTotfTJu.woff          13.51 kB
+dist/assets/ibm-plex-sans-cyrillic-600-normal-BGq0mW3O.woff          13.88 kB
+dist/assets/ibm-plex-sans-latin-ext-400-normal-RBey6euL.woff         14.36 kB
+dist/assets/ibm-plex-sans-latin-ext-700-normal-DZH6Xh-4.woff         14.42 kB
+dist/assets/ibm-plex-sans-cyrillic-700-normal-D_uavGvn.woff2         14.57 kB
+dist/assets/ibm-plex-sans-latin-ext-600-normal-DIrixKbi.woff         14.77 kB
+dist/assets/ibm-plex-sans-cyrillic-400-normal-DZqxrq2p.woff2         14.80 kB
+dist/assets/ibm-plex-sans-cyrillic-600-normal-71GNu3SW.woff2         15.04 kB
+dist/assets/ibm-plex-sans-latin-ext-400-normal-C5H60-Va.woff2        15.98 kB
+dist/assets/ibm-plex-sans-latin-ext-700-normal-aMgXseD4.woff2        16.18 kB
+dist/assets/ibm-plex-sans-latin-ext-600-normal-DOrvGEcy.woff2        16.44 kB
+dist/assets/jetbrains-mono-latin-400-normal-V6pRDFza.woff2           21.16 kB
+dist/assets/jetbrains-mono-latin-500-normal-BWZEU5yA.woff2           21.83 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff             22.10 kB
+dist/assets/ibm-plex-sans-latin-700-normal-Bth3BMcD.woff             22.28 kB
+dist/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2            22.58 kB
+dist/assets/ibm-plex-sans-latin-700-normal-Bxkt5Cjx.woff2            22.83 kB
+dist/assets/ibm-plex-sans-latin-600-normal-Cu4Hd6ag.woff             23.87 kB
+dist/assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2            24.25 kB
+dist/assets/jetbrains-mono-latin-400-normal-6-qcROiO.woff            27.49 kB
+dist/assets/jetbrains-mono-latin-500-normal-CJOVTJB7.woff            28.20 kB
+dist/assets/index-Ck_2bc6F.css                                      182.45 kB │ gzip:  42.12 kB
+dist/assets/SimDeniedNote-CvBKL_Ka.js                                 0.81 kB │ gzip:   0.53 kB
+dist/assets/time-DoaR9ffD.js                                          1.15 kB │ gzip:   0.57 kB
+dist/assets/holidays-BauEdBCM.js                                      1.65 kB │ gzip:   0.72 kB
+dist/assets/FundsPane-DBqyqeAT.js                                     4.97 kB │ gzip:   1.31 kB
+dist/assets/jsx-runtime-Dp20Wuwv.js                                   8.43 kB │ gzip:   3.21 kB
+dist/assets/BacktestPane-BlKmIX0y.js                                  8.51 kB │ gzip:   3.08 kB
+dist/assets/api-BsKCEHZZ.js                                           8.78 kB │ gzip:   3.46 kB
+dist/assets/PriceRulesPanel-CebGtLtb.js                               8.90 kB │ gzip:   3.25 kB
+dist/assets/BidsPane-CS2RC-PI.js                                      9.57 kB │ gzip:   2.34 kB
+dist/assets/HelpPane-Di_G7uJR.js                                      9.93 kB │ gzip:   3.98 kB
+dist/assets/MutualFundsPane-C28fXl0f.js                              10.36 kB │ gzip:   2.58 kB
+dist/assets/AlertsPane-C0sFQwel.js                                   10.50 kB │ gzip:   3.00 kB
+dist/assets/DataLakePane-C8_owOQH.js                                 11.24 kB │ gzip:   4.14 kB
+dist/assets/FolderPicker-CaKs86to.js                                 11.90 kB │ gzip:   4.00 kB
+dist/assets/LiveOperationsPanel-BvdSk6ei.js                          14.02 kB │ gzip:   4.43 kB
+dist/assets/MarketDataPane-CYgA1_DW.js                               15.28 kB │ gzip:   3.63 kB
+dist/assets/PositionsPane-CWxLjcnF.js                                16.62 kB │ gzip:   5.01 kB
+dist/assets/KiteSettingsPopover-nv8vZpuL.js                          16.83 kB │ gzip:   5.00 kB
+dist/assets/useReplayStore-DZyTPhsR.js                               17.17 kB │ gzip:   5.46 kB
+dist/assets/OrdersPane-85_4u7Tq.js                                   26.20 kB │ gzip:   6.02 kB
+dist/assets/PortfolioPane-C3Tvds6i.js                                26.84 kB │ gzip:   7.26 kB
+dist/assets/useMutation-CKAm29AP.js                                  29.10 kB │ gzip:   8.97 kB
+dist/assets/PcrPane-QHFACvHg.js                                      39.56 kB │ gzip:   9.59 kB
+dist/assets/UnifiedBacktestPane-CORlEu-U.js                          41.23 kB │ gzip:   9.05 kB
+dist/assets/JournalTab-hPrqGIqa.js                                   68.43 kB │ gzip:  20.68 kB
+dist/assets/AstroPane-CjfMMrT3.js                                   113.78 kB │ gzip:  36.51 kB
+dist/assets/ConnectPane-BK0w74up.js                                 337.99 kB │ gzip:  92.80 kB
+dist/assets/index-BBqsfWzQ.js                                     1,407.41 kB │ gzip: 404.87 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.68s

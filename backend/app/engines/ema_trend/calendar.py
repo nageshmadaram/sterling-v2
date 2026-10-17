@@ -22,6 +22,7 @@ _EXTRA_REGULAR = frozenset({date(2025, 2, 1)})
 
 def historical_regular_session(day: date, exchange: str = "NSE") -> bool:
     from app.core.session_calendar import is_trading_session
+    exchange={"NFO":"NSE","BFO":"BSE"}.get(exchange,exchange)
     if day.year >= 2026:
         return is_trading_session(day, exchange)
     if exchange == "NSE" and HISTORY_START <= day <= date(2025, 12, 31):
@@ -35,3 +36,11 @@ def next_regular_session(day: date, exchange: str = "NSE") -> date:
         if historical_regular_session(candidate, exchange):
             return candidate
     raise CalendarUnavailable("CALENDAR_HISTORY_UNVERIFIED: no regular session within 31 days")
+
+
+def regular_close(day: date, exchange: str="NSE"):
+    from datetime import time
+    if day.year>=2026:
+        from app.services.kite_engine.market_hours import continuous_close
+        return continuous_close(day,exchange)
+    return time(15,30)

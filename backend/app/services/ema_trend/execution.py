@@ -10,8 +10,9 @@ import asyncio
 from datetime import datetime
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 
-from app.engines.ema_trend.config import EmaTrendConfig, PROFILES, stable_id
+from app.engines.ema_trend.config import EmaTrendConfig, PROFILES, stable_id, descriptor
 from app.engines.ema_trend.contracts import Action, Campaign, Setup
+from app.engines.ema_trend.instruments import contract,entry_expiry_block
 from app.engines.ema_trend.sizing import size_plan, used_campaign_risk
 from app.engines.ema_trend.state_machine import apply_fill, finalize_entry, make_action
 from app.services.execution_service import CanonicalExecutionService, ExecutionRequest, RiskApproval, ExposureEffect
@@ -38,8 +39,10 @@ def campaign_document(c: Campaign) -> dict:
 
 
 def public_campaign(c: Campaign | dict) -> dict:
+    provenance=c.get("provenance") if isinstance(c,dict) else None
     c = campaign_model(c) if isinstance(c, dict) else c
-    return {**campaign_document(c), "qty": c.qty, "vwap": str(c.vwap), "quarter": c.quarter}
+    return {**campaign_document(c), "qty": c.qty, "vwap": str(c.vwap), "quarter": c.quarter,
+            **({"provenance":provenance} if provenance else {})}
 
 
 async def paper_client(uid: str) -> SimulatedKiteClient:
@@ -122,11 +125,11 @@ def record_mark(uid: str,campaign_id: str,price,*,at_ms:int|None=None,source="EX
     repo.put(uid,"mark",campaign_id,{"price":str(value),"at_ms":at_ms or repo.now_ms(),"source":source})
 
 
-def _session_check(mode: str, now=None):
+def _session_check(mode: str, now=None, exchange="NSE"):
     from app.core.session_calendar import is_trading_session
     now = now or datetime.now(scanner.IST)
     profile = PROFILES[mode]
-    if not is_trading_session(now.date(), "NSE") or not profile.entry_start <= now.strftime("%H:%M") <= profile.entry_end:
+    if not is_trading_session(now.date(), exchange) or not profile.entry_start <= now.strftime("%H:%M") <= profile.entry_end:
         raise ValueError("OUTSIDE_PROFILE_ENTRY_WINDOW")
 
 
@@ -138,6 +141,9 @@ async def build_plan(uid: str, signal_id: str, expected_revision: int) -> dict:
     row = repo.get(uid, "signal", signal_id)
     setup = Setup.model_validate({k:v for k,v in row.items() if k in Setup.model_fields})
     blockers = _risk_blockers(uid, cfg)
+    origin=(row.get("provenance") or {}).get("origin")
+    if not origin or origin.get("rule_hash")!=descriptor()["rule_hash"]:
+        blockers.append("SIGNAL_RULE_IDENTITY_UNVERIFIED_OR_CHANGED")
     if settings.get("invalid") or not cfg.enabled:
         blockers.append("SCANNER_DISABLED_OR_CONFIG_INVALID")
     if settings.get("paused"):
@@ -163,9 +169,13 @@ async def build_plan(uid: str, signal_id: str, expected_revision: int) -> dict:
         blockers.append("ENTRY_EXPIRED")
     sizing = {"quantity": 0, "budget": D(0), "reason": "PLAN_BLOCKED"}
     entry, cash = D(str(setup.feature.bar.close)), D(0)
+    info=None
     try:
-        _session_check(setup.mode)
+        _session_check(setup.mode,exchange=setup.symbol.split(":")[0])
         meta = await scanner.equity_metadata(uid, setup.symbol)
+        info=contract({**meta.as_meta(),"instrument_token":meta.token},setup.mode)
+        if entry_expiry_block(info,datetime.now(scanner.IST).date()):
+            raise ValueError("EXPIRY_DAY_OR_EXPIRED_CONTRACT")
         book = await quote(uid, setup.symbol, setup.mode)
         if int(book.quote_ts*1000) < setup.close_ms:
             raise ValueError("QUOTE_PRECEDES_SIGNAL")
@@ -195,7 +205,8 @@ async def build_plan(uid: str, signal_id: str, expected_revision: int) -> dict:
         if any(h.symbol==symbol and not h.is_flat for h in fill_ledger.holdings(sim_uid(uid),sim_account_id(uid))):
             raise ValueError("EXISTING_UNATTRIBUTED_INVENTORY")
         used = sum((c.budget for c in open_campaigns), D(0))
-        sizing = size_plan(cfg, entry, setup.stop, setup.feature.atr10 or 0, cash, used)
+        cash=min(cash,max(D(0),cfg.allocation_inr-sum((c.qty*c.vwap for c in open_campaigns),D(0))))
+        sizing = size_plan(cfg, entry, setup.stop, setup.feature.atr10 or 0, cash, used,lot_size=info["lot_size"])
         if not sizing["quantity"]:
             blockers.append(sizing["reason"])
         if sizing["quantity"] > int(setup.feature.bar.volume*0.01) or sizing["quantity"] > book.ask_qty:
@@ -205,6 +216,8 @@ async def build_plan(uid: str, signal_id: str, expected_revision: int) -> dict:
     ident = stable_id(uid, signal_id, expected_revision, now)
     return repo.put(uid,"plan",ident,{"status": "BLOCKED" if blockers else "READY",
         "blockers": sorted(set(blockers)), "signal_id": signal_id, "symbol": setup.symbol,
+        "contract":info,
+        "dataset_id":row.get("dataset_id"),"dataset_sha256":row.get("dataset_sha256"),
         "mode": setup.mode, "quantity": sizing["quantity"], "entry": str(entry),
         "stop": str(setup.stop or 0), "budget": str(sizing["budget"]),
         "config_revision": expected_revision, "expires_ms": expires,
@@ -233,9 +246,13 @@ async def arm(uid: str, plan_id: str, expected_revision: int, idempotency_key: s
         if fresh["status"] != "READY":
             raise repo.Conflict("CURRENT_ADMISSION_BLOCKED: " + ", ".join(fresh["blockers"]))
         cfg = config_store.config(uid)
+        if fresh.get("contract")!=plan.get("contract"):
+            raise repo.Conflict("CONTRACT_METADATA_CHANGED")
+        info=fresh["contract"]
         ident = stable_id(uid,plan_id,"campaign")
         c = Campaign(id=ident,uid=sim_uid(uid),account_id=sim_account_id(uid),
-            symbol=plan["symbol"],mode=plan["mode"],product=PROFILES[plan["mode"]].product,
+            symbol=plan["symbol"],mode=plan["mode"],product=info["product"],
+            instrument_token=info["instrument_token"],lot_size=info["lot_size"],instrument_type=info["instrument_type"],expiry=info["expiry"],
             config_hash=cfg.config_hash,config_revision=plan["config_revision"],config_snapshot=cfg.model_dump(mode="json"),
             budget=D(fresh["budget"]),initial_stop=D(fresh["stop"]),stop=D(fresh["stop"]),
             tick_size=D((await scanner.equity_metadata(uid,plan["symbol"])).tick_size),
@@ -257,7 +274,8 @@ async def submit_action(uid: str, campaign_id: str, action_id: str, *, client=No
     client = client or await paper_client(uid)
     require_virtual(client,uid)
     row = repo.get(uid,"outbox",action_id)
-    c = campaign_model(repo.get(uid,"campaign",campaign_id))
+    campaign_record=repo.get(uid,"campaign",campaign_id)
+    c = campaign_model(campaign_record)
     action = Action.model_validate(row["action"])
     ex,symbol = c.symbol.split(":",1)
     key = order_journal.make_key(uid=c.uid,account_id=c.account_id,strategy_id="ema_trend",
@@ -277,16 +295,28 @@ async def submit_action(uid: str, campaign_id: str, action_id: str, *, client=No
     if action.side=="SELL" and (action.quantity>c.qty or actual<c.qty):
         raise repo.Conflict("OWNED_VIRTUAL_INVENTORY_RECONCILIATION_REQUIRED")
     if action.side == "BUY":
+        origin=(campaign_record.get("provenance") or {}).get("origin")
+        if not origin or origin.get("rule_hash")!=descriptor()["rule_hash"]:
+            raise repo.Conflict("CAMPAIGN_RULE_IDENTITY_UNVERIFIED_OR_CHANGED")
         settings = config_store.get(uid)
         current_cfg=EmaTrendConfig.model_validate(settings["config"])
         if ((action.kind=="ENTRY" and settings["revision"] != c.config_revision)
                 or settings.get("paused") or not current_cfg.enabled
                 or c.mode not in current_cfg.modes or c.symbol not in current_cfg.symbols):
             raise repo.Conflict("NEW_EXPOSURE_CONFIG_CHANGED_OR_PAUSED")
+        held_notional=sum((campaign_model(item).qty*campaign_model(item).vwap for item in repo.list_documents(uid,"campaign",limit=2000) if item["state"]!="CLOSED"),D(0))
+        if held_notional+action.quantity*action.limit>current_cfg.allocation_inr:
+            raise repo.Conflict("FULL_NOTIONAL_ALLOCATION_CAP")
         blockers = _risk_blockers(uid,current_cfg)
         if blockers:
             raise repo.Conflict(", ".join(blockers))
-        _session_check(c.mode)
+        _session_check(c.mode,exchange=ex)
+        current_meta=await scanner.equity_metadata(uid,c.symbol)
+        current_info=contract({**current_meta.as_meta(),"instrument_token":current_meta.token},c.mode)
+        if current_info["instrument_token"]!=c.instrument_token or current_info["lot_size"]!=c.lot_size or current_info["instrument_type"]!=c.instrument_type or current_info["expiry"]!=c.expiry or D(current_info["tick_size"])!=c.tick_size:
+            raise repo.Conflict("CONTRACT_METADATA_CHANGED")
+        if entry_expiry_block(current_info,datetime.now(scanner.IST).date()):
+            raise repo.Conflict("EXPIRY_DAY_OR_EXPIRED_CONTRACT")
         if action.kind!="ENTRY":
             if actual!=c.qty:
                 raise repo.Conflict("ADD_REQUIRES_EXACT_OWNED_INVENTORY")
@@ -315,7 +345,7 @@ async def submit_action(uid: str, campaign_id: str, action_id: str, *, client=No
         quantity=action.quantity,tag="EMA-TREND-PAPER",order_type="limit_order",price=float(action.limit),
         exposure_effect=ExposureEffect.INCREASE_EXPOSURE if action.side=="BUY" else ExposureEffect.REDUCE_EXPOSURE,
         capital_required=float(needed),available_capital=float(available),
-        payload={"product":c.product,"campaign_id":c.id,"action_id":action.id,"lot_size":1,
+        payload={"product":c.product,"campaign_id":c.id,"action_id":action.id,"lot_size":c.lot_size,
                  "tenant_kind":"SIMULATION","stop":str(c.stop)})
     approval = RiskApproval(approval_id=stable_id(action.id,"risk"),uid=c.uid,account_id=c.account_id,
         symbol=symbol,side=action.side,quantity=action.quantity,generation_id=c.config_hash,
@@ -347,7 +377,10 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
             if action.kind=="ENTRY":
                 finalize_entry(c)
             elif c.qty:
-                c.state="OPEN"
+                if action.side=="SELL":
+                    c.state,c.reason="CLOSING","RISK_EXIT"
+                else:
+                    c.state="OPEN"
             repo.save_campaign_action(uid,campaign_document(c),document["revision"])
         elif row["status"]=="SUBMITTING":
             c.state,c.reason="RECOVERY_REQUIRED","UNKNOWN_SUBMISSION_REQUIRES_CANONICAL_RECOVERY"
@@ -362,13 +395,19 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
             raise ValueError("VIRTUAL_ORDER_IDENTITY_MISMATCH")
     qty,average = int(observation.get("filled_quantity",0)),D(observation.get("average_price",0))
     status = str(observation["status"]).upper()
+    if qty%c.lot_size:
+        raise ValueError("VIRTUAL_FILL_QUANTITY_NOT_WHOLE_LOTS")
     if qty>action.quantity or qty<int(row["projected_quantity"]):
         raise ValueError("VIRTUAL_FILL_QUANTITY_CONFLICT")
     journal_observation=order_journal.observe_order(row["intent_key"],status=status,order_id=row["order_id"],
         filled_quantity=qty,average_price=float(average),raw=observation)
     if journal_observation.reconciliation_required:
         raise ValueError("CANONICAL_FILL_RECONCILIATION_REQUIRED")
-    trades=await client.get_order_trades(row["order_id"])
+    # Public Kite-shaped trades strip _sim charges/timestamps. The concrete
+    # virtual ledger is the authoritative source for these modelled facts.
+    trades=client.ledger.trades(repo.owner(uid),order_id=row["order_id"])
+    if sum(int(t["quantity"]) for t in trades)!=qty:
+        raise ValueError("VIRTUAL_TRADE_FILL_RECONCILIATION_REQUIRED")
     fees=sum((D((t.get("_sim") or {}).get("charges",{}).get("total",0)) for t in trades),D(0))
     value=D(qty)*average
     delta=qty-int(row["projected_quantity"])
@@ -376,7 +415,7 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
     if qty:
         fill_ledger.record(uid=c.uid,account_id=c.account_id,symbol=symbol,exchange=ex,side=action.side,
             order_id=row["order_id"],cumulative_quantity=qty,cumulative_value=float(value),source="entry" if action.side=="BUY" else "exit",
-            lot_size=1,raw=observation)
+            lot_size=c.lot_size,raw=observation)
         fill_ledger.apply_fees(uid=c.uid,account_id=c.account_id,symbol=symbol,order_id=row["order_id"],
             fees=float(fees),source="VIRTUAL_EXCHANGE_MODEL_NOT_BROKER_FEES",expected_quantity=qty)
     if delta:
@@ -384,11 +423,12 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
         fee_delta=max(D(0),fees-D(row["projected_fees"]))
         if action.kind=="ENTRY" and c.entry_filled_qty==0:
             first_fill_ms=min((int((t.get("_sim") or {}).get("fill_ms",repo.now_ms())) for t in trades),default=repo.now_ms())
+            c.first_fill_ms=first_fill_ms
             try:
                 tape=repo.get(uid,"tape",f"{c.symbol}:{c.mode}:signal")
                 indices=[i for i,b in enumerate(tape["bars"]) if int(b["close_ms"])<=first_fill_ms]
                 if indices:
-                    c.entry_index=indices[-1]
+                    c.entry_index=indices[-1]+1
             except repo.NotFound:
                 # A setup-derived fixture may have no full tape; real scans
                 # always persist one. Keep the frozen action index visibly.
@@ -404,6 +444,11 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
             c.pending_close=None
         if action.kind=="ENTRY":
             finalize_entry(c)
+        elif c.qty and action.side=="SELL" and qty<action.quantity:
+            # Known terminal remainder: do not lose a consumed weakness latch.
+            # Conservatively close remaining exposure rather than repeat the
+            # ordinary reduction; UNKNOWN is deliberately outside this branch.
+            c.state,c.reason="CLOSING","RISK_EXIT"
         elif c.qty and c.state!="CLOSING":
             c.state="OPEN"
         action.status="FILLED" if qty==action.quantity else "CANCELLED" if status in {"CANCELLED","EXPIRED"} else "REJECTED"
@@ -412,6 +457,10 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
             c.pending_close=action
         elif c.pending and c.pending.id==action.id:
             c.pending=action
+    if c.qty:
+        held_rules=EmaTrendConfig.model_validate({k:v for k,v in c.config_snapshot.items() if k in EmaTrendConfig.model_fields})
+        if used_campaign_risk(c,held_rules)>c.budget:
+            c.state,c.reason="CLOSING","RISK_EXIT"
     c.protection="PAPER_MONITOR_ONLY" if c.qty else "NO_EXPOSURE"
     next_row={**row,"status":action.status if terminal else "PARTIAL" if qty else "ACKNOWLEDGED",
         "action":action.model_dump(mode="json"),"projected_quantity":qty,"projected_value":str(value),"projected_fees":str(fees)}
@@ -430,10 +479,10 @@ async def reconcile_action(uid: str, action_id: str, *, client=None):
 def _journal(c: Campaign, action: Action, row: dict, qty: int, price: Decimal, fees: Decimal):
     from app.services import trade_journal as journal
     tid=journal.record_entry(uid=c.uid,strategy="ema_trend",symbol=c.symbol,key=c.id,status="OPEN" if c.qty else "PENDING",
-        account_id=c.account_id,underlying=c.symbol,side="BUY",lot_size=1,qty=c.q0 or c.qty,
+        account_id=c.account_id,underlying=c.symbol,side="BUY",lot_size=c.lot_size,qty=c.q0 or c.qty,
         entry_price=float(c.p0 or c.vwap),initial_sl=float(c.initial_stop),
         signal_context={"mode":c.mode,"config_hash":c.config_hash,"campaign_id":c.id},
-        extra={"execution_vehicle":"EQUITY","product":c.product,"fee_source":"VIRTUAL_EXCHANGE_MODEL"},source="ema_trend_paper")
+        extra={"execution_vehicle":"EQUITY" if c.instrument_type=="EQ" else "FUTURE" if c.instrument_type=="FUT" else "OPTION","product":c.product,"fee_source":"VIRTUAL_EXCHANGE_MODEL"},source="ema_trend_paper")
     if not tid:
         repo.event(c.uid.removeprefix("sim:"),stable_id(action.id,"journal-failed"),c.id,"JOURNAL_UNAVAILABLE",{})
         return
@@ -471,7 +520,7 @@ async def close_campaign(uid: str, campaign_id: str, expected_revision: int,
             raise repo.Conflict("PENDING_ACTION_REQUIRES_RECONCILIATION")
         client=await paper_client(uid)
         book=await quote(uid,c.symbol,c.mode)
-        quantity=c.qty if percent==100 else min(c.qty,max(0,c.q0*percent//100))
+        quantity=c.qty if percent==100 else min(c.qty,max(0,(c.q0//c.lot_size*percent//100)*c.lot_size))
         if quantity<=0:
             raise ValueError("REDUCTION_TOO_SMALL")
         meta=await scanner.equity_metadata(uid,c.symbol)

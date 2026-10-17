@@ -9,6 +9,7 @@ import { useBoardView } from './useBoardView';
 import { useSignalColumns } from './useSignalColumns';
 import { EmaTrendReplay } from './EmaTrendReplay';
 import { EmaTrendTicket } from './EmaTrendTicket';
+import { EmaTrendOperations } from './EmaTrendOperations';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { openSettingsSection } from '../config/registry';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend';
@@ -49,25 +50,26 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             <button type="button" className="sb-tool" aria-pressed={showReplay} onClick={() => setShowReplay(value => !value)}>Recorded replay</button>
             <button type="button" className="sb-tool" onClick={() => openSettingsSection('emaTrend')}>EMA Trend settings</button>
             <button type="button" className="sb-tool" disabled={replay || operation.isPending} onClick={() => operation.mutate(snapshot.data?.paused ? 'resume' : 'pause')}>{snapshot.data?.paused ? 'Resume paper entries' : 'Pause paper entries'}</button>
-            <span>PAPER ONLY · {snapshot.data?.paused ? 'entries paused' : config.data?.config.enabled ? 'scanner enabled' : 'scanner off'}</span>
+            <span>BROKER-DATA SIGNALS · {snapshot.data?.paused ? 'entries paused' : config.data?.config.enabled ? 'scanner enabled' : 'scanner off'}</span>
             <label>View profile <select aria-label="EMA Trend view profile" value={selectedMode} onChange={event => setSelectedMode(event.target.value as EmaTrendMode | '')}>
               <option value="">All configured profiles</option>{Object.entries(EMA_TREND_MODE_LABEL).map(([mode, label]) => <option key={mode} value={mode}>{label}</option>)}
             </select></label>
           </div>
-          <p>EMA10/21 and DEMA50 with Supertrend (10,3). Shares and campaigns use confirmed paper fills. Economic evidence is inconclusive; live orders are disabled.</p>
+          <p>EMA10/21 and DEMA50 with Supertrend (10,3). Quantities and campaigns use confirmed paper fills. Economic evidence is inconclusive; live orders are disabled.</p>
           {(snapshot.data?.blockers || config.data?.blockers || []).map(reason => <p key={reason}>{reason.replace(/_/g, ' ')}</p>)}
         </StrategyBoardFooter>
       </BoardFilters>
+      <EmaTrendOperations campaigns={snapshot.data?.campaigns || []} supervision={snapshot.data?.supervision} unavailable={snapshot.isLoading || snapshot.isError} readOnly={replay} />
       {showReplay && <EmaTrendReplay />}
       {replay && <p role="status" style={{ padding: 12 }}>Historical replay is read-only. Run the EMA Trend replay from its recorded dataset; the live paper snapshot is not shown in this view.</p>}
       {[snapshot.error, config.error, scan.error, cancel.error, operation.error].filter(Boolean).map((error, index) => <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
       {job.data?.status === 'FAILED' && <p role="alert">Scan failed: {(job.data.errors || []).join(' · ')}</p>}
       {!replay && snapshot.isLoading && <p style={{ padding: 12 }}>Loading EMA Trend…</p>}
-      {!replay && !snapshot.isLoading && !signals.length && !snapshot.error && <p style={{ padding: 12 }}>No completed-bar setups or held campaigns. Configure equities and paper allocation in Connect, then enable and scan.</p>}
+      {!replay && !snapshot.isLoading && !signals.length && !snapshot.error && <p style={{ padding: 12 }}>No completed-bar setups or held campaigns. Configure instruments and paper allocation in Connect, then enable and scan.</p>}
       <SignalBoard signals={visible} columns={common.columns} hidden={common.hidden} onReorderColumn={common.onReorderColumn} rowScroll={common.rowScroll}
         isHistoricalSim={replay} strategyDetailsInExpansion openId={openId} onToggle={id => setOpenId(previous => previous === id ? null : id)} onOpenDetail={onOpenDetail}
-        renderTrade={signal => signal.emaTrend?.signalId ? <button className="sb-tool" type="button" disabled={replay || signal.status !== 'armed' || !signal.executionEligible} onClick={() => setOpenId(signal.id)}>Paper</button> : null}
-        renderChart={signal => onOpenChart && <button type="button" className="sb-tool" disabled={replay || signal.historical} aria-label={`Chart ${signal.instrument.symbol}`} onClick={() => onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal)}>↗</button>}
+        renderTrade={signal => signal.emaTrend?.signalId ? <button className="sb-tool" type="button" disabled={replay || signal.status !== 'armed' || !signal.executionEligible} onClick={event => { event.stopPropagation(); setOpenId(signal.id); }}>Paper</button> : null}
+        renderChart={signal => onOpenChart && <button type="button" className="sb-tool" disabled={replay || signal.historical} aria-label={`Chart ${signal.instrument.symbol}`} onClick={event => { event.stopPropagation(); onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal); }}>↗</button>}
         renderDetail={signal => <EmaTrendTicket signal={signal} readOnly={replay} />} />
     </div>
   </div>;

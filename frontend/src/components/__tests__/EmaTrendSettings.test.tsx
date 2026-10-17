@@ -26,7 +26,7 @@ afterEach(cleanup);
 describe('EMA Trend Connect drafts', () => {
   it('saves only edits with CAS and allows typing separated symbols', async () => {
     show();
-    const input = await screen.findByLabelText('EMA Trend equities');
+    const input = await screen.findByLabelText('EMA Trend instruments');
     fireEvent.change(input, { target: { value: 'NSE:TCS, NSE:RELIANCE' } });
     expect(input).toHaveValue('NSE:TCS, NSE:RELIANCE');
     fireEvent.change(screen.getByLabelText('Paper allocation (₹)'), { target: { value: '125000' } });
@@ -51,11 +51,32 @@ describe('EMA Trend Connect drafts', () => {
   });
   it('stages server defaults without changing the running backend until Apply', async () => {
     show();
-    await screen.findByLabelText('EMA Trend equities');
+    await screen.findByLabelText('EMA Trend instruments');
     fireEvent.click(screen.getByRole('button', { name: 'Stage server defaults' }));
     expect(screen.getByLabelText('Paper allocation (₹)')).toHaveValue(0);
     expect(screen.getByText('RUNNING')).toBeInTheDocument();
     expect(screen.getByText('WILL STOP ON APPLY')).toBeInTheDocument();
     expect(api.patch).not.toHaveBeenCalled();
   });
+});
+
+it('adds an actual broker option contract to the draft and saves only its exact symbol', async () => {
+  vi.mocked(api.get).mockImplementation(async path => String(path).includes('/instruments?') ? { items: [
+    { symbol: 'NFO:NIFTY26NOV25000CE', name: 'NIFTY', exchange: 'NFO', instrument_type: 'CE', expiry: '2026-11-26',
+      lot_size: 25, tick_size: '.05', execution_supported: true, blocker: null,
+      contract: { product: 'NRML', lot_size: 25 } },
+    { symbol: 'MCX:GOLD26NOVFUT', name: 'GOLD', exchange: 'MCX', instrument_type: 'FUT', expiry: '2026-11-30',
+      lot_size: 1, tick_size: '1', execution_supported: false, blocker: 'MCX_MULTIPLIER_CALENDAR_ACCOUNTING_NOT_IMPLEMENTED', contract: null },
+  ] } as never : response as never);
+  show();
+  const search = await screen.findByLabelText('EMA Trend instrument search');
+  fireEvent.change(search, { target: { value: 'NIFTY' } });
+  const option = await screen.findByRole('checkbox', { name: 'NFO:NIFTY26NOV25000CE' });
+  fireEvent.click(option);
+  expect(api.patch).not.toHaveBeenCalled();
+  expect(screen.getByRole('checkbox', { name: 'MCX:GOLD26NOVFUT' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(api.patch).toHaveBeenCalledWith('/api/v1/ema-trend/config', {
+    expected_revision: 7, changes: { symbols: [...emaConfig().config.symbols, 'NFO:NIFTY26NOV25000CE'] },
+  }));
 });

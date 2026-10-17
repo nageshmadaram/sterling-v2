@@ -1,0 +1,48 @@
+{
+  "success": true,
+  "numTotalTests": 61,
+  "numPassedTests": 61,
+  "numFailedTests": 0,
+  "files": [
+    {
+      "file": "frontend/src/components/__tests__/EmaTrendSettings.test.tsx",
+      "status": "passed",
+      "tests": 4
+    },
+    {
+      "file": "frontend/src/hooks/__tests__/useEmaTrend.test.tsx",
+      "status": "passed",
+      "tests": 7
+    },
+    {
+      "file": "frontend/src/components/backtest/__tests__/EmaTrendBacktestPanel.test.tsx",
+      "status": "passed",
+      "tests": 2
+    },
+    {
+      "file": "frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx",
+      "status": "passed",
+      "tests": 29
+    },
+    {
+      "file": "frontend/src/components/kite/board/__tests__/EmaTrendOperations.test.tsx",
+      "status": "passed",
+      "tests": 5
+    },
+    {
+      "file": "frontend/src/components/kite/board/__tests__/EmaTrendTicket.test.tsx",
+      "status": "passed",
+      "tests": 4
+    },
+    {
+      "file": "frontend/src/components/kite/board/__tests__/emaTrendAdapter.test.ts",
+      "status": "passed",
+      "tests": 5
+    },
+    {
+      "file": "frontend/src/components/kite/board/__tests__/rowStyleParity.test.ts",
+      "status": "passed",
+      "tests": 5
+    }
+  ]
+}

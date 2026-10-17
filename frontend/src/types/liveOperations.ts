@@ -112,6 +112,9 @@ export interface OperatorActions {
 }
 
 export interface LiveOperations {
+  paper_strategies?: { ema_trend?: { status: 'AVAILABLE' | 'UNAVAILABLE'; execution_mode: 'PAPER';
+    live_eligible: false; campaigns: import('./emaTrend').EmaTrendCampaign[] | null;
+    supervision: import('./emaTrend').EmaTrendSupervision | null; paused?: boolean; reason?: string } };
   schema_version: number;
   generated_at: string;
   runtime_sha: string | null;

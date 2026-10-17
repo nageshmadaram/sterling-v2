@@ -88,6 +88,8 @@ def _put(conn, uid: str, kind: str, ident: str, document: dict,
     value["revision"] = revision + 1
     value.setdefault("created_ms", now_ms())
     value["updated_ms"] = now_ms()
+    from .provenance import bind
+    value["provenance"] = bind(conn,uid,kind,ident,value,current,value["updated_ms"])
     conn.execute("""INSERT INTO ema_trend_documents VALUES(?,?,?,?,?,?,?,?)
         ON CONFLICT(owner_uid,kind,id) DO UPDATE SET revision=excluded.revision,
         status=excluded.status,updated_ms=excluded.updated_ms,data_json=excluded.data_json""",
@@ -128,8 +130,11 @@ def owners() -> list[str]:
 
 def event(uid: str, event_id: str, campaign_id: str, kind: str, data: dict):
     with transaction() as conn:
+        from .provenance import bind
+        stamp=now_ms()
+        payload={**data,"provenance":bind(conn,owner(uid),"event",event_id,{"campaign_id":campaign_id},None,stamp)}
         conn.execute("INSERT OR IGNORE INTO ema_trend_events VALUES(?,?,?,?,?,?)",
-                     (owner(uid), event_id, campaign_id, kind, now_ms(), encode(data)))
+                     (uid, event_id, campaign_id, kind, stamp, encode(payload)))
 
 
 def events(uid: str, campaign_id: str = "", *, limit: int = 500, cursor: int = 0):
@@ -167,7 +172,7 @@ def reserve_campaign(uid: str, campaign: dict, action: dict, plan: dict) -> dict
             if isinstance(exc, sqlite3.IntegrityError):
                 raise Conflict("INSTRUMENT_ALREADY_OWNED") from exc
             raise
-        saved = _put(conn, uid, "campaign", campaign["id"], campaign, 0)
+        saved = _put(conn, uid, "campaign", campaign["id"], {**campaign,"plan_id":plan["id"]}, 0)
         _put(conn, uid, "outbox", action["id"], {"status": "RESERVED", "action": action,
              "campaign_id": campaign["id"], "order_id": "", "intent_key": "", "projected_quantity": 0,
              "projected_value": "0", "projected_fees": "0", "expires_ms":plan["expires_ms"]}, 0)

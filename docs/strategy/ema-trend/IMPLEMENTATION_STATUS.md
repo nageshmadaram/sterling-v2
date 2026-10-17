@@ -1,21 +1,25 @@
 # EMA Trend implementation status
 
-Implementation authorized 2026-10-15. Live execution remains disabled.
+Updated 2026-10-17. **Functional paper implementation delivered; full plan acceptance remains partial. Live/economic eligibility is blocked.** This status replaces the initial placeholder checklist. No real-money deployment or allocation has been enabled by this work.
 
-| Package | State | Evidence |
+| Package | State | Delivered evidence / remaining acceptance |
 |---|---|---|
-| A00 | PASS | BASELINE_MANIFEST.json |
-| A01 | IN_PROGRESS |  |
-| A02 | NOT_STARTED |  |
-| A03 | NOT_STARTED |  |
-| A04 | NOT_STARTED |  |
-| A05 | NOT_STARTED |  |
-| A06 | NOT_STARTED |  |
-| A07 | NOT_STARTED |  |
-| A08 | NOT_STARTED |  |
-| A09 | NOT_STARTED |  |
-| A10 | NOT_STARTED |  |
-| A11 | NOT_STARTED |  |
-| A12 | NOT_STARTED |  |
-| A13 | NOT_STARTED |  |
-| A14 | NOT_STARTED |  |
+| A00 Baseline | Implemented | BASELINE_MANIFEST.json preserves initial dirty workspace; unrelated work retained |
+| A01 Contracts | Implemented, provenance partial | Strict four-profile config, exchange-qualified equities/derivatives, broker-resolved lot/tick/expiry/product contracts, immutable rule hash, action/campaign/bar models, own horizon/identity contract. Repository documents/events now receive immutable origin metadata and parent lineage, including config/profile/rule/source hashes; legacy origins remain explicitly unverified. Deployment-wide identity and dataset-audit parity remain partial |
+| A02 Data | Partial | Read-only real equity lookup/history, completed/available timestamps, causal context/session aggregation, anchored tapes and restatement rejection. Deterministic dataset manifests now record content hashes, observed bounds, provider/adjustment lineage and explicit quality issues. Bounded calendar; corporate-action adjustments and independent real-provider dataset acceptance remain outstanding |
+| A03 Features | Implemented | Independently checked EMA/DEMA/Wilder ATR/ST, delayed pivots, readiness, prefix causality and server-derived chart series |
+| A04 Setups | Implemented | Retest/consolidation, confirmation, frozen pivot/stop, invalidation, expiry, no crossover-only entry |
+| A05 Lifecycle | Partial | Fill-based quarters, vacancy episodes, add gates, stop priority, pending-close slot and deduplication. Known terminal incomplete/rejected reductions now conservatively escalate to CLOSING; optional bounded successor-retry optimization is not implemented |
+| A06 Risk/economics | Implemented paper checks; real evidence pending | Decimal whole-lot sizing, full-notional derivative allocation caps, cash/cost/risk reservations, concurrency, no averaging down, daily/drawdown latches. Fees/slippage are paper estimates |
+| A07 Persistence/API | Implemented | SQLite CAS, ownership, transactional outbox/events, authenticated scoped routes, canonical journal/fill projection |
+| A08 Paper loop | Implemented with stated protection limit | Actual virtual exchange + canonical order/fill ledger integration, held management while scanner off, UNKNOWN recovery. Protection is PAPER_MONITOR_ONLY, not broker GTT |
+| A09 Research/replay | Partial | Shared-core native lifecycle replay and unified dispatch; unknown strategies rejected; no synthetic fallback. Native reports include signal/context dataset quality and exact hashes. Modelled OHLC is inconclusive; full microstructure/benchmark/bootstrap/holdout pipeline outstanding |
+| A10 Product | Implemented | Connect draft/apply broker instrument search and exchange/contract filters, shared rows, detail actions, server-series chart, journal registration, native replay report and saved-record export |
+| A11 Runtime fanout | Partial | Lifespan runner, simulation mode/reset, strategy pause/flatten API, all-profile paper operations panel, held visibility and full SQLite backup coverage. Durable supervision heartbeat and visible stale/error states added; changed-rule buy admission blocked. Application Operations now has an authenticated EMA paper inventory section with dedicated pause/close-all controls, outage demotion and cache refresh. Broker protection and connected-process operational acceptance remain outstanding |
+| A12 Integration closure | Partial | Backend integration, frontend checks, isolated four-profile desktop/mobile browser workflow. Browser uses mocked API contracts; full connected-provider/long-running acceptance outstanding |
+| A13 Family operation | Partial | START_HERE.md, READINESS_REPORT.md, OPERATOR_GUIDE.md, export UI, isolated full database backup/restore proof. Full no-shell restore workflow and independent family usability drill outstanding |
+| A14 Live eligibility | BLOCKED / INCONCLUSIVE | No accepted economic edge, real protection/settlement/corporate-action/fee evidence or separate live activation |
+
+See [validation report](VALIDATION_REPORT.md) for actual commands and results and [conformance matrix](CONFORMANCE_MATRIX.md) for the artifact chain. Initial scanner and auto flags remain off and allocation zero on a fresh configuration. Existing operator settings are not reset.
+
+2026-10-17 expansion: NFO/BFO futures and long CE/PE paper execution implemented across selector, admission, lots, canonical fills, staged actions, reporting and exact-contract replay. Index spot is non-tradable; choose its actual listed contract. New buys on expiry day are blocked and held expiry exposure moves toward risk closure. MCX execution is not implemented: selector capability reports the multiplier/calendar/accounting blocker. See INSTRUMENT_EXPANSION.md; do not treat commodity coverage as complete.

@@ -146,6 +146,10 @@ async def test_real_virtual_exchange_canonical_fill_ledger_and_quarter_exit(virt
     holdings=fill_ledger.holdings(sim_uid("alice"),sim_account_id("alice"))
     assert len(holdings)==1 and holdings[0].net_quantity==c["qty"]
     assert holdings[0].fees_complete
+    trades=client.ledger.trades("alice")
+    expected_fees=sum(Decimal(str(t["_sim"]["charges"]["total"])) for t in trades)
+    assert expected_fees>0 and Decimal(c["total_fees"])==expected_fees
+    assert c["first_fill_ms"]==min(t["_sim"]["fill_ms"] for t in trades)
     duplicate=await execution.arm("alice",plan["id"],plan["revision"],"test-arm")
     assert duplicate["status"]=="ALREADY_ARMED"
     assert len(await client.get_orders())==1
@@ -160,6 +164,16 @@ async def test_real_virtual_exchange_canonical_fill_ledger_and_quarter_exit(virt
     # Replayed cumulative evidence has no additional inventory or accounting effect.
     await execution.reconcile_action("alice",action["id"],client=client)
     assert execution.public_campaign(repo.get("alice","campaign",c["id"]))["qty"]==after["qty"]
+    from app.services.ema_trend.evidence import campaign_trace
+    trace=campaign_trace("alice",c["id"])
+    assert len(trace["actions"])==2
+    buys=sum(a["confirmed_quantity"] for a in trace["actions"] if a["canonical_order"]["side"]=="BUY")
+    sells=sum(a["confirmed_quantity"] for a in trace["actions"] if a["canonical_order"]["side"]=="SELL")
+    assert buys-sells==after["qty"]
+    assert all(a["canonical_order"]["state"]=="FILLED" for a in trace["actions"])
+    assert "FILL_PROJECTION_MISMATCH" not in trace["gaps"]
+    # This integration fixture has no broker dataset; evidence must say so.
+    assert "DATASET_LINK_MISSING" in trace["gaps"]
     assert real.writes==[]
 
 
@@ -308,3 +322,244 @@ async def test_historical_replay_is_durable_deterministic_and_never_reads_market
     again=replay.start("alice","NSE:INFY","ultra_scalping",signal,context,1)
     assert again["id"]==run["id"]
     assert repo.list_documents("alice","campaign")==[]
+
+
+def test_full_database_backup_restores_ema_documents_events_and_owner_isolation(tmp_path,monkeypatch):
+    """Use the shipped full SQLite backup/restore, never the operator database."""
+    from pathlib import Path
+    from app.services.snapback_backup import create_backup,restore_backup
+    config_store.update("alice",0,{"symbols":["NSE:TCS"],"allocation_inr":"100000"})
+    repo.put("alice","campaign","restore-campaign",{"state":"OPEN","qty":17},0)
+    repo.put("alice","outbox","restore-order",{"status":"UNKNOWN","order_id":"virtual-only"},0)
+    repo.event("alice","restore-fill","restore-campaign","FILL",{"quantity":17})
+    backup=create_backup(source_db=Path(db._DB_PATH),backup_root=tmp_path/"backup",freeze_record=None)
+    restored=tmp_path/"restored.db"
+    restore_backup(backup_db=backup.db_path,checksum_path=backup.checksum_path,destination_db=restored)
+    monkeypatch.setattr(db,"_DB_PATH",str(restored))
+    monkeypatch.setattr(db,"_available",False)
+    assert db.init()
+    assert config_store.get("alice")["config"]["symbols"]==["NSE:TCS"]
+    assert repo.get("alice","campaign","restore-campaign")["qty"]==17
+    assert repo.get("alice","outbox","restore-order")["status"]=="UNKNOWN"
+    assert len(repo.events("alice","restore-campaign"))==1
+    with pytest.raises(repo.NotFound):
+        repo.get("bob","campaign","restore-campaign")
+
+
+@pytest.mark.asyncio
+async def test_known_rejected_reduction_escalates_to_closing_without_duplicate_order(virtual,monkeypatch):
+    _,client=virtual
+    _,signal=configured_signal()
+    plan=await execution.build_plan("alice",signal.id,1)
+    armed=await execution.arm("alice",plan["id"],plan["revision"],"entry-reject-test")
+    document=repo.get("alice","campaign",armed["campaign"]["id"])
+    c=execution.campaign_model(document)
+    action=make_action(c,"WEAK_10","SELL",c.quarter,c.last_index,repo.now_ms(),Decimal("99.95"))
+    repo.save_campaign_action("alice",execution.campaign_document(c),document["revision"],action.model_dump(mode="json"))
+    outbox=repo.get("alice","outbox",action.id)
+    repo.put("alice","outbox",action.id,{**outbox,"status":"REJECTED"},outbox["revision"])
+    result=await execution.reconcile_action("alice",action.id,client=client)
+    assert result["state"]=="CLOSING" and result["reason"]=="RISK_EXIT"
+    assert result["qty"]==armed["campaign"]["qty"] and not result["pending"]
+    assert len(await client.get_orders())==1  # reconciliation did not retry the rejected reduction
+
+
+def test_provenance_freezes_parent_config_and_ignores_supplied_identity():
+    first=config_store.update("alice",0,{"symbols":["NSE:INFY"],"allocation_inr":"100000"})
+    signal=repo.put("alice","signal","audit-signal",{"mode":"swing","config_revision":first["revision"],
+        "provenance":{"owner_uid":"bob","live_eligible":True}},0)
+    origin=signal["provenance"]["origin"]
+    assert signal["provenance"]["owner_uid"]=="alice"
+    assert signal["provenance"]["live_eligible"] is False
+    assert origin["config_revision"]==1 and len(origin["runtime_source_sha256"])==64
+    config_store.update("alice",1,{"symbols":["NSE:TCS"],"allocation_inr":"200000"})
+    plan=repo.put("alice","plan","audit-plan",{"signal_id":"audit-signal","mode":"swing"},0)
+    assert plan["provenance"]["origin"]==origin
+    projected=repo.put("alice","signal","audit-signal",{"status":"EXPIRED"},signal["revision"])
+    assert projected["provenance"]["origin"]==origin
+    repo.put("alice","campaign","audit-campaign",{"plan_id":"audit-plan"},0)
+    repo.event("alice","audit-event","audit-campaign","FILL",{"quantity":1})
+    assert repo.events("alice","audit-campaign")[0]["data"]["provenance"]["origin"]==origin
+    assert repo.get("alice","settings","config")["provenance"]["origin"]["config_revision"]==2
+
+
+def test_legacy_artifacts_are_not_relabelled_as_new_origin():
+    with repo.transaction() as conn:
+        repo._put(conn,"alice","signal","legacy",{"mode":"swing"},0)
+        raw=repo._load(conn,"alice","signal","legacy")
+        raw.pop("provenance")
+        conn.execute("UPDATE ema_trend_documents SET data_json=? WHERE id='legacy'",(repo.encode(raw),))
+    saved=repo.put("alice","signal","legacy",{"status":"EXPIRED"},1)
+    assert saved["provenance"]["origin"] is None
+    assert saved["provenance"]["origin_status"]=="LEGACY_ORIGIN_UNVERIFIED"
+    child=repo.put("alice","plan","legacy-plan",{"signal_id":"legacy"},0)
+    assert child["provenance"]["origin"] is None
+    assert child["provenance"]["origin_status"]=="PARENT_ORIGIN_UNVERIFIED"
+
+
+@pytest.mark.asyncio
+async def test_scan_persists_dataset_link_and_export_keeps_manifest(virtual,monkeypatch):
+    from app.engines.ema_trend import features,setups
+    real,_=virtual
+    configured_signal()
+    signal=ready_signal().model_copy(update={"id":"dataset-linked-signal"})
+    async def history(*args,**kwargs):
+        return [signal.feature.bar]
+    monkeypatch.setattr(scanner,"fetch_bars",history)
+    monkeypatch.setattr(features,"build_features",lambda *args:[signal.feature])
+    monkeypatch.setattr(setups,"evaluate_setups",lambda *args,**kwargs:[signal])
+    result=await scanner.scan_symbol("alice","NSE:INFY","ultra_scalping",client=real)
+    dataset=repo.get("alice","dataset",result["dataset_id"])
+    stored=repo.get("alice","signal",signal.id)
+    assert stored["dataset_id"]==dataset["id"]
+    assert stored["dataset_sha256"]==dataset["manifest"]["content_sha256"]
+    assert stored["provenance"]["origin"]["dataset_sha256"]==stored["dataset_sha256"]
+    assert snapshot.export("alice")["datasets"][0]["id"]==dataset["id"]
+
+
+def test_supervision_health_tracks_errors_staleness_and_recovery(monkeypatch):
+    from app.services.ema_trend import health
+    now=100000
+    monkeypatch.setattr(repo,"now_ms",lambda:now)
+    assert health.summary("alice")["status"]=="UNKNOWN"
+    initial=health.record("alice",{"errors":[]})
+    assert health.summary("alice")["status"]=="RUNNING"
+    now+=1000
+    assert health.record("alice",{"errors":[]})["revision"]==initial["revision"]
+    health.record("alice",{"errors":[{"reason":"QUOTE_UNAVAILABLE"}]})
+    assert health.summary("alice")["status"]=="DEGRADED"
+    assert health.summary("bob")["status"]=="UNKNOWN"
+    now+=31000
+    assert health.summary("alice")["status"]=="STALE"
+    health.record("alice",{"errors":[]})
+    assert health.summary("alice")["status"]=="RUNNING"
+
+
+@pytest.mark.asyncio
+async def test_changed_rule_signal_cannot_open_new_paper_exposure(virtual,monkeypatch):
+    _,signal=configured_signal()
+    monkeypatch.setattr(execution,"descriptor",lambda:{"rule_hash":"different-build-rules"})
+    plan=await execution.build_plan("alice",signal.id,1)
+    assert plan["status"]=="BLOCKED"
+    assert "SIGNAL_RULE_IDENTITY_UNVERIFIED_OR_CHANGED" in plan["blockers"]
+    assert len(await virtual[1].get_orders())==0
+
+
+@pytest.mark.asyncio
+async def test_changed_rule_campaign_still_allows_owned_sell_reduction(virtual,monkeypatch):
+    _,signal=configured_signal()
+    plan=await execution.build_plan("alice",signal.id,1)
+    armed=await execution.arm("alice",plan["id"],plan["revision"],"rule-change-entry")
+    c=armed["campaign"]
+    monkeypatch.setattr(execution,"descriptor",lambda:{"rule_hash":"changed-after-entry"})
+    closed=await execution.close_campaign("alice",c["id"],c["revision"],"rule-change-close")
+    assert closed["campaign"]["qty"]==0 and closed["campaign"]["state"]=="CLOSED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure",[False,True])
+async def test_runner_persists_completed_or_failed_supervision_cycle(monkeypatch,failure):
+    import asyncio
+    from app.services.ema_trend import runner,health
+    config_store.update("alice",0,{"enabled":False})
+    async def run(owner):
+        assert owner=="alice"
+        if failure:
+            raise ValueError("MARKET_FEED_UNAVAILABLE")
+        return {"status":"PAPER_ONLY","errors":[]}
+    async def finish(*args):
+        raise asyncio.CancelledError()
+    monkeypatch.setattr(runner,"run_user",run)
+    monkeypatch.setattr(runner.asyncio,"sleep",finish)
+    with pytest.raises(asyncio.CancelledError):
+        await runner.run_loop()
+    report=health.summary("alice")
+    assert report["status"]==("DEGRADED" if failure else "RUNNING")
+    if failure:
+        assert report["errors"][0]["reason"]=="MARKET_FEED_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_changed_rule_campaign_cannot_submit_a_reserved_add(virtual,monkeypatch):
+    _,signal=configured_signal()
+    plan=await execution.build_plan("alice",signal.id,1)
+    armed=await execution.arm("alice",plan["id"],plan["revision"],"change-add-entry")
+    document=repo.get("alice","campaign",armed["campaign"]["id"])
+    c=execution.campaign_model(document)
+    action=make_action(c,"RECLAIM_10","BUY",1,c.last_index,repo.now_ms(),Decimal("100"))
+    repo.save_campaign_action("alice",execution.campaign_document(c),document["revision"],action.model_dump(mode="json"))
+    monkeypatch.setattr(execution,"descriptor",lambda:{"rule_hash":"different-after-reservation"})
+    with pytest.raises(repo.Conflict,match="CAMPAIGN_RULE_IDENTITY"):
+        await execution.submit_action("alice",c.id,action.id,client=virtual[1])
+    assert len(await virtual[1].get_orders())==1
+    assert repo.get("alice","outbox",action.id)["status"]=="RESERVED"
+
+
+@pytest.mark.asyncio
+async def test_operations_reads_only_owner_virtual_campaigns_without_changing_books(virtual):
+    _,signal=configured_signal()
+    plan=await execution.build_plan("alice",signal.id,1)
+    opened=await execution.arm("alice",plan["id"],plan["revision"],"ops-paper-entry")
+    before=await virtual[1].get_orders()
+    paper=snapshot.operations("alice")
+    assert paper["status"]=="AVAILABLE" and paper["execution_mode"]=="PAPER"
+    assert paper["live_eligible"] is False
+    assert paper["campaigns"][0]["qty"]==opened["campaign"]["qty"]
+    assert snapshot.operations("bob")["campaigns"]==[]
+    assert await virtual[1].get_orders()==before
+    assert virtual[0].writes==[]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind",["FUT","CE","PE"])
+@pytest.mark.parametrize("venue",["NFO","BFO"])
+async def test_exact_derivative_contract_uses_canonical_whole_lot_orders(virtual,kind,venue):
+    real,client=virtual
+    name="TEST26NOVFUT" if kind=="FUT" else f"TEST26NOV100{kind}"
+    key=f"{venue}:{name}"
+    real._instruments.rows.append(row(name,987654,exchange=venue,itype=kind,lot=25,name="TEST",expiry="2026-11-26"))
+    real.set_quote(key,100,bid=99.95,ask=100,qty=100000,age_s=0)
+    configured_signal()
+    current=config_store.get("alice")
+    updated=config_store.update("alice",current["revision"],{"symbols":[key]})
+    with repo.transaction() as conn:
+        value=repo._load(conn,"alice","settings","config")
+        value["activation_ms"]=repo.now_ms()-120000
+        conn.execute("UPDATE ema_trend_documents SET data_json=? WHERE owner_uid='alice' AND kind='settings'",(repo.encode(value),))
+    signal=ready_signal().model_copy(update={"id":f"derivative-{kind}","symbol":key,"config_revision":updated["revision"]})
+    repo.put("alice","signal",signal.id,{**signal.model_dump(mode="json"),"activation_eligible":True},0)
+    plan=await execution.build_plan("alice",signal.id,updated["revision"])
+    assert plan["status"]=="READY",plan["blockers"]
+    assert plan["quantity"]%25==0 and plan["quantity"]>=100
+    opened=await execution.arm("alice",plan["id"],plan["revision"],f"{kind}-entry")
+    c=opened["campaign"]
+    assert c["lot_size"]==25 and c["instrument_type"]==kind and c["product"]=="MIS"
+    reduced=await execution.close_campaign("alice",c["id"],c["revision"],f"{kind}-quarter",25)
+    assert reduced["campaign"]["qty"]==c["q0"]-c["quarter"]
+    after=reduced["campaign"]
+    closed=await execution.close_campaign("alice",c["id"],after["revision"],f"{kind}-close")
+    assert closed["campaign"]["qty"]==0
+    assert all(o["quantity"]%25==0 for o in await client.get_orders())
+    assert real.writes==[]
+
+
+@pytest.mark.asyncio
+async def test_derivative_contract_metadata_change_blocks_arm_without_an_order(virtual):
+    real,client=virtual
+    key="NFO:TEST26NOV100CE"
+    instrument=row("TEST26NOV100CE",99123,exchange="NFO",itype="CE",lot=25,name="TEST",expiry="2026-11-26")
+    real._instruments.rows.append(instrument)
+    real.set_quote(key,100,bid=99.95,ask=100,qty=100000,age_s=0)
+    configured_signal()
+    config_store.update("alice",1,{"symbols":[key]})
+    with repo.transaction() as conn:
+        value=repo._load(conn,"alice","settings","config");value["activation_ms"]=repo.now_ms()-120000
+        conn.execute("UPDATE ema_trend_documents SET data_json=? WHERE owner_uid='alice' AND kind='settings'",(repo.encode(value),))
+    signal=ready_signal().model_copy(update={"id":"changing-contract","symbol":key,"config_revision":2})
+    repo.put("alice","signal",signal.id,signal.model_dump(mode="json"),0)
+    plan=await execution.build_plan("alice",signal.id,2)
+    assert plan["status"]=="READY",plan["blockers"]
+    instrument["tick_size"]=.1
+    with pytest.raises(repo.Conflict,match="CONTRACT_METADATA_CHANGED"):
+        await execution.arm("alice",plan["id"],plan["revision"],"no-stale-metadata")
+    assert await client.get_orders()==[]

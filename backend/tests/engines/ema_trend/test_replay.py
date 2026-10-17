@@ -76,3 +76,22 @@ def test_coarse_bar_with_four_r_close_and_stop_touch_uses_stop_first(monkeypatch
     exits = [f for f in result["fills"] if f["side"] == "SELL"]
     assert len(exits) == 1 and exits[0]["kind"] == "STOP"
     assert Decimal(exits[0]["price"]) == Decimal(95)
+
+
+def test_derivative_replay_requires_actual_metadata_and_preserves_whole_lot_fills(monkeypatch):
+    import pytest
+    fs,bars=replay_input(monkeypatch)
+    cfg=config(symbols=["NFO:TEST26NOV100CE"])
+    from app.engines.ema_trend.contracts import Setup
+    def entries(symbol,mode,features):
+        return [Setup(id=f"derivative-{f.index}",symbol=symbol,mode="swing",index=f.index,
+            close_ms=f.bar.close_ms,cross_index=245,status="armed" if f.index==249 else "watching",
+            reason="FIXTURE",path="BOX_5" if f.index==249 else None,stop=Decimal(95) if f.index==249 else None,
+            ceiling=Decimal(102) if f.index==249 else None,feature=f) for f in features]
+    monkeypatch.setattr(backtest,"evaluate_setups",entries)
+    with pytest.raises(ValueError,match="FROZEN_INSTRUMENT_METADATA"):
+        backtest.run_replay("NFO:TEST26NOV100CE","swing",bars,[],cfg)
+    result=backtest.run_replay("NFO:TEST26NOV100CE","swing",bars,[],cfg,instrument_meta={
+        "exchange":"NFO","tradingsymbol":"TEST26NOV100CE","instrument_type":"CE","expiry":"2026-11-26","lot_size":5,"tick_size":.05})
+    assert result["contract"]["lot_size"]==5 and result["product"]=="NRML"
+    assert result["fills"] and all(f["quantity"]%5==0 for f in result["fills"])

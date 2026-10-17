@@ -16,7 +16,7 @@ export function EmaTrendReplay() {
   return <section aria-label="EMA Trend recorded replay" style={{ padding: 12 }}>
     <p>Replay recorded completed bars through the same campaign rules. The result remains read-only and cannot arm orders.</p>
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-      <select aria-label="Replay equity" value={selectedSymbol} onChange={event => setSymbol(event.target.value)}>{(config.data?.config.symbols || []).map(value => <option key={value}>{value}</option>)}</select>
+      <select aria-label="Replay instrument" value={selectedSymbol} onChange={event => setSymbol(event.target.value)}>{(config.data?.config.symbols || []).map(value => <option key={value}>{value}</option>)}</select>
       <select aria-label="Replay profile" value={mode} onChange={event => setMode(event.target.value as EmaTrendMode)}>{Object.entries(EMA_TREND_MODE_LABEL).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select>
       <button type="button" className="sb-tool" disabled={!selectedSymbol || !config.data || replay.isPending}
         onClick={() => { if (config.data) { setRunId(''); replay.mutate({ symbol: selectedSymbol, mode, expected_config_revision: config.data.revision }); } }}>Replay recorded bars</button>

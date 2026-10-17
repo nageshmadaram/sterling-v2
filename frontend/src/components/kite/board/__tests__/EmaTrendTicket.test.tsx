@@ -18,6 +18,23 @@ function show(content: React.ReactNode) {
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(api.get).mockResolvedValue({ campaign: emaCampaign(), events: [] }); });
 afterEach(cleanup);
 describe('EMA Trend equity actions and full detail guards', () => {
+  it('exports the server evidence chain without submitting an order', async () => {
+    vi.mocked(api.get).mockImplementation(async (path) => String(path).endsWith('/evidence')
+      ? { status: 'INCOMPLETE', actions: [{ confirmed_quantity: 0 }], gaps: ['DATASET_LINK_MISSING'] }
+      : { campaign: emaCampaign(), events: [] });
+    const create = vi.fn(() => 'blob:evidence');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: create });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    show(<EmaTrendTicket signal={emaTrendCampaignsToBoard([emaCampaign()])[0]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Export execution evidence' }));
+    await screen.findByText(/Evidence: INCOMPLETE/);
+    expect(api.get).toHaveBeenCalledWith('/api/v1/ema-trend/campaigns/campaign-swing/evidence');
+    expect(screen.getByText(/DATASET_LINK_MISSING/)).toBeInTheDocument();
+    expect(create).toHaveBeenCalled(); expect(click).toHaveBeenCalled();
+    expect(api.post).not.toHaveBeenCalled();
+    click.mockRestore();
+  });
   it('requests a revision-bound reduction and never sends an editable share quantity', async () => {
     vi.mocked(api.post).mockResolvedValue({ status: 'ACKNOWLEDGED' });
     show(<EmaTrendTicket signal={emaTrendCampaignsToBoard([emaCampaign()])[0]} />);

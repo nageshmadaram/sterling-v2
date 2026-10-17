@@ -107,8 +107,8 @@ class EmaTrendConfig(BaseModel):
     @classmethod
     def symbols_valid(cls, values):
         normalized = [v.strip().upper() for v in values]
-        if any(not re.fullmatch(r"(?:NSE|BSE):[A-Z0-9&_.-]{1,40}", v) for v in normalized):
-            raise ValueError("symbols must be explicit NSE:SYMBOL or BSE:SYMBOL equities")
+        if any(not re.fullmatch(r"(?:NSE|BSE|NFO|BFO|MCX):[A-Z0-9&_.-]{1,60}", v) for v in normalized):
+            raise ValueError("symbols must be explicit exchange-qualified instruments (NSE/BSE/NFO/BFO/MCX)")
         if len(set(normalized)) != len(normalized):
             raise ValueError("duplicate symbols")
         return normalized
@@ -131,8 +131,8 @@ def rule_hash() -> str:
 
 
 def descriptor() -> dict:
-    return {"id": "ema_trend", "name": "10/21 EMA + Supertrend", "version": "1.0.0",
-            "execution_vehicle": "EQUITY", "profiles": {k: v.model_dump() for k, v in PROFILES.items()},
+    return {"id": "ema_trend", "name": "10/21 EMA + Supertrend", "version": "1.1.0",
+            "execution_vehicle": "SELECTED_INSTRUMENT", "execution_vehicles":["EQUITY","FUTURE","OPTION"], "profiles": {k: v.model_dump() for k, v in PROFILES.items()},
             "indicators": {"ema_fast": 10, "ema_slow": 21, "dema": 50, "st_atr": 10, "st_factor": 3},
             "rule_hash": rule_hash(),
             "live_capable": False,

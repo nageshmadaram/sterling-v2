@@ -19,7 +19,7 @@ TERMINAL = {"STOP", "SESSION_EXIT", "TIME_EXIT", "STRUCTURAL_EXIT", "FLATTEN", "
 
 def make_action(c: Campaign, kind: str, side: str, quantity: int, index: int,
                 at_ms: int, price: Decimal, components: dict[str, int] | None = None) -> Action:
-    if quantity <= 0 or price <= 0:
+    if quantity <= 0 or quantity%c.lot_size or price <= 0:
         raise ValueError("nonpositive action")
     action = Action(id=stable_id(c.id, kind, at_ms, c.revision), campaign_id=c.id,
                     kind=kind, side=side, quantity=quantity, index=index, at_ms=at_ms,
@@ -46,8 +46,8 @@ def finalize_entry(c: Campaign) -> None:
     c.below10 = c.below21 = 0
     if c.qty == 0 and not c.pending_close:
         c.state, c.reason = "CLOSED", "ENTRY_UNFILLED"
-    elif c.q0 < 4 or c.r_price <= 0:
-        c.state, c.reason = "CLOSING", "ENTRY_TOO_SMALL" if c.q0 < 4 else "RISK_EXIT"
+    elif c.q0 < 4*c.lot_size or c.r_price <= 0:
+        c.state, c.reason = "CLOSING", "ENTRY_TOO_SMALL" if c.q0 < 4*c.lot_size else "RISK_EXIT"
     elif c.state != "CLOSING":
         c.state, c.reason = "OPEN", "ENTRY_FILLED"
 
@@ -58,7 +58,7 @@ def apply_fill(c: Campaign, action: Action, fill_id: str, qty: int,
     price, fee = D(price), D(fee)
     if fill_id in c.seen_fill_ids:
         return False
-    if qty <= 0 or not price.is_finite() or not fee.is_finite() or price <= 0 or fee < 0:
+    if qty <= 0 or qty%c.lot_size or not price.is_finite() or not fee.is_finite() or price <= 0 or fee < 0:
         raise ValueError("INVALID_FILL")
     if action.campaign_id != c.id or action.filled_quantity+qty > action.quantity:
         raise ValueError("FILL_OWNERSHIP_OR_QUANTITY_MISMATCH")
@@ -299,7 +299,8 @@ def decide(c: Campaign, f: Feature, previous: Feature | None, profile: Profile,
         per_unit_risk = max(D('.01'), price-c.stop+c.gap_reserve_per_share
                             +price*(config.fee_bps+config.slippage_bps)/D(10000)*2)
         count = min(quota, vacancy, c.q0-c.qty, int(remaining_risk/per_unit_risk))
-        if count < 1:
+        count=count//c.lot_size*c.lot_size
+        if count < c.lot_size:
             c.reason = "CAPACITY_FULL_OR_RISK_EXHAUSTED"
             continue
         c.candidates.remove(candidate)

@@ -27,7 +27,7 @@ class UnifiedBacktestRequest(BaseModel):
     scan_all_stocks: bool = Field(default=False, description="Scan full eligible ~180+ F&O universe")
     contract_type: str = Field(
         default="futures",
-        description="Contract type to simulate: 'futures', 'options_atm', 'options_itm', 'options_otm', 'spot'",
+        description="Contract type to simulate: 'futures', 'options_atm', 'options_itm', 'options_otm', 'spot'; EMA exact instruments also accept 'auto', 'future', 'option'",
     )
     expiry_cycle: str = Field(
         default="weekly",

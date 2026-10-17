@@ -54,5 +54,6 @@ def response(uid: str) -> dict:
     current = get(uid)
     return {**current, "defaults": EmaTrendConfig().model_dump(mode="json"),
             "strategy": descriptor(), "profiles": {k: v.model_dump(mode="json") for k,v in PROFILES.items()},
-            "capabilities": {"paper": True, "live": False, "broker_protection": False},
+            "capabilities": {"paper": True, "live": False, "broker_protection": False,"execution_venues":["NSE","BSE","NFO","BFO"],
+                             "blocked_venues":{"MCX":"MULTIPLIER_CALENDAR_ACCOUNTING_NOT_IMPLEMENTED"}},
             "blockers": current.get("blockers", []) + descriptor()["blockers"]}

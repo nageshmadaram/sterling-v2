@@ -5,7 +5,7 @@ export const EMA_TREND_MODE_LABEL: Record<EmaTrendMode, string> = {
   swing: 'Swing', intraday: 'Intraday', scalping: 'Scalp', ultra_scalping: 'Ultrascalp',
 };
 export interface EmaTrendProfile {
-  mode: EmaTrendMode; signal_minutes: number; context_minutes: number; product: 'CNC' | 'MIS';
+  mode: EmaTrendMode; signal_minutes: number; context_minutes: number; product: 'CNC' | 'MIS' | 'NRML';
   setup_expiry_bars: number; cooldown_bars: number; min_stop_atr: number; max_stop_atr: number;
   max_chase_atr: number; max_quote_age_s: number; max_hold_bars: number | null;
   entry_start: string; entry_end: string; force_close: string | null; require_green: boolean; chop_filter: boolean;
@@ -19,7 +19,7 @@ export interface EmaTrendConfig {
 }
 export interface EmaTrendDescriptor {
   id: 'ema_trend'; name: string; version: string; rule_hash: string;
-  execution_vehicle: 'EQUITY'; profiles: Record<EmaTrendMode, EmaTrendProfile>;
+  execution_vehicle: 'EQUITY' | 'SELECTED_INSTRUMENT'; profiles: Record<EmaTrendMode, EmaTrendProfile>;
   live_capable: false; blockers: string[];
 }
 export interface EmaTrendFeature {
@@ -30,23 +30,36 @@ export interface EmaTrendFeature {
   context_ema10: number | null; context_ema21: number | null; context_st: string; context_st_line?: number | null; context_close_ms: number | null;
   pivots: Array<{ side: string; price: number; occurred_ms: number; confirmed_ms: number }>;
 }
+export interface EmaTrendContract {
+  exchange: string; tradingsymbol: string; instrument_type: 'EQ' | 'FUT' | 'CE' | 'PE'; lot_size: number;
+  tick_size: DecimalValue; expiry: string; execution_vehicle: 'EQUITY' | 'FUTURE' | 'OPTION';
+  product: 'CNC' | 'MIS' | 'NRML'; capital_model: string; signal_source: string;
+}
+export interface EmaTrendInstrumentChoice {
+  symbol: string; name: string; exchange: string; instrument_type: string; expiry: string; strike?: number;
+  lot_size: number; tick_size: DecimalValue; execution_supported: boolean; blocker: string | null;
+  contract: EmaTrendContract | null;
+}
 export interface EmaTrendSetup {
+  contract?: EmaTrendContract;
   id: string; symbol: string; mode: EmaTrendMode; index: number; close_ms: number;
   status: 'watching' | 'armed' | 'error' | 'expired'; reason: string; path: string | null;
   stop: DecimalValue | null; ceiling: DecimalValue | null; feature: EmaTrendFeature; config_revision: number;
   activation_eligible?: boolean;
+  signal_source?: string; entry_expires_ms?: number | null; entry_window_open?: boolean; runtime_blockers?: string[];
 }
 export interface EmaTrendAction {
   id: string; kind: string; side: 'BUY' | 'SELL'; quantity: number; filled_quantity: number;
   status: string; limit: DecimalValue; at_ms: number;
 }
 export interface EmaTrendCampaign {
-  id: string; symbol: string; mode: EmaTrendMode; product: 'CNC' | 'MIS'; tenant_kind: 'SIMULATION' | 'REPLAY';
+  lot_size?: number; instrument_type?: 'EQ' | 'FUT' | 'CE' | 'PE'; expiry?: string;
+  id: string; symbol: string; mode: EmaTrendMode; product: 'CNC' | 'MIS' | 'NRML'; tenant_kind: 'SIMULATION' | 'REPLAY';
   revision: number; config_revision: number; config_hash: string; state: string; reason: string; protection: string;
   q0: number; qty: number; vwap: DecimalValue; p0: DecimalValue; r_price: DecimalValue;
   initial_stop: DecimalValue; stop: DecimalValue; budget: DecimalValue; last_mark: DecimalValue;
   last_close_ms: number; below10: number; below21: number; took_4r: boolean;
-  realized_net: DecimalValue; total_fees: DecimalValue; pending: EmaTrendAction | null;
+  realized_net: DecimalValue; total_fees: DecimalValue; pending: EmaTrendAction | null; pending_close?: EmaTrendAction | null;
   lots: Array<{ fill_id: string; qty: number; price: DecimalValue }>;
 }
 export interface EmaTrendConfigResponse {
@@ -58,7 +71,12 @@ export interface EmaTrendScan {
   id: string; status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
   progress?: number; errors?: string[]; created_ms?: number; finished_ms?: number;
 }
+export interface EmaTrendSupervision {
+  status: 'UNKNOWN' | 'STALE' | 'DEGRADED' | 'RUNNING'; age_ms: number | null;
+  errors: Array<{ campaign_id?: string; reason: string }>;
+}
 export interface EmaTrendSnapshot extends Omit<EmaTrendConfigResponse, 'defaults'> {
+  supervision?: EmaTrendSupervision;
   rows: EmaTrendSetup[]; campaigns: EmaTrendCampaign[]; scan: EmaTrendScan | null;
 }
 export interface EmaTrendPlan {
@@ -66,7 +84,13 @@ export interface EmaTrendPlan {
   signal_id: string; symbol: string; mode: EmaTrendMode; quantity: number; entry: DecimalValue;
   stop: DecimalValue; budget: DecimalValue; config_revision: number; created_ms: number; expires_ms: number;
 }
+export interface EmaTrendDatasetManifest {
+  content_sha256: string; signal: { bar_count: number; quality_status: string; issues: Array<{ code: string; count: number }> };
+  context: { bar_count: number; quality_status: string; issues: Array<{ code: string; count: number }> };
+}
 export interface EmaTrendReplayReport {
+  contract?: EmaTrendContract;
+  dataset_manifest?: EmaTrendDatasetManifest;
   id: string; strategy_id: 'ema_trend'; mode: EmaTrendMode; symbol: string;
   evidence_status: string; live_eligible: boolean; config_hash: string; rule_hash: string; dataset_hash: string;
   fill_model: string; limitations: string[];

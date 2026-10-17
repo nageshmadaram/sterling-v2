@@ -12,6 +12,37 @@ from app.services.snapback_family_mode import INTENT_PROTECT, canonical_broker_c
 pytestmark = pytest.mark.usefixtures("allow_live_execution")
 
 
+@pytest.mark.parametrize("settled,used,day_net,expected", [(100,0,0,321),(0,0,0,None),
+    (100,80,0,None),(100,0,-80,None)])
+async def test_overnight_cnc_protection_uses_settled_holdings_without_double_counting(settled,used,day_net,expected):
+    calls=[]
+    def handle(request):
+        calls.append((request.method,request.url.path,request.content))
+        if request.url.path=="/portfolio/positions":
+            data={"net":[{"exchange":"NSE","tradingsymbol":"INFY","product":"CNC","quantity":day_net}]}
+        elif request.url.path=="/portfolio/holdings":
+            data=[{"exchange":"NSE","tradingsymbol":"INFY","product":"CNC","quantity":settled,
+                   "realised_quantity":settled,"used_quantity":used,"collateral_quantity":0,
+                   "t1_quantity":500,"discrepancy":False}]
+        elif request.url.path=="/quote/ltp":
+            data={"NSE:INFY":{"last_price":100}}
+        elif request.url.path=="/gtt/triggers":
+            data={"trigger_id":321}
+        else:
+            raise AssertionError(request.url.path)
+        return httpx.Response(200,json={"status":"success","data":data})
+    client=KiteClient(api_key="test",api_secret="test",access_token="test",is_paper=False)
+    client._client=httpx.AsyncClient(transport=httpx.MockTransport(handle),base_url="https://api.kite.trade")
+    try:
+        with canonical_broker_capability("test-settled-holdings",intent=INTENT_PROTECT):
+            result=await place_stop(client,tradingsymbol="INFY",exchange="NSE",qty=50,
+                                    trigger_premium=90,last_price=100,product="CNC")
+        assert result==expected
+        assert (any(method=="POST" for method,_,_ in calls)) == (expected is not None)
+    finally:
+        await client._client.aclose()
+
+
 def client_and_calls(*, quote=123.4, product="NRML", quantity=50):
     calls = []
 

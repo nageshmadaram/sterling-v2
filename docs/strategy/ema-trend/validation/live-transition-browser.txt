@@ -1,0 +1,21 @@
+[WebServer] (node:1758861) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 10 tests using 1 worker
+
+(node:1758908) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [desktop] › e2e/ema-trend.spec.ts:7:3 › Swing: Connect → shared row → chart → paper fill → quarter → close → replay (11.5s)
+  ✓   2 [desktop] › e2e/ema-trend.spec.ts:7:3 › Intraday: Connect → shared row → chart → paper fill → quarter → close → replay (10.5s)
+  ✓   3 [desktop] › e2e/ema-trend.spec.ts:7:3 › Scalp: Connect → shared row → chart → paper fill → quarter → close → replay (6.4s)
+  ✓   4 [desktop] › e2e/ema-trend.spec.ts:7:3 › Ultrascalp: Connect → shared row → chart → paper fill → quarter → close → replay (6.7s)
+  ✓   5 [desktop] › e2e/ema-trend.spec.ts:109:1 › Exact option selector → whole-lot paper entry → quarter → close (5.4s)
+(node:1760000) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   6 [mobile] › e2e/ema-trend.spec.ts:7:3 › Swing: Connect → shared row → chart → paper fill → quarter → close → replay (18.7s)
+  ✓   7 [mobile] › e2e/ema-trend.spec.ts:7:3 › Intraday: Connect → shared row → chart → paper fill → quarter → close → replay (16.0s)
+  ✓   8 [mobile] › e2e/ema-trend.spec.ts:7:3 › Scalp: Connect → shared row → chart → paper fill → quarter → close → replay (11.0s)
+  ✓   9 [mobile] › e2e/ema-trend.spec.ts:7:3 › Ultrascalp: Connect → shared row → chart → paper fill → quarter → close → replay (12.3s)
+  ✓  10 [mobile] › e2e/ema-trend.spec.ts:109:1 › Exact option selector → whole-lot paper entry → quarter → close (6.0s)
+
+  10 passed (1.8m)

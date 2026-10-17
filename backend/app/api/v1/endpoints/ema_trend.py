@@ -32,6 +32,12 @@ class PlanRequest(Strict):
     expected_config_revision:int=Field(ge=0)
 
 
+class ReadinessRequest(Strict):
+    symbol:str=Field(min_length=3,max_length=100)
+    mode:str
+    expected_config_revision:int=Field(ge=0)
+
+
 class ArmRequest(Strict):
     expected_revision:int=Field(ge=1)
     idempotency_key:str=Field(min_length=1,max_length=160)
@@ -94,11 +100,27 @@ async def patch_config(body:ConfigPatch,user:UserContext=Depends(get_current_use
         raise refusal(exc) from exc
 
 
+@router.get("/instruments")
+async def instruments(query:str=Query(min_length=2,max_length=80),mode:str="swing",user:UserContext=Depends(get_current_user)):
+    try:
+        return await scanner.search_instruments(uid(user),query,canonical_mode(mode))
+    except Exception as exc:
+        raise refusal(exc) from exc
+
+
 @router.get("/snapshot")
 async def get_snapshot(mode:str|None=None,day:str|None=None,cursor:int=Query(0,ge=0),
                        user:UserContext=Depends(get_current_user)):
     try:
         return snapshot.snapshot(uid(user),mode,day,cursor)
+    except Exception as exc:
+        raise refusal(exc) from exc
+
+
+@router.get("/datasets/{dataset_id}")
+async def get_dataset(dataset_id:str,user:UserContext=Depends(get_current_user)):
+    try:
+        return {**repo.get(uid(user),"dataset",dataset_id),"read_only":True}
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -166,6 +188,15 @@ async def campaign(campaign_id:str,user:UserContext=Depends(get_current_user)):
         raise refusal(exc) from exc
 
 
+@router.get("/campaigns/{campaign_id}/evidence")
+async def campaign_evidence(campaign_id:str,user:UserContext=Depends(get_current_user)):
+    from app.services.ema_trend.evidence import campaign_trace
+    try:
+        return campaign_trace(uid(user),campaign_id)
+    except Exception as exc:
+        raise refusal(exc) from exc
+
+
 @router.post("/campaigns/{campaign_id}/actions")
 async def campaign_action(campaign_id:str,body:CampaignAction,user:UserContext=Depends(get_current_user)):
     try:
@@ -216,6 +247,15 @@ async def validation(user:UserContext=Depends(get_current_user)):
             "profiles":{mode:{"status":"INCONCLUSIVE","live_capable":False} for mode in MODES},
             "blockers":descriptor()["blockers"]+["PAPER_MONITOR_ONLY","CORPORATE_ACTION_POLICY_UNVERIFIED"],
             "fee_schedule":config_store.config(owner).fee_schedule}
+
+
+@router.post("/readiness/check")
+async def check_readiness(body:ReadinessRequest,user:UserContext=Depends(get_current_user)):
+    from app.services.ema_trend.readiness import check
+    try:
+        return await check(uid(user),body.symbol,canonical_mode(body.mode),body.expected_config_revision)
+    except Exception as exc:
+        raise refusal(exc) from exc
 
 
 @router.get("/chart")

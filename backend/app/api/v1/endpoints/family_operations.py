@@ -217,6 +217,7 @@ class FamilyOperationsV2(BaseModel):
     evidence: EvidenceStatus = Field(default_factory=EvidenceStatus)
     lanes: list[LaneStatus] = Field(default_factory=list)
     operator: OperatorActions = Field(default_factory=OperatorActions)
+    paper_strategies: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.get("/operations/family", response_model=FamilyOperationsV2)
@@ -232,7 +233,19 @@ async def family_operations(
     from app.services.family_operations_v2 import family_operations_v2
 
     response.headers["Cache-Control"] = "no-store"
-    return family_operations_v2()
+    payload=family_operations_v2()
+    # Paper inventory belongs to the authenticated owner and is never merged
+    # into the real broker section or used to grant live eligibility.
+    from app.services.ema_trend.snapshot import operations
+    from app.services.simulation.identity import is_sim_uid,owner_uid
+    owner=owner_uid(_user.user_id) if is_sim_uid(_user.user_id) else _user.user_id
+    try:
+        paper=operations(owner)
+    except Exception:
+        log.exception("EMA paper operations state unavailable")
+        paper={"status":"UNAVAILABLE","execution_mode":"PAPER","live_eligible":False,
+               "campaigns":None,"supervision":None,"reason":"PAPER_STATE_UNAVAILABLE"}
+    return {**payload,"paper_strategies":{"ema_trend":paper}}
 
 
 class EgressStatusResponse(BaseModel):

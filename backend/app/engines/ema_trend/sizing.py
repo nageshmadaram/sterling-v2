@@ -16,7 +16,9 @@ def used_campaign_risk(campaign: Campaign, config: EmaTrendConfig) -> Decimal:
 
 
 def size_plan(config: EmaTrendConfig, entry, stop, atr, available_cash,
-              used_risk=0) -> dict:
+              used_risk=0, *, lot_size: int=1) -> dict:
+    if isinstance(lot_size,bool) or not isinstance(lot_size,int) or lot_size<1:
+        raise ValueError("INVALID_QUANTITY_STEP")
     entry, stop, atr, available_cash, used_risk = map(D, (entry, stop, atr, available_cash, used_risk))
     if any(not v.is_finite() for v in (entry, stop, atr, available_cash, used_risk)):
         raise ValueError("non-finite sizing input")
@@ -31,10 +33,10 @@ def size_plan(config: EmaTrendConfig, entry, stop, atr, available_cash,
     risk_qty = int(max(D(0), (budget-fixed_reserve)/per_unit_risk).to_integral_value(rounding=ROUND_FLOOR))
     cash_qty = int(max(D(0), (min(available_cash, config.allocation_inr)-fixed_reserve)
                            /(entry*(1+config.fee_bps/D(10000)))).to_integral_value(rounding=ROUND_FLOOR))
-    quantity = min(risk_qty, cash_qty)
+    quantity = min(risk_qty, cash_qty)//lot_size*lot_size
     estimate = fixed_reserve+quantity*per_unit_cost
     reason = "AUTHORIZED"
-    if quantity < 4:
+    if quantity < 4*lot_size:
         quantity, reason = 0, "ZERO_ALLOCATION_OR_INSUFFICIENT_RISK_CASH"
     elif estimate > budget*D('.15'):
         quantity, reason = 0, "COST_BUDGET_EXCEEDED"

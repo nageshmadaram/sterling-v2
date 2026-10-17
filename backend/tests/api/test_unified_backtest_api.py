@@ -29,7 +29,7 @@ def test_get_unified_strategies():
     assert "ema_trend" in ids
     ema = next(s for s in strategies if s["id"] == "ema_trend")
     assert ema["result_format"] == "EMA_TREND_LIFECYCLE_V1"
-    assert ema["supported_contract_types"] == ["spot"]
+    assert ema["supported_contract_types"] == ["spot","future","option","auto"]
 
 
 def test_get_unified_presets():
@@ -111,3 +111,30 @@ def test_run_adaptive_edge_compare_endpoint():
     for key in ("net_pnl_delta_inr", "win_rate_delta_pct", "profit_factor_v1", "profit_factor_v2", "max_drawdown_reduction_pct", "toxic_trades_avoided"):
         assert key in cmp
 
+
+
+def test_unknown_strategy_rejected_before_any_data_loader(monkeypatch):
+    from app.api.v1.endpoints import backtest
+    async def forbidden(*args,**kwargs):
+        raise AssertionError("invalid strategy reached data loader")
+    monkeypatch.setattr(backtest,"_load_backtest_candles",forbidden)
+    res=get_client().post("/api/v1/backtest/unified/run",json={"strategy":"typo_strategy","symbol":"NIFTY 50"})
+    assert res.status_code==422
+    assert "no EMA fallback" in res.json()["detail"]
+
+
+def test_ema_provider_mismatch_rejected_without_legacy_fallback(monkeypatch):
+    from types import SimpleNamespace
+    from app.core.auth import get_current_user
+    from app.api.v1.endpoints import backtest
+    from app.services.ema_trend import scanner
+    async def forbidden(*args,**kwargs):
+        raise AssertionError("EMA invalid request reached market or legacy fallback")
+    monkeypatch.setattr(backtest,"_load_backtest_candles",forbidden)
+    monkeypatch.setattr(scanner,"market_client",forbidden)
+    client=get_client()
+    client.app.dependency_overrides[get_current_user]=lambda:SimpleNamespace(user_id="alice")
+    response=client.post("/api/v1/backtest/unified/run",json={"strategy":"ema_trend","symbol":"NSE:TCS",
+        "contract_type":"spot","instrument_scope":"single","data_source":"truedata","timeframe":"1d"})
+    assert response.status_code==422
+    assert "no synthetic/provider fallback" in response.json()["detail"]

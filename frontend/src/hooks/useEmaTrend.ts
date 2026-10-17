@@ -100,7 +100,7 @@ export function useEmaTrendOperation() {
   return useMutation({ mutationFn: (operation: 'pause' | 'resume' | 'flatten') => {
     if (replay) throw new Error('Historical replay is read-only.');
     return api.post(`${EMA_TREND_BASE}/operations/${operation}`, {});
-  }, onSuccess: () => qc.invalidateQueries({ queryKey: EMA_TREND_KEY }) });
+  }, onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: EMA_TREND_KEY }), qc.invalidateQueries({ queryKey: ['family-operations-v2'] })]) });
 }
 export function useEmaTrendChart(symbol: string, mode: EmaTrendMode, signalId?: string, configRevision?: number) {
   const scope = useScope();
@@ -136,5 +136,15 @@ export function useEmaTrendCampaign(id?: string, enabled = true) {
     queryKey: [...EMA_TREND_KEY, 'campaign', ...scope.key, id],
     queryFn: () => api.get(`${EMA_TREND_BASE}/campaigns/${encodeURIComponent(id!)}`),
     enabled: enabled && !scope.replay && Boolean(id), refetchInterval: 5_000, staleTime: 0,
+  });
+}
+
+
+export function useEmaTrendInstruments(query: string, mode: EmaTrendMode) {
+  const scope=useScope();
+  return useQuery<{ items: import('../types/emaTrend').EmaTrendInstrumentChoice[] }>({
+    queryKey:[...EMA_TREND_KEY,'instruments',...scope.key,query,mode],
+    queryFn:()=>api.get(`${EMA_TREND_BASE}/instruments?query=${encodeURIComponent(query)}&mode=${mode}`),
+    enabled:query.trim().length>=2,staleTime:30_000,retry:false,
   });
 }

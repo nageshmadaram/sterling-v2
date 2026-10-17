@@ -6,6 +6,8 @@ import { ConfigNote, PanelCard, SettingsDraftBar } from './kite/config/ConfigPri
 import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
 import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
 import { api } from '../utils/api';
+import { EmaTrendInstrumentPicker } from './kite/config/EmaTrendInstrumentPicker';
+import { EmaTrendReadiness } from './kite/config/EmaTrendReadiness';
 
 const LIMITS: Array<{ key: keyof EmaTrendConfig; label: string; min: number; max: number; step: number }> = [
   { key: 'allocation_inr', label: 'Paper allocation (₹)', min: 0, max: 100000000, step: 1000 },
@@ -71,24 +73,26 @@ export function EmaTrendSettings() {
     {save.error && <p role="alert">Save failed: {(save.error as Error).message}. Your draft is retained.</p>}
     {conflict && <p role="alert">The saved configuration changed. Discard to load the current revision before editing again; your draft has not been applied.</p>}
     <button type="button" className="sb-tool" onClick={() => { setDraft({ config: { ...server.defaults }, revision: server.revision }); setSymbolsText(null); }}>Stage server defaults</button>
-    <EnginePowerHeader name={server.strategy.name} tagline="Long-only cash equities · 10/21 EMA · DEMA50 · Supertrend (10,3)"
+    <EnginePowerHeader name={server.strategy.name} tagline="Long-only cash, futures and options · 10/21 EMA · DEMA50 · Supertrend (10,3)"
       on={cfg.enabled} liveOn={server.config.enabled} busy={save.isPending} onToggle={() => patch({ enabled: !cfg.enabled })}
-      runningNote="Paper scanning enabled. Existing campaigns continue to be managed when scanning is disabled."
+      runningNote="Broker-data scanning enabled. Existing campaigns continue to be managed when scanning is disabled."
       offNote="Scanner off. Paper execution only; live execution is unavailable." />
-    <Section title="Execution and evidence" summary="Paper only" description="Paper mode is the only supported execution vehicle. No live allocation is enabled." defaultOpen persistKey="ema-trend-execution">
+    <Section title="Execution and evidence" summary="Paper only" description="Paper execution only. Contract metadata and supported venues are verified by the server." defaultOpen persistKey="ema-trend-execution">
       <Field label="Automatic paper entry" hint="Independent from the scanner switch. Server risk and readiness checks still apply.">
         <Switch label="EMA Trend automatic paper entry" checked={cfg.auto_execute} onChange={() => patch({ auto_execute: !cfg.auto_execute })} />
       </Field>
       <ConfigNote>Execution: {cfg.execution_mode}. Revision {server.revision}. {server.paused ? 'New exposure is paused.' : 'New exposure is not paused.'} Evidence remains inconclusive; profits are not guaranteed.</ConfigNote>
       {(server.blockers || []).map(reason => <p key={reason} style={{ fontSize: 11, color: 'var(--k-amber)' }}>{reason.replace(/_/g, ' ')}</p>)}
       <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
+      <EmaTrendReadiness symbols={server.config.symbols} modes={server.config.modes} revision={server.revision} />
       <button type="button" className="sb-tool" disabled={exporting} onClick={exportRecords}>{exporting ? 'Exporting…' : 'Export saved paper records'}</button>
       {exportError && <p role="alert">Export failed: {exportError}</p>}
       <ConfigNote>Export contains saved settings, campaigns, orders and research records. It does not contain broker credentials and is not a broker-account backup.</ConfigNote>
     </Section>
-    <Section title="Universe and modes" summary={`${cfg.symbols.length} equities · ${cfg.modes.length} profiles`} description="Explicit NSE/BSE cash-equity symbols. Each profile has independent data and evidence requirements." defaultOpen persistKey="ema-trend-universe">
-      <Field label="Equities" hint="Comma or newline separated, for example NSE:RELIANCE, NSE:TCS. No index or option orders.">
-        <textarea aria-label="EMA Trend equities" value={symbolsText ?? cfg.symbols.join(', ')} rows={3}
+    <Section title="Instruments and contracts" summary={`${cfg.symbols.length} selected · ${cfg.modes.length} profiles`} description="Exact broker-listed equities, futures and long options. Index exposure requires an actual derivative contract." defaultOpen persistKey="ema-trend-universe">
+      <EmaTrendInstrumentPicker symbols={cfg.symbols} mode={cfg.modes[0]} onChange={symbols => { setSymbolsText(null); patch({ symbols }); }} />
+      <Field label="Exact symbols (advanced)" hint="Exchange-qualified symbols separated by commas or newlines. Broker metadata and venue capability are checked before an order.">
+        <textarea aria-label="EMA Trend instruments" value={symbolsText ?? cfg.symbols.join(', ')} rows={3}
           style={{ width: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)' }}
           onChange={event => { setSymbolsText(event.target.value); patch({ symbols: event.target.value.split(/[,\n]/).map(v => v.trim().toUpperCase()).filter(Boolean) }); }} />
       </Field>
@@ -99,10 +103,10 @@ export function EmaTrendSettings() {
         </label>)}</div>
       </Field>
       {modes.map(mode => { const p = (server.profiles || server.strategy.profiles)[mode]; return <ConfigNote key={mode}>
-        <strong>{EMA_TREND_MODE_LABEL[mode]}</strong>: {p.signal_minutes === 1440 ? 'Daily' : `${p.signal_minutes}m`} signals / {p.context_minutes === 10080 ? 'completed weekly' : `${p.context_minutes}m`} context · {p.product} · {p.require_green ? 'green ST required' : 'ST context only'} · {p.force_close ? `close by ${p.force_close} IST` : 'condition-based holding'}{p.max_hold_bars ? ` · maximum ${p.max_hold_bars} bars` : ''}.
+        <strong>{EMA_TREND_MODE_LABEL[mode]}</strong>: {p.signal_minutes === 1440 ? 'Daily' : `${p.signal_minutes}m`} signals / {p.context_minutes === 10080 ? 'completed weekly' : `${p.context_minutes}m`} context · {mode === 'swing' ? 'CNC equities / NRML derivatives' : p.product} · {p.require_green ? 'green ST required' : 'ST context only'} · {p.force_close ? `close by ${p.force_close} IST` : 'condition-based holding'}{p.max_hold_bars ? ` · maximum ${p.max_hold_bars} bars` : ''}.
       </ConfigNote>; })}
     </Section>
-    <Section title="Risk and estimated costs" summary={`₹${cfg.allocation_inr} paper allocation`} description="Fractions are decimal shares of the paper allocation: 0.0025 = 0.25%. Each initial position needs at least four shares." defaultOpen persistKey="ema-trend-risk">
+    <Section title="Risk and estimated costs" summary={`₹${cfg.allocation_inr} paper allocation`} description="Fractions are decimal shares of the paper allocation: 0.0025 = 0.25%. Each initial position needs at least four shares or four complete derivative lots." defaultOpen persistKey="ema-trend-risk">
       {LIMITS.map(field => <NumberField key={field.key} label={field.label} value={Number(cfg[field.key])} min={field.min} max={field.max} step={field.step}
           onChange={value => { if (value !== null && Number.isFinite(value)) patch({ [field.key]: value }); }} />)}
       <ConfigNote>Fee schedule: {cfg.fee_schedule}. These are paper estimates, not verified broker charges. Initial campaign risk stays fixed after profits or add-backs.</ConfigNote>

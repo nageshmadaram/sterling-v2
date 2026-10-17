@@ -797,10 +797,14 @@ def kite_menu_kb() -> dict:
     """Primary navigation keyboard — institutional layout with Telegram Mini App & Quick Trade."""
     tma_url = _get_tma_url()
     from app.services import public_access
-    app_url = public_access.status().get("app_url", "")
+    access = public_access.status()
+    urls = access.get("urls") or {}
+    app_url = access.get("app_url", "")
     return {"inline_keyboard": [
-        *([[{"text":"Open full app", "url":app_url}]] if app_url else []),
-        *([[{"text": "📱 Open Sterling Mini App", "web_app": {"url": tma_url}}]] if tma_url else []),
+        *([[{"text":"☁️ Sterling · Cloudflare", "url":urls["cloudflare"]}]] if urls.get("cloudflare") else []),
+        *([[{"text":"🌐 Sterling · ngrok", "url":urls["ngrok"]}]] if urls.get("ngrok") else []),
+        *([[{"text":"Open full app", "url":app_url}]] if app_url and not urls else []),
+        *([[{"text": "📱 Open primary Sterling Mini App", "web_app": {"url": tma_url}}]] if tma_url else []),
         [_btn("📡 Signals",    "ksig"),     _btn("📈 PCR",       "kpcr")],
         [_btn("📊 Positions",  "kpos"),     _btn("📜 Orders",    "korders")],
         [_btn("💰 P&L",        "kpnl"),     _btn("💵 Funds",     "kfunds")],
@@ -2824,23 +2828,22 @@ async def handle_text_command(chat_id: str, text: str, message_id: int | None = 
                 kb,
             )
         else:
+            from app.services import public_access
+            access = public_access.status()
+            urls = access.get("urls") or {}
             tma_url = _get_tma_url()
-            kb = {"inline_keyboard": [
-                [{"text": "📱 Open Sterling Mini App", "web_app": {"url": tma_url}}],
-                [_btn("← Menu", "kmenu")]
-            ]}
-            await _send(
-                f"🌐 <b>STERLING MINI APP URL</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"Copyable WebApp URL:\n"
-                f"<code>{tma_url}</code>  <i>(Tap to copy)</i>\n\n"
-                f"<b>To update the URL dynamically:</b>\n"
-                f"Send: <code>/url https://your-domain.com/tma</code>\n\n"
-                f"<b>Why you see S3 XML AccessDenied error:</b>\n"
-                f"Telegram requires a public HTTPS URL. Set your server/ngrok domain URL above to replace the fallback placeholder.",
-                chat_id,
-                kb,
-            )
+            lines = ["🌐 <b>STERLING PUBLIC LINKS</b>"]
+            if urls.get("cloudflare"):
+                lines.append("Cloudflare: <code>" + _html.escape(urls["cloudflare"]) + "</code>")
+            if urls.get("ngrok"):
+                lines.append("ngrok: <code>" + _html.escape(urls["ngrok"]) + "</code>")
+            if tma_url:
+                lines.append("Primary Telegram desk: <code>" + _html.escape(tma_url) + "</code>")
+            if not urls and not tma_url:
+                lines.append("No verified HTTPS tunnel has been published yet.")
+            lines.append("Use /menu for separate Cloudflare and ngrok launch buttons.")
+            lines.append("Kite callback uses only the primary configured address.")
+            await _send("\n".join(lines), chat_id, kite_menu_kb())
     elif command in {"/app", "/miniapp", "/tma"}:
         tma_url = _get_tma_url()
         kb = {"inline_keyboard": [

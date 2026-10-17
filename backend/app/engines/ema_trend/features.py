@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from .contracts import Bar, Feature
 from .indicators import ema, dema, atr, supertrend
 from .pivots import confirmed_pivots
+from .calendar import regular_close
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -47,7 +48,7 @@ def aggregate_completed_bars(bars: Sequence[Bar], minutes: int, asof_ms: int,
             groups[day].append(b)
         else:
             offset = int((b.open_ms/1000-opening.timestamp())//60)
-            if offset < 0 or offset >= 375:
+            if offset < 0 or offset >= int((datetime.combine(day,regular_close(day,exchange),IST)-opening).total_seconds()/60):
                 raise ValueError("BAR_OUTSIDE_REGULAR_SESSION")
             groups[(day, offset//minutes)].append(b)
     result = []
@@ -58,8 +59,8 @@ def aggregate_completed_bars(bars: Sequence[Bar], minutes: int, asof_ms: int,
             actual_days = [datetime.fromtimestamp(b.open_ms/1000, IST).date() for b in parts]
             if actual_days != expected_days:
                 continue
-            ending = datetime.combine(expected_days[-1], time(15, 30), IST)
-            if any(b.close_ms != int(datetime.combine(d, time(15, 30), IST).timestamp()*1000)
+            ending = datetime.combine(expected_days[-1], regular_close(expected_days[-1],exchange), IST)
+            if any(b.close_ms != int(datetime.combine(d, regular_close(d,exchange), IST).timestamp()*1000)
                    for b, d in zip(parts, actual_days)):
                 raise ValueError("WEEKLY_REQUIRES_COMPLETED_DAILY_INPUT")
         else:
@@ -67,7 +68,7 @@ def aggregate_completed_bars(bars: Sequence[Bar], minutes: int, asof_ms: int,
             start = datetime.combine(day, time(9, 15), IST)
             if minutes != 1440:
                 start += timedelta(minutes=key[1]*minutes)
-            ending = min(start+timedelta(minutes=minutes), datetime.combine(day, time(15, 30), IST))
+            ending = min(start+timedelta(minutes=minutes), datetime.combine(day, regular_close(day,exchange), IST))
             expected_start = int(start.timestamp()*1000)
             if parts[0].open_ms != expected_start or parts[-1].close_ms != int(ending.timestamp()*1000):
                 continue

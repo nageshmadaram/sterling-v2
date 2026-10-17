@@ -67,12 +67,12 @@ async def get_unified_strategies() -> List[Dict[str, Any]]:
         },
         {
             "id": "ema_trend", "name": "10/21 EMA + Supertrend",
-            "category": "Cash Equity Trend Following",
-            "description": "Causal four-mode equity lifecycle with quarter exits, add-backs and estimated costs. Research only.",
+            "category": "Selected Instrument Trend Following",
+            "description": "Causal four-mode equity/derivative lifecycle with quarter exits, add-backs and estimated costs. Research only.",
             "default_timeframe": "day", "default_stop_points": 0.0,
             "default_target_points": 0.0, "default_trail_points": 0.0,
             "result_format": "EMA_TREND_LIFECYCLE_V1",
-            "supported_contract_types": ["spot"],
+            "supported_contract_types": ["spot","future","option","auto"],
         },
     ]
 
@@ -295,8 +295,8 @@ async def _run_ema_trend_backtest(body: UnifiedBacktestRequest, user: UserContex
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
     if not uid:
         raise HTTPException(status_code=401, detail="Authenticated owner required")
-    if body.contract_type != "spot" or body.instrument_scope != "single":
-        raise HTTPException(status_code=422, detail="EMA Trend v1 requires single cash equity, contract_type=spot")
+    if body.contract_type not in {"spot","future","futures","option","options","auto"} or body.instrument_scope != "single":
+        raise HTTPException(status_code=422, detail="EMA Trend requires a single exact listed instrument")
     if body.data_source != "kite":
         raise HTTPException(status_code=422, detail="EMA Trend requires explicit Kite data; no synthetic/provider fallback")
     try:
@@ -311,6 +311,10 @@ async def _run_ema_trend_backtest(body: UnifiedBacktestRequest, user: UserContex
             "allocation_inr": Decimal(str(body.starting_capital)), "execution_mode": "PAPER"})
         client = await scanner.market_client(uid)
         meta = await scanner.equity_metadata(uid, symbol, client=client)
+        actual_type="spot" if meta.instrument_type=="EQ" else "future" if meta.instrument_type=="FUT" else "option"
+        requested={"futures":"future","options":"option"}.get(body.contract_type,body.contract_type)
+        if requested!="auto" and requested!=actual_type:
+            raise ValueError("CONTRACT_TYPE_DOES_NOT_MATCH_BROKER_METADATA")
         now = datetime.now(IST)
         bars = await scanner.fetch_bars(client, meta, profile.signal_minutes, now)
         if profile.context_minutes == 10080:
@@ -318,7 +322,7 @@ async def _run_ema_trend_backtest(body: UnifiedBacktestRequest, user: UserContex
         else:
             context = await scanner.fetch_bars(client, meta, profile.context_minutes, now)
         report = run_replay(symbol, mode, bars, context, cfg, uid=uid,
-                            activation_ms=int((now-timedelta(days=body.lookback_days)).timestamp()*1000))
+                            activation_ms=int((now-timedelta(days=body.lookback_days)).timestamp()*1000),instrument_meta={**meta.as_meta(),"instrument_token":meta.token})
         return {"format": "EMA_TREND_LIFECYCLE_V1", "strategy": "ema_trend", "report": report}
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

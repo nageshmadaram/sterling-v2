@@ -7,6 +7,8 @@ from typing import Sequence
 
 from .config import EmaTrendConfig, PROFILES, canonical_mode, stable_id, descriptor
 from .contracts import Bar, Campaign
+from .dataset import pair_manifest
+from .instruments import contract,entry_expiry_block
 from .features import IST, build_features
 from .setups import evaluate_setups
 from .sizing import size_plan, used_campaign_risk
@@ -17,13 +19,17 @@ D = lambda value: Decimal(str(value))
 
 def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequence[Bar],
                config: EmaTrendConfig, *, uid: str = "research", run_id: str | None = None,
-               activation_ms: int | None = None) -> dict:
+               activation_ms: int | None = None, instrument_meta: dict | None = None) -> dict:
     mode = canonical_mode(mode)
     profile = PROFILES[mode]
     if not uid or ":" not in symbol or symbol not in config.symbols:
         raise ValueError("replay requires an explicit user and configured equity symbol")
     if len(bars) < 250:
         raise ValueError("WARMING_UP: at least 250 signal bars required")
+    if instrument_meta is None and symbol.split(":")[0] not in {"NSE","BSE"}:
+        raise ValueError("DERIVATIVE_REPLAY_REQUIRES_FROZEN_INSTRUMENT_METADATA")
+    info=contract(instrument_meta or {"exchange":symbol.split(":")[0],"tradingsymbol":symbol.split(":")[1],
+        "instrument_type":"EQ","lot_size":1,"tick_size":".05"},mode)
     features = build_features(bars, context_bars)
     setups = evaluate_setups(symbol, mode, features)
     run_id = run_id or stable_id("replay", uid, symbol, mode, config.config_hash,
@@ -76,6 +82,7 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
             expired = profile.mode != "swing" and (next_open.date() != order_day
                 or b.open_ms > action.at_ms+profile.signal_minutes*60000
                 or not profile.entry_start <= next_open.strftime("%H:%M") <= profile.entry_end)
+            expired=expired or entry_expiry_block(info,next_open.date())
             if action.side == "BUY" and (expired or price > action.limit or price <= active.stop):
                 action.status = "CANCELLED"
                 actions.append(action.model_dump(mode="json"))
@@ -108,12 +115,13 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
                 action = make_action(active, "STOP", "SELL", active.qty, i, b.available_ms,
                                      min(active.stop, D(b.open)))
                 fill(active, action, action.limit*(1-config.slippage_bps/D(10000)), b.available_ms)
-            elif breaker and not active.pending:
+            elif (breaker or entry_expiry_block(info,day)) and not active.pending:
                 make_action(active, "RISK_EXIT", "SELL", active.qty, i, b.available_ms, D(b.close))
             elif not active.pending:
                 action = decide(active, f, features[i-1] if i else None, profile, config, allow_add=not halted)
                 if action and action.side == "BUY":
                     qty_by_cash = int(max(D(0), cash-config.brokerage_per_order)/(action.limit*(1+config.fee_bps/D(10000))))
+                    qty_by_cash=qty_by_cash//active.lot_size*active.lot_size
                     if qty_by_cash <= 0:
                         active.pending = None
                         active.state = "OPEN"
@@ -131,16 +139,17 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
         if setup.status == "armed" and (activation_ms is None or b.available_ms >= activation_ms):
             reason = "COOLDOWN_OR_OLD_CROSS"
             session_ok = profile.entry_start <= local.strftime("%H:%M") <= profile.entry_end
-            if not active and not halted and i > cooldown_until and (setup.cross_index or 0) > last_close_index:
+            if not active and not halted and not entry_expiry_block(info,day) and i > cooldown_until and (setup.cross_index or 0) > last_close_index:
                 if mode != "swing" and not session_ok:
                     reason = "OUTSIDE_ENTRY_WINDOW"
                 else:
-                    plan = size_plan(config, setup.ceiling, setup.stop, f.atr10, cash)
+                    plan = size_plan(config, setup.ceiling, setup.stop, f.atr10, cash,lot_size=info["lot_size"])
                     reason = plan["reason"]
                     if plan["quantity"]:
                         active = Campaign(id=stable_id(run_id, setup.id, config.config_hash), uid=uid,
                                           account_id=f"replay:{run_id}", tenant_kind="REPLAY",
-                                          symbol=symbol, mode=mode, product=profile.product,
+                                          symbol=symbol, mode=mode, product=info["product"],
+                                          instrument_token=info["instrument_token"],lot_size=info["lot_size"],instrument_type=info["instrument_type"],expiry=info["expiry"],tick_size=D(info["tick_size"]),
                                           config_hash=config.config_hash, config_revision=0,
                                           config_snapshot=config.model_dump(mode="json"), budget=plan["budget"],
                                           gap_reserve_per_share=config.gap_reserve_atr*D(f.atr10),
@@ -167,7 +176,8 @@ def run_replay(symbol: str, mode: str, bars: Sequence[Bar], context_bars: Sequen
     return {"id": run_id, "strategy_id": "ema_trend", "mode": mode, "symbol": symbol,
             "config_hash": config.config_hash, "rule_hash": descriptor()["rule_hash"],
             "dataset_hash": stable_id([b.model_dump() for b in bars], [b.model_dump() for b in context_bars]),
-            "execution_vehicle": "EQUITY", "product": profile.product,
+            "dataset_manifest": pair_manifest(symbol,profile.signal_minutes,profile.context_minutes,bars,context_bars),
+            "execution_vehicle": info["execution_vehicle"], "product": info["product"],"contract":info,
             "evidence_status": "INCONCLUSIVE", "live_eligible": False,
             "fill_model": "MODELLED_NEXT_OPEN_ADVERSE_STOP_FIRST_WITH_ESTIMATED_FEES",
             "limitations": ["OHLC_DOES_NOT_PROVE_SPREAD_DEPTH_QUEUE_OR_FILLABILITY",

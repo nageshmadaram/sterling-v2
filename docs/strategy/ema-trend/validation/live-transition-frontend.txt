@@ -1,0 +1,9 @@
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+
+ Test Files  5 passed (5)
+      Tests  22 passed (22)
+   Start at  01:04:48
+   Duration  4.73s (environment 41%, tests 27%, transform 18%, import 10%, setup 4%, worker 1%)
+

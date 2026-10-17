@@ -12,15 +12,32 @@ const backend = new URL(process.env.STERLING_API_TARGET || 'http://127.0.0.1:800
 if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !== 'http:') throw new Error('Backend must be loopback HTTP');
 const isApi = p => /^\/(api(?:\/|$)|tma(?:\/|$)|health(?:\/|$)|healthz(?:\/|$))/.test(p);
 const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff':'font/woff','.woff2':'font/woff2','.json':'application/json'};
+// The supervisor owns this 0600 state file. The secondary ngrok tunnel
+// reaches the gateway over local HTTP, but its PUBLIC hop is verified HTTPS.
+// Never trust a caller-provided X-Forwarded-Proto header on its own.
+const stackStatusFile = process.env.STERLING_STACK_STATUS_FILE ||
+  path.resolve(root, '../../.runtime/stack/status.json');
+function isSupervisorNgrokHost(host) {
+  if (typeof host !== 'string') return false;
+  try {
+    const state = JSON.parse(fs.readFileSync(stackStatusFile, 'utf8'));
+    const candidate = new URL(state.ngrok_url || '');
+    return candidate.protocol === 'https:' && candidate.host === host &&
+      Number(state.children?.ngrok) > 1 && state.phase !== 'stopped';
+  } catch { return false; }
+}
 function proxyHeaders(req) {
   const headers = {...req.headers};
-  // Preserve the public host for the backend's remote-auth boundary; never trust supplied forwarding identity.
+  // Preserve the public host for the backend's remote-auth boundary; never
+  // accept arbitrary caller-supplied forwarding identity or scheme.
   delete headers['x-user-id'];
   delete headers['x-forwarded-for'];
   delete headers['x-forwarded-host'];
   delete headers['x-forwarded-proto'];
   headers['x-forwarded-host'] = req.headers.host;
-  headers['x-forwarded-proto'] = req.headers['cf-visitor']?.includes('https') ? 'https' : 'http';
+  headers['x-forwarded-proto'] =
+    req.headers['cf-visitor']?.includes('https') || isSupervisorNgrokHost(req.headers.host)
+      ? 'https' : 'http';
   return headers;
 }
 // Generic public shell contains no account data. Retain it during backend restarts

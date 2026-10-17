@@ -104,8 +104,9 @@ async def verify_protection_inventory(
     product: str = "",
 ) -> tuple[bool, str, str]:
     """Prove a protective order cannot exceed fresh broker inventory."""
+    from .settlement import whole_quantity
     try:
-        wanted_qty = int(qty)
+        wanted_qty = whole_quantity(qty)
     except (TypeError, ValueError):
         return False, "invalid protection quantity", ""
     if wanted_qty <= 0:
@@ -183,7 +184,7 @@ async def verify_protection_inventory(
         if requested_product and row_product != requested_product:
             continue
         try:
-            net_qty = int(float(raw_qty or 0))
+            net_qty = whole_quantity(0 if raw_qty is None else raw_qty)
         except (TypeError, ValueError):
             return False, "fresh broker position quantity is invalid", ""
         by_product[row_product] = by_product.get(row_product, 0) + net_qty
@@ -196,6 +197,23 @@ async def verify_protection_inventory(
             qualifying.append((row_product, net_qty))
 
     if not qualifying:
+        # Overnight cash equities migrate from positions to holdings. Never
+        # add those books together: they can overlap during settlement.
+        if direction == "long" and requested_product == "CNC" and wanted_exchange in {"NSE", "BSE"}:
+            from zoneinfo import ZoneInfo
+            from .settlement import settled_holding
+            holding_reader = getattr(client, "get_holdings", None)
+            if callable(holding_reader):
+                try:
+                    holding = settled_holding(await holding_reader(), wanted_exchange, wanted_symbol,
+                                              datetime.now(ZoneInfo("Asia/Kolkata")).date())
+                    # A negative same-day position may represent a holding sale
+                    # not yet reflected in used_quantity. Subtract conservatively.
+                    available = max(0, holding["quantity"] + min(0, by_product.get("CNC", 0)))
+                    if available >= wanted_qty:
+                        return True, f"verified settled CNC inventory={available}; sale authorisation separate", "CNC"
+                except Exception as exc:  # No inferred inventory on read/schema failure.
+                    return False, f"settled holdings unavailable: {type(exc).__name__}", ""
         detail = ", ".join(
             f"{key}={value}" for key, value in sorted(by_product.items())
         ) or "none"

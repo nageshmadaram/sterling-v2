@@ -48,7 +48,7 @@ export function EmaTrendChart({ symbol, mode, signalId, configRevision }: { symb
     {replay ? <p role="status">Historical replay is read-only; live chart data is not loaded.</p>
       : query.isError ? <p role="alert">Chart unavailable: {(query.error as Error).message}</p>
       : query.isLoading ? <p role="status">Loading completed-bar evidence…</p>
-      : !data.candles.length ? <p role="status">No recorded feature series. Scan this equity and profile first.</p> : null}
+      : !data.candles.length ? <p role="status">No recorded feature series. Scan this instrument and profile first.</p> : null}
     <div ref={ref} style={{ minHeight: data.candles.length ? 420 : 0 }} />
     {latest && <div style={{ fontSize: 12 }}>
       <p>Signal ST: {latest.st_direction} at {fmtPx(latest.st_line)} · completed context ST: {latest.context_st}{latest.context_st_line != null ? ` at ${fmtPx(latest.context_st_line)}` : ''}.</p>

@@ -25,13 +25,16 @@ def horizon(mode: Mode) -> EmaTrendHorizonContract:
 
 def identity(config: EmaTrendConfig, mode: Mode, *, uid: str, account_id: str,
              tenant_kind: str, config_revision: int, runtime_sha: str,
-             workspace_manifest_hash: str, run_id: str | None = None) -> dict:
+             workspace_manifest_hash: str, run_id: str | None = None, instrument_meta: dict | None = None) -> dict:
     if not uid or not account_id or tenant_kind not in {"SIMULATION", "REPLAY"}:
         raise ValueError("EMA_TREND_REQUIRES_EXPLICIT_PAPER_TENANT")
     profile = PROFILES[mode]
-    vehicle = {"execution_vehicle": "EQUITY", "product": profile.product,
+    from .instruments import contract
+    resolved=contract(instrument_meta,mode) if instrument_meta else None
+    vehicle = {"execution_vehicle": resolved["execution_vehicle"] if resolved else "EQUITY" if all(s.startswith(("NSE:","BSE:")) for s in config.symbols) else "UNRESOLVED",
+               "contract":resolved,"product": resolved["product"] if resolved else profile.product,
                "allows_short": False, "research_only": True}
-    return {"schema_version": 1, "strategy_id": "ema_trend", "strategy_version": "1.0.0",
+    return {"schema_version": 1, "strategy_id": "ema_trend", "strategy_version": "1.1.0",
             "uid": uid, "account_id": account_id, "tenant_kind": tenant_kind,
             "canonical_mode": mode, "mode_version": f"ema_trend_{mode}_v1",
             "config_revision": config_revision, "config_hash": config.config_hash,

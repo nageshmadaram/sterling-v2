@@ -14,7 +14,8 @@ from app.engines.ema_trend.contracts import Bar
 from app.engines.ema_trend.features import build_features,aggregate_completed_bars
 from app.engines.ema_trend.state_machine import decide,make_action,propose_stop
 from app.services.execution_service import CanonicalExecutionService
-from . import config_store,execution,repository as repo,scanner
+from . import config_store,execution,repository as repo,scanner,health
+from datetime import date
 
 log=logging.getLogger(__name__)
 _task=None
@@ -84,6 +85,8 @@ async def manage_campaign(uid,document,client):
     current_config=config_store.config(uid)
     risk_codes=execution._risk_blockers(uid,current_config)
     risk_due=any(code in {"DAILY_LOSS_BREAKER","ALLOCATION_DRAWDOWN_BREAKER"} for code in risk_codes)
+    if c.expiry and now.date()>=date.fromisoformat(c.expiry) and c.qty:
+        c.state,c.reason="CLOSING","RISK_EXIT"
     closing_due=c.state=="CLOSING" and c.qty>0
     if c.pending:
         row=repo.get(uid,"outbox",c.pending.id)
@@ -222,8 +225,14 @@ async def run_loop():
         try:
             for uid in repo.owners():
                 try:
-                    await run_user(uid)
+                    result=await run_user(uid)
+                    if result["status"]!="OVERLAP_SUPPRESSED":
+                        health.record(uid,result)
                 except Exception as exc:
+                    try:
+                        health.record(uid,{"errors":[{"reason":str(exc)}]})
+                    except Exception:
+                        log.exception("EMA supervision health could not be persisted")
                     log.warning("EMA trend tenant %s management unavailable: %s",uid,exc)
         except asyncio.CancelledError:
             raise
