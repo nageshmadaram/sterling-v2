@@ -24,7 +24,7 @@ import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Final, Iterable, Mapping, Sequence
 
 from app.core.backup_coverage import Coverage as BackupCoverage
@@ -700,6 +700,39 @@ class RestoreProof:
         }
 
 
+
+def _safe_restore_member(
+    name: str, source_root: Path, destination_root: Path
+) -> tuple[Path, Path] | None:
+    """Resolve a manifest member strictly inside the backup and restore roots.
+
+    Manifest paths are data, not trusted filesystem instructions. In particular,
+    a recorded relative path must never write outside an isolated restore via
+    '..', an absolute path, or a symlink supplied inside either directory.
+    """
+    if not isinstance(name, str) or not name or "\\" in name:
+        return None
+    relative = PurePosixPath(name)
+    if (
+        relative.is_absolute()
+        or any(part in ("", ".", "..") for part in name.split("/"))
+        or relative.as_posix() != name
+    ):
+        return None
+    source = source_root.joinpath(*relative.parts)
+    destination = destination_root.joinpath(*relative.parts)
+    try:
+        if source.is_symlink() or destination.is_symlink():
+            return None
+        if not source.resolve(strict=False).is_relative_to(source_root.resolve()):
+            return None
+        if not destination.resolve(strict=False).is_relative_to(destination_root.resolve()):
+            return None
+    except (OSError, RuntimeError, ValueError):
+        return None
+    return source, destination
+
+
 def prove_restore(
     backup_dir: Path | str,
     manifest: BackupManifest | None = None,
@@ -715,6 +748,17 @@ def prove_restore(
     stored = manifest or _load_or_build(directory)
     failures: list[str] = []
     restored_counts: dict[str, dict[str, int]] = {}
+    # A generated description of CURRENT bytes is not historical backup proof.
+    # Explicit test manifests remain supported; operational callers must have
+    # the original manifest written when the backup was captured.
+    if manifest is None and not (directory / "manifest.json").is_file():
+        failures.append(
+            "manifest.json: missing original backup manifest; "
+            "cannot prove backup provenance from regenerated current checksums"
+        )
+    for required in ("release.json", "coverage.json"):
+        if required not in stored.file_checksums:
+            failures.append(f"{required}: missing checksum evidence")
 
     own_tmp = destination is None
     target = Path(destination) if destination is not None else Path(
@@ -735,21 +779,37 @@ def prove_restore(
                 failures.append(f"{db_name}: database missing schema evidence")
 
         for name, expected_sum in stored.file_checksums.items():
-            source = directory / name
-            if not source.exists():
-                failures.append(f"{name}: missing from backup directory")
+            safe_paths = _safe_restore_member(name, directory, target)
+            if safe_paths is None:
+                failures.append(f"{name}: unsafe backup member path")
                 continue
-            actual_sum = sha256_file(source)
+            source, copy = safe_paths
+            if not source.is_file():
+                failures.append(f"{name}: missing or non-file backup member")
+                continue
+            try:
+                actual_sum = sha256_file(source)
+            except (OSError, ValueError) as exc:
+                failures.append(f"{name}: cannot checksum backup member: {exc}")
+                continue
             if actual_sum != expected_sum:
                 failures.append(
                     f"{name}: checksum mismatch "
-                    f"(manifest {expected_sum[:16]}, file {actual_sum[:16]})"
+                    f"(manifest {str(expected_sum)[:16]}, file {actual_sum[:16]})"
                 )
                 continue
 
-            copy = target / name
-            copy.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, copy)
+            try:
+                copy.parent.mkdir(parents=True, exist_ok=True)
+                # Recheck containment after mkdir: explicit restore destinations
+                # can have pre-existing symlinks within their directory tree.
+                if _safe_restore_member(name, directory, target) is None:
+                    failures.append(f"{name}: unsafe restore destination")
+                    continue
+                shutil.copyfile(source, copy)
+            except (OSError, ValueError) as exc:
+                failures.append(f"{name}: cannot copy into isolated restore: {exc}")
+                continue
 
             if name not in stored.row_counts:
                 continue
