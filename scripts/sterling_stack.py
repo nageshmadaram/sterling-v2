@@ -87,6 +87,38 @@ def _is_own_orphan_gateway(pid):
         return False
 
 
+def _verify_gateway_child(child, port):
+    """Do not publish a healthy stale gateway when our new Node child failed.
+
+    Require the real port listener to belong to the exact spawned process;
+    a 200 response from an unrelated/leftover process is not readiness.
+    """
+    deadline=time.monotonic()+8
+    while time.monotonic()<deadline:
+        if child.poll() is not None:
+            raise RuntimeError(
+                f'New Sterling gateway exited without binding {port}; '
+                'read .runtime/stack/web.log for EADDRINUSE.'
+            )
+        owners=_gateway_listener_pids(port)
+        if owners and owners!=[child.pid]:
+            raise RuntimeError(
+                f'Port {port} was taken by an unexpected listener during gateway startup.'
+            )
+        if owners==[child.pid] and _is_own_orphan_gateway(child.pid):
+            try:
+                _,payload=fetch(f'http://127.0.0.1:{port}/__sterling_web_health',2)
+                if json.loads(payload).get('service')=='sterling-web' and json.loads(payload).get('ready'):
+                    return
+            except (OSError,ValueError,urllib.error.URLError):
+                pass
+        time.sleep(.15)
+    raise RuntimeError(
+        f'Gateway process {child.pid} never proved ownership and health '
+        f'on port {port}; do not publish stale web content.'
+    )
+
+
 def _reclaim_gateway(port):
     """Shut down ONLY an identifiable orphan web process, never the broker."""
     pids=_gateway_listener_pids(port)
@@ -464,7 +496,17 @@ class Stack:
                 self.status['gateway_reclaimed_pid']=old
         env={**clean_env(),'STERLING_WEB_PORT':str(self.args.port)}
         log=(STATE/'web.log').open('a');self.logs.append(log)
-        self.children['web']=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],cwd=ROOT,env=env,stdout=log,stderr=log,start_new_session=True)
+        child=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
+                               cwd=ROOT,env=env,stdout=log,stderr=log,start_new_session=True)
+        self.children['web']=child
+        try:
+            _verify_gateway_child(child,self.args.port)
+            self.status['web_ready_pid']=child.pid
+            self.status.pop('web_error',None)
+        except Exception as exc:
+            self.status['web_error']=type(exc).__name__
+            self.stop_child('web')
+            raise
 
 
 def main():
