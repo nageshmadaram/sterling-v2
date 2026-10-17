@@ -186,6 +186,89 @@ def _stop_old_managed_presentation(pid):
         )
 
 
+def _terminal_color_enabled():
+    """ANSI color is for a real terminal, never logs, pipes, or NO_COLOR users."""
+    return bool(sys.stdout.isatty() and 'NO_COLOR' not in os.environ
+                and os.environ.get('TERM', '') != 'dumb')
+
+
+def _terminal_style(value, color, enabled):
+    palette={'brand':'\x1b[1;96m','green':'\x1b[1;92m',
+             'yellow':'\x1b[1;93m','magenta':'\x1b[1;95m',
+             'muted':'\x1b[2m','bold':'\x1b[1m'}
+    return f'{palette[color]}{value}\x1b[0m' if enabled else value
+
+
+def _clean_terminal_value(value):
+    return re.sub(r'[\x00-\x1f\x7f-\x9f]', '', str(value or ''))
+
+
+def print_up_dashboard(state, *, reused, gateway_ready=False):
+    """One prominent overview; report verified tunnel URLs, never guessed links."""
+    color=_terminal_color_enabled()
+    fmt=lambda text,tone: _terminal_style(text,tone,color)
+    phase=state.get('phase','starting')
+    ready=bool(gateway_ready and phase=='ready')
+    # Do not print cached URLs unless the running manager confirmed them.
+    healthy=state.get('public_ready') or {}
+    urls=state.get('urls') or {}
+    def public_origin(provider):
+        if not ready or not healthy.get(provider):
+            return None
+        origin=urls.get(provider,'')
+        try:
+            parsed=urlsplit(origin)
+            if (parsed.scheme=='https' and parsed.hostname and
+                    parsed.username is None and parsed.password is None
+                    and not parsed.query and not parsed.fragment):
+                return _clean_terminal_value(origin)
+        except (ValueError,TypeError):
+            pass
+        return None
+
+    def line(name, url, state_label, tone, icon='●'):
+        # Keep the actual URL as readable, copyable text (no hidden hyperlinks).
+        label=fmt(f'  {name:<14}', 'bold')
+        marker=fmt(f'{icon} {state_label:<14}',tone)
+        target=fmt(_clean_terminal_value(url),'brand' if url.startswith('http') else 'muted')
+        print(f'{label} {marker} {target}')
+
+    print()
+    print(fmt('  ╔══════════════════════════════════════════════════════════════════╗','brand'))
+    print(fmt('  ║  ✦ S T E R L I N G     ·     ONE-COMMAND WORKSPACE             ║','brand'))
+    print(fmt('  ╚══════════════════════════════════════════════════════════════════╝','brand'))
+    print('  '+fmt('● MANAGED — reusing backend and tunnels','green')
+          if reused else '  '+fmt('◉ STARTING — one backend, both public tunnels and dev','yellow'))
+    print()
+    local=_clean_terminal_value(state.get('local_url') or 'http://127.0.0.1:5180')
+    development=_clean_terminal_value(state.get('dev_url') or 'http://127.0.0.1:5174')
+    line('LOCAL APP',local,'READY' if ready else 'STARTING',
+         'green' if ready else 'yellow')
+    for name,provider in [('CLOUDFLARE','cloudflare'),('NGROK','ngrok')]:
+        found=public_origin(provider)
+        line(name,found or 'Connecting — awaiting HTTPS verification',
+             'VERIFIED' if found else 'CONNECTING','green' if found else 'yellow',
+             '●' if found else '◌')
+    # Vite is launched by the supervisor, but do not claim HTTP readiness from
+    # the existence of a remembered child PID alone.
+    line('DEV · HOT RELOAD',development,'LOCAL WORKTREE','magenta')
+    print()
+    print('  '+fmt('PUBLIC  ','green')+
+          'committed frontend · same release on local, Cloudflare and ngrok')
+    print('  '+fmt('DEV     ','magenta')+
+          'uncommitted edits appear only on the development URL')
+    release=_clean_terminal_value(state.get('release_commit',''))
+    if release:
+        print('  '+fmt('RELEASE ','brand')+
+              f'{_clean_terminal_value(state.get("release_ref","main"))} · {release[:12]}')
+    if state.get('release_stale'):
+        print('  '+fmt('! Previous committed release retained; latest build failed.','yellow'))
+    if state.get('ngrok_error'):
+        print('  '+fmt(f'! ngrok: {_clean_terminal_value(state["ngrok_error"])}','yellow'))
+    print('  '+fmt('DETAILS ','muted')+'./sterling.sh urls   ·   ./sterling.sh status')
+    print()
+
+
 def read_state():
     try:return json.loads((STATE/'status.json').read_text())
     except (OSError,ValueError):return {}
@@ -804,11 +887,8 @@ def main():
                  state.get('web_port')==args.port)
         if current and state.get('phase')!='stopped':
             if state.get('phase')!='ready' or _managed_web_owns_port(state):
-                print('Sterling is already managed; reusing backend and tunnels.')
-                print('Local: '+state.get('local_url','http://127.0.0.1:5180'))
-                print('Cloudflare: '+(state.get('urls',{}).get('cloudflare') or 'connecting'))
-                print('ngrok: '+(state.get('urls',{}).get('ngrok') or 'connecting'))
-                print('Development: '+state.get('dev_url',''))
+                print_up_dashboard(state,reused=True,
+                                   gateway_ready=_managed_web_owns_port(state))
                 return
         # An old-version or unhealthy manager is stopped *gracefully*.
         # The manager's shutdown leaves the broker process alone. There
@@ -827,8 +907,12 @@ def main():
         log=(STATE/'manager.log').open('a');os.chmod(STATE/'manager.log',0o600)
         # Child inherits the singleton lock; no second launcher can race startup.
         subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'run',*forwarded],cwd=ROOT,env={**clean_env(),'STERLING_STACK_LOCK_FD':str(lock.fileno())},stdout=log,stderr=log,start_new_session=True,pass_fds=(lock.fileno(),))
-        print('Starting Sterling: local 5180, dev 5174, Cloudflare and ngrok.')
-        print('Check ./sterling.sh urls for verified links.')
+        # A new supervisor initializes in the background. Show pending URLs
+        # rather than repeating previously cached/public hostnames.
+        print_up_dashboard({'phase':'starting',
+            'local_url':f'http://127.0.0.1:{args.port}',
+            'dev_url':f'http://127.0.0.1:{args.dev_port}',
+            'public_ready':{},'urls':{}},reused=False)
         return
     stack=Stack(args)
     signal.signal(signal.SIGTERM,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGINT,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGUSR1,lambda *_:setattr(stack,'rotate',True))
