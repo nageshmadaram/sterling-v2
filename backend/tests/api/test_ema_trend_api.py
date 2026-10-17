@@ -203,9 +203,40 @@ def test_pending_amo_and_active_gtt_block_ema_ownership_even_when_flat():
     amo={"exchange":"NSE","tradingsymbol":"INFY","variety":"amo",
          "transaction_type":"BUY","quantity":1,"status":"AMO REQ RECEIVED"}
     assert _order_exposure_unresolved(amo, selected)
-    assert not _order_exposure_unresolved({**amo,"status":"CANCELLED"},selected)
+    assert not _order_exposure_unresolved({**amo,"status":"CANCELLED","filled_quantity":0},selected)
     assert not _order_exposure_unresolved({**amo,"tradingsymbol":"TCS"},selected)
     gtt={"condition":{"exchange":"NSE","tradingsymbol":"INFY"},"status":"active"}
     assert _gtt_exposure_unresolved(gtt,selected)
     assert not _gtt_exposure_unresolved({**gtt,"status":"cancelled"},selected)
     assert _gtt_exposure_unresolved({"condition":"unreadable"},selected)
+
+
+def test_terminal_broker_order_with_partial_fill_needs_reconciliation():
+    from app.services.ema_trend.live_preflight import _order_exposure_unresolved
+    symbols={"NSE:INFY"}
+    order={"exchange":"NSE","tradingsymbol":"INFY","side":"BUY",
+           "quantity":10,"filled_quantity":4,"status":"CANCELLED"}
+    assert _order_exposure_unresolved(order, symbols)
+    assert _order_exposure_unresolved({**order,"status":"REJECTED"}, symbols)
+    assert _order_exposure_unresolved({**order,"status":"COMPLETE","filled_quantity":10}, symbols)
+    assert _order_exposure_unresolved({**order,"status":"COMPLETE","filled_quantity":0}, symbols)
+    assert _order_exposure_unresolved({**order,"status":"OPEN","filled_quantity":0}, symbols)
+    assert _order_exposure_unresolved({**order,"filled_quantity":-1}, symbols)
+    assert _order_exposure_unresolved({**order,"filled_quantity":11}, symbols)
+    assert _order_exposure_unresolved({**order,"quantity":"NaN"}, symbols)
+    assert _order_exposure_unresolved({**order,"filled_quantity":None}, symbols)
+    assert _order_exposure_unresolved({"status":"CANCELLED"}, symbols)
+    assert not _order_exposure_unresolved({**order,"status":"CANCELLED","filled_quantity":0}, symbols)
+    assert not _order_exposure_unresolved({**order,"tradingsymbol":"TCS"}, symbols)
+
+
+def test_live_readiness_parses_json_gtt_conditions_and_rejects_unknown_identity():
+    from app.services.ema_trend.live_preflight import _gtt_exposure_unresolved
+    symbols={"NSE:INFY"}
+    active={"condition":'{"exchange":"NSE","tradingsymbol":"INFY"}',"status":"active"}
+    assert _gtt_exposure_unresolved(active, symbols)
+    assert _gtt_exposure_unresolved({**active,"status":"triggered"},symbols)
+    assert not _gtt_exposure_unresolved({**active,"status":"cancelled"},symbols)
+    assert not _gtt_exposure_unresolved({**active,"condition":'{"exchange":"NSE","tradingsymbol":"TCS"}'},symbols)
+    assert _gtt_exposure_unresolved({**active,"condition":'{"tradingsymbol":"INFY"}'},symbols)
+    assert _gtt_exposure_unresolved({**active,"condition":'not-json'},symbols)
