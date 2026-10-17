@@ -176,6 +176,65 @@ def test_a_dropped_table_fails(backup_dir):
     assert any("table missing after restore" in f for f in proof.failures)
 
 
+def _capture_consistent_frozen_lane_files(backup_dir, tmp_path):
+    """Write a complete frozen release, then copy it into the backup layout."""
+    import shutil
+    from app.core.release_manifest import write_manifest
+
+    frozen = json.loads((backup_dir / "release.json").read_text(encoding="utf-8"))
+    release_path = write_manifest(tmp_path / "deployment", frozen)
+    state = backup_dir / "state"
+    state.mkdir(exist_ok=True)
+    shutil.copyfile(release_path, state / "release_manifest.json")
+    shutil.copytree(
+        release_path.parent / "strategies",
+        state / "lane_manifests",
+    )
+    return frozen
+
+
+def test_restore_proof_verifies_backed_up_lane_projection(backup_dir, tmp_path):
+    frozen = _capture_consistent_frozen_lane_files(backup_dir, tmp_path)
+    manifest = build_backup_manifest(backup_dir)
+    proof = prove_restore(backup_dir, manifest)
+
+    assert len(frozen["lanes"]) == 10
+    assert proof.passed, proof.failures
+
+
+def test_restore_proof_rejects_stale_lane_even_if_rechecksummed(backup_dir, tmp_path):
+    _capture_consistent_frozen_lane_files(backup_dir, tmp_path)
+    lane_file = next((backup_dir / "state" / "lane_manifests").glob("*.json"))
+    lane = json.loads(lane_file.read_text(encoding="utf-8"))
+    lane["note"] = "tampered but valid JSON"
+    lane_file.write_text(json.dumps(lane), encoding="utf-8")
+
+    # Recompute every checksum, defeating a checksum-only integrity check.
+    # The release/lane semantic comparison must still refuse the restore.
+    manifest = build_backup_manifest(backup_dir)
+    proof = prove_restore(backup_dir, manifest)
+
+    assert not proof.passed
+    assert any(
+        "frozen lane manifests:" in reason
+        and "content does not match frozen release" in reason
+        for reason in proof.failures
+    )
+
+
+def test_restore_proof_rejects_missing_lane_even_if_rechecksummed(backup_dir, tmp_path):
+    _capture_consistent_frozen_lane_files(backup_dir, tmp_path)
+    lane_file = next((backup_dir / "state" / "lane_manifests").glob("*.json"))
+    lane_file.unlink()
+
+    manifest = build_backup_manifest(backup_dir)
+    proof = prove_restore(backup_dir, manifest)
+
+    assert not proof.passed
+    assert any("frozen lane manifests: missing lane manifest" in reason
+               for reason in proof.failures)
+
+
 def test_proof_is_stamped_onto_the_manifest(backup_dir):
     manifest = build_backup_manifest(backup_dir)
     proof = prove_restore(backup_dir, manifest)
