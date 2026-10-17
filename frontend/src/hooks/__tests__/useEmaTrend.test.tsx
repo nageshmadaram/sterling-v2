@@ -1,10 +1,10 @@
 import React from 'react';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../../utils/api';
-import { useEmaTrendExecution, useUpdateEmaTrend } from '../useEmaTrend';
-vi.mock('../../utils/api', () => ({ api: { post: vi.fn(), patch: vi.fn() } }));
+import { useEmaTrendExecution, useEmaTrendSnapshot, useUpdateEmaTrend } from '../useEmaTrend';
+vi.mock('../../utils/api', () => ({ api: { get: vi.fn(), post: vi.fn(), patch: vi.fn() } }));
 let replay: number | null = null;
 vi.mock('../useReplayStore', () => ({ useSimNowMs: () => replay, useReplayStore: () => 'session-1' }));
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -13,6 +13,15 @@ function wrapper({ children }: { children: React.ReactNode }) {
 const plan = { id: 'p-7', revision: 1, status: 'READY', blockers: [] };
 beforeEach(() => { vi.clearAllMocks(); replay = null; });
 describe('EMA Trend strategy-owned transport', () => {
+  it('loads all four EMA profiles in one request rather than five snapshots', async () => {
+    vi.mocked(api.get).mockResolvedValue({ rows: [], campaigns: [], truncatedModes: [] });
+    const hook = renderHook(() => useEmaTrendSnapshot(
+      ['swing', 'intraday', 'scalping', 'ultra_scalping'], 200), { wrapper });
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(api.get).toHaveBeenCalledTimes(1);
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/v1/ema-trend/snapshot?modes=swing,intraday,scalping,ultra_scalping&limit=200');
+  });
   it('sends only changed configuration with the revision being edited', async () => {
     vi.mocked(api.patch).mockResolvedValue({ revision: 8 });
     const hook = renderHook(useUpdateEmaTrend, { wrapper });

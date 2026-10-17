@@ -34,6 +34,49 @@ def test_default_off_strict_cas_and_invalid_mode(client):
     assert client.post(base+"/plans/x/arm",json={"expected_revision":1,"idempotency_key":"x","execution_mode":"LIVE"}).status_code==422
 
 
+
+def test_batched_snapshot_limits_each_mode_and_reads_shared_state_once(client,monkeypatch):
+    from app.services.ema_trend import snapshot
+    called=[]
+    original=snapshot.config_store.response
+    read_count=[]
+    def response(uid):
+        read_count.append(uid)
+        return original(uid)
+    monkeypatch.setattr(snapshot.config_store,"response",response)
+    def by_mode(uid,mode,*,limit,cursor):
+        called.append((uid,mode,limit,cursor))
+        return [{"id":f"{mode}-{i}","mode":mode,"close_ms":1700000000000}
+                for i in range(3)]
+    monkeypatch.setattr(snapshot.repo,"list_signals_by_mode",by_mode)
+    monkeypatch.setattr(snapshot,"signal_admission",lambda row,current,now:{"activation_eligible":False})
+    original_list=snapshot.repo.list_documents
+    def documents(uid,kind,**kwargs):
+        if kind=="campaign":
+            return [{"id":"unresolved","mode":"ultra_scalping","state":"RECOVERY_REQUIRED"}]
+        return original_list(uid,kind,**kwargs)
+    monkeypatch.setattr(snapshot.repo,"list_documents",documents)
+    monkeypatch.setattr(snapshot,"public_campaign",lambda row:row)
+    monkeypatch.setattr(snapshot.health,"summary",lambda uid:{"status":"RUNNING"})
+    answer=client.get("/api/v1/ema-trend/snapshot",params={"modes":"swing,intraday","limit":2})
+    assert answer.status_code==200,answer.text
+    body=answer.json()
+    assert len(body["rows"])==4
+    assert {row["mode"] for row in body["rows"]}=={"swing","intraday"}
+    assert body["truncatedModes"]==["swing","intraday"]
+    assert body["next_cursor"] is None
+    assert body["campaigns"][0]["id"]=="unresolved"
+    assert read_count==["alice"]
+    assert called==[("alice","swing",3,0),("alice","intraday",3,0)]
+
+
+def test_batched_snapshot_rejects_invalid_modes_and_limits(client):
+    url="/api/v1/ema-trend/snapshot"
+    for params in ({"modes":"swing,swing"},{"modes":"swing,unsupported"},
+                   {"mode":"swing","modes":"intraday"},{"modes":""},
+                   {"modes":"swing","limit":1001}):
+        assert client.get(url,params=params).status_code==422
+
 def test_plan_and_campaign_access_is_owner_scoped(client):
     repo.put("bob","plan","bob-plan",{"status":"READY"},0)
     repo.put("bob","campaign","bob-campaign",{"status":"OPEN"},0)

@@ -17,38 +17,18 @@ export function useEmaTrendConfig() {
   return useQuery<EmaTrendConfigResponse>({ queryKey: [...EMA_TREND_KEY, 'config', ...scope.key],
     queryFn: () => api.get(`${EMA_TREND_BASE}/config`), staleTime: 15_000 });
 }
-/** Poll each selected mode separately so a high-volume mode never hides
- * rows from another mode. The menu changes the view, not scan configuration. */
-export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[]) {
+/** One server-batched read per refresh; each selected mode has its own SQL
+ * page, while all operational campaigns remain visible across filters. */
+export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[], rowLimit = 200) {
   const scope = useScope();
   const key = modes?.join(',') || 'all';
   // Historical replay has its own immutable server view. Never substitute the live snapshot.
-  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key],
-    queryFn: async () => {
+  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key, rowLimit],
+    queryFn: () => {
       if (!modes?.length) return api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
-      // Always fetch *all* campaigns, including unresolved inventory belonging
-      // to a profile the user unchecked. The menu filters signal evidence,
-      // never operational exposure or recovery requirements.
-      const all = await api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
-      const results = await Promise.allSettled(modes.map(mode =>
-        api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot?mode=${encodeURIComponent(mode)}`)));
-      const succeeded = results.flatMap((result, index) =>
-        result.status === 'fulfilled' ? [{ mode: modes[index], data: result.value }] : []);
-      if (!succeeded.length) {
-        const failure = results.find(result => result.status === 'rejected');
-        throw failure?.status === 'rejected' ? failure.reason : new Error('EMA profile snapshots unavailable');
-      }
-      return {
-        ...all,
-        rows: succeeded.flatMap(result => result.data.rows),
-        // This keeps every open/unresolved position visible across selections.
-        campaigns: all.campaigns,
-        generated_ms: Math.max(all.generated_ms || 0,
-          ...succeeded.map(result => result.data.generated_ms || 0)),
-        truncatedModes: succeeded.filter(result => result.data.next_cursor != null).map(result => result.mode),
-        failedModes: results.flatMap((result, index) =>
-          result.status === 'rejected' ? [modes[index]] : []),
-      };
+      const selected = modes.map(encodeURIComponent).join(',');
+      return api.get<EmaTrendSnapshot>(
+        `${EMA_TREND_BASE}/snapshot?modes=${selected}&limit=${Math.min(1000, Math.max(1, rowLimit))}`);
     },
     enabled: !scope.replay, refetchInterval: 10_000, staleTime: 3_000 });
 }
