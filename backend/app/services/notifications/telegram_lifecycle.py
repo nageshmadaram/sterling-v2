@@ -186,10 +186,15 @@ def _flush_spool() -> int:
             _init()
             with _fast_conn() as conn:
                 _insert(conn, row)
-        except sqlite3.OperationalError:
-            break  # still contended; keep the rest spooled for the next cycle
         except Exception as exc:  # noqa: BLE001
-            log.warning("Telegram lifecycle spool entry dropped: %s", exc)
+            # A disk, schema, or transient DB failure is NOT proof that the
+            # alert was persisted. Never discard it until the insertion has
+            # committed (or its durable dedupe identity already exists).
+            log.warning(
+                "Telegram lifecycle spool flush deferred (event retained): %s",
+                type(exc).__name__,
+            )
+            break
         with _spool_lock:
             if _spool and _spool[0] is row:
                 _spool.popleft()
@@ -243,8 +248,14 @@ def enqueue(
         with _fast_conn() as conn:
             inserted = _insert(conn, row)
     except sqlite3.OperationalError as exc:
-        # "database is locked": do not block the caller, do not lose the alert.
+        # Bounded spooling must not silently evict an older undelivered alert.
+        # If there is no remaining capacity, tell the caller persistence failed
+        # instead of returning an ID for an event that will never be delivered.
         with _spool_lock:
+            if len(_spool) >= min(_SPOOL_MAX, _spool.maxlen or _SPOOL_MAX):
+                raise RuntimeError(
+                    "telegram_lifecycle_spool_full: alert was NOT retained"
+                ) from exc
             _spool.append(row)
         log.warning(
             "Telegram lifecycle alert spooled (database busy) [%s/%s]: %s",
