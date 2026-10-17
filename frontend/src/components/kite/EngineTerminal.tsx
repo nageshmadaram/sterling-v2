@@ -80,13 +80,15 @@ const SERVER_KIND: Record<string, string> = {
   ERROR: 'srv_error', CRITICAL: 'srv_error',
 };
 
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 // Injected once — keyframes for the indeterminate progress stripe and the
 // banner sheen. Inline styles can't express @keyframes.
 const KT_CSS = `
 @keyframes kt-indet { 0% { transform: translateX(-100%); } 100% { transform: translateX(300%); } }
 @keyframes kt-banner-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kt-spinner { to { transform: rotate(360deg); } }
+.kt-spin-glyph { display: inline-block; animation: kt-spinner .9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .kt-spin-glyph { animation: none; } }
 `;
 
 function hhmmss(ms: number): string {
@@ -228,10 +230,12 @@ export function EngineTerminal() {
   // React tree, so a module-level snapshot can otherwise resurrect stale state
   // after a preset or Restore all has already switched it back to normal.
   const [mode, setModeState] = useState<TerminalMode>(readTerminalMode);
-  const [spin, setSpin] = useState(0);
   // Client-side clear: hide every event up to this timestamp. New events still
   // stream in (server is the source of truth) — this just clears the view.
   const [clearedBefore, setClearedBefore] = useState(0);
+  // Mount only recent console lines. The full event history remains in memory
+  // for the signed diagnostics download, and older lines are user-accessible.
+  const [visibleLogLimit, setVisibleLogLimit] = useState(120);
 
   const setMode = (next: TerminalMode) => {
     localStorage.setItem(TERMINAL_MODE_KEY, next);
@@ -270,6 +274,8 @@ export function EngineTerminal() {
     .filter(ev => !showServerLogs || logLevel === 'all' || (KIND_META[ev.kind]?.level || 'INFO') === logLevel)
     .filter(ev => ev.ts_ms > clearedBefore)
     .sort((a, b) => a.ts_ms - b.ts_ms);
+  const olderLogCount = Math.max(0, events.length - visibleLogLimit);
+  const displayedEvents = olderLogCount ? events.slice(-visibleLogLimit) : events;
   const exportLogs = () => {
     const content = diagnosticBundle(serverLogs?.logs, data?.events, serverLogError, captureStart);
     const url = URL.createObjectURL(new Blob([content], { type: 'application/json' }));
@@ -284,13 +290,6 @@ export function EngineTerminal() {
     setClearedBefore(latest || clearedBefore + 1);
   };
 
-  // Spinner animation — only ticks while a scan is in flight.
-  useEffect(() => {
-    if (!scanning) { setSpin(0); return; }
-    const id = setInterval(() => setSpin((s) => (s + 1) % SPINNER.length), 90);
-    return () => clearInterval(id);
-  }, [scanning]);
-
   useEffect(() => { localStorage.setItem('kite_terminal_theme', theme); }, [theme]);
   useEffect(() => { localStorage.setItem('kite_terminal_server_logs', showServerLogs ? '1' : '0'); }, [showServerLogs]);
   useEffect(() => {
@@ -298,7 +297,6 @@ export function EngineTerminal() {
   }, [events.length]);
 
   const dot = scanning ? k.green : data?.auto_scan ? k.blue : t.dim;
-  const spinner = SPINNER[spin];
   const btnStyle = { background: 'none', border: 'none', color: t.headDim, cursor: 'pointer', padding: '2px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center' };
 
   return (
@@ -333,10 +331,15 @@ export function EngineTerminal() {
         <button type="button" onClick={exportLogs}>Download capture</button><span style={{color:t.dim}}>Bounded capture · backend uses its configured log level</span>
       </div>}
       {mode !== 'minimized' && <div ref={scrollRef} style={{ flex: 1, overflow: 'auto', padding: '8px 14px', fontSize: 12, lineHeight: 1.55, color: t.text, fontFamily: MONO }}>
+        {olderLogCount > 0 && <button type="button" onClick={() => setVisibleLogLimit(n => n + 120)}
+          style={{ border: `1px solid ${t.border}`, color: t.text, background: t.headerBg,
+            cursor: 'pointer', fontSize: 10, borderRadius: 4, padding: '4px 8px', marginBottom: 8 }}>
+          Show older logs ({olderLogCount} available)
+        </button>}
         {events.length === 0 ? (
           <div style={{ color: t.dim, fontFamily: MONO }}>{showServerLogs ? 'No diagnostics match these filters.' : 'Waiting for background scan…'}</div>
         ) : (
-          events.map((ev, i) =>
+          displayedEvents.map((ev, i) =>
             KIND_META[ev.kind]?.banner
               ? <Banner key={`${ev.ts_ms}:${i}`} ev={ev} t={t} />
               : <Line key={`${ev.ts_ms}:${i}`} ev={ev} t={t} />
@@ -354,7 +357,7 @@ export function EngineTerminal() {
           TERMINAL
         </span>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: scanning ? k.green : data?.auto_scan ? k.orange : t.headDim, fontWeight: scanning ? 600 : 400 }}>
-          {scanning && <span style={{ fontSize: 12, lineHeight: 1 }}>{spinner}</span>}
+          {scanning && <span className="kt-spin-glyph" aria-hidden="true" style={{ fontSize: 12, lineHeight: 1 }}>◌</span>}
           {scanning ? data?.scanning_label || 'scanning…' : data?.auto_scan ? '🤖 auto' : '💤 idle'}
         </span>
         {!scanning && <span style={{ color: t.dim }}>🕐 last {data?.last_scan_ms ? hhmmss(data.last_scan_ms) : '—'}</span>}

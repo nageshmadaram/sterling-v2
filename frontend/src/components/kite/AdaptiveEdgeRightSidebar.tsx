@@ -1,7 +1,7 @@
 import {useSavedSelection} from '../../hooks/useSavedSelection';
 import { PriceRulesBoard } from './board/PriceRulesBoard';
 import { openSettingsSection } from './config/registry';
-import React, { useEffect, useMemo, useReducer, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useEffectiveNowMs } from '../../hooks/useReplayStore';
 import { SterlingKiteEngineWithExpiry } from './SterlingKiteEngineWithExpiry';
 import { GammaMoveBoard } from './board/GammaMoveBoard';
@@ -22,7 +22,7 @@ import { k, Icons } from '../../styles/kiteUI';
 import { orderEngines, useKiteSettings } from '../../store/useKiteSettings';
 import { PaneHeaderActions } from './PaneHeaderActions';
 import { ToolbarButton } from './board/EngineToolbar';
-import { ScanProgressRing } from './board/ScanProgressRing';
+import { ScanCountdownRing } from './board/ScanCountdownRing';
 import { SignalTableSettingsPanel } from './SterlingKiteEnginePane';
 import { SCANNABLE_ENGINE_LABEL, useScanStrategies, type ScannableEngine } from '../../hooks/useScanStrategies';
 import { useScanActivity } from '../../store/useScanActivity';
@@ -74,11 +74,6 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const { scanAll, cancelAll, isPending: scanPending } = useScanStrategies();
   const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
-  const [, tickRing] = useReducer((x: number) => x + 1, 0);
-  useEffect(() => {
-    const id = setInterval(tickRing, 1000);
-    return () => clearInterval(id);
-  }, []);
   const nowMs = useEffectiveNowMs();
 
   const engineSignals = useEngineSignals();
@@ -86,26 +81,9 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const sbSnapshot = useSnapbackSnapshot();
   const emaSnapshot = useEmaTrendSnapshot();
 
-  /**
-   * The countdown to the next automatic scan, 0..1.
-   *
-   * This is the only percentage in the vicinity that is real. A scan in FLIGHT is
-   * indeterminate — the engine says it is scanning and which instrument it is on,
-   * not how far through a known total — so the ring shows motion for that and a
-   * number only for this.
-   *
-   * Market closed means the loop is paused and `next_scan_ms` is stale, so the
-   * ring would sit convincingly at 100% forever. Zero instead.
-   */
+
   const sig = engineSignals.data;
   const scanning = sig?.scanning ?? false;
-  const countdown = (() => {
-    const gen = sig?.generated_ms ?? 0;
-    const next = sig?.next_scan_ms ?? 0;
-    const interval = next - gen;
-    if (!sig?.auto_scan || interval <= 0 || sig?.market_open === false) return 0;
-    return Math.min(1, Math.max(0, (Date.now() - gen) / interval));
-  })();
 
   /**
    * Rescan order: the engine you are looking at first.
@@ -276,7 +254,10 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
             </ToolbarButton>
           ) : (
             <ToolbarButton title={scanTitle} disabled={scanPending} onClick={() => { void scanAll(enabledToScan); }}>
-              <ScanProgressRing fraction={countdown} scanning={scanPending} />
+              <ScanCountdownRing generatedMs={sig?.generated_ms ?? 0}
+                nextScanMs={sig?.next_scan_ms ?? 0}
+                autoScan={!!sig?.auto_scan && sig?.market_open !== false}
+                scanning={scanPending} />
             </ToolbarButton>
           )}
           <span data-signal-table-settings style={{ display: 'inline-flex' }}>

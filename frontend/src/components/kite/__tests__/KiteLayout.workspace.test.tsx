@@ -16,8 +16,9 @@ function renderLayout(componentProps: typeof props) {
   return render(<QueryClientProvider client={qc}><KiteLayout {...componentProps} /></QueryClientProvider>);
 }
 
+let mockTerminalActivity: any;
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
-  useEngineActivity: () => ({ data: undefined }),
+  useEngineActivity: () => ({ data: mockTerminalActivity }),
   useEngineServerLogs: () => ({ data: undefined }),
 }));
 vi.mock('../../../store/useLiveSignalCount', () => ({
@@ -39,6 +40,7 @@ const props = {
 };
 
 beforeEach(() => {
+  mockTerminalActivity = undefined;
   localStorage.clear();sessionStorage.clear();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     callback(0);
@@ -211,6 +213,25 @@ describe('KiteLayout advanced workspace', () => {
 });
 
 describe('EngineTerminal workspace synchronization', () => {
+  it('mounts only the latest 120 log lines, with a recoverable full history', () => {
+    mockTerminalActivity = {
+      scanning: false,
+      events: Array.from({ length: 300 }, (_, i) => ({
+        ts_ms: i + 1,
+        kind: 'info',
+        message: `perf-entry-${i}`,
+      })),
+    };
+    render(<EngineTerminal />);
+    expect(screen.getByText('perf-entry-299')).toBeInTheDocument();
+    expect(screen.queryByText('perf-entry-0')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Show older logs/i }));
+    expect(screen.getByText('perf-entry-100')).toBeInTheDocument();
+    expect(screen.queryByText('perf-entry-0')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Show older logs/i }));
+    expect(screen.getByText('perf-entry-0')).toBeInTheDocument();
+  });
+
   it('offers separate log shortcuts and preserves engine-only view', () => {
     recordDiagnostic('INFO', 'Log shortcut fixture');
     render(<EngineTerminal />);
