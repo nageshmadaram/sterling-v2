@@ -204,6 +204,31 @@ def test_snapshot_handles_source_path_containing_question_mark(tmp_path):
 
 
 
+def test_snapshot_failure_preserves_previous_bytes_and_cleans_partial(
+    tmp_path, monkeypatch
+):
+    from app.core import backup_manifest as bm
+
+    source = _make_db(tmp_path / "source.db", rows=2)
+    destination = _make_db(tmp_path / "previous.db", rows=9)
+    previous_bytes = destination.read_bytes()
+
+    original_connect = sqlite3.connect
+
+    def fail_only_temporary_destination(path, *args, **kwargs):
+        if str(path).endswith(".partial"):
+            raise sqlite3.DatabaseError("simulated snapshot destination failure")
+        return original_connect(path, *args, **kwargs)
+
+    monkeypatch.setattr(bm.sqlite3, "connect", fail_only_temporary_destination)
+    with pytest.raises(sqlite3.DatabaseError, match="simulated snapshot"):
+        snapshot_database(source, destination)
+
+    assert destination.read_bytes() == previous_bytes
+    assert not list(tmp_path.glob(".*.partial"))
+
+
+
 class TestDeclaredDatabases:
     def test_runtime_observations_path_is_the_default_evidence_database(
         self, tmp_path, monkeypatch
