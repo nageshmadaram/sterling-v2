@@ -70,6 +70,18 @@ cd /home/nageshmadaram/Sterling
 ./sterling.sh status
 ```
 
+On an interactive terminal, `./sterling.sh up` shows a **color-coded Sterling
+workspace dashboard** with the local app, Cloudflare, ngrok and Vite dev URLs,
+their verification/connecting statuses, and the committed release SHA. Green
+means a URL was verified by the running supervisor; amber means it is still
+connecting; purple highlights the uncommitted-only developer frontend. The
+dashboard shows **only verified public links**. Running `up` again shows the
+same prominent dashboard without restarting a healthy manager. This is
+presentation-only; it does not alter live trading or tunnel rotation.
+
+For logs, piping, or `NO_COLOR=1 ./sterling.sh up`, the launcher prints the
+same URL information without terminal escape sequences.
+
 - Main local app: **http://127.0.0.1:5180** (the same gateway tunneled to the public internet).
 - Local hot-reload Vite development view: **http://127.0.0.1:5174** (loopback only,
   shares the *same* backend and trading state; never an independent sandbox).
