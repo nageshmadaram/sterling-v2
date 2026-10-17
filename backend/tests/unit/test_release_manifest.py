@@ -20,6 +20,7 @@ from app.core.release_manifest import (
     release_tag_points_at,
     render_manifest,
     verify_manifest,
+    verify_frozen_manifest,
     write_manifest,
 )
 
@@ -239,6 +240,31 @@ def test_lane_manifest_files_match_frozen_release(tmp_path, manifest):
     write_manifest(tmp_path, manifest)
 
     assert lane_manifest_file_drift(manifest, tmp_path) == ()
+
+
+def test_frozen_verification_requires_every_deployed_lane_file(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    verdict, problems = verify_frozen_manifest(manifest, manifest, tmp_path)
+    assert verdict.matches
+    assert problems == ()
+
+    lane_file = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    lane_file.unlink()
+
+    # The JSON release contract still matches; physical artifact coverage does not.
+    verdict, problems = verify_frozen_manifest(manifest, manifest, tmp_path)
+    assert verdict.matches
+    assert any("missing lane manifest" in item for item in problems)
+
+
+def test_frozen_verification_rejects_lane_content_tampering(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    lane_file = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    lane_file.write_text('{"not": "the frozen lane"}', encoding="utf-8")
+
+    verdict, problems = verify_frozen_manifest(manifest, manifest, tmp_path)
+    assert verdict.matches
+    assert any("content does not match frozen release" in item for item in problems)
 
 
 def test_lane_manifest_file_mutation_is_detected(tmp_path, manifest):
