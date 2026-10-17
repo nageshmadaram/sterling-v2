@@ -661,17 +661,27 @@ PY
     run_py <<'PY'
 import sys
 
-from app.core.release_manifest import read_manifest, verify_manifest
+from app.core.release_manifest import read_manifest, verify_frozen_manifest
 
 stored = read_manifest()
 if stored is None:
     print("No frozen release manifest to verify. Run `sterlingctl freeze`.")
     sys.exit(2)
 
-verdict = verify_manifest(stored)
-if verdict.matches:
-    print("Release identity matches the frozen manifest.")
+verdict, lane_file_drift = verify_frozen_manifest(stored)
+if verdict.matches and not lane_file_drift:
+    print("Release identity and all frozen lane manifest files match.")
     sys.exit(0)
+
+if lane_file_drift:
+    print("FROZEN LANE MANIFEST ARTIFACT DRIFT")
+    for issue in lane_file_drift:
+        print(f"  {issue}")
+    print("A complete restore is NOT proven. Preserve the state and investigate; "
+          "do not fabricate or silently recreate a frozen artifact.")
+    if verdict.matches:
+        sys.exit(1)
+    print()
 
 print("RELEASE IDENTITY DRIFT")
 for drift in verdict.drift:
