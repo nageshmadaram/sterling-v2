@@ -520,7 +520,12 @@ def _backup_restore_gate(sha: str) -> GateResult:
     if directory is None:
         return GateResult("backup_restore", FAIL, f"no backup under {backup_root}")
     manifest_file = directory / "manifest.json"
-    if not manifest_file.exists():
+    if manifest_file.is_symlink():
+        return GateResult(
+            "backup_restore", FAIL,
+            f"{directory.name}: symlinked backup manifest is not trusted",
+        )
+    if not manifest_file.is_file():
         return GateResult("backup_restore", UNKNOWN, f"backup at {directory} has no manifest")
     try:
         manifest = read_backup_manifest(manifest_file)
@@ -606,7 +611,32 @@ def _backup_restore_gate(sha: str) -> GateResult:
                 f"{directory.name}: backup manifest does not checksum release/coverage artifacts",
             )
         for name, expected in checksums.items():
+            # A stored backup manifest is input, not authority to read any
+            # arbitrary host file during certification.
+            from pathlib import PurePosixPath
+
+            if (
+                not isinstance(name, str)
+                or not name
+                or "\\" in name
+                or PurePosixPath(name).is_absolute()
+                or any(p in ("", ".", "..") for p in name.split("/"))
+            ):
+                return GateResult(
+                    "backup_restore", FAIL,
+                    f"{directory.name}: unsafe backup checksum path",
+                )
             artifact = directory / name
+            if (
+                artifact.is_symlink()
+                or not artifact.resolve(strict=False).is_relative_to(
+                    directory.resolve()
+                )
+            ):
+                return GateResult(
+                    "backup_restore", FAIL,
+                    f"{directory.name}: backup checksum path escapes backup root",
+                )
             if not artifact.exists():
                 return GateResult(
                     "backup_restore",
@@ -657,7 +687,9 @@ def _backup_restore_gate(sha: str) -> GateResult:
         # This catches a hand-edited manifest that says PASSED, a DB whose
         # checksum was recomputed after corruption, and stale row/schema claims.
         try:
-            fresh_proof = prove_restore(directory, manifest)
+            # Re-read the original persisted manifest so the restore verifier
+            # enforces provenance checks, including anti-symlink validation.
+            fresh_proof = prove_restore(directory)
         except Exception as exc:  # noqa: BLE001
             return GateResult(
                 "backup_restore",
