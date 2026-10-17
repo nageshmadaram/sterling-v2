@@ -290,6 +290,51 @@ def test_unexpected_lane_manifest_file_is_detected(tmp_path, manifest):
     assert any("unexpected lane manifest" in item for item in problems)
 
 
+
+def test_frozen_lane_verification_refuses_symlinked_lane(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    lane = next((tmp_path / "data/manifests/strategies").glob("*.json"))
+    original = lane.read_text(encoding="utf-8")
+    external = tmp_path / "external-valid-lane.json"
+    external.write_text(original, encoding="utf-8")
+    lane.unlink()
+    lane.symlink_to(external)
+
+    problems = lane_manifest_file_drift(manifest, tmp_path)
+
+    assert any("symlink or not a regular file" in reason for reason in problems)
+
+
+def test_frozen_lane_verification_refuses_duplicate_manifest_identity(
+    tmp_path, manifest
+):
+    write_manifest(tmp_path, manifest)
+    forged = json.loads(json.dumps(manifest))
+    forged["lanes"].append(dict(forged["lanes"][0]))
+
+    problems = lane_manifest_file_drift(forged, tmp_path)
+
+    assert any("duplicate frozen lane manifest" in reason for reason in problems)
+
+
+def test_frozen_lane_verification_refuses_empty_and_invalid_keys(tmp_path, manifest):
+    write_manifest(tmp_path, manifest)
+    empty = json.loads(json.dumps(manifest))
+    empty["lanes"] = []
+    assert any(
+        "no declared lane" in reason
+        for reason in lane_manifest_file_drift(empty, tmp_path)
+    )
+
+    malformed = json.loads(json.dumps(manifest))
+    malformed["lanes"][0]["lane_key"] = "../outside"
+    assert any(
+        "invalid lane key" in reason
+        for reason in lane_manifest_file_drift(malformed, tmp_path)
+    )
+
+
+
 def test_read_manifest_is_none_when_never_frozen(tmp_path):
     assert read_manifest(tmp_path) is None
 
