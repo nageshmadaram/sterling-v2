@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
@@ -55,6 +56,13 @@ def backup_dir(tmp_path):
     import json as _json
     (directory / "release.json").write_text(
         _json.dumps(build_release_manifest(), indent=2, sort_keys=True) + "\n")
+    # Restore evidence must have its original manifest, not a newly generated
+    # checksum set describing whatever bytes happen to exist at test time.
+    manifest = build_backup_manifest(directory)
+    (directory / "manifest.json").write_text(
+        json.dumps(manifest.as_dict(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return directory
 
 
@@ -287,6 +295,88 @@ def test_a_backup_that_cannot_say_what_it_holds_is_refused(backup_dir, tmp_path)
 
     assert proof.passed is False
     assert any("coverage.json" in failure for failure in proof.failures)
+
+
+
+def test_prove_restore_refuses_missing_original_backup_manifest(backup_dir):
+    (backup_dir / "manifest.json").unlink()
+
+    proof = prove_restore(backup_dir)
+
+    assert not proof.passed
+    assert any(
+        "missing original backup manifest" in reason for reason in proof.failures
+    )
+
+
+def test_prove_restore_refuses_missing_coverage_checksum(backup_dir):
+    manifest = build_backup_manifest(backup_dir)
+    checksums = dict(manifest.file_checksums)
+    del checksums["coverage.json"]
+    without_coverage = replace(manifest, file_checksums=checksums)
+
+    proof = prove_restore(backup_dir, without_coverage)
+
+    assert not proof.passed
+    assert "coverage.json: missing checksum evidence" in proof.failures
+
+
+def test_prove_restore_rejects_parent_traversal_and_preserves_external_file(
+    backup_dir, tmp_path
+):
+    from app.services.snapback_backup import sha256_file
+
+    source_outside_backup = tmp_path / "target.txt"
+    source_outside_backup.write_text("untrusted-source", encoding="utf-8")
+    isolated = tmp_path / "safe" / "restore"
+    isolated.parent.mkdir(parents=True)
+    victim = isolated.parent / "target.txt"
+    victim.write_text("must-be-preserved", encoding="utf-8")
+
+    manifest = build_backup_manifest(backup_dir)
+    checksums = dict(manifest.file_checksums)
+    checksums["../target.txt"] = sha256_file(source_outside_backup)
+    forged = replace(manifest, file_checksums=checksums)
+
+    proof = prove_restore(backup_dir, forged, destination=isolated)
+
+    assert not proof.passed
+    assert any("unsafe backup member path" in reason for reason in proof.failures)
+    assert victim.read_text(encoding="utf-8") == "must-be-preserved"
+
+
+def test_prove_restore_rejects_symlink_to_file_outside_backup(backup_dir, tmp_path):
+    from app.services.snapback_backup import sha256_file
+
+    outside = tmp_path / "sensitive.txt"
+    outside.write_text("not-part-of-backup", encoding="utf-8")
+    (backup_dir / "linked.txt").symlink_to(outside)
+    manifest = build_backup_manifest(backup_dir)
+    checksums = dict(manifest.file_checksums)
+    checksums["linked.txt"] = sha256_file(outside)
+    forged = replace(manifest, file_checksums=checksums)
+
+    proof = prove_restore(backup_dir, forged)
+
+    assert not proof.passed
+    assert any("unsafe backup member path" in reason for reason in proof.failures)
+
+
+def test_prove_restore_rejects_absolute_member_path(backup_dir, tmp_path):
+    from app.services.snapback_backup import sha256_file
+
+    external = tmp_path / "external.txt"
+    external.write_text("outside", encoding="utf-8")
+    manifest = build_backup_manifest(backup_dir)
+    checksums = dict(manifest.file_checksums)
+    checksums[str(external)] = sha256_file(external)
+    forged = replace(manifest, file_checksums=checksums)
+
+    proof = prove_restore(backup_dir, forged)
+
+    assert not proof.passed
+    assert any("unsafe backup member path" in reason for reason in proof.failures)
+
 
 
 def test_latest_backup_dir_picks_the_newest(tmp_path):
