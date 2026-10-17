@@ -108,3 +108,48 @@ it('adds an actual broker option contract to the draft and saves only its exact 
     expected_revision: 7, changes: { symbols: [...emaConfig().config.symbols, 'NFO:NIFTY26NOV25000CE'] },
   }));
 });
+
+
+it('selects the curated F&O stock universe and preserves stocks when disabled', async () => {
+  vi.mocked(api.get).mockImplementation(async path =>
+    String(path).includes('/stock-registry')
+      ? [{ liquidity: 'Very High', stocks: [
+        { name: 'RELIANCE', label: 'Reliance' },
+        { name: 'HDFCBANK', label: 'HDFC Bank' },
+      ] }] as never
+      : response as never);
+  show();
+  const all = await screen.findByRole('switch', { name: 'EMA scan all eligible F&O stocks' });
+  fireEvent.click(all);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(response.config.symbols).toEqual([
+    'NSE:TCS', 'NSE:RELIANCE', 'NSE:HDFCBANK',
+  ]));
+  const stockSwitch = screen.getByRole('switch', { name: 'EMA scan single-stock underlyings' });
+  fireEvent.click(stockSwitch);
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(response.config.scan_stocks_enabled).toBe(false));
+  expect(response.config.symbols).toContain('NSE:RELIANCE');
+});
+
+it('allows a cash stock outside curated F&O registry only after exact broker lookup', async () => {
+  vi.mocked(api.get).mockImplementation(async path => {
+    if (String(path).includes('/stock-registry')) return [] as never;
+    if (String(path).includes('/instruments?')) {
+      return { items: [{
+        symbol: 'NSE:VOLTAS', name: 'Voltas', exchange: 'NSE',
+        instrument_type: 'EQ', expiry: '', lot_size: 1, tick_size: '0.05',
+        execution_supported: true, blocker: null, contract: null,
+      }] } as never;
+    }
+    return response as never;
+  });
+  show();
+  fireEvent.click(screen.getByText(/Add more stocks or exact derivative contracts/));
+  const input = await screen.findByLabelText('EMA Trend instrument search');
+  fireEvent.change(input, { target: { value: 'VOLTAS' } });
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'NSE:VOLTAS' }));
+  expect(api.patch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+  await waitFor(() => expect(response.config.symbols).toContain('NSE:VOLTAS'));
+});
