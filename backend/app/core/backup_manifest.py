@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -334,56 +335,55 @@ def declared_databases(root: Path | str | None = None) -> tuple[Path, ...]:
 
 
 def snapshot_database(source: Path | str, destination: Path | str) -> str:
-    """Consistent online snapshot of one SQLite database. Returns its sha256.
+    """Atomically snapshot an existing SQLite DB, without creating its source.
 
-    SQLite's backup API rather than a byte copy: a copy taken while the runner
-    holds an open WAL connection is not a consistent database, and the copy
-    that is wrong is the one you only discover during a restore.
+    A unique temporary file prevents concurrent attempts from deleting or
+    interleaving each other's partial backups. Failures remove the temporary
+    snapshot and leave any previously committed destination unchanged.
     """
     source, destination = Path(source), Path(destination)
-    # SQLite's plain connect() CREATES a missing database. A source that
-    # disappears between declaration and snapshot must never be recreated as
-    # an empty "valid" database by the backup itself.
     if not source.is_file():
         raise FileNotFoundError(f"snapshot source database does not exist: {source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_suffix(destination.suffix + ".partial")
-    partial.unlink(missing_ok=True)
 
     source_uri = source.resolve(strict=True).as_uri()
     try:
         src = sqlite3.connect(f"{source_uri}?mode=ro", uri=True)
     except sqlite3.OperationalError:
-        # WAL databases can require a read-write connection to attach shared
-        # memory. mode=rw refuses missing files; unlike bare connect() it will
-        # never create a new empty database when the source vanishes.
+        # A WAL database can require a read-write connection to attach shared
+        # memory. mode=rw refuses absent files; bare connect() would CREATE one.
         src = sqlite3.connect(f"{source_uri}?mode=rw", uri=True)
+
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{destination.name}.", suffix=".partial", dir=destination.parent
+    )
+    os.close(fd)
+    partial = Path(temporary)
     try:
-        dst = sqlite3.connect(str(partial))
         try:
-            src.backup(dst)
-            integrity = dst.execute("PRAGMA integrity_check").fetchone()[0]
+            dst = sqlite3.connect(str(partial))
+            try:
+                src.backup(dst)
+                integrity = dst.execute("PRAGMA integrity_check").fetchone()[0]
+            finally:
+                dst.close()
         finally:
-            dst.close()
+            src.close()
+
+        if integrity != "ok":
+            raise BackupIntegrityError(
+                f"snapshot of {source} failed integrity_check: {integrity}"
+            )
+
+        partial.replace(destination)
+        # The closed snapshot connection's sidecars are not backup artifacts.
+        for sidecar in ("-wal", "-shm", "-journal"):
+            Path(str(destination) + sidecar).unlink(missing_ok=True)
+        return sha256_file(destination)
     finally:
-        src.close()
-
-    if integrity != "ok":
         partial.unlink(missing_ok=True)
-        raise BackupIntegrityError(
-            f"snapshot of {source} failed integrity_check: {integrity}"
-        )
-
-    partial.replace(destination)
-
-    # The snapshot connection leaves -wal/-shm beside the copy. They describe a
-    # connection that no longer exists, and checksumming them into the manifest
-    # would fail every later restore-check for no real reason.
-    for sidecar in ("-wal", "-shm", "-journal"):
-        Path(str(destination) + sidecar).unlink(missing_ok=True)
-        Path(str(partial) + sidecar).unlink(missing_ok=True)
-
-    return sha256_file(destination)
+        for sidecar in ("-wal", "-shm", "-journal"):
+            Path(str(partial) + sidecar).unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)
