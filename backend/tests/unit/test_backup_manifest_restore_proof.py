@@ -403,6 +403,32 @@ def test_restore_rejects_symlinked_original_manifest(backup_dir, tmp_path):
 
 
 
+
+def test_restore_verifies_checksum_of_copied_bytes(
+    backup_dir, monkeypatch
+):
+    from pathlib import Path
+    from app.core import backup_manifest as bm
+
+    copy_original = bm.shutil.copyfile
+
+    def corrupt_one_restored_file(source, destination):
+        outcome = copy_original(source, destination)
+        if Path(source).name == "freeze_record.json":
+            Path(destination).write_text('{"tampered": true}', encoding="utf-8")
+        return outcome
+
+    monkeypatch.setattr(bm.shutil, "copyfile", corrupt_one_restored_file)
+    proof = prove_restore(backup_dir)
+
+    assert not proof.passed
+    assert any(
+        "freeze_record.json: isolated restore copy checksum mismatch" in reason
+        for reason in proof.failures
+    )
+
+
+
 def test_latest_backup_dir_picks_the_newest(tmp_path):
     # "Newest" is the recorded creation time, not the directory name and not the
     # order the directories happened to be written, so give each its own manifest.
