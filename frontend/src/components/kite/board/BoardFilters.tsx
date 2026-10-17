@@ -10,6 +10,7 @@ import {useMobileBackLayer} from '../../../hooks/useMobileBackLayer';
  * looks like a broken control.
  */
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { COLUMNS, type ColumnId } from './SignalBoard';
 import { k, tint } from '../../../styles/kiteUI';
 import type { BoardView } from './useBoardView';
@@ -93,11 +94,35 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
   const [open, setOpen] = React.useState(false);
   useMobileBackLayer(open,()=>setOpen(false),'signal-columns');
   const ref = React.useRef<HTMLDivElement>(null);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const [placement, setPlacement] = React.useState({ top: 0, right: 8, maxHeight: 240 });
+  React.useEffect(() => {
+    if (!open) return;
+    const position = () => {
+      const anchor = ref.current?.getBoundingClientRect();
+      if (!anchor) return;
+      const gap = 4;
+      const below = window.innerHeight - anchor.bottom - gap;
+      const above = anchor.top - gap;
+      const height = Math.max(100, Math.min(320, Math.max(below, above) - 8));
+      const top = below >= 130 || below >= above ? anchor.bottom + gap : Math.max(8, anchor.top - Math.min(320, above) - gap);
+      setPlacement({ top, right: Math.max(8, window.innerWidth - anchor.right),
+        maxHeight: height });
+    };
+    position();
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
+  }, [open]);
 
   React.useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!ref.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', onDown);
@@ -135,12 +160,15 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
         COLUMNS{hiddenCount ? ` ${items.length - hiddenCount}/${items.length}` : ''}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
+          ref={menuRef}
           role="group"
           aria-label="Visible columns"
           style={{
-            position: 'absolute', top: 26, right: 0, zIndex: 60, minWidth: 168,
+            position: 'fixed', top: placement.top, right: placement.right,
+            zIndex: 2147483000, minWidth: 168, maxHeight: placement.maxHeight,
+            overflowY: 'auto', overscrollBehavior: 'contain',
             background: k.bg, border: '1px solid var(--k-border-strong)', borderRadius: 6,
             boxShadow: '0 10px 26px rgba(0, 0, 0, .26)', padding: 6,
           }}
@@ -175,7 +203,8 @@ export function ColumnsMenu({ items: allItems, onShowAll }: {
               Show all columns
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
