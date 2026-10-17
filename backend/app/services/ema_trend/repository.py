@@ -48,6 +48,9 @@ def _schema(conn):
           data_json TEXT NOT NULL, PRIMARY KEY(owner_uid,kind,id));
         CREATE INDEX IF NOT EXISTS ix_ema_trend_documents
           ON ema_trend_documents(owner_uid,kind,updated_ms);
+        CREATE INDEX IF NOT EXISTS ix_ema_trend_signal_mode
+          ON ema_trend_documents(owner_uid,kind,json_extract(data_json,'$.mode'),updated_ms DESC,id)
+          WHERE kind='signal';
         CREATE TABLE IF NOT EXISTS ema_trend_ownership(
           owner_uid TEXT NOT NULL, symbol TEXT NOT NULL, campaign_id TEXT NOT NULL,
           PRIMARY KEY(owner_uid,symbol));
