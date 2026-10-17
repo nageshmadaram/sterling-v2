@@ -113,18 +113,22 @@ export function EmaTrendSettings() {
       {exportError && <p role="alert">Export failed: {exportError}</p>}
       <ConfigNote>Export contains saved settings, campaigns, orders and research records. It does not contain broker credentials and is not a broker-account backup.</ConfigNote>
     </Section>
-    <Section title="Instruments and contracts" summary={`${cfg.symbols.length} selected · ${cfg.modes.length} profiles`} description="Exact broker-listed equities, futures and long options. Index exposure requires an actual derivative contract." defaultOpen persistKey="ema-trend-universe">
-      <EmaTrendInstrumentPicker symbols={cfg.symbols} mode={cfg.modes[0]} onChange={symbols => { setSymbolsText(null); patch({ symbols }); }} />
-      <Field label="Exact symbols (advanced)" hint="Exchange-qualified symbols separated by commas or newlines. Broker metadata and venue capability are checked before an order.">
-        <textarea aria-label="EMA Trend instruments" value={symbolsText ?? cfg.symbols.join(', ')} rows={3}
-          style={{ width: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)' }}
-          onChange={event => { setSymbolsText(event.target.value); patch({ symbols: event.target.value.split(/[,\n]/).map(v => v.trim().toUpperCase()).filter(Boolean) }); }} />
-      </Field>
-      <button type="button" className="sb-tool"
-        onClick={() => { patch({ symbols: [...NSE_EQUITY_STARTER] }); setSymbolsText(null); }}>
-        Use NSE equity starter list (15)
-      </button>
-      <ConfigNote>This fills your unsaved instrument draft only. Review and Apply changes to enable scans; no order is submitted.</ConfigNote>
+    <Section title="Scan universe" summary={`${cfg.scan_indices?.length || 0} indices · ${cfg.scan_stocks_enabled === false ? 0 : cfg.symbols.length} instruments · ${cfg.modes.length} profiles`}
+      description="Select index watch signals, F&O stock underlyings, or add exact contracts as needed." defaultOpen persistKey="ema-trend-universe">
+      <EmaTrendInstrumentPicker symbols={cfg.symbols} mode={cfg.modes[0]}
+        indices={cfg.scan_indices || []} stockScanEnabled={cfg.scan_stocks_enabled !== false}
+        onIndicesChange={scan_indices => patch({ scan_indices })}
+        onStockScanEnabledChange={scan_stocks_enabled => patch({ scan_stocks_enabled })}
+        onChange={symbols => { setSymbolsText(null); patch({ symbols }); }} />
+      <details style={{ marginTop: 8 }}>
+        <summary style={{ cursor: 'pointer', fontSize: 11 }}>Advanced: edit exact exchange symbols</summary>
+        <Field label="Exchange-qualified instruments" hint="Advanced fallback only; broker metadata is validated during scans.">
+          <textarea aria-label="EMA Trend instruments" value={symbolsText ?? cfg.symbols.join(', ')} rows={2}
+            style={{ width: '100%', background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)' }}
+            onChange={event => { setSymbolsText(event.target.value); patch({ symbols: event.target.value.split(/[,\n]/).map(v => v.trim().toUpperCase()).filter(Boolean) }); }} />
+        </Field>
+      </details>
+      <ConfigNote>Selections are staged until Apply changes. Spot indices are read-only. No broker order is submitted.</ConfigNote>
       <Field label="Enabled profiles" hint="At least one profile. A shared instrument owner prevents simultaneous mode positions.">
         <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
           <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
