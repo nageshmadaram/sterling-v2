@@ -330,6 +330,30 @@ def read_state():
     except (OSError,ValueError):return {}
 
 
+def live_presentation_status(state, running):
+    """Never report remembered public verification as live after manager exit.
+
+    A cached successful HTTPS check means nothing when the Node listener is
+    gone. Preserve last-known hostnames as historical metadata, but expose
+    verified URLs/callback guidance only for a supervised, owned gateway.
+    """
+    gateway=bool(running and state.get('phase')!='stopped' and _managed_web_owns_port(state))
+    verified=state.get('public_ready') or {}
+    live_verified={name:bool(ok) for name,ok in verified.items()} if gateway else {}
+    urls=state.get('urls') or {}
+    return {
+        **state,
+        'manager_running':bool(running),
+        'gateway_running':gateway,
+        'public_ready':live_verified,
+        'urls':{name:value for name,value in urls.items() if live_verified.get(name)},
+        'mini_app_url':state.get('mini_app_url','') if live_verified.get(
+            'ngrok' if state.get('mode')=='ngrok' else 'cloudflare') else '',
+        'callback_url':state.get('callback_url','') if live_verified.get(
+            'ngrok' if state.get('mode')=='ngrok' else 'cloudflare') else '',
+    }
+
+
 def save_state(data):
     temp=STATE/'status.tmp';temp.write_text(json.dumps(data,indent=2));os.chmod(temp,0o600);temp.replace(STATE/'status.json')
 
@@ -850,7 +874,7 @@ class Stack:
         self.stop_child('dev')
         self.stop_child('cloudflare')
         self.stop_child('web')
-        self.status.update(phase='stopped')
+        self.status.update(phase='stopped',public_ready={},urls={})
         save_state(self.status)
 
 
@@ -928,25 +952,25 @@ def main():
         parser.error('Development port conflicts with gateway, backend or legacy Kite callback port')
     state=read_state();running=alive(state.get('manager_pid')) and state.get('phase')!='stopped'
     if args.command=='status':
-        print(json.dumps({**state,'manager_running':running},indent=2))
+        print(json.dumps(live_presentation_status(state,running),indent=2))
         return
     if args.command=='urls':
+        live=live_presentation_status(state,running)
         print(json.dumps({
-            'manager_running':running,
-            'local':state.get('local_url','http://127.0.0.1:5180'),
-            'dev':state.get('dev_url',''),
-            'cloudflare':(state.get('cloudflare_url','')
-                          if running and state.get('public_ready',{}).get('cloudflare') else ''),
-            'ngrok':(state.get('ngrok_url','')
-                     if running and state.get('public_ready',{}).get('ngrok') else ''),
-            'verified':state.get('public_ready',{}) if running else {},
-            'primary_telegram_desk':state.get('mini_app_url',''),
-            'kite_callback_guidance':state.get('callback_url',''),
-            'ngrok_error':state.get('ngrok_error',''),
-            'release_ref':state.get('release_ref',''),
-            'release_commit':state.get('release_commit',''),
-            'release_stale':state.get('release_stale',False),
-            'release_error':state.get('release_error',''),
+            'manager_running':live['manager_running'],
+            'gateway_running':live['gateway_running'],
+            'local':live.get('local_url','http://127.0.0.1:5180'),
+            'dev':live.get('dev_url',''),
+            'cloudflare':(live.get('urls') or {}).get('cloudflare',''),
+            'ngrok':(live.get('urls') or {}).get('ngrok',''),
+            'verified':live['public_ready'],
+            'primary_telegram_desk':live['mini_app_url'],
+            'kite_callback_guidance':live['callback_url'],
+            'ngrok_error':live.get('ngrok_error',''),
+            'release_ref':live.get('release_ref',''),
+            'release_commit':live.get('release_commit',''),
+            'release_stale':live.get('release_stale',False),
+            'release_error':live.get('release_error',''),
         },indent=2))
         return
     if args.command in {'stop','rotate'}:
@@ -1004,7 +1028,7 @@ def main():
         # Stop only the locally-managed presentation/tunnel processes.
         for child in ('ngrok','dev','cloudflare','web'):
             stack.stop_child(child)
-        stack.status.update(phase='stopped')
+        stack.status.update(phase='stopped',public_ready={},urls={})
         save_state(stack.status)
 
 

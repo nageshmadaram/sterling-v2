@@ -797,6 +797,61 @@ def test_public_source_defaults_to_local_main_and_rejects_invalid_ref(monkeypatc
 
 
 
+
+def test_stopped_manager_never_reports_cached_tunnels_as_verified(monkeypatch,tmp_path,capsys):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ old={
+  'manager_pid':3386654, 'phase':'stopped','local_url':'http://127.0.0.1:5180',
+  'dev_url':'http://127.0.0.1:5174','mode':'both',
+  'public_ready':{'cloudflare':True,'ngrok':True},
+  'urls':{'cloudflare':'https://cf.example.test','ngrok':'https://ngrok.example.test'},
+  'cloudflare_url':'https://cf.example.test','ngrok_url':'https://ngrok.example.test',
+  'mini_app_url':'https://cf.example.test/tma',
+  'callback_url':'https://cf.example.test/api/v1/kite/callback',
+ }
+ monkeypatch.setattr(stack,'read_state',lambda:old)
+ monkeypatch.setattr(stack,'alive',lambda pid:False)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:False)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','status'])
+ stack.main()
+ state=json.loads(capsys.readouterr().out)
+ assert state['manager_running'] is False
+ assert state['gateway_running'] is False
+ assert state['public_ready']=={} and state['urls']=={}
+ assert state['mini_app_url']=='' and state['callback_url']==''
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','urls'])
+ stack.main()
+ urls=json.loads(capsys.readouterr().out)
+ assert urls['cloudflare']=='' and urls['ngrok']==''
+ assert urls['primary_telegram_desk']==''
+ assert urls['kite_callback_guidance']==''
+
+
+def test_live_manager_with_dead_gateway_does_not_claim_public_readiness():
+ cached={'phase':'ready','mode':'both','public_ready':{'cloudflare':True,'ngrok':True},
+         'urls':{'cloudflare':'https://cf.example.test'}}
+ from unittest.mock import patch
+ with patch.object(stack,'_managed_web_owns_port',return_value=False):
+  reported=stack.live_presentation_status(cached,True)
+ assert reported['manager_running'] is True
+ assert reported['gateway_running'] is False
+ assert reported['public_ready']=={} and reported['urls']=={}
+
+
+def test_verified_tunnels_preserved_when_gateway_owned_and_supervised():
+ cached={'phase':'ready','mode':'both','public_ready':{'cloudflare':True,'ngrok':False},
+         'urls':{'cloudflare':'https://cf.example.test','ngrok':'https://old.ngrok.test'},
+         'mini_app_url':'https://cf.example.test/tma',
+         'callback_url':'https://cf.example.test/api/v1/kite/callback'}
+ from unittest.mock import patch
+ with patch.object(stack,'_managed_web_owns_port',return_value=True):
+  reported=stack.live_presentation_status(cached,True)
+ assert reported['public_ready']=={'cloudflare':True,'ngrok':False}
+ assert reported['urls']=={'cloudflare':'https://cf.example.test'}
+ assert reported['mini_app_url'].endswith('/tma')
+ assert reported['callback_url'].endswith('/api/v1/kite/callback')
+
+
 def test_up_dashboard_is_prominent_and_prints_only_verified_urls(monkeypatch,capsys):
  from types import SimpleNamespace
  monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
