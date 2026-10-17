@@ -20,6 +20,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -37,15 +38,30 @@ def fetch(url, timeout=8):
 
 
 def public_ready(origin):
-    """Publish only a reachable app + desk whose private data still requires authentication."""
-    try:
-        _,index=fetch(origin+'/')
-        _,desk=fetch(origin+'/tma')
-        if 'id="root"' not in index or 'Telegram Mini App' not in desk:return False
-        try:fetch(origin+'/api/v1/tma/data')
-        except urllib.error.HTTPError as error:return error.code==401
+    """Verify the HTTPS app, Telegram desk, and private API boundary concurrently.
+
+    Each request retains fetch()'s bounded timeout and full TLS certificate
+    verification. Parallel checks avoid serial timeout delays on a bad tunnel.
+    """
+    if not isinstance(origin, str) or not origin.startswith('https://'):
         return False
-    except Exception:return False
+    try:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            index_task = pool.submit(fetch, origin + '/')
+            desk_task = pool.submit(fetch, origin + '/tma')
+            private_task = pool.submit(fetch, origin + '/api/v1/tma/data')
+            index_status, index = index_task.result()
+            desk_status, desk = desk_task.result()
+            if (index_status != 200 or desk_status != 200 or
+                    'id="root"' not in index or 'Telegram Mini App' not in desk):
+                return False
+            try:
+                private_task.result()
+            except urllib.error.HTTPError as error:
+                return error.code == 401
+            return False
+    except Exception:
+        return False
 
 
 def tunnel_unavailable(origin, port):
@@ -208,12 +224,12 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
     color=_terminal_color_enabled()
     fmt=lambda text,tone: _terminal_style(text,tone,color)
     phase=state.get('phase','starting')
-    ready=bool(gateway_ready and phase=='ready')
+    ready=bool(gateway_ready)  # Local process ownership is independent of tunnel state.
     # Do not print cached URLs unless the running manager confirmed them.
     healthy=state.get('public_ready') or {}
     urls=state.get('urls') or {}
     def public_origin(provider):
-        if not ready or not healthy.get(provider):
+        if not gateway_ready or not healthy.get(provider):
             return None
         origin=urls.get(provider,'')
         try:
@@ -237,8 +253,13 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
     print(fmt('  ╔══════════════════════════════════════════════════════════════════╗','brand'))
     print(fmt('  ║  ✦ S T E R L I N G     ·     ONE-COMMAND WORKSPACE             ║','brand'))
     print(fmt('  ╚══════════════════════════════════════════════════════════════════╝','brand'))
-    print('  '+fmt('● MANAGED — reusing backend and tunnels','green')
-          if reused else '  '+fmt('◉ STARTING — one backend, both public tunnels and dev','yellow'))
+    if reused:
+        message=('● MANAGED — both tunnels verified' if ready and
+                 healthy.get('cloudflare') and healthy.get('ngrok') else
+                 '◉ MANAGED — connecting/verifying public tunnels')
+        print('  '+fmt(message,'green' if 'verified' in message else 'yellow'))
+    else:
+        print('  '+fmt('◉ STARTING — one backend, both public tunnels and dev','yellow'))
     print()
     local=_clean_terminal_value(state.get('local_url') or 'http://127.0.0.1:5180')
     development=_clean_terminal_value(state.get('dev_url') or 'http://127.0.0.1:5174')
@@ -246,9 +267,13 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
          'green' if ready else 'yellow')
     for name,provider in [('CLOUDFLARE','cloudflare'),('NGROK','ngrok')]:
         found=public_origin(provider)
-        line(name,found or 'Connecting — awaiting HTTPS verification',
-             'VERIFIED' if found else 'CONNECTING','green' if found else 'yellow',
-             '●' if found else '◌')
+        discovered=_clean_terminal_value(state.get(f'{provider}_url',''))
+        if found:
+            line(name,found,'VERIFIED','green')
+        elif discovered.startswith('https://'):
+            line(name,discovered+' (unverified)','VERIFYING','yellow','◌')
+        else:
+            line(name,'Tunnel URL not yet discovered','CONNECTING','yellow','◌')
     # Vite is launched by the supervisor, but do not claim HTTP readiness from
     # the existence of a remembered child PID alone.
     line('DEV · HOT RELOAD',development,'LOCAL WORKTREE','magenta')
@@ -265,8 +290,31 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
         print('  '+fmt('! Previous committed release retained; latest build failed.','yellow'))
     if state.get('ngrok_error'):
         print('  '+fmt(f'! ngrok: {_clean_terminal_value(state["ngrok_error"])}','yellow'))
+    if not gateway_ready and reused:
+        print('  '+fmt('! Local gateway ownership not verified; inspect ./sterling.sh status','yellow'))
     print('  '+fmt('DETAILS ','muted')+'./sterling.sh urls   ·   ./sterling.sh status')
     print()
+
+
+def wait_for_up_status(manager_pid, *, seconds=12):
+    """Bounded readiness wait, never turning an unverified HTTPS URL green."""
+    deadline=time.monotonic()+max(0,min(float(seconds),20))
+    latest=read_state()
+    while time.monotonic()<deadline:
+        state=read_state()
+        if state.get('manager_pid')!=manager_pid:
+            time.sleep(.2)
+            continue
+        latest=state
+        if state.get('phase')=='stopped' or not alive(manager_pid):
+            break
+        if (_managed_web_owns_port(state)
+                and state.get('public_ready',{}).get('cloudflare')
+                and (state.get('public_ready',{}).get('ngrok')
+                     or state.get('ngrok_error')=='NGROK_BINARY_NOT_INSTALLED')):
+            break
+        time.sleep(.2)
+    return latest
 
 
 def read_state():
@@ -505,7 +553,7 @@ class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
         provider=getattr(args,'provider','cloudflare')
-        self.status={'manager_pid':os.getpid(),'manager_protocol':3,'phase':'starting','app_url':'','mini_app_url':'',
+        self.status={'manager_pid':os.getpid(),'manager_protocol':4,'phase':'starting','app_url':'','mini_app_url':'',
                      'mode':'both' if provider=='both' else 'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'),
                      'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
@@ -725,23 +773,37 @@ class Stack:
                     self.last_ngrok_retry=now+60
                     self.status['ngrok_error']='NGROK_RESTARTING'
                     self.launch_ngrok()
+            discovered=False
             while not self.urls.empty():
                 pid,url=self.urls.get()
                 if pid==self.children['cloudflare'].pid:
+                    discovered|=(self.status.get('app_url')!=url)
                     self.status['app_url']=url
                     key='ngrok_url' if self.args.provider=='ngrok' else 'cloudflare_url'
                     self.status[key]=url
             while not self.ngrok_urls.empty():
                 pid,url=self.ngrok_urls.get()
                 child=self.children.get('ngrok')
-                if child and pid==child.pid:self.status['ngrok_url']=url
+                if child and pid==child.pid:
+                    discovered|=(self.status.get('ngrok_url')!=url)
+                    self.status['ngrok_url']=url
+            if discovered:
+                # The first probe often ran before the tunnel printed its
+                # hostname. Verify immediately instead of waiting 15 seconds.
+                next_probe=now
             if now>=next_probe:
                 next_probe=now+15
                 primary=self.status.get('app_url','')
-                primary_ready=bool(primary and public_ready(primary))
                 secondary=self.status.get('ngrok_url','') if self.args.provider=='both' else ''
                 ngrok_child=self.children.get('ngrok')
-                ngrok_ready=bool(secondary and ngrok_child and ngrok_child.poll() is None and public_ready(secondary))
+                # Probe the two independent HTTPS providers concurrently.
+                # Never infer authentication or readiness from URL discovery.
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    primary_task=pool.submit(public_ready,primary) if primary else None
+                    secondary_task=(pool.submit(public_ready,secondary)
+                        if secondary and ngrok_child and ngrok_child.poll() is None else None)
+                    primary_ready=bool(primary_task and primary_task.result())
+                    ngrok_ready=bool(secondary_task and secondary_task.result())
                 primary_provider='ngrok' if self.args.provider=='ngrok' else 'cloudflare'
                 self.status['public_ready']={primary_provider:primary_ready}
                 if self.args.provider=='both':self.status['public_ready']['ngrok']=ngrok_ready
@@ -749,6 +811,10 @@ class Stack:
                     **({primary_provider:primary} if primary_ready else {}),
                     **({'ngrok':secondary} if ngrok_ready else {}),
                 }
+                # Surface freshly verified endpoints to ./sterling.sh up NOW,
+                # before the optional Telegram-menu publication can block.
+                self.status['children']={name:proc.pid for name,proc in self.children.items()}
+                save_state(self.status)
                 if primary_ready:
                     self.failures=0
                     self.status['last_verified_at']=time.time()
@@ -881,12 +947,14 @@ def main():
     if args.command=='up' and running:
         # Re-running the one-command launcher is idempotent. A verified
         # current gateway is already supervised; do not churn its tunnels.
-        current=(state.get('manager_protocol',0)>=3 and
+        current=(state.get('manager_protocol',0)>=4 and
                  state.get('mode')=='both' and
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
                  state.get('web_port')==args.port)
         if current and state.get('phase')!='stopped':
             if state.get('phase')!='ready' or _managed_web_owns_port(state):
+                state=wait_for_up_status(state['manager_pid'],
+                    seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','12'))
                 print_up_dashboard(state,reused=True,
                                    gateway_ready=_managed_web_owns_port(state))
                 return
@@ -906,13 +974,18 @@ def main():
             forwarded.append('--all')
         log=(STATE/'manager.log').open('a');os.chmod(STATE/'manager.log',0o600)
         # Child inherits the singleton lock; no second launcher can race startup.
-        subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'run',*forwarded],cwd=ROOT,env={**clean_env(),'STERLING_STACK_LOCK_FD':str(lock.fileno())},stdout=log,stderr=log,start_new_session=True,pass_fds=(lock.fileno(),))
-        # A new supervisor initializes in the background. Show pending URLs
-        # rather than repeating previously cached/public hostnames.
-        print_up_dashboard({'phase':'starting',
-            'local_url':f'http://127.0.0.1:{args.port}',
-            'dev_url':f'http://127.0.0.1:{args.dev_port}',
-            'public_ready':{},'urls':{}},reused=False)
+        manager=subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'run',*forwarded],cwd=ROOT,env={**clean_env(),'STERLING_STACK_LOCK_FD':str(lock.fileno())},stdout=log,stderr=log,start_new_session=True,pass_fds=(lock.fileno(),))
+        # The manager continues asynchronously; wait briefly for *verified*
+        # URLs so the first dashboard is useful instead of stale startup data.
+        updated=(wait_for_up_status(manager.pid,
+                  seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','12'))
+                 if args.command=='up' else {})
+        if updated.get('manager_pid')!=manager.pid:
+            updated={'phase':'starting','local_url':f'http://127.0.0.1:{args.port}',
+                     'dev_url':f'http://127.0.0.1:{args.dev_port}',
+                     'public_ready':{},'urls':{}}
+        print_up_dashboard(updated,reused=False,
+                           gateway_ready=_managed_web_owns_port(updated))
         return
     stack=Stack(args)
     signal.signal(signal.SIGTERM,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGINT,lambda *_:setattr(stack,'stopping',True));signal.signal(signal.SIGUSR1,lambda *_:setattr(stack,'rotate',True))

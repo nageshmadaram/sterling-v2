@@ -36,6 +36,24 @@ def test_publication_requires_live_app_desk_and_auth(monkeypatch):
  monkeypatch.setattr(stack,'fetch',lambda url:(_ for _ in ()).throw(TimeoutError()))
  assert not stack.public_ready('https://synthetic.example.test')
 
+def test_public_readiness_checks_are_concurrent_and_fail_closed(monkeypatch):
+ barrier=threading.Barrier(3,timeout=2)
+ def fetch(url):
+  barrier.wait()
+  if url.endswith('/api/v1/tma/data'):
+   raise urllib.error.HTTPError(url,401,'Unauthorized',{},None)
+  return 200,('Telegram Mini App' if url.endswith('/tma') else 'id="root"')
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert stack.public_ready('https://parallel.example.test')
+
+
+def test_public_readiness_rejects_plain_http_without_probe(monkeypatch):
+ def reject(url):
+  raise AssertionError('No HTTP probe should be made for a public origin')
+ monkeypatch.setattr(stack,'fetch',reject)
+ assert not stack.public_ready('http://parallel.example.test')
+
+
 async def test_menu_url_change_preserves_poll_offset(monkeypatch):
  from app.services.notifications import telegram_bot as bot,telegram_kite as desk
  monkeypatch.setattr(bot._tg,'TELEGRAM_TOKEN','synthetic');monkeypatch.setattr(bot._tg,'TELEGRAM_CHAT_ID','1')
@@ -474,7 +492,7 @@ def test_exited_gateway_does_not_count_as_started(monkeypatch):
 
 def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,capsys):
  monkeypatch.setattr(stack,'STATE',tmp_path)
- existing={'manager_pid':80808,'manager_protocol':3,'mode':'both',
+ existing={'manager_pid':80808,'manager_protocol':4,'mode':'both',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
   'local_url':'http://127.0.0.1:5180',
   'public_ready':{'cloudflare':True,'ngrok':True},
@@ -491,7 +509,7 @@ def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,caps
  monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
  stack.main()
  out=capsys.readouterr().out
- assert 'reusing backend and tunnels' in out
+ assert 'MANAGED' in out
  assert 'https://cloudflare.example.test' in out
  assert 'https://ngrok.example.test' in out
 
@@ -508,7 +526,9 @@ def test_up_replaces_old_ui_manager_but_never_calls_backend_shutdown(monkeypatch
   active['value']=False
  monkeypatch.setattr(stack,'_stop_old_managed_presentation',stop)
  started=[]
- class Process:pass
+ class Process:
+  pid=98989
+ monkeypatch.setattr(stack,'wait_for_up_status',lambda pid,**kwargs:{})
  def popen(command,**kwargs):
   started.append(command)
   return Process()
@@ -589,9 +609,10 @@ def test_start_web_refuses_unknown_listener_without_launching_second(monkeypatch
 
 
 def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp_path):
+ monkeypatch.setenv('STERLING_UP_WAIT_SECONDS','0')
  monkeypatch.setattr(stack,'STATE',tmp_path)
  monkeypatch.setattr(stack,'read_state',lambda:{
-  'manager_pid':80808,'manager_protocol':3,'mode':'both',
+  'manager_pid':80808,'manager_protocol':4,'mode':'both',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,
   'phase':'starting','local_url':'http://127.0.0.1:5180'})
  monkeypatch.setattr(stack,'alive',lambda pid:True)
@@ -779,7 +800,7 @@ def test_up_dashboard_is_prominent_and_prints_only_verified_urls(monkeypatch,cap
  stack.print_up_dashboard(state,reused=True,gateway_ready=True)
  out=capsys.readouterr().out
  assert 'S T E R L I N G' in out
- assert 'reusing backend and tunnels' in out
+ assert 'MANAGED' in out
  assert 'LOCAL APP' in out and 'http://127.0.0.1:5180' in out
  assert 'CLOUDFLARE' in out and 'https://cf.example.test' in out
  assert 'NGROK' in out and 'CONNECTING' in out
@@ -817,6 +838,31 @@ def test_up_dashboard_starting_never_displays_stale_public_urls(monkeypatch,caps
  assert 'stale-cf' not in output and 'stale-ngrok' not in output
  assert 'http://127.0.0.1:5180' in output
  assert 'http://127.0.0.1:5174' in output
+
+
+def test_wait_for_up_status_returns_genuinely_verified_urls(monkeypatch):
+ state={'manager_pid':999,'phase':'ready',
+   'public_ready':{'cloudflare':True,'ngrok':True},
+   'children':{'web':321},'urls':{'cloudflare':'https://cf.example.test',
+                                   'ngrok':'https://tunnel.ngrok-free.dev'}}
+ monkeypatch.setattr(stack,'read_state',lambda:state)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda value:True)
+ assert stack.wait_for_up_status(999,seconds=2)==state
+
+
+def test_ngrok_stays_visible_even_when_cloudflare_is_reconnecting(monkeypatch,capsys):
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
+ state={'phase':'reconnecting','public_ready':{'cloudflare':False,'ngrok':True},
+        'urls':{'ngrok':'https://verified.ngrok-free.dev'},
+        'ngrok_url':'https://verified.ngrok-free.dev',
+        'cloudflare_url':'https://unverified.trycloudflare.com'}
+ stack.print_up_dashboard(state,reused=True,gateway_ready=True)
+ out=capsys.readouterr().out
+ assert 'LOCAL APP' in out and 'READY' in out
+ assert 'NGROK' in out and 'VERIFIED' in out
+ assert 'https://verified.ngrok-free.dev' in out
+ assert 'https://unverified.trycloudflare.com (unverified)' in out
 
 
 def test_no_color_environment_disables_ansi_even_for_real_tty(monkeypatch):
