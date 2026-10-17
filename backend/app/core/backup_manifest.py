@@ -420,12 +420,30 @@ def create_full_backup(
     # UTC timestamps.
     stamp_utc = stamp.astimezone(timezone.utc)
     backup_id = stamp_utc.strftime("%Y-%m-%dT%H%M%S.%fZ")
-    directory = Path(backup_root) / backup_id
-    directory.mkdir(parents=True, exist_ok=False)
 
     requested = (
         [Path(p) for p in databases] if databases is not None else list(declared_databases(base))
     )
+    # An explicit database override must observe the SAME basename collision
+    # rule as declared_databases(). Otherwise two distinct sources named
+    # sterling_paper.db (or any same name) silently overwrite one snapshot.
+    unique: dict[str, Path] = {}
+    for source in requested:
+        existing = unique.get(source.name)
+        if existing is not None:
+            if existing.expanduser().resolve(strict=False) != source.expanduser().resolve(strict=False):
+                raise BackupIntegrityError(
+                    "backup database basename collision: "
+                    f"{existing} and {source} both snapshot as {source.name}"
+                )
+            continue
+        unique[source.name] = source
+    requested = list(unique.values())
+    # Validate before creating a backup directory, so a rejected declaration
+    # does not leave a misleading partial backup artifact on disk.
+    directory = Path(backup_root) / backup_id
+    directory.mkdir(parents=True, exist_ok=False)
+
     missing = [str(p) for p in requested if not Path(p).exists()]
     present = [Path(p) for p in requested if Path(p).exists()]
 
