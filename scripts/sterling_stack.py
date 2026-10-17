@@ -371,6 +371,10 @@ class CommittedFrontend:
             # interrupted run. Published release directories are immutable.
             self._extract(sha)
             self._dependencies()
+            # Never carry a tracked or leftover dist into a new committed
+            # build; Vite intentionally has emptyOutDir=false for other flows.
+            old_dist=self.frontend/'dist'
+            if old_dist.exists():shutil.rmtree(old_dist)
             with (STATE/'release-build.log').open('a') as log:
                 subprocess.run(['npm','run','build'],
                                cwd=self.frontend,
