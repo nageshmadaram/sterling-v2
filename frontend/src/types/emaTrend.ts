@@ -56,11 +56,12 @@ export interface EmaTrendConfigResponse {
   capabilities: { live: boolean; paper: boolean }; blockers: string[];
 }
 export interface EmaTrendScan {
-  id: string; status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
+  id?: string; status: 'QUEUED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'IDLE';
   progress?: number; errors?: string[]; created_ms?: number; finished_ms?: number;
 }
 export interface EmaTrendSnapshot extends Omit<EmaTrendConfigResponse, 'defaults'> {
   rows: EmaTrendSetup[]; campaigns: EmaTrendCampaign[]; scan: EmaTrendScan | null;
+  generated_ms?: number; next_cursor?: number | null; truncatedModes?: EmaTrendMode[];
 }
 export interface EmaTrendPlan {
   id: string; revision: number; status: 'READY' | 'BLOCKED'; blockers: string[];
