@@ -386,7 +386,9 @@ class Stack:
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command',choices=['start','run','status','rotate','stop'],nargs='?',default='start')
+    parser.add_argument('command',choices=['start','run','status','urls','rotate','stop'],nargs='?',default='start')
+    parser.add_argument('--all',action='store_true',
+        help='One-command local app + Cloudflare + ngrok + loopback Vite dev')
     parser.add_argument('--port',type=int,default=5180);parser.add_argument('--skip-build',action='store_true')
     parser.add_argument('--provider',choices=['cloudflare','ngrok','both'],default=None)
     parser.add_argument('--hostname',default='')
@@ -404,7 +406,7 @@ def main():
         key,sep,value=line.strip().partition('=')
         if sep and key.startswith('STERLING_') and key not in os.environ:
             os.environ[key]=value.strip().strip(chr(34)+chr(39))
-    args.provider=args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
+    args.provider='both' if args.all else args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
     if args.provider not in {'cloudflare','ngrok','both'}:parser.error('Unsupported tunnel provider')
     if args.provider=='both':
         # Legacy STERLING_PUBLIC_HOSTNAME might be an ngrok origin from an
@@ -413,7 +415,7 @@ def main():
     else:
         args.hostname=args.hostname or os.environ.get('STERLING_PUBLIC_HOSTNAME','')
     args.ngrok_hostname=args.ngrok_hostname or os.environ.get('STERLING_NGROK_HOSTNAME','')
-    args.dev=args.dev or os.environ.get('STERLING_DEV_FRONTEND','').lower() in {'1','true','yes','on'}
+    args.dev=args.all or args.dev or os.environ.get('STERLING_DEV_FRONTEND','').lower() in {'1','true','yes','on'}
     try:
         args.hostname=safe_hostname(args.hostname,'Primary')
         args.ngrok_hostname=safe_hostname(args.ngrok_hostname,'ngrok')
@@ -423,7 +425,22 @@ def main():
     if args.dev and (args.dev_port in {5173,8000,args.port} or not 1024<=args.dev_port<=65535):
         parser.error('Development port conflicts with gateway, backend or legacy Kite callback port')
     state=read_state();running=alive(state.get('manager_pid')) and state.get('phase')!='stopped'
-    if args.command=='status':print(json.dumps({**state,'manager_running':running},indent=2));return
+    if args.command=='status':
+        print(json.dumps({**state,'manager_running':running},indent=2))
+        return
+    if args.command=='urls':
+        print(json.dumps({
+            'manager_running':running,
+            'local':state.get('local_url','http://127.0.0.1:5180'),
+            'dev':state.get('dev_url',''),
+            'cloudflare':state.get('cloudflare_url',''),
+            'ngrok':state.get('ngrok_url',''),
+            'verified':state.get('public_ready',{}),
+            'primary_telegram_desk':state.get('mini_app_url',''),
+            'kite_callback_guidance':state.get('callback_url',''),
+            'ngrok_error':state.get('ngrok_error',''),
+        },indent=2))
+        return
     if args.command in {'stop','rotate'}:
         if not running:raise RuntimeError('Sterling stack manager is not running')
         os.kill(state['manager_pid'],signal.SIGTERM if args.command=='stop' else signal.SIGUSR1);print('Request accepted');return
@@ -443,8 +460,12 @@ def main():
     save_state(stack.status)
     try:stack.run()
     finally:
-        stack.stop_child('cloudflare');stack.stop_child('web')
-        stack.status.update(phase='stopped');save_state(stack.status)
+        # Keep broker backend alive for exit, protection and reconciliation.
+        # Stop only the locally-managed presentation/tunnel processes.
+        for child in ('ngrok','dev','cloudflare','web'):
+            stack.stop_child(child)
+        stack.status.update(phase='stopped')
+        save_state(stack.status)
 
 
 if __name__=='__main__':
