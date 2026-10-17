@@ -727,6 +727,20 @@ def lane_manifest_file_drift(
     return tuple(problems)
 
 
+def verify_frozen_manifest(
+    stored: Mapping[str, Any],
+    current: Mapping[str, Any] | None = None,
+    root: Path | str | None = None,
+) -> tuple[ManifestVerdict, tuple[str, ...]]:
+    """Check both the release contract and all deployed per-lane artifacts.
+
+    A matching release.json alone is insufficient: a lost or altered lane file
+    breaks backup coverage and makes the release unrecoverable. Keep the
+    semantic comparison separate so callers can report the two failure classes.
+    """
+    return verify_manifest(stored, current), lane_manifest_file_drift(stored, root)
+
+
 def read_manifest(root: Path | str | None = None) -> dict[str, Any] | None:
     """The stored manifest, or ``None`` when the release was never frozen."""
     base = Path(root) if root is not None else state_root()
@@ -772,6 +786,7 @@ __all__ = [
     "render_manifest",
     "repo_root",
     "runtime_sha",
+    "verify_frozen_manifest",
     "verify_manifest",
     "working_tree_clean",
     "write_manifest",
