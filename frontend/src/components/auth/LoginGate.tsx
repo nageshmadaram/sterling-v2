@@ -73,7 +73,15 @@ export function LoginGate({ children }: { children: ReactNode }) {
     }
   }
 
-  if (phase !== 'login') return <><div style={{display:'contents'}} inert={phase==='checking'}>{children}</div>{phase === 'ready' && <BrokerLoginEntry />}{phase==='checking' && <SessionRestoreCard stage="session" message={error || 'Verifying Sterling session…'}>{error && <button type="button" className="sterling-retry-button" onClick={()=>setConnectionAttempt(a=>a+1)}>Retry connection</button>}</SessionRestoreCard>}</>;
+  // Do not mount the workspace until the operator session is verified.
+  // An inert wrapper disables interaction but does not stop subscriptions,
+  // WebSockets, expensive charts or competing API calls during backend recovery.
+  // After a successful sign-in ordinary temporary disconnections do not tear
+  // down the authenticated workspace.
+  if (phase === 'checking') return <SessionRestoreCard stage="session" message={error || 'Verifying Sterling session…'}>
+    {error && <button type="button" className="sterling-retry-button" onClick={() => setConnectionAttempt(a => a + 1)}>Retry connection</button>}
+  </SessionRestoreCard>;
+  if (phase === 'ready') return <>{children}<BrokerLoginEntry /></>;
 
   return (
     <div style={shell}>
