@@ -758,23 +758,37 @@ class Stack:
                     self.last_ngrok_retry=now+60
                     self.status['ngrok_error']='NGROK_RESTARTING'
                     self.launch_ngrok()
+            discovered=False
             while not self.urls.empty():
                 pid,url=self.urls.get()
                 if pid==self.children['cloudflare'].pid:
+                    discovered|=(self.status.get('app_url')!=url)
                     self.status['app_url']=url
                     key='ngrok_url' if self.args.provider=='ngrok' else 'cloudflare_url'
                     self.status[key]=url
             while not self.ngrok_urls.empty():
                 pid,url=self.ngrok_urls.get()
                 child=self.children.get('ngrok')
-                if child and pid==child.pid:self.status['ngrok_url']=url
+                if child and pid==child.pid:
+                    discovered|=(self.status.get('ngrok_url')!=url)
+                    self.status['ngrok_url']=url
+            if discovered:
+                # The first probe often ran before the tunnel printed its
+                # hostname. Verify immediately instead of waiting 15 seconds.
+                next_probe=now
             if now>=next_probe:
                 next_probe=now+15
                 primary=self.status.get('app_url','')
-                primary_ready=bool(primary and public_ready(primary))
                 secondary=self.status.get('ngrok_url','') if self.args.provider=='both' else ''
                 ngrok_child=self.children.get('ngrok')
-                ngrok_ready=bool(secondary and ngrok_child and ngrok_child.poll() is None and public_ready(secondary))
+                # Probe the two independent HTTPS providers concurrently.
+                # Never infer authentication or readiness from URL discovery.
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    primary_task=pool.submit(public_ready,primary) if primary else None
+                    secondary_task=(pool.submit(public_ready,secondary)
+                        if secondary and ngrok_child and ngrok_child.poll() is None else None)
+                    primary_ready=bool(primary_task and primary_task.result())
+                    ngrok_ready=bool(secondary_task and secondary_task.result())
                 primary_provider='ngrok' if self.args.provider=='ngrok' else 'cloudflare'
                 self.status['public_ready']={primary_provider:primary_ready}
                 if self.args.provider=='both':self.status['public_ready']['ngrok']=ngrok_ready
