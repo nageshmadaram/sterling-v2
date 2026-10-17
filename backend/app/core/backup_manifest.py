@@ -502,11 +502,12 @@ ARTIFACT_SUBDIR: Final[str] = "state"
 
 
 def _database_artifact_names(root: Path, sources: Iterable[Path]) -> list[str]:
-    """Map snapshotted database files onto their declared artifact names.
+    """Map snapshotted databases to declarations by canonical source path.
 
-    Matched by resolved path, then by file name: a deployment may point an
-    environment variable at a database outside the tree, and it is still that
-    artifact.
+    Filename similarity alone is not identity. A caller can explicitly back
+    up another file named sterling_paper.db while omitting the actual intent
+    journal. That file must NOT satisfy canonical_intent_journal coverage.
+    Environment overrides already resolve through resolve_artifacts().
     """
     from app.core.backup_coverage import ArtifactKind, resolve_artifacts
 
@@ -517,10 +518,14 @@ def _database_artifact_names(root: Path, sources: Iterable[Path]) -> list[str]:
     ]
     names: list[str] = []
     for source in sources:
-        resolved = Path(source).expanduser()
+        resolved = Path(source).expanduser().resolve(strict=False)
         match = next(
-            (a.name for a, p in declared if p == resolved),
-            next((a.name for a, p in declared if p.name == resolved.name), None),
+            (
+                a.name
+                for a, p in declared
+                if p.expanduser().resolve(strict=False) == resolved
+            ),
+            None,
         )
         if match:
             names.append(match)
