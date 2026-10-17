@@ -17,6 +17,7 @@ function instrument(symbol: string, meta?: { instrument_type?: string; lot_size?
 export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical = false): BoardSignal[] {
   return rows.map(row => {
     const f = row.feature;
+    const spotWatch = row.watch_only === true || row.signal_source === 'INDEX_SPOT_WATCH_ONLY';
     const sections: BoardSection[] = [{ title: 'Setup evidence', stats: [
       { label: 'Reason', value: row.reason }, { label: 'Path', value: row.path || 'Waiting' },
       { label: 'EMA10', value: px(f.ema10) }, { label: 'EMA21', value: px(f.ema21) },
@@ -30,9 +31,9 @@ export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical
       direction: 'long', status: row.status === 'expired' ? 'ended' : row.status, atMs: row.close_ms,
       levels: { ltp: number(f.bar.close), entry: number(row.ceiling), stop: number(row.stop), trail: null, target: null, exit: null },
       sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null }, score: null, reason: row.reason,
-      historical, executionEligible: !historical && row.status === 'armed' && row.activation_eligible === true && row.entry_window_open !== false, planPriced: true,
-      origin: { label: EMA_TREND_MODE_LABEL[row.mode], hint: 'Selected-instrument strategy; completed broker contract bars.', tone: 'blue' },
-      flags: [{ label: row.runtime_blockers?.includes('ENTRY_EXPIRED') ? 'EXPIRED' : historical ? 'RECORDED' : 'BROKER DATA', hint: row.runtime_blockers?.join(' · ') || 'Market data source is separate from execution mode.', tone: row.entry_window_open === false ? 'amber' : 'blue' }, { label: f.st_direction, hint: 'Signal-timeframe Supertrend direction.', tone: f.st_direction === 'UP' ? 'green' : 'dim' }],
+      historical, executionEligible: !historical && !spotWatch && row.status === 'armed' && row.activation_eligible === true && row.entry_window_open !== false, planPriced: true,
+      origin: { label: EMA_TREND_MODE_LABEL[row.mode], hint: spotWatch ? 'Read-only spot index signals; cannot submit orders.' : 'Selected-instrument strategy; completed broker contract bars.', tone: 'blue' },
+      flags: [{ label: spotWatch ? 'INDEX WATCH' : row.runtime_blockers?.includes('ENTRY_EXPIRED') ? 'EXPIRED' : historical ? 'RECORDED' : 'BROKER DATA', hint: row.runtime_blockers?.join(' · ') || 'Market data source is separate from execution mode.', tone: row.entry_window_open === false ? 'amber' : 'blue' }, { label: f.st_direction, hint: 'Signal-timeframe Supertrend direction.', tone: f.st_direction === 'UP' ? 'green' : 'dim' }],
       sections, emaTrend: { signalId: row.id, mode: row.mode, configRevision: row.config_revision },
     };
   });
