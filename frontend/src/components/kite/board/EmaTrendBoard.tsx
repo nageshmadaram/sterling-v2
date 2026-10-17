@@ -1,5 +1,5 @@
 import React from 'react';
-import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrendScan, useCancelEmaTrendScan, useEmaTrendOperation } from '../../../hooks/useEmaTrend';
+import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrendScan, useCancelEmaTrendScan, useEmaTrendOperation, useUpdateEmaTrend } from '../../../hooks/useEmaTrend';
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
@@ -11,6 +11,7 @@ import { EmaTrendTicket } from './EmaTrendTicket';
 import { EmaTrendOperations } from './EmaTrendOperations';
 import { openSettingsSection } from '../config/registry';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend';
+import { EMA_TREND_QUICKSTART } from '../../../config/emaTrendPreset';
 
 const MODES: EmaTrendMode[] = ['swing', 'intraday', 'scalping', 'ultra_scalping'];
 const AUTO_SCAN_INTERVAL_MS = 60_000;
@@ -31,6 +32,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const job = useEmaTrendScan(snapshot.data?.scan?.id || scan.data?.id);
   const cancel = useCancelEmaTrendScan();
   const operation = useEmaTrendOperation();
+  const quickstart = useUpdateEmaTrend();
   const common = useSignalColumns();
   const [openId, setOpenId] = React.useState<string | null>(null);
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
@@ -80,6 +82,21 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const visible = [...view.visible];
   for (const signal of signals) if (signal.emaTrend?.campaignId && signal.status !== 'ended' && !visible.some(row => row.id === signal.id)) visible.unshift(signal);
   const canScan = !historical && scannerEnabled && hasSymbols && !scanning && !scan.isPending;
+  const startReadOnlyScanner = () => {
+    if (historical || !config.data || config.data.config.symbols.length ||
+        quickstart.isPending) return;
+    // Explicit user action; 5 cash stocks × 4 profiles. Never enable paper
+    // auto-entry, submit a trade, or silently overwrite an existing universe.
+    quickstart.mutate({
+      expected_revision: config.data.revision,
+      changes: {
+        symbols: [...EMA_TREND_QUICKSTART],
+        modes: [...MODES],
+        enabled: true,
+        auto_execute: false,
+      },
+    });
+  };
   const selectedEnabled = selectedModes.filter(mode => activeModes.includes(mode));
   const unavailableSelected = selectedModes.filter(mode => !activeModes.includes(mode));
   const toggleMode = (mode: EmaTrendMode) => {
@@ -100,7 +117,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const safetyBlockers = (config.data?.blockers || [])
     .filter((reason, index, all) => all.indexOf(reason) === index);
   const status = historical ? 'Historical view — trading disabled' : scanning ? 'Scanning completed bars…' :
-    !hasSymbols ? 'Add NSE/BSE equities in EMA Settings to start scanning' :
+    !hasSymbols ? 'No instruments configured — choose a starter scan or open Settings' :
     selectedEnabled.length === 0 ? 'Enable a selected profile in EMA Settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
     lastScan?.status === 'FAILED' ? 'Scan failed — review details' :
@@ -160,7 +177,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       {historical && <p role="status" style={{ padding: 12 }}>Historical view is read-only. Return to the current session to see refreshed EMA signals.</p>}
       {operation.isSuccess && operation.variables === 'flatten' &&
         <p role="status" style={{ padding: 12 }}>EMA simulation close requested. Check outstanding orders and confirmed shares; this does not close real Kite positions.</p>}
-      {[snapshot.error, config.error, scan.error, cancel.error, operation.error].filter(Boolean).map((error, index) =>
+      {[snapshot.error, config.error, scan.error, cancel.error, operation.error, quickstart.error].filter(Boolean).map((error, index) =>
         <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
       {(currentScan?.status === 'FAILED' || scanError.length > 0) && scanError.length > 0 &&
         <p role="alert" style={{ padding: 12 }}>EMA scan errors: {scanError.slice(0, 8).join(' · ')}</p>}
@@ -169,12 +186,27 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         Other profiles remain visible. Check the EMA API and refresh.
       </p> : null}
       {!historical && snapshot.isLoading && <p style={{ padding: 12 }}>Loading EMA Trend signals…</p>}
-      {!historical && !snapshot.isLoading && !signals.length && !snapshot.error &&
+      {!historical && !snapshot.isLoading && !hasSymbols && !config.isLoading && !config.isError &&
+        <div role="region" aria-label="Set up EMA Trend signals" style={{ padding: 14, display: 'grid', gap: 8,
+          border: '1px solid var(--k-border)', borderRadius: 8, margin: 10 }}>
+          <strong>No instruments selected for EMA Trend.</strong>
+          <span>Choose exact stocks or listed contracts in Settings, or start with five NSE stocks across all four profiles.
+            This enables read-only scans, not automatic paper entries or real orders.</span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="sb-tool" type="button" onClick={startReadOnlyScanner}
+              disabled={quickstart.isPending || !config.data}>
+              {quickstart.isPending ? 'Configuring scanner…' : 'Start scanning 5 NSE stocks · All profiles'}
+            </button>
+            <button className="sb-tool" type="button" onClick={() => openSettingsSection('emaTrend')}>
+              Choose instruments
+            </button>
+          </div>
+        </div>}
+      {!historical && !snapshot.isLoading && !signals.length && !snapshot.error && hasSymbols &&
         <p role="status" style={{ padding: 12 }}>
-          {!hasSymbols ? 'No equities selected. Open EMA Trend settings and add NSE/BSE cash-equity symbols.' :
-            selectedEnabled.length === 0 ? 'None of the selected profiles is enabled for scanning. Enable a profile in EMA Trend settings.' :
+          {selectedEnabled.length === 0 ? 'None of the selected profiles is enabled for scanning. Enable a profile in EMA Trend settings.' :
             !scannerEnabled ? 'EMA scanner is off. Enable it in Settings to refresh signals.' :
-            scanning ? 'Analyzing completed bars for the configured equities…' :
+            scanning ? 'Analyzing completed bars for the configured instruments…' :
             currentScan?.status === 'FAILED' ? 'Latest scan failed. Check the scan errors above; no valid signals have been recorded.' :
             currentScan?.status === 'IDLE' || !currentScan?.id ? 'No completed scan is recorded. Run Refresh signals or keep the automatic scanner enabled.' :
             scanResults.length > 0
