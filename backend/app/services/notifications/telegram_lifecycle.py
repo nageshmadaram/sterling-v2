@@ -149,7 +149,10 @@ def _insert(conn, row: dict) -> bool:
     # any event that has not reached Telegram yet.
     owner = row["uid"]
     conn.execute(
-        f"DELETE FROM {_TABLE} WHERE uid = ? AND created_at_ms < ?",
+        # Never erase a still-undelivered event just because a later alert has
+        # arrived more than seven days afterward. The explicit expiry pass in
+        # due() records 'expired undelivered' before marking history complete.
+        f"DELETE FROM {_TABLE} WHERE uid = ? AND completed = 1 AND created_at_ms < ?",
         (owner, row["created_at_ms"] - _MAX_AGE_MS),
     )
     count = conn.execute(
