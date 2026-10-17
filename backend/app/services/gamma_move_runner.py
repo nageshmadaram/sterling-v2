@@ -588,7 +588,17 @@ async def arm(uid: str, signal_id: str) -> dict:
     cfg = get_config(uid)
     if not cfg.enabled:
         return {"ok": False, "message": "Gamma Unwind is switched off"}
-    legacy = positions_store.legacy_open_rows(uid)
+    try:
+        legacy = positions_store.legacy_open_rows(uid)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "code": "legacy_position_state_unreadable",
+            "message": (
+                "Legacy Gamma exposure cannot be read; "
+                f"reconcile the archived position registry before entry ({exc})"
+            ),
+        }
     if legacy:
         symbols = sorted({
             str((row.get("instrument") or {}).get("tradingsymbol") or "")
