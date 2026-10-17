@@ -58,6 +58,56 @@ def tunnel_unavailable(origin, port):
     except Exception:return True
 
 
+def _gateway_listener_pids(port):
+    """Return listener PIDs from ss. Unknown ownership is NOT permission to kill."""
+    if not shutil.which('ss'):
+        return []
+    try:
+        result=subprocess.run(['ss','-H','-ltnp',f'sport = :{int(port)}'],
+                              capture_output=True,text=True,timeout=4,check=True)
+    except (OSError,subprocess.SubprocessError,ValueError):
+        return []
+    return sorted({int(value) for value in re.findall(r'\\bpid=(\\d+),',result.stdout)})
+
+
+def _is_own_orphan_gateway(pid):
+    """Only reclaim an old Node gateway running this SAME checkout as this UID."""
+    if not sys.platform.startswith('linux') or pid<=1 or pid==os.getpid():
+        return False
+    try:
+        proc=Path(f'/proc/{pid}')
+        if proc.stat().st_uid!=os.getuid():
+            return False
+        argv=[piece.decode('utf-8','replace') for piece in
+              (proc/'cmdline').read_bytes().split(b'\\x00') if piece]
+        expected=str(ROOT/'scripts/serve_frontend.mjs')
+        return (expected in argv and (proc/'cwd').resolve()==ROOT.resolve()
+                and any(Path(argv[0]).name==name for name in ('node','nodejs')))
+    except (OSError,ValueError,IndexError):
+        return False
+
+
+def _reclaim_gateway(port):
+    """Shut down ONLY an identifiable orphan web process, never the broker."""
+    pids=_gateway_listener_pids(port)
+    if len(pids)!=1 or not _is_own_orphan_gateway(pids[0]):
+        raise RuntimeError(
+            f'Web port {port} is occupied by an unverified process; '
+            'inspect ss -ltnp before starting Sterling. Broker backend was not stopped.'
+        )
+    pid=pids[0]
+    os.kill(pid,signal.SIGTERM)
+    for _ in range(50):
+        with socket.socket() as probe:
+            if probe.connect_ex(('127.0.0.1',int(port)))!=0:
+                return pid
+        time.sleep(.2)
+    raise RuntimeError(
+        f'Old Sterling web PID {pid} did not release port {port}; '
+        'do not force-kill or stop the broker backend.'
+    )
+
+
 def alive(pid):
     try:
         pid=int(pid)
@@ -390,6 +440,13 @@ class Stack:
 
     def start_web(self):
         self.stop_child('web')
+        # A crashed prior manager can leave behind the standalone Node
+        # gateway. Reclaim it only when ss+proc prove exact same script,
+        # checkout and user; never kill an unidentified port owner.
+        with socket.socket() as probe:
+            if probe.connect_ex(('127.0.0.1',self.args.port))==0:
+                old=_reclaim_gateway(self.args.port)
+                self.status['gateway_reclaimed_pid']=old
         env={**clean_env(),'STERLING_WEB_PORT':str(self.args.port)}
         log=(STATE/'web.log').open('a');self.logs.append(log)
         self.children['web']=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],cwd=ROOT,env=env,stdout=log,stderr=log,start_new_session=True)
