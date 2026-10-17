@@ -113,10 +113,11 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             {scanning && <button type="button" className="sb-tool" disabled={cancel.isPending}
               onClick={() => { if (job.data?.id) cancel.mutate(job.data.id); }}>Stop scan</button>}
             <button type="button" className="sb-tool" onClick={() => openSettingsSection('emaTrend')}>EMA Trend settings</button>
-            <button type="button" className="sb-tool" disabled={historical || operation.isPending || !signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended')}
-              onClick={() => {
-                if (window.confirm('Request closure of all EMA simulation campaigns? This does NOT close any real Kite position, and unsettled orders still need reconciliation.')) operation.mutate('flatten');
-              }}>Emergency close (simulation)</button>
+            {signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended') &&
+              <button type="button" className="sb-tool" disabled={historical || operation.isPending}
+                onClick={() => {
+                  if (window.confirm('Request closure of all EMA simulation campaigns? This does NOT close any real Kite position, and unsettled orders still need reconciliation.')) operation.mutate('flatten');
+                }}>Emergency close (simulation)</button>}
             <span>Execution: simulation · live orders unavailable</span>
           </div>
           <p>10/21 EMA · DEMA50 · ST(10,3). Signals use completed market candles. Status is observational, not an order recommendation.</p>
