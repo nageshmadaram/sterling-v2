@@ -354,9 +354,13 @@ def snapshot_database(source: Path | str, destination: Path | str) -> str:
         # memory. mode=rw refuses absent files; bare connect() would CREATE one.
         src = sqlite3.connect(f"{source_uri}?mode=rw", uri=True)
 
-    fd, temporary = tempfile.mkstemp(
-        prefix=f".{destination.name}.", suffix=".partial", dir=destination.parent
-    )
+    try:
+        fd, temporary = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".partial", dir=destination.parent
+        )
+    except BaseException:
+        src.close()
+        raise
     os.close(fd)
     partial = Path(temporary)
     try:
