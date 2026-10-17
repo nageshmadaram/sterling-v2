@@ -6,6 +6,7 @@
  * about what the module does in response to a specific wire event.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
 
 class MockWebSocket {
   static CONNECTING = 0;
@@ -412,6 +413,26 @@ describe('order channel', () => {
     ws.recv({ type: 'kite_order_update' });
     ws.recv({ type: 'kite_order_update', order: 'nope' });
     expect(seen).toEqual([]);
+    off();
+  });
+});
+
+describe('bounded live-tick interaction grace', () => {
+  it('continues updating visible prices while pointer movement stays continuous', async () => {
+    const off = mod.registerTokens([111]);
+    const ws = await connectAndAuth();
+    const hook = renderHook(() => mod.useTickVersion());
+    const initial = hook.result.current;
+
+    await act(async () => {
+      ws.recv({ type: 'kite_ticks', ticks: [{ instrument_token: 111, last_price: 200 }] });
+      for (let i = 0; i < 9; i++) {
+        window.dispatchEvent(new MouseEvent('pointermove', { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(25);
+      }
+    });
+    expect(hook.result.current).toBeGreaterThan(initial);
+    hook.unmount();
     off();
   });
 });
