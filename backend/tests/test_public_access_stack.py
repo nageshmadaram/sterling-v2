@@ -600,3 +600,113 @@ def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp
  monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
  monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
  stack.main()
+
+
+def test_committed_frontend_extraction_ignores_modified_and_untracked_source(tmp_path,monkeypatch):
+ import os
+ repo=tmp_path/'repo'
+ source=repo/'frontend'
+ source.mkdir(parents=True)
+ (source/'package.json').write_text('{"name":"sterling-fixture","version":"1.0.0"}')
+ (source/'package-lock.json').write_text('{"lockfileVersion":3}')
+ (source/'index.html').write_text('COMMITTED RELEASE')
+ subprocess.run(['git','init','-q',str(repo)],check=True)
+ subprocess.run(['git','-C',str(repo),'add','frontend'],check=True)
+ subprocess.run(['git','-C',str(repo),'-c','user.name=Test',
+                 '-c','user.email=test@example.test','commit','-qm','release'],check=True)
+ sha=subprocess.check_output(['git','-C',str(repo),'rev-parse','HEAD'],text=True).strip()
+ (source/'index.html').write_text('DIRTY WORKING EDIT')
+ (source/'untracked-secret.txt').write_text('UNCOMMITTED CONTENT')
+ state=tmp_path/'release-state'
+ state.mkdir()
+ monkeypatch.setattr(stack,'ROOT',repo)
+ monkeypatch.setattr(stack,'STATE',state)
+ publisher=stack.CommittedFrontend('HEAD')
+ assert publisher.resolve_commit()==sha
+ publisher._extract(sha)
+ assert (publisher.frontend/'index.html').read_text()=='COMMITTED RELEASE'
+ assert not (publisher.frontend/'untracked-secret.txt').exists()
+ assert (source/'index.html').read_text()=='DIRTY WORKING EDIT'
+ assert (source/'untracked-secret.txt').is_file()
+
+
+def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_path,monkeypatch):
+ from types import SimpleNamespace
+ state=tmp_path/'release-state'
+ state.mkdir()
+ monkeypatch.setattr(stack,'STATE',state)
+ publisher=stack.CommittedFrontend()
+ current=['a'*40]
+ monkeypatch.setattr(publisher,'resolve_commit',lambda:current[0])
+ def committed_extract(sha):
+  publisher.frontend.mkdir(parents=True,exist_ok=True)
+  (publisher.frontend/'package-lock.json').write_text('{"lockfileVersion":3}')
+  (publisher.frontend/'dist').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/index.html').write_text(f'BUILD {sha}')
+  (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
+  (publisher.frontend/'dist/assets/old.js').write_text('OLD HASHED ASSET')
+ monkeypatch.setattr(publisher,'_extract',committed_extract)
+ monkeypatch.setattr(publisher,'_dependencies',lambda:None)
+ fail=[False]
+ def simulated_build(command,**kwargs):
+  assert command==['npm','run','build']
+  if fail[0]:
+   raise subprocess.CalledProcessError(1,command)
+  return SimpleNamespace(returncode=0)
+ monkeypatch.setattr(stack.subprocess,'run',simulated_build)
+ sha,changed=publisher.publish()
+ assert changed and sha=='a'*40
+ assert publisher.current()==sha
+ assert (publisher.pointer/'index.html').read_text()==f'BUILD {sha}'
+ current[0]='b'*40
+ fail[0]=True
+ with pytest.raises(subprocess.CalledProcessError):
+  publisher.publish()
+ assert publisher.current()=='a'*40
+ assert (publisher.pointer/'index.html').read_text()=='BUILD '+('a'*40)
+ fail[0]=False
+ sha,changed=publisher.publish()
+ assert changed and sha=='b'*40
+ assert publisher.current()=='b'*40
+ assert (publisher.pointer/'assets/old.js').read_text()=='OLD HASHED ASSET'
+ assert publisher.publish()==('b'*40,False)
+
+
+def test_gateway_serves_new_committed_release_without_restart(tmp_path):
+ import os
+ with socket.socket() as sock:
+  sock.bind(('127.0.0.1',0))
+  port=sock.getsockname()[1]
+ first=tmp_path/'releases/a'
+ second=tmp_path/'releases/b'
+ first.mkdir(parents=True)
+ second.mkdir(parents=True)
+ (first/'index.html').write_text('<html><div id="root">COMMIT A</div></html>')
+ (second/'index.html').write_text('<html><div id="root">COMMIT B</div></html>')
+ pointer=tmp_path/'published'
+ pointer.symlink_to(first,target_is_directory=True)
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
+   env={**os.environ,'STERLING_WEB_PORT':str(port),
+        'STERLING_CALLBACK_PORT':'0','STERLING_STATIC_ROOT':str(pointer)},
+   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ origin=f'http://127.0.0.1:{port}'
+ try:
+  for _ in range(80):
+   try:
+    with urllib.request.urlopen(origin+'/',timeout=.25) as response:
+     assert response.status==200
+     assert 'COMMIT A' in response.read().decode()
+     assert response.headers['Cache-Control']=='no-store'
+    break
+   except (ConnectionError,urllib.error.URLError):
+    time.sleep(.05)
+  else:pytest.fail('Committed gateway failed to start')
+  temp=tmp_path/'published.next'
+  temp.symlink_to(second,target_is_directory=True)
+  temp.replace(pointer)
+  with urllib.request.urlopen(origin+'/',timeout=2) as response:
+   assert 'COMMIT B' in response.read().decode()
+  assert process.poll() is None
+ finally:
+  process.terminate()
+  process.wait(8)
