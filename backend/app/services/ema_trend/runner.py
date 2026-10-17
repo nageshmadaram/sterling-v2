@@ -200,7 +200,7 @@ async def run_user(uid:str):
         interval=60000 if any(m!="swing" for m in cfg.modes) else 300000
         scans=repo.list_documents(uid,"scan",limit=1)
         scanning=bool(scans and scans[0]["status"] in {"QUEUED","RUNNING"})
-        if cfg.enabled and cfg.symbols and not scanning and now-_last_scan.get(uid,0)>=interval:
+        if cfg.enabled and scanner.watch_symbols(cfg) and not scanning and now-_last_scan.get(uid,0)>=interval:
             _last_scan[uid]=now
             scanner.start_scan(uid,cfg.modes,settings["revision"])
         from app.services.kite_engine import state as shared_state
