@@ -917,9 +917,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
                   </button>
                 ))}
               </>
-            ) : (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--k-faint)', fontSize: 10.5, whiteSpace: 'nowrap' }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#9bc7b2' }} />All panes active</span>
-            )}
+            ) : null}
           </div>
 
           <div aria-label="Workspace and engine status" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--k-ink-5)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
@@ -958,16 +956,20 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
               </div>
             )}
             {liveCount > 0 && <><span title={`${liveCount} signal${liveCount === 1 ? '' : 's'} currently running`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} live</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
-            <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} />
-            <span className={scanning ? 'kl-scan-text' : undefined} style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
+            <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} aria-hidden="true" />
+            <span className={scanning ? 'kl-scan-text' : undefined}
+              title={!scanning ? [
+                activity?.last_scan_ms ? `Last scan ${fmtAgo(activity.last_scan_ms)}` : '',
+                marketClosed ? 'Market closed' : autoScan && activity?.next_scan_ms ? `Next due ${fmtNext(activity.next_scan_ms)}` : '',
+              ].filter(Boolean).join(' · ') : undefined}
+              style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
             {/* The item second, and only where the engine publishes one. `capitalize`
                 had to come off the span above: it was title-casing a contract, so
                 "TCS OCT 2300 PE" arrived as "Tcs Oct 2300 Pe". */}
             {scanning && scanStatus.detail && (
               <span style={{ opacity: .8 }} title={scanStatus.detail}>· {scanStatus.detail}</span>
             )}
-            {!scanning && (activity?.last_scan_ms ?? 0) > 0 && <span style={{ opacity: .7 }}>· {fmtAgo(activity?.last_scan_ms ?? 0)}</span>}
-            {!scanning && marketClosed ? <span style={{ opacity: .7 }}>· Market closed</span> : !scanning && autoScan && (activity?.next_scan_ms ?? 0) > 0 ? <span style={{ opacity: .7 }}>· Next Due {fmtNext(activity?.next_scan_ms ?? 0)}</span> : null}
+            {!scanning && marketClosed && <span style={{ opacity: .7 }}>· Market closed</span>}
 
             <KiteFooterPnl onOpenPositions={() => onNavClick('positions')} />
           </div>

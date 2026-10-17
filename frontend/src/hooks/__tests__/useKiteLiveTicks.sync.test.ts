@@ -416,6 +416,33 @@ describe('order channel', () => {
   });
 });
 
+describe('symbol-selective React notification revisions', () => {
+  it('does not invalidate an unrelated quote consumer when another token ticks', async () => {
+    const off = mod.registerTokens([111, 222]);
+    const ws = await connectAndAuth();
+    const a0 = mod.tokenDisplayRevision('111');
+    const b0 = mod.tokenDisplayRevision('222');
+    ws.recv({ type:'kite_ticks', ticks:[{ instrument_token:111, last_price:100 }] });
+    await vi.advanceTimersByTimeAsync(80);
+    expect(mod.tokenDisplayRevision('111')).not.toBe(a0);
+    expect(mod.tokenDisplayRevision('222')).toBe(b0);
+    const a1 = mod.tokenDisplayRevision('111');
+    ws.recv({ type:'kite_ticks', ticks:[{ instrument_token:222, last_price:201 }] });
+    await vi.advanceTimersByTimeAsync(80);
+    expect(mod.tokenDisplayRevision('111')).toBe(a1);
+    expect(mod.tokenDisplayRevision('222')).not.toBe(b0);
+    off();
+  });
+  it('invalidates all price consumers when a session resets', async () => {
+    const off = mod.registerTokens([111]);
+    await connectAndAuth();
+    const previous = mod.tokenDisplayRevision('111,222');
+    mod.resetLiveTickState();
+    expect(mod.tokenDisplayRevision('111,222')).not.toBe(previous);
+    off();
+  });
+});
+
 describe('subscription reconcile', () => {
   it('retries a failed subscribe instead of leaving the board without ticks', async () => {
     post.mockRejectedValueOnce(new Error('503'));
