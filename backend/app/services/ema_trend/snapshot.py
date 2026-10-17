@@ -15,9 +15,11 @@ def snapshot(uid: str, mode: str | None=None, day: str | None=None, cursor: int=
     current=config_store.response(uid)
     now=datetime.now(IST)
     rows=[]
-    for row in repo.list_documents(uid,"signal",limit=1000,cursor=cursor):
-        if selected and row["mode"]!=selected:
-            continue
+    page=(repo.list_signals_by_mode(uid,selected,limit=1001,cursor=cursor)
+          if selected else repo.list_documents(uid,"signal",limit=1001,cursor=cursor))
+    # Keep mode-local pagination consistent with the repository ordering.
+    # Day-filtered snapshots remain read-only historical views.
+    for row in page[:1000]:
         if selected_day and datetime.fromtimestamp(row["close_ms"]/1000,IST).date()!=selected_day:
             continue
         rows.append({**{k:v for k,v in row.items() if k not in {"metadata"}},
@@ -27,7 +29,7 @@ def snapshot(uid: str, mode: str | None=None, day: str | None=None, cursor: int=
     scans=repo.list_documents(uid,"scan",limit=1)
     return {**current,"rows":rows,"campaigns":campaigns,"supervision":health.summary(uid),
             "scan":scans[0] if scans else {"status":"IDLE","progress":0,"errors":[]},
-            "next_cursor":cursor+1000 if len(rows)>=1000 else None,
+            "next_cursor":cursor+1000 if len(page)>1000 else None,
             "generated_ms":repo.now_ms(),"historical_view":bool(day),
             "tenant_kind":"SIMULATION","execution_mode":"PAPER",
             "protection":"PAPER_MONITOR_ONLY","evidence_status":"INCONCLUSIVE"}

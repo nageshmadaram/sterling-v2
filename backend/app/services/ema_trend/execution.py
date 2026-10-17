@@ -287,6 +287,10 @@ async def submit_action(uid: str, campaign_id: str, action_id: str, *, client=No
         return {"status":existing.state,"intent_key":key,"order_id":existing.order_id}
     if row["status"] != "RESERVED":
         return {"status":row["status"],"error":"submission requires reconciliation; never retried blindly"}
+    # An operator flatten is a persistent exposure veto, including for an
+    # entry already reserved but not yet sent to the virtual exchange.
+    if action.side == "BUY" and c.flatten_requested:
+        raise repo.Conflict("FLATTEN_PENDING_NO_NEW_EXPOSURE")
     virtual_book=(await client.get_positions_raw()).get("net")
     if not isinstance(virtual_book,list):
         raise ValueError("VIRTUAL_INVENTORY_UNREADABLE")
@@ -514,16 +518,47 @@ async def close_campaign(uid: str, campaign_id: str, expected_revision: int,
         if doc["revision"]!=expected_revision:
             raise repo.Conflict("STALE_CAMPAIGN_REVISION")
         c=campaign_model(doc)
+        # A full flatten is an operator safety instruction, not a quote-
+        # contingent order request. Persist it BEFORE any broker/network I/O.
+        # If the feed is down, the runner must still close on recovery.
+        if kind=="FLATTEN" and percent==100 and (c.qty or c.pending or c.pending_close or c.state!="CLOSED"):
+            if not c.flatten_requested:
+                c.flatten_requested=True
+                if not c.qty:
+                    if c.state!="RECOVERY_REQUIRED":
+                        c.state="CLOSING"
+                    c.reason="FLATTEN_REQUESTED_PENDING_RECONCILIATION"
+                doc=repo.save_campaign_action(uid,campaign_document(c),doc["revision"])
+                c=campaign_model(doc)
         if not c.qty:
+            # A pending BUY can fill *after* this command. Record the operator
+            # intent durably, not just an unresolved API response.
+            if c.pending or c.pending_close or c.state != "CLOSED":
+                return {"status":"UNRESOLVED",
+                        "reason":"PENDING_ORDER_OR_CAMPAIGN_RECONCILIATION",
+                        "campaign":public_campaign(c)}
             return {"status":"CLOSED","campaign":public_campaign(c)}
         if c.pending_close or (c.pending and c.pending.side=="SELL"):
+            if kind == "FLATTEN" and percent == 100:
+                return {"status":"UNRESOLVED",
+                        "reason":"PENDING_SELL_REQUIRES_RECONCILIATION",
+                        "campaign":public_campaign(c)}
             raise repo.Conflict("PENDING_ACTION_REQUIRES_RECONCILIATION")
-        client=await paper_client(uid)
-        book=await quote(uid,c.symbol,c.mode)
+        try:
+            client=await paper_client(uid)
+            book=await quote(uid,c.symbol,c.mode)
+            meta=await scanner.equity_metadata(uid,c.symbol)
+        except Exception as exc:
+            if kind=="FLATTEN" and percent==100:
+                # A broker/feed outage cannot erase a recorded flatten intent.
+                # No synthetic price or blind close order is permitted.
+                return {"status":"UNRESOLVED",
+                        "reason":"FLATTEN_RECORDED_MARKET_DATA_UNAVAILABLE",
+                        "error_type":type(exc).__name__,"campaign":public_campaign(c)}
+            raise
         quantity=c.qty if percent==100 else min(c.qty,max(0,(c.q0//c.lot_size*percent//100)*c.lot_size))
         if quantity<=0:
             raise ValueError("REDUCTION_TOO_SMALL")
-        meta=await scanner.equity_metadata(uid,c.symbol)
         price=(D(book.bid)/D(meta.tick_size)).to_integral_value(rounding=ROUND_FLOOR)*D(meta.tick_size)
         action=make_action(c,kind if percent==100 else "MANUAL_REDUCE","SELL",quantity,
             c.last_index,repo.now_ms(),price)

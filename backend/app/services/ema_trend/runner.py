@@ -36,7 +36,7 @@ def _features(uid,c):
 
 async def manage_campaign(uid,document,client):
     c=execution.campaign_model(document)
-    if c.state=="CLOSED":
+    if c.state=="CLOSED" and not (c.pending or c.pending_close):
         return
     profile=PROFILES[c.mode]
     config=EmaTrendConfig.model_validate({k:v for k,v in c.config_snapshot.items() if k in EmaTrendConfig.model_fields})
@@ -51,7 +51,7 @@ async def manage_campaign(uid,document,client):
             pending_action=next((a for a in (c.pending,c.pending_close) if a and a.id==pending_id),None)
             settings=config_store.get(uid)
             expired=repo.now_ms()>int(row.get("expires_ms",repo.now_ms()+1))
-            if pending_action and pending_action.side=="BUY" and (expired or settings.get("paused") or
+            if pending_action and pending_action.side=="BUY" and (c.flatten_requested or expired or settings.get("paused") or
                     (pending_action.kind=="ENTRY" and settings["revision"]!=c.config_revision)):
                 pending_action.status="CANCELLED"
                 if c.pending and c.pending.id==pending_id:
@@ -70,8 +70,17 @@ async def manage_campaign(uid,document,client):
         await execution.reconcile_action(uid,pending_id,client=client)
         document=repo.get(uid,"campaign",c.id)
         c=execution.campaign_model(document)
-        if not c.qty and c.state=="CLOSED":
+        if not c.qty and c.state=="CLOSED" and not (c.pending or c.pending_close):
             return
+    # A RESERVED buy cancelled above can close the campaign without reaching
+    # the reconciliation branch. Do not request market data after that closure.
+    if not c.qty and c.state=="CLOSED" and not (c.pending or c.pending_close):
+        return
+    # An independently reserved emergency SELL may survive after its sibling
+    # BUY is resolved. Reconcile that SELL before considering any new exit.
+    # Otherwise another close could oversell the same confirmed inventory.
+    if c.pending_close:
+        return
     # Query current touch even if signals/scans/AUTO have been disabled.
     book=await execution.quote(uid,c.symbol,c.mode)
     meta=await scanner.equity_metadata(uid,c.symbol)
@@ -87,12 +96,13 @@ async def manage_campaign(uid,document,client):
     risk_due=any(code in {"DAILY_LOSS_BREAKER","ALLOCATION_DRAWDOWN_BREAKER"} for code in risk_codes)
     if c.expiry and now.date()>=date.fromisoformat(c.expiry) and c.qty:
         c.state,c.reason="CLOSING","RISK_EXIT"
-    closing_due=c.state=="CLOSING" and c.qty>0
+    closing_due=(c.state=="CLOSING" or c.flatten_requested) and c.qty>0
     if c.pending:
         row=repo.get(uid,"outbox",c.pending.id)
         expired=repo.now_ms()>int(row.get("expires_ms",c.pending.at_ms+profile.signal_minutes*60000))
         reprice_close=(c.pending.side=="SELL" and c.state=="CLOSING" and Decimal(str(book.bid))<c.pending.limit)
-        if row.get("order_id") and ((c.pending.side=="BUY" and expired) or stop_due or force_close or risk_due or closing_due or reprice_close):
+        if row.get("order_id") and ((c.pending.side=="BUY" and (expired or c.flatten_requested))
+                or stop_due or force_close or risk_due or closing_due or reprice_close):
             result=await CanonicalExecutionService().cancel_order(uid=c.uid,account_id=c.account_id,
                 order_id=row["order_id"],broker_client=client)
             if result.status=="UNKNOWN":
@@ -109,9 +119,9 @@ async def manage_campaign(uid,document,client):
                 or (c.pending and not(stop_due or force_close or risk_due or closing_due))):
             return
     action=None
-    closing_due=c.state=="CLOSING" and c.qty>0
+    closing_due=(c.state=="CLOSING" or c.flatten_requested) and c.qty>0
     if c.qty and (stop_due or force_close or risk_due or closing_due):
-        action=make_action(c,"STOP" if stop_due else "SESSION_EXIT" if force_close else c.reason if closing_due and c.reason in {"ENTRY_TOO_SMALL","RISK_EXIT","FLATTEN","STRUCTURAL_EXIT"} else "RISK_EXIT",
+        action=make_action(c,"STOP" if stop_due else "SESSION_EXIT" if force_close else "FLATTEN" if c.flatten_requested else c.reason if closing_due and c.reason in {"ENTRY_TOO_SMALL","RISK_EXIT","FLATTEN","STRUCTURAL_EXIT"} else "RISK_EXIT",
             "SELL",c.qty,c.last_index,repo.now_ms(),Decimal(str(book.bid)))
     else:
         settings=config_store.get(uid)
@@ -164,7 +174,8 @@ async def run_user(uid:str):
     async with guard:
         settings=config_store.get(uid)
         cfg=EmaTrendConfig.model_validate(settings["config"])
-        docs=[c for c in repo.list_documents(uid,"campaign",limit=2000) if c["state"]!="CLOSED"]
+        docs=[c for c in repo.list_documents(uid,"campaign",limit=2000)
+              if c["state"]!="CLOSED" or c.get("pending") or c.get("pending_close")]
         errors=[]
         if docs:
             client=await execution.paper_client(uid)

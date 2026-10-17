@@ -4,8 +4,7 @@ from decimal import Decimal, ROUND_FLOOR
 from collections.abc import Sequence
 from .config import PROFILES, canonical_mode, stable_id
 from .contracts import Feature, Pivot, Setup
-from .features import continuous, IST
-from datetime import datetime
+from .features import continuous
 
 
 def context_ok(f: Feature, profile) -> bool:
@@ -26,13 +25,17 @@ def evaluate_setups(symbol: str, mode: str, features: Sequence[Feature],
     out = []
     for i, f in enumerate(features):
         previous = features[i-1] if i else None
-        if previous and profile.mode != "swing" and datetime.fromtimestamp(f.bar.open_ms/1000, IST).date() != datetime.fromtimestamp(previous.bar.open_ms/1000, IST).date():
+        # Missing or discontinuous source candles invalidate a cross and its
+        # pending setup. Comparing EMAs across an unobserved interval could
+        # manufacture a new cross and turn stale evidence into an entry.
+        gap = bool(previous and not continuous(previous.bar, f.bar, profile.signal_minutes, symbol.split(":")[0]))
+        if gap:
             cross = touch = None
         lows.extend(p for p in f.pivots if p.side == "LOW")
         aligned = f.ema10 is not None and f.ema21 is not None and f.ema10 > f.ema21
-        bullish = bool(previous and previous.ema10 is not None and previous.ema21 is not None
+        bullish = bool(previous and not gap and previous.ema10 is not None and previous.ema21 is not None
                        and previous.ema10 <= previous.ema21 and aligned)
-        bearish = bool(previous and previous.ema10 is not None and previous.ema21 is not None
+        bearish = bool(previous and not gap and previous.ema10 is not None and previous.ema21 is not None
                        and previous.ema10 >= previous.ema21 and f.ema10 is not None
                        and f.ema21 is not None and f.ema10 < f.ema21)
         if bullish:
@@ -42,15 +45,13 @@ def evaluate_setups(symbol: str, mode: str, features: Sequence[Feature],
         stop_invalidated = touch is not None and f.bar.low <= float(touch["stop"])
         if stop_invalidated:
             cross = touch = None
-        reason = "WARMING_UP" if not f.ready else "WAITING_FOR_BULLISH_CROSS"
+        reason = "WARMING_UP" if not f.ready else "MISSING_SIGNAL_BARS_RESET_SETUP" if gap else "WAITING_FOR_BULLISH_CROSS"
         status, path, stop, ceiling = "watching", None, None, None
         if stop_invalidated:
             reason, status = "SETUP_STOP_INVALIDATED", "expired"
         if cross is not None and i-cross > profile.setup_expiry_bars:
             cross = touch = None
             reason, status = "SETUP_EXPIRED", "expired"
-        if previous and not continuous(previous.bar, f.bar, profile.signal_minutes, symbol.split(":")[0]):
-            touch = None
         if f.ready and cross is not None:
             reason = "WAITING_FOR_RETEST_OR_BOX"
             a = f.atr10

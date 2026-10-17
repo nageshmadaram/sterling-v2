@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { useSimNowMs, useReplayStore } from './useReplayStore';
 import { useView } from '../store/useViewStore';
-import type { EmaTrendCampaign, EmaTrendConfig, EmaTrendConfigResponse, EmaTrendFeature, EmaTrendMode, EmaTrendPlan, EmaTrendReplayRun, EmaTrendScan, EmaTrendSnapshot } from '../types/emaTrend';
+import type { EmaTrendCampaign, EmaTrendConfig, EmaTrendConfigResponse, EmaTrendFeature, EmaTrendMode, EmaTrendPlan, EmaTrendReplayRun, EmaTrendScan, EmaTrendSnapshot, EmaTrendLiveReadiness } from '../types/emaTrend';
 
 export const EMA_TREND_BASE = '/api/v1/ema-trend';
 export const EMA_TREND_KEY = ['ema-trend'] as const;
@@ -17,12 +17,50 @@ export function useEmaTrendConfig() {
   return useQuery<EmaTrendConfigResponse>({ queryKey: [...EMA_TREND_KEY, 'config', ...scope.key],
     queryFn: () => api.get(`${EMA_TREND_BASE}/config`), staleTime: 15_000 });
 }
-export function useEmaTrendSnapshot(mode?: EmaTrendMode) {
+/** Poll each selected mode separately so a high-volume mode never hides
+ * rows from another mode. The menu changes the view, not scan configuration. */
+export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[]) {
   const scope = useScope();
+  const key = modes?.join(',') || 'all';
   // Historical replay has its own immutable server view. Never substitute the live snapshot.
-  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, mode || 'all'],
-    queryFn: () => api.get(`${EMA_TREND_BASE}/snapshot${mode ? `?mode=${mode}` : ''}`),
+  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key],
+    queryFn: async () => {
+      if (!modes?.length) return api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
+      // Always fetch *all* campaigns, including unresolved inventory belonging
+      // to a profile the user unchecked. The menu filters signal evidence,
+      // never operational exposure or recovery requirements.
+      const all = await api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
+      const results = await Promise.allSettled(modes.map(mode =>
+        api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot?mode=${encodeURIComponent(mode)}`)));
+      const succeeded = results.flatMap((result, index) =>
+        result.status === 'fulfilled' ? [{ mode: modes[index], data: result.value }] : []);
+      if (!succeeded.length) {
+        const failure = results.find(result => result.status === 'rejected');
+        throw failure?.status === 'rejected' ? failure.reason : new Error('EMA profile snapshots unavailable');
+      }
+      return {
+        ...all,
+        rows: succeeded.flatMap(result => result.data.rows),
+        // This keeps every open/unresolved position visible across selections.
+        campaigns: all.campaigns,
+        generated_ms: Math.max(all.generated_ms || 0,
+          ...succeeded.map(result => result.data.generated_ms || 0)),
+        truncatedModes: succeeded.filter(result => result.data.next_cursor != null).map(result => result.mode),
+        failedModes: results.flatMap((result, index) =>
+          result.status === 'rejected' ? [modes[index]] : []),
+      };
+    },
     enabled: !scope.replay, refetchInterval: 10_000, staleTime: 3_000 });
+}
+export function useEmaTrendLiveReadiness() {
+  const scope = useScope();
+  return useQuery<EmaTrendLiveReadiness>({
+    queryKey: [...EMA_TREND_KEY, 'live-readiness', ...scope.key],
+    queryFn: () => api.get(`${EMA_TREND_BASE}/live-readiness`),
+    // A fresh account validation touches Kite. Do it only on explicit request,
+    // not in React polling or on every settings page render.
+    enabled: false, retry: false,
+  });
 }
 export function useUpdateEmaTrend() {
   const qc = useQueryClient();
@@ -89,7 +127,7 @@ export function useEmaTrendCampaignAction() {
       action: input.action, percent: input.percent, expected_revision: input.revision,
       idempotency_key: `ema-trend-ui:${input.campaignId}:${input.revision}:${input.action}:${input.percent || 100}`,
     }).then(result => {
-      if (!['CLOSED', 'ACKNOWLEDGED', 'PARTIAL', 'FILLED'].includes(result.status)) throw new Error(`Paper action ${result.status || 'unconfirmed'}. ${result.execution?.error || 'Reconcile campaign state before retrying.'}`);
+      if (!['CLOSED', 'ACKNOWLEDGED', 'PARTIAL', 'FILLED', 'UNRESOLVED'].includes(result.status)) throw new Error(`Paper action ${result.status || 'unconfirmed'}. ${result.execution?.error || 'Reconcile campaign state before retrying.'}`);
       return result;
     });
   }, onSettled: () => qc.invalidateQueries({ queryKey: EMA_TREND_KEY }) });

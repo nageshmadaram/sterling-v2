@@ -83,6 +83,25 @@ def test_transport_cannot_be_spoofed_by_paper_attribute():
         execution.require_virtual(SimpleNamespace(_is_paper=True,_account_id=sim_account_id("alice")),"alice")
 
 
+def test_profile_session_check_uses_actual_equity_exchange(monkeypatch):
+    from app.services.ema_trend import execution
+    from app.core import session_calendar
+    from zoneinfo import ZoneInfo
+
+    checked = []
+    def only_nse_open(day, exchange):
+        checked.append(exchange)
+        return exchange == "NSE"
+
+    monkeypatch.setattr(session_calendar, "is_trading_session", only_nse_open)
+    market_time = datetime(2026, 10, 16, 10, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
+    with pytest.raises(ValueError, match="OUTSIDE_PROFILE_ENTRY_WINDOW"):
+        execution._session_check("intraday", now=market_time, exchange="BSE")
+    assert checked == ["BSE"]
+    execution._session_check("intraday", now=market_time, exchange="NSE")
+    assert checked == ["BSE", "NSE"]
+
+
 def test_live_release_scope_stays_closed():
     from app.core.release_scope import may_originate,RELEASE_ORIGINATORS
     assert not may_originate("ema_trend","alice")
@@ -250,6 +269,27 @@ async def test_stop_reduces_confirmed_shares_while_unknown_buy_is_retained(virtu
 
 
 @pytest.mark.asyncio
+async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reason(virtual):
+    from app.services.ema_trend import runner
+    _,client=virtual
+    _,signal=configured_signal()
+    plan=await execution.build_plan("alice",signal.id,1)
+    opened=await execution.arm("alice",plan["id"],plan["revision"],"entry")
+    ident=opened["campaign"]["id"]
+    doc=repo.get("alice","campaign",ident)
+    c=execution.campaign_model(doc)
+    assert c.qty>=4 and c.state=="OPEN"
+    # Simulate a persisted flatten request followed by reconciliation that
+    # restored state to OPEN. The independent latch must still force exit.
+    c.flatten_requested=True
+    repo.save_campaign_action("alice",execution.campaign_document(c),doc["revision"])
+    await runner.manage_campaign("alice",repo.get("alice","campaign",ident),client)
+    closed=execution.campaign_model(repo.get("alice","campaign",ident))
+    assert closed.qty==0 and closed.state=="CLOSED"
+    assert closed.reason=="FLATTEN" and closed.flatten_requested
+
+
+@pytest.mark.asyncio
 async def test_external_virtual_sale_blocks_attribution_oversell(virtual):
     _,client=virtual
     _,signal=configured_signal()
@@ -262,6 +302,164 @@ async def test_external_virtual_sale_blocks_attribution_oversell(virtual):
         conn.execute("UPDATE sim_positions SET quantity=1 WHERE owner='alice'")
     with pytest.raises(repo.Conflict,match="OWNED_VIRTUAL_INVENTORY"):
         await execution.close_campaign("alice",c["id"],c["revision"],"close")
+
+
+@pytest.mark.asyncio
+async def test_flatten_reports_unresolved_unfilled_entry_instead_of_closed():
+    from app.engines.ema_trend.state_machine import make_action
+
+    cfg=EmaTrendConfig()
+    c=Campaign(id="awaiting-entry",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="swing",product="CNC",config_hash=cfg.config_hash,
+        config_revision=1,config_snapshot=cfg.model_dump(mode="json"),
+        budget=Decimal("250"),initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="ENTRY_PENDING")
+    pending=make_action(c,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
+    c.state="ENTRY_PENDING"
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    result=await execution.close_campaign("alice",c.id,saved["revision"],"flatten-with-pending-buy")
+    assert result["status"]=="UNRESOLVED"
+    assert result["reason"]=="PENDING_ORDER_OR_CAMPAIGN_RECONCILIATION"
+    after=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert after.qty==0 and after.pending and after.pending.id==pending.id
+    assert after.state=="CLOSING" and after.flatten_requested
+    # A delayed, eventually confirmed fill must not clear operator intent.
+    from app.engines.ema_trend.state_machine import apply_fill,finalize_entry
+    apply_fill(after,after.pending,"late-fill",4,Decimal("100"))
+    finalize_entry(after)
+    assert after.qty==4 and after.state=="CLOSING" and after.flatten_requested
+    assert repo.list_documents("alice","command")==[]
+
+
+
+@pytest.mark.asyncio
+async def test_flatten_refuses_reserved_buy_before_virtual_broker_submission(virtual):
+    _,client=virtual
+    configured_signal()
+    cfg=config_store.config("alice")
+    campaign=Campaign(id="flatten-before-send",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="ultra_scalping",product="MIS",
+        config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
+        initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="CLOSING",flatten_requested=True)
+    pending=make_action(campaign,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
+    campaign.state="CLOSING"
+    campaign.reason="FLATTEN_REQUESTED_PENDING_RECONCILIATION"
+    repo.put("alice","campaign",campaign.id,campaign.model_dump(mode="json"),0)
+    repo.put("alice","outbox",pending.id,{"campaign_id":campaign.id,
+        "action":pending.model_dump(mode="json"),"status":"RESERVED",
+        "order_id":"","intent_key":"","projected_quantity":0,
+        "projected_value":"0","projected_fees":"0"},0)
+    with pytest.raises(repo.Conflict,match="FLATTEN_PENDING_NO_NEW_EXPOSURE"):
+        await execution.submit_action("alice",campaign.id,pending.id,client=client)
+    assert await client.get_orders()==[]
+    assert repo.get("alice","outbox",pending.id)["status"]=="RESERVED"
+
+
+@pytest.mark.asyncio
+async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual,monkeypatch):
+    from app.services.ema_trend import runner
+    async def forbid_quote(*args,**kwargs):
+        raise AssertionError("closed campaign must not need a quote")
+    monkeypatch.setattr(execution,"quote",forbid_quote)
+    _,client=virtual
+    configured_signal()
+    cfg=config_store.config("alice")
+    campaign=Campaign(id="flatten-runner",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="ultra_scalping",product="MIS",
+        config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
+        initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="CLOSING",flatten_requested=True)
+    pending=make_action(campaign,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
+    campaign.state="CLOSING"
+    campaign.reason="FLATTEN_REQUESTED_PENDING_RECONCILIATION"
+    saved=repo.put("alice","campaign",campaign.id,campaign.model_dump(mode="json"),0)
+    repo.put("alice","outbox",pending.id,{"campaign_id":campaign.id,
+        "action":pending.model_dump(mode="json"),"status":"RESERVED",
+        "order_id":"","intent_key":"","projected_quantity":0,
+        "projected_value":"0","projected_fees":"0","expires_ms":repo.now_ms()+60000},0)
+    await runner.manage_campaign("alice",saved,client)
+    assert repo.get("alice","outbox",pending.id)["status"]=="CANCELLED"
+    after=execution.campaign_model(repo.get("alice","campaign",campaign.id))
+    assert after.qty==0 and after.pending is None and after.state=="CLOSED"
+    assert await client.get_orders()==[]
+
+
+@pytest.mark.asyncio
+async def test_pending_emergency_close_is_not_replaced_by_second_sell(virtual):
+    from app.services.ema_trend import runner
+    from app.engines.ema_trend.contracts import Lot
+    _,client=virtual
+    cfg=EmaTrendConfig()
+    c=Campaign(id="pending-emergency-close",uid=sim_uid("alice"),
+        account_id=sim_account_id("alice"),symbol="NSE:INFY",mode="ultra_scalping",
+        product="MIS",config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
+        initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="CLOSING",q0=4,entry_terminal=True,
+        p0=Decimal("100"),flatten_requested=True,
+        lots=[Lot(fill_id="entry",qty=4,price=Decimal("100"))])
+    pending=make_action(c,"FLATTEN","SELL",4,2,repo.now_ms(),Decimal("99"))
+    c.pending_close=pending
+    c.pending=None
+    c.state="CLOSING"
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    repo.put("alice","outbox",pending.id,{"campaign_id":c.id,
+        "action":pending.model_dump(mode="json"),"status":"UNKNOWN",
+        "order_id":"","intent_key":"","projected_quantity":0,
+        "projected_value":"0","projected_fees":"0"},0)
+    await runner.manage_campaign("alice",saved,client)
+    assert len(repo.list_documents("alice","outbox"))==1
+    state=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert state.qty==4 and state.pending_close is not None
+    assert state.flatten_requested and state.state=="CLOSING"
+    assert await client.get_orders()==[]
+
+
+@pytest.mark.asyncio
+async def test_flatten_persists_before_unavailable_market_connection(monkeypatch):
+    from app.engines.ema_trend.contracts import Lot
+    cfg=EmaTrendConfig()
+    c=Campaign(id="flatten-offline",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="swing",product="CNC",
+        config_hash=cfg.config_hash,config_revision=1,
+        config_snapshot=cfg.model_dump(mode="json"),
+        budget=Decimal("250"),initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="OPEN",entry_terminal=True,q0=4,
+        p0=Decimal("100"),lots=[Lot(fill_id="existing",qty=4,price=Decimal("100"))])
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    async def disconnected(*_args,**_kwargs):
+        raise ConnectionError("market unavailable")
+    monkeypatch.setattr(execution,"paper_client",disconnected)
+    result=await execution.close_campaign("alice",c.id,saved["revision"],"offline-flatten")
+    assert result["status"]=="UNRESOLVED"
+    assert result["reason"]=="FLATTEN_RECORDED_MARKET_DATA_UNAVAILABLE"
+    restored=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert restored.flatten_requested and restored.qty==4
+    assert repo.list_documents("alice","outbox")==[]
+
+
+@pytest.mark.asyncio
+async def test_flatten_during_pending_sell_latches_close_request():
+    from app.engines.ema_trend.contracts import Lot
+    cfg=EmaTrendConfig()
+    c=Campaign(id="pending-reduction",uid=sim_uid("alice"),account_id=sim_account_id("alice"),
+        symbol="NSE:INFY",mode="swing",product="CNC",config_hash=cfg.config_hash,
+        config_revision=1,config_snapshot=cfg.model_dump(mode="json"),
+        budget=Decimal("250"),initial_stop=Decimal("95"),stop=Decimal("95"),
+        entry_index=1,state="OPEN",q0=4,p0=Decimal("100"),
+        entry_terminal=True,lots=[Lot(fill_id="initial",qty=4,price=Decimal("100"))])
+    from app.engines.ema_trend.state_machine import make_action
+    reduction=make_action(c,"REDUCE","SELL",1,2,repo.now_ms(),Decimal("105"))
+    saved=repo.put("alice","campaign",c.id,c.model_dump(mode="json"),0)
+    result=await execution.close_campaign("alice",c.id,saved["revision"],"flatten-pending-sell")
+    assert result["status"]=="UNRESOLVED"
+    assert result["reason"]=="PENDING_SELL_REQUIRES_RECONCILIATION"
+    restored=execution.campaign_model(repo.get("alice","campaign",c.id))
+    assert restored.flatten_requested and restored.pending and restored.pending.id==reduction.id
+    assert restored.qty==4
 
 
 def test_mark_risk_includes_open_losses_and_latches_peak_drawdown():
@@ -563,3 +761,49 @@ async def test_derivative_contract_metadata_change_blocks_arm_without_an_order(v
     with pytest.raises(repo.Conflict,match="CONTRACT_METADATA_CHANGED"):
         await execution.arm("alice",plan["id"],plan["revision"],"no-stale-metadata")
     assert await client.get_orders()==[]
+
+
+
+def test_snapshot_filters_profile_in_sql_before_1000_row_limit():
+    """Other modes' recent updates must not hide all intraday/swing setups."""
+    import json
+
+    def document(ident, mode, updated):
+        data = json.dumps({
+            "id": ident, "mode": mode, "status": "watching",
+            "close_ms": 1_760_000_000_000, "updated_ms": updated,
+        })
+        return ("alice", "signal", ident, 1, "watching", updated, updated, data)
+
+    with repo.transaction() as conn:
+        conn.executemany(
+            """INSERT INTO ema_trend_documents
+               (owner_uid,kind,id,revision,status,created_ms,updated_ms,data_json)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [document(f"swing-{i:04d}", "swing", 1000 + i) for i in range(1100)]
+            + [document(f"intraday-{i}", "intraday", i + 1) for i in range(3)]
+            + [("bob", "signal", "other-user", 1, "watching", 100_000, 100_000,
+                json.dumps({"id": "other-user", "mode": "intraday", "close_ms": 1_760_000_000_000}))],
+        )
+
+    all_modes = snapshot.snapshot("alice")
+    assert len(all_modes["rows"]) == 1000
+    assert all(row["mode"] == "swing" for row in all_modes["rows"])
+    assert all_modes["next_cursor"] == 1000
+
+    intraday = snapshot.snapshot("alice", mode="intraday")
+    assert {row["id"] for row in intraday["rows"]} == {
+        "intraday-0", "intraday-1", "intraday-2",
+    }
+    assert intraday["next_cursor"] is None
+    assert "other-user" not in {row["id"] for row in intraday["rows"]}
+
+    swing = snapshot.snapshot("alice", mode="swing")
+    assert len(swing["rows"]) == 1000
+    assert swing["next_cursor"] == 1000
+    following = snapshot.snapshot("alice", mode="swing", cursor=1000)
+    assert len(following["rows"]) == 100
+    assert following["next_cursor"] is None
+
+    with pytest.raises(ValueError, match="INVALID_EMA_MODE"):
+        repo.list_signals_by_mode("alice", "undefined")

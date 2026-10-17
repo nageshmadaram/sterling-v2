@@ -54,6 +54,18 @@ describe('ColumnsMenu', () => {
     expect(onShowAll).toHaveBeenCalled();
   });
 
+  it('portals the open menu outside a clipped strategy container', () => {
+    const { container } = render(<div style={{ overflow: 'hidden', height: 5 }}><ColumnsMenu items={items()} /></div>);
+    fireEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    const menu = screen.getByRole('group', { name: 'Visible columns' });
+    expect(menu).toBeVisible();
+    expect(document.body.contains(menu)).toBe(true);
+    expect(container.contains(menu)).toBe(false);
+    expect(menu).toHaveStyle({ position: 'fixed' });
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole('group', { name: 'Visible columns' })).not.toBeInTheDocument();
+  });
+
   it('renders nothing when a table offers no choices', () => {
     // A control for nothing is worse than no control.
     const { container } = render(<ColumnsMenu items={[]} />);

@@ -8,7 +8,7 @@ from pydantic import BaseModel,ConfigDict,Field
 from app.core.auth import UserContext,get_current_user
 from app.engines.ema_trend.config import MODES,PROFILES,canonical_mode,descriptor
 from app.engines.ema_trend.contracts import Bar
-from app.services.ema_trend import config_store,execution,repository as repo,scanner,snapshot,replay
+from app.services.ema_trend import config_store,execution,repository as repo,scanner,snapshot,replay,live_preflight,live_observer
 
 router=APIRouter(prefix="/ema-trend",tags=["ema-trend"])
 
@@ -217,7 +217,18 @@ async def pause(user:UserContext=Depends(get_current_user)):
 @router.post("/operations/resume")
 async def resume(user:UserContext=Depends(get_current_user)):
     try:
-        return config_store.pause(uid(user),False)
+        owner=uid(user)
+        # A prior flatten is an emergency stop request. Resuming entries
+        # while any attributable shares or disputed orders remain would allow
+        # exposure to grow before the close has been verified.
+        for campaign in repo.list_documents(owner,"campaign",limit=2000):
+            if campaign.get("flatten_requested") and (
+                sum(int(lot.get("qty",0)) for lot in campaign.get("lots",[]))>0
+                or campaign.get("pending") or campaign.get("pending_close")
+                or campaign.get("state")!="CLOSED"
+            ):
+                raise repo.Conflict("FLATTEN_RECONCILIATION_PENDING_RESUME_BLOCKED")
+        return config_store.pause(owner,False)
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -229,13 +240,33 @@ async def flatten(user:UserContext=Depends(get_current_user)):
         config_store.pause(owner,True)
         results=[]
         for c in repo.list_documents(owner,"campaign",limit=2000):
-            if c["state"]=="CLOSED":
+            # A campaign can have zero confirmed shares but an outstanding
+            # BUY with unknown final status. It is not safely flattened.
+            if c["state"]=="CLOSED" and not (c.get("pending") or c.get("pending_close")):
                 continue
             try:
                 results.append(await execution.close_campaign(owner,c["id"],c["revision"],f"flatten:{c['id']}:{c['revision']}"))
             except Exception as exc:
                 results.append({"campaign_id":c["id"],"status":"UNRESOLVED","reason":str(exc)})
         return {"status":"UNRESOLVED" if any(r.get("status")=="UNRESOLVED" for r in results) else "REQUESTED", "results":results}
+    except Exception as exc:
+        raise refusal(exc) from exc
+
+
+@router.get("/live-readiness")
+async def live_readiness(user:UserContext=Depends(get_current_user)):
+    """Read only: verify active real Kite identity without granting order rights."""
+    try:
+        return await live_preflight.inspect(uid(user))
+    except Exception as exc:
+        raise refusal(exc) from exc
+
+
+@router.get("/live-order-observations/{intent_key}")
+async def live_order_observation(intent_key:str,user:UserContext=Depends(get_current_user)):
+    """Observe only an owned canonical EMA live intent; never submit or retry."""
+    try:
+        return await live_observer.observe_live_ema_order(uid(user),intent_key)
     except Exception as exc:
         raise refusal(exc) from exc
 
