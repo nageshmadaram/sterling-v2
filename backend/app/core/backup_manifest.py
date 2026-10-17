@@ -601,19 +601,34 @@ def augment_backup_directory(
     that already succeeded, so the caller records it as an error and keeps the
     backup.
     """
-    from app.core.release_manifest import build_release_manifest, repo_root
+    from app.core.release_manifest import build_release_manifest
 
-    base = Path(root) if root is not None else repo_root()
+    # The runtime's durable data may live on a separate mounted state root.
+    # repo_root() points at immutable application source, not that volume.
+    base = Path(root) if root is not None else state_root()
     target = Path(directory)
     target.mkdir(parents=True, exist_ok=True)
 
-    done = {Path(p).name for p in already_included} | {
-        p.name for p in target.glob("*.db")
-    }
+    # Only snapshots the caller actually re-verified in THIS operation may be
+    # reused. In particular, do not trust stale *.db files from a prior daily
+    # augmentation just because they have the right filenames.
+    included_names: set[str] = set()
+    for supplied in already_included:
+        candidate = Path(supplied)
+        if (
+            not candidate.is_file()
+            or candidate.is_symlink()
+            or candidate.parent.resolve() != target.resolve()
+            or candidate.suffix != ".db"
+        ):
+            raise BackupIntegrityError(
+                f"already_included must be a verified snapshot within {target}: {candidate}"
+            )
+        included_names.add(candidate.name)
 
     requested = list(declared_databases(base))
     missing = [str(p) for p in requested if not Path(p).exists()]
-    added = [p for p in requested if p.exists() and p.name not in done]
+    added = [p for p in requested if p.exists() and p.name not in included_names]
 
     for source in added:
         snapshot_database(source, target / source.name)
@@ -621,7 +636,6 @@ def augment_backup_directory(
     # If a declared database existed in an earlier same-day augmentation but is
     # missing now, remove that stale snapshot. Keeping it would make a restore
     # look complete using bytes that no longer describe the source host.
-    included_names = {Path(p).name for p in already_included}
     for source in requested:
         if source.exists():
             included_names.add(source.name)
@@ -675,9 +689,9 @@ def augment_backup_directory(
 def manifest_path(
     manifest: BackupManifest, root: Path | str | None = None
 ) -> Path:
-    from app.core.release_manifest import repo_root
-
-    base = Path(root) if root is not None else repo_root()
+    # Manifests describe durable state and therefore travel with state_root,
+    # not necessarily with immutable application source.
+    base = Path(root) if root is not None else state_root()
     return base / BACKUP_MANIFEST_DIR / f"{manifest.backup_id}.json"
 
 
