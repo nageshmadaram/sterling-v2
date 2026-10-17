@@ -36,9 +36,6 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
 
   const activeModes = config.data?.config.modes || [];
-  React.useEffect(() => {
-    if (selectedMode && config.data && !activeModes.includes(selectedMode)) setSelectedMode('');
-  }, [selectedMode, config.data?.revision]);
   const hasSymbols = Boolean(config.data?.config.symbols.length);
   const scannerEnabled = Boolean(config.data?.config.enabled);
   const scanning = ['QUEUED', 'RUNNING'].includes(job.data?.status || snapshot.data?.scan?.status || '');
@@ -83,6 +80,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const scanError = (job.data?.errors || []).map(error => typeof error === 'string' ? error : (error as { reason?: string; symbol?: string; mode?: string }).reason || 'Unknown scan failure');
   const status = historical ? 'Historical view — trading disabled' : scanning ? 'Scanning completed bars…' :
     !hasSymbols ? 'Add NSE/BSE equities in EMA Settings to start scanning' :
+    selectedMode && !activeModes.includes(selectedMode) ? 'Enable this profile in EMA Settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
     lastScan?.status === 'FAILED' ? 'Last scan failed — see details below' :
     'Scanning automatically · refreshes every 10s';
@@ -94,11 +92,12 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         borderBottom: '1px solid var(--k-border)', background: 'var(--k-bg)', position: 'relative',
       }}>
         <button type="button" className="sb-tool" aria-pressed={!selectedMode}
+          style={!selectedMode ? { borderColor: 'var(--k-blue)', fontWeight: 700 } : undefined}
           onClick={() => { setSelectedMode(''); setOpenId(null); }}>All</button>
         {MODES.map(mode => <button key={mode} type="button" className="sb-tool"
           aria-pressed={selectedMode === mode}
           title={activeModes.includes(mode) ? `Show ${EMA_TREND_MODE_LABEL[mode]} signals` : `Enable ${EMA_TREND_MODE_LABEL[mode]} in EMA Settings`}
-          disabled={!activeModes.includes(mode)}
+          style={selectedMode === mode ? { borderColor: 'var(--k-blue)', fontWeight: 700 } : undefined}
           onClick={() => { setSelectedMode(mode); setOpenId(null); }}>
           {EMA_TREND_MODE_LABEL[mode]}
         </button>)}
@@ -132,6 +131,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       {!historical && !snapshot.isLoading && !signals.length && !snapshot.error &&
         <p role="status" style={{ padding: 12 }}>
           {!hasSymbols ? 'No equities selected. Open EMA Trend settings and add NSE/BSE cash-equity symbols.' :
+            selectedMode && !activeModes.includes(selectedMode) ? 'This profile is not enabled. Select it in EMA Trend settings to start scanning.' :
             !scannerEnabled ? 'EMA scanner is off. Enable it in Settings to refresh signals.' :
             scanning ? 'Analyzing completed bars for the configured equities…' :
             'No completed-bar evidence yet for this profile. The scanner will keep checking; review scan errors if this persists.'}
