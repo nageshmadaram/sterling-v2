@@ -807,6 +807,40 @@ def prove_restore(
                         f"({actual_tag or 'UNKNOWN'} != {stored.release_tag or 'UNKNOWN'})"
                     )
 
+        # A frozen release is not just one JSON file: the actual per-lane
+        # artifacts must be the exact projection of that frozen contract.
+        # Checksums only prove bytes have not changed since backup creation;
+        # they cannot prove that an empty or stale lane directory was correct
+        # when those checksums were recorded.
+        frozen_copy = directory / ARTIFACT_SUBDIR / "release_manifest.json"
+        if frozen_copy.exists():
+            try:
+                frozen = json.loads(frozen_copy.read_text(encoding="utf-8"))
+                if not isinstance(frozen, dict):
+                    raise ValueError("frozen release manifest must be a JSON object")
+                frozen_build = frozen.get("build") or {}
+                if not isinstance(frozen_build, dict):
+                    raise ValueError("frozen release build must be a JSON object")
+                if str(frozen_build.get("runtime_sha") or "") != str(stored.release_sha or ""):
+                    failures.append(
+                        "frozen release_manifest: runtime_sha differs from backup identity"
+                    )
+                if str(frozen_build.get("release_tag") or "") != str(stored.release_tag or ""):
+                    failures.append(
+                        "frozen release_manifest: release_tag differs from backup identity"
+                    )
+                from app.core.release_manifest import lane_manifest_file_drift
+
+                lane_problems = lane_manifest_file_drift(
+                    frozen,
+                    lane_directory=directory / ARTIFACT_SUBDIR / "lane_manifests",
+                )
+                failures.extend(
+                    f"frozen lane manifests: {problem}" for problem in lane_problems
+                )
+            except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+                failures.append(f"frozen release_manifest: invalid ({exc})")
+
         # A restore that verifies only what the backup happens to contain can
         # pass while the backup is missing half the system. The coverage record
         # written at backup time is what makes that visible here.
