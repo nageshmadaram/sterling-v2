@@ -26,15 +26,28 @@ export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[]) {
   return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key],
     queryFn: async () => {
       if (!modes?.length) return api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
-      const snapshots = await Promise.all(modes.map(mode =>
+      // Always fetch *all* campaigns, including unresolved inventory belonging
+      // to a profile the user unchecked. The menu filters signal evidence,
+      // never operational exposure or recovery requirements.
+      const all = await api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
+      const results = await Promise.allSettled(modes.map(mode =>
         api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot?mode=${encodeURIComponent(mode)}`)));
-      const first = snapshots[0];
+      const succeeded = results.flatMap((result, index) =>
+        result.status === 'fulfilled' ? [{ mode: modes[index], data: result.value }] : []);
+      if (!succeeded.length) {
+        const failure = results.find(result => result.status === 'rejected');
+        throw failure?.status === 'rejected' ? failure.reason : new Error('EMA profile snapshots unavailable');
+      }
       return {
-        ...first,
-        rows: snapshots.flatMap(snapshot => snapshot.rows),
-        campaigns: snapshots.flatMap(snapshot => snapshot.campaigns),
-        generated_ms: Math.max(...snapshots.map(snapshot => snapshot.generated_ms || 0)),
-        truncatedModes: modes.filter((_, index) => snapshots[index].next_cursor != null),
+        ...all,
+        rows: succeeded.flatMap(result => result.data.rows),
+        // This keeps every open/unresolved position visible across selections.
+        campaigns: all.campaigns,
+        generated_ms: Math.max(all.generated_ms || 0,
+          ...succeeded.map(result => result.data.generated_ms || 0)),
+        truncatedModes: succeeded.filter(result => result.data.next_cursor != null).map(result => result.mode),
+        failedModes: results.flatMap((result, index) =>
+          result.status === 'rejected' ? [modes[index]] : []),
       };
     },
     enabled: !scope.replay, refetchInterval: 10_000, staleTime: 3_000 });
