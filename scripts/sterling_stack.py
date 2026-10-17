@@ -109,14 +109,29 @@ def _reclaim_gateway(port):
 
 
 def alive(pid):
+    """Only regard our exact, same-UID checkout's supervisor as running."""
     try:
         pid=int(pid)
-        if pid <= 1:return False
-        cmd=Path(f'/proc/{pid}/cmdline')
-        if cmd.exists() and 'sterling_stack.py' not in cmd.read_bytes().decode():return False
-        os.kill(pid,0);return True
-    except (ProcessLookupError,ValueError,TypeError):return False
-    except PermissionError:return True
+        if pid<=1 or not sys.platform.startswith('linux'):return False
+        proc=Path(f'/proc/{pid}')
+        if proc.stat().st_uid!=os.getuid():return False
+        argv=[part.decode('utf-8','replace') for part in
+              (proc/'cmdline').read_bytes().split(b'\x00') if part]
+        if str(ROOT/'scripts/sterling_stack.py') not in argv:return False
+        if (proc/'cwd').resolve()!=ROOT.resolve():return False
+        os.kill(pid,0)
+        return True
+    except (OSError,ValueError,TypeError):return False
+
+
+def _managed_web_owns_port(state):
+    """A healthy manager is reusable only when its Node child owns 5180."""
+    try:
+        port=int(state.get('web_port',5180))
+        pid=int((state.get('children') or {}).get('web') or 0)
+        return pid>1 and _gateway_listener_pids(port)==[pid] and _is_own_orphan_gateway(pid)
+    except (TypeError,ValueError):
+        return False
 
 
 def read_state():
@@ -211,7 +226,7 @@ class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
         provider=getattr(args,'provider','cloudflare')
-        self.status={'manager_pid':os.getpid(),'phase':'starting','app_url':'','mini_app_url':'',
+        self.status={'manager_pid':os.getpid(),'manager_protocol':2,'phase':'starting','app_url':'','mini_app_url':'',
                      'mode':'both' if provider=='both' else 'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'),
                      'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
