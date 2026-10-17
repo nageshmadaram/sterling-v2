@@ -388,8 +388,12 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command',choices=['start','run','status','rotate','stop'],nargs='?',default='start')
     parser.add_argument('--port',type=int,default=5180);parser.add_argument('--skip-build',action='store_true')
-    parser.add_argument('--provider',choices=['cloudflare','ngrok'],default=None)
-    parser.add_argument('--hostname',default='');parser.add_argument('--rotate-hours',type=float,default=0)
+    parser.add_argument('--provider',choices=['cloudflare','ngrok','both'],default=None)
+    parser.add_argument('--hostname',default='')
+    parser.add_argument('--ngrok-hostname',default='')
+    parser.add_argument('--dev',action='store_true')
+    parser.add_argument('--dev-port',type=int,default=5174)
+    parser.add_argument('--rotate-hours',type=float,default=0)
     args=parser.parse_args()
     if not 1024 <= args.port <= 65535 or args.rotate_hours < 0:parser.error('Use a port from 1024–65535 and a non-negative rotation interval')
     STATE.mkdir(parents=True,exist_ok=True);os.chmod(STATE,0o700)
@@ -401,12 +405,23 @@ def main():
         if sep and key.startswith('STERLING_') and key not in os.environ:
             os.environ[key]=value.strip().strip(chr(34)+chr(39))
     args.provider=args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
-    args.hostname=args.hostname or os.environ.get('STERLING_PUBLIC_HOSTNAME','')
-    if args.provider not in {'cloudflare','ngrok'}:parser.error('Unsupported tunnel provider')
-    if args.hostname:
-        parsed=urlsplit(args.hostname)
-        if parsed.scheme!='https' or not parsed.hostname or parsed.path not in {'','/'} or parsed.query or parsed.fragment or parsed.username or parsed.password:parser.error('Use an HTTPS hostname without credentials, path or query')
+    if args.provider not in {'cloudflare','ngrok','both'}:parser.error('Unsupported tunnel provider')
+    if args.provider=='both':
+        # Legacy STERLING_PUBLIC_HOSTNAME might be an ngrok origin from an
+        # older single-tunnel installation. Do not silently use it for CF.
+        args.hostname=args.hostname or os.environ.get('STERLING_CLOUDFLARE_HOSTNAME','')
+    else:
+        args.hostname=args.hostname or os.environ.get('STERLING_PUBLIC_HOSTNAME','')
+    args.ngrok_hostname=args.ngrok_hostname or os.environ.get('STERLING_NGROK_HOSTNAME','')
+    args.dev=args.dev or os.environ.get('STERLING_DEV_FRONTEND','').lower() in {'1','true','yes','on'}
+    try:
+        args.hostname=safe_hostname(args.hostname,'Primary')
+        args.ngrok_hostname=safe_hostname(args.ngrok_hostname,'ngrok')
+    except ValueError as error:
+        parser.error(str(error))
     if args.provider=='ngrok' and not args.hostname:parser.error('ngrok requires a fixed --hostname')
+    if args.dev and (args.dev_port in {5173,8000,args.port} or not 1024<=args.dev_port<=65535):
+        parser.error('Development port conflicts with gateway, backend or legacy Kite callback port')
     state=read_state();running=alive(state.get('manager_pid')) and state.get('phase')!='stopped'
     if args.command=='status':print(json.dumps({**state,'manager_running':running},indent=2));return
     if args.command in {'stop','rotate'}:
