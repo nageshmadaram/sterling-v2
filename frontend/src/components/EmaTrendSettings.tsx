@@ -103,7 +103,15 @@ export function EmaTrendSettings() {
             {' '}{details.blockers.join(' · ').replace(/_/g, ' ')}</p>)}
         <p>A connected Kite account alone does not prove broker-side SL/TSL, sell authorization, order recovery or exit fillability.</p>
       </div>}
-      {(server.blockers || []).map(reason => <p key={reason} style={{ fontSize: 11, color: 'var(--k-amber)' }}>{reason.replace(/_/g, ' ')}</p>)}
+      <details style={{ fontSize: 11, color: 'var(--k-text-muted)' }}>
+        <summary style={{ cursor: 'pointer' }}>
+          Live trading blocked · {server.blockers?.length || 0} certification checks
+        </summary>
+        <p>These checks block real Kite orders, not read-only EMA signal scanning.</p>
+        {(server.blockers || []).map(reason => <p key={reason} style={{ color: 'var(--k-amber)' }}>
+          {reason.replace(/_/g, ' ')}
+        </p>)}
+      </details>
       <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
       <button type="button" className="sb-tool" disabled={exporting} onClick={exportRecords}>{exporting ? 'Exporting…' : 'Export saved paper records'}</button>
       {exportError && <p role="alert">Export failed: {exportError}</p>}
