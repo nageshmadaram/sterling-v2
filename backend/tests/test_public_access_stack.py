@@ -513,6 +513,7 @@ def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,caps
  monkeypatch.setattr(stack,'read_state',lambda:existing)
  monkeypatch.setattr(stack,'alive',lambda pid:True)
  monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
  def no_restart(*args,**kwargs):
   raise AssertionError('Repeated ./sterling.sh up must reuse the manager')
  monkeypatch.setattr(stack,'_stop_old_managed_presentation',no_restart)
@@ -523,6 +524,61 @@ def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,caps
  assert 'MANAGED' in out
  assert 'https://cloudflare.example.test' in out
  assert 'https://ngrok.example.test' in out
+
+
+def test_up_recovers_missing_adopted_backend_via_single_manager_restart(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ old={'manager_pid':909,'manager_protocol':4,'mode':'both','phase':'reconnecting',
+      'web_port':5180,'dev_url':'http://127.0.0.1:5174','children':{'web':810}}
+ monkeypatch.setattr(stack,'read_state',lambda:old)
+ running={'value':True}
+ monkeypatch.setattr(stack,'alive',lambda pid:running['value'])
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:False)
+ def stop_manager(pid):
+  assert pid==909
+  running['value']=False
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',stop_manager)
+ monkeypatch.setattr(stack,'wait_for_up_status',lambda pid,**kwargs:{})
+ launched=[]
+ def spawn(args,**kwargs):
+  launched.append(args)
+  return SimpleNamespace(pid=98989)
+ monkeypatch.setattr(stack.subprocess,'Popen',spawn)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ assert len(launched)==1
+ assert str(stack.ROOT/'scripts/sterling_stack.py') in launched[0]
+ assert 'run' in launched[0] and '--all' in launched[0]
+
+
+def test_up_preserves_bound_backend_during_reconnect(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ old={'manager_pid':909,'manager_protocol':4,'mode':'both','phase':'reconnecting',
+      'web_port':5180,'dev_url':'http://127.0.0.1:5174'}
+ monkeypatch.setattr(stack,'read_state',lambda:old)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'wait_for_up_status',lambda pid,**kwargs:old)
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',
+                     lambda pid:(_ for _ in ()).throw(AssertionError('Must not stop')))
+ monkeypatch.setattr(stack.subprocess,'Popen',
+                     lambda *a,**kw:(_ for _ in ()).throw(AssertionError('Must not spawn')))
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+
+
+def test_status_reports_backend_health_separately_from_gateway(monkeypatch):
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:False)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:False)
+ out=stack.live_presentation_status({'phase':'reconnecting',
+       'public_ready':{'cloudflare':False}},True)
+ assert out['gateway_running'] is True
+ assert out['backend_listening'] is False
+ assert out['backend_ready'] is False
 
 
 def test_up_replaces_old_ui_manager_but_never_calls_backend_shutdown(monkeypatch,tmp_path):
