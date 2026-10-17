@@ -268,9 +268,9 @@ def ensure_runtime(skip_build):
     if not shutil.which('node') or not shutil.which('npm'):raise RuntimeError('Node.js and npm are required')
     if not (ROOT/'frontend/node_modules').exists():
         subprocess.run(['npm','ci'],cwd=ROOT/'frontend',check=True,stdout=subprocess.DEVNULL)
-    if not skip_build or not (ROOT/'frontend/dist/index.html').exists():
-        with (STATE/'build.log').open('w') as log:
-            subprocess.run(['npm','run','build'],cwd=ROOT/'frontend',env={**clean_env(),'VITE_API_BASE_URL':''},check=True,stdout=log,stderr=log)
+    # Never compile the public app from ROOT/frontend: local edits and
+    # untracked source are strictly for Vite dev on 5174.
+    # CommittedFrontend publishes the isolated build from Git archive.
     return python
 
 
@@ -424,6 +424,11 @@ class Stack:
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
         self.last_public_signature=None;self.last_ngrok_retry=0;self.last_dev_retry=0
         self.ngrok_urls=queue.Queue();self.ngrok_binary=None
+        self.publisher=CommittedFrontend(os.environ.get('STERLING_PUBLISH_REF','HEAD'))
+        self.last_release_check=0;self.last_fetch=0
+        self.status['release_ref']=self.publisher.ref
+        self.status['release_commit']=self.publisher.current()
+        self.status['release_error']=''
 
     def spawn(self,name,argv,**kwargs):
         log=(STATE/f'{name}.log').open('a');os.chmod(STATE/f'{name}.log',0o600);self.logs.append(log)
@@ -560,6 +565,17 @@ class Stack:
             try:fetch('http://127.0.0.1:8000/docs',2);break
             except Exception:time.sleep(1)
         else:raise RuntimeError('Backend did not become ready')
+        # Fail closed before opening public URLs if no committed build exists.
+        try:
+            revision,promoted=self.publisher.publish()
+            self.status['release_commit']=revision
+        except Exception as error:
+            self.status['release_error']=type(error).__name__
+            previous=self.publisher.current()
+            if not previous:
+                raise RuntimeError('No valid committed frontend build. Check release-build.log.') from error
+            self.status['release_commit']=previous
+            self.status['release_stale']=True
         self.start_web()
         if getattr(self.args,'dev',False):self.start_dev()
         self.launch_tunnel()
@@ -570,6 +586,28 @@ class Stack:
             if self.backend_owned and self.children['backend'].poll() is not None:self.start_backend()
             if self.children['web'].poll() is not None:self.start_web()
             now=time.monotonic()
+            if now>=self.last_release_check:
+                self.last_release_check=now+15
+                try:
+                    if (os.environ.get('STERLING_PUBLISH_FETCH')=='1'
+                            and self.publisher.ref=='origin/main'
+                            and now-self.last_fetch>=60):
+                        self.last_fetch=now
+                        # Update Git remote tracking ref, never checkout, merge,
+                        # commit, push or mutate the operator working tree.
+                        subprocess.run(['git','-C',str(ROOT),'fetch','origin','main'],
+                                       timeout=45,check=True,
+                                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                    revision,promoted=self.publisher.publish()
+                    self.status['release_commit']=revision
+                    self.status['release_error']=''
+                    self.status['release_stale']=False
+                    if promoted:
+                        print(f'Committed frontend updated: {revision[:12]} on all public URLs',flush=True)
+                except Exception as error:
+                    self.status['release_error']=type(error).__name__
+                    self.status['release_stale']=True
+                    print(f'Committed build failed ({type(error).__name__}); retaining last good frontend.',flush=True)
             if getattr(self.args,'dev',False) and self.children.get('dev') and self.children['dev'].poll() is not None and now>=self.last_dev_retry:
                 self.status['dev_error']='VITE_PROCESS_EXITED_CHECK_DEV_LOG'
                 self.last_dev_retry=now+45
@@ -652,7 +690,8 @@ class Stack:
             if probe.connect_ex(('127.0.0.1',self.args.port))==0:
                 old=_reclaim_gateway(self.args.port)
                 self.status['gateway_reclaimed_pid']=old
-        env={**clean_env(),'STERLING_WEB_PORT':str(self.args.port)}
+        env={**clean_env(),'STERLING_WEB_PORT':str(self.args.port),
+             'STERLING_STATIC_ROOT':str(self.publisher.pointer)}
         log=(STATE/'web.log').open('a');self.logs.append(log)
         child=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
                                cwd=ROOT,env=env,stdout=log,stderr=log,start_new_session=True)
@@ -726,6 +765,10 @@ def main():
             'primary_telegram_desk':state.get('mini_app_url',''),
             'kite_callback_guidance':state.get('callback_url',''),
             'ngrok_error':state.get('ngrok_error',''),
+            'release_ref':state.get('release_ref',''),
+            'release_commit':state.get('release_commit',''),
+            'release_stale':state.get('release_stale',False),
+            'release_error':state.get('release_error',''),
         },indent=2))
         return
     if args.command in {'stop','rotate'}:
