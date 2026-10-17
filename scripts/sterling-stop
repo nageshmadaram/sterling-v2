@@ -6,6 +6,9 @@
 # staying up. `--force` is for the operator who has read that refusal and needs
 # the machine to stop anyway; it skips no check and hides no result, it only
 # continues past one.
+#
+# After the lifecycle stop, the presentation layer (tunnels, web gateway, dev
+# server) is also stopped if it is running.
 set -uo pipefail
 
 STERLING_ROOT="${STERLING_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -20,6 +23,7 @@ for arg in "$@"; do
   esac
 done
 
+LIFECYCLE_RC=0
 "$PYTHON" -c "
 import sys
 sys.path.insert(0, '$STERLING_ROOT/backend')
@@ -32,4 +36,34 @@ if report.exit_code and $FORCE:
     print('--force was given: the service was stopped despite the refusal above.')
     sys.exit(0)
 sys.exit(report.exit_code)
-"
+" || LIFECYCLE_RC=$?
+
+# Stop the presentation layer (tunnels, web gateway, dev server) if running.
+_STATUS_FILE="$STERLING_ROOT/.runtime/stack/status.json"
+if [ -f "$_STATUS_FILE" ] && { [ "$LIFECYCLE_RC" -eq 0 ] || [ "$FORCE" = "True" ]; }; then
+  _MANAGER_PID=$("$PYTHON" -c "
+import json, sys
+try:
+    d = json.load(open('$_STATUS_FILE'))
+    pid = d.get('manager_pid', 0)
+    print(pid if isinstance(pid, int) and pid > 1 else '')
+except Exception:
+    print('')
+" 2>/dev/null)
+  if [ -n "$_MANAGER_PID" ] && [ -d "/proc/$_MANAGER_PID" ] 2>/dev/null; then
+    echo
+    echo "Stopping presentation layer (manager PID $_MANAGER_PID)…"
+    kill "$_MANAGER_PID" 2>/dev/null || true
+    for _i in $(seq 1 30); do
+      [ -d "/proc/$_MANAGER_PID" ] 2>/dev/null || break
+      sleep 0.5
+    done
+    if [ -d "/proc/$_MANAGER_PID" ] 2>/dev/null; then
+      echo "Warning: presentation manager did not stop within 15s."
+    else
+      echo "Presentation layer stopped."
+    fi
+  fi
+fi
+
+exit "$LIFECYCLE_RC"

@@ -261,7 +261,10 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
     print(fmt('  ╔══════════════════════════════════════════════════════════════════╗','brand'))
     print(fmt('  ║  ✦ S T E R L I N G     ·     ONE-COMMAND WORKSPACE             ║','brand'))
     print(fmt('  ╚══════════════════════════════════════════════════════════════════╝','brand'))
-    if reused:
+    mode=state.get('mode','both')
+    if mode=='local':
+        print('  '+fmt('● LOCAL MODE — backend + gateway + dev (no tunnels)','green' if ready else 'yellow'))
+    elif reused:
         message=('● MANAGED — both tunnels verified' if ready and
                  healthy.get('cloudflare') and healthy.get('ngrok') else
                  '◉ MANAGED — connecting/verifying public tunnels')
@@ -273,21 +276,28 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
     development=_clean_terminal_value(state.get('dev_url') or 'http://127.0.0.1:5174')
     line('LOCAL APP',local,'READY' if ready else 'STARTING',
          'green' if ready else 'yellow')
-    for name,provider in [('CLOUDFLARE','cloudflare'),('NGROK','ngrok')]:
-        found=public_origin(provider)
-        discovered=_clean_terminal_value(state.get(f'{provider}_url',''))
-        if found:
-            line(name,found,'VERIFIED','green')
-        elif discovered.startswith('https://'):
-            line(name,discovered+' (unverified)','VERIFYING','yellow','◌')
-        else:
-            line(name,'Tunnel URL not yet discovered','CONNECTING','yellow','◌')
+    if mode!='local':
+        for name,provider in [('CLOUDFLARE','cloudflare'),('NGROK','ngrok')]:
+            found=public_origin(provider)
+            discovered=_clean_terminal_value(state.get(f'{provider}_url',''))
+            if found:
+                line(name,found,'VERIFIED','green')
+            elif discovered.startswith('https://'):
+                line(name,discovered+' (unverified)','VERIFYING','yellow','◌')
+            elif state.get('ngrok_error')=='NGROK_BINARY_NOT_INSTALLED' and provider=='ngrok':
+                line(name,'Not installed (snap install ngrok)','SKIPPED','muted','○')
+            else:
+                line(name,'Tunnel URL not yet discovered','CONNECTING','yellow','◌')
     # Vite is launched by the supervisor, but do not claim HTTP readiness from
     # the existence of a remembered child PID alone.
     line('DEV · HOT RELOAD',development,'LOCAL WORKTREE','magenta')
     print()
-    print('  '+fmt('PUBLIC  ','green')+
-          'committed frontend · same release on local, Cloudflare and ngrok')
+    if mode=='local':
+        print('  '+fmt('LOCAL   ','green')+
+              'committed frontend served on the gateway port')
+    else:
+        print('  '+fmt('PUBLIC  ','green')+
+              'committed frontend · same release on local, Cloudflare and ngrok')
     print('  '+fmt('DEV     ','magenta')+
           'uncommitted edits appear only on the development URL')
     release=_clean_terminal_value(state.get('release_commit',''))
@@ -315,6 +325,8 @@ def wait_for_up_status(manager_pid, *, seconds=12):
             continue
         latest=state
         if state.get('phase')=='stopped' or not alive(manager_pid):
+            break
+        if state.get('mode')=='local' and _managed_web_owns_port(state):
             break
         if (_managed_web_owns_port(state)
                 and state.get('public_ready',{}).get('cloudflare')
@@ -608,8 +620,10 @@ class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
         provider=getattr(args,'provider','cloudflare')
+        mode=('local' if provider=='local' else 'both' if provider=='both' else
+              'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'))
         self.status={'manager_pid':os.getpid(),'manager_protocol':4,'phase':'starting','app_url':'','mini_app_url':'',
-                     'mode':'both' if provider=='both' else 'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'),
+                     'mode':mode,
                      'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
                      'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
                      'cloudflare_url':'','ngrok_url':'','urls':{},'public_ready':{}}
@@ -753,14 +767,21 @@ class Stack:
 
     def run(self):
         self.python=ensure_runtime(self.args.skip_build)
-        self.binary=(shutil.which('ngrok') if self.args.provider=='ngrok'
-                     else cloudflared())
-        if not self.binary:
-            raise RuntimeError('Primary tunnel binary is unavailable')
+        if self.args.provider=='local':
+            self.binary=None
+        elif self.args.provider=='ngrok':
+            self.binary=shutil.which('ngrok')
+            if not self.binary:
+                raise RuntimeError('ngrok binary not found. Install: snap install ngrok  or  https://ngrok.com/download')
+        else:
+            self.binary=cloudflared()
+            if not self.binary:
+                raise RuntimeError('cloudflared binary not found. It will auto-download on next attempt.')
         if self.args.provider=='both':
             self.ngrok_binary=shutil.which('ngrok')
             if not self.ngrok_binary:
                 self.status['ngrok_error']='NGROK_BINARY_NOT_INSTALLED'
+                print('ngrok not installed. Install: snap install ngrok  or  https://ngrok.com/download',flush=True)
         # Preserve any already-running backend; never start two trading engines.
         try:fetch('http://127.0.0.1:8000/docs',2)
         except Exception:
@@ -784,9 +805,15 @@ class Stack:
             self.status['release_stale']=True
         self.start_web()
         if getattr(self.args,'dev',False):self.start_dev()
-        self.launch_tunnel()
-        if self.args.provider=='both' and self.ngrok_binary:
-            self.launch_ngrok()
+        if self.args.provider!='local':
+            self.launch_tunnel()
+            if self.args.provider=='both' and self.ngrok_binary:
+                self.launch_ngrok()
+        else:
+            self.status.update(phase='ready',app_url=self.status['local_url'])
+            print(f"Sterling running locally: {self.status['local_url']}",flush=True)
+            if self.status['dev_url']:
+                print(f"Dev hot-reload: {self.status['dev_url']}",flush=True)
         next_probe=0;retry_at=0
         while not self.stopping:
             if self.backend_owned and self.children['backend'].poll() is not None:self.start_backend()
@@ -819,7 +846,7 @@ class Stack:
                 self.status['dev_error']='VITE_PROCESS_EXITED_CHECK_DEV_LOG'
                 self.last_dev_retry=now+45
                 self.start_dev()
-            if self.rotate or self.children['cloudflare'].poll() is not None:
+            if self.args.provider!='local' and (self.rotate or (self.children.get('cloudflare') and self.children['cloudflare'].poll() is not None)):
                 self.rotate=False
                 if now>=retry_at:self.launch_tunnel();retry_at=now+15
             if self.args.provider=='both' and self.ngrok_binary:
@@ -828,6 +855,12 @@ class Stack:
                     self.last_ngrok_retry=now+60
                     self.status['ngrok_error']='NGROK_RESTARTING'
                     self.launch_ngrok()
+            if self.args.provider=='local':
+                # Local mode: no tunnels to probe. Keep web and dev alive.
+                self.status['children']={name:proc.pid for name,proc in self.children.items()}
+                save_state(self.status)
+                time.sleep(1)
+                continue
             discovered=False
             while not self.urls.empty():
                 pid,url=self.urls.get()
@@ -885,7 +918,7 @@ class Stack:
                         if primary and tunnel_unavailable(primary,self.args.port) else 0)
                     if self.failures>=4 and time.time()-self.status.get('tunnel_started_at',time.time())>90:
                         self.launch_tunnel()
-            if not self.status['app_url'] and time.time()-self.status['tunnel_started_at']>120:
+            if not self.status['app_url'] and self.status.get('tunnel_started_at') and time.time()-self.status['tunnel_started_at']>120:
                 self.launch_tunnel()
             if (self.args.rotate_hours and
                     time.time()-self.status['tunnel_started_at']>=self.args.rotate_hours*3600):
@@ -937,7 +970,8 @@ def main():
     parser.add_argument('--all',action='store_true',
         help='One-command local app + Cloudflare + ngrok + loopback Vite dev')
     parser.add_argument('--port',type=int,default=5180);parser.add_argument('--skip-build',action='store_true')
-    parser.add_argument('--provider',choices=['cloudflare','ngrok','both'],default=None)
+    parser.add_argument('--provider',choices=['cloudflare','ngrok','both','local'],default=None)
+    parser.add_argument('--local',action='store_true',help='Local-only mode: no tunnels, just backend + gateway + dev')
     parser.add_argument('--hostname',default='')
     parser.add_argument('--ngrok-hostname',default='')
     parser.add_argument('--dev',action='store_true')
@@ -955,8 +989,14 @@ def main():
             os.environ[key]=value.strip().strip(chr(34)+chr(39))
     if args.command=='up':
         args.all=True
-    args.provider='both' if args.all else args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
-    if args.provider not in {'cloudflare','ngrok','both'}:parser.error('Unsupported tunnel provider')
+    if getattr(args,'local',False):
+        args.provider='local'
+        args.dev=True
+    elif args.all:
+        args.provider='both'
+    else:
+        args.provider=args.provider or os.environ.get('STERLING_TUNNEL_PROVIDER','cloudflare')
+    if args.provider not in {'cloudflare','ngrok','both','local'}:parser.error('Unsupported tunnel provider')
     if args.provider=='both':
         # Legacy STERLING_PUBLIC_HOSTNAME might be an ngrok origin from an
         # older single-tunnel installation. Do not silently use it for CF.
@@ -971,6 +1011,8 @@ def main():
     except ValueError as error:
         parser.error(str(error))
     if args.provider=='ngrok' and not args.hostname:parser.error('ngrok requires a fixed --hostname')
+    if args.provider=='local':
+        args.hostname='';args.ngrok_hostname=''
     if args.dev and (args.dev_port in {5173,8000,args.port} or not 1024<=args.dev_port<=65535):
         parser.error('Development port conflicts with gateway, backend or legacy Kite callback port')
     state=read_state();running=alive(state.get('manager_pid')) and state.get('phase')!='stopped'
@@ -1004,8 +1046,9 @@ def main():
     if args.command=='up' and running:
         # Re-running the one-command launcher is idempotent. A verified
         # current gateway is already supervised; do not churn its tunnels.
+        expected_mode='local' if args.provider=='local' else 'both' if args.provider=='both' else state.get('mode','')
         current=(state.get('manager_protocol',0)>=4 and
-                 state.get('mode')=='both' and
+                 state.get('mode')==expected_mode and
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
                  state.get('web_port')==args.port)
         if current and state.get('phase')!='stopped':
@@ -1038,7 +1081,7 @@ def main():
         except BlockingIOError:print('Sterling is already running. Use ./sterling.sh status');return
     if args.command in {'start','up'}:
         forwarded=[arg for arg in sys.argv[1:] if arg not in {'start','up'}]
-        if args.command=='up':
+        if args.command=='up' and not getattr(args,'local',False):
             forwarded.append('--all')
         log=(STATE/'manager.log').open('a');os.chmod(STATE/'manager.log',0o600)
         # Child inherits the singleton lock; no second launcher can race startup.
