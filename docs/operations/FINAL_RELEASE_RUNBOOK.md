@@ -37,7 +37,7 @@ its result for the manifest.
 - set distinct random `STERLING_SECRET_KEY` and `STERLING_JWT_SECRET` values
   (at least 32 characters each), plus `STERLING_ADMIN_PASSWORD`;
 - set a stable `STERLING_DEPLOYMENT_ID`, the registered
-  `STERLING_STATIC_EGRESS_IP`, and `STERLING_LIVE_EXECUTION=true`;
+  `STERLING_STATIC_EGRESS_IP`, and keep `STERLING_LIVE_EXECUTION=false` until an authorized go-live decision;
 - first-day caps: `STERLING_LIVE_MINIMUM_MAX_LOTS=1` and a loss budget
   ([../../DEPLOYMENT.md](../../DEPLOYMENT.md));
 - fresh Kite login, then the broker account binding (declare, verify, activate:
@@ -122,7 +122,7 @@ Seal the newly frozen state:
 ```bash
 scripts/sterlingctl backup
 scripts/sterlingctl restore-check
-scripts/sterlingctl verify
+scripts/sterlingctl verify   # checks release identity AND every physical lane manifest
 scripts/sterlingctl certify
 ```
 
@@ -168,9 +168,14 @@ informational.
 scripts/sterlingctl start
 ```
 
-It stops at the first step that is not a pass. When it completes, new entries are
-allowed: Supertrend, Snapback and Gamma Unwind may originate, within the day-one
-caps.
+It stops at the first step that is not a pass. Starting the service does **not** itself authorize new entries. Leave
+`STERLING_LIVE_EXECUTION=false` while release, broker and moving-market evidence
+are incomplete. Only after an independently approved go-live, explicitly set
+`STERLING_LIVE_EXECUTION=true`, restart through the controlled service lifecycle,
+and re-run doctor plus broker reconciliation. SuperTrend, Snapback and
+Gamma-Unwind may then originate only if all runtime safety checks pass,
+within the day-one caps. Never use the release freeze as approval to deploy
+real capital.
 
 ## 11. First live session
 
