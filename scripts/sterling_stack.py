@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 STATE = ROOT/'.runtime/stack'
 PUBLIC_RE = re.compile(r'https://[a-z0-9-]+\.trycloudflare\.com\b')
+NGROK_RE = re.compile(r'https://[a-z0-9.-]+\.ngrok(?:-free)?\.(?:app|dev|io)\b',re.I)
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
@@ -81,6 +82,38 @@ def clean_env():
     return {k:v for k,v in os.environ.items() if not k.startswith('BASH_FUNC_')}
 
 
+def safe_hostname(value, provider):
+    """Validate externally configured HTTPS domains without allowing injection."""
+    if not value:
+        return ''
+    parsed=urlsplit(value)
+    if (parsed.scheme!='https' or not parsed.hostname or parsed.path not in {'','/'}
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or parsed.port is not None):
+        raise ValueError(f'{provider} hostname must be a bare HTTPS origin')
+    if parsed.hostname in {'localhost','127.0.0.1','::1'}:
+        raise ValueError(f'{provider} hostname must be public')
+    return f'https://{parsed.netloc}'.rstrip('/')
+
+
+def ngrok_url_from_log(line):
+    """Accept only a tunnel URL in a trusted ngrok started-tunnel log event."""
+    try:
+        data=json.loads(line)
+        if not isinstance(data,dict):
+            return ''
+        detail=' '.join(str(data.get(key,'')) for key in ('msg','message','event')).lower()
+        if 'started tunnel' not in detail and 'session started' not in detail:
+            return ''
+        candidate=data.get('url') or data.get('public_url') or ''
+        if not isinstance(candidate,str):
+            return ''
+        origin=safe_hostname(candidate,'ngrok')
+        return origin if NGROK_RE.fullmatch(origin) else ''
+    except (ValueError,TypeError):
+        return ''
+
+
 def cloudflared():
     configured=os.environ.get('STERLING_CLOUDFLARED_BIN')
     if configured:
@@ -127,8 +160,14 @@ def ensure_runtime(skip_build):
 class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
-        self.status={'manager_pid':os.getpid(),'phase':'starting','app_url':'','mini_app_url':'','mode':'ngrok' if getattr(args,'provider','cloudflare')=='ngrok' else ('named' if args.hostname else 'quick'),'web_port':args.port}
+        provider=getattr(args,'provider','cloudflare')
+        self.status={'manager_pid':os.getpid(),'phase':'starting','app_url':'','mini_app_url':'',
+                     'mode':'both' if provider=='both' else 'ngrok' if provider=='ngrok' else ('named' if args.hostname else 'quick'),
+                     'web_port':args.port,'local_url':f'http://127.0.0.1:{args.port}',
+                     'dev_url':f'http://127.0.0.1:{args.dev_port}' if getattr(args,'dev',False) else '',
+                     'cloudflare_url':'','ngrok_url':'','urls':{},'public_ready':{}}
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
+        self.last_public_signature=None;self.last_ngrok_retry=0
 
     def spawn(self,name,argv,**kwargs):
         log=(STATE/f'{name}.log').open('a');os.chmod(STATE/f'{name}.log',0o600);self.logs.append(log)
@@ -175,13 +214,20 @@ class Stack:
 
     def publish(self):
         origin=self.status['app_url']
-        result=subprocess.run([str(self.python),str(ROOT/'scripts/publish_public_access.py'),origin,self.status['mode']],cwd=ROOT/'backend',env=clean_env(),capture_output=True,text=True,timeout=40)
+        secondary=self.status.get('ngrok_url','') if self.args.provider=='both' and self.status['public_ready'].get('ngrok') else ''
+        mode='both' if self.args.provider=='both' else self.status['mode']
+        result=subprocess.run([str(self.python),str(ROOT/'scripts/publish_public_access.py'),origin,mode,secondary],
+                              cwd=ROOT/'backend',env=clean_env(),capture_output=True,text=True,timeout=40)
         try:data=json.loads(result.stdout.strip().splitlines()[-1])
         except (ValueError,IndexError):data={}
         if result.returncode or not data.get('published'):return False
-        self.status.update(phase='ready',mini_app_url=origin+'/tma',callback_url=origin+'/api/v1/kite/callback',last_verified_at=time.time(),telegram_menu_updated=data.get('telegram_menu_updated',False))
+        self.status.update(phase='ready',mini_app_url=origin+'/tma',callback_url=origin+'/api/v1/kite/callback',
+                           last_verified_at=time.time(),telegram_menu_updated=data.get('telegram_menu_updated',False))
+        self.last_public_signature=(origin,secondary)
         self.published=True;self.last_publish=time.monotonic()
-        print(f"App: {origin}\nTelegram desk: {origin}/tma",flush=True)
+        print(f"App (local): {self.status['local_url']}\nCloudflare/primary: {origin}"
+              + (f"\nngrok: {secondary}" if secondary else "")
+              + f"\nTelegram desk: {origin}/tma",flush=True)
         return True
 
     def run(self):
