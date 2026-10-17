@@ -537,3 +537,66 @@ def test_healthy_manager_must_own_listener_not_just_responsive_port(monkeypatch)
  assert not stack._managed_web_owns_port(state)
  monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[789])
  assert stack._managed_web_owns_port(state)
+
+
+def test_start_web_reclaims_old_matching_listener_before_spawning(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=True,dev_port=5174)
+ manager=stack.Stack(args)
+ order=[]
+ class Probe:
+  def __enter__(self):return self
+  def __exit__(self,*args):return False
+  def connect_ex(self,loc):return 0  # an old listener occupies 5180
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
+ monkeypatch.setattr(stack,'_reclaim_gateway',
+                     lambda port:(order.append('reclaim'),456)[1])
+ class Child:
+  pid=789
+  def poll(self):return None
+ monkeypatch.setattr(stack.subprocess,'Popen',
+                     lambda *a,**kw:(order.append('spawn'),Child())[1])
+ monkeypatch.setattr(stack,'_verify_gateway_child',
+                     lambda child,port:order.append('verify'))
+ manager.start_web()
+ assert order==['reclaim','spawn','verify']
+ assert manager.status['gateway_reclaimed_pid']==456
+ assert manager.status['web_ready_pid']==789
+ assert manager.children['web'].pid==789
+
+
+def test_start_web_refuses_unknown_listener_without_launching_second(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False,dev_port=5174)
+ manager=stack.Stack(args)
+ class Probe:
+  def __enter__(self):return self
+  def __exit__(self,*args):return False
+  def connect_ex(self,loc):return 0
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
+ def block(port):
+  raise RuntimeError('unverified process')
+ monkeypatch.setattr(stack,'_reclaim_gateway',block)
+ def no_spawn(*a,**kw):
+  raise AssertionError('must never start second web process')
+ monkeypatch.setattr(stack.subprocess,'Popen',no_spawn)
+ with pytest.raises(RuntimeError,match='unverified process'):
+  manager.start_web()
+
+
+def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setattr(stack,'read_state',lambda:{
+  'manager_pid':80808,'manager_protocol':2,'mode':'both',
+  'dev_url':'http://127.0.0.1:5174','web_port':5180,
+  'phase':'starting','local_url':'http://127.0.0.1:5180'})
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:False)
+ def no_restart(*a,**kwargs):
+  raise AssertionError('initializing supervisor must be reused')
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',no_restart)
+ monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
