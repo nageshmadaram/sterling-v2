@@ -35,6 +35,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
 
   const activeModes = config.data?.config.modes || [];
+  React.useEffect(() => {
+    if (selectedMode && config.data && !activeModes.includes(selectedMode)) setSelectedMode('');
+  }, [selectedMode, config.data?.revision]);
   const hasSymbols = Boolean(config.data?.config.symbols.length);
   const scannerEnabled = Boolean(config.data?.config.enabled);
   const scanning = ['QUEUED', 'RUNNING'].includes(job.data?.status || snapshot.data?.scan?.status || '');
@@ -71,7 +74,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         snapshot.data.paused !== true && snapshot.data.capabilities?.paper === true,
     })),
   ], [snapshot.data, historical]);
-  const view = useBoardView(signals, { storageKey: 'ema_trend', endedByDefault: true });
+  const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v2', endedByDefault: true });
   // Never let a view filter hide an active or unresolved held campaign.
   const visible = [...view.visible];
   for (const signal of signals) if (signal.emaTrend?.campaignId && signal.status !== 'ended' && !visible.some(row => row.id === signal.id)) visible.unshift(signal);
@@ -100,7 +103,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         </button>)}
         <span role="status" style={{ fontSize: 10, opacity: 0.8, marginLeft: 'auto' }}>{status}</span>
       </div>
-      <BoardFilters hideSearch view={{ ...view, ...common }} columns={common.columns}>
+      <BoardFilters hideSearch view={{ ...view, ...common,
+        offers: { ...view.offers, best: false } }} columns={common.columns}>
         <StrategyBoardFooter name="EMA Trend" onReset={() => { setSelectedMode(''); setOpenId(null); }}>
           <div>
             <button type="button" className="sb-tool" disabled={!canScan} onClick={() => scan.mutate(activeModes)}>
@@ -125,7 +129,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             scanning ? 'Analyzing completed bars for the configured equities…' :
             'No completed-bar evidence yet for this profile. The scanner will keep checking; review scan errors if this persists.'}
         </p>}
-      <SignalBoard signals={visible} columns={common.columns} hidden={common.hidden} onReorderColumn={common.onReorderColumn} rowScroll={common.rowScroll}
+      {visible.length > 0 ? <SignalBoard signals={visible} columns={common.columns} hidden={common.hidden} onReorderColumn={common.onReorderColumn} rowScroll={common.rowScroll}
         isHistoricalSim={historical} strategyDetailsInExpansion openId={openId}
         onToggle={id => setOpenId(previous => previous === id ? null : id)}
         onOpenDetail={onOpenDetail}
@@ -136,7 +140,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
           disabled={historical || signal.historical} aria-label={`Chart ${signal.instrument.symbol}`}
           onClick={() => onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal)}>↗</button>}
         renderDetail={signal => <EmaTrendTicket signal={signal} readOnly={historical} />}
-      />
+      /> : signals.length > 0 ? <p role="status" style={{ padding: 12 }}>No rows match the current filters. Reset the EMA view to show all recorded signals.</p> : null}
     </div>
   </div>;
 }
