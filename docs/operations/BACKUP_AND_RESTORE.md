@@ -10,6 +10,24 @@ the order journal and open positions. Back it up every day after the close:
 ./sterlingctl restore-check   # restores into a temp directory and verifies it
 ```
 
+A full release restore also requires **physical frozen lane artifacts**, not just
+a readable database and a `release.json` summary. On the deployed state root,
+check `data/manifests/release.json` and
+`data/manifests/strategies/*.json` with `scripts/sterlingctl verify`.
+The command now fails if a lane file is missing, extra or altered.
+
+If the lane files were never frozen, **do not manufacture matching files from
+a different build**. Finish the exact-SHA release process in
+[FINAL_RELEASE_RUNBOOK.md](FINAL_RELEASE_RUNBOOK.md), freeze on the deployed
+build, then take a new **post-freeze** backup and run `restore-check`.
+If files from an earlier frozen release were lost, restore them from
+the corresponding verified backup and investigate the loss. A pre-freeze
+database-only restore is not full deployment recovery.
+
+Never delete, rename, replace or initialize `sterling_paper.db` as a
+cleanup or migration shortcut. Its legacy name is the current durable
+order journal; only a verified, reversible migration may move state.
+
 `restore-check` never touches the live database. A backup that has never been
 restored is a hypothesis. After a real restore, reconcile against the broker
 (`./sterlingctl reconcile`) before allowing new entries: the restored journal may
