@@ -4,7 +4,7 @@ import { useStockRegistry } from '../../../hooks/useSterlingKiteEngine';
 import { Field, CheckOption, Switch } from '../kiteSettingsPrimitives';
 import { ConfigNote } from './ConfigPrimitives';
 import { INDEX_OPTIONS } from './registry';
-import type { EmaTrendMode, EmaTrendInstrumentChoice } from '../../../types/emaTrend';
+import type { EmaTrendMode } from '../../../types/emaTrend';
 
 const MAX_INSTRUMENTS = 30;
 
@@ -27,21 +27,13 @@ export function EmaTrendInstrumentPicker({
   const [query, setQuery] = React.useState('');
   const [exchange, setExchange] = React.useState('ALL');
   const [kind, setKind] = React.useState('ALL');
-  const [known, setKnown] = React.useState<Record<string, EmaTrendInstrumentChoice>>({});
   const [limitWarning, setLimitWarning] = React.useState('');
   React.useEffect(() => {
     const timer = setTimeout(() => setQuery(text.trim()), 250);
     return () => clearTimeout(timer);
   }, [text]);
   const search = useEmaTrendInstruments(query, mode);
-  React.useEffect(() => {
-    if (search.data?.items) {
-      setKnown(previous => ({ ...previous,
-        ...Object.fromEntries(search.data.items.map(item => [item.symbol, item])) }));
-    }
-  }, [search.data]);
-
-  const groups = registry.data || [];
+  const groups = Array.isArray(registry.data) ? registry.data : [];
   const fnoSymbols = Array.from(new Set(groups.flatMap(group =>
     group.stocks.map(stock => `NSE:${stock.name}`))));
   const selectedCurated = symbols.filter(symbol => fnoSymbols.includes(symbol));
