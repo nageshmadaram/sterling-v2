@@ -14,7 +14,8 @@ const root = path.resolve(process.env.STERLING_STATIC_ROOT ||
 const port = Number(process.env.STERLING_WEB_PORT || 5180);
 const backend = new URL(process.env.STERLING_API_TARGET || 'http://127.0.0.1:8000');
 if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !== 'http:') throw new Error('Backend must be loopback HTTP');
-const releaseFile = path.join(gatewayDir, '.runtime/stack/published.json');
+const releaseFile = process.env.STERLING_RELEASE_MANIFEST ||
+  path.join(gatewayDir, '.runtime/stack/published.json');
 function committedRelease() {
   try {
     const value = JSON.parse(fs.readFileSync(releaseFile, 'utf8'));
