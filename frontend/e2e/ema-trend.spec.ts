@@ -154,3 +154,52 @@ test('EMA empty universe shows one clear setup action; Profiles and Columns menu
   expect(isPortalled).toBe(true);
   expect(writes).toEqual([]);
 });
+
+
+
+test('EMA Profiles menu shows multiple selected modes and updates without manual Refresh', async ({ page }) => {
+  const config = emaConfig();
+  config.config = {
+    ...config.defaults, enabled: true, symbols: ['NSE:TCS'],
+    modes: ['swing', 'intraday', 'scalping', 'ultra_scalping'],
+  };
+  const rows = [emaSetup('swing'), emaSetup('intraday')].map(row => ({
+    ...row, config_revision: config.revision,
+  }));
+  const requestedModes: string[] = [];
+  const writes: string[] = [];
+  await page.route('**/api/v1/ema-trend/**', async route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    const mode = url.searchParams.get('mode');
+    if (route.request().method() !== 'GET') writes.push(path);
+    if (path.endsWith('/config')) {
+      await route.fulfill({ json: config });
+    } else if (path.endsWith('/snapshot')) {
+      if (mode) requestedModes.push(mode);
+      await route.fulfill({ json: {
+        ...config,
+        rows: rows.filter(row => !mode || row.mode === mode),
+        campaigns: [], next_cursor: null, generated_ms: Date.now(),
+        scan: { id: 'job-1', status: 'COMPLETED', finished_ms: Date.now(), errors: [] },
+      } });
+    } else if (path.endsWith('/scans/job-1')) {
+      await route.fulfill({ json: { id: 'job-1', status: 'COMPLETED', errors: [] } });
+    } else {
+      await route.fulfill({ status: 500, json: { detail: 'Unexpected endpoint' } });
+    }
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  await expect(page.getByRole('button', { name: 'Chart TCS' })).toHaveCount(2);
+  await page.getByRole('button', { name: 'PROFILES' }).click();
+  const menu = page.getByRole('group', { name: 'EMA Trend visible profiles' });
+  await menu.getByRole('checkbox', { name: 'Intraday' }).uncheck();
+  await expect(page.getByRole('button', { name: 'Chart TCS' })).toHaveCount(1);
+  await menu.getByRole('checkbox', { name: 'Intraday' }).check();
+  await expect(page.getByRole('button', { name: 'Chart TCS' })).toHaveCount(2);
+  await expect.poll(() => requestedModes.includes('swing') && requestedModes.includes('intraday')).toBe(true);
+  expect(writes).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
+});
