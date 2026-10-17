@@ -476,7 +476,9 @@ def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,caps
  monkeypatch.setattr(stack,'STATE',tmp_path)
  existing={'manager_pid':80808,'manager_protocol':3,'mode':'both',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
-  'local_url':'http://127.0.0.1:5180','urls':{
+  'local_url':'http://127.0.0.1:5180',
+  'public_ready':{'cloudflare':True,'ngrok':True},
+  'urls':{
     'cloudflare':'https://cloudflare.example.test',
     'ngrok':'https://ngrok.example.test'}}
  monkeypatch.setattr(stack,'read_state',lambda:existing)
@@ -760,3 +762,70 @@ def test_public_source_defaults_to_local_main_and_rejects_invalid_ref(monkeypatc
  for ref in ('--output=/tmp/leak', 'refs/heads/../foo', 'HEAD;rm -rf /'):
   with pytest.raises(ValueError,match='Invalid published Git ref'):
    stack.CommittedFrontend(ref)
+
+
+
+def test_up_dashboard_is_prominent_and_prints_only_verified_urls(monkeypatch,capsys):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
+ state={
+  'phase':'ready','release_ref':'main','release_commit':'a'*40,
+  'local_url':'http://127.0.0.1:5180',
+  'dev_url':'http://127.0.0.1:5174',
+  'public_ready':{'cloudflare':True,'ngrok':False},
+  'urls':{'cloudflare':'https://cf.example.test',
+          'ngrok':'https://OLD-UNVERIFIED.ngrok-free.app'},
+ }
+ stack.print_up_dashboard(state,reused=True,gateway_ready=True)
+ out=capsys.readouterr().out
+ assert 'S T E R L I N G' in out
+ assert 'reusing backend and tunnels' in out
+ assert 'LOCAL APP' in out and 'http://127.0.0.1:5180' in out
+ assert 'CLOUDFLARE' in out and 'https://cf.example.test' in out
+ assert 'NGROK' in out and 'CONNECTING' in out
+ assert 'OLD-UNVERIFIED' not in out
+ assert 'http://127.0.0.1:5174' in out
+ assert 'main · aaaaaaaaaaaa' in out
+ assert '\x1b[' not in out
+ assert 'uncommitted edits' in out
+
+
+def test_up_dashboard_contains_ansi_colors_only_for_terminal(monkeypatch,capsys):
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:True)
+ state={'phase':'ready','public_ready':{'cloudflare':True,'ngrok':True},
+        'urls':{'cloudflare':'https://cf.example.test',
+                'ngrok':'https://ngrok.example.test'}}
+ stack.print_up_dashboard(state,reused=True,gateway_ready=True)
+ out=capsys.readouterr().out
+ assert '\x1b[1;96m' in out  # bright cyan URLs / branding
+ assert '\x1b[1;92m' in out  # verified green status
+ assert '\x1b[1;95m' in out  # dev purple
+ assert 'https://cf.example.test' in out
+ assert 'https://ngrok.example.test' in out
+
+
+def test_up_dashboard_starting_never_displays_stale_public_urls(monkeypatch,capsys):
+ monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
+ state={'phase':'starting',
+        'public_ready':{'cloudflare':True,'ngrok':True},
+        'urls':{'cloudflare':'https://stale-cf.example.test',
+                'ngrok':'https://stale-ngrok.example.test'}}
+ stack.print_up_dashboard(state,reused=False,gateway_ready=False)
+ output=capsys.readouterr().out
+ assert 'STARTING' in output
+ assert output.count('CONNECTING')==2
+ assert 'stale-cf' not in output and 'stale-ngrok' not in output
+ assert 'http://127.0.0.1:5180' in output
+ assert 'http://127.0.0.1:5174' in output
+
+
+def test_no_color_environment_disables_ansi_even_for_real_tty(monkeypatch):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack.sys,'stdout',SimpleNamespace(isatty=lambda:True))
+ monkeypatch.setenv('TERM','xterm-256color')
+ monkeypatch.setenv('NO_COLOR','1')
+ assert stack._terminal_color_enabled() is False
+ monkeypatch.delenv('NO_COLOR')
+ assert stack._terminal_color_enabled() is True
+ monkeypatch.setenv('TERM','dumb')
+ assert stack._terminal_color_enabled() is False
