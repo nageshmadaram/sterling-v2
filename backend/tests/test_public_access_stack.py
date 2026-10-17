@@ -98,7 +98,8 @@ def gateway(tmp_path, callback_port):
  class Stub(BaseHTTPRequestHandler):
   def do_GET(self):
    if self.path=='/api/v1/test':
-    self.send_response(200);self.end_headers();self.wfile.write(json.dumps({'host':self.headers['Host'],'identity':self.headers.get('X-User-Id')}).encode())
+    self.send_response(200);self.end_headers();self.wfile.write(json.dumps({'host':self.headers['Host'],'identity':self.headers.get('X-User-Id'),
+                'proto':self.headers.get('X-Forwarded-Proto')}).encode())
    elif self.path.startswith('/api/v1/kite/callback?'):
     self.send_response(200);self.end_headers();self.wfile.write(self.path.encode())
    elif self.path=='/tma':self.send_response(503);self.end_headers()
@@ -110,7 +111,9 @@ def gateway(tmp_path, callback_port):
  import os
  shell=tmp_path/'shell.json'
  shell.write_text(json.dumps({'html':'<html>Telegram Mini App</html>','headers':{'content-type':'text/html'}}))
- process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],env={**os.environ,'STERLING_TMA_SHELL_CACHE':str(shell),'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':str(callback_port),'STERLING_API_TARGET':f'http://127.0.0.1:{backend.server_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],env={**os.environ,'STERLING_TMA_SHELL_CACHE':str(shell),'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':str(callback_port),
+     'STERLING_STACK_STATUS_FILE':str(tmp_path/'status.json'),
+     'STERLING_API_TARGET':f'http://127.0.0.1:{backend.server_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  origin=f'http://127.0.0.1:{port}'
  try:
   for _ in range(50):
@@ -124,7 +127,7 @@ def test_gateway_auth_and_identity(gateway):
  assert denied.value.code==401
  req=urllib.request.Request(gateway+'/api/v1/test',headers={'Host':'remote.example.test','Authorization':'Bearer synthetic','X-User-Id':'other-user'})
  with urllib.request.urlopen(req) as response:data=json.load(response)
- assert data=={'host':'remote.example.test','identity':None}
+ assert data=={'host':'remote.example.test','identity':None,'proto':'http'}
 
 def test_public_broker_callback_does_not_require_app_bearer_token(gateway):
  query='?request_token=synthetic&state=signed%2Bstate&status=success'
@@ -368,3 +371,24 @@ def test_unverified_ngrok_republication_preserves_primary_without_secondary(monk
  assert supervisor.publish()
  assert calls[-1][-1]==''
  assert supervisor.status['callback_url']=='https://named.example.test/api/v1/kite/callback'
+
+
+def test_ngrok_https_is_trusted_only_when_supervisor_owns_matching_tunnel(gateway,tmp_path):
+ status=tmp_path/'status.json'
+ status.write_text(json.dumps({
+   'ngrok_url':'https://verified.ngrok-free.app','children':{'ngrok':456},
+   'phase':'ready',
+ }))
+ def request(host):
+  req=urllib.request.Request(gateway+'/api/v1/test',headers={
+   'Host':host,'Authorization':'Bearer test','X-Forwarded-Proto':'https'})
+  with urllib.request.urlopen(req) as response:return json.load(response)
+ good=request('verified.ngrok-free.app')
+ assert good['proto']=='https'
+ assert good['host']=='verified.ngrok-free.app'
+ assert request('untrusted.example.test')['proto']=='http'
+ status.write_text(json.dumps({
+   'ngrok_url':'https://verified.ngrok-free.app','children':{'ngrok':456},
+   'phase':'stopped',
+ }))
+ assert request('verified.ngrok-free.app')['proto']=='http'
