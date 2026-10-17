@@ -64,6 +64,17 @@ describe('EMA Trend Connect drafts', () => {
     expect(screen.getByLabelText('EMA live readiness')).toHaveTextContent('Broker orders: not enabled');
     expect(api.get).toHaveBeenCalledWith('/api/v1/ema-trend/live-readiness');
   });
+  it('offers a cash-equity starter universe as an unsaved explicit draft', async () => {
+    show();
+    await screen.findByLabelText('EMA Trend equities');
+    fireEvent.click(screen.getByRole('button', { name: /Use NSE equity starter list/ }));
+    const field = screen.getByLabelText('EMA Trend equities') as HTMLTextAreaElement;
+    expect(field.value).toContain('NSE:RELIANCE');
+    expect(field.value).toContain('NSE:INFY');
+    expect(api.patch).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    expect(field.value).toBe('NSE:INFY');
+  });
   it('stages server defaults without changing the running backend until Apply', async () => {
     show();
     await screen.findByLabelText('EMA Trend equities');
