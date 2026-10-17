@@ -75,3 +75,15 @@ it('preserves option contract identity and lot quantities instead of rendering e
   expect(row.sizing.lots).toBe(4);
   expect(row.flags?.[0].label).toContain('units');
 });
+
+
+it('keeps spot index setups visible but never eligible for trading', () => {
+  const [row] = emaTrendSetupsToBoard([{
+    ...emaSetup('intraday'), symbol: 'NSE:NIFTY BANK',
+    watch_only: true, signal_source: 'INDEX_SPOT_WATCH_ONLY',
+  }]);
+  expect(row.instrument.quoteKey).toBe('NSE:NIFTY BANK');
+  expect(row.origin?.hint).toContain('Read-only spot index');
+  expect(row.flags?.[0].label).toBe('INDEX WATCH');
+  expect(row.executionEligible).toBe(false);
+});
