@@ -700,18 +700,42 @@ def lane_manifest_file_drift(
         else base / STRATEGY_MANIFEST_DIR
     )
     expected: dict[str, dict[str, Any]] = {}
-    for lane in payload.get("lanes", []):
-        name = str(lane.get("lane_key") or "").replace(":", "__") + ".json"
+    problems: list[str] = []
+    lanes = payload.get("lanes")
+    if not isinstance(lanes, list) or not lanes:
+        problems.append("frozen release contains no declared lane manifests")
+        lanes = []
+    for lane in lanes:
+        if not isinstance(lane, dict):
+            problems.append("frozen release contains a non-object lane")
+            continue
+        key = lane.get("lane_key")
+        if (
+            not isinstance(key, str)
+            or not key
+            or "/" in key
+            or "\\" in key
+            or key in (".", "..")
+        ):
+            problems.append("frozen release contains an invalid lane key")
+            continue
+        name = key.replace(":", "__") + ".json"
+        if name in expected:
+            problems.append(f"duplicate frozen lane manifest: {name}")
+            continue
         body = dict(lane)
         body["build"] = payload.get("build")
         body["generated_at"] = payload.get("generated_at")
         expected[name] = body
 
-    problems: list[str] = []
-    if not lane_dir.is_dir():
-        return ("lane manifest directory is missing",)
+    if not lane_dir.is_dir() or lane_dir.is_symlink():
+        return tuple(problems + ["lane manifest directory is missing or a symlink"])
 
-    actual_names = {p.name for p in lane_dir.glob("*.json")}
+    actual_paths = list(lane_dir.glob("*.json"))
+    actual_names = {p.name for p in actual_paths}
+    for path in actual_paths:
+        if path.is_symlink() or not path.is_file():
+            problems.append(f"{path.name}: lane file is a symlink or not a regular file")
     missing = sorted(set(expected) - actual_names)
     extra = sorted(actual_names - set(expected))
     if missing:
@@ -721,7 +745,7 @@ def lane_manifest_file_drift(
 
     for name, wanted in expected.items():
         path = lane_dir / name
-        if not path.exists():
+        if not path.exists() or path.is_symlink() or not path.is_file():
             continue
         try:
             actual = json.loads(path.read_text(encoding="utf-8"))
