@@ -251,6 +251,15 @@ def _make_post_freeze_backup(directory, frozen):
     frozen_copy = state_dir / "release_manifest.json"
     frozen_copy.write_text(json.dumps(frozen), encoding="utf-8")
 
+    lane_dir = state_dir / "lane_manifests"
+    lane_dir.mkdir()
+    for lane in frozen.get("lanes", []):
+        lane_copy = dict(lane)
+        lane_copy["build"] = frozen["build"]
+        lane_copy["generated_at"] = frozen.get("generated_at")
+        name = lane["lane_key"].replace(":", "__") + ".json"
+        (lane_dir / name).write_text(json.dumps(lane_copy), encoding="utf-8")
+
     coverage_path = directory / "coverage.json"
     coverage_path.write_text(
         json.dumps([{
@@ -259,6 +268,12 @@ def _make_post_freeze_backup(directory, frozen):
             "required_before_live": False,
             "coverage": "COPIED",
             "path": "data/manifests/release.json",
+        }, {
+            "name": "lane_manifests",
+            "kind": "directory",
+            "required_before_live": True,
+            "coverage": "COPIED",
+            "path": "data/manifests/strategies",
         }]),
         encoding="utf-8",
     )
@@ -267,6 +282,10 @@ def _make_post_freeze_backup(directory, frozen):
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     payload["file_checksums"]["coverage.json"] = sha256_file(coverage_path)
     payload["file_checksums"]["state/release_manifest.json"] = sha256_file(frozen_copy)
+    for lane_file in lane_dir.glob("*.json"):
+        payload["file_checksums"][lane_file.relative_to(directory).as_posix()] = (
+            sha256_file(lane_file)
+        )
     manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
 
@@ -280,11 +299,18 @@ def test_post_freeze_backup_passes_only_when_frozen_manifest_is_captured(
 
     monkeypatch.setattr(
         "app.core.backup_manifest.REQUIRED_ARTIFACTS",
-        (SimpleNamespace(
-            name="release_manifest",
-            kind=SimpleNamespace(value="file"),
-            required_before_live=False,
-        ),),
+        (
+            SimpleNamespace(
+                name="release_manifest",
+                kind=SimpleNamespace(value="file"),
+                required_before_live=False,
+            ),
+            SimpleNamespace(
+                name="lane_manifests",
+                kind=SimpleNamespace(value="directory"),
+                required_before_live=True,
+            ),
+        ),
     )
     monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
     monkeypatch.setattr(certification, "read_manifest", lambda: frozen)
@@ -312,11 +338,18 @@ def test_post_freeze_backup_rejects_different_frozen_manifest_bytes(
 
     monkeypatch.setattr(
         "app.core.backup_manifest.REQUIRED_ARTIFACTS",
-        (SimpleNamespace(
-            name="release_manifest",
-            kind=SimpleNamespace(value="file"),
-            required_before_live=False,
-        ),),
+        (
+            SimpleNamespace(
+                name="release_manifest",
+                kind=SimpleNamespace(value="file"),
+                required_before_live=False,
+            ),
+            SimpleNamespace(
+                name="lane_manifests",
+                kind=SimpleNamespace(value="directory"),
+                required_before_live=True,
+            ),
+        ),
     )
     monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
     monkeypatch.setattr(certification, "read_manifest", lambda: current)
