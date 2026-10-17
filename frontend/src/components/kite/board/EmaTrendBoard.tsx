@@ -3,10 +3,9 @@ import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrend
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
-import { SignalBoard } from './SignalBoard';
+import { SignalBoard, BOARD_COLUMNS } from './SignalBoard';
 import { BoardFilters, ColumnsMenu } from './BoardFilters';
 import { useBoardView } from './useBoardView';
-import { useSignalColumns } from './useSignalColumns';
 import { EmaTrendTicket } from './EmaTrendTicket';
 import { EmaTrendOperations } from './EmaTrendOperations';
 import { openSettingsSection } from '../config/registry';
@@ -31,7 +30,6 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const job = useEmaTrendScan(snapshot.data?.scan?.id || scan.data?.id);
   const cancel = useCancelEmaTrendScan();
   const operation = useEmaTrendOperation();
-  const common = useSignalColumns();
   const [openId, setOpenId] = React.useState<string | null>(null);
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
 
@@ -75,7 +73,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   ], [snapshot.data, historical]);
   // v4 starts with an unrestricted view; stale TODAY/ENDED preferences must
   // not make genuine older saved signals look like a broken scanner.
-  const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v4', endedByDefault: true });
+  const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v5', endedByDefault: true,
+    defaultHidden: ['engine', 'score', 'leg', 'target', 'exit'] });
   // Never let a view filter hide an active or unresolved held campaign.
   const visible = [...view.visible];
   for (const signal of signals) if (signal.emaTrend?.campaignId && signal.status !== 'ended' && !visible.some(row => row.id === signal.id)) visible.unshift(signal);
@@ -108,8 +107,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
 
   return <div className="sb-strategy-layout" style={{ height: '100%', overflow: 'auto' }}>
     <div className="sb-strategy-rows">
-      <BoardFilters hideSearch view={{ ...view, ...common,
-        offers: { ...view.offers, best: false } }} columns={common.columns}>
+      <BoardFilters hideSearch view={{ ...view,
+        offers: { ...view.offers, best: false } }} columns={BOARD_COLUMNS}>
         <ColumnsMenu buttonText="EMA TREND" menuLabel="EMA Trend visible profiles"
           buttonTitle="Filter EMA Trend signals by timeframe; this does not change scanning or orders"
           showAllText="Select all profiles"
@@ -188,7 +187,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         <p role="status" style={{ padding: '4px 12px', fontSize: 11 }}>
           Not enabled for new scans: {unavailableSelected.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Any existing history is still shown.
         </p>}
-      {visible.length > 0 ? <SignalBoard signals={visible} columns={common.columns} hidden={common.hidden} onReorderColumn={common.onReorderColumn} rowScroll={common.rowScroll}
+      {visible.length > 0 ? <SignalBoard signals={visible} columns={BOARD_COLUMNS} hidden={view.hidden} rowScroll
         isHistoricalSim={historical} strategyDetailsInExpansion openId={openId}
         onToggle={id => setOpenId(previous => previous === id ? null : id)}
         onOpenDetail={onOpenDetail}

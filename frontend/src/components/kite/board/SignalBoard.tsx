@@ -32,6 +32,7 @@ import { fitColumns } from './columnFit';
 import { Tip } from '../InfoTooltip';
 import { InstrumentLabel, parseInstrument } from '../InstrumentLabel';
 import { fmtMoney, fmtPx } from '../../../lib/format';
+import { EMA_TREND_MODE_LABEL } from '../../../types/emaTrend';
 
 /**
  * Determines whether a signal or contract leg belongs to a Weekly option series.
@@ -864,6 +865,41 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
   );
 }
 
+/** Read-only saved evidence shown in both collapsed and expanded EMA rows. */
+function EmaEvidenceStrip({ signal }: { signal: BoardSignal }) {
+  if (signal.engine !== 'ema_trend' || !signal.emaTrend) return null;
+  // Without verified derivative metadata, a NFO/BFO symbol is NOT a stock.
+  const unverifiedDerivative = ['NFO', 'BFO'].includes(signal.instrument.exchange) &&
+    signal.instrument.kind === 'equity';
+  const type = unverifiedDerivative ? 'CONTRACT TYPE UNAVAILABLE'
+    : signal.instrument.kind === 'index' ? 'INDEX · WATCH ONLY'
+    : signal.instrument.optionType === 'CE' ? 'CALL · CE'
+    : signal.instrument.optionType === 'PE' ? 'PUT · PE'
+    : signal.instrument.kind === 'future' ? 'FUTURE'
+    : signal.instrument.kind === 'equity' ? 'STOCK' : 'UNVERIFIED CONTRACT';
+  const mode = EMA_TREND_MODE_LABEL[signal.emaTrend.mode];
+  const evidence = signal.sections.find(section => section.title === 'Setup evidence');
+  const wanted = new Set(['Close', 'Entry trigger', 'Stop', 'EMA10', 'EMA21',
+    'DEMA50', 'ATR10', 'Supertrend (10,3)', 'Context ST']);
+  const stats = evidence ? evidence.stats.filter(stat => wanted.has(stat.label)) : [
+    { label: 'Last mark', value: num(signal.levels.ltp) },
+    { label: 'Entry', value: num(signal.levels.entry) },
+    { label: 'Initial stop', value: num(signal.levels.stop) },
+    { label: 'Trailing stop', value: num(signal.levels.trail) },
+    { label: 'Held units', value: signal.sizing.quantity ?? '—' },
+  ];
+  return <div data-testid="ema-signal-readout" aria-label="EMA signal evidence"
+    style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 12px',
+      padding: '5px 16px 7px 31px', borderBottom: `1px solid ${k.border}`,
+      background: k.surface, fontSize: 10, color: k.dim, lineHeight: 1.5 }}>
+    <span style={{ fontWeight: 700, color: k.text }}>{type}</span>
+    <span style={{ fontWeight: 700, color: k.blue }}>{mode}</span>
+    {stats.map(stat => <span key={stat.label}>
+      {stat.label}: <strong style={{ color: k.text, fontVariantNumeric: 'tabular-nums' }}>{stat.value ?? '—'}</strong>
+    </span>)}
+  </div>;
+}
+
 function Row({
   signal, columns, open, onToggle, renderDetail, onOpenDetail, striped,
   depth = 0, legCount, marks, nowMs, rowScroll = false, renderRowActions,
@@ -1023,6 +1059,7 @@ function Row({
           </span>
         )}
       </div>
+      <EmaEvidenceStrip signal={signal} />
       {open && (
         <div style={{ padding: 10, background: k.surface, borderBottom: `2px solid ${k.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {detailsOnly && <div className="sb-strategy-evidence" style={{ fontSize: 11, color: k.dim, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

@@ -9,6 +9,9 @@ describe('EMA Trend equity projections', () => {
     expect(row.instrument).toMatchObject({ symbol: 'TCS', exchange: 'NSE', kind: 'equity', lotSize: 1, quoteKey: 'NSE:TCS' });
     expect(row.levels).toEqual({ ltp: 102, entry: 102.5, stop: 98, trail: null, target: null, exit: null });
     expect(row.sizing.quantity).toBeNull();
+    expect(row.sections[0].stats).toContainEqual({ label: 'Close', value: '102.00' });
+    expect(row.sections[0].stats).toContainEqual({ label: 'Entry trigger', value: '102.50' });
+    expect(row.sections[0].stats).toContainEqual({ label: 'Stop', value: '98.00' });
     expect(row.executionEligible).toBe(true);
     expect(row.emaTrend?.mode).toBe('scalping');
   });
@@ -74,4 +77,17 @@ it('preserves option contract identity and lot quantities instead of rendering e
   expect(row.instrument.lotSize).toBe(25);
   expect(row.sizing.lots).toBe(4);
   expect(row.flags?.[0].label).toContain('units');
+});
+
+
+it('keeps spot index setups visible but never eligible for trading', () => {
+  const [row] = emaTrendSetupsToBoard([{
+    ...emaSetup('intraday'), symbol: 'NSE:NIFTY BANK',
+    watch_only: true, signal_source: 'INDEX_SPOT_WATCH_ONLY',
+  }]);
+  expect(row.instrument.quoteKey).toBe('NSE:NIFTY BANK');
+  expect(row.instrument.kind).toBe('index');
+  expect(row.origin?.hint).toContain('Read-only spot index');
+  expect(row.flags?.[0].label).toBe('INDEX WATCH');
+  expect(row.executionEligible).toBe(false);
 });
