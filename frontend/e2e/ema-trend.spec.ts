@@ -101,3 +101,35 @@ for (const [mode, label] of [['swing', 'Swing'], ['intraday', 'Intraday'], ['sca
     await page.screenshot({ path: `test-results/ema-trend/${mode}-workflow.png`, fullPage: true });
   });
 }
+
+
+test('EMA empty universe shows one clear setup action; all mode tabs and portal Columns remain usable', async ({ page }) => {
+  const config = emaConfig();
+  config.config = { ...config.config, enabled: true, symbols: [] };
+  const writes: string[] = [];
+  await page.route('**/api/v1/ema-trend/**', async route => {
+    const req = route.request();
+    if (req.method() !== 'GET') writes.push(req.url());
+    const path = new URL(req.url()).pathname;
+    const payload = path.endsWith('/config') ? config :
+      path.includes('/snapshot') ? { ...config, rows: [], campaigns: [],
+        scan: { status: 'IDLE', progress: 0, errors: [] } } : { items: [] };
+    await route.fulfill({ status: 200, json: payload });
+  });
+  await page.goto('/e2e/fixtures/ema-trend-harness.html');
+  await page.getByRole('button', { name: 'Signals workspace' }).click();
+  await expect(page.getByText(/No equities selected\. Open EMA Trend settings/)).toBeVisible();
+  await expect(page.getByText('Nothing to show.')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Recorded replay' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Pause paper entries' })).toHaveCount(0);
+  for (const label of ['Swing', 'Intraday', 'Scalp', 'Ultrascalp']) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await expect(page.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+  }
+  await page.getByRole('button', { name: /Columns/i }).first().click();
+  await expect(page.getByRole('group', { name: 'Visible columns' })).toBeVisible();
+  const isPortalled = await page.getByRole('group', { name: 'Visible columns' }).evaluate(node =>
+    node.parentElement === document.body && window.getComputedStyle(node).position === 'fixed');
+  expect(isPortalled).toBe(true);
+  expect(writes).toEqual([]);
+});
