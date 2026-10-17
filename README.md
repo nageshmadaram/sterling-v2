@@ -64,7 +64,8 @@ authenticated HTTP gateway and three access surfaces together:
 
 ```bash
 cd /home/nageshmadaram/Sterling
-./sterling.sh start --all
+./sterling.sh up
+# Optional diagnostics only:
 ./sterling.sh urls
 ./sterling.sh status
 ```
@@ -90,6 +91,16 @@ STERLING_NGROK_HOSTNAME=
 STERLING_DEV_FRONTEND=1
 ```
 
+The single command `./sterling.sh up` is **idempotent**. When an
+already-running dual-tunnel manager is healthy and owns its port 5180 gateway,
+the command reuses the same running processes and URLs. When an old-version
+manager or a failed/orphaned web gateway is detected, it gracefully replaces
+**only the presentation/tunnel manager**; the existing Kite backend remains
+running. At startup the manager inspects the 5180 listener with `ss` and
+`/proc`, terminates it only if it is the exact same-user, same-checkout
+Sterling Node gateway, and verifies its *new* web PID owns 5180 before
+publishing tunnel URLs. Unknown/unrelated listeners are refused, not killed.
+
 If ngrok is missing or its account cannot connect, Cloudflare and the single
 local backend continue running. The status includes the ngrok error; no
 public link is published until the tunnel passes authentication and service
@@ -103,11 +114,10 @@ persistent Mini App Menu button; it continues to use the primary Cloudflare
 callback URL: the launcher cannot register callbacks in the Kite developer
 console, and the ngrok link is not an alternate Kite OAuth redirect.
 
-To switch an already-running legacy launcher to dual mode, use
-`./sterling.sh stop`, confirm there is no presentation/tunnel stack still
-running, then `./sterling.sh start --all`. This intentionally **does not
-terminate or replace the trading backend** so protective exits and order
-reconciliation keep running. Do not manually run a second backend.
+To switch an old single-tunnel launcher or recover a recognized orphan
+gateway, simply run `./sterling.sh up`. The manager never forces an
+unidentified process off a port and never restarts the Kite trading backend;
+unverified ownership produces an explicit error requiring inspection.
 
 The dual-tunnel changes require the `fix/dual-tunnel-one-command-20261017`
 branch or its reviewed merge, and tests must pass before production adoption.
