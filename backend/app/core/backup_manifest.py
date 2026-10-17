@@ -597,7 +597,11 @@ def _capture_declared_artifacts(
             destination = state_dir / artifact.name
             destination.parent.mkdir(parents=True, exist_ok=True)
             if artifact.kind is ArtifactKind.DIRECTORY:
-                shutil.copytree(path, destination, dirs_exist_ok=True)
+                # Even if the tree changes after preflight, copytree must never
+                # dereference a newly introduced symlink to outside data.
+                shutil.copytree(
+                    path, destination, dirs_exist_ok=True, symlinks=True
+                )
             else:
                 shutil.copyfile(path, destination.with_suffix(path.suffix))
         except Exception as exc:  # noqa: BLE001
