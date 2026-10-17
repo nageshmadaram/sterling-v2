@@ -152,3 +152,34 @@ the broker orderbook instead of retrying the request.
 Sources:
 - https://support.zerodha.com/category/trading-and-markets/general-kite/kite-api/articles/kite-connect-api-faqs
 - https://support.zerodha.com/category/trading-and-markets/charts-and-orders/order/articles/auto-amo
+
+## Canonical live order fact inspection (2026-10-17)
+
+The next real-broker integration building block is implemented as **read only**:
+- `services/ema_trend/live_order_facts.py` validates an exact Kite order history
+  against a bound user, account, broker order ID, exchange, symbol, CNC/MIS
+  product, BUY/SELL direction, and requested shares. It rejects nonmonotone
+  cumulative fill quantities/values, contradictory COMPLETE facts and identity
+  drift. ACK without shares is never a fill.
+- `services/ema_trend/live_observer.py` reads only an existing canonical
+  `ema_trend` live order intent for its authenticated owner, checks the active
+  account and fresh Kite session, retrieves the exact order history, and
+  compares the observed cumulative broker shares/notional to the canonical
+  journal checkpoint. It returns `RECONCILIATION_REQUIRED` if shares are not
+  yet projected or broker order is outstanding.
+- `GET /api/v1/ema-trend/live-order-observations/{intent_key}` exposes this
+  authenticated read-only diagnostic; it cannot construct an order. The
+  observation neither credits the signed ledger nor sends a cancel/retry.
+- `live_preflight` also refuses to call a symbol unencumbered when a terminal
+  broker order has positive partial fills (including CANCELLED), when the
+  order/GTT identity is malformed, or when the canonical account-wide journal
+  has unresolved intents or pending projections.
+- Tests are added in `backend/tests/services/test_ema_trend_live_order_facts.py`
+  and `backend/tests/api/test_ema_trend_api.py`. They require actual pytest
+  execution before changing the release status.
+
+**Do not run real BUY/SELL/AMO probes.** A completed validation API response
+does not create or approve a production-live EMA order pipeline. CNC broker-side
+stop/TSL lifecycle and MIS exchange-stop/forced-close lifecycle remain separate
+unimplemented deliverables. The full state machine still needs durable actual
+broker entry, stop, fill, fee, position, inventory and restart reconciliation.
