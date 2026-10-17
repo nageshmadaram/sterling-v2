@@ -745,17 +745,20 @@ def prove_restore(
     directory that is removed afterwards unless ``destination`` is given.
     """
     directory = Path(backup_dir)
-    stored = manifest or _load_or_build(directory)
+    # The original stored manifest is mandatory for operational restore proof.
+    # Recalculating today's checksums from a directory with no provenance
+    # would incorrectly describe lost/corrupted historical evidence as valid.
+    try:
+        stored = manifest if manifest is not None else _load_or_build(directory)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return RestoreProof(
+            backup_id=directory.name,
+            passed=False,
+            checked_at=datetime.now(timezone.utc).isoformat(),
+            failures=(f"backup manifest unavailable or invalid: {exc}",),
+        )
     failures: list[str] = []
     restored_counts: dict[str, dict[str, int]] = {}
-    # A generated description of CURRENT bytes is not historical backup proof.
-    # Explicit test manifests remain supported; operational callers must have
-    # the original manifest written when the backup was captured.
-    if manifest is None and not (directory / "manifest.json").is_file():
-        failures.append(
-            "manifest.json: missing original backup manifest; "
-            "cannot prove backup provenance from regenerated current checksums"
-        )
     for required in ("release.json", "coverage.json"):
         if required not in stored.file_checksums:
             failures.append(f"{required}: missing checksum evidence")
@@ -1110,10 +1113,13 @@ def _count_failures(
 
 
 def _load_or_build(directory: Path) -> BackupManifest:
+    """Load original backup provenance; never certify reconstructed metadata."""
     beside = directory / "manifest.json"
-    if beside.exists():
-        return read_backup_manifest(beside)
-    return build_backup_manifest(directory)
+    if not beside.is_file():
+        raise FileNotFoundError(
+            f"manifest.json: missing original backup manifest at {beside}"
+        )
+    return read_backup_manifest(beside)
 
 
 def record_restore_proof(
