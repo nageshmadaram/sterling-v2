@@ -796,6 +796,10 @@ class Stack:
                     **({primary_provider:primary} if primary_ready else {}),
                     **({'ngrok':secondary} if ngrok_ready else {}),
                 }
+                # Surface freshly verified endpoints to ./sterling.sh up NOW,
+                # before the optional Telegram-menu publication can block.
+                self.status['children']={name:proc.pid for name,proc in self.children.items()}
+                save_state(self.status)
                 if primary_ready:
                     self.failures=0
                     self.status['last_verified_at']=time.time()
