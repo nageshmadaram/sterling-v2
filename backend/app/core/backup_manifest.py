@@ -829,6 +829,12 @@ def prove_restore(
                     failures.append(f"{name}: unsafe restore destination")
                     continue
                 shutil.copyfile(source, copy)
+                restored_sum = sha256_file(copy)
+                if restored_sum != actual_sum:
+                    failures.append(
+                        f"{name}: isolated restore copy checksum mismatch"
+                    )
+                    continue
             except (OSError, ValueError) as exc:
                 failures.append(f"{name}: cannot copy into isolated restore: {exc}")
                 continue
@@ -1097,6 +1103,10 @@ def prove_restore(
                             copied_files.extend(
                                 p for p in candidate.rglob("*") if p.is_file()
                             )
+                    if name == "lane_manifests" and not copied_files:
+                        failures.append(
+                            "lane_manifests: frozen lane directory contains no files"
+                        )
                     for copied in copied_files:
                         rel = copied.relative_to(directory).as_posix()
                         if rel not in stored.file_checksums:
