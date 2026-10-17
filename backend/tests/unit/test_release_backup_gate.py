@@ -360,6 +360,54 @@ def test_post_freeze_backup_rejects_different_frozen_manifest_bytes(
     assert "does not match the currently frozen release" in gate.detail
 
 
+def test_post_freeze_gate_refuses_rechecksummed_stale_lane_file(
+    tmp_path, monkeypatch
+):
+    expected = "a" * 40
+    directory = _backup(tmp_path, sha=expected)
+    frozen = {
+        "build": {"runtime_sha": expected, "release_tag": "candidate"},
+        "generated_at": "2026-10-18T00:00:00+00:00",
+        "lanes": [{"lane_key": "snapback:scalping", "note": "frozen rules"}],
+    }
+    _make_post_freeze_backup(directory, frozen)
+    lane_file = directory / "state" / "lane_manifests" / "snapback__scalping.json"
+    lane = json.loads(lane_file.read_text(encoding="utf-8"))
+    lane["note"] = "stale rules"
+    lane_file.write_text(json.dumps(lane), encoding="utf-8")
+
+    # The backup manifest now attests to the tampered bytes. Semantic release
+    # identity must still refuse the backup; no checksum-only false PASS.
+    manifest_path = directory / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["file_checksums"]["state/lane_manifests/snapback__scalping.json"] = (
+        sha256_file(lane_file)
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "app.core.backup_manifest.REQUIRED_ARTIFACTS",
+        (
+            SimpleNamespace(
+                name="release_manifest",
+                kind=SimpleNamespace(value="file"),
+                required_before_live=False,
+            ),
+            SimpleNamespace(
+                name="lane_manifests",
+                kind=SimpleNamespace(value="directory"),
+                required_before_live=True,
+            ),
+        ),
+    )
+    monkeypatch.setenv("STERLING_BACKUP_ROOT", str(tmp_path))
+    monkeypatch.setattr(certification, "read_manifest", lambda: frozen)
+
+    gate = certification._backup_restore_gate(expected)
+    assert gate.status == "FAIL"
+    assert "frozen lane manifests" in gate.detail
+
+
 def test_restore_gate_cross_checks_release_json_identity(tmp_path, monkeypatch):
     _ignore_global_coverage_contract(monkeypatch)
     expected = "a" * 40
