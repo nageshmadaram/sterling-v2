@@ -4,7 +4,7 @@ import { useView, withViewQuery } from '../store/useViewStore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../utils/api';
 import { underlyingSpotKey } from '../utils/computeGreeks';
-import { registerTokens, getTick, useTickVersion, tickFeedAgeMs } from './useKiteLiveTicks';
+import { registerTokens, getTick, useTokenVersion, tickFeedAgeMs } from './useKiteLiveTicks';
 import { notifyOrder } from '../store/useKiteNotifications';
 import { authConnecting, authIdle } from '../store/useAuthFeedback';
 import type {
@@ -875,7 +875,6 @@ function useKiteLive(
   rest: Record<string, any> | undefined,
   mode: 'quote' | 'full' = 'quote',
 ): Record<string, any> {
-  const ver = useTickVersion();
   const symKey = symbols.join(',');
 
   const tokenBySym = useMemo(() => {
@@ -894,6 +893,8 @@ function useKiteLive(
     () => Array.from(new Set(Object.values(tokenBySym))).sort((a, b) => a - b).join(','),
     [tokenBySym],
   );
+
+  const ver = useTokenVersion(tokensKey);
 
   useEffect(() => {
     if (!tokensKey) return;
@@ -1084,7 +1085,10 @@ export function useKiteWatchlist() {
   return { items, add, addMany, remove, reorder, clear, mergeLots, mergeExpiries };
 }
 
-export function useKiteLtp(symbols: string[], enabled = true, heartbeatMs = 1_000) {
+// The WebSocket is the price source. REST runs on cold start and a 30s
+// heartbeat, shortened to 3s if the stream goes stale. Previously every
+// watchlist/position pane polled the broker every second even with live ticks.
+export function useKiteLtp(symbols: string[], enabled = true, heartbeatMs = LIVE_HEARTBEAT_MS) {
   const syms = canonSyms(symbols);
   const q = useQuery<Record<string, { last_price?: number; instrument_token?: number }>>({
     queryKey: ['kite-ltp', syms.join(',')],

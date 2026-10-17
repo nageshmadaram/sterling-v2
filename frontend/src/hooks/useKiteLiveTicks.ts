@@ -12,7 +12,7 @@
  * broker feed going down -- is surfaced through `useStreamHealthStore` and
  * triggers `requestResync()` so trading-state queries refetch.
  */
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { api } from '../utils/api';
 import { getAccessToken, getRefreshToken, refreshSterlingAccess } from '../utils/auth';
 import {
@@ -85,6 +85,8 @@ export interface KiteTick {
 
 const _tickByToken = new Map<number, KiteTick>();
 const _tickReceivedAt = new Map<number, number>();
+const _tokenVersions = new Map<number, number>();
+let _feedEpoch = 0;
 let _version = 0;
 const _storeListeners = new Set<() => void>();
 let _notifyScheduled = false;
@@ -357,6 +359,7 @@ function _forceReconnect() {
 }
 
 function _bump() {
+  _feedEpoch += 1; // connection/session reset invalidates all token snapshots
   _version += 1;
   _storeListeners.forEach((listener) => listener());
 }
@@ -512,6 +515,7 @@ function _connect() {
         const next = { ...tick, instrument_token: token };
         if (sameVisibleTick(previous, next)) continue;
         _tickByToken.set(token, next);
+        _tokenVersions.set(token, (_tokenVersions.get(token) ?? 0) + 1);
         changed = true;
       }
       // Stamped on every tick frame, changed or not: an unchanged frame still
@@ -674,6 +678,7 @@ function _refDisconnect() {
 export function resetLiveTickState(): void {
   _tickByToken.clear();
   _tickReceivedAt.clear();
+  _tokenVersions.clear();
   _lastFrameAt = 0;
   _subscribed.clear();
   _lastRebuildAt = 0;
@@ -703,6 +708,22 @@ function _getVersion(): number {
 /** Re-render callers on the coalesced cadence, after active interaction settles. */
 export function useTickVersion(): number {
   return useSyncExternalStore(_subscribeStore, _getVersion, _getVersion);
+}
+
+/**
+ * Reactive revision for only the tokens actually shown by a component.
+ * A quote update on token 999 must not repaint a portfolio displaying only
+ * token 111. Global stream generation still invalidates all on disconnect,
+ * logout or LIVE/SIMULATION switch, so stale ticks cannot survive a reset.
+ */
+export function tokenDisplayRevision(tokensKey: string): string {
+  const tokens = tokensKey ? tokensKey.split(',').map(Number) : [];
+  return `${_feedEpoch}:${tokens.map(token => _tokenVersions.get(token) ?? 0).join(',')}`;
+}
+
+export function useTokenVersion(tokensKey: string): string {
+  const snapshot = useCallback(() => tokenDisplayRevision(tokensKey), [tokensKey]);
+  return useSyncExternalStore(_subscribeStore, snapshot, snapshot);
 }
 
 /** How long since a tick frame arrived, or null when none has yet. */

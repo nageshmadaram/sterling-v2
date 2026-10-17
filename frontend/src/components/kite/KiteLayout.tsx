@@ -8,7 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { k, Icons } from '../../styles/kiteUI';
 import { useEngineActivity } from '../../hooks/useSterlingKiteEngine';
 import { useLiveSignalCount } from '../../store/useLiveSignalCount';
-import { useKitePositions, useKiteLtp } from '../../hooks/useKite';
+import { KiteFooterPnl } from './KiteFooterPnl';
 import { KiteFooterStatus } from './KiteFooterStatus';
 import { ReplayDock } from './replay/ReplayDock';
 import { ReplayFooterChip } from './replay/ReplayFooterChip';
@@ -306,33 +306,6 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   }, []);
   const { data: activity } = useEngineActivity();
   const queryClient = useQueryClient();
-  const positionsQuery = useKitePositions(true, 1_000);
-  const netPositions = positionsQuery.data?.net ?? [];
-  const openPositions = useMemo(
-    () => netPositions.filter((p: any) => Number(p.quantity ?? 0) !== 0),
-    [netPositions],
-  );
-  const symbols = useMemo(
-    () => Array.from(new Set(netPositions.map((p: any) => `${p.exchange}:${p.tradingsymbol}`))),
-    [netPositions],
-  );
-  const { data: ltp } = useKiteLtp(symbols, symbols.length > 0, 1_000);
-
-  const totalPnl = useMemo(() => {
-    return netPositions.reduce((sum: number, p: any) => {
-      const brokerPnl = Number(p.pnl ?? p.m2m ?? 0);
-      const live = Number(ltp?.[`${p.exchange}:${p.tradingsymbol}`]?.last_price ?? 0);
-      const brokerLast = Number(p.last_price ?? 0);
-      const qty = Number(p.quantity ?? 0);
-      const mult = Number(p.multiplier ?? 1) || 1;
-      if (live > 0 && brokerLast > 0 && qty !== 0) {
-        return sum + (brokerPnl + (live - brokerLast) * qty * mult);
-      }
-      return sum + brokerPnl;
-    }, 0);
-  }, [netPositions, ltp]);
-
-  const hasOpenPositions = openPositions.length > 0 || (netPositions.length > 0 && totalPnl !== 0);
   // The footer's activity poll (10s) and the signals dock's own poll run on
   // independent timers — a scan can start right after the dock's last idle
   // (15s) tick, so the dock would sit on stale "no signals" data for up to
@@ -944,9 +917,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
                   </button>
                 ))}
               </>
-            ) : (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: 'var(--k-faint)', fontSize: 10.5, whiteSpace: 'nowrap' }}><span style={{ width: 5, height: 5, borderRadius: '50%', background: '#9bc7b2' }} />All panes active</span>
-            )}
+            ) : null}
           </div>
 
           <div aria-label="Workspace and engine status" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--k-ink-5)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
@@ -985,49 +956,22 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
               </div>
             )}
             {liveCount > 0 && <><span title={`${liveCount} signal${liveCount === 1 ? '' : 's'} currently running`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} live</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
-            <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} />
-            <span className={scanning ? 'kl-scan-text' : undefined} style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
+            <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} aria-hidden="true" />
+            <span className={scanning ? 'kl-scan-text' : undefined}
+              title={!scanning ? [
+                activity?.last_scan_ms ? `Last scan ${fmtAgo(activity.last_scan_ms)}` : '',
+                marketClosed ? 'Market closed' : autoScan && activity?.next_scan_ms ? `Next due ${fmtNext(activity.next_scan_ms)}` : '',
+              ].filter(Boolean).join(' · ') : undefined}
+              style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
             {/* The item second, and only where the engine publishes one. `capitalize`
                 had to come off the span above: it was title-casing a contract, so
                 "TCS OCT 2300 PE" arrived as "Tcs Oct 2300 Pe". */}
             {scanning && scanStatus.detail && (
               <span style={{ opacity: .8 }} title={scanStatus.detail}>· {scanStatus.detail}</span>
             )}
-            {!scanning && (activity?.last_scan_ms ?? 0) > 0 && <span style={{ opacity: .7 }}>· {fmtAgo(activity?.last_scan_ms ?? 0)}</span>}
-            {!scanning && marketClosed ? <span style={{ opacity: .7 }}>· Market closed</span> : !scanning && autoScan && (activity?.next_scan_ms ?? 0) > 0 ? <span style={{ opacity: .7 }}>· Next Due {fmtNext(activity?.next_scan_ms ?? 0)}</span> : null}
+            {!scanning && marketClosed && <span style={{ opacity: .7 }}>· Market closed</span>}
 
-            {/* Total P&L when open positions exist */}
-            {hasOpenPositions && (
-              <>
-                <span style={{ width: 1, height: 14, background: 'var(--k-border)' }} />
-                <button
-                  type="button"
-                  onClick={() => onNavClick?.('positions')}
-                  title={`Total P&L: ${totalPnl > 0 ? '+' : totalPnl < 0 ? '−' : ''}₹${Math.abs(totalPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} across ${netPositions.length} position${netPositions.length === 1 ? '' : 's'} (${openPositions.length} open). Click to view positions.`}
-                  className="sb-tool"
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    height: 20,
-                    padding: '0 6px',
-                    borderRadius: 4,
-                    background: totalPnl > 0 ? 'var(--k-tint-green, rgba(34, 197, 94, 0.1))' : totalPnl < 0 ? 'var(--k-tint-red, rgba(239, 68, 68, 0.1))' : 'var(--k-surface-hover)',
-                    border: `1px solid ${totalPnl > 0 ? 'rgba(34, 197, 94, 0.3)' : totalPnl < 0 ? 'rgba(239, 68, 68, 0.3)' : 'var(--k-border)'}`,
-                    color: totalPnl > 0 ? k.green : totalPnl < 0 ? k.red : 'var(--k-dim)',
-                    fontFamily: 'inherit',
-                    fontSize: 9.5,
-                    fontWeight: 800,
-                    letterSpacing: '.03em',
-                    cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  <span style={{ fontSize: 8.5, color: 'var(--k-dim)', fontWeight: 700 }}>P&amp;L</span>
-                  <span>{totalPnl > 0 ? '+' : totalPnl < 0 ? '−' : ''}₹{Math.abs(totalPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                </button>
-              </>
-            )}
+            <KiteFooterPnl onOpenPositions={() => onNavClick('positions')} />
           </div>
         </footer>
       </div>

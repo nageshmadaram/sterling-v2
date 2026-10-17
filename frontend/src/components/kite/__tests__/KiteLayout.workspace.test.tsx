@@ -64,7 +64,7 @@ describe('KiteLayout advanced workspace', () => {
       expect(screen.getByRole('button', { name: `Full screen ${title}` })).toBeInTheDocument();
     }
     expect(screen.queryByTitle('Show / hide left sidebar')).not.toBeInTheDocument();
-    expect(screen.getByText('All panes active')).toBeInTheDocument();
+    expect(screen.queryByText('All panes active')).not.toBeInTheDocument();
   });
 
   it('prevents outer scrolling on dashboard pane so bottom docks remain fixed', () => {
@@ -104,7 +104,7 @@ describe('KiteLayout advanced workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Restore all panes' }));
 
     expect(screen.getAllByLabelText(/pane$/)).toHaveLength(4);
-    expect(screen.getByText('All panes active')).toBeInTheDocument();
+    expect(screen.queryByText('All panes active')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Restore all panes' })).not.toBeInTheDocument();
     expect(localStorage.getItem(TERMINAL_MODE_KEY)).toBe('normal');
     expect(JSON.parse(localStorage.getItem(WORKSPACE_LAYOUT_KEY)!).minimized).toEqual([]);
