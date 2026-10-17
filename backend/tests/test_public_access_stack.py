@@ -306,3 +306,65 @@ def test_primary_publisher_receives_only_verified_secondary(monkeypatch):
  instance.status['public_ready']['ngrok']=False
  assert instance.publish()
  assert calls[-1][-1]==''
+
+
+def test_named_primary_and_single_ngrok_urls_are_reported_without_guessing(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ calls=[]
+ class Process:
+  pid=412
+  stdout=[]
+  def poll(self):return None
+ def fake_popen(command,**kwargs):
+  calls.append(command)
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',fake_popen)
+ for provider,host,key in [
+   ('both','https://named-cloudflare.example.test','cloudflare_url'),
+   ('ngrok','https://reserved.ngrok-free.app','ngrok_url'),
+ ]:
+  args=SimpleNamespace(provider=provider,hostname=host,port=5180,
+       dev=False,dev_port=5174,ngrok_hostname='')
+  supervisor=stack.Stack(args)
+  supervisor.binary='/usr/bin/cloudflared' if provider=='both' else '/usr/bin/ngrok'
+  supervisor.launch_tunnel()
+  assert supervisor.status['app_url']==host
+  assert supervisor.status[key]==host
+  assert supervisor.status['tunnel_started_at']
+ assert calls[0][:3]==['/usr/bin/cloudflared','tunnel','--no-autoupdate']
+ assert calls[1][:3]==['/usr/bin/ngrok','http','http://127.0.0.1:5180']
+
+
+def test_missing_ngrok_does_not_stop_cloudflare_or_backend(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='',
+      port=5180,dev=True,dev_port=5174)
+ supervisor=stack.Stack(args)
+ supervisor.ngrok_binary=None
+ supervisor.children['backend']=object()
+ supervisor.launch_ngrok()
+ assert supervisor.status['ngrok_error']=='NGROK_BINARY_NOT_INSTALLED'
+ assert supervisor.status['ngrok_url']==''
+ assert 'backend' in supervisor.children
+ assert supervisor.status['local_url']=='http://127.0.0.1:5180'
+
+
+def test_unverified_ngrok_republication_preserves_primary_without_secondary(monkeypatch):
+ from types import SimpleNamespace
+ args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False)
+ supervisor=stack.Stack(args)
+ supervisor.python='python'
+ supervisor.status.update(app_url='https://named.example.test',
+     ngrok_url='https://secondary.ngrok-free.app',
+     public_ready={'cloudflare':True,'ngrok':False})
+ calls=[]
+ def fake_publisher(command,**kwargs):
+  calls.append(command)
+  return SimpleNamespace(returncode=0,
+      stdout='{"published":true,"telegram_menu_updated":true}')
+ monkeypatch.setattr(stack.subprocess,'run',fake_publisher)
+ assert supervisor.publish()
+ assert calls[-1][-1]==''
+ assert supervisor.status['callback_url']=='https://named.example.test/api/v1/kite/callback'
