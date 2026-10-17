@@ -190,3 +190,62 @@ def test_undelivered_events_older_than_retention_are_retired(lifecycle_db):
     far_future = 1000 + outbox._MAX_AGE_MS + 5000
     assert outbox.due("u1", now_ms=far_future) == []
     assert outbox.pending_user_ids() == []
+
+
+def test_flush_failure_does_not_drop_spooled_lifecycle_alert(lifecycle_db, monkeypatch):
+    row = dict(
+        event_id="TGL-SP-RETAIN", uid="u1", dedupe_key="retain-on-error",
+        strategy="Snapback", event_type="PROTECTION FAILED", title="OPT",
+        detail="Broker stop uncertain", severity="CRITICAL", created_at_ms=1000,
+    )
+    with outbox._spool_lock:
+        outbox._spool.append(row)
+
+    original_insert = outbox._insert
+
+    def write_fails(_conn, _row):
+        raise RuntimeError("transient I/O failure")
+
+    monkeypatch.setattr(outbox, "_insert", write_fails)
+    assert outbox._flush_spool() == 0
+    assert outbox.spooled_count() == 1
+
+    monkeypatch.setattr(outbox, "_insert", original_insert)
+    assert outbox.pending_user_ids() == ["u1"]
+    events = outbox.due("u1", now_ms=2000)
+    assert [e.event_id for e in events] == ["TGL-SP-RETAIN"]
+    assert outbox.spooled_count() == 0
+
+
+def test_full_spool_keeps_first_alert_and_refuses_new_event(
+    lifecycle_db, monkeypatch
+):
+    import sqlite3
+
+    monkeypatch.setattr(outbox, "_FAST_TIMEOUT_S", 0.03)
+    monkeypatch.setattr(outbox, "_SPOOL_MAX", 1)
+    blocker = sqlite3.connect(db._DB_PATH, timeout=0.03)
+    blocker.execute("BEGIN IMMEDIATE")
+    try:
+        first = outbox.enqueue(
+            "u1", dedupe_key="critical-first", strategy="Gamma-Unwind",
+            event_type="PROTECTION FAILED", title="OPT", detail="stop uncertain",
+            severity="CRITICAL", created_at_ms=1000,
+        )
+        assert first is not None
+        assert outbox.spooled_count() == 1
+
+        with pytest.raises(RuntimeError, match="spool_full"):
+            outbox.enqueue(
+                "u1", dedupe_key="second", strategy="SuperTrend",
+                event_type="ENTRY FILLED", title="OPT", detail="filled",
+                created_at_ms=2000,
+            )
+        assert outbox.spooled_count() == 1
+    finally:
+        blocker.rollback()
+        blocker.close()
+
+    assert outbox.pending_user_ids() == ["u1"]
+    delivered = outbox.due("u1", now_ms=3000)
+    assert [e.dedupe_key for e in delivered] == ["critical-first"]
