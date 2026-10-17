@@ -1,8 +1,8 @@
 import { PreferenceGate } from './components/auth/PreferenceGate';
 import { useAppearance, applyAppearance } from './appearance/store';
-import { useLayoutEffect } from 'react';
+import { lazy, Suspense, useLayoutEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Dashboard } from './pages/Dashboard';
+
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './store/useStore';
 import { useViewportScale } from './hooks/useViewportScale';
@@ -12,6 +12,10 @@ import { useLiveResync } from './hooks/useLiveResync';
 import { appQueryDefaults } from './utils/queryDefaults';
 import { ViewQueryProvider } from './components/sim/ViewQueryProvider';
 import { ConfirmProvider } from './components/kite/ConfirmDialog';
+
+// Keep the entire trading workspace out of the login/bootstrap bundle. The
+// authenticated app still mounts normally after the route chunk is available.
+const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
 
 // Holds the sign-in gate only. Everything the operator trades or reads lives under
 // ViewQueryProvider, which gives the LIVE and SIMULATION views a cache each.
@@ -23,7 +27,9 @@ function ViewShell() {
   useLiveResync();
   return (
     <>
-      <Dashboard />
+      <Suspense fallback={<div role="status" style={{ padding: 24 }}>Loading workspace…</div>}>
+        <Dashboard />
+      </Suspense>
       <LiveFeedBadge />
     </>
   );

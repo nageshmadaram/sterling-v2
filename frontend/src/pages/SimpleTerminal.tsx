@@ -1,6 +1,7 @@
 import { useViewStore } from '../store/useViewStore';
 import { ProfileMenu, useSterlingProfile } from '../components/kite/ProfileMenu';
 import { useExperienceOptions, orderedNavigation } from '../store/useExperienceOptions';
+import { groupPrimaryNavigation } from '../components/kite/navigationDensity';
 import React, { useState, useEffect, useRef } from 'react';
 import { SimpleSettingsDrawer } from '../components/SimpleSettings';
 import { KiteTab } from '../components/kite/KiteTab';
@@ -22,11 +23,43 @@ export function SimpleTerminal() {
   useEffect(() => { document.body.dataset.mobileStyle = mobileStyle; return () => { delete document.body.dataset.mobileStyle; }; }, [mobileStyle]);
   useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('view')==='live'&&notificationDestination(params.get('notification')))useViewStore.getState().setView('live');},[]);
   const [showSettings, setShowSettings] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLDivElement>(null);
   const preferredSection = useKiteSettings((s) => s.defaultSection);
   const userNavigatedRef = useRef(!!notificationDestination(new URLSearchParams(window.location.search).get('notification')));
   const [kiteNav, setKiteNav] = useState<NavItem>(() => notificationDestination(new URLSearchParams(window.location.search).get('notification')) || useKiteSettings.getState().defaultSection || 'dashboard');
   const navOptions=useExperienceOptions(s=>s.options);
   const {data:sterlingProfile}=useSterlingProfile();
+  const navigation = orderedNavigation([
+    { id: 'dashboard' as const, label: 'Dashboard' },
+    { id: 'astro' as const, label: 'Astrology' },
+    { id: 'pcr' as const, label: 'PCR' },
+    { id: 'orders' as const, label: 'Orders' },
+    { id: 'holdings' as const, label: 'Holdings' },
+    { id: 'positions' as const, label: 'Positions' },
+    { id: 'journal' as const, label: 'Journal' },
+    { id: 'more' as const, label: 'More' },
+    { id: 'data' as const, label: 'Data' },
+    { id: 'backtest' as const, label: 'Backtest' },
+    { id: 'connect' as const, label: 'Connect' },
+    { id: 'help' as const, label: 'Help' },
+  ], navOptions);
+  const { primary, overflow } = groupPrimaryNavigation(navigation);
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const dismiss = (event: PointerEvent) => {
+      if (!toolsRef.current?.contains(event.target as Node)) setToolsOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setToolsOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', escape);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', escape);
+    };
+  }, [toolsOpen]);
 
   useEffect(() => {
     if (!userNavigatedRef.current && preferredSection && preferredSection !== kiteNav) {
@@ -42,6 +75,7 @@ export function SimpleTerminal() {
         return;
       }
     }
+    setToolsOpen(false);
     setKiteNav(nav);
     window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: nav }));
   };
@@ -78,7 +112,7 @@ export function SimpleTerminal() {
       {/* ── Header ─────────────────────────────────────────────── */}
       <div className="sterling-header" style={{
         flexShrink: 0,
-        borderBottom: '1px solid var(--t-border)',
+        borderBottom: '1px solid var(--t-border)', position: 'relative', zIndex: 20,
       }}>
         {/* Row 1: STERLING | KITE | [kite nav] | [actions] */}
         <div className="sterling-header-row" style={{
@@ -99,20 +133,7 @@ export function SimpleTerminal() {
           <div style={{ flex: 1 }} />
           <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
             <div className="kite-topnav">
-              {orderedNavigation([
-                { id: 'dashboard' as const, label: 'Dashboard' },
-                { id: 'astro' as const, label: 'Astrology' },
-                { id: 'pcr' as const, label: 'PCR' },
-                { id: 'orders' as const, label: 'Orders' },
-                { id: 'holdings' as const, label: 'Holdings' },
-                { id: 'positions' as const, label: 'Positions' },
-                { id: 'journal' as const, label: 'Journal' },
-                { id: 'more' as const, label: 'More' },
-                { id: 'data' as const, label: 'Data' },
-                { id: 'backtest' as const, label: 'Backtest' },
-                { id: 'connect' as const, label: 'Connect' },
-                { id: 'help' as const, label: 'Help' },
-              ], navOptions).map((item) => (
+              {primary.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => handleKiteNav(item.id)}
@@ -128,19 +149,33 @@ export function SimpleTerminal() {
                 </button>
               ))}
             </div>
+            {overflow.length > 0 && <div ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
+              <button type="button" aria-haspopup="menu" aria-expanded={toolsOpen}
+                onClick={() => setToolsOpen(open => !open)}
+                style={{ height: 30, border: '1px solid var(--t-border)', background: 'transparent',
+                  color: overflow.some(item => item.id === kiteNav) ? 'var(--k-brand)' : 'var(--t-text)',
+                  padding: '0 10px', borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                Tools ▾
+              </button>
+              {toolsOpen && <div role="menu" aria-label="Additional sections"
+                style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', width: 180,
+                  maxHeight: 'min(65vh, 420px)', overflowY: 'auto', padding: 5,
+                  border: '1px solid var(--t-border)', borderRadius: 8,
+                  background: 'var(--k-bg)', boxShadow: '0 8px 28px rgba(0,0,0,.22)', zIndex: 100 }}>
+                {overflow.map(item => <button key={item.id} type="button" role="menuitem"
+                  aria-current={kiteNav === item.id ? 'page' : undefined}
+                  onClick={() => handleKiteNav(item.id)}
+                  style={{ display: 'block', width: '100%', padding: '9px 12px',
+                    textAlign: 'left', border: 0, borderRadius: 5, cursor: 'pointer',
+                    background: kiteNav === item.id ? 'var(--k-surface-2)' : 'transparent',
+                    color: kiteNav === item.id ? 'var(--k-brand)' : 'var(--k-text)' }}>
+                  {item.label}
+                </button>)}
+              </div>}
+            </div>}
             <span style={{ width: 1, height: 18, background: 'var(--t-border)', margin: '0 8px', flexShrink: 0 }} />
 
             <ThemeToggle />
-            <button title="Notifications" style={{
-              background: 'none', border: '1px solid var(--t-border)', cursor: 'pointer',
-              width: 32, height: 32, borderRadius: 8,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--t-dim)', fontSize: 13, transition: 'border-color .12s, color .12s',
-            }}
-              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-bright)44'; (e.currentTarget as HTMLElement).style.color = 'var(--t-bright)'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
-            >🔔</button>
-
             <ProfileMenu />
 
             {/* More options (three dots) */}
