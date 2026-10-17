@@ -32,6 +32,8 @@ const RECONCILE_RETRY_BASE = 2_000;
 const RECONCILE_RETRY_MAX = 15_000;
 const UI_NOTIFY_MS = 50;
 const INTERACTION_GRACE_MS = 50;
+// Never starve quote painting while the operator continuously scrolls/drags.
+const MAX_INTERACTION_DEFERRAL_MS = 120;
 /** No frame at all (not even a server heartbeat) for this long: the socket is dead. */
 export const WATCHDOG_STALE_MS = 30_000;
 const WATCHDOG_INTERVAL_MS = 2_000;
@@ -90,6 +92,7 @@ let _feedEpoch = 0;
 let _version = 0;
 const _storeListeners = new Set<() => void>();
 let _notifyScheduled = false;
+let _notifyQueuedAt = 0;
 let _lastInteractionAt = 0;
 let _interactionListenersInstalled = false;
 
@@ -124,12 +127,18 @@ function sameVisibleTick(previous: KiteTick | undefined, next: KiteTick): boolea
 }
 
 function flushStore() {
-  const interactionAge = Date.now() - _lastInteractionAt;
-  if (interactionAge < INTERACTION_GRACE_MS) {
-    window.setTimeout(flushStore, INTERACTION_GRACE_MS - interactionAge);
+  const now = Date.now();
+  const interactionAge = now - _lastInteractionAt;
+  const deferredFor = now - _notifyQueuedAt;
+  if (interactionAge < INTERACTION_GRACE_MS && deferredFor < MAX_INTERACTION_DEFERRAL_MS) {
+    window.setTimeout(flushStore, Math.min(
+      INTERACTION_GRACE_MS - interactionAge,
+      MAX_INTERACTION_DEFERRAL_MS - deferredFor,
+    ));
     return;
   }
   _notifyScheduled = false;
+  _notifyQueuedAt = 0;
   _version += 1;
   _storeListeners.forEach((listener) => listener());
 }
@@ -137,6 +146,7 @@ function flushStore() {
 function _notify() {
   if (_notifyScheduled) return;
   _notifyScheduled = true;
+  _notifyQueuedAt = Date.now();
   window.setTimeout(flushStore, UI_NOTIFY_MS);
 }
 
