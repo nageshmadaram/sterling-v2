@@ -13,6 +13,7 @@ import sqlite3
 import pytest
 
 from app.core.backup_manifest import (
+    BackupIntegrityError,
     create_full_backup,
     declared_databases,
     prove_restore,
@@ -75,6 +76,39 @@ def test_a_declared_database_that_does_not_exist_is_reported_not_silent(tmp_path
 
     assert result.databases == ("snapback_observations.db",)
     assert any("never_created.db" in name for name in result.missing)
+
+
+
+def test_explicit_same_basename_databases_cannot_overwrite_each_other(tmp_path):
+    first = tmp_path / "primary" / "sterling_paper.db"
+    second = tmp_path / "secondary" / "sterling_paper.db"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    _make_db(first, rows=2)
+    _make_db(second, rows=7)
+
+    destination = tmp_path / "backups"
+    with pytest.raises(BackupIntegrityError, match="basename collision"):
+        create_full_backup(
+            backup_root=destination,
+            root=tmp_path,
+            databases=[first, second],
+        )
+    assert not destination.exists(), "invalid backup must not create a partial directory"
+
+
+def test_explicit_repeated_database_path_is_snapshotted_once(tmp_path):
+    path = _make_db(tmp_path / "sterling_paper.db", rows=3)
+
+    result = create_full_backup(
+        backup_root=tmp_path / "backups",
+        root=tmp_path,
+        databases=[path, path],
+    )
+
+    assert result.databases == ("sterling_paper.db",)
+    assert result.manifest.row_counts["sterling_paper.db"]["t"] == 3
+
 
 
 def test_a_backup_with_nothing_to_back_up_fails_loudly(tmp_path):
