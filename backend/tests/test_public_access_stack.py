@@ -685,9 +685,12 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
  (second/'index.html').write_text('<html><div id="root">COMMIT B</div></html>')
  pointer=tmp_path/'published'
  pointer.symlink_to(first,target_is_directory=True)
+ manifest=tmp_path/'published.json'
+ manifest.write_text(json.dumps({'sha':'a'*40,'ref':'HEAD'}))
  process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
    env={**os.environ,'STERLING_WEB_PORT':str(port),
-        'STERLING_CALLBACK_PORT':'0','STERLING_STATIC_ROOT':str(pointer)},
+        'STERLING_CALLBACK_PORT':'0','STERLING_STATIC_ROOT':str(pointer),
+        'STERLING_RELEASE_MANIFEST':str(manifest)},
    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  origin=f'http://127.0.0.1:{port}'
  try:
@@ -704,8 +707,13 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
   temp=tmp_path/'published.next'
   temp.symlink_to(second,target_is_directory=True)
   temp.replace(pointer)
+  manifest.write_text(json.dumps({'sha':'b'*40,'ref':'HEAD'}))
   with urllib.request.urlopen(origin+'/',timeout=2) as response:
    assert 'COMMIT B' in response.read().decode()
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   health=json.load(response)
+   assert health['ready'] is True
+   assert health['release_commit']=='b'*40
   assert process.poll() is None
  finally:
   process.terminate()
