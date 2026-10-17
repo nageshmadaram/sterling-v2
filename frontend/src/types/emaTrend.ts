@@ -46,7 +46,7 @@ export interface EmaTrendSetup {
   id: string; symbol: string; mode: EmaTrendMode; index: number; close_ms: number;
   status: 'watching' | 'armed' | 'error' | 'expired'; reason: string; path: string | null;
   stop: DecimalValue | null; ceiling: DecimalValue | null; feature: EmaTrendFeature; config_revision: number;
-  activation_eligible?: boolean;
+  activation_eligible?: boolean; watch_only?: boolean;
   signal_source?: string; entry_expires_ms?: number | null; entry_window_open?: boolean; runtime_blockers?: string[];
 }
 export interface EmaTrendAction {
