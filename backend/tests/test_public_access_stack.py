@@ -900,12 +900,43 @@ def test_verified_tunnels_preserved_when_gateway_owned_and_supervised():
          'mini_app_url':'https://cf.example.test/tma',
          'callback_url':'https://cf.example.test/api/v1/kite/callback'}
  from unittest.mock import patch
- with patch.object(stack,'_managed_web_owns_port',return_value=True):
+ with patch.object(stack,'_managed_web_owns_port',return_value=True), \
+      patch.object(stack,'_backend_listener_present',return_value=True), \
+      patch.object(stack,'_backend_http_ready',return_value=True):
   reported=stack.live_presentation_status(cached,True)
  assert reported['public_ready']=={'cloudflare':True,'ngrok':False}
  assert reported['urls']=={'cloudflare':'https://cf.example.test'}
  assert reported['mini_app_url'].endswith('/tma')
  assert reported['callback_url'].endswith('/api/v1/kite/callback')
+
+
+def test_last_known_public_urls_are_hidden_when_backend_dies(monkeypatch):
+ """Gateway and tunnels can be alive after an adopted API has vanished."""
+ cached={'phase':'ready','mode':'both',
+         'public_ready':{'cloudflare':True,'ngrok':True},
+         'urls':{'cloudflare':'https://old-cf.example.test',
+                 'ngrok':'https://old-ngrok.example.test'},
+         'mini_app_url':'https://old-cf.example.test/tma',
+         'callback_url':'https://old-cf.example.test/api/v1/kite/callback'}
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda _:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:False)
+ def never_fetch_health():
+  raise AssertionError('A vacant backend port must short-circuit HTTP probing')
+ monkeypatch.setattr(stack,'_backend_http_ready',never_fetch_health)
+ visible=stack.live_presentation_status(cached,True)
+ assert visible['manager_running'] is True
+ assert visible['gateway_running'] is True
+ assert visible['backend_listening'] is False
+ assert visible['backend_ready'] is False
+ assert visible['public_ready']=={} and visible['urls']=={}
+ assert visible['mini_app_url']=='' and visible['callback_url']==''
+
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:False)
+ visible=stack.live_presentation_status(cached,True)
+ assert visible['backend_listening'] is True
+ assert visible['backend_ready'] is False
+ assert visible['public_ready']=={} and visible['urls']=={}
 
 
 def test_up_dashboard_is_prominent_and_prints_only_verified_urls(monkeypatch,capsys):

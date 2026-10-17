@@ -359,15 +359,20 @@ def live_presentation_status(state, running):
     verified URLs/callback guidance only for a supervised, owned gateway.
     """
     gateway=bool(running and state.get('phase')!='stopped' and _managed_web_owns_port(state))
+    backend_listening=_backend_listener_present()
+    backend_ready=bool(backend_listening and _backend_http_ready())
     verified=state.get('public_ready') or {}
-    live_verified={name:bool(ok) for name,ok in verified.items()} if gateway else {}
+    # A saved HTTPS probe can remain true for up to one probe interval after
+    # the backend stops. Never show usable public app, Telegram desk or Kite
+    # callback URLs if the broker API fails a fresh local health check.
+    live_verified={name:bool(ok) for name,ok in verified.items()} if gateway and backend_ready else {}
     urls=state.get('urls') or {}
     return {
         **state,
         'manager_running':bool(running),
         'gateway_running':gateway,
-        'backend_listening':_backend_listener_present(),
-        'backend_ready':_backend_http_ready(),
+        'backend_listening':backend_listening,
+        'backend_ready':backend_ready,
         'public_ready':live_verified,
         'urls':{name:value for name,value in urls.items() if live_verified.get(name)},
         'mini_app_url':state.get('mini_app_url','') if live_verified.get(
