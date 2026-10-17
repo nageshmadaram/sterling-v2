@@ -442,3 +442,98 @@ def test_ambiguous_multiple_gateway_owners_must_not_be_killed(monkeypatch):
  with pytest.raises(RuntimeError,match='unverified process'):
   stack._reclaim_gateway(5180)
  assert called == []
+
+
+def test_new_gateway_must_own_listening_socket_and_respond_to_health(monkeypatch):
+ from types import SimpleNamespace
+ child=SimpleNamespace(pid=789,poll=lambda:None)
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[789])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:pid==789)
+ monkeypatch.setattr(stack,'fetch',lambda url,timeout=2:
+  (200,'{"service":"sterling-web","ready":true}'))
+ stack._verify_gateway_child(child,5180)
+
+
+def test_old_gateway_serving_200_does_not_allow_ours_to_claim_readiness(monkeypatch):
+ from types import SimpleNamespace
+ child=SimpleNamespace(pid=789,poll=lambda:None)
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[555])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:False)
+ monkeypatch.setattr(stack,'fetch',lambda url,timeout=2:
+  (200,'{"service":"sterling-web","ready":true}'))
+ with pytest.raises(RuntimeError,match='unexpected listener'):
+  stack._verify_gateway_child(child,5180)
+
+
+def test_exited_gateway_does_not_count_as_started(monkeypatch):
+ from types import SimpleNamespace
+ child=SimpleNamespace(pid=789,poll=lambda:1)
+ with pytest.raises(RuntimeError,match='exited without binding'):
+  stack._verify_gateway_child(child,5180)
+
+
+def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,capsys):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ existing={'manager_pid':80808,'manager_protocol':2,'mode':'both',
+  'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
+  'local_url':'http://127.0.0.1:5180','urls':{
+    'cloudflare':'https://cloudflare.example.test',
+    'ngrok':'https://ngrok.example.test'}}
+ monkeypatch.setattr(stack,'read_state',lambda:existing)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ def no_restart(*args,**kwargs):
+  raise AssertionError('Repeated ./sterling.sh up must reuse the manager')
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',no_restart)
+ monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ out=capsys.readouterr().out
+ assert 'reusing backend and tunnels' in out
+ assert 'https://cloudflare.example.test' in out
+ assert 'https://ngrok.example.test' in out
+
+
+def test_up_replaces_old_ui_manager_but_never_calls_backend_shutdown(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setattr(stack,'read_state',lambda:{
+   'manager_pid':6661,'mode':'ngrok','phase':'ready'})
+ active={'value':True}
+ monkeypatch.setattr(stack,'alive',lambda pid:active['value'])
+ stopped=[]
+ def stop(pid):
+  stopped.append(pid)
+  active['value']=False
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',stop)
+ started=[]
+ class Process:pass
+ def popen(command,**kwargs):
+  started.append(command)
+  return Process()
+ monkeypatch.setattr(stack.subprocess,'Popen',popen)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ assert stopped==[6661]
+ assert len(started)==1
+ assert str(stack.ROOT/'scripts/sterling_stack.py') in started[0]
+ assert 'run' in started[0]
+ assert '--all' in started[0]
+ assert '--skip-build' not in started[0]
+
+
+def test_up_does_not_kill_unverifiable_old_manager(monkeypatch):
+ import signal
+ monkeypatch.setattr(stack,'alive',lambda pid:False)
+ delivered=[]
+ monkeypatch.setattr(stack.os,'kill',lambda *args:delivered.append(args))
+ stack._stop_old_managed_presentation(555)
+ assert delivered==[]
+
+
+def test_healthy_manager_must_own_listener_not_just_responsive_port(monkeypatch):
+ state={'web_port':5180,'children':{'web':789}}
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[555])
+ monkeypatch.setattr(stack,'_is_own_orphan_gateway',lambda pid:True)
+ assert not stack._managed_web_owns_port(state)
+ monkeypatch.setattr(stack,'_gateway_listener_pids',lambda port:[789])
+ assert stack._managed_web_owns_port(state)
