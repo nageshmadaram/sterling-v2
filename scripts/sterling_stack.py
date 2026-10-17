@@ -46,13 +46,21 @@ def public_ready(origin):
     if not isinstance(origin, str) or not origin.startswith('https://'):
         return False
     try:
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             index_task = pool.submit(fetch, origin + '/')
             desk_task = pool.submit(fetch, origin + '/tma')
             private_task = pool.submit(fetch, origin + '/api/v1/tma/data')
+            backend_task = pool.submit(fetch, origin + '/health')
             index_status, index = index_task.result()
             desk_status, desk = desk_task.result()
-            if (index_status != 200 or desk_status != 200 or
+            backend_status, health_payload = backend_task.result()
+            try:
+                backend_healthy = backend_status == 200 and json.loads(health_payload).get('status') == 'ok'
+            except (TypeError, ValueError, AttributeError):
+                backend_healthy = False
+            # A reachable HTML shell is not a usable Sterling app. Require
+            # the actual backend health route through the SAME public proxy.
+            if (index_status != 200 or desk_status != 200 or not backend_healthy or
                     'id="root"' not in index or 'Telegram Mini App' not in desk):
                 return False
             try:

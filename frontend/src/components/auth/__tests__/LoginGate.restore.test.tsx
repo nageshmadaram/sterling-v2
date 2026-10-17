@@ -35,7 +35,7 @@ describe('mobile startup with a remembered session', () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     openApp();
-    await waitFor(() => expect(screen.getByTestId('dashboard').parentElement).not.toHaveAttribute('inert'));
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
     expect(screen.queryByRole('form', { name: 'Sterling login' })).toBeNull();
     expect(getAccessToken()).toBe('renewed-access');
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/auth/refresh'))).toHaveLength(1);
@@ -67,7 +67,7 @@ describe('mobile startup with a remembered session', () => {
     expect(getRefreshToken()).toBe('remembered-refresh');
     online = true;
     fireEvent.click(screen.getByRole('button', { name: 'Retry connection' }));
-    await waitFor(() => expect(screen.getByTestId('dashboard').parentElement).not.toHaveAttribute('inert'));
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
     expect(localStorage.getItem('kite-settings')).toBe('{"saved":"retained"}');
   });
 

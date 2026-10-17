@@ -30,6 +30,7 @@ def test_anonymous_private_api_prevents_publication(monkeypatch):
 def test_publication_requires_live_app_desk_and_auth(monkeypatch):
  def fetch(url):
   if url.endswith('/data'):raise urllib.error.HTTPError(url,401,'',{},None)
+  if url.endswith('/health'):return 200,'{"status":"ok"}'
   return 200,'id="root" Telegram Mini App'
  monkeypatch.setattr(stack,'fetch',fetch)
  assert stack.public_ready('https://synthetic.example.test')
@@ -37,14 +38,24 @@ def test_publication_requires_live_app_desk_and_auth(monkeypatch):
  assert not stack.public_ready('https://synthetic.example.test')
 
 def test_public_readiness_checks_are_concurrent_and_fail_closed(monkeypatch):
- barrier=threading.Barrier(3,timeout=2)
+ barrier=threading.Barrier(4,timeout=2)
  def fetch(url):
   barrier.wait()
   if url.endswith('/api/v1/tma/data'):
    raise urllib.error.HTTPError(url,401,'Unauthorized',{},None)
+  if url.endswith('/health'):return 200,'{"status":"ok"}'
   return 200,('Telegram Mini App' if url.endswith('/tma') else 'id="root"')
  monkeypatch.setattr(stack,'fetch',fetch)
  assert stack.public_ready('https://parallel.example.test')
+
+
+def test_public_readiness_rejects_healthy_html_when_backend_is_down(monkeypatch):
+ def fetch(url):
+  if url.endswith('/data'):raise urllib.error.HTTPError(url,401,'',{},None)
+  if url.endswith('/health'):raise urllib.error.HTTPError(url,503,'Service Unavailable',{},None)
+  return 200,'id="root" Telegram Mini App'
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert not stack.public_ready('https://synthetic.example.test')
 
 
 def test_public_readiness_rejects_plain_http_without_probe(monkeypatch):

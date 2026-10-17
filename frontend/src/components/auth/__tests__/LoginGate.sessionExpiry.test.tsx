@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LoginGate } from '../LoginGate';
 import { notifyAuthExpired } from '../../../utils/liveSync';
@@ -8,6 +9,11 @@ import { getAccessToken, setAuthTokens } from '../../../utils/auth';
 vi.mock('../../../utils/api', () => ({
   api: { get: vi.fn(async () => ({ id: 'u1' })), post: vi.fn() },
 }));
+
+function WorkspaceProbe({ onMount }: { onMount: () => void }) {
+  useEffect(() => { onMount(); }, [onMount]);
+  return <div data-testid="dashboard">dashboard</div>;
+}
 
 function renderGate(qc = new QueryClient()) {
   render(
@@ -37,17 +43,23 @@ describe('LoginGate session expiry', () => {
     expect(getAccessToken()).toBe('a');
   });
 
-  it('keeps the page mounted while validation is pending', async () => {
+  it('does not mount workspace effects or subscriptions while session validation is pending', async () => {
     const { api } = await import('../../../utils/api');
     let complete!: (value: unknown) => void;
     vi.mocked(api.get).mockReturnValueOnce(new Promise(resolve => {complete = resolve;}));
-    renderGate();
-    const page = screen.getByTestId('dashboard');
-    expect(page.parentElement).toHaveAttribute('inert');
+    const mounted = vi.fn();
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <LoginGate><WorkspaceProbe onMount={mounted} /></LoginGate>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
+    expect(mounted).not.toHaveBeenCalled();
     expect(screen.getByRole('status')).toHaveTextContent('Verifying Sterling session');
     await act(async () => complete({id:'u1'}));
-    expect(screen.getByTestId('dashboard')).toBe(page);
-    expect(page.parentElement).not.toHaveAttribute('inert');
+    await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
+    expect(mounted).toHaveBeenCalledTimes(1);
   });
   it('leaves the dashboard, drops cached data and says why when the session expires', async () => {
     const qc = renderGate();
