@@ -4,7 +4,7 @@ import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
 import { SignalBoard } from './SignalBoard';
-import { BoardFilters } from './BoardFilters';
+import { BoardFilters, ColumnsMenu } from './BoardFilters';
 import { useBoardView } from './useBoardView';
 import { useSignalColumns } from './useSignalColumns';
 import { EmaTrendTicket } from './EmaTrendTicket';
@@ -15,18 +15,18 @@ import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend
 const MODES: EmaTrendMode[] = ['swing', 'intraday', 'scalping', 'ultra_scalping'];
 const AUTO_SCAN_INTERVAL_MS = 60_000;
 
-/** One operator view of completed-bar evidence; changing tabs never arms an order. */
+/** Completed-bar evidence view; selecting profiles never arms a broker order. */
 export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   onOpenDetail?: (signal: BoardSignal) => void;
   onOpenChart?: (quoteKey: string, mode: EmaTrendMode, signal: BoardSignal) => void;
 }) {
   const historical = useSimNowMs() !== null;
   const config = useEmaTrendConfig();
-  const [selectedMode, setSelectedMode] = React.useState<EmaTrendMode | ''>('');
-  // The query itself is mode-scoped, not merely client-filtered: one active
-  // profile cannot have its rows pushed off the 1000-row snapshot page by
-  // historical updates in other profiles.
-  const snapshot = useEmaTrendSnapshot(selectedMode || undefined);
+  // Profiles is a multi-select *view*, independent of enabled scan modes.
+  // Each selected profile has its own server-filtered page, so high-volume
+  // histories from one mode cannot starve another.
+  const [selectedModes, setSelectedModes] = React.useState<EmaTrendMode[]>([...MODES]);
+  const snapshot = useEmaTrendSnapshot(selectedModes);
   const scan = useRunEmaTrendScan();
   const job = useEmaTrendScan(snapshot.data?.scan?.id || scan.data?.id);
   const cancel = useCancelEmaTrendScan();
@@ -78,10 +78,19 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const visible = [...view.visible];
   for (const signal of signals) if (signal.emaTrend?.campaignId && signal.status !== 'ended' && !visible.some(row => row.id === signal.id)) visible.unshift(signal);
   const canScan = !historical && scannerEnabled && hasSymbols && !scanning && !scan.isPending;
+  const selectedEnabled = selectedModes.filter(mode => activeModes.includes(mode));
+  const unavailableSelected = selectedModes.filter(mode => !activeModes.includes(mode));
+  const toggleMode = (mode: EmaTrendMode) => {
+    setSelectedModes(previous => previous.includes(mode)
+      ? previous.length > 1 ? previous.filter(value => value !== mode) : previous
+      : MODES.filter(value => previous.includes(value) || value === mode));
+    setOpenId(null);
+  };
+  const resetProfiles = () => { setSelectedModes([...MODES]); setOpenId(null); };
   const scanError = (job.data?.errors || []).map(error => typeof error === 'string' ? error : (error as { reason?: string; symbol?: string; mode?: string }).reason || 'Unknown scan failure');
   const status = historical ? 'Historical view — trading disabled' : scanning ? 'Scanning completed bars…' :
     !hasSymbols ? 'Add NSE/BSE equities in EMA Settings to start scanning' :
-    selectedMode && !activeModes.includes(selectedMode) ? 'Enable this profile in EMA Settings to scan it' :
+    selectedEnabled.length === 0 ? 'Enable a selected profile in EMA Settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
     lastScan?.status === 'FAILED' ? 'Last scan failed — see details below' :
     'Automatic scans · signal view refreshes every 10s';
@@ -89,24 +98,27 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   return <div className="sb-strategy-layout" style={{ height: '100%', overflow: 'auto' }}>
     <div className="sb-strategy-rows">
       <div role="group" aria-label="EMA Trend profiles" style={{
-        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5, padding: '7px 10px',
-        borderBottom: '1px solid var(--k-border)', background: 'var(--k-bg)', position: 'relative',
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 7,
+        padding: '7px 10px', borderBottom: '1px solid var(--k-border)',
+        background: 'var(--k-bg)',
       }}>
-        <button type="button" className="sb-tool" aria-pressed={!selectedMode}
-          style={!selectedMode ? { borderColor: 'var(--k-blue)', fontWeight: 700 } : undefined}
-          onClick={() => { setSelectedMode(''); setOpenId(null); }}>All</button>
-        {MODES.map(mode => <button key={mode} type="button" className="sb-tool"
-          aria-pressed={selectedMode === mode}
-          title={activeModes.includes(mode) ? `Show ${EMA_TREND_MODE_LABEL[mode]} signals` : `Enable ${EMA_TREND_MODE_LABEL[mode]} in EMA Settings`}
-          style={selectedMode === mode ? { borderColor: 'var(--k-blue)', fontWeight: 700 } : undefined}
-          onClick={() => { setSelectedMode(mode); setOpenId(null); }}>
-          {EMA_TREND_MODE_LABEL[mode]}
-        </button>)}
+        <ColumnsMenu buttonText="PROFILES" menuLabel="EMA Trend visible profiles"
+          buttonTitle="Choose which EMA profiles appear in the signals table"
+          showAllText="Show all profiles"
+          items={MODES.map(mode => ({
+            id: mode, label: EMA_TREND_MODE_LABEL[mode],
+            on: selectedModes.includes(mode),
+            toggle: () => toggleMode(mode),
+          }))}
+          onShowAll={resetProfiles} />
+        <span style={{ fontSize: 11, opacity: 0.9 }}>
+          {selectedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(' · ')}
+        </span>
         <span role="status" style={{ fontSize: 10, opacity: 0.8, marginLeft: 'auto' }}>{status}</span>
       </div>
       <BoardFilters hideSearch view={{ ...view, ...common,
         offers: { ...view.offers, best: false } }} columns={common.columns}>
-        <StrategyBoardFooter name="EMA Trend" onReset={() => { setSelectedMode(''); setOpenId(null); }}>
+        <StrategyBoardFooter name="EMA Trend" onReset={resetProfiles}>
           <div>
             <button type="button" className="sb-tool" disabled={!canScan} onClick={() => scan.mutate(activeModes)}>
               {scanning || scan.isPending ? 'Scanning…' : 'Refresh signals'}</button>
@@ -133,10 +145,17 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       {!historical && !snapshot.isLoading && !signals.length && !snapshot.error &&
         <p role="status" style={{ padding: 12 }}>
           {!hasSymbols ? 'No equities selected. Open EMA Trend settings and add NSE/BSE cash-equity symbols.' :
-            selectedMode && !activeModes.includes(selectedMode) ? 'This profile is not enabled. Select it in EMA Trend settings to start scanning.' :
+            selectedEnabled.length === 0 ? 'None of the selected profiles is enabled for scanning. Enable a profile in EMA Trend settings.' :
             !scannerEnabled ? 'EMA scanner is off. Enable it in Settings to refresh signals.' :
             scanning ? 'Analyzing completed bars for the configured equities…' :
-            'No completed-bar evidence yet for this profile. The scanner will keep checking; review scan errors if this persists.'}
+            'No completed-bar signals for the selected profiles yet. The scanner checks completed candles automatically; review any errors.'}
+        </p>}
+      {snapshot.data?.truncatedModes?.length ? <p role="status" style={{ padding: 12 }}>
+        Showing the newest 1,000 rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
+      </p> : null}
+      {unavailableSelected.length > 0 && signals.length > 0 &&
+        <p role="status" style={{ padding: '4px 12px', fontSize: 11 }}>
+          Not enabled for new scans: {unavailableSelected.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Any existing history is still shown.
         </p>}
       {visible.length > 0 ? <SignalBoard signals={visible} columns={common.columns} hidden={common.hidden} onReorderColumn={common.onReorderColumn} rowScroll={common.rowScroll}
         isHistoricalSim={historical} strategyDetailsInExpansion openId={openId}
