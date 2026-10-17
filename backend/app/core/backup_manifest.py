@@ -821,6 +821,17 @@ def prove_restore(
                 frozen_build = frozen.get("build") or {}
                 if not isinstance(frozen_build, dict):
                     raise ValueError("frozen release build must be a JSON object")
+                frozen_lanes = frozen.get("lanes")
+                frozen_lane_count = frozen.get("lane_count")
+                if not isinstance(frozen_lanes, list) or not frozen_lanes:
+                    raise ValueError("frozen release has no declared strategy lanes")
+                if (
+                    type(frozen_lane_count) is not int
+                    or frozen_lane_count != len(frozen_lanes)
+                ):
+                    raise ValueError(
+                        "frozen lane_count does not match declared strategy lanes"
+                    )
                 if str(frozen_build.get("runtime_sha") or "") != str(stored.release_sha or ""):
                     failures.append(
                         "frozen release_manifest: runtime_sha differs from backup identity"
