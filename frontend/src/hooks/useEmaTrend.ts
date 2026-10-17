@@ -17,11 +17,26 @@ export function useEmaTrendConfig() {
   return useQuery<EmaTrendConfigResponse>({ queryKey: [...EMA_TREND_KEY, 'config', ...scope.key],
     queryFn: () => api.get(`${EMA_TREND_BASE}/config`), staleTime: 15_000 });
 }
-export function useEmaTrendSnapshot(mode?: EmaTrendMode) {
+/** Poll each selected mode separately so a high-volume mode never hides
+ * rows from another mode. The menu changes the view, not scan configuration. */
+export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[]) {
   const scope = useScope();
+  const key = modes?.join(',') || 'all';
   // Historical replay has its own immutable server view. Never substitute the live snapshot.
-  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, mode || 'all'],
-    queryFn: () => api.get(`${EMA_TREND_BASE}/snapshot${mode ? `?mode=${mode}` : ''}`),
+  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key],
+    queryFn: async () => {
+      if (!modes?.length) return api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
+      const snapshots = await Promise.all(modes.map(mode =>
+        api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot?mode=${encodeURIComponent(mode)}`)));
+      const first = snapshots[0];
+      return {
+        ...first,
+        rows: snapshots.flatMap(snapshot => snapshot.rows),
+        campaigns: snapshots.flatMap(snapshot => snapshot.campaigns),
+        generated_ms: Math.max(...snapshots.map(snapshot => snapshot.generated_ms || 0)),
+        truncatedModes: modes.filter((_, index) => snapshots[index].next_cursor != null),
+      };
+    },
     enabled: !scope.replay, refetchInterval: 10_000, staleTime: 3_000 });
 }
 export function useEmaTrendLiveReadiness() {
