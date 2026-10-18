@@ -105,3 +105,35 @@ async def test_broker_candle_cache_write_does_not_block_the_event_loop(monkeypat
     candles=await client.get_candles(SimpleNamespace(underlying='TCS',zerodha_token=1),'1H',limit=10)
     assert len(candles)==1
     assert writes and writes[0][0]=='TCS'
+
+
+@pytest.mark.asyncio
+async def test_push_delivery_and_receipt_work_runs_outside_the_loop(monkeypatch):
+    from app.services.notifications import web_push
+    loop_thread=threading.get_ident()
+    calls=[]
+    def delivery(*args,**kwargs):
+        assert threading.get_ident()!=loop_thread
+        calls.append((args,kwargs))
+        return 1
+    monkeypatch.setattr(web_push,'_send',delivery)
+    assert await web_push.send('operator','event','title','body','alerts',force=True)==1
+    assert calls==[(('operator','event','title','body','alerts'),{'force':True})]
+
+
+@pytest.mark.asyncio
+async def test_push_tick_database_maintenance_runs_outside_the_loop(monkeypatch):
+    from app.services.notifications import web_push
+    loop_thread=threading.get_ident()
+    calls=[]
+    def users():
+        assert threading.get_ident()!=loop_thread
+        calls.append('users')
+        return []
+    def prune():
+        assert threading.get_ident()!=loop_thread
+        calls.append('prune')
+    monkeypatch.setattr(web_push,'_enabled_uids',users)
+    monkeypatch.setattr(web_push,'_prune_deliveries',prune)
+    await web_push.tick()
+    assert calls==['users','prune']

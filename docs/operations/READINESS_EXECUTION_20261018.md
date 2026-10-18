@@ -235,3 +235,7 @@ changing provider selection or broker authorization. Scanner processing checks
 cancellation between storage operations rather than waiting for a whole batch of
 independent writes. The market adapter, scanner, cancellation and retry selection
 passed 148 tests. No durability setting or protection check was weakened.
+
+### Additional measured notification stall
+
+The event-loop watchdog subsequently located a 10-second Web Push stall in VAPID/SQLite access. Delivery, durable receipt/error updates, account/config reads, alert collection and delivery pruning now execute through cancellation-aware blocking workers. No real notification was sent by the new tests. Seven focused event-loop regressions pass, including delivery argument/result preservation and worker-thread maintenance checks. The previous 59/60 liveness result remains failed evidence; this change requires fresh runtime sampling and final-commit regression validation.

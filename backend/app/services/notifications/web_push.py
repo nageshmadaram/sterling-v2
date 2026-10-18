@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from urllib.parse import urlsplit
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
+from app.core.async_work import run_blocking
 from app.core.security import encrypt, decrypt
 from app.services import db
 
@@ -60,6 +61,9 @@ def quiet(cfg,now=None):
     return start<=clock<end if start<end else clock>=start or clock<end
 
 async def send(uid,event_key,title,body,category,*,force=False):
+    return await run_blocking(_send,uid,event_key,title,body,category,force=force)
+
+def _send(uid,event_key,title,body,category,*,force=False):
     from pywebpush import webpush,WebPushException
     from py_vapid import Vapid
     cfg=config(uid)
@@ -74,7 +78,7 @@ async def send(uid,event_key,title,body,category,*,force=False):
             if recent>=(20 if force else cfg['max_per_hour']):continue
         payload={'title':'Sterling update' if cfg['private_preview'] and not force else title,'body':'Open Sterling to view the update.' if cfg['private_preview'] and not force else body[:240],'tag':event_key,'url':'/?notification='+category+'&view=live'}
         try:
-            await asyncio.to_thread(webpush,subscription_info=json.loads(decrypt(row['subscription_enc'])),data=json.dumps(payload),vapid_private_key=Vapid.from_pem(pem.encode()),vapid_claims={'sub':os.environ.get('STERLING_PUSH_SUBJECT','https://sterling.local')},ttl=300,timeout=8)
+            webpush(subscription_info=json.loads(decrypt(row['subscription_enc'])),data=json.dumps(payload),vapid_private_key=Vapid.from_pem(pem.encode()),vapid_claims={'sub':os.environ.get('STERLING_PUSH_SUBJECT','https://sterling.local')},ttl=300,timeout=8)
             with db._conn() as c:
                 c.execute('INSERT OR IGNORE INTO push_deliveries VALUES(?,?,?)',(row['id'],event_key,int(time.time()*1000)));c.execute("UPDATE push_devices SET last_delivery_ms=?,last_error='' WHERE id=?",(int(time.time()*1000),row['id']))
             count+=1
@@ -85,22 +89,35 @@ async def send(uid,event_key,title,body,category,*,force=False):
             with db._conn() as c:c.execute("UPDATE push_devices SET last_error='Push delivery unavailable' WHERE id=?",(row['id'],))
     return count
 
+def _enabled_uids():
+    with db._conn() as c:
+        init(c)
+        return [r[0] for r in c.execute('SELECT DISTINCT uid FROM push_devices WHERE enabled=1').fetchall()]
+
+def _recent_alerts(uid):
+    with db._conn() as c:
+        exists=c.execute("SELECT 1 FROM sqlite_master WHERE name='telegram_lifecycle_outbox'").fetchone()
+        return c.execute('SELECT event_id,title,detail FROM telegram_lifecycle_outbox WHERE uid=? AND created_at_ms>? ORDER BY created_at_ms DESC LIMIT 20',(uid,int(time.time()*1000)-5*60000)).fetchall() if exists else []
+
+def _prune_deliveries():
+    with db._conn() as c:
+        c.execute('DELETE FROM push_deliveries WHERE delivered_ms<?',(int(time.time()*1000)-7*86400000,))
+
 async def tick():
     from app.services.kite_engine.market_hours import is_market_open
     from app.services.notifications import telegram_kite as signals
     from app.api.v1.endpoints.pcr import pcr_session
     from app.core.auth import UserContext
-    with db._conn() as c:
-        init(c);uids=[r[0] for r in c.execute('SELECT DISTINCT uid FROM push_devices WHERE enabled=1').fetchall()]
+    uids=await run_blocking(_enabled_uids)
     from app.services.auth import user_store
     for uid in uids:
-        account=user_store.get_by_id(uid)
+        account=await run_blocking(user_store.get_by_id,uid)
         if not account or not account.is_active:continue
-        cfg=config(uid)
+        cfg=await run_blocking(config,uid)
         if not cfg['enabled'] or quiet(cfg):continue
         if cfg['signals'] and is_market_open():
             for collect in (signals._supertrend_alerts,signals._gamma_move_alerts,signals._snapback_alerts):
-                for event in collect(uid):
+                for event in await run_blocking(collect,uid):
                     if signals._is_recent(event.timestamp_ms,max_age_ms=5*60000):await send(uid,event.dedupe_key,event.strategy_label+' · '+event.title,event.detail or event.direction,'signals')
         if cfg['pcr'] and is_market_open():
             payload=await pcr_session(UserContext(uid))
@@ -113,11 +130,9 @@ async def tick():
                         if not 0<=time.time()-printed.timestamp()<=20*60:continue
                     if clock and ratio is not None:await send(uid,f'pcr:{payload["asOf"][:10]}:{symbol}:{clock}',f'{symbol} PCR · {clock}',f'PCR {ratio:.2f}. Open the desk for context.','pcr')
         if cfg['alerts']:
-            with db._conn() as c:
-                exists=c.execute("SELECT 1 FROM sqlite_master WHERE name='telegram_lifecycle_outbox'").fetchone()
-                events=c.execute('SELECT event_id,title,detail FROM telegram_lifecycle_outbox WHERE uid=? AND created_at_ms>? ORDER BY created_at_ms DESC LIMIT 20',(uid,int(time.time()*1000)-5*60000)).fetchall() if exists else []
+            events=await run_blocking(_recent_alerts,uid)
             for event in events:await send(uid,'alert:'+event['event_id'],event['title'],event['detail'],'alerts')
-    with db._conn() as c:c.execute('DELETE FROM push_deliveries WHERE delivered_ms<?',(int(time.time()*1000)-7*86400000,))
+    await run_blocking(_prune_deliveries)
 
 async def run():
     while True:
