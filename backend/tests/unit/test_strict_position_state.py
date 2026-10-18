@@ -152,3 +152,37 @@ def test_unreadable_legacy_gamma_archive_blocks_admission(monkeypatch):
         lambda _: (_ for _ in ()).throw(RuntimeError("archive read failed")),
     )
     assert protection_health.admission_blocker("u", "account-a")[0] == "protection_unreadable"
+
+
+def test_active_unmigrated_legacy_gamma_exposure_refuses_new_account_risk(monkeypatch):
+    import json
+    from app.services import protection_health
+
+    uid = "legacy-before-first-load"
+    legacy = {
+        "signal_id": "prior", "instrument": {"tradingsymbol": "OPT"},
+        "entry": 100.0, "stop": 90.0, "quantity": 40, "lots": 1,
+        "entered_ms": 1000, "entry_day": "2026-10-01", "status": "open",
+    }
+    records = {
+        gamma_move_positions._key(uid): json.dumps([legacy]),
+        gamma_move_positions._legacy_key(uid): "[]",
+    }
+    gamma_move_positions._cache.pop(uid, None)
+    monkeypatch.setattr(
+        db, "get_config_strict",
+        lambda key, default="": records.get(key, default),
+    )
+    monkeypatch.setattr(
+        db, "set_config_strict",
+        lambda key, value: records.__setitem__(key, value),
+    )
+    monkeypatch.setattr(kite_positions, "unreadable_reason", lambda _: "")
+
+    blocker, reason = protection_health.admission_blocker(uid, "live-account")
+
+    assert blocker == "protection_integrity"
+    assert "legacy Gamma" in reason
+    assert json.loads(records[gamma_move_positions._key(uid)]) == []
+    assert json.loads(records[gamma_move_positions._legacy_key(uid)]) == [legacy]
+    gamma_move_positions._cache.pop(uid, None)
