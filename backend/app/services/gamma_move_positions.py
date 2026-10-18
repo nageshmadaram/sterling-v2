@@ -102,10 +102,15 @@ def legacy_open_rows(uid: str) -> list[dict]:
         raise RuntimeError("legacy_gamma_archive_unreadable") from exc
     if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
         raise RuntimeError("legacy_gamma_archive_invalid")
+    # An unknown status is NOT proof that a broker position was closed.
+    # Old code counted only pending/open, treating EXITING, RECONCILING,
+    # empty or misspelled values as flat and admitting fresh real-money risk.
+    # Only explicitly terminal legacy outcomes may be excluded; every other
+    # archived row requires a broker reconciliation before origination.
+    terminal = {CLOSED, REJECTED}
     return [
-        row
-        for row in rows
-        if str(row.get("status") or "").lower() in {PENDING, OPEN}
+        row for row in rows
+        if str(row.get("status") or "").strip().lower() not in terminal
     ]
 
 
