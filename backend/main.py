@@ -92,9 +92,11 @@ async def _supervise_telegram(name: str, runner, *, restart_delay: float = 5.0) 
 async def lifespan(app: FastAPI):
     from app.services import db
     from app.core.runtime_lease import engine_lease
-    with engine_lease(db._DB_PATH):
-        async with _application_lifespan(app):
-            yield
+    from app.core.event_loop_watchdog import watch_event_loop
+    async with watch_event_loop():
+        with engine_lease(db._DB_PATH):
+            async with _application_lifespan(app):
+                yield
 
 
 @asynccontextmanager
