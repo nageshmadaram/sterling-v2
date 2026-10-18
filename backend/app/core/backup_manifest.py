@@ -637,6 +637,18 @@ def augment_backup_directory(
     # repo_root() points at immutable application source, not that volume.
     base = Path(root) if root is not None else state_root()
     target = Path(directory)
+    # Scheduled augmentation mutates an existing dated backup. A symlinked
+    # directory or metadata file could otherwise make write_text() overwrite
+    # unrelated live/operator state outside the backup directory.
+    if target.is_symlink():
+        raise BackupIntegrityError(
+            "scheduled backup target must not be a symlink"
+        )
+    for member in ("release.json", "coverage.json", "manifest.json"):
+        if (target / member).is_symlink():
+            raise BackupIntegrityError(
+                f"scheduled backup metadata must not be a symlink: {member}"
+            )
     target.mkdir(parents=True, exist_ok=True)
 
     # Only snapshots the caller actually re-verified in THIS operation may be
