@@ -9,6 +9,8 @@ UID='price-rules-test'; SYMBOL='NIFTY99DEC25000CE'
 @pytest.fixture
 def env(tmp_path,monkeypatch):
  monkeypatch.setattr(db,'_DB_PATH',str(tmp_path/'strategy.db'));monkeypatch.setattr(db,'_available',True);db.init()
+ # Existing lifecycle tests explicitly opt in. Missing production setting is OFF.
+ store.mutate(UID,lambda doc:doc.update(enabled=True))
  account=SimpleNamespace(id='A',is_paper=False,user_id=UID)
  class Client:
   _account_id='A';_is_paper=False
@@ -281,3 +283,49 @@ async def test_snapshot_reports_server_readiness_brakes(env,monkeypatch,blocker)
  result=await snapshot(SimpleNamespace(user_id=UID))
  expected={'master':'LIVE_EXECUTION_DISABLED','egress':'verified_static_egress_required','binding':'current_live_broker_binding_required'}
  assert result['entry_allowed'] is False and result['entry_blocker']==expected[blocker]
+
+
+@pytest.mark.asyncio
+async def test_price_rules_switch_off_blocks_new_entries_not_owned_protection(env):
+ r=await armed()
+ assert (await runtime.set_enabled(UID,False,True))['enabled'] is False
+ await runtime.cycle(UID)
+ assert env.sends==0 and store.load(UID)['rules'][r['id']]['state']=='ARMED'
+ with pytest.raises(ValueError,match='switch_stale'):
+  await runtime.set_enabled(UID,True,True)
+ await runtime.set_enabled(UID,True,False)
+ await runtime.cycle(UID)
+ assert env.sends==1
+ await runtime.set_enabled(UID,False,True)
+ await runtime.cycle(UID)
+ p=store.load(UID)['rules'][r['id']]
+ assert env.sends==1 and p['state']=='OPEN' and p['gtt_qty']==100
+
+@pytest.mark.asyncio
+async def test_price_rules_switch_defaults_off_and_persists_per_user(env):
+ assert store.load('fresh-user')['enabled'] is False
+ await runtime.set_enabled(UID,False,True)
+ assert store.load(UID)['enabled'] is False and store.load('fresh-user')['enabled'] is False
+ with pytest.raises(RuntimeError,match='enabled_unreadable'):
+  store.mutate(UID,lambda doc:doc.update(enabled='yes'))
+
+@pytest.mark.asyncio
+async def test_price_rules_switch_http_and_tenant_isolation(env):
+ from fastapi import FastAPI
+ from fastapi.testclient import TestClient
+ from app.api.v1.endpoints.price_rules import router
+ from app.core.auth import get_current_user
+ app=FastAPI();app.include_router(router,prefix='/api/v1')
+ owner={'uid':UID}
+ app.dependency_overrides[get_current_user]=lambda:SimpleNamespace(user_id=owner['uid'])
+ with TestClient(app) as client:
+  off=client.post('/api/v1/price-rules/enabled',json={'enabled':False,'expected_enabled':True})
+  assert off.status_code==200 and off.json()['enabled'] is False
+  stale=client.post('/api/v1/price-rules/enabled',json={'enabled':True,'expected_enabled':True})
+  assert stale.status_code==409
+  invalid=client.post('/api/v1/price-rules/enabled',json={'enabled':'true','expected_enabled':False})
+  assert invalid.status_code==422
+  owner['uid']='another-user'
+  own=client.post('/api/v1/price-rules/enabled',json={'enabled':True,'expected_enabled':False})
+  assert own.status_code==200
+ assert store.load(UID)['enabled'] is False and store.load('another-user')['enabled'] is True
