@@ -387,6 +387,15 @@ def save_record(uid: str, record: TradeRecord) -> TradeRecord:
             ),
         )
     except Exception as exc:
+        # session.record is mutable: a fill/exit may already have changed the
+        # object also referenced by _record_cache. Never serve its uncommitted
+        # losses as durable accounting after SQLite refused the write.
+        _record_cache.pop(uid, None)
+        try:
+            from app.services import gamma_move_runner
+            gamma_move_runner._sessions.pop(uid, None)
+        except Exception:
+            log.exception("gamma_unwind: could not invalidate failed session ledger")
         log.error(
             "gamma_unwind: realised-P&L persistence FAILED for %s: %s",
             uid, type(exc).__name__,
