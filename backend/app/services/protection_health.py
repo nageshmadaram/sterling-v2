@@ -97,6 +97,12 @@ def admission_blocker(uid: str, account_id: str) -> tuple[str, str]:
                 fault = position_fault(strategy, position)
                 if fault:
                     return "protection_integrity", f"{strategy}: {fault}"
+        # A corrupt or missing Gamma realised-P&L ledger must not look like a
+        # clean daily-loss budget to Snapback or SuperTrend. load_record()
+        # reads strictly on first access and caches verified data afterwards.
+        # This is an entry-only check; exits and protective repairs still pass
+        # through the supervisor's non-increasing operation path.
+        gamma_move_positions.load_record(uid)
         return "", ""
     except Exception as exc:
         return "protection_unreadable", f"Required protection cannot be established: {type(exc).__name__}"
