@@ -162,6 +162,17 @@ def load(uid: str) -> dict[str, PositionState]:
         pos = _from_dict(row)
         if pos is None or not pos.instrument.tradingsymbol:
             raise ValueError(f"invalid_gamma_unwind_position_row:{index}")
+        # PositionState.is_open deliberately selects known OPEN/PENDING rows.
+        # Without schema validation, a corrupted status or trade_state silently
+        # vanished from open_positions(), falsely declaring broker exposure
+        # flat on the next account admission check.
+        if pos.status not in {PENDING, OPEN, CLOSED, REJECTED}:
+            raise ValueError(f"gamma_unwind_position_unknown_status:{index}")
+        if pos.status in {PENDING, OPEN} and (
+            pos.trade_state not in {"OPEN", "T1_TRAIL"}
+            or int(pos.quantity) <= 0
+        ):
+            raise ValueError(f"gamma_unwind_active_position_invalid:{index}")
         symbol = pos.instrument.tradingsymbol
         if symbol in out:
             raise ValueError(f"duplicate_gamma_unwind_position:{symbol}")
