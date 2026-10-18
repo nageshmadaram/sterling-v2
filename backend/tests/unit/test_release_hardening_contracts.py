@@ -233,6 +233,21 @@ def test_live_gamma_monitor_only_stop_fails_even_with_nonzero_local_stop():
     )
 
 
+@pytest.mark.parametrize("status", ["ENTERING", "EXITING", "RECONCILING"])
+def test_snapback_unsettled_lifecycle_blocks_new_entries_even_with_exit_order(status):
+    pos = NS(
+        status=status, protection_pending=False, gtt_pending=False,
+        option_exit_order_id="broker-exit-acknowledged",
+    )
+    fault = protection_health.position_fault("snapback", pos)
+    assert "unresolved broker exposure" in fault
+
+
+def test_snapback_genuine_open_protected_position_does_not_trigger_lifecycle_fault():
+    pos = NS(status="OPEN", protection_pending=False, gtt_pending=False)
+    assert protection_health.position_fault("snapback", pos) == ""
+
+
 def test_gamma_accounting_fault_blocks_other_strategies_even_when_halt_write_failed(monkeypatch):
     from app.services import gamma_move_positions
     p = NS(account_id="a", pnl_reconciliation_required=True, is_open=True, pnl_flagged_day="")
