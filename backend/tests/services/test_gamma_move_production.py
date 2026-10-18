@@ -205,6 +205,7 @@ async def test_gamma_arm_migrates_active_legacy_before_deciding_if_flat(monkeypa
 async def test_gamma_arm_refuses_unreadable_legacy_archive(monkeypatch):
     cfg = GammaMoveConfig().validate()
     monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(runner.positions_store, "load", lambda _: {})
     monkeypatch.setattr(
         runner.positions_store,
         "legacy_open_rows",
