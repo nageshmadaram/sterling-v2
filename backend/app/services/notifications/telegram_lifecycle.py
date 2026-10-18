@@ -383,8 +383,20 @@ def pending_user_ids() -> list[str]:
                 f"SELECT DISTINCT uid FROM {_TABLE} WHERE completed = 0 ORDER BY uid"
             ).fetchall()
         return [str(row[0]) for row in rows if str(row[0] or "").strip()]
-    except Exception:
-        return []
+    except Exception as exc:  # noqa: BLE001
+        # Durable outbox reads may be unavailable during a disk-full incident.
+        # Do not silently hide user identities of alerts safely retained in the
+        # process spool: the alert worker still needs to rediscover those users.
+        log.warning(
+            "Telegram pending-user discovery unavailable; using in-memory spool: %s",
+            type(exc).__name__,
+        )
+        with _spool_lock:
+            return sorted({
+                str(row.get("uid") or "").strip()
+                for row in _spool
+                if str(row.get("uid") or "").strip()
+            })
 
 
 def pending_summary(uid: str, *, now_ms: int | None = None) -> dict:
