@@ -131,6 +131,7 @@ def test_unreconciled_legacy_gamma_positions_block_all_new_entries(monkeypatch):
         "app.services.kite_engine.positions.unreadable_reason",
         lambda _: "",
     )
+    monkeypatch.setattr(gamma_move_positions, "load", lambda _: {})
     monkeypatch.setattr(
         gamma_move_positions,
         "legacy_open_rows",
@@ -146,6 +147,7 @@ def test_unreadable_legacy_gamma_archive_blocks_admission(monkeypatch):
         "app.services.kite_engine.positions.unreadable_reason",
         lambda _: "",
     )
+    monkeypatch.setattr(gamma_move_positions, "load", lambda _: {})
     monkeypatch.setattr(
         gamma_move_positions,
         "legacy_open_rows",
