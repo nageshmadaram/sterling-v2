@@ -24,7 +24,14 @@ def position_fault(strategy: str, position: Any) -> str:
         return ""  # LivePosition.protection_pending validates remaining units.
     if status != "OPEN":
         return ""
-    if str(getattr(position, "stop_mode", "") or "").lower() not in {"broker", "both"}:
+    stop_mode = str(getattr(position, "stop_mode", "") or "").lower()
+    if stop_mode not in {"broker", "both"}:
+        # An old Gamma position can survive a deployment/config transition.
+        # Its monitor-only stop is NOT broker protection. Gamma's own recovery
+        # halts this case, but admission for other strategies must independently
+        # reject fresh risk on the same account if the runner has not started.
+        if strategy == "gamma_move":
+            return "live Gamma position lacks broker-held stop protection"
         return ""
     stop = float(getattr(position, "stop_premium" if strategy == "sterling-kite" else "stop", 0) or 0)
     trigger = int(getattr(position, "gtt_id", 0) or 0)
