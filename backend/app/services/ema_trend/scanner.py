@@ -198,28 +198,23 @@ async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None
     bars = await fetch_bars(client, meta, profile.signal_minutes, now)
     context_base = 1440 if profile.context_minutes == 10080 else profile.context_minutes
     context = await fetch_bars(client, meta, context_base, now)
-    return await _off_loop(_process_scan, uid, symbol, mode, current, profile,
-                           now, meta, bars, context, index_watch)
-
-
-def _process_scan(uid, symbol, mode, current, profile, now, meta, bars, context, index_watch):
     from app.engines.ema_trend.features import aggregate_completed_bars, build_features
     from app.engines.ema_trend.setups import evaluate_setups
-    bars = anchored_tape(uid, f"{symbol}:{mode}:signal", bars,{**meta.as_meta(),"instrument_token":meta.token})
-    context = anchored_tape(uid, f"{symbol}:{mode}:context", context,{**meta.as_meta(),"instrument_token":meta.token})
+    bars = await _off_loop(anchored_tape, uid, f"{symbol}:{mode}:signal", bars,{**meta.as_meta(),"instrument_token":meta.token})
+    context = await _off_loop(anchored_tape, uid, f"{symbol}:{mode}:context", context,{**meta.as_meta(),"instrument_token":meta.token})
     if profile.context_minutes == 10080:
-        context = aggregate_completed_bars(context, 10080, asof_ms=int(now.timestamp()*1000), exchange=meta.exchange)
-    audit=pair_manifest(symbol,profile.signal_minutes,profile.context_minutes,bars,context,asof_ms=int(now.timestamp()*1000))
+        context = await asyncio.to_thread(aggregate_completed_bars, context, 10080, asof_ms=int(now.timestamp()*1000), exchange=meta.exchange)
+    audit=await asyncio.to_thread(pair_manifest, symbol,profile.signal_minutes,profile.context_minutes,bars,context,asof_ms=int(now.timestamp()*1000))
     dataset_id=stable_id(symbol,mode,audit["content_sha256"])
     try:
-        repo.get(uid,"dataset",dataset_id)
+        (await _off_loop(repo.get, uid,"dataset",dataset_id))
     except repo.NotFound:
-        repo.put(uid,"dataset",dataset_id,{"symbol":symbol,"mode":mode,"config_revision":current["revision"],
-            "manifest":audit},0)
-    features = build_features(bars, context)
-    setups = evaluate_setups(symbol, mode, features, config_revision=current["revision"], tick=Decimal(str(meta.tick_size)))
+        (await _off_loop(repo.put, uid,"dataset",dataset_id,{"symbol":symbol,"mode":mode,"config_revision":current["revision"],
+            "manifest":audit},0))
+    features = await asyncio.to_thread(build_features, bars, context)
+    setups = await asyncio.to_thread(evaluate_setups, symbol, mode, features, config_revision=current["revision"], tick=Decimal(str(meta.tick_size)))
     # No result from a superseded scan is actionable.
-    if config_store.get(uid)["revision"] != current["revision"]:
+    if (await _off_loop(config_store.get, uid))["revision"] != current["revision"]:
         raise repo.Conflict("SCAN_CONFIG_SUPERSEDED")
     for setup in setups[-100:]:
         value = setup.model_dump(mode="json")
@@ -233,7 +228,7 @@ def _process_scan(uid, symbol, mode, current, profile, now, meta, bars, context,
         value["dataset_sha256"]=audit["content_sha256"]
         value["activation_eligible"] = not index_watch and setup.close_ms > current["activation_ms"]
         value["scan_asof_ms"] = int(now.timestamp()*1000)
-        repo.put(uid, "signal", setup.id, value)
+        (await _off_loop(repo.put, uid, "signal", setup.id, value))
     return {"symbol": symbol, "mode": mode, "bars": len(bars), "context_bars": len(context),
             "ready": bool(features and features[-1].ready), "rows": len(setups),
             "latest_close_ms": bars[-1].close_ms if bars else None,"dataset_id":dataset_id,"dataset_manifest":audit}

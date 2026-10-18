@@ -24,6 +24,7 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import httpx
 
+from app.core.async_work import run_blocking
 from app.core.logging import get_logger
 from app.schemas.account import (
     AccountFill, AccountOrder, AccountPosition, AssetBalance, PortfolioSnapshot,
@@ -1184,11 +1185,11 @@ class KiteClient(TradingExchangeAdapter):
 
             owner = str(getattr(self, "_owner_user_id", "") or "")
             if owner:
-                _configured_source = _gc(f"market_data_source:{owner}") or ""
+                _configured_source = (await run_blocking(_gc, f"market_data_source:{owner}")) or ""
                 if not _configured_source and owner == "default":
-                    _configured_source = _gc("market_data_source") or ""
+                    _configured_source = (await run_blocking(_gc, "market_data_source")) or ""
             else:
-                _configured_source = _gc("market_data_source") or ""
+                _configured_source = (await run_blocking(_gc, "market_data_source")) or ""
             _configured_source = (_configured_source or "kite").lower()
         except Exception:
             _configured_source = "kite"
@@ -1255,7 +1256,7 @@ class KiteClient(TradingExchangeAdapter):
                     if ohlcv_sym and not want_4h:
                         try:
                             from app.services.ohlcv_store import upsert_candles
-                            upsert_candles(
+                            (await run_blocking(upsert_candles, 
                                 ohlcv_sym,
                                 ohlcv_res,
                                 [
@@ -1269,7 +1270,7 @@ class KiteClient(TradingExchangeAdapter):
                                     }
                                     for candle in td_candles
                                 ],
-                            )
+                            ))
                         except Exception as store_exc:  # noqa: BLE001
                             log.debug(
                                 "TrueData OHLCV store write suppressed for %s: %s",
@@ -1370,7 +1371,7 @@ class KiteClient(TradingExchangeAdapter):
                         }
                         for c in candles
                     ]
-                    written = upsert_candles(ohlcv_sym, ohlcv_res, store_rows)
+                    written = (await run_blocking(upsert_candles, ohlcv_sym, ohlcv_res, store_rows))
                     if written:
                         log.debug(
                             "OHLCV store: wrote %d candles for %s/%s",
@@ -1415,7 +1416,7 @@ class KiteClient(TradingExchangeAdapter):
         if ohlcv_sym:
             try:
                 from app.services.ohlcv_store import get_candles as ohlcv_get
-                stored = ohlcv_get(ohlcv_sym, ohlcv_res, limit=limit)
+                stored = (await run_blocking(ohlcv_get, ohlcv_sym, ohlcv_res, limit=limit))
                 if stored:
                     ohlcv_candles = []
                     for row in stored:

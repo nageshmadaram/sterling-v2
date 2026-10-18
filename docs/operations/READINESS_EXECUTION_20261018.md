@@ -226,3 +226,12 @@ loop, preserving CAS revisions and existing strategy logic. The shared helper,
 SuperTrend scanner and archived supervision regression selection passed 135 tests.
 The latest desktop/mobile browser selection passed all 14 tests. These receipts
 remain separate from actual broker lifecycle acceptance.
+
+
+The remaining market-data stall was captured in the shared Kite historical-candle
+adapter: synchronous OHLCV cache writes blocked the loop for 30–60 seconds.
+Provider settings, cache writes and cache fallback reads now run off-loop without
+changing provider selection or broker authorization. Scanner processing checks
+cancellation between storage operations rather than waiting for a whole batch of
+independent writes. The market adapter, scanner, cancellation and retry selection
+passed 148 tests. No durability setting or protection check was weakened.

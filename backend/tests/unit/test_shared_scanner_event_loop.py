@@ -84,3 +84,24 @@ async def test_background_health_write_runs_outside_the_loop(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await runner.run_loop()
     assert len(writes)==1
+
+
+@pytest.mark.asyncio
+async def test_broker_candle_cache_write_does_not_block_the_event_loop(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+    from app.services import ohlcv_store,db
+    client=KiteClient.__new__(KiteClient)
+    client.get_historical=AsyncMock(return_value={'candles':[['2026-10-16T09:15:00+05:30',100,102,99,101,1000]]})
+    loop_thread=threading.get_ident()
+    writes=[]
+    monkeypatch.setattr(db,'get_config',lambda key:None)
+    def persist(*args):
+        assert threading.get_ident()!=loop_thread
+        writes.append(args)
+        return 1
+    monkeypatch.setattr(ohlcv_store,'upsert_candles',persist)
+    candles=await client.get_candles(SimpleNamespace(underlying='TCS',zerodha_token=1),'1H',limit=10)
+    assert len(candles)==1
+    assert writes and writes[0][0]=='TCS'
