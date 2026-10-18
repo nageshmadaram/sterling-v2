@@ -98,6 +98,23 @@ async def create(uid, body):
     return store.mutate(uid, add)
 
 
+async def set_enabled(uid: str, enabled: bool, expected_enabled: bool):
+    """Persist the per-user entry gate without stopping owned position management."""
+    if uid.startswith("sim:"):
+        raise PermissionError("real_account_required")
+    if type(enabled) is not bool or type(expected_enabled) is not bool:
+        raise ValueError("boolean_switch_required")
+    # Serializes the switch with this process's entry cycle. The durable
+    # submission claim also checks the flag atomically across processes.
+    async with lock(uid):
+        def change(doc):
+            if (doc.get("enabled") is True) != expected_enabled:
+                raise ValueError("price_rules_switch_stale")
+            doc["enabled"] = enabled
+            return {"enabled": enabled, "revision": doc["revision"] + 1}
+        return store.mutate(uid, change)
+
+
 def command(uid, rule_id, revision, action):
     def change(doc):
         r = doc["rules"][rule_id]
@@ -147,7 +164,7 @@ async def submit(uid, r, client):
         raise ValueError("executable_quote_or_stop_unavailable")
     def claim(doc):
         current = doc["rules"][r["id"]]
-        if current["state"] != "ARMED" or current["revision"] != r["revision"]:
+        if doc.get("enabled") is not True or current["state"] != "ARMED" or current["revision"] != r["revision"]:
             return False
         current.update(state="SUBMITTING", stop=stop, target=target, protection_pending=False)
         current["revision"] += 1
@@ -399,8 +416,13 @@ async def exit_position(uid,rid,percent):
 
 async def cycle(uid):
     async with lock(uid):
-        for r in list(store.load(uid)["rules"].values()):
+        snapshot = store.load(uid)
+        for r in list(snapshot["rules"].values()):
             if r["state"] in {"DRAFT","PAUSED","CANCELLED","CLOSED","REFUSED","EXPIRED"}:continue
+            if r["state"] == "ARMED" and snapshot.get("enabled") is not True:
+                if int(time.time()*1000) > r["expires_ms"]:
+                    update(uid,r["id"],state="EXPIRED")
+                continue
             try:
                 _,client=await client_for(uid,r["account_id"])
                 if r["state"]=="ARMED":
