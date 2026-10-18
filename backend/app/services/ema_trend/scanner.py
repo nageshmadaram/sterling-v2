@@ -184,10 +184,19 @@ def anchored_tape(uid: str, key: str, bars: list[Bar], instrument_meta: dict|Non
     return result
 
 
+async def _off_loop(fn, *args, **kwargs):
+    # A cancelled scan waits for its current durable transaction to finish
+    # before marking the job cancelled. The shared event loop stays responsive.
+    work = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        await asyncio.gather(work, return_exceptions=True)
+        raise
+
+
 async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None):
-    from app.engines.ema_trend.features import aggregate_completed_bars, build_features
-    from app.engines.ema_trend.setups import evaluate_setups
-    current = config_store.get(uid)
+    current = await _off_loop(config_store.get, uid)
     profile = PROFILES[canonical_mode(mode)]
     now = now or datetime.now(IST)
     client = client or await market_client(uid)
@@ -197,6 +206,13 @@ async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None
     bars = await fetch_bars(client, meta, profile.signal_minutes, now)
     context_base = 1440 if profile.context_minutes == 10080 else profile.context_minutes
     context = await fetch_bars(client, meta, context_base, now)
+    return await _off_loop(_process_scan, uid, symbol, mode, current, profile,
+                           now, meta, bars, context, index_watch)
+
+
+def _process_scan(uid, symbol, mode, current, profile, now, meta, bars, context, index_watch):
+    from app.engines.ema_trend.features import aggregate_completed_bars, build_features
+    from app.engines.ema_trend.setups import evaluate_setups
     bars = anchored_tape(uid, f"{symbol}:{mode}:signal", bars,{**meta.as_meta(),"instrument_token":meta.token})
     context = anchored_tape(uid, f"{symbol}:{mode}:context", context,{**meta.as_meta(),"instrument_token":meta.token})
     if profile.context_minutes == 10080:
@@ -232,9 +248,9 @@ async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None
 
 
 async def run_job(uid: str, job_id: str):
-    job = repo.get(uid, "scan", job_id)
-    job = repo.put(uid, "scan", job_id, {**job, "status": "RUNNING"}, job["revision"])
-    cfg = config_store.config(uid)
+    job = await _off_loop(repo.get, uid, "scan", job_id)
+    job = await _off_loop(repo.put, uid, "scan", job_id, {**job, "status": "RUNNING"}, job["revision"])
+    cfg = await _off_loop(config_store.config, uid)
     try:
         client = await market_client(uid)
         selected = watch_symbols(cfg)
@@ -242,27 +258,27 @@ async def run_job(uid: str, job_id: str):
         done, results, errors = 0, [], []
         for symbol in selected:
             for mode in job["modes"]:
-                latest = repo.get(uid, "scan", job_id)
+                latest = await _off_loop(repo.get, uid, "scan", job_id)
                 if latest["status"] == "CANCELLED":
                     return
-                if config_store.get(uid)["revision"] != job["config_revision"]:
+                if (await _off_loop(config_store.get, uid))["revision"] != job["config_revision"]:
                     raise repo.Conflict("SCAN_CONFIG_SUPERSEDED")
                 try:
                     results.append(await scan_symbol(uid, symbol, mode, client=client))
                 except Exception as exc:
                     errors.append({"symbol": symbol, "mode": mode, "reason": str(exc)})
                 done += 1
-                job = repo.put(uid, "scan", job_id, {**latest, "progress": round(done/total*100),
+                job = await _off_loop(repo.put, uid, "scan", job_id, {**latest, "progress": round(done/total*100),
                     "results": results, "errors": errors}, latest["revision"])
-        repo.put(uid, "scan", job_id, {**job, "status": "COMPLETED" if not errors else "FAILED",
+        await _off_loop(repo.put, uid, "scan", job_id, {**job, "status": "COMPLETED" if not errors else "FAILED",
                   "finished_ms": repo.now_ms()}, job["revision"])
     except asyncio.CancelledError:
-        latest = repo.get(uid, "scan", job_id)
-        repo.put(uid, "scan", job_id, {**latest, "status": "CANCELLED", "finished_ms": repo.now_ms()}, latest["revision"])
+        latest = await _off_loop(repo.get, uid, "scan", job_id)
+        await _off_loop(repo.put, uid, "scan", job_id, {**latest, "status": "CANCELLED", "finished_ms": repo.now_ms()}, latest["revision"])
         raise
     except Exception as exc:
-        latest = repo.get(uid, "scan", job_id)
-        repo.put(uid, "scan", job_id, {**latest, "status": "FAILED", "errors": [{"reason": str(exc)}],
+        latest = await _off_loop(repo.get, uid, "scan", job_id)
+        await _off_loop(repo.put, uid, "scan", job_id, {**latest, "status": "FAILED", "errors": [{"reason": str(exc)}],
                   "finished_ms": repo.now_ms()}, latest["revision"])
 
 

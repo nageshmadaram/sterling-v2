@@ -269,7 +269,7 @@ async def test_stop_reduces_confirmed_shares_while_unknown_buy_is_retained(virtu
 
 
 @pytest.mark.asyncio
-async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reason(virtual):
+async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reason(virtual,monkeypatch):
     from app.services.ema_trend import runner
     _,client=virtual
     _,signal=configured_signal()
@@ -283,6 +283,12 @@ async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reas
     # restored state to OPEN. The independent latch must still force exit.
     c.flatten_requested=True
     repo.save_campaign_action("alice",execution.campaign_document(c),doc["revision"])
+    # This acceptance isolates the operator latch from the independent timed exit.
+    class BeforeSessionClose(datetime):
+        @classmethod
+        def now(cls,tz=None):
+            return datetime.now(tz).replace(hour=11,minute=30)
+    monkeypatch.setattr(runner,"datetime",BeforeSessionClose)
     await runner.manage_campaign("alice",repo.get("alice","campaign",ident),client)
     closed=execution.campaign_model(repo.get("alice","campaign",ident))
     assert closed.qty==0 and closed.state=="CLOSED"

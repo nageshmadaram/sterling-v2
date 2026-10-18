@@ -183,3 +183,18 @@ The redundant remote release-fix branch had no commits outside main and was
 removed after ancestry verification. Only main/dev remain as branches; detached
 worktrees and all their files were preserved. Subsequent candidate commits must
 also be synchronized and their exact SHA reported with final test receipts.
+
+
+The production stall watchdog captured a shared event-loop pause exceeding 30
+seconds inside an EMA scanner SQLite transaction. Its storage/CPU phase and job
+persistence now run in worker threads; an in-flight durable transaction is awaited
+before cancellation is reported. This changes shared-runtime scheduling only,
+not strategy signals or authorization. The focused storage, scanner, cancellation
+and liveness selection passed 53 tests. A time-sensitive archived-strategy fixture
+was pinned before its independent session-close condition to isolate its asserted
+operator-flatten latch. No archived strategy was promoted into the release.
+
+Root reserve improved from approximately 2.5 GB to 4.9 GB by removing old generated
+build-cache records and retired synthetic containers/images. Their metadata/logs
+and volumes were retained; no live database, journal or user backup was removed.
+This remains inadequate evidence of long-term production disk capacity.
