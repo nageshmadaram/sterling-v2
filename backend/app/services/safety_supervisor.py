@@ -316,8 +316,25 @@ class SafetySupervisor:
         is the wrong thing to allow.
         """
         effect = str(getattr(exposure_effect, "value", exposure_effect) or "").upper()
-        if effect not in _INCREASING:
+        # Unknown labels must not become a backdoor around every entry switch.
+        # Only explicitly recognized reductions and maintenance operations are
+        # allowed to bypass new-exposure admission; malformed effects fail closed.
+        safe_management = frozenset({
+            ExposureIntent.REDUCE_EXPOSURE,
+            ExposureIntent.CLOSE_POSITION,
+            ExposureIntent.PROTECT_POSITION,
+            ExposureIntent.CANCEL_ORDER,
+            ExposureIntent.MODIFY_ORDER,
+            ExposureIntent.RECONCILE,
+        })
+        if effect in safe_management:
             return SafetyVerdict(True, reason="non-increasing action", code="")
+        if effect not in _INCREASING:
+            return SafetyVerdict(
+                False,
+                f"Unrecognized exposure effect {effect!r}; refusing broker operation",
+                "unknown_exposure_effect",
+            )
 
         try:
             snap = self.snapshot(
