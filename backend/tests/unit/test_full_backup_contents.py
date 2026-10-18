@@ -161,6 +161,9 @@ def test_a_backup_with_nothing_to_back_up_fails_loudly(tmp_path):
             root=tmp_path,
             databases=[tmp_path / "absent.db"],
         )
+    assert not (tmp_path / "backups").exists(), (
+        "an empty timestamped directory is not a restorable backup"
+    )
 
 
 def test_wal_sidecars_never_reach_the_manifest(tmp_path, sources):
