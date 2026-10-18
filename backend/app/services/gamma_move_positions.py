@@ -323,32 +323,66 @@ def forget_closed(uid: str) -> None:
 
 
 def load_record(uid: str) -> TradeRecord:
+    """Load the capital-critical realised-P&L ledger without hiding corruption.
+
+    The previous get_config() swallowed disk errors and converted malformed
+    records into a zero-P&L record. That could reset the daily-loss breaker
+    precisely when the position database was unhealthy.
+    """
     if uid in _record_cache:
         return _record_cache[uid]
-    record = TradeRecord()
-    try:
-        from app.services import db
-        raw = db.get_config(_record_key(uid))
-        if raw:
+    from app.services import db
+    import math
+
+    raw = db.get_config_strict(_record_key(uid))
+    if not raw:
+        record = TradeRecord()
+    else:
+        try:
             data = json.loads(raw) if isinstance(raw, str) else raw
-            record = TradeRecord.from_dict(data if isinstance(data, dict) else {})
-    except Exception as exc:
-        log.error("gamma_unwind: trade record unreadable for %s: %s", uid, exc)
+            if not isinstance(data, dict):
+                raise ValueError("ledger must be a JSON object")
+            for field in ("realised_inr", "day_realised_inr"):
+                number = data.get(field, 0)
+                if (
+                    isinstance(number, bool)
+                    or not isinstance(number, (int, float))
+                    or not math.isfinite(float(number))
+                ):
+                    raise ValueError(f"{field} is not a finite number")
+            record = TradeRecord.from_dict(data)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("gamma_unwind_trade_ledger_unreadable") from exc
     _record_cache[uid] = record
     return record
 
 
 def save_record(uid: str, record: TradeRecord) -> TradeRecord:
-    _record_cache[uid] = record
+    """Never claim a realised-P&L write succeeded when SQLite refused it."""
+    from app.services import db
+
     try:
-        from app.services import db
-        db.set_config(
+        db.set_config_strict(
             _record_key(uid),
-            json.dumps(record.as_dict(), separators=(",", ":"),
-                       allow_nan=False),
+            json.dumps(
+                record.as_dict(), separators=(",", ":"), allow_nan=False
+            ),
         )
     except Exception as exc:
-        log.error("gamma_unwind: failed to persist record for %s: %s", uid, exc)
+        log.error(
+            "gamma_unwind: realised-P&L persistence FAILED for %s: %s",
+            uid, type(exc).__name__,
+        )
+        try:
+            from app.services import live_safety
+
+            live_safety.set_kill_switch(
+                True, "Gamma-Unwind realised P&L write failed; broker reconciliation required"
+            )
+        except Exception:
+            log.exception("gamma_unwind: could not engage kill switch after ledger write failure")
+        raise
+    _record_cache[uid] = record
     return record
 
 
