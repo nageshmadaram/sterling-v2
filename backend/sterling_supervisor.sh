@@ -67,6 +67,9 @@ stop_backend() {
 
 trap 'log "supervisor stopping"; stop_backend; exit 0' INT TERM
 
+# Parse the entire long-running body before executing it. An in-place source
+# update must not make Bash resume reading at an obsolete byte offset.
+main() {
 start_backend
 
 failures=0
@@ -96,3 +99,7 @@ while true; do
   fi
   monitor_wait "$PROBE_INTERVAL" || true
 done
+
+}
+
+main "$@"
