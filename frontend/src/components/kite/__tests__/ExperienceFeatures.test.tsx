@@ -14,12 +14,14 @@ beforeEach(()=>{localStorage.clear();useExperienceOptions.setState({options:read
 describe('Experience controls',()=>{
  it('hides and reorders navigation while keeping settings accessible',()=>{render(<NavigationSettings/>);fireEvent.click(screen.getByRole('checkbox',{name:'Astrology'}));expect(useExperienceOptions.getState().options.navHidden).toContain('astro');expect(screen.getByRole('checkbox',{name:'Connect'})).toBeDisabled();fireEvent.click(screen.getByRole('button',{name:'Move pcr up'}));expect(useExperienceOptions.getState().options.navOrder[1]).toBe('pcr');expect(orderedNavigation([{id:'astro'},{id:'pcr'}],useExperienceOptions.getState().options)).toEqual([{id:'pcr'}]);});
  it('opens the Sterling profile, not the broker identity, and does not mutate on render',async()=>{get.mockResolvedValue({username:'sterling-user',display_name:'Operator',photo:'',role:'user',user_id:'user'});wrap(<ProfileMenu/>);await screen.findByText('Operator');fireEvent.click(screen.getByRole('button',{name:'Sterling account profile'}));expect(await screen.findByRole('dialog',{name:'Sterling profile'})).toBeInTheDocument();expect(post).not.toHaveBeenCalled();expect(patch).not.toHaveBeenCalled();});
- it('uploads and saves a profile picture, updating the top-right avatar',async()=>{
+ it('edits a picture with a grid, circular preview and zoom before saving',async()=>{
   const profile={username:'sterling-user',display_name:'Operator',photo:'',role:'user',user_id:'user'};
   const encoded='data:image/jpeg;base64,/9j/AA==';
   get.mockResolvedValue(profile);patch.mockResolvedValue({...profile,photo:encoded});
-  const closeImage=vi.fn();
-  vi.stubGlobal('createImageBitmap',vi.fn().mockResolvedValue({width:600,height:400,close:closeImage}));
+  vi.stubGlobal('URL',class extends URL {
+    static createObjectURL=vi.fn(()=>'blob:test-profile-crop');
+    static revokeObjectURL=vi.fn();
+  });
   const ctx={fillStyle:'',fillRect:vi.fn(),drawImage:vi.fn()};
   vi.spyOn(HTMLCanvasElement.prototype,'getContext').mockImplementation(()=>ctx as any);
   vi.spyOn(HTMLCanvasElement.prototype,'toDataURL').mockReturnValue(encoded);
@@ -29,13 +31,43 @@ describe('Experience controls',()=>{
   expect(screen.getByRole('button',{name:'Add picture'})).toBeEnabled();
   expect(screen.getByRole('button',{name:'Remove picture'})).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Choose profile picture'),{target:{files:[new File(['pixels'],'portrait.png',{type:'image/png'})]}});
-  await waitFor(()=>expect(screen.getByRole('img',{name:'Profile picture preview'})).toHaveAttribute('src',encoded));
+  expect(await screen.findByRole('dialog',{name:'Crop profile picture'})).toBeInTheDocument();
+  expect(screen.getByRole('group',{name:'Drag image to position profile picture'}).querySelectorAll('.sterling-crop-grid i')).toHaveLength(4);
+  const cropImage=document.querySelector<HTMLImageElement>('.sterling-crop-image')!;
+  await waitFor(()=>expect(cropImage).toHaveAttribute('src','blob:test-profile-crop'));
+  Object.defineProperty(cropImage,'naturalWidth',{configurable:true,value:600});
+  Object.defineProperty(cropImage,'naturalHeight',{configurable:true,value:400});
+  fireEvent.load(cropImage);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Use picture'})).toBeEnabled());
+  expect(screen.getByRole('img',{name:'Circular profile preview'}).querySelector('img')).toHaveAttribute('src','blob:test-profile-crop');
+  fireEvent.change(screen.getByRole('slider',{name:'Profile picture zoom'}),{target:{value:'1.5'}});
+  expect(screen.getByText('1.50×')).toBeInTheDocument();
+  expect(patch).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Use picture'}));
+  expect(await screen.findByRole('dialog',{name:'Sterling profile'})).toBeInTheDocument();
+  expect(screen.getByRole('img',{name:'Profile picture preview'})).toHaveAttribute('src',encoded);
   expect(screen.getByRole('button',{name:'Change picture'})).toBeEnabled();
-  expect(closeImage).toHaveBeenCalled();
   expect(patch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'Save profile'}));
   await waitFor(()=>expect(patch).toHaveBeenCalledWith('/api/v1/auth/profile',{display_name:'Operator',photo:encoded}));
   await waitFor(()=>expect(screen.getByRole('button',{name:'Sterling account profile'}).querySelector('img')).toHaveAttribute('src',encoded));
+  expect(ctx.drawImage).toHaveBeenCalled();
+ });
+ it('cancels cropping without replacing the current picture',async()=>{
+  const photo='data:image/jpeg;base64,/9j/AA==';
+  get.mockResolvedValue({username:'sterling-user',display_name:'Operator',photo,role:'user',user_id:'user'});
+  vi.stubGlobal('URL',class extends URL {
+    static createObjectURL=vi.fn(()=>'blob:test-cancel');
+    static revokeObjectURL=vi.fn();
+  });
+  wrap(<ProfileMenu/>);await screen.findByText('Operator');
+  fireEvent.click(screen.getByRole('button',{name:'Sterling account profile'}));
+  fireEvent.change(screen.getByLabelText('Choose profile picture'),{target:{files:[new File(['new'],'replacement.png',{type:'image/png'})]}});
+  expect(await screen.findByRole('dialog',{name:'Crop profile picture'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  expect(await screen.findByRole('dialog',{name:'Sterling profile'})).toBeInTheDocument();
+  expect(screen.getByRole('img',{name:'Profile picture preview'})).toHaveAttribute('src',photo);
+  expect(patch).not.toHaveBeenCalled();
  });
  it('removes a saved profile picture only after Save profile',async()=>{
   const photo='data:image/jpeg;base64,/9j/AA==';
