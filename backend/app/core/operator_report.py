@@ -409,7 +409,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         if not path:
             return None, "STERLING_SAFE_MODE_FILE is unset; the safety state has no home"
         state = SafeModeService(path).read()
-        engaged = bool(getattr(state, "engaged", getattr(state, "safe_mode", False)))
+        engaged = state.active
         detail = getattr(state, "note", "") or getattr(state, "reason", "")
         if engaged:
             return False, f"SAFE_MODE is engaged{': ' + detail if detail else ''}"

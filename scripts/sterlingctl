@@ -94,7 +94,9 @@ listed under "waived" and never change an exit code.
 USAGE
 }
 
-run_py() { "$PYTHON" -c "import sys; sys.path.insert(0, '$STERLING_ROOT/backend'); exec(sys.stdin.read())"; }
+run_py() {
+  "$PYTHON" -c "import os, sys; sys.path.insert(0, os.path.join(os.environ['STERLING_ROOT'], 'backend')); from app.core.runtime_env import load_sterling_env; load_sterling_env(); exec(sys.stdin.read())"
+}
 
 cmd_status() {
   run_py <<'PY'

@@ -348,10 +348,10 @@ def test_prove_restore_rejects_parent_traversal_and_preserves_external_file(
 def test_prove_restore_rejects_symlink_to_file_outside_backup(backup_dir, tmp_path):
     from app.services.snapback_backup import sha256_file
 
+    manifest = build_backup_manifest(backup_dir)
     outside = tmp_path / "sensitive.txt"
     outside.write_text("not-part-of-backup", encoding="utf-8")
     (backup_dir / "linked.txt").symlink_to(outside)
-    manifest = build_backup_manifest(backup_dir)
     checksums = dict(manifest.file_checksums)
     checksums["linked.txt"] = sha256_file(outside)
     forged = replace(manifest, file_checksums=checksums)

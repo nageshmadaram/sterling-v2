@@ -73,3 +73,31 @@ def test_shell_launcher_uses_one_fail_closed_python_env_path():
 
 def test_a_missing_env_file_is_not_an_error(tmp_path):
     assert load_sterling_env(tmp_path / "nope.env", {}) == []
+
+
+def test_operator_cli_loads_dotenv_before_importing_runtime_authorities(tmp_path):
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    backend = Path(__file__).resolve().parents[2]
+    core = tmp_path / "backend/app/core"
+    core.mkdir(parents=True)
+    shutil.copy2(backend / "app/core/runtime_env.py", core / "runtime_env.py")
+    (tmp_path / "backend/.env").write_text("STERLING_LIVE_EXECUTION=false\n")
+    (core / "release_manifest.py").write_text(
+        "import os\n"
+        "assert os.environ['STERLING_LIVE_EXECUTION'] == 'false'\n"
+        "def read_manifest(): return 'isolated'\n"
+        "def build_release_manifest(): return 'isolated'\n"
+        "def render_manifest(value): return 'isolated environment loaded'\n"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith('STERLING_')}
+    env.update(STERLING_ROOT=str(tmp_path), STERLING_PYTHON=sys.executable)
+    result = subprocess.run(
+        ['bash', str(backend.parent / 'scripts/sterlingctl'), 'manifest'],
+        env=env, cwd=tmp_path, capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'isolated environment loaded' in result.stdout

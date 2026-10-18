@@ -181,6 +181,24 @@ def test_every_mode_appears_in_the_rendered_screen(lane):
 
 # ── Sterling-specific doctor checks ───────────────────────────────────────
 
+def test_doctor_reports_actual_persisted_safe_mode(monkeypatch, tmp_path):
+    from app.core.operator_report import lane_doctor_checks
+    from app.services.safe_mode import SafeModeService, SafeModeTrigger
+
+    path = tmp_path / "safe_mode.json"
+    monkeypatch.setenv("STERLING_SAFE_MODE_FILE", str(path))
+    service = SafeModeService(path)
+    service.engage(trigger=SafeModeTrigger.OPERATOR, reason="release validation")
+
+    check = _by_name(lane_doctor_checks())["safe_mode_state"]
+    assert check.passed is False
+    assert "release validation" in check.detail
+
+    service.release(operator_ack=True, note="test complete")
+    check = _by_name(lane_doctor_checks())["safe_mode_state"]
+    assert check.passed is True
+    assert check.detail == "NORMAL"
+
 
 def _by_name(checks):
     return {c.name: c for c in checks}
