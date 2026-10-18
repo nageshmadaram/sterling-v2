@@ -387,6 +387,7 @@ class CanonicalExecutionService:
         exposure_effect: ExposureEffect = ExposureEffect.INCREASE_EXPOSURE,
         strategy_id: str = "",
         ignore_intent_keys: Tuple[str, ...] = (),
+        entry_request: Optional[ExecutionRequest] = None,
     ) -> Tuple[bool, str]:
         """Ask the one safety authority. Never decide admission locally."""
         from app.services.safety_supervisor import SafetySupervisor
@@ -397,6 +398,7 @@ class CanonicalExecutionService:
             account_id=account_id,
             strategy_id=strategy_id,
             ignore_intent_keys=ignore_intent_keys,
+            entry_request=entry_request,
         )
         if not verdict.allowed:
             return False, verdict.reason
@@ -666,6 +668,7 @@ class CanonicalExecutionService:
             account_id=request.account_id,
             exposure_effect=effective_effect,
             strategy_id=request.strategy_id,
+            entry_request=request,
         )
         if not allowed:
             log.warning("Execution rejected by control plane: %s", reason)
@@ -828,6 +831,7 @@ class CanonicalExecutionService:
                 exposure_effect=effective_effect,
                 strategy_id=request.strategy_id,
                 ignore_intent_keys=(intent.intent_key,),
+                entry_request=request,
             )
             if not still_allowed:
                 order_journal.transition(
@@ -932,6 +936,7 @@ class CanonicalExecutionService:
                     uid=request.uid, account_id=request.account_id,
                     exposure_effect=effective_effect, strategy_id=request.strategy_id,
                     ignore_intent_keys=(intent.intent_key,),
+                    entry_request=request,
                 )
                 if not allowed:
                     raise PermissionError(f"Safety engaged before send: {reason}")

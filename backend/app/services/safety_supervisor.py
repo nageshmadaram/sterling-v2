@@ -191,6 +191,7 @@ class SafetySupervisor:
         positions: Iterable[Any] | None = None,
         strategy_id: str = "",
         ignore_intent_keys: tuple[str, ...] = (),
+        entry_request: Any = None,
     ) -> SafetySnapshot:
         """Read every authority once and report what each of them says."""
         from app.services import live_safety
@@ -258,7 +259,11 @@ class SafetySupervisor:
 
         from app.services.protection_health import admission_blocker
 
-        protection_blocker, protection_reason = admission_blocker(uid, account_id)
+        if entry_request is None:
+            protection_blocker, protection_reason = admission_blocker(uid, account_id)
+        else:
+            protection_blocker, protection_reason = admission_blocker(
+                uid, account_id, entry_request=entry_request)
         if protection_blocker:
             blockers.append(protection_blocker)
             reasons.append(protection_reason)
@@ -308,6 +313,7 @@ class SafetySupervisor:
         strategy_id: str = "",
         idempotency_key: str | None = None,
         ignore_intent_keys: tuple[str, ...] = (),
+        entry_request: Any = None,
     ) -> SafetyVerdict:
         """Decide whether one action may proceed.
 
@@ -343,6 +349,7 @@ class SafetySupervisor:
                 positions=positions,
                 strategy_id=strategy_id,
                 ignore_intent_keys=ignore_intent_keys,
+                entry_request=entry_request,
             )
         except Exception as exc:  # noqa: BLE001
             return SafetyVerdict(

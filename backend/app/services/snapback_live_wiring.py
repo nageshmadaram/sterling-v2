@@ -859,7 +859,7 @@ class SnapbackRiskApprover:
     async def __call__(self, *, uid: str, account_id: str, symbol: str, side: str,
                        quantity: int, generation_id: str, strategy_id: str, signal_id: str,
                        **_ignored: Any):
-        from app.services.execution_service import RiskApproval
+        from app.services.execution_service import RiskApproval, ExecutionRequest
 
         def verdict(approved: bool, reason: str, *, available=None, required=None):
             return RiskApproval(
@@ -888,7 +888,14 @@ class SnapbackRiskApprover:
         from app.services.safety_supervisor import SafetySupervisor
 
         admitted = SafetySupervisor().authorize(
-            "INCREASE_EXPOSURE", uid=uid, account_id=account_id, strategy_id="snapback")
+            "INCREASE_EXPOSURE", uid=uid, account_id=account_id, strategy_id="snapback",
+            entry_request=ExecutionRequest(
+                uid=uid, account_id=account_id, strategy_id=strategy_id,
+                generation_id=generation_id, signal_id=signal_id,
+                exchange=str((plan or {}).get("futures_exchange") or ""),
+                symbol=symbol, side=side, quantity=int(quantity),
+                tag=f"snapback:{(plan or {}).get('plan_id') or ''}",
+            ))
         if not admitted.allowed:
             return verdict(False, admitted.code or "safety_refused",
                            available=available, required=required)

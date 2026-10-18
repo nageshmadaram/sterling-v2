@@ -71,8 +71,9 @@ sends you a Telegram message; clear the cause and use **Resume trading**.
 
 `STERLING_LIVE_EXECUTION=0` (or `false`, `off`, `no`, `disabled`) stops every new
 entry across all strategies. Any value that is not recognised also stops entries.
-Exits, protective stops and reconciliation keep working. Unset or `1` means entries
-are allowed, subject to everything on this page.
+Exits, protective stops and reconciliation keep working. Unset or blank keeps
+entries off. An explicit `1` allows entries subject to every other safety gate;
+do not enable it during readiness validation.
 
 ## What turns it on automatically
 
