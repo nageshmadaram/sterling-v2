@@ -1,84 +1,19 @@
 #!/usr/bin/env bash
-# auto_deploy.sh — Smart incremental rebuild triggered by git hooks.
-#
-# Detects what changed in the last commit/merge and:
-#   • frontend/* changes → npm build only, no backend restart
-#   • backend/* changes  → graceful uvicorn reload (SIGHUP), no rebuild
-#   • both               → build then reload
-#   • requirements.txt   → pip install + reload
-#
-# Runs entirely in the background so git operations never block.
+# Git hooks record deployment work; they never change a running trading engine.
+# The supervised web publisher follows committed frontend revisions. Backend and
+# dependency promotion requires explicit controlled restart/reconciliation.
 set -euo pipefail
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG="$ROOT/.runtime/stack/auto_deploy.log"
-mkdir -p "$(dirname "$LOG")"
-
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [deploy] $*" | tee -a "$LOG"; }
-
-# ── What changed? ───────────────────────────────────────────────────────────
-# Try multiple strategies to get the diff — handles merge, rebase, plain commit
-CHANGED=$(
-  git -C "$ROOT" diff --name-only ORIG_HEAD HEAD 2>/dev/null ||
-  git -C "$ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null ||
-  git -C "$ROOT" show --name-only --format="" HEAD 2>/dev/null ||
-  true
-)
-
-FRONTEND_CHANGED=false
-BACKEND_CHANGED=false
-DEPS_CHANGED=false
-
-while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
-  case "$f" in
-    frontend/*)             FRONTEND_CHANGED=true ;;
-    backend/requirements*)  DEPS_CHANGED=true; BACKEND_CHANGED=true ;;
-    backend/*)              BACKEND_CHANGED=true ;;
-  esac
-done <<< "$CHANGED"
-
-# Safety net: if dist/index.html is older than the newest frontend source file,
-# force a rebuild regardless of what git diff says (catches --skip-build starts).
-DIST_MTIME=$(stat -c %Y "$ROOT/frontend/dist/index.html" 2>/dev/null || echo 0)
-NEWEST_SRC=$(find "$ROOT/frontend/src" -name "*.tsx" -o -name "*.ts" -o -name "*.css" 2>/dev/null \
-             | xargs stat -c %Y 2>/dev/null | sort -rn | head -1 || echo 0)
-if [[ "$NEWEST_SRC" -gt "$DIST_MTIME" ]]; then
-  log "dist is stale (src newer than build) — forcing frontend rebuild"
-  FRONTEND_CHANGED=true
+STATE="$ROOT/.runtime/stack"
+umask 077
+mkdir -p "$STATE"
+exec 9>"$STATE/deploy-notice.lock"
+flock -x 9
+REVISION=$(git -C "$ROOT" rev-parse HEAD)
+CHANGED=$(git -C "$ROOT" diff --name-only HEAD~1 HEAD 2>/dev/null || git -C "$ROOT" ls-tree -r --name-only HEAD)
+if [[ "$CHANGED" == *backend/* || "$CHANGED" == *deploy/systemd/* ]]; then
+  printf '%s\n' "$REVISION" > "$STATE/backend-deploy-required.next"
+  mv "$STATE/backend-deploy-required.next" "$STATE/backend-deploy-required"
+  printf '%s [deploy] Backend promotion pending for %s; running engine unchanged.\n' "$(date -Is)" "$REVISION"
 fi
-
-log "Changed files → frontend=$FRONTEND_CHANGED backend=$BACKEND_CHANGED deps=$DEPS_CHANGED"
-
-# ── Nothing relevant changed ────────────────────────────────────────────────
-if ! $FRONTEND_CHANGED && ! $BACKEND_CHANGED; then
-  log "No frontend or backend changes — skipping deploy."
-  exit 0
-fi
-
-# ── Frontend rebuild ────────────────────────────────────────────────────────
-if $FRONTEND_CHANGED; then
-  log "Rebuilding frontend…"
-  cd "$ROOT/frontend"
-  npm run build >> "$LOG" 2>&1 && log "Frontend build ✓" || { log "Frontend build FAILED"; exit 1; }
-fi
-
-# ── Backend: pip install if requirements changed ─────────────────────────────
-if $DEPS_CHANGED; then
-  log "Installing updated Python dependencies…"
-  "$ROOT/backend/.venv/bin/pip" install -q -r "$ROOT/backend/requirements.txt" >> "$LOG" 2>&1 \
-    && log "pip install ✓" || log "pip install FAILED (non-fatal)"
-fi
-
-# ── Backend: graceful reload via SIGHUP ─────────────────────────────────────
-if $BACKEND_CHANGED; then
-  UVICORN_PID=$(pgrep -f "uvicorn main:app" 2>/dev/null | head -1 || true)
-  if [[ -n "$UVICORN_PID" ]]; then
-    log "Sending SIGHUP to uvicorn (pid=$UVICORN_PID) for graceful reload…"
-    kill -HUP "$UVICORN_PID" && log "Backend reload ✓" || log "Backend reload signal failed"
-  else
-    log "Uvicorn not running — skipping reload signal."
-  fi
-fi
-
-log "Auto-deploy complete."
+printf '%s [deploy] Commit %s available to supervised frontend publisher.\n' "$(date -Is)" "$REVISION"

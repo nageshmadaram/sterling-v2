@@ -53,3 +53,25 @@ def test_running_supervisor_survives_in_place_script_update(tmp_path):
     finally:
         process.terminate()
         process.wait(timeout=8)
+
+
+def test_git_hook_never_signals_engine_or_installs_dependencies(tmp_path):
+    root=tmp_path/"checkout"
+    scripts=root/"scripts"
+    scripts.mkdir(parents=True)
+    source=Path(__file__).resolve().parents[2]/"scripts/auto_deploy.sh"
+    target=scripts/source.name
+    shutil.copy2(source,target)
+    bins=tmp_path/"bin"
+    bins.mkdir()
+    git=bins/"git"
+    git.write_text("#!/bin/bash\ncase \" $* \" in *rev-parse*) echo verified-test-sha;; *) echo backend/main.py;; esac\n")
+    git.chmod(0o700)
+    for command in ["pgrep","kill","pip","npm","systemctl"]:
+        forbidden=bins/command
+        forbidden.write_text("#!/bin/bash\necho unsafe >> "+str(tmp_path/"unsafe")+"\nexit 99\n")
+        forbidden.chmod(0o700)
+    result=subprocess.run(["bash",str(target)],env={**os.environ,"PATH":str(bins)+":"+os.environ["PATH"]},capture_output=True,text=True,timeout=10)
+    assert result.returncode==0,result.stderr
+    assert not (tmp_path/"unsafe").exists()
+    assert (root/".runtime/stack/backend-deploy-required").read_text().strip()=="verified-test-sha"
