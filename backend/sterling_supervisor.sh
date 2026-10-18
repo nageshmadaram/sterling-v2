@@ -22,11 +22,26 @@ log() { echo "$(date -Is) [supervisor] $*" | tee -a "$LOG"; }
 
 BACKEND_PID=""
 
+# Detect child death during grace and probe intervals, rather than trusting a
+# listener that may belong to another launcher. wait records the actual status.
+monitor_wait() {
+  local remaining="$1" status
+  while (( remaining > 0 )); do
+    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+      wait "$BACKEND_PID"; status=$?
+      log "backend exited pid=$BACKEND_PID status=$status"
+      return 1
+    fi
+    sleep 1
+    remaining=$((remaining - 1))
+  done
+}
+
 start_backend() {
   ./run_backend.sh >> logs/backend.log 2>&1 &
   BACKEND_PID=$!
   log "started backend pid=$BACKEND_PID; grace ${STARTUP_GRACE}s"
-  sleep "$STARTUP_GRACE"
+  monitor_wait "$STARTUP_GRACE" || true
 }
 
 # RT-01 fix: use SIGTERM first with a 30-second grace period so the Python
@@ -55,6 +70,14 @@ start_backend
 
 failures=0
 while true; do
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    wait "$BACKEND_PID"; status=$?
+    log "backend exited pid=$BACKEND_PID status=$status; restarting"
+    sleep 2
+    start_backend
+    failures=0
+    continue
+  fi
   if curl -fsS -m "$PROBE_TIMEOUT" -o /dev/null "$PROBE_URL"; then
     if (( failures > 0 )); then
       log "probe recovered after ${failures} failure(s)"
@@ -70,5 +93,5 @@ while true; do
       failures=0
     fi
   fi
-  sleep "$PROBE_INTERVAL"
+  monitor_wait "$PROBE_INTERVAL" || true
 done

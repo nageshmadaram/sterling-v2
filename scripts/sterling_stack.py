@@ -627,6 +627,19 @@ class CommittedFrontend:
         return sha,True
 
 
+def externally_supervised_backend():
+    """A configured service owns worker recovery, including intentional stops."""
+    try:
+        result=subprocess.run(
+            ['systemctl','--user','show','sterling-backend.service',
+             '--property=LoadState','--value'],
+            capture_output=True,text=True,timeout=3,check=False)
+        return result.returncode==0 and result.stdout.strip()=='loaded'
+    except (OSError,subprocess.TimeoutExpired):
+        # Unavailable systemd is normal on standalone installations.
+        return False
+
+
 class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
@@ -977,6 +990,9 @@ class Stack:
 
     def start_backend(self):
         self.next_backend_restart=time.monotonic()+30
+        if externally_supervised_backend():
+            self.status['backend_error']='EXTERNAL_SUPERVISOR_RECOVERY_PENDING'
+            return
         self.status.pop('backend_error',None)
         log=(STATE/'backend.log').open('a');self.logs.append(log);os.chmod(STATE/'backend.log',0o600)
         self.children['backend']=subprocess.Popen([str(self.python),'-m','uvicorn','main:app','--host','127.0.0.1','--port','8000','--workers','1','--no-access-log'],cwd=ROOT/'backend',env=clean_env(),stdout=log,stderr=log,start_new_session=True)

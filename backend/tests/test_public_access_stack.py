@@ -1039,3 +1039,22 @@ def test_no_color_environment_disables_ansi_even_for_real_tty(monkeypatch):
  assert stack._terminal_color_enabled() is True
  monkeypatch.setenv('TERM','dumb')
  assert stack._terminal_color_enabled() is False
+
+
+def test_external_backend_service_prevents_second_worker(monkeypatch):
+ supervisor=object.__new__(stack.Stack)
+ supervisor.status={}
+ supervisor.children={}
+ supervisor.backend_owned=False
+ monkeypatch.setattr(stack,'externally_supervised_backend',lambda:True)
+ monkeypatch.setattr(stack.subprocess,'Popen',lambda *a,**k:pytest.fail('duplicate worker'))
+ supervisor.start_backend()
+ assert supervisor.status['backend_error']=='EXTERNAL_SUPERVISOR_RECOVERY_PENDING'
+ assert not supervisor.backend_owned
+ assert not supervisor.children
+
+@pytest.mark.parametrize('state,expected',[('loaded',True),('not-found',False)])
+def test_external_backend_service_detection(monkeypatch,state,expected):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=0,stdout=state))
+ assert stack.externally_supervised_backend() is expected
