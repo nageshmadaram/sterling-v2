@@ -386,7 +386,10 @@ def save_record(uid: str, record: TradeRecord) -> TradeRecord:
             from app.services import live_safety
 
             live_safety.set_kill_switch(
-                True, "Gamma-Unwind realised P&L write failed; broker reconciliation required"
+                True,
+                "Gamma-Unwind realised P&L write failed; broker reconciliation required",
+                uid=uid,
+                reason_code="GAMMA_PNL_PERSISTENCE_FAILED",
             )
         except Exception:
             log.exception("gamma_unwind: could not engage kill switch after ledger write failure")
