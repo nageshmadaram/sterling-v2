@@ -65,20 +65,17 @@ def _archive_legacy_rows(uid: str, rows: list[dict]) -> None:
         raise RuntimeError("legacy_gamma_archive_unreadable") from exc
     if not isinstance(existing, list) or any(not isinstance(row, dict) for row in existing):
         raise RuntimeError("legacy_gamma_archive_invalid")
-    seen = {
-        (
-            str((row.get("instrument") or {}).get("tradingsymbol") or ""),
-            str(row.get("order_id") or ""),
-            int(row.get("entered_ms") or 0),
-        )
-        for row in existing if isinstance(row, dict)
-    }
+    # Old migration code deduped on (symbol, order_id, entered_ms). Two
+    # distinct legacy position rows can share all three values while differing
+    # in status, filled quantity, or protective-order evidence. Collapsing them
+    # could erase broker exposure before an operator reconciles it. Deduplicate
+    # only byte-equivalent logical rows, with deterministic key order.
+    def fingerprint(row: dict) -> str:
+        return json.dumps(row, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+    seen = {fingerprint(row) for row in existing}
     for row in rows:
-        ident = (
-            str((row.get("instrument") or {}).get("tradingsymbol") or ""),
-            str(row.get("order_id") or ""),
-            int(row.get("entered_ms") or 0),
-        )
+        ident = fingerprint(row)
         if ident not in seen:
             existing.append(row)
             seen.add(ident)
@@ -187,15 +184,27 @@ def load(uid: str) -> dict[str, PositionState]:
 
 
 def persist(uid: str) -> None:
+    """Write capital-critical positions or evict unsafe speculative cache.
+
+    Callers mutate cached objects before persisting. If SQLite rejects a write,
+    the in-process registry must not continue serving those uncommitted changes
+    as though they were durable broker state.
+    """
     from app.services import db
-    db.set_config_strict(
-        _key(uid),
-        json.dumps(
+    try:
+        payload = json.dumps(
             [_to_dict(p) for p in _cache.get(uid, {}).values()],
             separators=(",", ":"),
             allow_nan=False,
-        ),
-    )
+        )
+        db.set_config_strict(_key(uid), payload)
+    except Exception:
+        _cache.pop(uid, None)
+        log.error(
+            "gamma_unwind: position save failed for %s; evicted uncommitted cache",
+            uid,
+        )
+        raise
 
 
 def put(uid: str, pos: PositionState) -> PositionState:
