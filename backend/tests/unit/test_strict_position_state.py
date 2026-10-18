@@ -207,6 +207,9 @@ def test_gamma_trade_ledger_read_error_is_not_zero_pnl(monkeypatch):
     '{"day_realised_inr": "not-a-number"}',
     '{"day_realised_inr": 1e999}',
     '{"realised_inr": null}',
+    '{"trades": "bad", "wins": 0, "losses": 0}',
+    '{"trades": 1, "wins": 2, "losses": 0}',
+    '{"trades": 2, "consecutive_losses": -1}',
     '[]',
     '{invalid-json',
 ])
