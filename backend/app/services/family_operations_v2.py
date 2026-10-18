@@ -535,8 +535,8 @@ def _all_authoritative_rows() -> list[dict[str, Any]]:
     import sqlite3
     from pathlib import Path
 
-    path = Path(os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
-                or "snapback_observations.db")
+    from app.core.state_paths import runtime_database_path
+    path = Path(runtime_database_path("STERLING_OBSERVATIONS_DB_PATH", "snapback_observations.db"))
     if not path.exists():
         return []
     with sqlite3.connect(str(path)) as conn:

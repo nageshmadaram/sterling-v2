@@ -1,0 +1,22 @@
+[Unit]
+Description=Sterling web gateway and public tunnel supervisor
+After=network-online.target sterling-backend.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Sterling
+ExecStart=%h/Sterling/backend/.venv/bin/python %h/Sterling/scripts/sterling_stack.py run --skip-build
+Environment=STERLING_LIVE_EXECUTION=false
+Environment=ENVIRONMENT=production
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+Nice=5
+
+[Install]
+WantedBy=default.target

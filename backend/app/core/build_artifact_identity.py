@@ -30,7 +30,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _EXCLUDED_DIRS: Final[frozenset[str]] = frozenset(
     {"data", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
 )
-_EXCLUDED_SUFFIXES: Final[frozenset[str]] = frozenset({".pyc", ".pyo"})
+_EXCLUDED_SUFFIXES: Final[frozenset[str]] = frozenset({".pyc", ".pyo", ".db", ".sqlite", ".sqlite3"})
 
 
 @dataclass(frozen=True)
@@ -68,6 +68,10 @@ def _source_files(root: Path) -> Iterable[tuple[str, Path]]:
         if any(part in _EXCLUDED_DIRS for part in rel.parts):
             continue
         if path.suffix in _EXCLUDED_SUFFIXES:
+            continue
+        if any(path.name.endswith(ext + tail)
+               for ext in (".db", ".sqlite", ".sqlite3")
+               for tail in ("-wal", "-shm", "-journal")):
             continue
         yield rel.as_posix(), path
 

@@ -20,6 +20,9 @@ def _resolve_default_db_path() -> str:
     env_path = os.environ.get("STERLING_DB_PATH")
     if env_path:
         return env_path
+    if (os.environ.get("STERLING_STATE_ROOT") or "").strip():
+        from app.core.state_paths import runtime_database_path
+        return runtime_database_path("STERLING_DB_PATH", "sterling_paper.db")
     if os.path.exists("backend/sterling_paper.db") and not os.path.exists("app"):
         return "backend/sterling_paper.db"
     return "sterling_paper.db"

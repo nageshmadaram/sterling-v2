@@ -39,3 +39,13 @@ def state_root() -> Path:
 def state_path(relative: str | Path) -> Path:
     path = Path(relative)
     return path if path.is_absolute() else state_root() / path
+
+
+def runtime_database_path(env_key: str, filename: str) -> str:
+    """Keep legacy paths until persistent state is explicitly configured."""
+    override = (os.environ.get(env_key) or "").strip()
+    if override:
+        return override
+    if (os.environ.get("STERLING_STATE_ROOT") or "").strip():
+        return str(state_root() / "data" / filename)
+    return filename

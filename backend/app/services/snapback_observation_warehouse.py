@@ -16,12 +16,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.core.logging import get_logger
+from app.core.state_paths import runtime_database_path
 
 log = get_logger(__name__)
 
-DEFAULT_OBSERVATIONS_DB_PATH = os.environ.get(
-    "STERLING_OBSERVATIONS_DB_PATH", "snapback_observations.db"
-)
+DEFAULT_OBSERVATIONS_DB_PATH = runtime_database_path(
+    "STERLING_OBSERVATIONS_DB_PATH", "snapback_observations.db")
 FROZEN_COMMIT_SHA = "5a1354202e2c960c66b7003fce9cb80abd152008"
 FROZEN_MANIFEST_HASH = "602d28f804e840d046e7b51d020d5718dfd38a08d27d5324ec9d81bfbc4e53e4"
 

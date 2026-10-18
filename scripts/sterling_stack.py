@@ -18,6 +18,12 @@ import subprocess
 import sys
 import threading
 import time
+
+
+def error_code(error):
+    """Retain actionable OS error numbers without logging credential-bearing text."""
+    number = getattr(error, 'errno', None)
+    return f'{type(error).__name__}(errno={number})' if isinstance(number, int) else type(error).__name__
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -782,7 +788,7 @@ class Stack:
             revision,promoted=self.publisher.publish()
             self.release_results.put(('ready',revision,promoted))
         except Exception as error:
-            self.release_results.put(('failed',type(error).__name__,False))
+            self.release_results.put(('failed',error_code(error),False))
 
     def run(self):
         self.python=ensure_runtime(self.args.skip_build)
@@ -1150,4 +1156,4 @@ def main():
 
 if __name__=='__main__':
     try:main()
-    except Exception as error:print(f'Sterling launch failed: {type(error).__name__}. See .runtime/stack logs.',file=sys.stderr);sys.exit(1)
+    except Exception as error:print(f'Sterling launch failed: {error_code(error)}. See .runtime/stack logs.',file=sys.stderr);sys.exit(1)

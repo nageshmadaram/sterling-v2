@@ -51,7 +51,22 @@ class OpsCycleResult:
 
 
 def _default_path(env_key: str, fallback: str) -> Path:
-    return Path(os.environ.get(env_key, fallback))
+    override = (os.environ.get(env_key) or "").strip()
+    if override:
+        return Path(override)
+    if (os.environ.get("STERLING_STATE_ROOT") or "").strip():
+        from app.core.state_paths import state_root, source_root
+        persistent = {
+            "STERLING_OBSERVATIONS_DB_PATH": "data/snapback_observations.db",
+            "STERLING_SNAPBACK_BACKUP_ROOT": "data/backups/snapback",
+            "STERLING_FORWARD_REPORT_ROOT": "data/artifacts/snapback_forward",
+            "STERLING_POST_MARKET_STATE_PATH": "data/snapback/post_market_ops_state.json",
+        }
+        if env_key in persistent:
+            return state_root() / persistent[env_key]
+        if env_key == "STERLING_FREEZE_RECORD_PATH":
+            return source_root() / fallback
+    return Path(fallback)
 
 
 class SnapbackOpsScheduler:

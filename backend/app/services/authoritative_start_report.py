@@ -17,12 +17,13 @@ from app.core.authoritative_start import (
     AuthoritativeStart,
     evaluate_authoritative_start,
 )
+from app.core.state_paths import runtime_database_path
 
 log = logging.getLogger(__name__)
 
 __all__ = ["authoritative_start_state", "DEFAULT_DB"]
 
-DEFAULT_DB = os.environ.get("STERLING_OBSERVATIONS_DB_PATH", "snapback_observations.db")
+DEFAULT_DB = runtime_database_path("STERLING_OBSERVATIONS_DB_PATH", "snapback_observations.db")
 
 
 def _count(conn: sqlite3.Connection, sql: str, args: tuple = ()) -> int | None:

@@ -17,6 +17,7 @@ import logging
 import os
 import sqlite3
 from pathlib import Path
+from app.core.state_paths import runtime_database_path
 from typing import Any, Mapping
 
 log = logging.getLogger(__name__)
@@ -60,8 +61,8 @@ def lane_identity_matches_frozen(lane_key: str) -> bool | None:
 
 
 def _authoritative_rows(lane_key: str, db_path: str | Path | None = None) -> list[Mapping[str, Any]] | None:
-    path = Path(db_path or os.environ.get("STERLING_OBSERVATIONS_DB_PATH")
-                or "snapback_observations.db")
+    path = Path(db_path or runtime_database_path(
+        "STERLING_OBSERVATIONS_DB_PATH", "snapback_observations.db"))
     if not path.exists():
         return None
     try:

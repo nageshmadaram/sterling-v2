@@ -8,6 +8,17 @@ from app.core import build_artifact_identity as bai
 SHA = "a" * 40
 
 
+def test_runtime_sqlite_files_do_not_change_executable_identity(tmp_path):
+    (tmp_path / 'app.py').write_text('VALUE = 1\n')
+    bai.write_build_metadata(sha=SHA, root=tmp_path)
+    for name in ['snapback_observations.db', 'snapback_observations.db-wal',
+                 'snapback_observations.db-shm', 'journal.sqlite-journal']:
+        (tmp_path / name).write_bytes(b'runtime state')
+    assert bai.artifact_identity(tmp_path).valid
+    (tmp_path / 'app.py').write_text('VALUE = 2\n')
+    assert not bai.artifact_identity(tmp_path).valid
+
+
 def test_build_metadata_binds_sha_to_exact_source_bytes(tmp_path: Path):
     (tmp_path / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
 

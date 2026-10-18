@@ -3,6 +3,30 @@ from __future__ import annotations
 from app.core.state_paths import source_root, state_root, state_path
 
 
+def test_runtime_database_default_preserves_legacy_and_honors_state_root(tmp_path, monkeypatch):
+    from app.core.state_paths import runtime_database_path
+    monkeypatch.delenv('STERLING_DB_PATH', raising=False)
+    monkeypatch.delenv('STERLING_STATE_ROOT', raising=False)
+    assert runtime_database_path('STERLING_DB_PATH', 'sterling_paper.db') == 'sterling_paper.db'
+    monkeypatch.setenv('STERLING_STATE_ROOT', str(tmp_path))
+    assert runtime_database_path('STERLING_DB_PATH', 'sterling_paper.db') == str(tmp_path / 'data/sterling_paper.db')
+    monkeypatch.setenv('STERLING_DB_PATH', str(tmp_path / 'existing.db'))
+    assert runtime_database_path('STERLING_DB_PATH', 'sterling_paper.db') == str(tmp_path / 'existing.db')
+
+
+def test_scheduler_defaults_all_mutable_outputs_to_declared_volume(tmp_path, monkeypatch):
+    from app.services.snapback_ops_scheduler import _default_path
+    monkeypatch.setenv('STERLING_STATE_ROOT', str(tmp_path))
+    for key, expected in {
+        'STERLING_OBSERVATIONS_DB_PATH':'data/snapback_observations.db',
+        'STERLING_SNAPBACK_BACKUP_ROOT':'data/backups/snapback',
+        'STERLING_FORWARD_REPORT_ROOT':'data/artifacts/snapback_forward',
+        'STERLING_POST_MARKET_STATE_PATH':'data/snapback/post_market_ops_state.json',
+    }.items():
+        monkeypatch.delenv(key, raising=False)
+        assert _default_path(key, 'old-default') == tmp_path / expected
+
+
 def test_explicit_state_root_is_independent_of_source_root(tmp_path, monkeypatch):
     source = tmp_path / "source"
     state = tmp_path / "persistent"
