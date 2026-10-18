@@ -92,7 +92,25 @@ def admission_blocker(uid: str, account_id: str) -> tuple[str, str]:
                 if owner_account and owner_account != str(account_id).strip():
                     continue
                 if not owner_account:
-                    # Paper/reference positions are outside live protection.
+                    # Unbound historical rows are not automatically paper:
+                    # an order or GTT identity can represent real broker risk
+                    # whose account ownership was lost during migration.
+                    # They may belong to ANY account for this user. Require an
+                    # operator to reconcile rather than silently skipping it.
+                    possible_broker_exposure = any(
+                        str(getattr(position, name, "") or "").strip()
+                        for name in ("order_id", "exit_order_id", "gtt_id")
+                    ) or any(
+                        bool(getattr(position, name, False))
+                        for name in ("protection_pending", "gtt_pending")
+                    )
+                    if possible_broker_exposure:
+                        return (
+                            "protection_integrity",
+                            f"{strategy}: broker exposure has no verified owning account",
+                        )
+                    # Reference rows without even a broker submission identity
+                    # have no evidence of real exposure and remain excluded.
                     continue
                 fault = position_fault(strategy, position)
                 if fault:
