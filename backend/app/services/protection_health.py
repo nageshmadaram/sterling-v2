@@ -61,13 +61,17 @@ def admission_blocker(uid: str, account_id: str) -> tuple[str, str]:
         # Until a broker operator reconciles them, they may belong to ANY
         # account of this user. Never turn unreadable/unknown exposure into a
         # permission to originate fresh risk in another strategy.
+        # Loading the active registry may migrate old open positions into the
+        # archive. Check that archive AFTER load, not before, or an un-migrated
+        # open position disappears from admission checks on first access.
+        gamma_positions = gamma_move_positions.load(uid)
         legacy_gamma = gamma_move_positions.legacy_open_rows(uid)
         if legacy_gamma:
             return (
                 "protection_integrity",
                 "Unreconciled legacy Gamma broker exposure; resolve archived positions",
             )
-        for position in gamma_move_positions.load(uid).values():
+        for position in gamma_positions.values():
             if str(position.account_id or "").strip() == str(account_id).strip() and (
                 position.pnl_reconciliation_required
                 and (position.is_open or str(position.pnl_flagged_day or "") == state._ist_today_iso())
