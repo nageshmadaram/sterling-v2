@@ -2,12 +2,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-ARG STERLING_BUILD_SHA=UNKNOWN
-ARG STERLING_BUILD_TAG=UNKNOWN
-
-LABEL org.opencontainers.image.revision="${STERLING_BUILD_SHA}" \
-      org.opencontainers.image.version="${STERLING_BUILD_TAG}"
-
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.lock.txt .
@@ -19,6 +13,12 @@ COPY . .
 ENV PYTHONPATH=/app \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+# Source revisions must not invalidate the expensive OS/dependency layers.
+ARG STERLING_BUILD_SHA=UNKNOWN
+ARG STERLING_BUILD_TAG=UNKNOWN
+LABEL org.opencontainers.image.revision="${STERLING_BUILD_SHA}" \
+      org.opencontainers.image.version="${STERLING_BUILD_TAG}"
 
 # Bind the declared source revision to the exact immutable backend bytes copied
 # into this image. Runtime verification recomputes the digest; runtime env vars
