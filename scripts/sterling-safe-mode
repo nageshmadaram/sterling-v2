@@ -27,10 +27,17 @@ run_python() {
   "$PYTHON" - "$@" <<'PY'
 import sys, os
 sys.path.insert(0, os.path.join(os.environ["STERLING_ROOT"], "backend"))
+from app.core.runtime_env import load_sterling_env
+load_sterling_env()
 from app.services.safe_mode import SafeModeService, SafeModeError, SafeModeTrigger
 
 action = sys.argv[1]
-service = SafeModeService(os.environ["STATE_FILE"])
+service = SafeModeService(os.environ.get("STERLING_SAFE_MODE_FILE") or os.environ["STATE_FILE"])
+if action in {"on", "off"}:
+    from app.services import db
+    # A failed database must not prevent engaging the durable halt. init() marks
+    # its availability; the alert remains failed visibly if it cannot persist.
+    db.init()
 
 if action == "status":
     state = service.read()

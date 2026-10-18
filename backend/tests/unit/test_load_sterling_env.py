@@ -101,3 +101,26 @@ def test_operator_cli_loads_dotenv_before_importing_runtime_authorities(tmp_path
     )
     assert result.returncode == 0, result.stderr
     assert 'isolated environment loaded' in result.stdout
+
+
+def test_safe_mode_cli_loads_config_and_initializes_alert_storage(tmp_path):
+    import os,shutil,subprocess,sys
+    backend=Path(__file__).resolve().parents[2]
+    core=tmp_path/"backend/app/core"
+    core.mkdir(parents=True)
+    services=tmp_path/"backend/app/services"
+    services.mkdir()
+    shutil.copy2(backend/"app/core/runtime_env.py",core/"runtime_env.py")
+    (tmp_path/"backend/.env").write_text("STERLING_SAFE_MODE_FILE=isolated-safe-state\n")
+    (services/"db.py").write_text("import os\ndef init(): os.environ['ALERT_DB_READY']='1'; return True\n")
+    (services/"safe_mode.py").write_text(
+        "import os\nclass SafeModeError(Exception): pass\n"
+        "class SafeModeTrigger: OPERATOR='OPERATOR'\n"
+        "class SafeModeService:\n"
+        " def __init__(self,path): assert path=='isolated-safe-state'\n"
+        " def engage(self,**kw): assert os.environ['ALERT_DB_READY']=='1'; return type('State',(),{'reason':'isolated'})()\n")
+    env={k:v for k,v in os.environ.items() if not k.startswith('STERLING_')}
+    env.update(STERLING_ROOT=str(tmp_path),STERLING_PYTHON=sys.executable)
+    result=subprocess.run(['bash',str(backend.parent/'scripts/sterling-safe-mode'),'on'],cwd=tmp_path,env=env,capture_output=True,text=True,timeout=15)
+    assert result.returncode==0,result.stderr
+    assert 'SAFE MODE is now ON' in result.stdout
