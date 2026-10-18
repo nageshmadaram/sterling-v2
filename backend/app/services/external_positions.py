@@ -824,12 +824,17 @@ def record_observation(exposure: ExternalExposure) -> None:
     import json
 
     path = _observation_path()
+    staging = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Written from a worker thread while admission reads it on the event loop:
         # replace atomically so a reader never sees a truncated or empty file.
         import os as _os
-        staging = path.with_name(path.name + ".tmp")
+        import tempfile
+        from pathlib import Path
+        fd, filename = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+        staging = Path(filename)
+        _os.close(fd)
         staging.write_text(json.dumps({
             "observed_at": datetime.now(timezone.utc).isoformat(),
             "readable": exposure.readable,
@@ -852,6 +857,9 @@ def record_observation(exposure: ExternalExposure) -> None:
         _os.replace(staging, path)
     except Exception as exc:  # noqa: BLE001
         log.warning("external positions: could not record observation: %s", exc)
+    finally:
+        if staging is not None:
+            staging.unlink(missing_ok=True)
 
 
 def last_observation() -> dict[str, Any] | None:

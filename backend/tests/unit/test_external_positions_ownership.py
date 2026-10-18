@@ -529,3 +529,24 @@ class TestOwnedAutomationDoesNotBlockAdmission:
         code, reason = ep.admission_blocker()
         assert code == "external_broker_automation"
         assert "gtt:901:ACTIVE" in reason
+
+
+def test_concurrent_observations_use_independent_atomic_files(tmp_path,monkeypatch):
+    import os
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    destination=tmp_path/'external.json'
+    monkeypatch.setenv('STERLING_EXTERNAL_EXPOSURE_FILE',str(destination))
+    barrier=threading.Barrier(2)
+    replace=os.replace
+    staging=[]
+    def overlap(source,target):
+        staging.append(source)
+        barrier.wait(timeout=5)
+        replace(source,target)
+    monkeypatch.setattr(os,'replace',overlap)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        list(workers.map(ep.record_observation,[ep.ExternalExposure(detail='one'),ep.ExternalExposure(detail='two')]))
+    assert len(set(staging))==2
+    assert ep.last_observation()['detail'] in ('one','two')
+    assert not list(tmp_path.glob('*.tmp'))
