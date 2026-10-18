@@ -221,7 +221,7 @@ class FamilyOperationsV2(BaseModel):
 
 
 @router.get("/operations/family", response_model=FamilyOperationsV2)
-async def family_operations(
+def family_operations(
     response: Response,
     _user: UserContext = Depends(require_admin),
 ) -> dict[str, Any]:

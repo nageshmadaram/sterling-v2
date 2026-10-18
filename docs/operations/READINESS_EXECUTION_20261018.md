@@ -198,3 +198,21 @@ Root reserve improved from approximately 2.5 GB to 4.9 GB by removing old genera
 build-cache records and retired synthetic containers/images. Their metadata/logs
 and volumes were retained; no live database, journal or user backup was removed.
 This remains inadequate evidence of long-term production disk capacity.
+
+
+An additional Mini App reload failure was repaired: expired Telegram launch data
+must not override an existing saved operator login. The browser now selects the
+saved Sterling session and its normal authenticated refresh flow when present;
+server authorization remains mandatory. All three Chromium login regressions
+passed, including reload inside a Telegram launch, provider denial and private
+value clearing after expiry. Event-loop stall diagnostics report at five seconds
+so shorter runtime pauses can be localized before the liveness supervisor fires.
+
+
+The operator snapshot endpoint also performs synchronous database/filesystem
+aggregation, including archived-state reads. It now uses FastAPI's worker-thread
+handler path while retaining administrator authorization and no-store responses.
+A request-level regression verifies both snapshots run outside the event loop.
+The combined operations/auth/watchdog selection passed 61 tests. Initial short
+liveness sampling still had timeouts; it is retained as failed evidence and does
+not establish sustained production availability.

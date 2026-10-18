@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
     from app.services import db
     from app.core.runtime_lease import engine_lease
     from app.core.event_loop_watchdog import watch_event_loop
-    async with watch_event_loop():
+    async with watch_event_loop(threshold=5.0):
         with engine_lease(db._DB_PATH):
             async with _application_lifespan(app):
                 yield

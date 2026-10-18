@@ -103,3 +103,32 @@ def test_heavy_read_and_backup_lane_handlers_run_in_the_threadpool():
         "operator_doctor", "operator_backup", "lane_status", "lane_promotion",
     ):
         assert not inspect.iscoroutinefunction(getattr(lanes, name)), name
+
+
+def test_operations_snapshot_uses_worker_thread_for_all_storage_reads(monkeypatch):
+    from fastapi import FastAPI
+    from app.api.v1.endpoints.family_operations import router
+    from app.services import family_operations_v2
+    from app.services.ema_trend import snapshot
+    loop_threads=set()
+    storage_threads=[]
+    def payload():
+        storage_threads.append(threading.get_ident())
+        return {"generated_at":"2026-10-18T00:00:00Z"}
+    def archived_view(uid):
+        storage_threads.append(threading.get_ident())
+        return {"status":"DISABLED"}
+    monkeypatch.setattr(family_operations_v2,'family_operations_v2',payload)
+    monkeypatch.setattr(snapshot,'operations',archived_view)
+    app=FastAPI()
+    @app.middleware('http')
+    async def capture_loop(request,call_next):
+        loop_threads.add(threading.get_ident())
+        return await call_next(request)
+    app.include_router(router,prefix='/api/v1')
+    with TestClient(app) as client:
+        response=client.get('/api/v1/operations/family')
+    assert response.status_code==200
+    assert len(storage_threads)==2
+    assert not loop_threads.intersection(storage_threads)
+    assert response.headers['cache-control']=='no-store'

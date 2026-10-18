@@ -1381,7 +1381,9 @@ def _generate_tma_html(nonce: str = "") -> str:
       } finally { button.disabled = false; }
     });
     let authorizationFailed = false;
-    let useSterlingLogin = false;
+    // An established operator session must survive reloads inside Telegram.
+    // Expired embedded initData must not override a valid saved session.
+    let useSterlingLogin = Boolean(savedToken('sterling.auth.access') || savedToken('sterling.auth.refresh'));
     let refreshPending = null;
     function savedToken(key) {
       try { return sessionStorage.getItem(key) || localStorage.getItem(key) || ''; } catch { return ''; }

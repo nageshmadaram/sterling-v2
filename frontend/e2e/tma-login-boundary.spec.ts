@@ -39,3 +39,28 @@ test('expired authentication clears previously displayed private data',async({pa
  await expect(page.locator('#positions-list')).toContainText('Sign in');
  await expect(page.locator('#signals-list')).toContainText('Sign in');
 });
+
+
+test('saved operator login survives reload inside an expired Telegram launch',async({page})=>{
+ await page.addInitScript(()=>{
+  sessionStorage.setItem('sterling.auth.access','synthetic-operator-session');
+  (window as any).Telegram={WebApp:{initData:'expired-telegram-proof',ready(){},expand(){}}};
+ });
+ await page.route('**/*',route=>{
+  const url=route.request().url();
+  if(url==='http://sterling.test/tma')return route.fulfill({contentType:'text/html',body:html});
+  if(url.includes('/api/v1/tma/data')){
+   const headers=route.request().headers();
+   if(headers.authorization==='Bearer synthetic-operator-session' && !headers['x-telegram-init-data'])
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({timestamp_ms:Date.now(),account:{connected:true},entry_controls:{enabled:false,label:'New entries OFF'},positions:[],signals:[],pcr:{},broker_data_available:true})});
+   return route.fulfill({status:401,contentType:'application/json',body:'{"detail":"Mini App authorization expired"}'});
+  }
+  return route.abort();
+ });
+ await page.goto('http://sterling.test/tma');
+ await expect(page.locator('#txt-broker')).toHaveText('Kite connected');
+ await page.reload();
+ await expect(page.locator('#txt-broker')).toHaveText('Kite connected');
+ await expect(page.locator('#sterling-login')).toBeHidden();
+ await expect(page.locator('#txt-entry')).toHaveText('New entries OFF');
+});
