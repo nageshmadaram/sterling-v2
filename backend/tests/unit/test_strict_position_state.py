@@ -188,3 +188,64 @@ def test_active_unmigrated_legacy_gamma_exposure_refuses_new_account_risk(monkey
     assert json.loads(records[gamma_move_positions._key(uid)]) == []
     assert json.loads(records[gamma_move_positions._legacy_key(uid)]) == [legacy]
     gamma_move_positions._cache.pop(uid, None)
+
+
+def test_gamma_trade_ledger_read_error_is_not_zero_pnl(monkeypatch):
+    uid = "gamma-ledger-db-down"
+    gamma_move_positions._record_cache.pop(uid, None)
+
+    def unreadable(_key):
+        raise db.ControlPlaneUnavailableError("ledger unavailable")
+
+    monkeypatch.setattr(db, "get_config_strict", unreadable)
+    with pytest.raises(db.ControlPlaneUnavailableError):
+        gamma_move_positions.load_record(uid)
+    assert uid not in gamma_move_positions._record_cache
+
+
+@pytest.mark.parametrize("raw", [
+    '{"day_realised_inr": "not-a-number"}',
+    '{"day_realised_inr": 1e999}',
+    '{"realised_inr": null}',
+    '[]',
+    '{invalid-json',
+])
+def test_gamma_malformed_realised_ledger_never_defaults_to_zero(
+    monkeypatch, raw
+):
+    uid = "gamma-ledger-corrupt"
+    gamma_move_positions._record_cache.pop(uid, None)
+    monkeypatch.setattr(db, "get_config_strict", lambda _key: raw)
+
+    with pytest.raises(ValueError, match="gamma_unwind_trade_ledger_unreadable"):
+        gamma_move_positions.load_record(uid)
+    assert uid not in gamma_move_positions._record_cache
+
+
+def test_gamma_trade_ledger_write_failure_engages_halt_and_does_not_cache(
+    monkeypatch,
+):
+    from app.engines.gamma_move import TradeRecord
+    from app.services import live_safety
+
+    uid = "gamma-ledger-disk-full"
+    gamma_move_positions._record_cache.pop(uid, None)
+    halts = []
+
+    def fail_write(_key, _value):
+        raise db.ControlPlaneUnavailableError("disk full")
+
+    monkeypatch.setattr(db, "set_config_strict", fail_write)
+    monkeypatch.setattr(
+        live_safety, "set_kill_switch",
+        lambda enabled, reason="": halts.append((enabled, reason)),
+    )
+
+    record = TradeRecord()
+    record.add_realised(-1500.0, "2026-10-18")
+    with pytest.raises(db.ControlPlaneUnavailableError, match="disk full"):
+        gamma_move_positions.save_record(uid, record)
+
+    assert uid not in gamma_move_positions._record_cache
+    assert halts and halts[-1][0] is True
+    assert "P&L write failed" in halts[-1][1]
