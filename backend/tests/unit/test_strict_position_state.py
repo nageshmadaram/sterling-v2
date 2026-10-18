@@ -30,6 +30,45 @@ def test_legacy_position_registry_corruption_is_not_flat(
         module.open_positions(uid)
 
 
+def test_supertrend_corrupt_persisted_position_status_cannot_appear_flat(monkeypatch):
+    from dataclasses import asdict
+    import json
+
+    uid = "supertrend-corrupt-status"
+    kite_positions._positions.pop(uid, None)
+    kite_positions._unreadable.pop(uid, None)
+    row = asdict(kite_positions.OpenPosition(
+        uid=uid, symbol="OPT", exchange="NFO", qty=40,
+        order_id="broker-order-1", status="RECONCILING",
+    ))
+    monkeypatch.setattr(
+        db, "get_config_strict",
+        lambda _key: json.dumps([row]),
+    )
+
+    try:
+        with pytest.raises(kite_positions.RegistryUnreadable):
+            kite_positions.open_positions(uid)
+        assert kite_positions.unreadable_reason(uid)
+    finally:
+        kite_positions._positions.pop(uid, None)
+        kite_positions._unreadable.pop(uid, None)
+
+
+def test_supertrend_corrupt_in_memory_position_status_cannot_appear_flat():
+    uid = "supertrend-corrupt-cache-status"
+    pos = kite_positions.OpenPosition(
+        uid=uid, symbol="OPT", exchange="NFO", qty=40,
+        order_id="broker-order-1", status="RECONCILING",
+    )
+    kite_positions._positions[uid] = {"OPT": pos}
+    try:
+        with pytest.raises(kite_positions.RegistryUnreadable):
+            kite_positions.open_positions(uid)
+    finally:
+        kite_positions._positions.pop(uid, None)
+
+
 def test_kite_position_registry_db_failure_is_not_flat(monkeypatch):
     uid = "u-kite-db-failure"
     kite_positions._positions.pop(uid, None)
