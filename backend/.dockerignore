@@ -26,3 +26,8 @@ artifacts/
 backups/
 *.log
 server.pid
+
+# Runtime state belongs on the mounted volume, never in an immutable image.
+data/
+logs/
+.runtime/
