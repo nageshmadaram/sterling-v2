@@ -388,3 +388,45 @@ def test_gamma_failed_pnl_save_invalidates_previously_cached_session(monkeypatch
 
     assert uid not in gamma_move_positions._record_cache
     assert uid not in gamma_move_runner._sessions
+
+
+@pytest.mark.parametrize(
+    "invalid_fields, expected",
+    [
+        ({"status": "RECONCILING"}, "unknown_status"),
+        ({"status": "partially_filled"}, "unknown_status"),
+        ({"status": "open", "trade_state": "UNRESOLVED"}, "active_position_invalid"),
+        ({"status": "pending", "quantity": 0}, "active_position_invalid"),
+    ],
+)
+def test_malformed_current_gamma_position_cannot_disappear_as_flat(
+    monkeypatch, invalid_fields, expected,
+):
+    import json
+    from app.engines.gamma_move import InstrumentRef, PositionState
+
+    uid = "gamma-current-lifecycle-invalid"
+    gamma_move_positions._cache.pop(uid, None)
+    pos = PositionState(
+        signal_id="sig1",
+        instrument=InstrumentRef(
+            instrument_id="222", tradingsymbol="OPT", option_type="CE",
+            strike=100, expiry="2026-10-29", lot_size=40,
+            tick_size=0.05, exchange="NFO",
+        ),
+        list_name="E1", tier="ENTRY", underlying="NIFTY",
+        underlying_token=111, entry=100, quantity=40, lots=1,
+        entered_ms=1000, entry_day="2026-10-18", hold="intraday",
+        zone_edge=1, base_low=90, t1=110, t2=120,
+    )
+    raw_row = gamma_move_positions._to_dict(pos)
+    raw_row.update(invalid_fields)
+    monkeypatch.setattr(
+        db, "get_config_strict",
+        lambda key, default="": json.dumps([raw_row]),
+    )
+
+    with pytest.raises(ValueError, match=expected):
+        gamma_move_positions.open_positions(uid)
+
+    assert uid not in gamma_move_positions._cache
