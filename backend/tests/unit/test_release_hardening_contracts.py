@@ -197,6 +197,42 @@ async def test_snapback_ledger_failure_keeps_exit_identity_and_projection_pendin
     fills.mark_projected.assert_not_called()
 
 
+def test_shared_admission_blocks_live_gamma_monitor_only_stop(monkeypatch):
+    from app.services import gamma_move_positions
+
+    position = NS(
+        account_id="live-account", status="open", is_open=True,
+        pnl_reconciliation_required=False, stop_mode="monitor",
+        stop=90.0, quantity=40, gtt_qty=0, gtt_id=0, gtt_pending=False,
+    )
+    # Test the actual protection policy, separately from runner startup:
+    # a legacy monitor-only Gamma position must block another strategy from
+    # originating fresh risk on the same broker account.
+    monkeypatch.setattr(positions, "unreadable_reason", lambda _: "")
+    monkeypatch.setattr(positions, "open_positions", lambda _: [])
+    monkeypatch.setattr(gamma_move_positions, "legacy_open_rows", lambda _: [])
+    monkeypatch.setattr(gamma_move_positions, "load", lambda _: {"OPT": position})
+    monkeypatch.setattr(
+        gamma_move_positions, "open_positions", lambda _: [position],
+    )
+
+    reason, detail = protection_health.admission_blocker("owner", "live-account")
+    assert reason == "protection_integrity"
+    assert "broker-held stop" in detail
+
+
+def test_live_gamma_monitor_only_stop_fails_even_with_nonzero_local_stop():
+    # A numerical local stop is not the broker's acknowledged GTT.
+    position = NS(
+        status="open", stop_mode="monitor", stop=80.0,
+        quantity=40, gtt_id=0, gtt_qty=0,
+        gtt_pending=False, protection_pending=False,
+    )
+    assert "broker-held stop" in protection_health.position_fault(
+        "gamma_move", position
+    )
+
+
 def test_gamma_accounting_fault_blocks_other_strategies_even_when_halt_write_failed(monkeypatch):
     from app.services import gamma_move_positions
     p = NS(account_id="a", pnl_reconciliation_required=True, is_open=True, pnl_flagged_day="")
