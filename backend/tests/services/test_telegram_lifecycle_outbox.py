@@ -332,3 +332,26 @@ def test_new_alert_does_not_prune_undelivered_old_alert_by_age(lifecycle_db):
             ("u1",),
         ).fetchall()
     assert {row[0] for row in rows} == {old, new}
+
+
+def test_pending_user_discovery_preserves_spooled_tenants_when_db_unavailable(
+    lifecycle_db, monkeypatch,
+):
+    # Persisted queue discovery may fail after a disk-full or DB outage.
+    # Users whose events remain in this process's spool must still be visible.
+    row = {
+        "event_id": "TGL-DISCOVERY", "uid": "owner-in-spool",
+        "dedupe_key": "risk:unknown", "strategy": "Gamma-Unwind",
+        "event_type": "PROTECTION FAILED", "title": "OPT",
+        "detail": "outcome unknown", "severity": "CRITICAL",
+        "created_at_ms": 1000,
+    }
+    with outbox._spool_lock:
+        outbox._spool.append(row)
+
+    def fail_init():
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(outbox, "_init", fail_init)
+    assert outbox.pending_user_ids() == ["owner-in-spool"]
+    assert outbox.spooled_count() == 1
