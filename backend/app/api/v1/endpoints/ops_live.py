@@ -29,7 +29,7 @@ class SafeModeResumeRequest(BaseModel):
 
 
 @router.get("/live-status")
-async def live_status(_user: UserContext = Depends(get_current_user)) -> dict:
+def live_status(_user: UserContext = Depends(get_current_user)) -> dict:
     """Live execution, safe mode, recovery and exposure freshness in one place."""
     from app.services import live_runtime
 
@@ -37,7 +37,7 @@ async def live_status(_user: UserContext = Depends(get_current_user)) -> dict:
 
 
 @router.get("/safe-mode")
-async def safe_mode_status(_user: UserContext = Depends(get_current_user)) -> dict:
+def safe_mode_status(_user: UserContext = Depends(get_current_user)) -> dict:
     """Current safe-mode state and what lifting it would require."""
     from app.services import live_runtime
 

@@ -1705,3 +1705,18 @@ class TestDailyLossVisibility:
         monkeypatch.setattr(live_safety, "daily_loss_config", boom)
 
         assert lr.live_status()["daily_loss"] == []
+
+
+@pytest.mark.asyncio
+async def test_status_refresh_keeps_disk_reads_off_event_loop(monkeypatch):
+    import threading
+    from app.services import live_runtime as lr
+    main_thread=threading.get_ident()
+    def snapshot():
+        assert threading.get_ident()!=main_thread
+        return {"summary":"blocked", "admission":{"may_open_new_exposure":False}}
+    monkeypatch.setattr(lr,"live_status",snapshot)
+    monkeypatch.setattr(lr,"_status_key",lambda status:"unchanged")
+    monkeypatch.setattr(lr._STATE,"last_summary","unchanged")
+    monkeypatch.setattr(lr._STATE,"boot_announced",True)
+    await lr._after_state_change()

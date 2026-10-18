@@ -19,6 +19,7 @@ decision, and this module deliberately cannot make one.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -596,7 +597,7 @@ async def _external_for_client(
             detail="broker account identity is unavailable; positions cannot be attributed",
         )
 
-    known_symbols = _known_symbols(ownership_account)
+    known_symbols = await asyncio.to_thread(_known_symbols, ownership_account)
     classified = classify_broker_positions(
         rows,
         account=resolved_account or ownership_account,
@@ -617,7 +618,7 @@ async def _external_for_client(
             # Same identity set that classified the positions above, plus the
             # broker ids Sterling recorded. If the ids cannot be read the
             # identity set alone attributes; anything it cannot claim is a hazard.
-            ids = _known_broker_ids(ownership_account)
+            ids = await asyncio.to_thread(_known_broker_ids, ownership_account)
             ownership = _LocalOwnership(
                 identities=frozenset(known_symbols or ()),
                 gtt_ids=ids[0] if ids else frozenset(),

@@ -1297,11 +1297,11 @@ def _status_key(status: Mapping[str, Any]) -> str:
 async def _after_state_change() -> None:
     """Log the status line when it changes; announce the first time entries open.
 
-    Everything here is a handful of local file and SQLite reads, the same class of
-    work admission already does on every order, so it runs inline rather than in a
-    worker thread that would touch the in-memory position registries concurrently.
+    The observational snapshot includes SQLite and filesystem reads. Run it
+    outside the event loop so a slow disk cannot stall liveness, broker I/O or
+    protection tasks. This status read does not authorize an order.
     """
-    status = live_status()
+    status = await asyncio.to_thread(live_status)
     line = status["summary"]
     open_now = bool(status["admission"]["may_open_new_exposure"])
     key = _status_key(status)
