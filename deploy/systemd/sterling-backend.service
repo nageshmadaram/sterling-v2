@@ -23,7 +23,7 @@ EnvironmentFile=%h/.config/sterling/sterling.env
 # Closed by default. Overriding this in the environment file exposes an
 # authenticated broker session to the whole network.
 Environment=STERLING_BIND_HOST=127.0.0.1
-ExecStart=%h/Sterling/.venv/bin/python -m uvicorn main:app --host ${STERLING_BIND_HOST} --port 8000
+ExecStart=%h/Sterling/backend/run_backend.sh
 
 Restart=always
 RestartSec=10

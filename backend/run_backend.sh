@@ -32,6 +32,7 @@ argv = [
     "--host", host,
     "--port", "8000",
     "--workers", "1",
+    "--timeout-graceful-shutdown", "20",
 ]
 
 # execve explicitly carries the environment mutated by load_sterling_env().

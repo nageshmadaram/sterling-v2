@@ -14,6 +14,7 @@ PROBE_INTERVAL="${STERLING_PROBE_INTERVAL:-60}"
 PROBE_TIMEOUT="${STERLING_PROBE_TIMEOUT:-30}"
 MAX_FAILURES="${STERLING_PROBE_MAX_FAILURES:-3}"
 STARTUP_GRACE="${STERLING_STARTUP_GRACE:-120}"
+STOP_GRACE="${STERLING_STOP_GRACE:-60}"
 
 mkdir -p logs
 LOG=logs/supervisor.log
@@ -44,7 +45,7 @@ start_backend() {
   monitor_wait "$STARTUP_GRACE" || true
 }
 
-# RT-01 fix: use SIGTERM first with a 30-second grace period so the Python
+# RT-01 fix: use SIGTERM first with a 60-second grace period so the Python
 # lifespan handler can run record_shutdown(), checkpoint WAL, and cancel tasks.
 # SIGKILL only as last resort. Previous pkill -9 caused instant termination
 # with no shutdown record, no WAL checkpoint, and no traceback.
@@ -52,12 +53,12 @@ stop_backend() {
   if [[ -n "$BACKEND_PID" ]] && kill -0 "$BACKEND_PID" 2>/dev/null; then
     log "sending SIGTERM to backend pid=$BACKEND_PID"
     kill -TERM "$BACKEND_PID" 2>/dev/null || true
-    for _ in $(seq 1 30); do
+    for _ in $(seq 1 "$STOP_GRACE"); do
       kill -0 "$BACKEND_PID" 2>/dev/null || break
       sleep 1
     done
     if kill -0 "$BACKEND_PID" 2>/dev/null; then
-      log "backend did not stop gracefully after 30s; escalating to SIGKILL"
+      log "backend did not stop gracefully after ${STOP_GRACE}s; escalating to SIGKILL"
       kill -9 "$BACKEND_PID" 2>/dev/null || true
     fi
   fi

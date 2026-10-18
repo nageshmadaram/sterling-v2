@@ -995,7 +995,7 @@ class Stack:
             return
         self.status.pop('backend_error',None)
         log=(STATE/'backend.log').open('a');self.logs.append(log);os.chmod(STATE/'backend.log',0o600)
-        self.children['backend']=subprocess.Popen([str(self.python),'-m','uvicorn','main:app','--host','127.0.0.1','--port','8000','--workers','1','--no-access-log'],cwd=ROOT/'backend',env=clean_env(),stdout=log,stderr=log,start_new_session=True)
+        self.children['backend']=subprocess.Popen([str(self.python),'-m','uvicorn','main:app','--host','127.0.0.1','--port','8000','--workers','1','--timeout-graceful-shutdown','20','--no-access-log'],cwd=ROOT/'backend',env=clean_env(),stdout=log,stderr=log,start_new_session=True)
         self.backend_owned=True
 
     def start_web(self):
