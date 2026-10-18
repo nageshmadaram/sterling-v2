@@ -58,18 +58,28 @@ def _proven_zero_fill_retry(store, plan, request, quantity):
     from app.services.snapback_live_executor import HEDGE_ZERO_FILL_RETRIES
     events=list(store.events(plan["plan_id"]) or [])
     attempts=[e for e in events if e.get("event")=="RECOVERY_ATTEMPT"]
-    if not attempts or len(attempts)>HEDGE_ZERO_FILL_RETRIES:
-        return False
-    revision=int(attempts[-1].get("revision") or 0)
     base=str(plan.get("opportunity_id") or "")
-    if (revision!=int(plan.get("revision") or 0) or revision<=0
-            or request.signal_id!=f"{base}:hedge-recovery:{revision}"):
-        return False
     context=next((e for e in reversed(events) if e.get("event")=="RECONCILING"),None)
     if not context:
         return False
     detail=json.loads(context.get("detail_json") or "{}")
-    if not str(detail.get("reason") or "").startswith("hedge_rejected_zero_fill:"):
+    reason=str(detail.get("reason") or "")
+    if not attempts:
+        # The executor records this refusal before _submit. A strict missing
+        # canonical reservation corroborates that no broker send was possible.
+        if request.signal_id!=base or not reason.startswith("hedge_risk_denied:"):
+            return False
+        key=order_journal.make_key(uid=request.uid,account_id=request.account_id,
+            strategy_id="snapback",generation_id=request.generation_id,
+            signal_id=base,exchange=request.exchange,symbol=request.symbol,side=request.side)
+        return order_journal.get(key) is None
+    if len(attempts)>HEDGE_ZERO_FILL_RETRIES:
+        return False
+    revision=int(attempts[-1].get("revision") or 0)
+    if (revision!=int(plan.get("revision") or 0) or revision<=0
+            or request.signal_id!=f"{base}:hedge-recovery:{revision}"):
+        return False
+    if not reason.startswith("hedge_rejected_zero_fill:"):
         return False
     # Allocating an attempt is not proof of rejection. Re-read each earlier
     # canonical broker outcome, including at the final submission boundary.

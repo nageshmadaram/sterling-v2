@@ -165,3 +165,21 @@ Final exact-candidate command receipts and outcomes are stored in the durable
 execution evidence directory. A passing unit or browser run never substitutes
 for broker-approved network identity, full restored release artifacts, operator
 acceptance or separately authorized real-order protection and recovery drills.
+
+
+A strict lock-only installation additionally found four missing transitive pins:
+attrs, charset-normalizer, requests and urllib3. The complete lock now produces
+69 compatible packages under CPython 3.12; dependency audit reports no known
+vulnerabilities. The earlier isolated environment had drifted to Pydantic 2.14.1
+instead of the declared 2.13.5, causing fake-clock schema failures. That run was
+stopped and is not a release pass. With corrected dependencies, all 20 admission
+E2E checks passed. A protected hedge refused before broker submission can retry
+only when the durable refusal and strict absence of a canonical broker reservation
+agree; any existing or ambiguous reservation still blocks that exception.
+
+All branch tips were preserved in a verified full-history Git bundle at
+`/mnt/OS/SterlingReadinessBackups/20261018/branches-before-cleanup.bundle`.
+The redundant remote release-fix branch had no commits outside main and was
+removed after ancestry verification. Only main/dev remain as branches; detached
+worktrees and all their files were preserved. Subsequent candidate commits must
+also be synchronized and their exact SHA reported with final test receipts.

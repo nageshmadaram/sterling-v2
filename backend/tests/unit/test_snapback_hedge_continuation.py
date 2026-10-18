@@ -152,3 +152,16 @@ def test_retry_does_not_excuse_other_position_flags(retry_continuation):
     pos,req,*_=retry_continuation
     pos.flags.append("unprotected")
     assert not health._protected_snapback_hedge(pos,req)
+
+
+def test_risk_refusal_retry_requires_no_canonical_broker_reservation(retry_continuation,monkeypatch):
+    from app.services.kite_engine import order_journal
+    pos,req,plan,events,prior=retry_continuation
+    events[:]=[{"event":"RECONCILING","detail_json":'{"reason":"hedge_risk_denied:fresh_capital"}'}]
+    req=replace(req,signal_id="signal")
+    monkeypatch.setattr(order_journal,'get',lambda _:None)
+    assert health._protected_snapback_hedge(pos,req)
+    monkeypatch.setattr(order_journal,'get',lambda _:prior)
+    assert not health._protected_snapback_hedge(pos,req)
+    prior.state="SUBMITTING"
+    assert not health._protected_snapback_hedge(pos,req)
