@@ -39,6 +39,49 @@ def sources(tmp_path):
     return evidence, runtime
 
 
+def test_manifest_refuses_checksum_of_symlinked_external_secret(tmp_path):
+    from app.core.backup_manifest import build_backup_manifest
+
+    backup = tmp_path / "backup"
+    backup.mkdir()
+    _make_db(backup / "snapshot.db")
+    external = tmp_path / "credentials.txt"
+    external.write_text("private", encoding="utf-8")
+    state = backup / "state"
+    state.mkdir()
+    (state / "linked-secret.txt").symlink_to(external)
+
+    with pytest.raises(BackupIntegrityError, match="symlink"):
+        build_backup_manifest(backup)
+
+    assert external.read_text(encoding="utf-8") == "private"
+
+
+def test_manifest_refuses_explicit_database_outside_backup(tmp_path):
+    from app.core.backup_manifest import build_backup_manifest
+
+    backup = tmp_path / "backup"
+    backup.mkdir()
+    _make_db(backup / "included.db")
+    outside = _make_db(tmp_path / "other.db")
+
+    with pytest.raises(BackupIntegrityError, match="unsafe backup database path"):
+        build_backup_manifest(backup, databases=[outside])
+
+
+def test_manifest_refuses_symlinked_backup_root(tmp_path):
+    from app.core.backup_manifest import build_backup_manifest
+
+    real = tmp_path / "actual"
+    real.mkdir()
+    _make_db(real / "source.db")
+    linked = tmp_path / "redirected"
+    linked.symlink_to(real, target_is_directory=True)
+
+    with pytest.raises(BackupIntegrityError, match="directory must not be a symlink"):
+        build_backup_manifest(linked)
+
+
 def test_every_declared_database_is_included(tmp_path, sources):
     evidence, runtime = sources
 
