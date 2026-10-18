@@ -129,7 +129,10 @@ def flush_bar_inputs(uid: str | None = None) -> None:
         ]
         try:
             from app.services import db
-            db.set_config(
+            # set_config() swallows disk errors and returns normally, which
+            # previously cleared the dirty flag even when NO OI evidence was
+            # stored. Strict persistence ensures the next flush retries it.
+            db.set_config_strict(
                 _bar_inputs_key(key[0], date.fromisoformat(key[1])),
                 json.dumps(payload, separators=(",", ":"), allow_nan=False),
             )
