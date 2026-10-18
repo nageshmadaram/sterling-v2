@@ -221,6 +221,33 @@ def test_shared_admission_blocks_live_gamma_monitor_only_stop(monkeypatch):
     assert "broker-held stop" in detail
 
 
+@pytest.mark.parametrize("origin", ["sterling-kite", "gamma_move"])
+def test_unowned_order_identity_blocks_new_risk_on_all_user_accounts(monkeypatch, origin):
+    from app.services import gamma_move_positions
+
+    unbound = NS(
+        account_id="", status="pending", order_id="broker-order-123",
+        gtt_id=0, gtt_pending=False, protection_pending=False,
+    )
+    monkeypatch.setattr(positions, "unreadable_reason", lambda _: "")
+    monkeypatch.setattr(
+        positions, "open_positions",
+        lambda _: [unbound] if origin == "sterling-kite" else [],
+    )
+    monkeypatch.setattr(gamma_move_positions, "load", lambda _: {})
+    monkeypatch.setattr(gamma_move_positions, "legacy_open_rows", lambda _: [])
+    monkeypatch.setattr(
+        gamma_move_positions, "open_positions",
+        lambda _: [unbound] if origin == "gamma_move" else [],
+    )
+
+    for account_id in ("account-a", "account-b"):
+        reason, detail = protection_health.admission_blocker("owner", account_id)
+        assert reason == "protection_integrity"
+        assert origin in detail
+        assert "no verified owning account" in detail
+
+
 def test_live_gamma_monitor_only_stop_fails_even_with_nonzero_local_stop():
     # A numerical local stop is not the broker's acknowledged GTT.
     position = NS(
