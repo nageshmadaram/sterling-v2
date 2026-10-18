@@ -247,7 +247,9 @@ def exposure_snapshot(*, include_broker: bool = True) -> ExposureSnapshot:
     try:
         from app.services import db
 
-        db.init()
+        # Schema migration is boot work, not a polling-side write transaction.
+        if not db.is_available() and not db.init():
+            raise RuntimeError("database unavailable")
     except Exception as exc:  # noqa: BLE001
         return ExposureSnapshot(None, None, detail=f"database unavailable: {exc}")  # noqa: E501
 

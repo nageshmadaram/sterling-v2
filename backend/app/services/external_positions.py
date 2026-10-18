@@ -195,7 +195,9 @@ def _scan_local_ownership(account_id: str) -> _LocalOwnership | None:
         )
         from app.services.kite_engine import order_journal, positions
 
-        db.init()
+        # Schema migration is boot work, not a polling-side write transaction.
+        if not db.is_available() and not db.init():
+            raise RuntimeError("database unavailable")
         wanted_account = str(account_id or "").strip()
         if not wanted_account:
             return None

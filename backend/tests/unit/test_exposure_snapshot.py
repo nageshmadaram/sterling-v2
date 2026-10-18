@@ -121,6 +121,7 @@ class TestUnknownNeverBecomesZero:
         assert exposure_snapshot().total is None
 
     def test_an_unopenable_database_is_unknown(self, monkeypatch):
+        monkeypatch.setattr("app.services.db.is_available", lambda: False)
         def _boom(*_a, **_k):
             raise RuntimeError("database is locked")
 
@@ -360,3 +361,10 @@ class TestTheCertificationGate:
 
         assert gate.status == "UNKNOWN"
         assert "future" in gate.detail.lower()
+
+
+def test_initialized_snapshot_does_not_repeat_schema_writes(stores,monkeypatch):
+    from app.services import db
+    monkeypatch.setattr(db,'is_available',lambda:True)
+    monkeypatch.setattr(db,'init',lambda:pytest.fail('read poll ran schema migrations'))
+    assert exposure_snapshot(include_broker=False).open_positions == 0
