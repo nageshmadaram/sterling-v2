@@ -1058,3 +1058,26 @@ def test_external_backend_service_detection(monkeypatch,state,expected):
  from types import SimpleNamespace
  monkeypatch.setattr(stack.subprocess,'run',lambda *a,**k:SimpleNamespace(returncode=0,stdout=state))
  assert stack.externally_supervised_backend() is expected
+
+
+def test_foreground_service_waits_for_existing_presentation_owner(tmp_path):
+ import fcntl
+ owner=(tmp_path/'manager.lock').open('a')
+ standby=(tmp_path/'manager.lock').open('a')
+ fcntl.flock(owner,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ assert not stack.acquire_manager_lock(standby,foreground=False)
+ acquired=threading.Event()
+ def wait_for_owner():
+  assert stack.acquire_manager_lock(standby,foreground=True)
+  acquired.set()
+ thread=threading.Thread(target=wait_for_owner)
+ thread.start()
+ try:
+  assert not acquired.wait(.1)
+  fcntl.flock(owner,fcntl.LOCK_UN)
+  assert acquired.wait(3)
+ finally:
+  owner.close()
+  thread.join(3)
+  standby.close()
+ assert not thread.is_alive()

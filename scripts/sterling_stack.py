@@ -640,6 +640,20 @@ def externally_supervised_backend():
         return False
 
 
+def acquire_manager_lock(lock, *, foreground):
+    try:
+        fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        return True
+    except BlockingIOError:
+        if not foreground:
+            return False
+        # A user-launched manager may predate the service. Stay as its recovery
+        # standby instead of exiting successfully into Restart=always churn.
+        print('Waiting for the existing presentation manager; backend unchanged.',flush=True)
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        return True
+
+
 class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
@@ -1136,8 +1150,8 @@ def main():
     inherited=os.environ.get('STERLING_STACK_LOCK_FD')
     lock=os.fdopen(int(inherited),'a') if inherited else (STATE/'manager.lock').open('a')
     if not inherited:
-        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError:print('Sterling is already running. Use ./sterling.sh status');return
+        if not acquire_manager_lock(lock,foreground=args.command=='run'):
+            print('Sterling is already running. Use ./sterling.sh status');return
     if args.command in {'start','up'}:
         forwarded=[arg for arg in sys.argv[1:] if arg not in {'start','up'}]
         if args.command=='up' and not getattr(args,'local',False):
