@@ -5,8 +5,8 @@ import { api } from '../utils/api';
 export function usePriceRulesSwitch(simulation: boolean) {
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: ['price-rules'],
-    queryFn: () => api.get<{ enabled: boolean; revision: number }>('/api/v1/price-rules'),
+    queryKey: ['price-rules', 'enabled'],
+    queryFn: () => api.get<{ enabled: boolean; revision: number }>('/api/v1/price-rules/enabled'),
     enabled: !simulation,
     refetchInterval: 3000,
   });
