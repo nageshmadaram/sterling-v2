@@ -355,3 +355,33 @@ def test_pending_user_discovery_preserves_spooled_tenants_when_db_unavailable(
     monkeypatch.setattr(outbox, "_init", fail_init)
     assert outbox.pending_user_ids() == ["owner-in-spool"]
     assert outbox.spooled_count() == 1
+
+
+def test_lifecycle_outbox_cannot_recreate_missing_canonical_database(
+    lifecycle_db, monkeypatch, tmp_path
+):
+    missing = tmp_path / "deleted-canonical.db"
+    assert not missing.exists()
+    monkeypatch.setattr(db, "_DB_PATH", str(missing))
+    monkeypatch.setattr(db, "_available", True)
+
+    with pytest.raises(FileNotFoundError, match="durable database missing"):
+        outbox.enqueue(
+            "u1", dedupe_key="alert-after-database-loss",
+            strategy="Gamma-Unwind", event_type="PROTECTION FAILED",
+            title="OPT", detail="cannot confirm protection",
+            severity="CRITICAL",
+        )
+    assert not missing.exists(), "alert transport must never create a fresh empty journal"
+
+
+def test_lifecycle_queue_read_reports_unknown_if_database_file_disappears(
+    lifecycle_db, monkeypatch, tmp_path
+):
+    missing = tmp_path / "deleted-canonical.db"
+    monkeypatch.setattr(db, "_DB_PATH", str(missing))
+    monkeypatch.setattr(db, "_available", True)
+    summary = outbox.pending_summary("u1")
+    assert summary["readable"] is False
+    assert summary["pending"] is None
+    assert not missing.exists()
