@@ -330,3 +330,28 @@ def test_gamma_archive_preserves_distinct_exposure_with_same_legacy_identity(
     archived = json.loads(stored[gamma_move_positions._legacy_key(uid)])
     assert archived == [closed, still_open]
     assert gamma_move_positions.legacy_open_rows(uid) == [still_open]
+
+
+
+def test_gamma_failed_pnl_save_invalidates_previously_cached_session(monkeypatch):
+    from app.engines.gamma_move import TradeRecord
+    from app.services import gamma_move_runner, live_safety
+
+    uid = "gamma-cached-pnl-corruption"
+    record = TradeRecord()
+    gamma_move_positions._record_cache[uid] = record
+    gamma_move_runner._sessions[uid] = object()
+    monkeypatch.setattr(
+        db, "set_config_strict",
+        lambda _key, _value: (_ for _ in ()).throw(
+            db.ControlPlaneUnavailableError("read-only database")
+        ),
+    )
+    monkeypatch.setattr(live_safety, "set_kill_switch", lambda *_args, **_kwargs: {})
+
+    record.add_realised(-2000.0, "2026-10-18")
+    with pytest.raises(db.ControlPlaneUnavailableError):
+        gamma_move_positions.save_record(uid, record)
+
+    assert uid not in gamma_move_positions._record_cache
+    assert uid not in gamma_move_runner._sessions
