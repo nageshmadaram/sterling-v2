@@ -20,6 +20,7 @@ import uuid
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 _TABLE = "telegram_lifecycle_outbox"
@@ -65,7 +66,18 @@ def _fast_conn(timeout_s: float | None = None):
     from app.services import db
 
     timeout_s = _FAST_TIMEOUT_S if timeout_s is None else timeout_s
-    conn = sqlite3.connect(db._DB_PATH, timeout=timeout_s)
+    # sqlite3.connect(path) silently creates a new empty database if the
+    # deployment loses/misconfigures its original durable journal. A fresh
+    # empty outbox would falsely appear to contain no undelivered trade alerts.
+    # mode=rw allows writes only to an EXISTING SQLite file.
+    path = Path(db._DB_PATH).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError("Telegram lifecycle durable database missing")
+    conn = sqlite3.connect(
+        f"{path.resolve(strict=True).as_uri()}?mode=rw",
+        uri=True,
+        timeout=timeout_s,
+    )
     conn.row_factory = sqlite3.Row
     try:
         conn.execute(f"PRAGMA busy_timeout={int(timeout_s * 1000)}")
@@ -89,7 +101,12 @@ def _init() -> None:
     if path in _initialised_paths and os.path.exists(path):
         return
     with _init_lock:
-        with db._conn() as conn:
+        if path in _initialised_paths and os.path.isfile(path):
+            return
+        # Table initialization runs on the alerting path. Use the same
+        # short-timeout existing-file connection as event insertion rather
+        # than db._conn()'s longer writer wait.
+        with _fast_conn() as conn:
             conn.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {_TABLE} (
