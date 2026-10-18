@@ -465,18 +465,19 @@ def create_full_backup(
             continue
         unique[source.name] = source
     requested = list(unique.values())
-    # Validate before creating a backup directory, so a rejected declaration
-    # does not leave a misleading partial backup artifact on disk.
-    directory = Path(backup_root) / backup_id
-    directory.mkdir(parents=True, exist_ok=False)
-
+    # Do not publish an empty timestamped backup directory if all declared
+    # databases are missing. It could otherwise look like the newest backup
+    # to an operator or unattended restore selector.
     missing = [str(p) for p in requested if not Path(p).exists()]
     present = [Path(p) for p in requested if Path(p).exists()]
-
     if not present:
         raise FileNotFoundError(
             f"no database to back up; requested: {', '.join(map(str, requested)) or 'none'}"
         )
+    # Validate before creating a backup directory, so a rejected declaration
+    # does not leave a misleading partial backup artifact on disk.
+    directory = Path(backup_root) / backup_id
+    directory.mkdir(parents=True, exist_ok=False)
 
     for source in present:
         snapshot_database(source, directory / source.name)
