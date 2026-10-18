@@ -102,8 +102,11 @@ def _load_bar_inputs(uid: str, day: date) -> dict[tuple[int, int], tuple[float, 
         cached = _read_bar_inputs(uid, day)
         _bar_inputs_cache[key] = cached
         for stale in [k for k in _bar_inputs_cache if k[0] == uid and k != key]:
-            _bar_inputs_cache.pop(stale, None)
-            _bar_inputs_dirty.discard(stale)
+            # A midnight rollover must NOT discard yesterday's uncommitted OI
+            # bars if an earlier SQLite flush failed. Keep dirty days and
+            # their payload until a later flush commits them successfully.
+            if stale not in _bar_inputs_dirty:
+                _bar_inputs_cache.pop(stale, None)
     return dict(cached)
 
 
