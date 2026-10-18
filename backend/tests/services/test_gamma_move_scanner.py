@@ -250,6 +250,43 @@ def test_bar_input_recorder_round_trips_exact_live_engine_inputs(monkeypatch):
     assert restored[(222, ts)] == pytest.approx((950.0, 1100.0))
 
 
+
+def test_gamma_bar_input_flush_retries_after_unavailable_sqlite(monkeypatch):
+    from app.services import db
+
+    uid = "gamma-oi-retry"
+    day = BASE.date().isoformat()
+    key = (uid, day)
+    bar_ms = bar(19).ts_ms
+    monkeypatch.setattr(
+        scanner, "_bar_inputs_cache",
+        {key: {(222, bar_ms): (950.0, 1100.0)}},
+    )
+    monkeypatch.setattr(scanner, "_bar_inputs_dirty", {key})
+
+    attempted = []
+
+    def fail(_key, _payload):
+        attempted.append("failed")
+        raise db.ControlPlaneUnavailableError("disk full")
+
+    monkeypatch.setattr(db, "set_config_strict", fail)
+    scanner.flush_bar_inputs(uid)
+    assert key in scanner._bar_inputs_dirty
+    assert attempted == ["failed"]
+
+    saved = {}
+    monkeypatch.setattr(
+        db, "set_config_strict",
+        lambda config_key, payload: saved.__setitem__(config_key, payload),
+    )
+    scanner.flush_bar_inputs(uid)
+
+    assert key not in scanner._bar_inputs_dirty
+    assert saved
+    assert [222, bar_ms, 950.0, 1100.0] in __import__("json").loads(next(iter(saved.values())))
+
+
 def test_level_cache_clear_is_tenant_scoped():
     day = BASE.date().isoformat()
     scanner._levels_cache.clear()
