@@ -589,6 +589,9 @@ async def arm(uid: str, signal_id: str) -> dict:
     if not cfg.enabled:
         return {"ok": False, "message": "Gamma Unwind is switched off"}
     try:
+        # Active rows may contain pre-upgrade open Gamma positions. load()
+        # archives them; only then can the legacy exposure check be trusted.
+        positions_store.load(uid)
         legacy = positions_store.legacy_open_rows(uid)
     except Exception as exc:
         return {
