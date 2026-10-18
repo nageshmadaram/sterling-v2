@@ -179,6 +179,29 @@ def test_legacy_signal_store_migrates_all_event_days_but_live_board_loads_today(
 
 
 @pytest.mark.asyncio
+async def test_gamma_arm_migrates_active_legacy_before_deciding_if_flat(monkeypatch):
+    from app.services import gamma_move_positions
+
+    cfg = GammaMoveConfig().validate()
+    migrated = []
+    legacy = [{"status": "open", "instrument": {"tradingsymbol": "OLDOPT"}}]
+    monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
+    monkeypatch.setattr(
+        gamma_move_positions, "load", lambda _: migrated.append(True) or {},
+    )
+    monkeypatch.setattr(
+        gamma_move_positions, "legacy_open_rows",
+        lambda _: legacy if migrated else [],
+    )
+
+    result = await runner.arm("u1", "new-signal")
+
+    assert migrated
+    assert result["ok"] is False
+    assert result["code"] == "legacy_position_reconciliation_required"
+
+
+@pytest.mark.asyncio
 async def test_gamma_arm_refuses_unreadable_legacy_archive(monkeypatch):
     cfg = GammaMoveConfig().validate()
     monkeypatch.setattr(runner, "get_config", lambda _uid=None: cfg)
