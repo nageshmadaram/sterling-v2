@@ -248,6 +248,29 @@ def test_snapback_genuine_open_protected_position_does_not_trigger_lifecycle_fau
     assert protection_health.position_fault("snapback", pos) == ""
 
 
+@pytest.mark.parametrize("strategy", ["gamma_move", "sterling-kite"])
+def test_pending_broker_entry_fences_new_exposure_across_strategies(strategy):
+    pending = NS(
+        status="pending", stop_mode="both",
+        stop=90.0, stop_premium=90.0,
+        qty=40, quantity=40, gtt_id=123, gtt_qty=40,
+        protection_pending=False, gtt_pending=False,
+    )
+    fault = protection_health.position_fault(strategy, pending)
+    assert "pending fill" in fault
+
+
+@pytest.mark.parametrize("strategy", ["gamma_move", "sterling-kite"])
+@pytest.mark.parametrize("mode", ["monitor", "", "unrecognized"])
+def test_live_monitored_or_unknown_stop_mode_blocks_new_risk(strategy, mode):
+    unprotected = NS(
+        status="open", stop_mode=mode, stop=90.0, stop_premium=90.0,
+        qty=40, quantity=40, gtt_id=0, gtt_qty=0,
+        protection_pending=False, gtt_pending=False,
+    )
+    assert "broker-held stop" in protection_health.position_fault(strategy, unprotected)
+
+
 def test_gamma_accounting_fault_blocks_other_strategies_even_when_halt_write_failed(monkeypatch):
     from app.services import gamma_move_positions
     p = NS(account_id="a", pnl_reconciliation_required=True, is_open=True, pnl_flagged_day="")
