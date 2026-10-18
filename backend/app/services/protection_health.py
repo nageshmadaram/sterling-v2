@@ -25,16 +25,20 @@ def position_fault(strategy: str, position: Any) -> str:
         if status in {"ENTERING", "EXITING", "RECONCILING"}:
             return f"Snapback {status.lower()} position has unresolved broker exposure"
         return ""  # OPEN is checked via LivePosition.protection_pending.
+    if strategy in {"gamma_move", "sterling-kite"} and status == "PENDING":
+        # A pending broker BUY can fill after admission. No confirmed filled
+        # quantity and protective trigger exist yet: do not originate another
+        # entry against this unresolved risk, including across strategies.
+        return "broker entry pending fill and stop protection"
     if status != "OPEN":
         return ""
     stop_mode = str(getattr(position, "stop_mode", "") or "").lower()
     if stop_mode not in {"broker", "both"}:
-        # An old Gamma position can survive a deployment/config transition.
-        # Its monitor-only stop is NOT broker protection. Gamma's own recovery
-        # halts this case, but admission for other strategies must independently
-        # reject fresh risk on the same account if the runner has not started.
-        if strategy == "gamma_move":
-            return "live Gamma position lacks broker-held stop protection"
+        # For the three release-scoped strategies, monitor-only and unknown
+        # modes do not establish broker-held protection. Reconciliation and
+        # reduction must still be available; this only blocks NEW entries.
+        if strategy in {"gamma_move", "sterling-kite"}:
+            return f"live {strategy} position lacks broker-held stop protection"
         return ""
     stop = float(getattr(position, "stop_premium" if strategy == "sterling-kite" else "stop", 0) or 0)
     trigger = int(getattr(position, "gtt_id", 0) or 0)
