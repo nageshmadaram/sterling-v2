@@ -25,6 +25,11 @@ class Command(BaseModel):
 class Exit(BaseModel):
     percent: Literal[25,50,75,100]=100
 
+class EnabledCommand(BaseModel):
+    model_config=ConfigDict(extra="forbid")
+    enabled: bool=Field(strict=True)
+    expected_enabled: bool=Field(strict=True)
+
 def uid(user):
     value=getattr(user,"user_id",None) or getattr(user,"uid",None)
     if not value:raise HTTPException(401,"authenticated user required")
@@ -44,6 +49,8 @@ async def snapshot(user:UserContext=Depends(get_current_user)):
         account=runtime.accounts.get_active(owner)
         verdict=SafetySupervisor().authorize(uid=owner,account_id=account.id if account else "",strategy_id=runtime.STRATEGY_ID)
         blocker = verdict.reason if not verdict.allowed else ""
+        if doc.get("enabled") is not True:
+            blocker = "price_rules_disabled"
         if not blocker:
             from app.core.lane_registry import LIVE_EXECUTION_ENABLED
             from app.services.continuity_doctor import egress_status
@@ -59,7 +66,12 @@ async def snapshot(user:UserContext=Depends(get_current_user)):
                 if not binding or not binding.live_ready or not verification_is_current(binding):
                     blocker = "current_live_broker_binding_required"
         return dict(strategy_id=runtime.STRATEGY_ID,name="Price Rules",mode="REAL",naked_shorts_supported=False,
-                    entry_allowed=not blocker,entry_blocker=blocker,rules=list(doc["rules"].values()),revision=doc["revision"])
+                    enabled=doc.get("enabled") is True,entry_allowed=not blocker,entry_blocker=blocker,rules=list(doc["rules"].values()),revision=doc["revision"])
+    except Exception as exc:raise fail(exc) from exc
+
+@router.post("/enabled")
+async def set_enabled(body:EnabledCommand,user:UserContext=Depends(get_current_user)):
+    try:return await runtime.set_enabled(uid(user),body.enabled,body.expected_enabled)
     except Exception as exc:raise fail(exc) from exc
 
 @router.post("/plans")
