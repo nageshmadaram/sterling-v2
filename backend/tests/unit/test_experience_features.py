@@ -45,6 +45,23 @@ def test_profile_identity_and_security(client):
  app.dependency_overrides[get_current_user]=lambda:UserContext('bob')
  assert c.get('/profile').status_code==401
 
+def test_profile_photo_upload_replace_remove_persists(client):
+ c,app=client
+ photo1='data:image/jpeg;base64,'+base64.b64encode(b'\xff\xd8\xfffirst').decode()
+ photo2='data:image/jpeg;base64,'+base64.b64encode(b'\xff\xd8\xffsecond').decode()
+ first=c.patch('/profile',json={'display_name':'Alice','photo':photo1})
+ assert first.status_code==200 and first.json()['photo']==photo1
+ assert c.get('/profile').json()['photo']==photo1
+ replacement=c.patch('/profile',json={'display_name':'Alice','photo':photo2})
+ assert replacement.status_code==200 and c.get('/profile').json()['photo']==photo2
+ removed=c.patch('/profile',json={'display_name':'Alice','photo':''})
+ assert removed.status_code==200 and removed.json()['photo']==''
+ assert c.get('/profile').json()['photo']==''
+ app.dependency_overrides[get_current_user]=lambda:UserContext('bob')
+ assert c.patch('/profile',json={'display_name':'Other','photo':photo1}).status_code==401
+ app.dependency_overrides[get_current_user]=lambda:UserContext('alice')
+ assert c.get('/profile').json()['photo']==''
+
 def subscription():
  key=ec.generate_private_key(ec.SECP256R1()).public_key().public_bytes(serialization.Encoding.X962,serialization.PublicFormat.UncompressedPoint)
  enc=lambda v:base64.urlsafe_b64encode(v).decode().rstrip('=')
