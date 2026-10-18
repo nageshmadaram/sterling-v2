@@ -287,6 +287,36 @@ def test_gamma_bar_input_flush_retries_after_unavailable_sqlite(monkeypatch):
     assert [222, bar_ms, 950.0, 1100.0] in __import__("json").loads(next(iter(saved.values())))
 
 
+def test_gamma_midnight_rollover_keeps_unsaved_previous_day_oi(monkeypatch):
+    from app.services import db
+
+    uid = "gamma-midnight-retry"
+    yesterday = BASE.date()
+    today = yesterday + timedelta(days=1)
+    old_key = (uid, yesterday.isoformat())
+    old_bar = bar(19).ts_ms
+    monkeypatch.setattr(
+        scanner, "_bar_inputs_cache",
+        {old_key: {(222, old_bar): (950.0, 1100.0)}},
+    )
+    monkeypatch.setattr(scanner, "_bar_inputs_dirty", {old_key})
+    monkeypatch.setattr(scanner, "_read_bar_inputs", lambda *_args: {})
+
+    assert scanner._load_bar_inputs(uid, today) == {}
+    assert old_key in scanner._bar_inputs_dirty
+    assert scanner._bar_inputs_cache[old_key][(222, old_bar)] == (950.0, 1100.0)
+
+    saved = {}
+    monkeypatch.setattr(
+        db, "set_config_strict",
+        lambda key, payload: saved.__setitem__(key, payload),
+    )
+    scanner.flush_bar_inputs(uid)
+
+    assert old_key not in scanner._bar_inputs_dirty
+    assert any(yesterday.isoformat() in key for key in saved)
+
+
 def test_level_cache_clear_is_tenant_scoped():
     day = BASE.date().isoformat()
     scanner._levels_cache.clear()
