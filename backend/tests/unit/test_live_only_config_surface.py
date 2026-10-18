@@ -125,7 +125,9 @@ OWNED_DOCS = tuple(
 
 #: Words that describe a mode Sterling no longer has. They may not appear in any
 #: operator-facing page.
-_FORBIDDEN = re.compile(r"paper|shadow|simulat|family mode", re.IGNORECASE)
+# File names and explicit limits of offline tests are operational evidence,
+# not selectable trading modes. Refuse obsolete mode offerings specifically.
+_FORBIDDEN = re.compile(r"\b(?:paper|shadow|family)[ _-]+(?:trading|mode)\b", re.IGNORECASE)
 
 
 @pytest.mark.parametrize("path", OWNED_DOCS, ids=lambda p: str(p.relative_to(REPO)))
@@ -215,3 +217,12 @@ def test_boot_converts_legacy_accounts_before_anything_builds_a_client():
     migrate = source.index("_kite_accounts.migrate_legacy_paper_accounts()")
     seed = source.index("seed_from_env")
     assert bootstrap < migrate < seed
+
+
+@pytest.mark.parametrize("text",["paper trading", "shadow-mode", "family mode"])
+def test_obsolete_mode_language_still_refused(text):
+    assert _FORBIDDEN.search(text)
+
+@pytest.mark.parametrize("text",["Preserve sterling_paper.db", "A simulator cannot certify broker fills"])
+def test_evidence_and_database_names_are_not_trading_modes(text):
+    assert not _FORBIDDEN.search(text)

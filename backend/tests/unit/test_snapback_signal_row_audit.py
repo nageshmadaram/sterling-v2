@@ -135,11 +135,12 @@ def test_snapshot_ages_the_cached_quote_instead_of_presenting_it_as_current(monk
     uid = "row-audit-age"
     snapback._state.pop(uid, None)
     now_ms = int(datetime.now(IST).timestamp() * 1000)
+    monkeypatch.setattr(snapback, "ist_now_ms", lambda: now_ms)
     st = snapback.status(uid)
     st.rows = [_cached_row(quote_ts_ms=now_ms - 600_000, observed_ms=now_ms - 590_000)]
     monkeypatch.setattr(snapback, "get_config", lambda uid=None: SCALP)
     row = snapback.snapshot(uid)["rows"][0]
-    assert 590 <= row["quote_age_s"] <= 620
+    assert row["quote_age_s"] == 600.0
     assert row["execution_eligible"] is False
 
 
