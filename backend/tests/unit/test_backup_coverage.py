@@ -474,6 +474,46 @@ def test_scheduled_backup_rejects_symlinked_target_directory(host):
     assert sentinel.read_text(encoding="utf-8") == "preserve"
 
 
+def test_backup_discards_partial_directory_if_late_symlink_appears(
+    tmp_path, monkeypatch
+):
+    import shutil
+    from types import SimpleNamespace
+
+    from app.core.backup_manifest import _capture_declared_artifacts
+    from app.core import backup_coverage
+
+    live = tmp_path / "data/manifests/strategies"
+    live.mkdir(parents=True)
+    (live / "snapshot.json").write_text("{}", encoding="utf-8")
+    secret = tmp_path / "private-key.txt"
+    secret.write_text("DO NOT EXPORT", encoding="utf-8")
+    target = tmp_path / "archives" / "today"
+    target.mkdir(parents=True)
+
+    artifact = SimpleNamespace(
+        name="lane_manifests", kind=ArtifactKind.DIRECTORY
+    )
+    monkeypatch.setattr(
+        backup_coverage, "resolve_artifacts",
+        lambda _root: [(artifact, live)],
+    )
+    real_copytree = shutil.copytree
+
+    def simulate_source_change(source, destination, **kwargs):
+        real_copytree(source, destination, **kwargs)
+        (destination / "late-symlink").symlink_to(secret)
+
+    monkeypatch.setattr(shutil, "copytree", simulate_source_change)
+
+    captured, referenced = _capture_declared_artifacts(tmp_path, target)
+
+    assert captured == []
+    assert referenced == []
+    assert not (target / "state/lane_manifests").exists()
+    assert secret.read_text(encoding="utf-8") == "DO NOT EXPORT"
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
