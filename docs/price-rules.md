@@ -44,3 +44,9 @@ No endpoint accepts caller-selected tenant, account, raw order direction, stop i
 ## Deployment
 
 No executable or additional runtime dependency is required. Existing backend lifespan starts the strategy loop; the UI is lazy-loaded under More. Existing SQLite storage needs no schema migration. Deploy only after standard Sterling credential, broker binding, static egress and reconciliation checks. After deployment, keep SAFE_MODE enabled and live entries disabled until broker-session, binding and reconciliation acceptance is complete; passing fake-broker tests does not certify a real broker session or execution.
+
+## Entry enable switch
+
+Trading Config → What is running contains a per-user Price Rules ON/OFF switch. A missing legacy setting defaults to OFF. Its state is persisted in `price_rules:<uid>`, read via authenticated `GET /api/v1/price-rules/enabled`, and updated via `POST /api/v1/price-rules/enabled`. The update requires strict booleans `enabled` and `expected_enabled`; a stale switch request returns HTTP 409.
+
+OFF prevents new ARMED plan submission claims without changing individual plan states. Plan expiry continues while disabled. Previously submitted orders may still settle; reconciliation, owned position protection and exits continue. ON does not bypass broker readiness, risk checks, strategy-specific arming or the master execution gate. This switch does not replace an emergency stop.

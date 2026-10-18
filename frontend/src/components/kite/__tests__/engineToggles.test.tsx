@@ -12,6 +12,9 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 
 const patchSuperTrend = vi.fn();
 const updateGamma = vi.fn();
+const togglePriceRules = vi.fn();
+let priceRulesEnabled = false;
+let priceRulesAvailable = true;
 let gammaConfig: { enabled: boolean } | null = { enabled: true };
 let snapbackConfig: { enabled: boolean } | null = { enabled: true };
 
@@ -32,12 +35,16 @@ vi.mock('../../../hooks/useSnapback', () => ({
   useUpdateSnapback: () => ({ mutate: vi.fn(), isPending: false }),
   useSnapbackSnapshot: () => ({ data: undefined }),
 }));
+vi.mock('../../../hooks/usePriceRulesSwitch', () => ({
+  usePriceRulesSwitch: () => ({ enabled: priceRulesEnabled, pending: false,
+    toggle: priceRulesAvailable ? togglePriceRules : null, error: null }),
+}));
 vi.mock('../TradingModeControls', () => ({ TradingModeControls: () => <div>mode controls</div> }));
 vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: () => <div>data source selector</div> }));
 
 import { TradingModePanel } from '../TradingModePanel';
 
-const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback', 'EMA Trend · paper'];
+const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback', 'EMA Trend · paper', 'Price Rules'];
 const RETIRED = ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack', 'Opening Volume'];
 
 /**
@@ -56,6 +63,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   gammaConfig = { enabled: true };
   snapbackConfig = { enabled: true };
+  priceRulesEnabled = false;
+  priceRulesAvailable = true;
 });
 afterEach(cleanup);
 
@@ -69,6 +78,20 @@ describe('What is running', () => {
     render(<TradingModePanel />);
     for (const label of RETIRED) expect(screen.queryByRole('switch', { name: label })).toBeNull();
     expect(screen.getAllByRole('switch')).toHaveLength(ENGINES.length);
+  });
+
+  it('shows Price Rules OFF by default and allows an ON request', () => {
+    render(<TradingModePanel />);
+    expect(switchFor('Price Rules')).not.toBeChecked();
+    fireEvent.click(switchFor('Price Rules'));
+    expect(togglePriceRules).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Open Price Rules plans and owned positions' })).toBeInTheDocument();
+  });
+
+  it('disables the switch if Price Rules state is unknown', () => {
+    priceRulesAvailable = false;
+    render(<TradingModePanel />);
+    expect(switchFor('Price Rules')).toBeDisabled();
   });
 
   it('switches SuperTrend off through its own field name', () => {

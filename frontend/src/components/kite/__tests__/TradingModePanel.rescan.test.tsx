@@ -32,6 +32,9 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: mockEngineConfigData }),
   usePatchEngineConfig: () => ({ mutate: mockPatchMutate, isPending: false }),
 }));
+vi.mock('../../../hooks/usePriceRulesSwitch', () => ({
+  usePriceRulesSwitch: () => ({ enabled: false, pending: false, toggle: vi.fn(), error: null }),
+}));
 vi.mock('../TradingModeControls', () => ({ TradingModeControls: () => <div>mode controls</div> }));
 vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: () => <div>data source selector</div> }));
 
@@ -122,7 +125,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
     for (const gone of ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack']) {
       expect(screen.queryByText(gone)).toBeNull();
     }
-    expect(screen.getAllByRole('switch')).toHaveLength(4);
+    expect(screen.getAllByRole('switch')).toHaveLength(5);
   });
 
   it('says plainly that the running switch beats the tick box', () => {

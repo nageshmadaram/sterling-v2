@@ -10,6 +10,8 @@ PREFIX = "price_rules:"
 def validate(doc):
     if not isinstance(doc, dict) or not isinstance(doc.get("rules"), dict):
         raise RuntimeError("price_rules_store_unreadable")
+    if "enabled" in doc and type(doc["enabled"]) is not bool:
+        raise RuntimeError("price_rules_enabled_unreadable")
     states = {"DRAFT", "PAUSED", "ARMED", "CANCELLED", "CLOSED", "REFUSED", "EXPIRED", "SUBMITTING", "UNKNOWN", "SUBMITTED", "OPEN", "EXITING", "RECOVERY_REQUIRED"}
     for key, rule in doc["rules"].items():
         if not isinstance(rule, dict) or rule.get("id") != key or rule.get("state") not in states:
@@ -43,7 +45,7 @@ def validate(doc):
 def load(uid):
     raw = db.get_config_strict(PREFIX + uid)
     if not raw:
-        return {"revision": 0, "rules": {}}
+        return {"revision": 0, "enabled": False, "rules": {}}
     doc = json.loads(raw)
     return validate(doc)
 
@@ -55,7 +57,7 @@ def mutate(uid, change):
         conn.execute("PRAGMA synchronous=FULL")
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT value FROM system_config WHERE key=?", (PREFIX + uid,)).fetchone()
-        doc = json.loads(row[0]) if row and row[0] else {"revision": 0, "rules": {}}
+        doc = json.loads(row[0]) if row and row[0] else {"revision": 0, "enabled": False, "rules": {}}
         validate(doc)
         result = change(doc)
         validate(doc)

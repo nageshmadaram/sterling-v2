@@ -4,6 +4,7 @@ export function priceRulesEntryReason(reason?: string): string {
     return 'Kite needs a fresh session. Reconnect in Account & Login before arming entries.';
   }
   const known: Record<string,string> = {
+    price_rules_disabled: 'Price Rules is off. Turn it on under Trading Config → What is running before arming new entries.',
     current_live_broker_binding_required: 'Confirm the current broker account in Trading Config before arming entries.',
     bound_live_account_required: 'Connect and select a live Kite account before arming entries.',
     LIVE_EXECUTION_DISABLED: 'Live execution is turned off. Review Trading Config.',
