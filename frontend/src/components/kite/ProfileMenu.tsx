@@ -29,8 +29,10 @@ export function ProfileMenu(){const q=useSterlingProfile();const qc=useQueryClie
     ctx.fillStyle='#fff';ctx.fillRect(0,0,256,256);
     const side=Math.min(image.width,image.height);
     ctx.drawImage(image,(image.width-side)/2,(image.height-side)/2,side,side,0,0,256,256);
-    const encoded=canvas.toDataURL('image/jpeg',.85);
-    if(!encoded.startsWith('data:image/jpeg;base64,')||encoded.length>280000)throw Error('Photo too large');
+    let encoded=canvas.toDataURL('image/jpeg',.85);
+    // The profile API accepts no more than 200 KB of decoded image bytes.
+    if(encoded.length>266600)encoded=canvas.toDataURL('image/jpeg',.7);
+    if(!encoded.startsWith('data:image/jpeg;base64,')||encoded.length>266600)throw Error('Photo too large');
     if(epoch===photoEpoch.current){setPhoto(encoded);setMessage('Picture ready. Save profile to apply.');}
    }finally{image.close();}
   }catch{if(epoch===photoEpoch.current)setMessage('Could not process that picture. Choose another image.');}
