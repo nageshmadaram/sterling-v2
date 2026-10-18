@@ -18,7 +18,8 @@ export function constrainCrop(width: number, height: number, draft: CropView): C
   const cover = Math.max(1 / width, 1 / height) * zoom;
   const maxX = Math.max(0, (width * cover - 1) / 2);
   const maxY = Math.max(0, (height * cover - 1) / 2);
-  return { zoom, x: clamp(draft.x, -maxX, maxX), y: clamp(draft.y, -maxY, maxY) };
+  // Normalize negative zero at a fully constrained axis (and reject NaN pan).
+  return { zoom, x: clamp(draft.x, -maxX, maxX) || 0, y: clamp(draft.y, -maxY, maxY) || 0 };
 }
 
 /** Exact source rectangle seen inside the round viewport, before its circular CSS mask. */
