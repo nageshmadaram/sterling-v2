@@ -234,6 +234,10 @@ def _load(uid: str) -> Dict[str, OpenPosition]:
                         raise ValueError(f"invalid_position_identity:{index}")
                     if isinstance(p.qty, bool) or not isinstance(p.qty, int) or p.qty < 0:
                         raise ValueError(f"invalid_position_quantity:{index}")
+                    if p.status not in (PENDING, OPEN, CLOSED, REJECTED):
+                        # open_positions() only monitors the two active states.
+                        # A corrupted status must NOT masquerade as no exposure.
+                        raise ValueError(f"invalid_position_status:{index}")
                     if p.symbol in out:
                         raise ValueError(f"duplicate_position_symbol:{p.symbol}")
                     out[p.symbol] = p
@@ -302,8 +306,15 @@ def get(uid: str, symbol: str) -> Optional[OpenPosition]:
 
 
 def open_positions(uid: str) -> List[OpenPosition]:
-    """Positions still being guarded (pending or open)."""
-    return [p for p in _load(uid).values() if p.status in (PENDING, OPEN)]
+    """Positions still being guarded (pending or open).
+
+    A runtime mutation can also place an invalid status into an already-loaded
+    cache. Never report a false empty list in that case.
+    """
+    rows = list(_load(uid).values())
+    if any(p.status not in (PENDING, OPEN, CLOSED, REJECTED) for p in rows):
+        raise RegistryUnreadable(uid)
+    return [p for p in rows if p.status in (PENDING, OPEN)]
 
 
 def known_uids() -> List[str]:
