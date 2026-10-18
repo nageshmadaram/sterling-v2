@@ -277,3 +277,56 @@ def test_gamma_loss_ledger_failure_blocks_other_strategies_new_risk(monkeypatch)
     code, detail = protection_health.admission_blocker("operator", "kite-account")
     assert code == "protection_unreadable"
     assert "ValueError" in detail
+
+
+
+def test_gamma_failed_position_write_evicts_speculative_cache(monkeypatch):
+    from types import SimpleNamespace
+
+    uid = "gamma-position-write-failed"
+    state = SimpleNamespace(status="open", quantity=40)
+    gamma_move_positions._cache[uid] = {"OPT": state}
+    monkeypatch.setattr(
+        gamma_move_positions, "_to_dict",
+        lambda position: {"status": position.status, "quantity": position.quantity},
+    )
+
+    def refuse_write(_key, _value):
+        raise db.ControlPlaneUnavailableError("SQLite write refused")
+
+    monkeypatch.setattr(db, "set_config_strict", refuse_write)
+    state.quantity = 20  # simulate a partially filled exit before persistence
+
+    with pytest.raises(db.ControlPlaneUnavailableError, match="SQLite write refused"):
+        gamma_move_positions.persist(uid)
+
+    assert uid not in gamma_move_positions._cache
+
+
+def test_gamma_archive_preserves_distinct_exposure_with_same_legacy_identity(
+    monkeypatch,
+):
+    import json
+
+    uid = "gamma-same-timestamp-different-exposure"
+    closed = {
+        "instrument": {"tradingsymbol": "OLDOPT"},
+        "order_id": "OID1", "entered_ms": 1000,
+        "status": "closed", "quantity": 40,
+    }
+    still_open = {**closed, "status": "open", "quantity": 20}
+    stored = {gamma_move_positions._legacy_key(uid): json.dumps([closed])}
+    monkeypatch.setattr(
+        db, "get_config_strict",
+        lambda key, default="": stored.get(key, default),
+    )
+    monkeypatch.setattr(
+        db, "set_config_strict",
+        lambda key, payload: stored.__setitem__(key, payload),
+    )
+
+    gamma_move_positions._archive_legacy_rows(uid, [still_open, still_open])
+
+    archived = json.loads(stored[gamma_move_positions._legacy_key(uid)])
+    assert archived == [closed, still_open]
+    assert gamma_move_positions.legacy_open_rows(uid) == [still_open]
