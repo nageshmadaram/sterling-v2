@@ -53,6 +53,27 @@ def _isolated_state(tmp_path, monkeypatch):
     live_safety.reset_all_for_tests()
 
 
+@pytest.mark.parametrize("invalid_effect", [
+    "", "ENTRY", "OPEN", "UNKNOWN", None, "INCREASE-EXPOSURE",
+])
+def test_unrecognized_exposure_effect_cannot_bypass_new_trade_switches(
+    _isolated_state, invalid_effect
+):
+    # The meaning of an unknown effect is UNKNOWN, not harmless management.
+    verdict = SafetySupervisor().authorize(invalid_effect)
+    assert verdict.allowed is False
+    assert verdict.code == "unknown_exposure_effect"
+
+
+def test_explicit_modify_order_remains_available_during_operator_halt(
+    _isolated_state,
+):
+    SafeModeService(_isolated_state).engage(
+        trigger=SafeModeTrigger.OPERATOR, reason="stop new trades"
+    )
+    assert SafetySupervisor().authorize(ExposureIntent.MODIFY_ORDER).allowed is True
+
+
 def test_a_clean_system_admits_new_exposure(_isolated_state):
     assert SafetySupervisor().authorize(ExposureIntent.INCREASE_EXPOSURE).allowed is True
 
