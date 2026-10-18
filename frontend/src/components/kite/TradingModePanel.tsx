@@ -10,6 +10,7 @@ import { useIsSimulation } from '../../store/useViewStore';
 import { SimDeniedNote } from '../sim/SimDeniedNote';
 import { useReleaseEngineToggles } from '../../hooks/useEngineToggles';
 import { useAlgoToggles } from '../../hooks/useAlgoToggles';
+import { usePriceRulesSwitch } from '../../hooks/usePriceRulesSwitch';
 import { notifyOrder } from '../../store/useKiteNotifications';
 import type { EngineConfigModel, DeepItmMoneyness } from '../../types/kiteEngine';
 
@@ -105,6 +106,7 @@ export function TradingModePanel() {
   const { data: cfg } = useEngineConfig();
   const patchCfg = usePatchEngineConfig();
   const toggles = useReleaseEngineToggles();
+  const priceRules = usePriceRulesSwitch(sim);
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);
   const toggleRescanStrategy = useKiteSettings((s) => s.toggleRescanStrategy);
 
@@ -349,7 +351,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="What is running"
-          description="SuperTrend, Gamma Unwind and Snapback scanners. Price Rules plans are armed individually. Safety services stay on when an engine is off."
+          description="Control each strategy's new entries. Price Rules plans are armed separately. Existing positions and safety services remain managed while off."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {toggles.map((engine) => (
@@ -367,7 +369,13 @@ export function TradingModePanel() {
               />
             </RunningRow>
           ))}
-          <RunningRow label="Price Rules" description="Entry plans are armed individually; manage plans and owned positions.">
+          <RunningRow label="Price Rules" on={priceRules.enabled}
+            description={priceRules.enabled
+              ? "On. Individually armed plans can trigger when safety checks pass."
+              : "Off. New entries are blocked; owned positions and protection remain managed."}>
+            <Switch checked={priceRules.enabled} label="Price Rules"
+              disabled={!priceRules.toggle || priceRules.pending}
+              onChange={() => priceRules.toggle?.()} />
             <button
               type="button"
               aria-label="Open Price Rules plans and owned positions"
@@ -375,6 +383,7 @@ export function TradingModePanel() {
               style={{ padding: '4px 9px', borderRadius: 5, fontSize: 11, fontWeight: 650,
                 background: 'var(--k-surface-2)', color: TEXT, border: `1px solid ${BORDER}`, cursor: 'pointer' }}
             >Plans →</button>
+            {priceRules.error && <span role="alert" style={{ color: 'var(--k-danger)', fontSize: 11 }}>Price Rules switch failed: {priceRules.error.message}</span>}
           </RunningRow>
         </div>
 
