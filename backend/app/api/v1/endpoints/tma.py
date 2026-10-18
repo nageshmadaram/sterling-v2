@@ -1397,7 +1397,21 @@ def _generate_tma_html(nonce: str = "") -> str:
       document.getElementById('sterling-login').hidden = false;
       document.getElementById('sterling-login-error').textContent = message;
       document.getElementById('txt-broker').innerText = 'Sign in required';
+      appState = null;
       document.getElementById('signals-list').textContent = 'Sign in above to view your desk.';
+      document.getElementById('positions-list').textContent = 'Sign in above to view positions.';
+      for (const id of ['summary-pnl','summary-margin','funds-realized','funds-unrealized','funds-avail','funds-used','funds-equity-opening','funds-commodity-available','funds-commodity-used','funds-commodity-opening']) document.getElementById(id).innerText = '—';
+    }
+    async function tmaResponseError(response) {
+      const raw = await response.text();
+      if (raw.includes('ERR_NGROK_725')) return {message:'Public tunnel bandwidth limit reached. Use local Sterling or restore tunnel capacity.', authenticationRejected:false};
+      let detail = {};
+      try { detail = JSON.parse(raw); } catch {}
+      const structured = typeof detail.detail === 'string';
+      return {
+        message: structured ? detail.detail : 'Sterling service is unavailable. Retry when connectivity is restored.',
+        authenticationRejected: structured && (response.status === 401 || response.status === 403)
+      };
     }
     async function renewSession() {
       if (refreshPending) return refreshPending;
@@ -1417,7 +1431,10 @@ def _generate_tma_html(nonce: str = "") -> str:
       try {
         const body=new URLSearchParams({username:document.getElementById('sterling-username').value,password:password.value});
         const response=await fetch('/api/v1/auth/login',{method:'POST',body});
-        if (!response.ok) throw new Error(response.status===429?'Too many attempts. Please try again later.':'Sign-in failed. Check your username and password.');
+        if (!response.ok) {
+          const failure = await tmaResponseError(response);
+          throw new Error(response.status===429?'Too many attempts. Please try again later.':failure.message);
+        }
         saveTokens(await response.json());
         const remembered=await fetch('/api/v1/auth/remember',{method:'POST',headers:{Authorization:'Bearer '+savedToken('sterling.auth.access')}});
         if(remembered.ok)saveTokens(await remembered.json());
@@ -1440,9 +1457,8 @@ def _generate_tma_html(nonce: str = "") -> str:
         response=await fetch(url,{...options,headers});
       }
       if (!response.ok) {
-        const detail = await response.json().catch(() => ({}));
-        const message = typeof detail.detail === 'string' ? detail.detail : 'Request failed. Refresh and try again.';
-        if (response.status === 401 || response.status === 403) showSterlingLogin(message);
+        const {message,authenticationRejected} = await tmaResponseError(response);
+        if (authenticationRejected) showSterlingLogin(message);
         else if (options.method === 'POST' && notifyFailure) notify(message);
         throw new Error(message);
       }
@@ -1477,7 +1493,7 @@ def _generate_tma_html(nonce: str = "") -> str:
         appState = await res.json();
         renderState();
       } catch (err) {
-        document.getElementById("sync-status").innerText = "Connection interrupted. Retrying…";
+        document.getElementById("sync-status").innerText = err.message || "Connection interrupted. Retrying…";
         document.getElementById('txt-entry').innerText = 'Entry status UNKNOWN';
         document.getElementById('txt-algo').innerText = 'SuperTrend status UNKNOWN';
         document.getElementById('pill-algo').className = 'pill pill-algo-off';
