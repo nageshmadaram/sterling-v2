@@ -255,3 +255,25 @@ def test_gamma_trade_ledger_write_failure_engages_halt_and_does_not_cache(
     assert "P&L write failed" in halts[-1][1]
     assert halts[-1][2] == uid
     assert halts[-1][3] == "GAMMA_PNL_PERSISTENCE_FAILED"
+
+
+def test_gamma_loss_ledger_failure_blocks_other_strategies_new_risk(monkeypatch):
+    from app.services import (
+        protection_health, snapback_live_positions, price_rules_store,
+    )
+
+    monkeypatch.setattr(kite_positions, "unreadable_reason", lambda _: "")
+    monkeypatch.setattr(kite_positions, "open_positions", lambda _: [])
+    monkeypatch.setattr(gamma_move_positions, "load", lambda _: {})
+    monkeypatch.setattr(gamma_move_positions, "legacy_open_rows", lambda _: [])
+    monkeypatch.setattr(gamma_move_positions, "open_positions", lambda _: [])
+    monkeypatch.setattr(snapback_live_positions, "open_positions", lambda _: [])
+    monkeypatch.setattr(price_rules_store, "open_positions", lambda _: [])
+    monkeypatch.setattr(
+        gamma_move_positions, "load_record",
+        lambda _: (_ for _ in ()).throw(ValueError("loss ledger corrupt")),
+    )
+
+    code, detail = protection_health.admission_blocker("operator", "kite-account")
+    assert code == "protection_unreadable"
+    assert "ValueError" in detail
