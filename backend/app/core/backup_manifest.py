@@ -578,6 +578,11 @@ def _capture_declared_artifacts(
                 f"{digest}  {path}\n", encoding="utf-8")
             referenced.append(artifact.name)
             continue
+        destination = state_dir / artifact.name
+        copy_target = (
+            destination if artifact.kind is ArtifactKind.DIRECTORY
+            else destination.with_suffix(path.suffix)
+        )
         try:
             # A directory artifact may contain symlinks to *outside* the
             # declared state tree (including operator secrets). copytree's
@@ -594,17 +599,38 @@ def _capture_declared_artifacts(
                     raise BackupIntegrityError(
                         f"directory artifact contains symlink(s): {artifact.name}"
                     )
-            destination = state_dir / artifact.name
             destination.parent.mkdir(parents=True, exist_ok=True)
             if artifact.kind is ArtifactKind.DIRECTORY:
-                # Even if the tree changes after preflight, copytree must never
-                # dereference a newly introduced symlink to outside data.
+                # Never follow even a symlink introduced after preflight.
                 shutil.copytree(
-                    path, destination, dirs_exist_ok=True, symlinks=True
+                    path, copy_target, dirs_exist_ok=True, symlinks=True
                 )
+                # And never publish an archive with even one unresolved link;
+                # this also closes a source mutation race after the first scan.
+                if any(member.is_symlink() for member in copy_target.rglob("*")):
+                    raise BackupIntegrityError(
+                        f"artifact changed to include a symlink: {artifact.name}"
+                    )
             else:
-                shutil.copyfile(path, destination.with_suffix(path.suffix))
+                shutil.copyfile(path, copy_target, follow_symlinks=False)
+                if copy_target.is_symlink():
+                    raise BackupIntegrityError(
+                        f"file artifact changed to a symlink: {artifact.name}"
+                    )
         except Exception as exc:  # noqa: BLE001
+            # A failed copytree can leave an incomplete directory, and a file
+            # can change into a symlink during copy. Neither is valid backup
+            # evidence. Remove ONLY the destination, never the live source.
+            try:
+                if copy_target.is_symlink() or copy_target.is_file():
+                    copy_target.unlink()
+                elif copy_target.is_dir():
+                    shutil.rmtree(copy_target)
+            except OSError as cleanup_exc:
+                log.warning(
+                    "backup: partial artifact cleanup failed for %s: %s",
+                    artifact.name, type(cleanup_exc).__name__,
+                )
             log.warning("backup: could not capture %s (%s): %s", artifact.name, path, exc)
             continue
         captured.append(artifact.name)
