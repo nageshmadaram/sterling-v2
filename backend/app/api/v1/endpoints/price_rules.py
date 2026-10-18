@@ -69,6 +69,13 @@ async def snapshot(user:UserContext=Depends(get_current_user)):
                     enabled=doc.get("enabled") is True,entry_allowed=not blocker,entry_blocker=blocker,rules=list(doc["rules"].values()),revision=doc["revision"])
     except Exception as exc:raise fail(exc) from exc
 
+@router.get("/enabled")
+async def get_enabled(user:UserContext=Depends(get_current_user)):
+    try:
+        doc=store.load(uid(user))
+        return {"enabled": doc.get("enabled") is True, "revision": doc["revision"]}
+    except Exception as exc:raise fail(exc) from exc
+
 @router.post("/enabled")
 async def set_enabled(body:EnabledCommand,user:UserContext=Depends(get_current_user)):
     try:return await runtime.set_enabled(uid(user),body.enabled,body.expected_enabled)
