@@ -194,6 +194,17 @@ def build_backup_manifest(
     directory = Path(backup_dir)
     if not directory.is_dir():
         raise FileNotFoundError(f"backup directory does not exist: {directory}")
+    if directory.is_symlink():
+        raise BackupIntegrityError("backup manifest source directory must not be a symlink")
+    # The manifest is evidence of *these* bytes, not a mechanism for walking
+    # arbitrary links from a backup into live account credentials. In
+    # particular Path.is_file() follows symlinks, including the extra-file
+    # checksum loop below, so inspect every member BEFORE reading any file.
+    for member in directory.rglob("*"):
+        if member.is_symlink():
+            raise BackupIntegrityError(
+                f"backup contains a symlink: {member.relative_to(directory)}"
+            )
 
     files = (
         [Path(p) for p in databases]
@@ -207,6 +218,10 @@ def build_backup_manifest(
     counts: dict[str, dict[str, int]] = {}
     schemas: dict[str, dict[str, str]] = {}
     for db in files:
+        # Explicit database overrides still must refer to a snapshot copied
+        # into this backup, never another file elsewhere on the machine.
+        if db.is_symlink() or db.parent.resolve() != directory.resolve():
+            raise BackupIntegrityError(f"unsafe backup database path: {db}")
         name = db.name
         checksums[name] = sha256_file(db)
         counts[name] = table_row_counts(db)
