@@ -156,6 +156,39 @@ def test_unreadable_legacy_gamma_archive_blocks_admission(monkeypatch):
     assert protection_health.admission_blocker("u", "account-a")[0] == "protection_unreadable"
 
 
+@pytest.mark.parametrize("status", ["exiting", "RECONCILING", "", "unexpected"])
+def test_legacy_gamma_unknown_status_is_not_treated_as_flat(monkeypatch, status):
+    import json
+
+    uid = "legacy-unconfirmed-" + (status or "blank")
+    row = {
+        "status": status,
+        "instrument": {"tradingsymbol": "OLDOPT"},
+        "order_id": "prior-entry",
+        "quantity": 40,
+    }
+    monkeypatch.setattr(
+        db, "get_config_strict",
+        lambda _key, default="": json.dumps([row]),
+    )
+
+    assert gamma_move_positions.legacy_open_rows(uid) == [row]
+
+
+@pytest.mark.parametrize("status", ["closed", "rejected"])
+def test_only_known_terminal_legacy_gamma_statuses_are_excluded(monkeypatch, status):
+    import json
+
+    monkeypatch.setattr(
+        db, "get_config_strict",
+        lambda _key, default="": json.dumps([
+            {"status": status, "instrument": {"tradingsymbol": "OLDOPT"}},
+        ]),
+    )
+
+    assert gamma_move_positions.legacy_open_rows("archived-owner") == []
+
+
 def test_active_unmigrated_legacy_gamma_exposure_refuses_new_account_risk(monkeypatch):
     import json
     from app.services import protection_health
