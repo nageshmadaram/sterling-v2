@@ -350,6 +350,15 @@ def load_record(uid: str) -> TradeRecord:
                     or not math.isfinite(float(number))
                 ):
                     raise ValueError(f"{field} is not a finite number")
+            for field in (
+                "trades", "wins", "losses",
+                "consecutive_wins", "consecutive_losses",
+            ):
+                count = data.get(field, 0)
+                if type(count) is not int or count < 0:
+                    raise ValueError(f"{field} is not a nonnegative integer")
+            if data.get("wins", 0) + data.get("losses", 0) > data.get("trades", 0):
+                raise ValueError("trade outcomes exceed the trade count")
             record = TradeRecord.from_dict(data)
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("gamma_unwind_trade_ledger_unreadable") from exc
