@@ -793,7 +793,8 @@ def _backup_restore_gate(sha: str) -> GateResult:
 
 def _production_security_gate() -> GateResult:
     """Production security is a machine fact, not an operator attestation."""
-    environment = (os.environ.get("ENVIRONMENT") or "development").strip().lower()
+    from app.core import runtime_env
+    environment = runtime_env.environment()
     if environment != "production":
         return GateResult(
             "production_security",

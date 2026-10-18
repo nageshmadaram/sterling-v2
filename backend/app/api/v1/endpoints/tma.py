@@ -29,6 +29,28 @@ UID = DEFAULT_USER_ID
 IST = ZoneInfo("Asia/Kolkata")
 
 
+def _entry_switch_status() -> Dict[str, Any]:
+    """Report global switches, separately from strategy AUTO and broker login."""
+    from app.services.live_runtime import live_execution_state
+    from app.services.safe_mode import SafeModeService
+    from app.services.safety_supervisor import safe_mode_path
+
+    try:
+        execution = live_execution_state()
+        safe = SafeModeService(safe_mode_path()).read()
+        enabled = bool(execution["enabled"]) and not safe.active
+        return {
+            "enabled": enabled,
+            "label": "Entry switches ON" if enabled else "New entries OFF",
+            "reason": ("SAFE_MODE: " + safe.reason if safe.active else
+                       "Account and strategy gates still apply." if enabled else
+                       "Live-entry switch is off. Exits and protection remain available."),
+        }
+    except Exception:
+        return {"enabled": False, "label": "Entry status UNKNOWN",
+                "reason": "Entry controls could not be read. Do not enable trading."}
+
+
 @router.get("/tma/data")
 @router.get("/api/v1/tma/data")
 async def get_tma_data(user: UserContext = Depends(tma_user)) -> Dict[str, Any]:
@@ -161,6 +183,7 @@ async def get_tma_data(user: UserContext = Depends(tma_user)) -> Dict[str, Any]:
         "timestamp_ms": now_ts,
         "account": acct_info,
         "algo_enabled": algo_enabled,
+        "entry_controls": await asyncio.to_thread(_entry_switch_status),
         "alerts_enabled": tk.alerts_enabled(uid),
         "signals": signals_list,
         "positions": positions_list,
@@ -894,6 +917,9 @@ def _generate_tma_html(nonce: str = "") -> str:
         <div class="pill-dot"></div>
         <span id="txt-algo">Checking SuperTrend ALGO…</span>
       </div>
+      <div class="pill pill-algo-off" id="pill-entry" role="status">
+        <span id="txt-entry">Entry status UNKNOWN</span>
+      </div>
     </div>
   </header>
   <div style="padding:8px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;"><a href="/" style="color:var(--text-main)">Full app</a><button class="btn btn-outline btn-sm" data-click="openKiteLogin()">Connect Kite</button><span id="sync-status" role="status" aria-live="polite">Connecting…</span></div>
@@ -1452,6 +1478,9 @@ def _generate_tma_html(nonce: str = "") -> str:
         renderState();
       } catch (err) {
         document.getElementById("sync-status").innerText = "Connection interrupted. Retrying…";
+        document.getElementById('txt-entry').innerText = 'Entry status UNKNOWN';
+        document.getElementById('txt-algo').innerText = 'SuperTrend status UNKNOWN';
+        document.getElementById('pill-algo').className = 'pill pill-algo-off';
       } finally { dataInFlight = false; }
     }
 
@@ -1464,12 +1493,15 @@ def _generate_tma_html(nonce: str = "") -> str:
       document.getElementById('txt-broker').innerText = acct.connection_label || (acct.connected ? 'Kite connected' : 'Kite offline');
       const pillAlgo = document.getElementById('pill-algo');
       const txtAlgo = document.getElementById('txt-algo');
-      if (appState.algo_enabled) {
+      const entry = appState.entry_controls || {};
+      document.getElementById('txt-entry').innerText = entry.label || 'Entry status UNKNOWN';
+      document.getElementById('pill-entry').title = entry.reason || 'Entry controls unavailable';
+      if (appState.algo_enabled && entry.enabled === true) {
         pillAlgo.className = 'pill pill-algo-on';
         txtAlgo.innerText = 'SuperTrend ALGO ON';
       } else {
         pillAlgo.className = 'pill pill-algo-off';
-        txtAlgo.innerText = 'SuperTrend ALGO OFF';
+        txtAlgo.innerText = appState.algo_enabled ? 'SuperTrend AUTO armed · entries blocked' : 'SuperTrend ALGO OFF';
       }
 
       // Summary P&L

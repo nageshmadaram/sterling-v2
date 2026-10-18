@@ -50,6 +50,19 @@ def _strong_live_env(monkeypatch):
     monkeypatch.setenv("STERLING_ADMIN_PASSWORD", ADMIN_PASSWORD)
 
 
+def test_restored_operator_does_not_require_plaintext_bootstrap_password(
+    isolated_live_store, monkeypatch,
+):
+    _strong_live_env(monkeypatch)
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    user_store.bootstrap()
+    assert user_store.has_active_admin_credential()
+    user_store.clear()
+    monkeypatch.delenv('STERLING_ADMIN_PASSWORD')
+    user_store.bootstrap()
+    assert user_store.has_active_admin_credential()
+
+
 def test_live_security_is_strict_even_when_environment_is_development(
     isolated_live_store, monkeypatch,
 ):

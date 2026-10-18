@@ -5,6 +5,22 @@ import pytest
 from app.services import release_certification as certification
 
 
+def test_security_gate_uses_the_same_environment_as_runtime_auth(monkeypatch):
+    from app.core import runtime_env, security
+    monkeypatch.delenv('ENVIRONMENT', raising=False)
+    monkeypatch.setattr(runtime_env, 'environment', lambda: 'production')
+    validated = []
+    monkeypatch.setattr(security, 'validate_production_security', lambda: validated.append(True))
+    assert certification._production_security_gate().status == certification.PASS
+    assert validated == [True]
+
+
+def test_security_gate_refuses_nonproduction_even_with_valid_keys(monkeypatch):
+    from app.core import runtime_env
+    monkeypatch.setattr(runtime_env, 'environment', lambda: 'development')
+    assert certification._production_security_gate().status == certification.FAIL
+
+
 @pytest.mark.parametrize(
     "gate",
     ["source_identity", "release_manifest", "backup_restore", "test_suites"],

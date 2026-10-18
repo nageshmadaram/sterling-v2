@@ -54,7 +54,9 @@ services:
       STERLING_SECRET_KEY: ${STERLING_SECRET_KEY:?Set STERLING_SECRET_KEY to a unique 32+ character secret}
       STERLING_JWT_SECRET: ${STERLING_JWT_SECRET:?Set STERLING_JWT_SECRET to a different unique 32+ character secret}
       STERLING_ADMIN_USERNAME: ${STERLING_ADMIN_USERNAME:-admin}
-      STERLING_ADMIN_PASSWORD: ${STERLING_ADMIN_PASSWORD:?Set STERLING_ADMIN_PASSWORD before production startup}
+      # Existing restored databases retain their authenticated operator. A fresh
+      # deployment still refuses startup without a strong bootstrap password.
+      STERLING_ADMIN_PASSWORD: ${STERLING_ADMIN_PASSWORD:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -70,6 +72,7 @@ services:
       args:
         # Empty string → relative paths → nginx proxies /api/ to backend
         VITE_API_BASE_URL: ""
+        STERLING_BUILD_SHA: ${STERLING_BUILD_SHA:-UNKNOWN}
     ports:
       - "3000:80"
     depends_on:
