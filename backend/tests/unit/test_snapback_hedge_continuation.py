@@ -109,3 +109,46 @@ def test_continuation_cannot_bypass_operator_safe_mode(continuation, tmp_path):
         uid='u', account_id='a', strategy_id='snapback', entry_request=req)
     assert not decision.allowed
     assert decision.code == 'safe_mode'
+
+
+@pytest.fixture
+def retry_continuation(continuation,monkeypatch):
+    from app.services import snapback_plan_store
+    from app.services.kite_engine import order_journal
+    pos,req,plan=continuation
+    plan.update(status="RECONCILING",revision=4)
+    pos.flags=["hedge_incomplete"]
+    req=replace(req,signal_id="signal:hedge-recovery:4")
+    events=[{"event":"RECONCILING","detail_json":'{"reason":"hedge_rejected_zero_fill:cancelled"}'},
+            {"event":"RECOVERY_ATTEMPT","revision":4}]
+    prior=SimpleNamespace(state="CANCELLED",filled_quantity=0,reconciliation_required=False,quantity=25,order_id="previous")
+    monkeypatch.setattr(snapback_plan_store,'shared_store',lambda:SimpleNamespace(get=lambda _:plan,events=lambda _:events))
+    monkeypatch.setattr(order_journal,'get',lambda _:prior)
+    return pos,req,plan,events,prior
+
+
+def test_retry_requires_durable_attempt_and_canonical_zero_fill(retry_continuation):
+    pos,req,*_=retry_continuation
+    assert health._protected_snapback_hedge(pos,req)
+
+@pytest.mark.parametrize("change",[
+    {"state":"OPEN"},{"state":"UNKNOWN"},{"state":"FILLED"},
+    {"filled_quantity":1},{"reconciliation_required":True},
+    {"quantity":50},{"order_id":""}])
+def test_retry_cannot_replace_ambiguous_or_filled_hedge(retry_continuation,change):
+    pos,req,plan,events,prior=retry_continuation
+    for key,value in change.items():setattr(prior,key,value)
+    assert not health._protected_snapback_hedge(pos,req)
+
+
+def test_retry_revision_and_reason_cannot_be_forged(retry_continuation):
+    pos,req,plan,events,_=retry_continuation
+    assert not health._protected_snapback_hedge(pos,replace(req,signal_id="signal:hedge-recovery:5"))
+    events[0]["detail_json"]='{"reason":"hedge_submission_unknown"}'
+    assert not health._protected_snapback_hedge(pos,req)
+
+
+def test_retry_does_not_excuse_other_position_flags(retry_continuation):
+    pos,req,*_=retry_continuation
+    pos.flags.append("unprotected")
+    assert not health._protected_snapback_hedge(pos,req)

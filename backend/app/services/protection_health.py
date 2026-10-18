@@ -6,6 +6,7 @@ available through the supervisor's non-increasing operation classification.
 """
 from __future__ import annotations
 
+import json
 from math import isfinite, floor
 from typing import Any
 
@@ -51,6 +52,40 @@ def position_fault(strategy: str, position: Any) -> str:
     return ""
 
 
+def _proven_zero_fill_retry(store, plan, request, quantity):
+    """Only a revision-owned retry whose previous sends ended with zero fill."""
+    from app.services.kite_engine import order_journal
+    from app.services.snapback_live_executor import HEDGE_ZERO_FILL_RETRIES
+    events=list(store.events(plan["plan_id"]) or [])
+    attempts=[e for e in events if e.get("event")=="RECOVERY_ATTEMPT"]
+    if not attempts or len(attempts)>HEDGE_ZERO_FILL_RETRIES:
+        return False
+    revision=int(attempts[-1].get("revision") or 0)
+    base=str(plan.get("opportunity_id") or "")
+    if (revision!=int(plan.get("revision") or 0) or revision<=0
+            or request.signal_id!=f"{base}:hedge-recovery:{revision}"):
+        return False
+    context=next((e for e in reversed(events) if e.get("event")=="RECONCILING"),None)
+    if not context:
+        return False
+    detail=json.loads(context.get("detail_json") or "{}")
+    if not str(detail.get("reason") or "").startswith("hedge_rejected_zero_fill:"):
+        return False
+    # Allocating an attempt is not proof of rejection. Re-read each earlier
+    # canonical broker outcome, including at the final submission boundary.
+    signals=[base]+[f"{base}:hedge-recovery:{int(e['revision'])}" for e in attempts[:-1]]
+    for signal_id in signals:
+        key=order_journal.make_key(uid=request.uid,account_id=request.account_id,
+            strategy_id="snapback",generation_id=request.generation_id,
+            signal_id=signal_id,exchange=request.exchange,symbol=request.symbol,side=request.side)
+        previous=order_journal.get(key)
+        if (previous is None or previous.state.upper() not in {"CANCELLED","REJECTED"}
+                or previous.filled_quantity!=0 or previous.reconciliation_required
+                or previous.quantity!=quantity or not previous.order_id):
+            return False
+    return True
+
+
 def _protected_snapback_hedge(position: Any, request: Any) -> bool:
     """Recognize only the missing hedge of this durable, protected entry.
 
@@ -68,11 +103,12 @@ def _protected_snapback_hedge(position: Any, request: Any) -> bool:
     plan_id = str(getattr(position, "position_id", ""))
     if not plan_id or getattr(request, "tag", "") != f"snapback:{plan_id}":
         return False
-    plan = shared_store().get(plan_id)
-    if (not plan or plan.get("plan_id") != plan_id or plan.get("status") != "ARMED"
+    store = shared_store()
+    plan = store.get(plan_id)
+    if (not plan or plan.get("plan_id") != plan_id or plan.get("status") not in {"ARMED", "RECONCILING"}
             or not plan.get("opportunity_id") or not plan.get("policy_snapshot_hash")):
         return False
-    if (position.protection_pending or position.gtt_pending or position.flags
+    if (position.protection_pending or position.gtt_pending
             or position.hedge_qty or position.hedge_entry_order_id
             or position.option_exit_qty or position.option_exit_order_id
             or not position.option_entry_order_id):
@@ -85,7 +121,7 @@ def _protected_snapback_hedge(position: Any, request: Any) -> bool:
         and request.symbol == position.hedge_symbol == plan.get("futures_symbol")
         and request.exchange == position.hedge_exchange == plan.get("futures_exchange")
         and request.side == position.hedge_side == _hedge_side(plan)
-        and request.signal_id == position.signal_id == plan.get("opportunity_id")
+        and position.signal_id == plan.get("opportunity_id")
         and request.generation_id == plan.get("policy_snapshot_hash")
         and position.option_symbol == plan.get("option_symbol")
     ):
@@ -97,7 +133,12 @@ def _protected_snapback_hedge(position: Any, request: Any) -> bool:
     if not (0 < filled <= requested and target > 0 and lot > 0):
         return False
     expected = int(floor(target * filled / requested / lot + 0.5)) * lot
-    return expected > 0 and request.quantity == expected
+    if expected<=0 or request.quantity!=expected:
+        return False
+    if plan.get("status")=="ARMED":
+        return not position.flags and request.signal_id==position.signal_id
+    return (set(position.flags)=={"hedge_incomplete"}
+            and _proven_zero_fill_retry(store,plan,request,expected))
 
 
 def admission_blocker(uid: str, account_id: str, *, entry_request: Any = None) -> tuple[str, str]:
