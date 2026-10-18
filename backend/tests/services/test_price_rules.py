@@ -321,6 +321,8 @@ async def test_price_rules_switch_http_and_tenant_isolation(env):
  with TestClient(app) as client:
   off=client.post('/api/v1/price-rules/enabled',json={'enabled':False,'expected_enabled':True})
   assert off.status_code==200 and off.json()['enabled'] is False
+  read=client.get('/api/v1/price-rules/enabled')
+  assert read.status_code==200 and read.json()['enabled'] is False
   stale=client.post('/api/v1/price-rules/enabled',json={'enabled':True,'expected_enabled':True})
   assert stale.status_code==409
   invalid=client.post('/api/v1/price-rules/enabled',json={'enabled':'true','expected_enabled':False})
