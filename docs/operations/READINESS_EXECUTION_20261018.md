@@ -216,3 +216,13 @@ A request-level regression verifies both snapshots run outside the event loop.
 The combined operations/auth/watchdog selection passed 61 tests. Initial short
 liveness sampling still had timeouts; it is retained as failed evidence and does
 not establish sustained production availability.
+
+
+Five-second production diagnostics then isolated additional pauses in SuperTrend
+signal-cache persistence and background supervision health writes. Cache snapshots
+are now persisted through a shared cancellation-safe worker helper, serialized
+in their original order. Background repository reads/writes also leave the event
+loop, preserving CAS revisions and existing strategy logic. The shared helper,
+SuperTrend scanner and archived supervision regression selection passed 135 tests.
+The latest desktop/mobile browser selection passed all 14 tests. These receipts
+remain separate from actual broker lifecycle acceptance.

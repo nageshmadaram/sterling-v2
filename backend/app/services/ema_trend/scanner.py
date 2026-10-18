@@ -184,15 +184,7 @@ def anchored_tape(uid: str, key: str, bars: list[Bar], instrument_meta: dict|Non
     return result
 
 
-async def _off_loop(fn, *args, **kwargs):
-    # A cancelled scan waits for its current durable transaction to finish
-    # before marking the job cancelled. The shared event loop stays responsive.
-    work = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
-    try:
-        return await asyncio.shield(work)
-    except asyncio.CancelledError:
-        await asyncio.gather(work, return_exceptions=True)
-        raise
+from app.core.async_work import run_blocking as _off_loop
 
 
 async def scan_symbol(uid: str, symbol: str, mode: str, *, client=None, now=None):

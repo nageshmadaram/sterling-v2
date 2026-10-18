@@ -12,6 +12,7 @@ broker-agnostic. Nothing here imports another engine's strategy logic.
 from __future__ import annotations
 
 import asyncio
+from app.core.async_work import run_blocking
 import json
 import time
 from dataclasses import dataclass, field
@@ -956,16 +957,19 @@ class KiteEngineScanner:
             # frontend's poll sees each symbol's signal the moment it's found,
             # instead of waiting for the whole phase (spot / derivatives / confluence)
             # to finish. Defined up front so every phase's per-item loop can call it.
-            def _flush() -> None:
-                active_conf_underlyings = {r.underlying for r in rows if getattr(r, "source", "") == "confluence"}
-                preserved = [
-                    conf_row for und, conf_row in initial_active_confluence.items()
-                    if und not in active_conf_underlyings
-                ]
-                us.rows = _compile_rows(rows + preserved + initial_other_rows)
-                us.generated_ms = int(time.time() * 1000)
-                model_rows = [r.model_dump() for r in us.rows]
-                state.save_signal_cache(uid, model_rows, us.generated_ms)
+            flush_lock = asyncio.Lock()
+
+            async def _flush() -> None:
+                async with flush_lock:
+                    active_conf_underlyings = {r.underlying for r in rows if getattr(r, "source", "") == "confluence"}
+                    preserved = [
+                        conf_row for und, conf_row in initial_active_confluence.items()
+                        if und not in active_conf_underlyings
+                    ]
+                    us.rows = _compile_rows(rows + preserved + initial_other_rows)
+                    us.generated_ms = int(time.time() * 1000)
+                    model_rows = [r.model_dump() for r in us.rows]
+                    await run_blocking(state.save_signal_cache, uid, model_rows, us.generated_ms)
 
             async def _one(item: UniverseItem) -> None:
                 if us.cancelled:
@@ -1028,7 +1032,7 @@ class KiteEngineScanner:
                 # Only worth a flush when this symbol actually produced a signal —
                 # the common case (no setup) has nothing new to show.
                 if new_rows:
-                    _flush()
+                    await _flush()
 
             # Each _one() call already flushes us.rows itself the moment it finds a
             # signal (see above) — nothing further to do once the spot phase drains.
@@ -1197,7 +1201,7 @@ class KiteEngineScanner:
 
                 # Flush after this underlying's derivatives finish so signals
                 # from already-scanned symbols appear immediately in the table.
-                _flush()
+                await _flush()
 
             await asyncio.gather(*[_deriv_one(i) for i in (deriv_universe or [])])
 
@@ -1328,14 +1332,14 @@ class KiteEngineScanner:
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("kite-engine confluence auto-exec fail %s: %s",
                                             item.name, exc)
-                _flush()
+                await _flush()
 
             await asyncio.gather(*[_confluence_one(i) for i in (confluence_universe or [])])
 
             us.diag = diag
             us.generated_ms = int(time.time() * 1000)
             model_rows = [r.model_dump() for r in us.rows]
-            state.save_signal_cache(uid, model_rows, us.generated_ms)
+            await run_blocking(state.save_signal_cache, uid, model_rows, us.generated_ms)
         finally:
             us.scanning = False
             us.scanning_label = ""
