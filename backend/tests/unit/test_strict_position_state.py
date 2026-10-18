@@ -241,7 +241,8 @@ def test_gamma_trade_ledger_write_failure_engages_halt_and_does_not_cache(
     monkeypatch.setattr(db, "set_config_strict", fail_write)
     monkeypatch.setattr(
         live_safety, "set_kill_switch",
-        lambda enabled, reason="": halts.append((enabled, reason)),
+        lambda enabled, reason="", *, uid="default", reason_code="kill_switch":
+        halts.append((enabled, reason, uid, reason_code)),
     )
 
     record = TradeRecord()
@@ -252,3 +253,5 @@ def test_gamma_trade_ledger_write_failure_engages_halt_and_does_not_cache(
     assert uid not in gamma_move_positions._record_cache
     assert halts and halts[-1][0] is True
     assert "P&L write failed" in halts[-1][1]
+    assert halts[-1][2] == uid
+    assert halts[-1][3] == "GAMMA_PNL_PERSISTENCE_FAILED"
