@@ -439,6 +439,41 @@ def test_full_backup_rejects_symlink_inside_strategy_directory(host, monkeypatch
     assert not (result.directory / "state/lane_manifests/secret.json").exists()
 
 
+def test_scheduled_backup_rejects_symlinked_existing_metadata(host):
+    from app.core.backup_manifest import (
+        BackupIntegrityError, augment_backup_directory,
+    )
+
+    target = host / "backups" / "2026-10-18"
+    target.mkdir(parents=True)
+    outside = host / "operator-state.json"
+    outside.write_text("do not overwrite operator state", encoding="utf-8")
+    (target / "release.json").symlink_to(outside)
+
+    with pytest.raises(BackupIntegrityError, match="metadata must not be a symlink"):
+        augment_backup_directory(target, root=host)
+
+    assert outside.read_text(encoding="utf-8") == "do not overwrite operator state"
+
+
+def test_scheduled_backup_rejects_symlinked_target_directory(host):
+    from app.core.backup_manifest import (
+        BackupIntegrityError, augment_backup_directory,
+    )
+
+    outside = host / "operator-live"
+    outside.mkdir()
+    sentinel = outside / "do-not-delete.txt"
+    sentinel.write_text("preserve", encoding="utf-8")
+    target = host / "linked-backup"
+    target.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(BackupIntegrityError, match="target must not be a symlink"):
+        augment_backup_directory(target, root=host)
+
+    assert sentinel.read_text(encoding="utf-8") == "preserve"
+
+
 class TestTheBackupActuallyCapturesThem:
     def test_a_full_backup_copies_the_declared_state_and_records_coverage(
             self, host, monkeypatch):
