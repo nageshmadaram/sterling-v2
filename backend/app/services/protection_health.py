@@ -17,11 +17,14 @@ def position_fault(strategy: str, position: Any) -> str:
         return "protection outcome pending"
     status = str(getattr(position, "status", "") or "").upper()
     if strategy == "snapback":
-        # Includes partially exited/reconciling positions. EXITING means the
-        # stop was intentionally released; unresolved intent gates cover it.
-        if status == "EXITING":
-            return "" if getattr(position, "option_exit_order_id", "") else "exit without confirmed protection or order"
-        return ""  # LivePosition.protection_pending validates remaining units.
+        # ENTERING has a confirmed option leg but may still be establishing its
+        # hedge/protection; EXITING can already have released the broker stop;
+        # RECONCILING means persisted exposure and broker inventory disagree.
+        # Having an exit order ID is not proof of a settled exit fill. All three
+        # require operator/recovery completion before ANY new account risk.
+        if status in {"ENTERING", "EXITING", "RECONCILING"}:
+            return f"Snapback {status.lower()} position has unresolved broker exposure"
+        return ""  # OPEN is checked via LivePosition.protection_pending.
     if status != "OPEN":
         return ""
     stop_mode = str(getattr(position, "stop_mode", "") or "").lower()
