@@ -164,7 +164,10 @@ def egress_status(
             f"{OBSERVED_AT_ENV}={observed_at!r} is not an ISO timestamp",
         )
     if stamp.tzinfo is None:
-        stamp = stamp.replace(tzinfo=timezone.utc)
+        return EgressStatus(
+            expected, observed, observed_at, False,
+            "the egress verification timestamp has no timezone; cannot prove freshness",
+        )
     age = now() - stamp
     if age < timedelta(0):
         return EgressStatus(
