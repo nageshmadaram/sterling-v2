@@ -67,6 +67,12 @@ def verify_active_cnc_gtt(campaign: LiveCampaign, snapshot: Mapping,
     if not isinstance(orders, (list,tuple)) or len(orders)!=1 or not isinstance(orders[0], Mapping):
         raise LiveLifecycleEvidenceError("EMA_GTT_SELL_CHILD_CONTRACT_UNVERIFIED")
     sell = orders[0]
+    # Kite's trigger condition and its executable LIMIT child are independent
+    # broker fields. A correct condition with a SELL leg on another instrument
+    # provides NO protection for this campaign.
+    if (str(sell.get("exchange") or "").upper() != campaign.exchange
+            or str(sell.get("tradingsymbol") or "").upper() != campaign.symbol):
+        raise LiveLifecycleEvidenceError("EMA_GTT_SELL_CHILD_INSTRUMENT_MISMATCH")
     if (str(sell.get("transaction_type")).upper() != "SELL"
             or str(sell.get("product")).upper() != "CNC"
             or str(sell.get("order_type")).upper() != "LIMIT"):
