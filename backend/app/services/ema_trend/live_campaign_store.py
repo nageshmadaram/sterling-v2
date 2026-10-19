@@ -261,3 +261,76 @@ def project_verified_order(
             raise LiveStoreConflict("EMA_LIVE_CANONICAL_PROJECTION_VERSION_CHANGED")
         return CommittedProjection(next_campaign,intent.projection_version,
                                    projected.next_proof,projected.uncovered_qty)
+
+
+async def confirm_existing_cnc_stop(
+    campaign_id: str, trigger_id: str, *, expected_revision: int,
+    broker_client,
+) -> LiveCampaign:
+    """Read a fresh live Kite GTT and prove existing coverage; place nothing.
+
+    A caller must never fabricate a stop from a returned place_gtt ACK. This
+    records only a separately fetched active trigger with exact SELL quantity.
+    The triggered LIMIT child's fillability remains uncertified.
+    """
+    import asyncio
+    from app.services.exchanges.kite.client import KiteClient
+    from .live_lifecycle import (
+        LiveLifecycleEvidenceError, verify_active_cnc_gtt,
+    )
+    if (not isinstance(broker_client,KiteClient)
+        or getattr(broker_client,"_is_paper",None) is not False):
+        raise LiveStoreConflict("EMA_LIVE_REAL_KITE_READ_CLIENT_REQUIRED")
+    campaign = get(campaign_id)
+    if (campaign.revision != expected_revision
+        or campaign.account_id != getattr(broker_client,"_account_id",None)
+        or campaign.phase != "PROTECTION_REQUIRED"
+        or campaign.protection_submission_unknown
+        or campaign.held_qty <= 0 or campaign.protection is not None):
+        raise LiveStoreConflict("EMA_LIVE_STOP_CONFIRMATION_GATE_BLOCKED")
+    if not trigger_id.isdigit():
+        raise LiveStoreConflict("EMA_LIVE_GTT_ID_INVALID")
+    snapshot, orderbook = await asyncio.gather(
+        asyncio.wait_for(broker_client.get_gtt(int(trigger_id)),10),
+        asyncio.wait_for(broker_client.get_orders(),10),
+    )
+    if not isinstance(orderbook,list) or not all(isinstance(row,dict) for row in orderbook):
+        raise LiveStoreConflict("EMA_LIVE_BROKER_ORDER_BOOK_UNREADABLE")
+    # An outstanding SELL child or manual exit might fill after the read and
+    # make the proposed protection oversized. Refuse until it is reconciled.
+    if any(
+        row.get("exchange")==campaign.exchange
+        and row.get("tradingsymbol")==campaign.symbol
+        and str(row.get("transaction_type","")).upper()=="SELL"
+        and str(row.get("status","")).upper()
+        not in {"COMPLETE","CANCELLED","REJECTED"}
+        for row in orderbook
+    ):
+        raise LiveStoreConflict("EMA_LIVE_POTENTIAL_DUPLICATE_EXIT_ORDER")
+    stop = verify_active_cnc_gtt(campaign,snapshot,trigger_id=trigger_id)
+    with order_journal._transaction() as conn:
+        _schema(conn)
+        fresh = _get(conn,campaign_id)
+        if (fresh.revision != expected_revision
+                or fresh.model_dump(mode="json") != campaign.model_dump(mode="json")):
+            raise LiveStoreConflict("EMA_LIVE_STOP_CONFIRMATION_CAS_CONFLICT")
+        inv = fill_ledger._read_inventory(conn,campaign.account_id,
+                                          campaign.owner_uid,campaign.symbol)
+        if (inv is None or inv.net_quantity != campaign.held_qty
+                or inv.exchange != campaign.exchange
+                or inv.reconciliation_required):
+            raise LiveStoreConflict("EMA_LIVE_STOP_INVENTORY_UNVERIFIED")
+        if conn.execute("""
+            SELECT 1 FROM kite_order_intents
+            WHERE uid=? AND account_id=?
+              AND (projection_pending=1 OR reconciliation_required=1)
+            LIMIT 1
+        """,(campaign.owner_uid,campaign.account_id)).fetchone():
+            raise LiveStoreConflict("EMA_LIVE_STOP_CANONICAL_PROJECTION_PENDING")
+        model = LiveCampaign.model_validate({
+            **campaign.model_dump(mode="python"),
+            "protection":stop.model_dump(mode="python"),
+            "phase":"PROTECTED","revision":campaign.revision+1,
+        })
+        _save(conn,model)
+        return model
