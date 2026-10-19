@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { snapbackRowToBoard } from '../snapbackAdapter';
 
-function row(mode: 'swing' | 'scalp' | 'intraday', eligible = true): any {
+function row(mode: 'swing' | 'scalp' | 'intraday' | 'ultra_scalping' | 'overnight', eligible = true): any {
   return {
     signal_id: `sb-${mode}`,
     strategy: 'snapback',
@@ -70,10 +70,12 @@ describe('snapback adapter execution eligibility', () => {
     expect(mapped.executionEligible).toBe(true);
   });
 
-  it('keeps intraday research-only even if a stale row says eligible', () => {
-    const mapped = snapbackRowToBoard(row('intraday', true));
-    expect(mapped.executionEligible).toBe(false);
-  });
+  it.each(['ultra_scalping', 'intraday', 'overnight'] as const)(
+    'honors a fresh server eligibility decision for %s', (mode) => {
+      expect(snapbackRowToBoard(row(mode, true)).executionEligible).toBe(true);
+      expect(snapbackRowToBoard(row(mode, false)).executionEligible).toBe(false);
+    },
+  );
 
   it('still refuses a scalp row that backend readiness blocks', () => {
     const mapped = snapbackRowToBoard(row('scalp', false));
