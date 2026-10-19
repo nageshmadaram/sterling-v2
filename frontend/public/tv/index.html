@@ -3336,7 +3336,20 @@
       return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
     function escapeAttr(str) {
-      return String(str || '').replace(/'/g, "\\'");
+      // Values are interpolated inside a single-quoted JS argument that is
+      // itself inside a double-quoted HTML event attribute. Escape BOTH
+      // contexts; apostrophes alone were not sufficient for remote M3U data.
+      return String(str ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+        .replace(/\u2028/g, '\\u2028')
+        .replace(/\u2029/g, '\\u2029');
     }
 
     document.addEventListener('keydown', e => {
