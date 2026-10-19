@@ -260,6 +260,32 @@ def test_evidence_failure_never_breaks_an_entry(collector, cfg, monkeypatch):
     assert collector.last_execution_contract is None
 
 
+def test_an_unapproved_lane_still_refuses_entry_during_evidence_failure(
+    collector, cfg, monkeypatch
+):
+    """The test-only lane admission override above must not mask live safety.
+
+    When an actual lane is not approved to originate, the collector must
+    refuse the paper entry even if a fully eligible quote is available.
+    """
+    from app.services.snapback_capacity import CapacityDecision
+
+    monkeypatch.setattr(
+        "app.services.snapback_capacity._lane_origination",
+        lambda _lane: CapacityDecision(
+            allowed=False,
+            status="LANE_NOT_ORIGINATING",
+            reasons=["release_lane_not_authorized"],
+        ),
+    )
+    candidate = _candidate(25000)
+    _, result = _enter(
+        collector, cfg, [candidate], {candidate.symbol: _quote(candidate.symbol)
+        }
+    )
+    assert result["status"] == "LANE_NOT_ORIGINATING"
+
+
 # ─── the record cannot misrepresent the rule ─────────────────────────────────
 
 def test_an_ineligible_candidate_can_never_be_recorded_as_chosen():
