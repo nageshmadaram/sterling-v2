@@ -95,7 +95,11 @@ def test_two_dispatchers_racing_for_one_signal_place_one_order(env):
     run(race())
 
     assert len(env.broker.placed) == 2
-    assert len(env.positions.open_positions(env.uid)) == 1
+    positions = env.positions.open_positions(env.uid)
+    assert len(positions) == 1
+    assert positions[0].status == "OPEN"
+    assert positions[0].hedge_qty == 75
+    assert positions[0].protection_state == "ACTIVE"
 
 
 def test_the_plan_id_is_derived_from_the_signal_so_a_lost_plan_store_cannot_duplicate(env):
@@ -430,3 +434,29 @@ def test_a_partial_entry_fill_is_hedged_and_protected_at_the_confirmed_size(env)
     assert pos.option_qty == 75                  # 150 requested, 75 confirmed
     assert pos.gtt_qty == 75                     # protected at the confirmed size
     assert env.broker.cancelled_orders           # the unfilled remainder was cancelled
+
+
+def test_another_dispatcher_waits_for_the_current_lifecycle_cycle(env, monkeypatch):
+    other = env.build_dispatcher()
+    async def verify():
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        second_entered = asyncio.Event()
+        async def first_cycle(uid):
+            entered.set()
+            await release.wait()
+            return {}
+        async def second_cycle(uid):
+            second_entered.set()
+            return {}
+        monkeypatch.setattr(env.dispatcher, "_cycle_locked", first_cycle)
+        monkeypatch.setattr(other, "_cycle_locked", second_cycle)
+        first = asyncio.create_task(env.dispatcher.cycle(env.uid))
+        await entered.wait()
+        second = asyncio.create_task(other.cycle(env.uid))
+        await asyncio.sleep(0)
+        assert not second_entered.is_set()
+        release.set()
+        await asyncio.gather(first, second)
+        assert second_entered.is_set()
+    run(verify())

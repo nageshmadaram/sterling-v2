@@ -84,6 +84,8 @@ def test_operator_cli_loads_dotenv_before_importing_runtime_authorities(tmp_path
     backend = Path(__file__).resolve().parents[2]
     core = tmp_path / "backend/app/core"
     core.mkdir(parents=True)
+    (core.parent / "__init__.py").touch()
+    (core / "__init__.py").touch()
     shutil.copy2(backend / "app/core/runtime_env.py", core / "runtime_env.py")
     (tmp_path / "backend/.env").write_text("STERLING_LIVE_EXECUTION=false\n")
     (core / "release_manifest.py").write_text(
@@ -108,8 +110,11 @@ def test_safe_mode_cli_loads_config_and_initializes_alert_storage(tmp_path):
     backend=Path(__file__).resolve().parents[2]
     core=tmp_path/"backend/app/core"
     core.mkdir(parents=True)
+    (core.parent / "__init__.py").touch()
+    (core / "__init__.py").touch()
     services=tmp_path/"backend/app/services"
     services.mkdir()
+    (services / "__init__.py").touch()
     shutil.copy2(backend/"app/core/runtime_env.py",core/"runtime_env.py")
     (tmp_path/"backend/.env").write_text("STERLING_SAFE_MODE_FILE=isolated-safe-state\n")
     (services/"db.py").write_text("import os\ndef init(): os.environ['ALERT_DB_READY']='1'; return True\n")

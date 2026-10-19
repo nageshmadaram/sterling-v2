@@ -34,12 +34,17 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
+from weakref import WeakKeyDictionary
 
 from app.services import sim_scan_lane
 from app.services import trade_journal_adapters as _journal
 from app.services.simulation.identity import is_sim_uid
 
 log = logging.getLogger(__name__)
+
+# A second dispatcher must not reconcile or exit an entry another instance
+# is still establishing. Canonical order locks cover sends, not this lifecycle.
+_cycle_locks: WeakKeyDictionary = WeakKeyDictionary()
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 
@@ -191,7 +196,6 @@ class SnapbackDispatcher:
         self._rows_provider = rows_provider
         self._scanner = scanner
         self._clock = clock
-        self._locks: Dict[str, asyncio.Lock] = {}
         self._instruments: Dict[str, tuple] = {}
         self._status: Dict[str, Dict[str, Any]] = {}
         self._refusals: Dict[tuple, float] = {}
@@ -228,7 +232,8 @@ class SnapbackDispatcher:
         return self._clock() if self._clock else datetime.now(_IST)
 
     def _lock(self, uid: str) -> asyncio.Lock:
-        return self._locks.setdefault(uid, asyncio.Lock())
+        locks = _cycle_locks.setdefault(asyncio.get_running_loop(), {})
+        return locks.setdefault(str(uid), asyncio.Lock())
 
     def _executor(self, uid: str, client: Any = None):
         if self._executor_factory is not None:
