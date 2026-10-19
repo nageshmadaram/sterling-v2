@@ -134,3 +134,46 @@ working-tree build, logs failed `npm ci` or `npm run build` output to
 release on failure. Inspect that log and free disk space before any
 destructive cache clear. Do not force-publish a dirty frontend or flip the
 live order switch.
+
+
+## Spectrum Experience follow-up: restore legacy KITE UI and optional navigation
+
+After the TV release the operator specifically requested the **original KITE CSS**
+and original KITE↔Simulation switch, not a new pill-style KITE tab. Restored:
+
+- `frontend/src/styles/terminal.css` is byte-identical to the pre-TV source
+  at `d91f48b9` (`ba8dad7e...`).
+- `frontend/src/components/sim/ViewSwitch.tsx` is restored to the exact
+  pre-TV component (same classes, semantics, owner gate and unsaved draft
+  check). TV and optional standalone destinations use the same
+  `mobile-view-toggle unified-view-toggle` classes and remain immediate
+  children of the Sterling header, so original responsive CSS applies.
+- `Settings → Experience → Sterling Spectrum` and the compact settings
+  drawer expose browser-local configuration:
+    1. `toggle` (DEFAULT): original KITE⇄Simulation toggle plus TV button.
+    2. `separate`: KITE / Simulation / TV as individual destinations.
+    3. `cycle`: one button cycling enabled destinations in the preferred order.
+  The three destinations support visibility, ordering and a validated
+  24-character TV-only display name. Reset Spectrum settings restores
+  precisely the default without resetting unrelated theme/navigation options.
+- Simulation is subject to the existing owner status gate; switching between
+  KITE and Simulation uses the unchanged account-view store and existing
+  session isolation, not a fake TV-mode implementation. Navigation changes
+  never enable real broker writes.
+- The visible destination checks refuse hiding *both* KITE and TV. A hidden
+  live KITE tab does not remove the route to separately visible Simulation,
+  and TV-only mode offers an Experience recovery control.
+
+Operator-provided verified baseline at `834713fa` prior to these changes:
+frontend build succeeded; TV/header tests **21/21**; isolated Node gateway test
+**1/1**; EMA offline regression **264/264**; published release was current
+(`release_stale=false`). However, the RUNNING published Node gateway still
+reported the **old trading CSP for /tv/index.html** because release-file
+promotion does not reload gateway source code; this requires a supervisor-
+controlled presentation-gateway restart independent of trading backend.
+
+**The Spectrum customization commits are not yet tested locally.** Verify
+frontend TypeScript/Vite, existing header + TV tests, new Spectrum settings
+tests, Settings → Experience integration, and all three layouts on desktop
+and mobile before calling this UI change released. Disk reported 97% usage
+with 4.2 GB free; retain logs and backups, do not clear them blindly.
