@@ -10,7 +10,7 @@ import { hasUnsavedDraft } from '../kite/config/unsavedDraftGuard';
  * The switch stays out of sight for anyone who is not the owner (the status route says 403),
  * but never while the Simulation view is open: it is the way back.
  */
-export function ViewSwitch() {
+export function ViewSwitch({ modeLabel = false }: { modeLabel?: boolean } = {}) {
   const view = useView();
   const setView = useViewStore((s) => s.setView);
   const status = useSimStatus();
@@ -26,5 +26,5 @@ export function ViewSwitch() {
     setView(next);
   };
 
-  return <button data-testid="view-switch" className="mobile-view-toggle unified-view-toggle" type="button" role="switch" aria-label="Live trading view" aria-checked={view==='live'} title={view==='live'?'Switch to simulation · virtual money':'Switch to live · real account'} onClick={()=>choose(view==='live'?'simulation':'live')}>{view==='live'?'KITE':'KITE SIMULATION'}</button>;
+  return <button data-testid="view-switch" className="mobile-view-toggle unified-view-toggle" type="button" role="switch" aria-label="Live trading view" aria-checked={view==='live'} title={view==='live'?'Switch to simulation · virtual money':'Switch to live · real account'} onClick={()=>choose(view==='live'?'simulation':'live')}>{modeLabel ? (view === 'live' ? 'LIVE' : 'SIMULATION') : (view === 'live' ? 'KITE' : 'KITE SIMULATION')}</button>;
 }
