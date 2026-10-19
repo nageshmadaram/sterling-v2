@@ -282,3 +282,22 @@ def test_an_unresolvable_family_account_fails_the_default_probe(monkeypatch):
     passed, _ = snapback_preflight._default_family_account()
 
     assert passed is False
+
+
+@pytest.mark.parametrize("raw", ["nan", "NaN", "inf", "-inf", "Infinity", "1e10000"])
+def test_preflight_rejects_nonfinite_approved_capital(monkeypatch, raw):
+    from app.services.snapback_preflight import _default_allocation_capital
+
+    monkeypatch.setenv("STERLING_ALLOCATION_CAPITAL_INR", raw)
+    passed, detail = _default_allocation_capital()
+    assert passed is False
+    assert detail["error"] == "allocation_capital_not_finite"
+
+
+def test_preflight_accepts_a_real_positive_finite_capital(monkeypatch):
+    from app.services.snapback_preflight import _default_allocation_capital
+
+    monkeypatch.setenv("STERLING_ALLOCATION_CAPITAL_INR", "50000")
+    passed, detail = _default_allocation_capital()
+    assert passed is True
+    assert detail["allocation_capital"] == 50000
