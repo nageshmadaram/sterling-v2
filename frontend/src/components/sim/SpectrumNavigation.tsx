@@ -41,10 +41,11 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
         // Preserve the pre-TV KITE/KITE SIMULATION switch itself. If the
         // operator hides Simulation, do not allow a new switch into it; if
         // currently in Simulation, still retain the return route.
-        return [(visible.simulation || view === 'simulation') && simulationAllowed
+        return [workspace === 'kite' &&
+          (visible.simulation || view === 'simulation') && simulationAllowed
           ? <ViewSwitch key="kite" />
           : navButton('kite','KITE',workspace==='kite',
-            () => onSelect('kite','live'))];
+            () => onSelect('kite', workspace === 'tv' ? undefined : 'live'))];
       }
       return [navButton('kite','KITE',workspace==='kite' && view==='live',
         () => onSelect('kite','live'))];
