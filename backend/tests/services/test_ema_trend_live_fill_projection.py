@@ -207,3 +207,18 @@ def test_unknown_broker_order_status_keeps_recovery_required():
     assert result.campaign.phase == "RECOVERY_REQUIRED"
     assert result.campaign.protection_submission_unknown
     assert result.next_proof == "ORDER_RECONCILIATION"
+
+def test_noncanonical_expired_broker_status_stays_unresolved():
+    result = rehearse_verified_fill(campaign(), "intent-1", fact(identity(), "EXPIRED", 0))
+    assert result.campaign.entries[0].status == "UNKNOWN"
+    assert result.campaign.protection_submission_unknown
+    assert result.campaign.phase == "RECOVERY_REQUIRED"
+    assert result.next_proof == "ORDER_RECONCILIATION"
+
+
+def test_replay_same_partial_fill_remains_idempotent():
+    first = rehearse_verified_fill(campaign(), "intent-1", fact(identity(), "OPEN", 2))
+    again = rehearse_verified_fill(first.campaign, "intent-1", fact(identity(), "OPEN", 2))
+    assert again.fill_delta.quantity == 0
+    assert again.fill_delta.value == Decimal("0")
+    assert again.campaign.confirmed_bought == 2
