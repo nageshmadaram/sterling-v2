@@ -53,6 +53,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
 
   it('persists only whitelisted preferences from the exact iframe window', () => {
     render(<TvWorkspace />);
+    sendFromFrame('sterling.tv.ready');
     sendFromFrame('sterling.tv.save', {
       key: 'streamos_sources_v13', value: '[{"name":"Demo"}]',
     });
@@ -67,6 +68,21 @@ describe('Sterling Spectrum IPTV isolation', () => {
     });
     expect(localStorage.getItem(storagePrefix + 'streamos_stats_v13')).toBeNull();
     expect(TV_STORAGE_KEYS).toHaveLength(5);
+  });
+
+  it('ignores early player-history writes before stored playlists have hydrated', () => {
+    localStorage.setItem(storagePrefix + 'streamos_history_v13', '["saved"]');
+    render(<TvWorkspace />);
+    sendFromFrame('sterling.tv.save', {
+      key: 'streamos_history_v13', value: '["temporary startup channel"]',
+    });
+    expect(localStorage.getItem(storagePrefix + 'streamos_history_v13')).toBe('["saved"]');
+    sendFromFrame('sterling.tv.ready');
+    sendFromFrame('sterling.tv.save', {
+      key: 'streamos_history_v13', value: '["newly played channel"]',
+    });
+    expect(localStorage.getItem(storagePrefix + 'streamos_history_v13'))
+      .toBe('["newly played channel"]');
   });
 
   it('ignores iframe messages with the wrong origin or unrelated sender', () => {
