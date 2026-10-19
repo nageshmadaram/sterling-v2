@@ -16,11 +16,7 @@ test('selected risk overrides persist without enabling trading', async ({ page }
   await page.goto('/');
   await page.getByRole('button', { name: /^Tools/ }).click();
   await page.getByRole('menuitem', { name: 'Connect', exact: true }).click();
-  if (await page.getByLabel('Settings section', { exact: true }).isVisible()) {
-    await page.getByLabel('Settings section', { exact: true }).selectOption('mode');
-  } else {
-    await page.getByRole('button', { name: /Trading Config.*Execution/ }).click();
-  }
+  await page.getByLabel('Settings section', { exact: true }).selectOption('mode');
   await expect(page.getByText('Saving these settings does not enable trading.')).toBeVisible();
   await expect(page.getByLabel('Allocation cap (₹)', { exact: true })).toHaveValue('');
   await page.getByRole('checkbox', { name: 'Snapback', exact: true }).check();
