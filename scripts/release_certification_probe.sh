@@ -60,6 +60,16 @@ test_group() {
   isolated="$(mktemp -d "$REPORT/test-state.XXXXXXXX")" || return
   (
     cd "$ROOT/backend" || exit 2
+    # A release probe may be invoked by a shell carrying actual Kite tokens,
+    # Telegram bot credentials, production secret keys and live state paths.
+    # Unit/integration mocks must never inherit those values. This scrub is
+    # scoped ONLY to test_group's subshell: the subsequent read-only operator
+    # inspections still use the real configured runtime.
+    for inherited in ${!STERLING_@} ${!KITE_@} ${!ZERODHA_@} ${!TELEGRAM_@}; do
+      unset "$inherited"
+    done
+    unset ENVIRONMENT
+    export ENVIRONMENT=development
     export STERLING_LIVE_EXECUTION=0
     export STERLING_STATE_ROOT="$isolated"
     export STERLING_DB_PATH="$isolated/sterling.db"
