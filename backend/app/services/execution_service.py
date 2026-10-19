@@ -712,9 +712,14 @@ class CanonicalExecutionService:
             cap_req = request.capital_required if (risk_approval is None or risk_approval.capital_required is None) else risk_approval.capital_required
 
         if is_exposure_increasing:
-            from app.services.shared_risk import entry_refusal
+            from app.services.shared_risk import entry_refusal, committed_value
             from app.core.async_work import run_blocking
             try:
+                from math import isfinite
+                committed = committed_value(request, cap_req)
+                payload.pop("_shared_committed_value", None)
+                if isfinite(committed):
+                    payload["_shared_committed_value"] = committed
                 shared_refusal = await run_blocking(entry_refusal, request, cap_req)
             except Exception:
                 shared_refusal = "Shared risk settings could not be verified"

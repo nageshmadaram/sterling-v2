@@ -261,3 +261,63 @@ async def test_canonical_refuses_tightened_policy_at_final_send_without_uncertai
     assert calls == []
     assert result.status != "UNKNOWN"
     assert order_journal.get(result.intent_key).reconciliation_required is False
+
+
+def test_futures_margin_cannot_understate_the_notional_cap(store):
+    profile(store, per_trade_risk_inr=1000)
+    req = request()
+    req.symbol = "NIFTY26OCTFUT"
+    assert "per-trade" in store.entry_refusal(req, 250).lower()
+
+
+def test_pending_futures_keep_their_notional_reservation(store, monkeypatch):
+    from app.services import live_minimum_gate as gate
+    from app.services.kite_engine import order_journal
+
+    profile(store, allocation_inr=10000)
+    monkeypatch.setattr(gate, "_read_inventory", lambda r: [])
+    order_journal.reserve(
+        uid="owner",
+        account_id="account",
+        strategy_id="sterling-kite",
+        generation_id="g1",
+        signal_id="future",
+        exchange="NFO",
+        symbol="NIFTY26OCTFUT",
+        side="BUY",
+        quantity=25,
+        capital_required=1000,
+        available_capital=20000,
+        payload={"_shared_committed_value": 9000},
+    )
+    assert "allocation" in store.entry_refusal(request(), 2500)
+
+
+def test_legacy_futures_reservation_needs_reconciliation(store, monkeypatch):
+    from app.services import live_minimum_gate as gate
+    from app.services.kite_engine import order_journal
+
+    profile(store, allocation_inr=10000)
+    monkeypatch.setattr(gate, "_read_inventory", lambda r: [])
+    order_journal.reserve(
+        uid="owner",
+        account_id="account",
+        strategy_id="sterling-kite",
+        generation_id="g1",
+        signal_id="legacy-future",
+        exchange="NFO",
+        symbol="NIFTY26OCTFUT",
+        side="BUY",
+        quantity=25,
+        capital_required=1000,
+        available_capital=20000,
+    )
+    assert "unreadable" in store.entry_refusal(request(), 2500)
+
+
+def test_future_without_execution_price_cannot_use_margin_as_notional(store):
+    profile(store, per_trade_risk_inr=10000)
+    req = request()
+    req.symbol = "NIFTY26OCTFUT"
+    req.price = 0
+    assert "unavailable" in store.entry_refusal(req, 250)

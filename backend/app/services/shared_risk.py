@@ -1,6 +1,7 @@
 """Owner-selected shared risk caps; separate account/safety halts always apply."""
 
 from __future__ import annotations
+import json
 from math import isfinite
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -119,7 +120,9 @@ def snapback_config(uid, base):
     if cfg.allocation_inr is not None:
         update["capital_inr"] = capital
     if cfg.per_trade_risk_inr is not None:
-        update["premium_pct_of_capital"] = min(cfg.per_trade_risk_inr, capital) / capital * 100
+        update["premium_pct_of_capital"] = (
+            min(cfg.per_trade_risk_inr, capital) / capital * 100
+        )
     return replace(base, **update)
 
 
@@ -155,6 +158,18 @@ def sizing_inputs(uid, capital, risk_pct):
     return capital, risk_pct
 
 
+def committed_value(request, capital_required):
+    """Margin is not a notional cap; retain the order's executable ceiling."""
+    capital = float(capital_required or 0)
+    price = float(getattr(request, "price", 0) or 0)
+    quantity = float(request.quantity)
+    if not all(isfinite(v) and v >= 0 for v in (capital, price, quantity)):
+        return float("nan")
+    if str(request.symbol).upper().endswith("FUT") and price <= 0:
+        return float("nan")
+    return max(capital, price * quantity)
+
+
 def entry_refusal(request, order_value, *, ignore_intent_key=""):
     """Called under canonical account lock, including immediately before send.
 
@@ -183,7 +198,7 @@ def entry_refusal(request, order_value, *, ignore_intent_key=""):
     cfg = selected(request.uid, request.strategy_id)
     if not cfg:
         return None
-    amount = float(order_value or 0)
+    amount = committed_value(request, order_value)
     if (cfg.allocation_inr is not None or cfg.per_trade_risk_inr is not None) and (
         not isfinite(amount) or amount <= 0
     ):
@@ -198,15 +213,30 @@ def entry_refusal(request, order_value, *, ignore_intent_key=""):
 
         marks = ",".join("?" for _ in UNRESOLVED)
         with db._conn() as conn:
-            pending = conn.execute(
-                f"SELECT COALESCE(SUM(capital_required),0) FROM kite_order_intents WHERE uid=? AND account_id=? AND intent_key<>? AND (state IN ({marks}) OR reconciliation_required=1)",
+            reservations = conn.execute(
+                f"SELECT capital_required,payload_json,symbol FROM kite_order_intents WHERE uid=? AND account_id=? AND intent_key<>? AND (state IN ({marks}) OR reconciliation_required=1)",
                 (
                     request.uid,
                     request.account_id,
                     ignore_intent_key,
                     *sorted(UNRESOLVED),
                 ),
-            ).fetchone()[0]
+            ).fetchall()
+        pending = 0.0
+        for row in reservations:
+            payload = json.loads(row[1] or "{}")
+            # Legacy futures reservations lack a verified notional ceiling.
+            # Reconcile them before authorizing more exposure under a new cap.
+            if (
+                str(row[2]).upper().endswith("FUT")
+                and "_shared_committed_value" not in payload
+            ):
+                return "Shared allocation: futures reservation notional is unreadable"
+            capital = float(row[0] or 0)
+            notional = float(payload.get("_shared_committed_value", capital))
+            if not all(isfinite(v) and v >= 0 for v in (capital, notional)):
+                return "Shared allocation: reservations are unreadable"
+            pending += max(capital, notional)
         if not isfinite(float(pending)) or float(pending) < 0:
             return "Shared allocation: reservations are unreadable"
         if gross + float(pending) + amount > cfg.allocation_inr:
