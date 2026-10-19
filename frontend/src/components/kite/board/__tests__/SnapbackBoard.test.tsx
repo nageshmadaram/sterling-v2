@@ -358,7 +358,7 @@ describe('Snapback board', () => {
     expect(screen.queryByText(/rows marked/)).toBeNull();
   });
 
-  it('keeps intraday research-only even if stale capability metadata looks executable', () => {
+  it('permits intraday only when the server confirms execution and the signal is eligible', () => {
     snap.data = snapshot({
       config: { enabled: true, trading_mode: 'intraday', scalp_timeframe_minutes: 5 },
       rows: [row({ trading_mode: 'intraday', execution_eligible: true, signal_close_ms: 1_789_009_500_000 })],
@@ -374,10 +374,30 @@ describe('Snapback board', () => {
     renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
 
     expect(screen.getByText(/5-minute bars · intraday/)).toBeInTheDocument();
-    expect(screen.getByText('RESEARCH ONLY')).toBeInTheDocument();
+    expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
+    expect(screen.getByText('ALGO AVAILABLE')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
-    expect(screen.getByText(/execution unavailable/i)).toBeInTheDocument();
-    expect(screen.queryByText(/open a row to buy it/i)).toBeNull();
+    expect(screen.getByText(/open a row to buy it/i)).toBeInTheDocument();
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
+    expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeEnabled();
+  });
+
+  it('keeps ineligible intraday signals read-only even when execution capability is available', () => {
+    snap.data = snapshot({
+      config: { enabled: true, trading_mode: 'intraday', scalp_timeframe_minutes: 5 },
+      rows: [row({ trading_mode: 'intraday', execution_eligible: false, signal_close_ms: 1_789_009_500_000 })],
+      capabilities: {
+        live_scan: true, historical_model: false, replay: false, option_tape_replay: true,
+        auto_execution: { available: true, enabled: true, reason: '', blockers: [], session: [] },
+        manual_execution: {
+          single_leg: true, spread: false, hedge: false,
+          protection_lifecycle: true, reason: '',
+        },
+      },
+    });
+    renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
+    act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
+    expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeDisabled();
   });
 });
 
