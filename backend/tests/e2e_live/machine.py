@@ -69,14 +69,21 @@ _ABSENT_ENV = (
 class _CapturedTask:
     """What ``asyncio.create_task`` returns while the lifespan boots.
 
-    The coroutine is held, never scheduled. ``await``-ing it (as the lifespan's
-    shutdown does) finishes immediately.
+    The coroutine is recorded but never scheduled; it is closed immediately
+    to avoid unawaited-coroutine warnings. ``await``-ing the captured task
+    (as the lifespan's shutdown does) finishes immediately.
     """
 
     def __init__(self, coro: Any, name: Optional[str]) -> None:
         self.coro = coro
         self.name = name or getattr(coro, "__qualname__", "task")
         self._cancelled = False
+        # The coroutine will never be scheduled by this deterministic harness.
+        # Close it immediately so restarts/garbage collection cannot emit
+        # 'coroutine was never awaited' and mask real lifecycle warnings.
+        close = getattr(coro, "close", None)
+        if callable(close):
+            close()
 
     def cancel(self) -> bool:
         self._cancelled = True
