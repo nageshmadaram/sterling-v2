@@ -69,7 +69,8 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
     destinations.unshift(navButton('kite','KITE',workspace==='kite' && view==='live',
       () => onSelect('kite','live')));
   }
-  return <nav aria-label="Sterling Spectrum" style={{
-    display:'inline-flex', alignItems:'center', gap:4, minWidth:0,
-  }}>{destinations}</nav>;
+  // Keep each button an IMMEDIATE child of .sterling-header-row.
+  // Sterling's original desktop and mobile CSS uses the direct-child
+  // selector for the KITE switch. A <nav> wrapper changes its styling.
+  return <>{destinations}</>;
 }
