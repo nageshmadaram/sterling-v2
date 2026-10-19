@@ -140,7 +140,7 @@ describe('Sterling Spectrum product navigation', () => {
     expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('Cinema');
     next();
     expect(useViewStore.getState().view).toBe('live');
-    expect(screen.getByTestId('fake-tv-content')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('fake-tv-content')).not.toBeInTheDocument();
     expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('KITE');
   });
 
@@ -154,7 +154,7 @@ describe('Sterling Spectrum product navigation', () => {
     expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
     expect(useViewStore.getState().view).toBe('live');
     fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
-    expect(screen.getByTestId('fake-tv-content')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('fake-tv-content')).not.toBeInTheDocument();
     expect(useViewStore.getState().view).toBe('live');
   });
 
