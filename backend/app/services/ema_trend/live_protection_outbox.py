@@ -16,7 +16,7 @@ from app.services.kite_engine import fill_ledger, order_journal
 from . import live_campaign_store as store
 
 ChangeKind = Literal["PLACE", "TIGHTEN"]
-_UNRESOLVED = ("RESERVED", "OUTCOME_UNKNOWN")
+_UNRESOLVED = ("RESERVED", "OUTCOME_UNKNOWN", "ACK_PENDING_VERIFICATION")
 
 
 class StopCommandConflict(ValueError):
@@ -35,6 +35,7 @@ class StopCommand:
     held_qty: int
     revision: int
     status: str
+    broker_trigger_id: str = ""
 
 
 def _parse_trigger(value) -> Decimal:
@@ -64,11 +65,26 @@ def _schema(conn) -> None:
         status TEXT NOT NULL,
         created_ms INTEGER NOT NULL
     )""")
+    # Upgrade existing databases without discarding their pending commands.
+    # A GTT ACK is still unverified and must hold the same durable fence.
+    columns = {row["name"] for row in conn.execute(
+        "PRAGMA table_info(ema_live_stop_commands)"
+    ).fetchall()}
+    if "broker_trigger_id" not in columns:
+        conn.execute(
+            "ALTER TABLE ema_live_stop_commands ADD COLUMN "
+            "broker_trigger_id TEXT NOT NULL DEFAULT ''"
+        )
     # One outstanding stop change per campaign *even across process restarts*.
     conn.execute("""
     CREATE UNIQUE INDEX IF NOT EXISTS ux_ema_live_stop_outstanding
     ON ema_live_stop_commands(campaign_id)
     WHERE status IN ('RESERVED','OUTCOME_UNKNOWN')
+    """)
+    conn.execute("""
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_ema_live_stop_outstanding_v2
+    ON ema_live_stop_commands(campaign_id)
+    WHERE status IN ('RESERVED','OUTCOME_UNKNOWN','ACK_PENDING_VERIFICATION')
     """)
 
 
@@ -80,6 +96,7 @@ def _row(row) -> StopCommand:
         desired_trigger=Decimal(row["desired_trigger"]),
         held_qty=int(row["held_qty"]),
         revision=int(row["campaign_revision"]),status=row["status"],
+        broker_trigger_id=row["broker_trigger_id"],
     )
 
 
@@ -156,7 +173,7 @@ def reserve_stop_command(campaign_id: str, command_id: str, *,
         # let the UNIQUE constraint itself be the only explanation to users.
         if conn.execute("""
             SELECT 1 FROM ema_live_stop_commands
-            WHERE campaign_id=? AND status IN ('RESERVED','OUTCOME_UNKNOWN')
+            WHERE campaign_id=? AND status IN ('RESERVED','OUTCOME_UNKNOWN','ACK_PENDING_VERIFICATION')
         """,(campaign_id,)).fetchone():
             raise StopCommandConflict("EMA_STOP_PREVIOUS_CHANGE_UNRESOLVED")
         from time import time
@@ -194,7 +211,7 @@ def mark_outcome_unknown(command_id: str) -> StopCommand:
         if record is None:
             raise StopCommandConflict("EMA_STOP_COMMAND_NOT_FOUND")
         command=_row(record)
-        if command.status=="OUTCOME_UNKNOWN":
+        if command.status in {"OUTCOME_UNKNOWN", "ACK_PENDING_VERIFICATION"}:
             return command
         if command.status!="RESERVED":
             raise StopCommandConflict("EMA_STOP_COMMAND_TERMINAL")
@@ -206,6 +223,53 @@ def mark_outcome_unknown(command_id: str) -> StopCommand:
         return _row(conn.execute(
             "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
             (command_id,)).fetchone())
+
+
+
+def record_unverified_broker_ack(command_id: str, trigger_id: str) -> StopCommand:
+    """Store an HTTP GTT ACK without treating it as active stop coverage.
+
+    This must be called only after a durable OUTCOME_UNKNOWN pre-send fence.
+    An ACK never authorizes retry, modification or exit. Any conflicting
+    trigger id fails closed and leaves the first acknowledgement intact.
+    """
+    if (not isinstance(trigger_id,str) or not trigger_id.isascii()
+            or not trigger_id.isdigit() or int(trigger_id)<=0):
+        raise StopCommandConflict("EMA_STOP_BROKER_ACK_ID_INVALID")
+    with order_journal._transaction() as conn:
+        _schema(conn)
+        row=conn.execute(
+            "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
+            (command_id,),
+        ).fetchone()
+        if row is None:
+            raise StopCommandConflict("EMA_STOP_COMMAND_NOT_FOUND")
+        cmd=_row(row)
+        if cmd.status=="ACK_PENDING_VERIFICATION":
+            if cmd.broker_trigger_id!=trigger_id:
+                raise StopCommandConflict("EMA_STOP_CONFLICTING_BROKER_ACK")
+            return cmd
+        if cmd.status!="OUTCOME_UNKNOWN":
+            raise StopCommandConflict("EMA_STOP_ACK_REQUIRES_PRE_SEND_FENCE")
+        if cmd.kind=="TIGHTEN" and cmd.prior_gtt_id!=trigger_id:
+            raise StopCommandConflict("EMA_STOP_TRAIL_ACK_GTT_ID_MISMATCH")
+        if conn.execute("""
+            SELECT 1 FROM ema_live_stop_commands
+            WHERE account_id=? AND broker_trigger_id=? AND command_id<>?
+            LIMIT 1
+        """,(cmd.account_id,trigger_id,command_id)).fetchone():
+            raise StopCommandConflict("EMA_STOP_BROKER_TRIGGER_ALREADY_BOUND")
+        updated=conn.execute("""
+            UPDATE ema_live_stop_commands
+            SET broker_trigger_id=?,status='ACK_PENDING_VERIFICATION'
+            WHERE command_id=? AND status='OUTCOME_UNKNOWN'
+        """,(trigger_id,command_id)).rowcount
+        if updated!=1:
+            raise StopCommandConflict("EMA_STOP_ACK_CONCURRENT_CHANGE")
+        return _row(conn.execute(
+            "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
+            (command_id,)).fetchone())
+
 
 
 def get(command_id: str) -> StopCommand:
