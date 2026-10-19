@@ -28,16 +28,36 @@ export STERLING_ROOT PYTHON
 # Load the runtime configuration before supplying CLI defaults. Otherwise these
 # exports override .env and doctor/backup inspect a different database from the
 # backend. NUL-delimited values are data, never sourced as shell commands.
-while IFS= read -r -d '' config_key && IFS= read -r -d '' config_value; do
-  export "$config_key=$config_value"
+# Bash does not propagate an exit failure from process substitution into the
+# surrounding while-loop. Require a completion marker from the Python loader,
+# or a broken import could silently select the wrong database/safety settings.
+_config_complete=0
+while IFS= read -r -d '' config_key; do
+  if [[ "$config_key" == "__STERLING_CONFIG_LOADED__" ]]; then
+    _config_complete=1
+    break
+  fi
+  if ! IFS= read -r -d '' config_value; then
+    echo "Sterling configuration stream incomplete; refusing operator command" >&2
+    exit 2
+  fi
+  if ! export "$config_key=$config_value"; then
+    echo "Invalid Sterling configuration key; refusing operator command" >&2
+    exit 2
+  fi
 done < <("$PYTHON" - <<'PY'
 import os, sys
 sys.path.insert(0, os.path.join(os.environ['STERLING_ROOT'], 'backend'))
 from app.core.runtime_env import load_sterling_env
 for key in load_sterling_env():
     sys.stdout.write(key + '\0' + os.environ[key] + '\0')
+sys.stdout.write('__STERLING_CONFIG_LOADED__\0')
 PY
 )
+if (( _config_complete != 1 )); then
+  echo "Sterling configuration did not load; refusing operator command" >&2
+  exit 2
+fi
 _STATE_ROOT_DECLARED="${STERLING_STATE_ROOT:-}"
 STERLING_STATE_ROOT="${STERLING_STATE_ROOT:-$STERLING_ROOT}"
 export STERLING_STATE_ROOT
