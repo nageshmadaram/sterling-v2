@@ -113,6 +113,9 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
     held = bought - sold
     stop = campaign.protection
     stop_id = stop.trigger_id if stop is not None else None
+    orphan_ids = list(campaign.orphan_stop_ids)
+    if stop_id and stop is not None and stop.qty > held and stop_id not in orphan_ids:
+        orphan_ids.append(stop_id)
     # Broker stop quantities must never exceed the *new* confirmed holding.
     # The rehearsal cannot cancel a GTT, so preserve an explicit UNKNOWN
     # cleanup state instead of quietly pretending that the stop disappeared.
@@ -124,11 +127,11 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
                and not campaign.protection_submission_unknown else 0)
     gap = max(0, held - covered)
     ambiguous = (campaign.protection_submission_unknown or cleanup
-                 or campaign.phase == "RECOVERY_REQUIRED"
+                 or bool(orphan_ids) or campaign.phase == "RECOVERY_REQUIRED"
                  or next_order.status == "UNKNOWN")
     if ambiguous:
         phase = "RECOVERY_REQUIRED"
-        proof: NextProof = "BROKER_STOP_CLEANUP" if cleanup else "ORDER_RECONCILIATION"
+        proof: NextProof = "BROKER_STOP_CLEANUP" if orphan_ids else "ORDER_RECONCILIATION"
     elif not held:
         # A zero arithmetic balance is NOT broker-verified flat: the broker
         # inventory, orders, stop children and holdings still need inspection.
@@ -158,6 +161,7 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
         "confirmed_bought": bought,
         "confirmed_sold": sold,
         "protection": stop.model_dump(mode="python") if stop is not None else None,
+        "orphan_stop_ids": orphan_ids,
         "protection_submission_unknown": ambiguous,
         "phase": phase,
         "reason": (("UNVERIFIED_ORPHAN_BROKER_STOP" if cleanup
