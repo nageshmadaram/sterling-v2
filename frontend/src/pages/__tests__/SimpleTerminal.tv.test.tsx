@@ -173,6 +173,19 @@ describe('Sterling Spectrum product navigation', () => {
     expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
   });
 
+  it('keeps a safe live return tab when Simulation is already open and KITE was hidden', () => {
+    useViewStore.setState({ view:'simulation' });
+    useExperienceOptions.getState().update({
+      spectrumLayout:'separate',
+      spectrumVisible:{ kite:false, simulation:true, tv:true },
+    });
+    render(<SimpleTerminal />);
+    expect(screen.getByTestId('spectrum-kite-tab')).toHaveTextContent('KITE');
+    expect(screen.getByTestId('spectrum-kite-tab')).not.toHaveAttribute('aria-current','page');
+    fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
+    expect(useViewStore.getState().view).toBe('live');
+  });
+
   it('can hide Simulation without losing the KITE or TV destinations', () => {
     useExperienceOptions.getState().update({
       spectrumVisible:{kite:true,simulation:false,tv:true},
