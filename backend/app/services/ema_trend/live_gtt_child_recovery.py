@@ -136,6 +136,18 @@ def _evaluate(campaign: LiveCampaign, gtt: Any, orders: Any) -> tuple[str,str,st
                                   trigger_id=campaign.protection.trigger_id)
         except ValueError:
             return ("ACTIVE_GTT_CONTRACT_CHANGED","","",0)
+        if not isinstance(orders,list) or not all(isinstance(item,dict) for item in orders):
+            return ("ACTIVE_GTT_ORDER_BOOK_UNVERIFIED","","",0)
+        for item in orders:
+            if str(item.get("tradingsymbol") or "").upper()!=campaign.symbol:
+                continue
+            # A still-working SELL child or manual BUY can alter the position
+            # despite an active GTT. Unknown account product/exchange or
+            # status is just as dangerous as a known competing order.
+            if str(item.get("status") or "").upper() not in {
+                "COMPLETE","CANCELLED","CANCELED","REJECTED","EXPIRED"
+            }:
+                return ("ACTIVE_GTT_COMPETING_BROKER_ORDER","","",0)
         return ("ACTIVE_VERIFIED","","",0)
     if status not in {"triggered","cancelled","canceled","expired",
                       "deleted","disabled","rejected"}:
