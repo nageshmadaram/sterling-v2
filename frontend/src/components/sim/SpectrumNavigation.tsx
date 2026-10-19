@@ -89,7 +89,10 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
   // If a saved visibility configuration hides KITE while the app is already
   // in Simulation, always provide a way back to live trading view.
   if (!visible.kite && view === 'simulation') {
-    destinations.unshift(navButton('kite','KITE',workspace==='kite' && view==='live',
+    // In this branch the view is necessarily 'simulation', so the
+    // fallback KITE/live destination is not selected yet. Keep it visible
+    // as an emergency route out of a hidden Simulation workspace.
+    destinations.unshift(navButton('kite','KITE',false,
       () => onSelect('kite','live')));
   }
   // Keep each button an IMMEDIATE child of .sterling-header-row.
