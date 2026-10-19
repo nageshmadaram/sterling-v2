@@ -219,3 +219,17 @@ close any acceptance row without evidence tied to the final release identity.
 6. Do not submit live real-money orders, pretend to have protective fill
    receipts, promote an unverified issue, or freeze a release on the strength
    of a source-only patch.
+
+### 2026-10-20 probe credential isolation hardening
+
+The release probe's simulated test groups now remove inherited `STERLING_*`,
+`KITE_*`, `ZERODHA_*`, and `TELEGRAM_*` environment variables before
+pytest imports application modules. Their isolated databases, evidence root,
+development identity and `STERLING_LIVE_EXECUTION=0` are set afterward.
+This restriction is limited to test subprocesses; the later **read-only**
+operator inventory calls still use the actual configured Sterling runtime.
+
+A subprocess regression asserts that representative inherited production
+settings do not reach tests (`ad33f6a8` and `8c5cd9be`). Those changes are
+source-level only until rerun on a synchronized exact commit. No broker order,
+secrets migration, SAFE_MODE deactivation or live-entry activation occurred.
