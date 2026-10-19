@@ -135,6 +135,9 @@ if [[ -f scripts/sterlingctl ]]; then
   for subcommand in doctor bindings egress exposure drills; do
     check "operator_$subcommand" bash scripts/sterlingctl "$subcommand"
   done
+  # Unlike the historical advisory "certify", this command really fails when
+  # a required release gate or exposure fact is UNKNOWN/FAIL.
+  check operator_certify_strict bash scripts/sterlingctl certify strict
 else blocked operator_cli "sterlingctl missing"; fi
 
 FREE_KIB="$(df -Pk "$ROOT" | awk 'NR==2{print $4}')"
