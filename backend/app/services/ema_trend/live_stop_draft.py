@@ -65,6 +65,11 @@ def draft_stop_command(command_id: str, *, reference_bid,
             or campaign.orphan_stop_ids
             or campaign.protection_submission_unknown):
         raise StopDraftBlocked("EMA_STOP_DRAFT_CAMPAIGN_IDENTITY_OR_INVENTORY_CHANGED")
+    # Changes to ownership after command reservation must invalidate the
+    # preview. An ACKed or partially filled order can still move quantity.
+    if any(item.status not in {"COMPLETE","CANCELLED","REJECTED"}
+           for item in campaign.entries+campaign.exits):
+        raise StopDraftBlocked("EMA_STOP_DRAFT_WORKING_ORDER")
     if command.kind == "PLACE":
         if campaign.protection is not None or campaign.phase != "PROTECTION_REQUIRED":
             raise StopDraftBlocked("EMA_STOP_DRAFT_ALREADY_PROTECTED")
