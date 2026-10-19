@@ -207,24 +207,36 @@ async def inspect_and_quarantine(campaign_id: str, *, expected_revision: int,
         # A failed broker read proves neither protection nor a filled exit.
         gtt,orders=None,None
     verdict,child_id,child_status,observed_qty=_evaluate(campaign,gtt,orders)
-    if verdict=="ACTIVE_VERIFIED":
-        return GTTChildObservation(
-            campaign_id,trigger_id,verdict,"","",0,campaign.held_qty,
-            campaign.revision,
-        )
     from time import time
+    from . import live_protection_outbox as outbox
     with order_journal._transaction() as conn:
         store._schema(conn)
         _schema(conn)
+        outbox._schema(conn)
         current=store._get(conn,campaign_id)
         if current!=campaign or current.revision!=expected_revision:
             raise GTTChildRecoveryConflict("EMA_GTT_QUARANTINE_STALE_CAMPAIGN")
+        if conn.execute("""
+            SELECT 1 FROM ema_live_stop_commands
+            WHERE campaign_id=?
+              AND status IN ('RESERVED','OUTCOME_UNKNOWN','ACK_PENDING_VERIFICATION')
+            LIMIT 1
+        """,(campaign_id,)).fetchone():
+            verdict="GTT_STOP_COMMAND_UNRESOLVED"
         signed=fill_ledger._read_inventory(
             conn,campaign.account_id,campaign.owner_uid,campaign.symbol)
         if (signed is None or signed.exchange!=campaign.exchange
                 or signed.net_quantity!=campaign.held_qty
                 or signed.reconciliation_required):
-            raise GTTChildRecoveryConflict("EMA_GTT_QUARANTINE_LEDGER_DIVERGED")
+            # A changed signed ledger is *more* reason to quarantine, not a
+            # reason to leave the old GTT marked PROTECTED and exit planning
+            # operational. Never project child fills here.
+            verdict="GTT_SIGNED_LEDGER_DIVERGED"
+        if verdict=="ACTIVE_VERIFIED":
+            return GTTChildObservation(
+                campaign_id,trigger_id,verdict,"","",0,campaign.held_qty,
+                campaign.revision,
+            )
         if conn.execute("""
             SELECT 1 FROM ema_live_gtt_child_recovery
             WHERE campaign_id=? AND trigger_id=?
