@@ -46,6 +46,10 @@ def get_config(uid: str) -> EngineConfigModel:
         except Exception:_config[uid] = EngineConfigModel()
     return _config[uid]
 
+def get_effective_config(uid: str) -> EngineConfigModel:
+    from app.services.shared_risk import supertrend_config
+    return supertrend_config(uid, get_config(uid))
+
 def set_config(uid: str, cfg: EngineConfigModel) -> EngineConfigModel:
     """Persist engine configuration before publishing it in memory.
 

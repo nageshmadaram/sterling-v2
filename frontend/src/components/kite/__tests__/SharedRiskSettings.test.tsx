@@ -1,0 +1,15 @@
+import React from 'react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { SharedRiskSettings } from '../SharedRiskSettings';
+import { api } from '../../../utils/api';
+const empty = { revision: 0, enabled: false, strategies: [], allocation_inr: null, max_daily_loss_inr: null, per_trade_risk_inr: null };
+function show() { const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } }); return { qc, ...render(<QueryClientProvider client={qc}><SharedRiskSettings /></QueryClientProvider>) }; }
+beforeEach(() => { vi.restoreAllMocks(); vi.spyOn(api, 'get').mockResolvedValue(empty as never); vi.spyOn(api, 'put').mockImplementation(async (_path, body: any) => ({ ...body, revision: body.revision + 1 }) as never); });
+describe('shared risk settings', () => {
+  it('starts without invented money amounts or selected strategies', async () => { show(); expect(await screen.findByLabelText('Allocation cap (₹)')).toHaveValue(null); expect(screen.getByLabelText('Snapback')).not.toBeChecked(); expect(screen.getByRole('button', { name: 'Save shared risk settings' })).toBeDisabled(); });
+  it('saves selected strategy overrides and preserves blanks', async () => { show(); fireEvent.change(await screen.findByLabelText('Allocation cap (₹)'), { target: { value: '10000' } }); fireEvent.click(screen.getByLabelText('Snapback')); fireEvent.click(screen.getByRole('switch')); fireEvent.click(screen.getByRole('button', { name: 'Save shared risk settings' })); await waitFor(() => expect(api.put).toHaveBeenCalledWith('/api/v1/config/shared-risk', { ...empty, enabled: true, strategies: ['snapback'], allocation_inr: 10000 })); expect(await screen.findByRole('status')).toHaveTextContent('saved'); });
+  it('refuses risk greater than allocation', async () => { show(); fireEvent.change(await screen.findByLabelText('Allocation cap (₹)'), { target: { value: '100' } }); fireEvent.change(screen.getByLabelText('Per-trade risk cap (₹)'), { target: { value: '101' } }); expect(screen.getByRole('button', { name: 'Save shared risk settings' })).toBeDisabled(); expect(api.put).not.toHaveBeenCalled(); });
+  it('keeps drafts across refetch and stale-save errors', async () => { vi.mocked(api.put).mockRejectedValue(new Error('Risk settings changed; reload before saving')); const { qc } = show(); fireEvent.change(await screen.findByLabelText('Maximum daily loss (₹)'), { target: { value: '500' } }); qc.setQueryData(['shared-risk-settings'], { ...empty, revision: 3, max_daily_loss_inr: 700 }); expect(screen.getByLabelText('Maximum daily loss (₹)')).toHaveValue(500); fireEvent.click(screen.getByRole('button', { name: 'Save shared risk settings' })); expect(await screen.findByRole('alert')).toHaveTextContent('reload before saving'); expect(screen.getByLabelText('Maximum daily loss (₹)')).toHaveValue(500); });
+});

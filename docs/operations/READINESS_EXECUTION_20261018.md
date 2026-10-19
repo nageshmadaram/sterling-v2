@@ -249,3 +249,39 @@ The host rebooted at 12:33 IST. The private encrypted archive and Git bundles su
 The reboot journal exposed an installed-unit startup dependency on interactive `systemd-inhibit` authorization. The local unit override now starts the existing supervisor directly; the committed deployment template already avoids that dependency. Original local unit files were preserved, and the running backend was not interrupted by the override.
 
 A fresh initialized diagnostic proved that `sterlingctl doctor` previously inspected empty configuration/account caches before loading SQLite. The command now initializes persisted state first and exits with code 2 if initialization fails. Forty operator, exposure, CLI-bootstrap and supervisor regressions passed. Genuine identity/configuration, risk, egress and acceptance failures remain visible; no safety gate was waived to make this check pass.
+
+### Owner-requested Cloudflare and shared risk configuration
+
+The owner selected Cloudflare hosting and requested editable shared INR allocation,
+daily-loss and per-trade limits with per-strategy overrides. The new Config panel
+starts with no amounts, no selected strategies and overrides OFF. It preserves
+local strategy settings, uses revision-protected per-user persistence and enforces
+caps at canonical entry reservation and final send. Account-wide exposure and loss
+accounting remain strict; exits and exact proven protective hedges remain allowed.
+The detailed contract is in `SHARED_RISK_SETTINGS.md`.
+
+Cloudflare quick-tunnel hosting is active through the supervised gateway. A named
+hostname and broker-console redirect approval are still needed for stable release
+hosting. TCP transport is configurable, and transient probes no longer discard a
+live quick-tunnel login origin. The backend service is not owned or restarted by
+this presentation manager.
+
+On c666e187, the full locked Python 3.12 suite completed with 11234 passed,
+1 watchdog scheduling-test failure and 30 skipped. The watchdog test now waits for
+the actual diagnostic rather than a 120ms scheduling window, and the monitor is
+joined at shutdown. New risk/API, final-send, protection and transport tests passed,
+as did the Cloudflare supervisor and affected strategy regressions. A fresh full
+suite on the resulting committed candidate remains required.
+
+The read-only live vendor harness passed with real market data and forced feed
+reconnection. A separate audit then found vulnerabilities in its optional legacy
+SDK dependencies. Its default transport now reuses the audited API HTTP/WebSocket
+implementation, with no Kite SDK, Autobahn or Twisted dependency. New transport
+unit tests cover vendor data types, authentication headers, production reconnect
+reuse and thread cleanup; final-commit live acceptance must be rerun.
+
+A real flat-account worker crash on c666e187 recovered in 14.138 seconds. Fresh
+profile/inventory, SQLite integrity/write-rollback and broker ticker reconnection
+passed afterward, with entries OFF and zero broker write calls. The subsequent
+connected observation passed 300/300 probes, p95 92.18ms, maximum 330.08ms. These
+receipts do not prove a real fill/SL/trail/exit lifecycle or certify the next build.

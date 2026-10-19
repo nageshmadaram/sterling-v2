@@ -68,7 +68,7 @@ def _default_config_store_available() -> bool:
 
 
 def _default_config() -> Any:
-    from app.services.snapback import get_config
+    from app.services.snapback import get_effective_config as get_config
 
     return get_config("default")
 

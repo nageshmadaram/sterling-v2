@@ -183,7 +183,7 @@ class SnapbackOpsScheduler:
     @staticmethod
     def _default_finalize_session(session_date: date) -> bool:
         """One deterministic finalisation attempt from persisted evidence."""
-        from app.services.snapback import get_config
+        from app.services.snapback import get_effective_config as get_config
         from app.services.snapback_eod import finalize_eod_session
         from app.services.snapback_prospective_collector import SnapbackObservationWarehouse
 

@@ -1081,3 +1081,29 @@ def test_foreground_service_waits_for_existing_presentation_owner(tmp_path):
   thread.join(3)
   standby.close()
  assert not thread.is_alive()
+
+
+def test_temporary_public_failures_preserve_the_quick_tunnel_login_origin():
+ assert stack.should_rotate_failed_tunnel('',100,1,10000) is False
+ assert stack.should_rotate_failed_tunnel('https://named.example',4,1,10000) is True
+ assert stack.should_rotate_failed_tunnel('https://named.example',3,1,10000) is False
+ assert stack.should_rotate_failed_tunnel('https://named.example',4,100,120) is False
+
+
+def test_cloudflare_can_use_tcp_transport_without_exposing_credentials(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ monkeypatch.setenv('STERLING_CLOUDFLARE_PROTOCOL','http2')
+ commands=[]
+ class Process:
+  pid=412
+  stdout=[]
+  def poll(self):return 0
+ monkeypatch.setattr(stack.subprocess,'Popen',lambda command,**kw:commands.append(command) or Process())
+ args=SimpleNamespace(provider='cloudflare',hostname='',port=5180,dev=False,dev_port=5174)
+ supervisor=stack.Stack(args);supervisor.binary='/usr/bin/cloudflared'
+ supervisor.launch_tunnel()
+ assert commands[0][:5]==['/usr/bin/cloudflared','tunnel','--no-autoupdate','--protocol','http2']
+ monkeypatch.setenv('STERLING_CLOUDFLARE_PROTOCOL','invalid')
+ with pytest.raises(RuntimeError):supervisor.launch_tunnel()
+ assert len(commands)==1

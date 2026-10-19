@@ -996,3 +996,27 @@ def snapback_replay_intraday(body: SnapbackIntradayReplayRequest,
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {**result, "data_source": "Caller-supplied candles; provenance is not independently verified",
             "config": cfg.as_dict()}
+
+
+@router.get('/shared-risk')
+def get_shared_risk(user: UserContext = Depends(get_current_user)) -> dict:
+    from app.services.shared_risk import get_config
+    try:
+        return get_config(user.user_id).model_dump()
+    except Exception as exc:
+        raise HTTPException(status_code=503,detail='Shared risk settings unavailable') from exc
+
+
+@router.put('/shared-risk')
+def put_shared_risk(body: dict = Body(...),user: UserContext = Depends(get_current_user)) -> dict:
+    from pydantic import ValidationError
+    from app.services.shared_risk import SharedRiskConfig,save_config,RevisionConflict
+    try:
+        cfg=SharedRiskConfig.model_validate(body)
+        return save_config(user.user_id,cfg).model_dump()
+    except RevisionConflict as exc:
+        raise HTTPException(status_code=409,detail=str(exc)) from exc
+    except (ValidationError,ValueError) as exc:
+        raise HTTPException(status_code=422,detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503,detail='Shared risk settings could not be saved') from exc

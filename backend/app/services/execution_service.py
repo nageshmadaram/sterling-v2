@@ -711,6 +711,16 @@ class CanonicalExecutionService:
             avail_cap = avail_cap if avail_cap is not None else request.available_capital
             cap_req = request.capital_required if (risk_approval is None or risk_approval.capital_required is None) else risk_approval.capital_required
 
+        if is_exposure_increasing:
+            from app.services.shared_risk import entry_refusal
+            from app.core.async_work import run_blocking
+            try:
+                shared_refusal = await run_blocking(entry_refusal, request, cap_req)
+            except Exception:
+                shared_refusal = "Shared risk settings could not be verified"
+            if shared_refusal:
+                return ExecutionResult(success=False, status="REJECTED_SHARED_RISK", error=shared_refusal)
+
         # Day-one exposure envelope: daily-loss budget, gross exposure, no
         # averaging down, and an optional lot cap. It runs after the risk
         # approval and the verified-capital evidence it measures against, and
@@ -920,6 +930,13 @@ class CanonicalExecutionService:
             def before_send() -> None:
                 if not is_exposure_increasing:
                     return
+                from app.services.shared_risk import entry_refusal
+                try:
+                    shared_refusal = entry_refusal(request, cap_req, ignore_intent_key=intent.intent_key)
+                except Exception:
+                    raise PermissionError("Shared risk settings could not be verified before send")
+                if shared_refusal:
+                    raise PermissionError(shared_refusal)
                 from app.core.release_scope import may_originate
                 from app.core import runtime_env
                 if (getattr(broker_client, "_is_paper", None) is False or runtime_env.is_production()) and not may_originate(request.strategy_id, request.uid):

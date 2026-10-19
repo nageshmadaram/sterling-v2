@@ -199,7 +199,7 @@ async def finalize_session_signals(
             gap_codes=["broker_unavailable"],
         ))
 
-    from app.services.snapback import get_config
+    from app.services.snapback import get_effective_config as get_config
 
     cfg = get_config(uid)
     if not getattr(cfg, "enabled", False):

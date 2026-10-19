@@ -43,3 +43,5 @@ async def watch_event_loop(*, threshold=30.0, check_interval=1.0):
         stop.set()
         task.cancel()
         await asyncio.gather(task,return_exceptions=True)
+        # No diagnostic may outlive the lifespan it observes.
+        await asyncio.to_thread(thread.join)

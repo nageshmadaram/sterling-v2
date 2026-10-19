@@ -397,7 +397,7 @@ def live_conditions(uid: str, cfg=None, *, account_id: str = "") -> LiveConditio
     import time
 
     from app.services import snapback_dispatcher as dispatcher
-    from app.services.snapback import get_config
+    from app.services.snapback import get_effective_config as get_config
 
     cfg = cfg or get_config(uid)
     key = (uid, account_id, bool(cfg.enabled), bool(cfg.auto_execute), str(cfg.trading_mode),

@@ -211,7 +211,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
                     "message": "Exit submitted; awaiting broker fill confirmation",
                     "protected": False, "protection": "exit pending broker confirmation"}
 
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     plan = None
     if norm == "buy" and getattr(cfg, "protect_manual_orders", True):
         plan = protection.plan_for_symbol(uid, option_symbol)
@@ -276,7 +276,7 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
 
     intent = None
     try:
-        cfg = state.get_config(uid)
+        cfg = state.get_effective_config(uid)
         reasons = autoexec_preflight(uid)
         if reasons:
             raise ValueError("; ".join(reasons))
@@ -321,11 +321,13 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
         required = ceiling * quantity
         if not isfinite(available) or available <= 0 or required > available:
             raise ValueError("broker_capital_unavailable_or_insufficient")
-        if (ceiling - plan.stop_premium) * quantity > available * cfg.risk_pct / 100:
+        from app.services.shared_risk import sizing_inputs, daily_loss_limit
+        risk_capital, effective_risk_pct = sizing_inputs(uid, available, cfg.risk_pct)
+        if (ceiling - plan.stop_premium) * quantity > risk_capital * effective_risk_pct / 100:
             raise ValueError("manual_entry_exceeds_risk_budget")
         if cfg.max_daily_loss_pct is not None:
             day_pnl = state.daily_realized_pnl(uid)
-            if day_pnl < 0 and -day_pnl >= available * cfg.max_daily_loss_pct / 100:
+            if day_pnl < 0 and -day_pnl >= daily_loss_limit(uid, available, cfg.max_daily_loss_pct):
                 raise ValueError("daily_loss_limit")
         if variety != "amo":
             reason = entry_data_block_reason(row, exchange=exchange,
@@ -389,7 +391,7 @@ async def arm_manual_option_buy(client, uid: str, *, option_symbol: str, exchang
     OrderWindow → ``POST /kite/orders`` — so arming only the first left every entry
     clicked from the board unguarded.
     """
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     if plan is None and getattr(cfg, "protect_manual_orders", True):
         plan = protection.plan_for_symbol(uid, option_symbol)
     if plan is None:
@@ -758,7 +760,7 @@ def _make_place_cb(client, uid: str):
     futures order path instead.  All existing behavior is preserved when
     directional_mode is OFF (default)."""
     async def _cb(row, item) -> None:
-        cfg = state.get_config(uid)
+        cfg = state.get_effective_config(uid)
         # The leg nearest the money among those the expiry square-off would not sell at its
         # very next pass (see ``_without_expiring_legs``).
         tradable = _without_expiring_legs(row, cfg)
@@ -849,10 +851,11 @@ def _make_place_cb(client, uid: str):
         if getattr(cfg, "max_daily_loss_pct", None) is not None:
             cap0 = live_capital if live_capital is not None else await available_fo_capital(client)
             day_pnl = state.daily_realized_pnl(uid)
-            if cap0 > 0 and day_pnl < 0 and (-day_pnl) >= (float(cfg.max_daily_loss_pct) / 100.0) * cap0:
+            from app.services.shared_risk import daily_loss_limit
+            daily_limit = daily_loss_limit(uid, cap0, cfg.max_daily_loss_pct)
+            if cap0 > 0 and day_pnl < 0 and (-day_pnl) >= daily_limit:
                 state.log(uid, "order_blocked",
-                          f"{row.underlying}: daily loss ₹{-day_pnl:.0f} ≥ {cfg.max_daily_loss_pct}% of "
-                          f"₹{cap0:.0f} — new entries halted for today")
+                          f"{row.underlying}: daily loss ₹{-day_pnl:.0f} ≥ ₹{daily_limit:.0f} — new entries halted for today")
                 return
 
         # ── vehicle selection (directional mode; OFF ⇒ existing behavior) ──────
@@ -1011,9 +1014,11 @@ def _make_place_cb(client, uid: str):
         if use_futures:
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
                 capital = live_capital if live_capital is not None else await available_fo_capital(client)
+                from app.services.shared_risk import sizing_inputs
+                capital, effective_risk_pct = sizing_inputs(uid, capital, cfg.risk_pct)
                 sized = sizing.size_future_position(
                     entry_price=entry_px, stop_price=stop_px, lot_size=trade_lot,
-                    available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
+                    available_capital=capital, risk_pct=effective_risk_pct, max_lots=cfg.max_lots,
                     allow_min_lot_over_risk=allow_min_lot)
                 if _blocked(sized):
                     return
@@ -1026,9 +1031,11 @@ def _make_place_cb(client, uid: str):
             qty = trade_lot or qty
             if cfg.risk_sizing and entry_px > 0 and stop_px > 0 and trade_lot > 0:
                 capital = live_capital if live_capital is not None else await available_fo_capital(client)
+                from app.services.shared_risk import sizing_inputs
+                capital, effective_risk_pct = sizing_inputs(uid, capital, cfg.risk_pct)
                 sized = sizing.size_position(
                     entry_premium=entry_px, stop_premium=stop_px, lot_size=trade_lot,
-                    available_capital=capital, risk_pct=cfg.risk_pct, max_lots=cfg.max_lots,
+                    available_capital=capital, risk_pct=effective_risk_pct, max_lots=cfg.max_lots,
                     allow_min_lot_over_risk=allow_min_lot)
                 if _blocked(sized):
                     return
@@ -1040,12 +1047,14 @@ def _make_place_cb(client, uid: str):
             # rather than args, so spot-source signals (whose args carry no premium) are
             # risk-sized too instead of always defaulting to a single lot.
             capital = live_capital if live_capital is not None else await available_fo_capital(client)
+            from app.services.shared_risk import sizing_inputs
+            capital, effective_risk_pct = sizing_inputs(uid, capital, cfg.risk_pct)
             sized = sizing.size_position(
                 entry_premium=entry_px,
                 stop_premium=stop_px,
                 lot_size=trade_lot,
                 available_capital=capital,
-                risk_pct=cfg.risk_pct,
+                risk_pct=effective_risk_pct,
                 max_lots=cfg.max_lots,
                 allow_min_lot_over_risk=allow_min_lot,
             )
@@ -1054,6 +1063,13 @@ def _make_place_cb(client, uid: str):
             if sized.qty > 0:
                 qty, lots = sized.qty, sized.lots
                 state.log(uid, "info", f"{trade_symbol} sizing → {sized.reason}")
+
+        from app.services.shared_risk import bounded_quantity
+        qty = bounded_quantity(uid, "supertrend", qty, entry_px, trade_lot)
+        if qty <= 0:
+            state.log(uid, "order_blocked", f"{trade_symbol}: no whole lot fits shared risk limits")
+            return
+        lots = qty // trade_lot if trade_lot > 0 else lots
 
         # ── option-leg liquidity gate (opt-in): skip thin / wide-spread strikes ─
         if (not use_futures) and (cfg.max_spread_pct is not None or cfg.min_oi is not None):
@@ -1743,7 +1759,7 @@ async def _square_off_expiring(client, uid: str) -> None:
     ST signal exit + premium stop both assume a live, tradable contract). Runs only
     during market hours (an exit order off-hours is pointless) and reuses the tick
     monitor's exit path (correct side, GTT cancel, guard release, unsubscribe)."""
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     days = int(getattr(cfg, "expiry_square_off_days", 1) or 0)
     if days <= 0 or not is_management_session():
         return
@@ -1807,7 +1823,7 @@ async def _time_stop_positions(client, uid: str) -> None:
     The exit-mechanics sweep's one robust, cross-lens finding: a hold cap curbs theta
     bleed on long-option positions. Off unless configured; market-hours gated; reuses
     the tick-monitor exit path (correct side, GTT cancel, guard release, unsubscribe)."""
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     bars = int(getattr(cfg, "time_stop_bars", 0) or 0)
     if bars <= 0 or not is_management_session():
         return
@@ -2232,7 +2248,7 @@ async def _update_open_position_trails(client, uid: str) -> None:
         return
     snap = scanner.snapshot(uid)
     rows = snap.rows
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     for p in open_pos:
         if p.status != positions.OPEN:
             continue
@@ -2384,7 +2400,7 @@ async def _maintain_after_failed_scan(client, uid: str, *, done: set) -> None:
 
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) -> int:
     """Run one SuperTrend cycle for ``uid``. Return the active signal count."""
-    cfg_model = state.get_config(uid)
+    cfg_model = state.get_effective_config(uid)
     if not cfg_model.engine_enabled:
         # OFF means no new SuperTrend scan or entry. It must never mean
         # "abandon exposure that Sterling already owns."
@@ -2742,7 +2758,7 @@ async def check_live_readiness(client, uid: str) -> dict:
       8. Market Hours: Checks session phase and time to close.
     """
     now_ms = int(time.time() * 1000)
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     checks: dict[str, dict] = {}
     blockers: list[str] = []
     warnings: list[str] = []
@@ -2932,7 +2948,8 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": None},
             }
     else:
-        loss_limit_inr = (float(loss_pct) / 100.0) * cap if cap > 0 else 1500.0
+        from app.services.shared_risk import daily_loss_limit
+        loss_limit_inr = daily_loss_limit(uid, cap, loss_pct) if cap > 0 else 1500.0
         if cap > 0 and day_pnl < 0 and (-day_pnl) >= loss_limit_inr:
             blockers.append(f"Daily loss limit breached: ₹{-day_pnl:,.2f} >= ₹{loss_limit_inr:,.2f} ({loss_pct}%).")
             checks["circuit_breaker"] = {
@@ -3291,7 +3308,7 @@ async def emergency_halt(client, uid: str, reason: str = "Operator Emergency Hal
         live_safety._KILL_SWITCH.update({"enabled": True, "reason": reason, "set_ts_ms": int(time.time() * 1000)})
         degraded = True
 
-    cfg = state.get_config(uid)
+    cfg = state.get_effective_config(uid)
     if cfg.auto_execute:
         state.set_config(uid, cfg.model_copy(update={"auto_execute": False}))
     square_off_res = await emergency_square_off_all(client, uid, reason="emergency_halt")

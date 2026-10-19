@@ -136,6 +136,11 @@ def get_config(uid: str | None = None) -> SnapbackConfig:
         return SnapbackConfig(enabled=False)
 
 
+def get_effective_config(uid: str | None = None) -> SnapbackConfig:
+    from app.services.shared_risk import snapback_config
+    return snapback_config(uid, get_config(uid))
+
+
 class FrozenExperimentConfigError(RuntimeError):
     """The hypothesis cannot change while a prospective experiment is running."""
 
@@ -721,7 +726,7 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
     A symbol that throws is recorded as a failure rather than ending the scan:
     one delisted token must not blank the board.
     """
-    cfg = get_config(uid)
+    cfg = get_effective_config(uid)
     st = status(uid) if mode_override is None else ScanState(config_generation=status(uid).config_generation)
     if mode_override is not None:
         cfg = replace(cfg, trading_mode=mode_override, **({"scalp_timeframe_minutes": 1, "scalp_max_hold_bars": 20, "scalp_runner_max_bars": 60} if mode_override == "scalp" else {"scalp_timeframe_minutes": 5, "scalp_max_hold_bars": 12, "scalp_runner_max_bars": 36} if mode_override == "intraday" else {}))
@@ -1906,7 +1911,7 @@ def recent_signals(uid: str, *, sessions: int = HISTORY_SESSIONS) -> list[dict]:
     carries ``historical: True`` so nothing downstream can mistake a replayed
     signal for a live one.
     """
-    cfg = get_config(uid)
+    cfg = get_effective_config(uid)
     if cfg.trading_mode != "swing":
         # Daily modelled outcomes must never appear as intraday performance.
         # Observed-option research results are returned by option-tape replay.
@@ -2214,7 +2219,7 @@ def _live_capabilities(uid: str, cfg: SnapbackConfig, conditions) -> dict:
 
 def snapshot(uid: str) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
-    cfg = get_config(uid)
+    cfg = get_effective_config(uid)
     st = status(uid)
     conditions = None
     try:

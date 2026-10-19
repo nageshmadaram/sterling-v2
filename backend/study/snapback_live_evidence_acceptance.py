@@ -546,6 +546,10 @@ def evaluate_rows(report: Report, rows: list[dict[str, Any]]) -> None:
 
 def _force_transport_disconnect(ticker: Any, *, schedule: Any = None) -> tuple[bool, str]:
     """Abort only the TCP transport, leaving KiteTicker auto-retry enabled."""
+    abort_native = getattr(ticker, "abort_transport", None)
+    if callable(abort_native):
+        ok = bool(abort_native())
+        return ok, "production transport aborted with auto-retry retained" if ok else "no active transport"
     ws = getattr(ticker, "ws", None)
     transport = getattr(ws, "transport", None)
     abort = getattr(transport, "abortConnection", None)
@@ -750,7 +754,7 @@ def run_acceptance(
         )
 
     if kite is None:
-        from kiteconnect import KiteConnect
+        from study.acceptance_transport import ReadOnlyKite as KiteConnect
 
         api_key, access_token, creds_source = resolve_acceptance_credentials()
         report.notes.append(f"kite session source: {creds_source}")
@@ -1058,7 +1062,7 @@ def _capture_and_grade(
     from kitelake.evidence import DEPTH_LEVELS, evidence_tick_row
 
     if ticker_factory is None:
-        from kiteconnect import KiteTicker
+        from study.acceptance_transport import EvidenceTicker as KiteTicker
 
         api_key, access_token, _ = resolve_acceptance_credentials()
         ticker = KiteTicker(api_key, access_token)

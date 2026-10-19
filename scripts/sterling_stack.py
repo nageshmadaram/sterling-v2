@@ -90,6 +90,15 @@ def tunnel_unavailable(origin, port):
     except Exception:return True
 
 
+def should_rotate_failed_tunnel(hostname, failures, started_at, now):
+    """Never discard an authenticated quick-tunnel origin on a transient probe.
+
+    A named origin survives transport replacement. Quick tunnels instead rely on
+    cloudflared's own reconnect, process supervision, or explicit operator rotation.
+    """
+    return bool(hostname) and failures >= 4 and now - started_at > 90
+
+
 def _gateway_listener_pids(port):
     """Return listener PIDs from ss. Unknown ownership is NOT permission to kill."""
     if not shutil.which('ss'):
@@ -701,6 +710,10 @@ class Stack:
         if not self.args.hostname:self.status.update(app_url='',mini_app_url='')
         command=[self.binary,'tunnel','--no-autoupdate']
         env=clean_env()
+        protocol=env.get('STERLING_CLOUDFLARE_PROTOCOL','auto')
+        if getattr(self.args,'provider','cloudflare') != 'ngrok':
+            if protocol not in {'auto','http2','quic'}:raise RuntimeError('Invalid Cloudflare transport protocol')
+            if protocol!='auto':command+=['--protocol',protocol]
         if getattr(self.args,'provider','cloudflare') == 'ngrok':
             command=[self.binary,'http',f'http://127.0.0.1:{self.args.port}',
                      '--url',self.args.hostname,'--inspect=false','--log','stdout','--log-format','json']
@@ -972,6 +985,7 @@ class Stack:
                 self.status['children']={name:proc.pid for name,proc in self.children.items()}
                 save_state(self.status)
                 if primary_ready:
+                    self.status['phase']='ready'
                     self.failures=0
                     self.status['last_verified_at']=time.time()
                     signature=(primary,secondary if ngrok_ready else '')
@@ -984,7 +998,7 @@ class Stack:
                     # unavailable public transport after repeated probes.
                     self.failures=(self.failures+1
                         if primary and tunnel_unavailable(primary,self.args.port) else 0)
-                    if self.failures>=4 and time.time()-self.status.get('tunnel_started_at',time.time())>90:
+                    if should_rotate_failed_tunnel(self.args.hostname,self.failures,self.status.get('tunnel_started_at',time.time()),time.time()):
                         self.launch_tunnel()
             if not self.status['app_url'] and self.status.get('tunnel_started_at') and time.time()-self.status['tunnel_started_at']>120:
                 self.launch_tunnel()

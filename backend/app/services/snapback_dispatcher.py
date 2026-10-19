@@ -75,7 +75,7 @@ def auto_execute(uid: str, cfg: Any = None) -> bool:
         from app.services import snapback
         from app.services.kite_engine import state as engine_state
 
-        cfg = cfg or snapback.get_config(uid)
+        cfg = cfg or snapback.get_effective_config(uid)
         shared = bool(getattr(engine_state.get_config(uid), "auto_execute", False))
         return shared and bool(getattr(cfg, "auto_execute", False))
     except Exception as exc:  # noqa: BLE001
@@ -326,7 +326,7 @@ class SnapbackDispatcher:
             self._warn_calendar_runway()
         except Exception as exc:  # noqa: BLE001 - a warning must never stop the cycle
             log.warning("snapback dispatcher: calendar runway check failed: %s", exc)
-        cfg = snapback.get_config(uid)
+        cfg = snapback.get_effective_config(uid)
         has_positions = bool(self.positions.open_positions(uid))
         client = await self._client(uid)
         if client is None:
@@ -514,7 +514,7 @@ class SnapbackDispatcher:
             if client is None:
                 return {"ok": False, "reasons": ["no_broker_session"]}
             account_id = str(getattr(client, "_account_id", "") or "")
-            cfg = snapback.get_config(uid)
+            cfg = snapback.get_effective_config(uid)
 
             async def instruments(exchange: str) -> list:
                 return await self._instrument_rows(client, exchange)
