@@ -197,3 +197,40 @@ def test_reserving_stop_never_changes_protection_or_sends_order():
     assert after.phase=="PROTECTION_REQUIRED"
     assert after.protection is None
     assert after.stop==Decimal("95")
+
+
+@pytest.mark.asyncio
+async def test_pending_or_unknown_stop_prevents_false_active_gtt_certification():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-1",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    kite=KiteClient(api_key="fake",api_secret="fake",access_token="fake",
+                    is_paper=False)
+    kite._account_id="KITE-LIVE-TEST"
+    kite.get_gtt=AsyncMock(return_value={
+        "id":901,"status":"active",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                     "trigger_values":[95]},
+        "orders":[{"transaction_type":"SELL","product":"CNC",
+                   "quantity":4,"order_type":"LIMIT","price":94.5}],
+    })
+    kite.get_orders=AsyncMock(return_value=[])
+    kite.place_order=AsyncMock(side_effect=AssertionError("NO LIVE ORDER"))
+    kite.place_gtt=AsyncMock(side_effect=AssertionError("NO LIVE GTT"))
+    kite.modify_gtt=AsyncMock(side_effect=AssertionError("NO LIVE GTT MODIFY"))
+    kite.delete_gtt=AsyncMock(side_effect=AssertionError("NO LIVE GTT DELETE"))
+    for status in ("RESERVED","OUTCOME_UNKNOWN"):
+        if status=="OUTCOME_UNKNOWN":
+            outbox.mark_outcome_unknown("stop-1")
+        with pytest.raises(store.LiveStoreConflict,match="STOP_CHANGE_OUTCOME_UNRESOLVED"):
+            await store.confirm_existing_cnc_stop(
+                c.id,"901",expected_revision=c.revision,broker_client=kite)
+        assert store.get(c.id).protection is None
+        assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+    kite.place_order.assert_not_called()
+    kite.place_gtt.assert_not_called()
+    kite.modify_gtt.assert_not_called()
+    kite.delete_gtt.assert_not_called()
