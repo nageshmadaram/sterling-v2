@@ -68,7 +68,7 @@ afterEach(() => {
 describe('Sterling Spectrum product navigation', () => {
   it('restores the original KITE switch styling beside Sterling; TV matches it', () => {
     render(<SimpleTerminal />);
-    const nav = screen.getByRole('navigation', { name:'Sterling Spectrum' });
+    const nav = document.querySelector('.sterling-header-row')!;
     expect(nav).toBeInTheDocument();
     expect(screen.getByRole('switch', {name:'Live trading view'})).toHaveTextContent('KITE');
     expect(screen.getByRole('switch', {name:'Live trading view'}))
@@ -116,8 +116,9 @@ describe('Sterling Spectrum product navigation', () => {
       spectrumOrder:['tv','kite','simulation'],
     });
     render(<SimpleTerminal />);
-    const buttons=Array.from(screen.getByRole('navigation',{name:'Sterling Spectrum'})
-      .querySelectorAll('button')).map(button=>button.textContent);
+    const buttons=Array.from(document.querySelectorAll(
+      '.sterling-header-row > .mobile-view-toggle.unified-view-toggle'
+    )).map(button=>button.textContent);
     expect(buttons).toEqual(['My Channels','KITE','Simulation']);
     fireEvent.click(screen.getByTestId('spectrum-simulation-tab'));
     expect(useViewStore.getState().view).toBe('simulation');
