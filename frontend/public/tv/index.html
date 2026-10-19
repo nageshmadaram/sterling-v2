@@ -1441,23 +1441,23 @@
 
       return [
         {
-          slot: 'NOW ON AIR',
+          slot: 'SAMPLE • NOT VERIFIED',
           time: `${String(curHour).padStart(2, '0')}:00 - ${String((curHour + 1) % 24).padStart(2, '0')}:00`,
-          title: shows[h % shows.length],
+          title: 'Guide preview · ' + shows[h % shows.length],
           progress: progressPct,
-          live: true
+          live: false
         },
         {
-          slot: 'UP NEXT',
+          slot: 'SAMPLE NEXT',
           time: `${String((curHour + 1) % 24).padStart(2, '0')}:00 - ${String((curHour + 2) % 24).padStart(2, '0')}:00`,
-          title: shows[(h + 1) % shows.length],
+          title: 'Guide preview · ' + shows[(h + 1) % shows.length],
           progress: 0,
           live: false
         },
         {
-          slot: 'LATER',
+          slot: 'SAMPLE LATER',
           time: `${String((curHour + 2) % 24).padStart(2, '0')}:00 - ${String((curHour + 3) % 24).padStart(2, '0')}:00`,
-          title: shows[(h + 2) % shows.length],
+          title: 'Guide preview · ' + shows[(h + 2) % shows.length],
           progress: 0,
           live: false
         }
@@ -3184,7 +3184,7 @@
                   </div>
                   <div class="p-2.5">
                     <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
-                    <p class="text-[11px] text-[#46d369] font-medium truncate mt-0.5">98% Match • ${escapeHtml(epgNow.title)}</p>
+                    <p class="text-[11px] text-[#46d369] font-medium truncate mt-0.5">Suggested • ${escapeHtml(epgNow.title)}</p>
                   </div>
                 </div>
               `;
