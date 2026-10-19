@@ -3,10 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="referrer" content="no-referrer" />
   <meta name="theme-color" content="#0f0f0f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>StreamOS Pro v15 — Native Mobile & Desktop Live IPTV Suite</title>
+  <title>StreamOS Pro v15 — BBC Earth US Default, Full Uncapped Lists & All M3U Sources Active</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
@@ -95,7 +96,7 @@
     /* Overlay Sidebar Drawer */
     #overlay-sidebar {
       transform: translateX(-100%);
-      transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1);
+      transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1);
     }
     #overlay-sidebar.open {
       transform: translateX(0);
@@ -106,25 +107,25 @@
        ========================================================================= */
     @media (min-width: 1280px) {
       #left-watch-column:not(.theatre-full) {
-        width: min(calc(100% - 410px), calc((100dvh - 175px) * var(--video-aspect)));
+        width: min(calc(100% - 420px), calc((100dvh - 178px) * var(--video-aspect)));
         flex: 0 0 auto;
       }
       #watch-up-next-rail:not(.theatre-rail) {
-        flex: 1 1 384px;
-        min-width: 356px;
-        max-width: 540px;
+        flex: 1 1 396px;
+        min-width: 365px;
+        max-width: 550px;
       }
     }
 
-    /* Theatre Mode Fix: Locks max-height so bottom player controls are always visible without scrolling */
+    /* Theatre Mode Fix: Constrains player height so HUD controls are 100% visible without scrolling */
     #left-watch-column.theatre-full {
       width: 100% !important;
       max-width: 100% !important;
     }
     #left-watch-column.theatre-full #video-surface-card {
       width: 100% !important;
-      height: calc(100dvh - 150px) !important;
-      max-height: calc(100dvh - 150px) !important;
+      height: calc(100dvh - 154px) !important;
+      max-height: calc(100dvh - 154px) !important;
       aspect-ratio: auto !important;
       border-radius: 8px !important;
     }
@@ -136,7 +137,7 @@
     #video-surface-card {
       width: 100%;
       aspect-ratio: var(--video-aspect);
-      max-height: calc(100dvh - 170px);
+      max-height: calc(100dvh - 172px);
       background: #000;
       box-shadow: 0 20px 80px -10px var(--ambilight-color);
       transition: box-shadow 0.6s ease;
@@ -157,13 +158,20 @@
     #video-player.fit-zoom    { object-fit: cover;   transform: scale(1.16); }
 
     /* =========================================================================
-       NATIVE MOBILE APP ARCHITECTURE (Docked Top Player + Scrollable Feed)
+       NATIVE MOBILE APP ARCHITECTURE (Zero Freeze, Sticky 16:9 Dock, Clean UX)
        ========================================================================= */
     @media (max-width: 767px) {
+      #player-stage {
+        position: sticky;
+        top: 0;
+        z-index: 45;
+        background: #0f0f0f;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      }
       #video-surface-card {
         border-radius: 0 !important;
         aspect-ratio: 16 / 9 !important;
-        max-height: 33dvh !important;
+        max-height: 34dvh !important;
         box-shadow: none !important;
       }
       #custom-video-hud {
@@ -208,7 +216,7 @@
     .nf-rank-num {
       font-family: 'Inter', Impact, sans-serif;
       font-weight: 900;
-      font-size: 6rem;
+      font-size: 6.5rem;
       line-height: 0.8;
       color: #141414;
       -webkit-text-stroke: 3px #595959;
@@ -240,14 +248,14 @@
 <body class="theme-youtube flex flex-col overflow-hidden">
 
   <!-- =========================================================================
-       1. LEFT SIDEBAR MENU (Contains Startup Channel #1 + Explore Languages & Categories)
+       1. OVERLAY SIDEBAR MENU (With Startup Channel, Explore Languages & Categories)
        ========================================================================= -->
   <div id="sidebar-backdrop" onclick="toggleSidebarDrawer(false)" class="hidden fixed inset-0 bg-black/65 z-[80] transition-opacity"></div>
 
-  <aside id="overlay-sidebar" class="fixed top-0 left-0 bottom-0 w-[268px] bg-[#0f0f0f] border-r border-white/10 z-[90] flex flex-col select-none">
-    <div class="h-13 sm:h-14 px-3 flex items-center justify-between shrink-0 border-b border-white/5">
+  <aside id="overlay-sidebar" class="fixed top-0 left-0 bottom-0 w-[264px] bg-[#0f0f0f] border-r border-white/10 z-[90] flex flex-col select-none">
+    <div class="h-14 px-3 flex items-center justify-between shrink-0 border-b border-white/5">
       <div class="flex items-center space-x-3">
-        <button onclick="toggleSidebarDrawer(false)" class="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition">
+        <button onclick="toggleSidebarDrawer(false)" class="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition">
           <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M21 6H3V5h18v1zm0 5H3v1h18v-1zm0 6H3v1h18v-1z"/></svg>
         </button>
         <div class="flex items-center space-x-1">
@@ -258,7 +266,7 @@
           <sup class="text-[10px] text-[#aaaaaa] font-medium ml-0.5">IN</sup>
         </div>
       </div>
-      <span class="text-[10px] font-mono-code bg-white/10 text-emerald-400 px-1.5 py-0.5 rounded font-semibold">v15</span>
+      <span class="text-[10px] font-mono-code bg-white/10 text-gray-300 px-1.5 py-0.5 rounded">v15</span>
     </div>
 
     <div class="flex-1 overflow-y-auto px-3 py-2.5 space-y-3 text-[13px]">
@@ -266,23 +274,18 @@
       <div class="space-y-0.5">
         <button onclick="resetHomeView(); toggleSidebarDrawer(false)" class="w-full flex items-center space-x-4 px-3 py-2 rounded-[10px] bg-[#272727] font-medium text-white hover:bg-[#3f3f3f] transition">
           <svg class="w-5 h-5 fill-current shrink-0" viewBox="0 0 24 24"><path d="M12 4.44 19 10.1v9.9h-4v-6H9v6H5v-9.9l7-5.66M12 3 3 10.29V21h7v-6h4v6h7V10.29L12 3z"/></svg>
-          <span class="truncate">Home (Verified HD)</span>
+          <span class="truncate">Home (All Channels)</span>
         </button>
-
-        <!-- ALLOWED LOCATION #1: LEFT MENU STARTUP CHANNEL -->
-        <div class="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition cursor-pointer" onclick="playStartupDefaultChannel(); toggleSidebarDrawer(false)">
+        <button onclick="playStartupDefaultChannel(); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <div class="flex items-center space-x-4 min-w-0">
             <span class="text-amber-400 text-base leading-none w-5 text-center shrink-0">★</span>
             <div class="min-w-0 text-left">
               <p class="truncate font-medium">Startup Channel</p>
-              <p id="drawer-startup-name" class="text-[11px] text-[#aaaaaa] truncate">Red Bull TV Global Sports</p>
+              <p id="drawer-startup-name" class="text-[11px] text-[#aaaaaa] truncate">BBC Earth US</p>
             </div>
           </div>
-          <button onclick="event.stopPropagation(); openStartupChannelModal(); toggleSidebarDrawer(false)" class="text-[10px] bg-white/10 hover:bg-amber-500 hover:text-black px-2 py-1 rounded text-amber-300 font-semibold shrink-0 transition">
-            Change
-          </button>
-        </div>
-
+          <span onclick="event.stopPropagation(); openStartupChannelModal(); toggleSidebarDrawer(false)" class="text-[10px] bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded text-amber-300 shrink-0">Change</span>
+        </button>
         <button onclick="selectLanguageFeed('Indian'); toggleSidebarDrawer(false)" class="w-full flex items-center space-x-4 px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <span class="text-base leading-none w-5 text-center shrink-0">🇮🇳</span>
           <span class="truncate font-medium">Indian Live TV</span>
@@ -293,22 +296,12 @@
         </button>
         <button onclick="openSourceManagerModal(); toggleSidebarDrawer(false)" class="w-full flex items-center space-x-4 px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <svg class="w-5 h-5 fill-current shrink-0 text-[var(--accent)]" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
-          <span class="truncate font-medium">IPTV URL Sources</span>
+          <span class="truncate font-medium">IPTV Sources & Startup</span>
         </button>
         <button onclick="toggleMultiviewQuad(); toggleSidebarDrawer(false)" class="hidden sm:flex w-full items-center space-x-4 px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <svg class="w-5 h-5 fill-current shrink-0" viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg>
           <span class="truncate">4-Screen Multiview</span>
         </button>
-      </div>
-
-      <!-- Mobile Theme Switcher inside Drawer -->
-      <div class="lg:hidden pt-2.5 border-t border-white/10">
-        <div class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#aaaaaa]">App Appearance</div>
-        <div class="grid grid-cols-3 gap-1.5 px-2 mt-1">
-          <button onclick="switchTheme('youtube'); toggleSidebarDrawer(false)" class="py-1.5 rounded-lg bg-[#272727] text-xs font-medium text-white">YouTube</button>
-          <button onclick="switchTheme('netflix'); toggleSidebarDrawer(false)" class="py-1.5 rounded-lg bg-[#272727] text-xs font-medium text-white">Netflix</button>
-          <button onclick="switchTheme('spotify'); toggleSidebarDrawer(false)" class="py-1.5 rounded-lg bg-[#272727] text-xs font-medium text-white">Spotify</button>
-        </div>
       </div>
 
       <!-- Subscriptions -->
@@ -337,7 +330,7 @@
   </aside>
 
   <!-- =========================================================================
-       2. GLOBAL HEADER (No Startup Clutter — Clean Search, Languages & Sources)
+       2. GLOBAL HEADER (Responsive Mobile App Header + Desktop Studio Bar)
        ========================================================================= -->
   <header id="global-header" class="h-12 sm:h-14 px-2 sm:px-4 bg-[#0f0f0f] flex items-center justify-between shrink-0 z-50 relative select-none border-b border-white/10">
 
@@ -352,7 +345,7 @@
         <div class="w-7 h-5 rounded-[5px] bg-[#ff0033] flex items-center justify-center">
           <svg class="w-3.5 h-3.5 fill-white ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         </div>
-        <span class="font-bold text-[15px] sm:text-[18px] tracking-tight text-white">YouTube</span>
+        <span class="font-bold text-[16px] sm:text-[18px] tracking-tight text-white">YouTube</span>
         <sup class="text-[10px] text-[#aaaaaa] font-normal ml-0.5 hidden sm:inline">IN</sup>
       </div>
 
@@ -363,6 +356,7 @@
           <button onclick="resetHomeView()" class="hover:text-white font-semibold text-white">Home</button>
           <button onclick="selectLanguageFeed('Indian')" class="hover:text-white">🇮🇳 Indian TV</button>
           <button onclick="toggleLanguagePopover(event)" class="hover:text-white">🌐 Languages ▾</button>
+          <button onclick="openStartupChannelModal()" class="hover:text-white text-amber-400">★ Startup</button>
           <button onclick="openRightRailEpg()" class="hover:text-white text-[#e50914] font-semibold">Live EPG</button>
         </nav>
       </div>
@@ -376,15 +370,19 @@
       </div>
     </div>
 
-    <!-- CENTER: Smart Search Bar (ALLOWED LOCATION #2: Startup Channel Selection in Search Dropdown) -->
+    <!-- CENTER: Smart Search Bar -->
     <div class="flex-1 max-w-[580px] mx-1.5 sm:mx-4 flex items-center justify-center relative">
+      <button id="sp-home-btn" onclick="resetHomeView()" class="hidden mr-2 w-9 h-9 rounded-full bg-[#1f1f1f] hover:bg-[#2a2a2a] items-center justify-center text-white shrink-0 transition" title="Home">
+        <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12.5 3.247a1 1 0 0 0-1 0L4 7.577V20h4.5v-6a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v6H20V7.577l-7.5-4.33z"/></svg>
+      </button>
+
       <div class="relative flex items-center w-full">
         <div class="relative flex items-center flex-1">
           <input
             id="search-input"
             type="text"
             autocomplete="off"
-            placeholder="Search channels, Telugu, Hindi, Tamil, or Startup..."
+            placeholder="Search BBC Earth, Telugu, Hindi, Tamil, Sports, or paste .m3u8..."
             class="w-full h-8 sm:h-10 bg-[#121212] focus:bg-[#0a0a0a] border border-[#303030] focus:border-[#1c62b9] rounded-l-full pl-3 pr-7 text-[12px] sm:text-[14px] text-white placeholder-[#888888] outline-none transition"
           />
           <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-2 text-[#aaaaaa] hover:text-white text-xs p-1">✕</button>
@@ -396,20 +394,26 @@
           </svg>
         </button>
 
-        <!-- Smart Search Dropdown (Includes Startup Channel selector & setter) -->
+        <!-- Smart Search Dropdown -->
         <div id="search-dropdown" class="hidden absolute top-10 sm:top-11 left-0 right-0 bg-[#212121] border border-white/15 rounded-xl shadow-2xl overflow-hidden z-[100] max-h-[380px] flex flex-col">
           <div id="search-dropdown-list" class="overflow-y-auto py-1.5"></div>
         </div>
       </div>
     </div>
 
-    <!-- RIGHT: Theme Switcher + Languages + Sources -->
-    <div class="flex items-center space-x-1.5 sm:space-x-2 shrink-0 relative">
+    <!-- RIGHT: Theme Switcher + Startup Channel + Indian/Language Quick + Sources -->
+    <div class="flex items-center space-x-1 sm:space-x-2 shrink-0 relative">
       <div class="hidden lg:flex items-center bg-[#212121] p-0.5 rounded-full border border-white/10">
         <button onclick="switchTheme('youtube')" id="pill-youtube" class="px-2.5 py-1 rounded-full text-xs font-medium bg-[#ff0033] text-white transition">YouTube</button>
         <button onclick="switchTheme('netflix')" id="pill-netflix" class="px-2.5 py-1 rounded-full text-xs font-medium text-gray-400 hover:text-white transition">Netflix</button>
         <button onclick="switchTheme('spotify')" id="pill-spotify" class="px-2.5 py-1 rounded-full text-xs font-medium text-gray-400 hover:text-white transition">Spotify</button>
       </div>
+
+      <!-- Default / Startup Channel Quick Button -->
+      <button onclick="openStartupChannelModal()" class="h-8 sm:h-9 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-amber-400 flex items-center space-x-1 transition" title="Select or Update Default Startup Channel">
+        <span>★</span>
+        <span class="hidden md:inline text-white" id="header-startup-label">BBC Earth US</span>
+      </button>
 
       <!-- Languages Quick Button -->
       <button onclick="toggleLanguagePopover(event)" class="h-8 sm:h-9 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition" title="Filter by Indian or Global Languages">
@@ -419,15 +423,15 @@
       </button>
 
       <!-- "+ Sources" IPTV URL Manager Button -->
-      <button onclick="openSourceManagerModal()" class="h-8 sm:h-9 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition" title="Manage IPTV Playlist URLs">
+      <button onclick="openSourceManagerModal()" class="hidden sm:flex h-9 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white items-center space-x-1.5 transition" title="Manage IPTV Playlist URLs">
         <span>+ Sources</span>
-        <span id="active-sources-badge" class="hidden sm:inline bg-[var(--accent)] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">All</span>
+        <span id="active-sources-badge" class="bg-[var(--accent)] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">All</span>
       </button>
     </div>
   </header>
 
   <!-- =========================================================================
-       3. STARTUP CHANNEL MODAL (Opened from Left Menu or Video Player Control Bar)
+       3. DEFAULT / STARTUP CHANNEL SELECTOR & UPDATER MODAL
        ========================================================================= -->
   <div id="startup-channel-modal" class="hidden fixed inset-0 z-[118] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="closeStartupChannelModal()">
     <div class="bg-[#212121] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
@@ -435,43 +439,46 @@
         <div>
           <h3 class="text-sm sm:text-base font-semibold text-white flex items-center space-x-1.5">
             <span class="text-amber-400">★</span>
-            <span>Default / Startup Channel</span>
+            <span>Default / Startup Channel Manager</span>
           </h3>
-          <p class="text-[11px] text-[#aaaaaa] mt-0.5">Select or update the channel that plays automatically on launch</p>
+          <p class="text-[11px] text-[#aaaaaa] mt-0.5">Default is set to BBC Earth US — select any channel below to update your startup broadcast</p>
         </div>
         <button onclick="closeStartupChannelModal()" class="w-8 h-8 rounded-full hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center text-base">✕</button>
       </div>
 
+      <!-- Current Startup Channel Banner + Quick Set Active -->
       <div class="p-4 bg-[#181818] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="min-w-0">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Active Startup Channel</span>
-          <p id="modal-current-startup-name" class="text-sm font-bold text-white truncate mt-0.5">Red Bull TV Global Sports</p>
-          <p id="modal-current-startup-meta" class="text-[11px] text-[#aaaaaa] truncate">Sports • English</p>
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Currently Configured Startup Channel</span>
+          <p id="modal-current-startup-name" class="text-sm font-bold text-white truncate mt-0.5">BBC Earth US</p>
+          <p id="modal-current-startup-meta" class="text-[11px] text-[#aaaaaa] truncate">Documentary • English</p>
         </div>
         <div class="flex items-center space-x-2 shrink-0">
           <button onclick="setCurrentPlayingAsStartup()" class="px-3 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs transition">
             ★ Set Current Playing
           </button>
-          <button onclick="playStartupDefaultChannel(); closeStartupChannelModal()" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-xs transition">
-            ▶ Play Now
+          <button onclick="resetStartupToBbcEarth()" class="px-2.5 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-xs transition" title="Restore BBC Earth US as Default">
+            ↻ BBC Earth US
           </button>
         </div>
       </div>
 
+      <!-- Search & Pick Any Channel as Startup -->
       <div class="p-3 border-b border-white/10 bg-black/20">
         <input
           id="startup-search-input"
           type="text"
           oninput="renderStartupChannelsPicker(this.value)"
-          placeholder="Search any channel to set as Default Startup..."
+          placeholder="Search any channel to set as your Default Startup Channel..."
           class="w-full bg-[#121212] border border-white/15 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
         />
       </div>
 
       <div id="startup-channels-list" class="flex-1 overflow-y-auto divide-y divide-white/5 p-2"></div>
 
+      <!-- Custom Direct Stream URL as Startup -->
       <div class="p-3.5 bg-black/40 border-t border-white/10 flex flex-col sm:flex-row items-center gap-2">
-        <input id="custom-startup-name" type="text" placeholder="Channel Name" class="w-full sm:w-44 bg-[#121212] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white outline-none" />
+        <input id="custom-startup-name" type="text" placeholder="Custom Startup Name" class="w-full sm:w-44 bg-[#121212] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white outline-none" />
         <input id="custom-startup-url" type="url" placeholder="Or paste custom .m3u8 URL as startup..." class="w-full flex-1 bg-[#121212] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white outline-none" />
         <button onclick="saveCustomStartupUrl()" class="w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-white text-black font-semibold text-xs shrink-0 hover:bg-gray-200 transition">
           Save URL
@@ -481,7 +488,7 @@
   </div>
 
   <!-- =========================================================================
-       4. IPTV PLAYLIST URL MANAGER + LOCAL M3U FILE UPLOADER
+       4. IPTV PLAYLIST URL MANAGER (All M3U Sources Selected by Default!)
        ========================================================================= -->
   <div id="source-manager-modal" class="hidden fixed inset-0 z-[115] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="closeSourceManagerModal()">
     <div class="bg-[#212121] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full max-h-[88dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
@@ -489,7 +496,7 @@
       <div class="px-4 sm:px-5 py-3.5 border-b border-white/10 flex items-center justify-between bg-black/30">
         <div>
           <h3 class="text-sm sm:text-base font-semibold text-white">IPTV Playlist URLs & Local File Manager</h3>
-          <p class="text-[11px] text-[#aaaaaa] mt-0.5">Add, edit, remove, or upload `.m3u` / `.m3u8` sources</p>
+          <p class="text-[11px] text-[#aaaaaa] mt-0.5">All M3U URLs are selected by default — add, edit, solo, or upload `.m3u` / `.m3u8` files</p>
         </div>
         <div class="flex items-center space-x-2">
           <label class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-[11px] cursor-pointer transition">
@@ -503,21 +510,28 @@
         </div>
       </div>
 
+      <!-- Filter Mode Switcher Bar -->
       <div class="px-4 sm:px-5 py-2.5 bg-[#181818] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center space-x-1.5">
           <span class="text-[#aaaaaa] font-medium">Feed Scope:</span>
           <button onclick="setPlaylistFilterMode('all')" id="mode-all-urls-btn" class="px-2.5 py-1.5 rounded-lg font-medium bg-[#f1f1f1] text-[#0f0f0f] transition">
-            🌐 All Active URLs
+            🌐 All URLs' Channels (Default)
           </button>
           <button onclick="setPlaylistFilterMode('selected')" id="mode-selected-urls-btn" class="px-2.5 py-1.5 rounded-lg font-medium bg-[#272727] text-white hover:bg-[#3f3f3f] transition">
             ☑️ Only Checked URLs
           </button>
         </div>
-        <button onclick="syncAllActivePlaylists(true)" class="px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white font-medium hover:opacity-90 transition">
-          ↻ Sync Sources
-        </button>
+        <div class="flex items-center space-x-1.5">
+          <button onclick="selectAllSourcesAndSync()" class="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition">
+            ☑ Select All URLs
+          </button>
+          <button onclick="syncAllActivePlaylists(true)" class="px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white font-medium hover:opacity-90 transition">
+            ↻ Sync All Now
+          </button>
+        </div>
       </div>
 
+      <!-- Add / Edit IPTV URL Form -->
       <div class="p-3.5 border-b border-white/10 bg-black/20 space-y-2">
         <div class="flex items-center justify-between">
           <span id="source-form-title" class="text-[11px] font-semibold uppercase tracking-wider text-[#aaaaaa]">Add New IPTV Playlist (.M3U) or Direct Stream (.M3U8)</span>
@@ -533,13 +547,25 @@
         </div>
       </div>
 
+      <!-- Scrollable List of Configured IPTV URLs -->
       <div id="iptv-sources-list" class="flex-1 overflow-y-auto divide-y divide-white/5 p-2"></div>
 
+      <!-- Audio EQ, Hover Preview Toggle & Sleep Timer Footer -->
       <div class="px-4 sm:px-5 py-3 bg-black/40 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center space-x-3">
+          <div class="flex items-center space-x-1.5">
+            <span class="text-[#aaaaaa]">Audio EQ:</span>
+            <select id="audio-eq-select" onchange="applyAudioPreset(this.value)" class="bg-[#181818] border border-white/15 rounded-lg px-2 py-1 text-white text-xs outline-none">
+              <option value="flat">Flat Studio</option>
+              <option value="voice">News / Voice Clarity</option>
+              <option value="cinema">Cinema Bass Boost</option>
+              <option value="sports">Stadium Crowd</option>
+              <option value="boost">Max Loudness</option>
+            </select>
+          </div>
           <label class="flex items-center space-x-1.5 cursor-pointer text-white">
             <input type="checkbox" id="hover-preview-checkbox" checked onchange="toggleHoverPreviewSetting(this.checked)" class="accent-[var(--accent)] rounded" />
-            <span>Desktop Hover Video Preview</span>
+            <span>Hover Video Preview</span>
           </label>
         </div>
         <div class="flex items-center space-x-2">
@@ -562,7 +588,7 @@
       <div class="flex items-center justify-between border-b border-white/10 pb-2.5">
         <div>
           <h3 class="text-sm font-semibold text-white">Select Broadcast Language & Region</h3>
-          <p class="text-[11px] text-[#aaaaaa]">Instantly loads & filters channels in the catalog and Up Next queue</p>
+          <p class="text-[11px] text-[#aaaaaa]">Instantly loads & filters channels in both the catalog and Up Next queue</p>
         </div>
         <button onclick="document.getElementById('language-picker-popover').classList.add('hidden')" class="w-7 h-7 rounded-full hover:bg-white/10 text-gray-400 hover:text-white">✕</button>
       </div>
@@ -580,17 +606,17 @@
   </div>
 
   <!-- =========================================================================
-       6. MAIN WORKSPACE (Native Mobile App Docked Player + Desktop Split View)
+       6. MAIN WORKSPACE (Sticky Mobile App Dock + Viewport-Safe Desktop Theatre)
        ========================================================================= -->
   <div id="app-workspace" class="flex flex-1 overflow-hidden relative">
 
     <main id="main-scroll" class="flex-1 flex flex-col overflow-y-auto pb-20 md:pb-14 relative scroll-smooth">
 
       <!-- =====================================================================
-           STAGE SECTION: Sticky Top on Mobile App, Split Columns on Desktop
+           STAGE SECTION: Sticky on Mobile App, Aspect-Locked on Desktop
            ===================================================================== -->
-      <section id="player-stage" class="w-full px-0 sm:px-3 lg:px-4 pt-0 sm:pt-1.5 sticky top-0 z-40 md:static bg-[#0f0f0f] md:bg-transparent border-b border-white/10 md:border-none">
-        <div id="watch-columns" class="flex flex-col xl:flex-row gap-0 sm:gap-3 items-start">
+      <section id="player-stage" class="w-full px-0 sm:px-3 lg:px-4 pt-0 sm:pt-1.5">
+        <div id="watch-columns" class="flex flex-col xl:flex-row gap-3 items-start">
 
           <!-- LEFT PRIMARY WATCH COLUMN -->
           <div id="left-watch-column" class="w-full min-w-0">
@@ -602,6 +628,9 @@
                 <span id="sp-stage-header-title" class="text-sm font-semibold tracking-tight truncate">Live Broadcast</span>
               </div>
               <div class="flex items-center space-x-2 shrink-0">
+                <button onclick="setCurrentPlayingAsStartup()" class="px-2.5 py-1 rounded-full bg-black/40 hover:bg-black/65 text-xs font-medium text-amber-400 border border-white/10 transition">
+                  ★ Set Default
+                </button>
                 <button onclick="openRightRailEpg()" class="px-2.5 py-1 rounded-full bg-black/40 hover:bg-black/65 text-xs font-medium text-[#1ed760] border border-white/10 transition">
                   Live EPG
                 </button>
@@ -636,18 +665,28 @@
                   allowfullscreen
                 ></iframe>
 
-                <!-- MOBILE / BROWSER UNMUTE BANNER (Guarantees Mobile Autoplay Never Blocks!) -->
+                <!-- MOBILE / BROWSER AUTO-PLAY UNMUTE PILL -->
                 <button
                   id="mobile-unmute-pill"
                   onclick="event.stopPropagation(); unmuteFromBanner()"
-                  class="hidden absolute top-3 left-3 z-40 bg-black/85 hover:bg-black border border-white/25 text-white text-xs font-semibold px-3.5 py-1.5 rounded-full shadow-2xl flex items-center space-x-1.5"
+                  class="hidden absolute top-3 left-3 z-40 bg-black/85 hover:bg-black border border-white/25 text-white text-xs font-semibold px-3.5 py-1.5 rounded-full shadow-2xl flex items-center space-x-1.5 animate-pulse"
                 >
-                  <span class="text-amber-400">🔇</span>
-                  <span>Tap to Unmute Audio</span>
+                  <span>🔇</span>
+                  <span>Tap to Unmute Live Audio</span>
                 </button>
+
+                <!-- Startup Default Badge on Player -->
+                <div id="player-startup-indicator" class="hidden absolute top-3 right-3 z-30 bg-amber-500/90 text-black text-[10px] font-bold px-2 py-0.5 rounded-full pointer-events-none">
+                  ★ STARTUP CHANNEL
+                </div>
 
                 <!-- Gesture Visual Ripple Feedback -->
                 <div id="gesture-feedback-pill" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 bg-black/80 backdrop-blur-md text-white text-xs font-semibold px-4 py-2 rounded-full pointer-events-none"></div>
+
+                <!-- Channel Surfing Numeric OSD Overlay -->
+                <div id="channel-numpad-osd" class="hidden absolute top-4 right-4 z-40 bg-black/85 border border-white/20 rounded-xl px-4 py-2 text-2xl font-mono-code font-bold text-[#1ed760] shadow-2xl">
+                  CH --
+                </div>
 
                 <!-- "Stats for Nerds" Live Stream Telemetry Overlay -->
                 <div id="stats-for-nerds" onclick="event.stopPropagation()" class="hidden absolute top-3 left-3 z-40 bg-black/90 backdrop-blur-md border border-white/15 rounded-xl p-3 text-[11px] font-mono-code text-gray-200 space-y-1 w-64 sm:w-72 shadow-2xl">
@@ -682,23 +721,20 @@
 
                 <!-- Stream Loading Spinner -->
                 <div id="player-spinner" class="hidden absolute inset-0 z-20 bg-black/60 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
-                  <div class="w-8 h-8 sm:w-9 sm:h-9 border-2 border-white/20 border-t-[var(--accent)] rounded-full animate-spin"></div>
+                  <div class="w-9 h-9 border-2 border-white/20 border-t-[var(--accent)] rounded-full animate-spin"></div>
                   <p id="spinner-label" class="text-[11px] font-normal text-white mt-2 bg-black/80 px-3 py-1 rounded-full">
                     Connecting Live Stream...
                   </p>
                 </div>
 
-                <!-- ===========================================================
-                     VIDEO PLAYER CONTROLS BAR (HUD)
-                     ALLOWED LOCATION #3 FOR STARTUP CHANNEL BUTTON!
-                     =========================================================== -->
+                <!-- Clean Native Player Controls HUD (Always inside viewport even in Theatre Mode!) -->
                 <div
                   id="custom-video-hud"
                   onclick="event.stopPropagation()"
                   ondblclick="event.stopPropagation()"
-                  class="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/55 to-transparent pt-6 pb-1.5 px-2.5 sm:px-4 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
+                  class="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-6 pb-1.5 px-2.5 sm:px-4 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
                 >
-                  <!-- Seeking Bar -->
+                  <!-- Clean Seeking Bar -->
                   <div class="relative w-full py-1 cursor-pointer group/scrub" onclick="seekLiveEdge(event)">
                     <div class="w-full h-1 group-hover/scrub:h-1.5 bg-white/30 rounded-full overflow-hidden transition-all">
                       <div id="scrub-progress-bar" class="w-[96%] h-full bg-[var(--accent)]"></div>
@@ -728,15 +764,9 @@
                     </div>
 
                     <div class="flex items-center space-x-1.5 sm:space-x-2">
-                      <!-- ALLOWED LOCATION #3: STARTUP CHANNEL BUTTON IN VIDEO PLAYER CONTROLS BAR -->
-                      <button
-                        onclick="setCurrentPlayingAsStartup()"
-                        id="hud-startup-btn"
-                        class="px-2 py-0.5 rounded bg-white/15 hover:bg-amber-500 hover:text-black text-[10px] font-semibold text-amber-300 transition flex items-center space-x-1"
-                        title="Set current channel as Startup Channel (Double-click to open Startup Manager)"
-                      >
-                        <span>★</span>
-                        <span id="hud-startup-label">Startup</span>
+                      <!-- Set Default Startup Button right inside HUD -->
+                      <button onclick="setCurrentPlayingAsStartup()" id="hud-startup-btn" class="px-2 py-0.5 rounded bg-white/10 hover:bg-amber-500 hover:text-black text-[10px] font-medium text-amber-300 transition" title="Set current channel as Default Startup Channel">
+                        ★ Default
                       </button>
 
                       <!-- Video Fit / Fill / Crop Selector -->
@@ -752,7 +782,7 @@
 
                       <!-- Settings / HLS Resolution & Telemetry Popover -->
                       <button onclick="toggleQualityPopover(event)" class="relative p-1 hover:text-white text-white/90 transition" title="Stream Quality & Telemetry">
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5 fill-current" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                        <svg class="w-4 h-4 sm:w-5 sm:h-5 fill-current" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                         <span id="hud-quality-badge" class="absolute -top-0.5 -right-1 bg-[#cc0000] text-white text-[8px] font-bold px-1 rounded-[2px] leading-tight">HD</span>
                       </button>
 
@@ -777,62 +807,67 @@
             </div>
 
             <!-- ===============================================================
-                 ULTRA-CLEAN COMPACT MOBILE-APP & DESKTOP METADATA BAR
-                 (No Clumsy Multi-Row Clutter on Mobile!)
+                 COMPACT MOBILE-APP & DESKTOP METADATA BAR BELOW PLAYER
                  =============================================================== -->
-            <div id="yt-metadata-below" class="px-2.5 sm:px-0 py-2 sm:mt-2 space-y-1.5 bg-[#0f0f0f]">
+            <div id="yt-metadata-below" class="px-2.5 sm:px-0 py-2 sm:mt-2 space-y-2">
               <div class="flex items-center justify-between gap-2">
-                <h1 id="active-title" class="text-[13px] sm:text-[17px] font-semibold text-[#f1f1f1] leading-snug truncate">
-                  Select a Live Broadcast
+                <h1 id="active-title" class="text-[14px] sm:text-[17px] font-semibold text-[#f1f1f1] leading-snug truncate">
+                  BBC Earth US — Live Broadcast
                 </h1>
-                <!-- Mobile Drawer Toggle for Up Next / EPG -->
+                <!-- Mobile Toggle for Up Next / EPG Drawer -->
                 <button onclick="toggleMobileUpNextDrawer()" id="mobile-upnext-toggle" class="xl:hidden shrink-0 px-2.5 py-1 rounded-full bg-[#272727] text-[11px] font-medium text-white flex items-center space-x-1">
-                  <span id="mobile-upnext-label">Up Next / EPG</span>
+                  <span>Up Next / EPG</span>
                   <span id="mobile-upnext-chevron">▾</span>
                 </button>
               </div>
 
-              <!-- Single-Line Horizontal Scrollable Bar on Mobile & Desktop -->
-              <div class="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
+              <!-- Single-Row Horizontal Scrollable Action Bar on Mobile, Wrapped on Desktop -->
+              <div class="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar pb-0.5">
                 <!-- Left: Channel Avatar + Name + Relay + Subscribe -->
                 <div class="flex items-center space-x-2 shrink-0">
-                  <img id="active-poster" src="" alt="" class="w-7 h-7 sm:w-9 sm:h-9 rounded-full object-cover bg-[#272727] shrink-0" />
-                  <div class="min-w-0 pr-1 max-w-[125px] sm:max-w-[210px]">
+                  <img id="active-poster" src="" alt="" referrerpolicy="no-referrer" class="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover bg-[#272727] shrink-0" />
+                  <div class="min-w-0 pr-1 max-w-[130px] sm:max-w-[200px]">
                     <div class="flex items-center space-x-1">
-                      <h2 id="active-channel-owner" class="text-[12px] sm:text-[14px] font-medium text-[#f1f1f1] truncate">Global Broadcast</h2>
+                      <h2 id="active-channel-owner" class="text-[13px] sm:text-[14px] font-medium text-[#f1f1f1] truncate">BBC Earth US</h2>
                       <svg class="w-3.5 h-3.5 fill-[#aaaaaa] shrink-0" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zM9.8 17.3l-4.2-4.1L7 11.8l2.8 2.7L17 7.4l1.4 1.4-8.6 8.5z"/></svg>
                     </div>
-                    <p id="active-subtitle" class="text-[10px] sm:text-[11px] text-[#aaaaaa] truncate">150K watching</p>
+                    <p id="active-subtitle" class="text-[11px] text-[#aaaaaa] truncate">210K watching • English</p>
                   </div>
 
-                  <button onclick="cycleServerMode()" id="server-badge" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#f1f1f1] hover:bg-[#d9d9d9] text-[#0f0f0f] text-[11px] sm:text-xs font-semibold transition shrink-0" title="Switch Stream Relay Server">
-                    HD Direct
+                  <button onclick="cycleServerMode()" id="server-badge" class="h-8 px-3 rounded-full bg-[#f1f1f1] hover:bg-[#d9d9d9] text-[#0f0f0f] text-xs font-semibold transition shrink-0" title="Switch Relay Server">
+                    Relay 1
                   </button>
 
-                  <button onclick="toggleSubscribeAndFavorite()" id="fav-action-btn" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-white text-[11px] sm:text-xs font-medium flex items-center space-x-1 transition shrink-0">
+                  <button onclick="toggleSubscribeAndFavorite()" id="fav-action-btn" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-white text-xs font-medium flex items-center space-x-1 transition shrink-0">
                     <span>🔔</span>
                     <span>Subscribe</span>
                   </button>
                 </div>
 
-                <!-- Right Pills: Like + Next + Live EPG + Share (Startup Removed from Here!) -->
+                <!-- Right Action Pills: Set Default Startup + Like + EPG + Share -->
                 <div class="flex items-center space-x-1.5 shrink-0">
-                  <div class="flex items-center bg-[#272727] rounded-full h-7 sm:h-8 overflow-hidden shrink-0">
-                    <button onclick="toggleSubscribeAndFavorite()" id="like-pill-btn" class="h-full px-2.5 hover:bg-[#3f3f3f] flex items-center space-x-1 text-[11px] sm:text-xs font-medium text-white transition border-r border-white/10">
+                  <!-- Set as Default / Startup Channel Button -->
+                  <button onclick="setCurrentPlayingAsStartup()" id="set-startup-pill-btn" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-amber-500 hover:text-black text-amber-400 text-xs font-medium flex items-center space-x-1 transition shrink-0" title="Set or Update this channel as your Startup Default">
+                    <span>★</span>
+                    <span id="set-startup-pill-label">Set Startup</span>
+                  </button>
+
+                  <div class="flex items-center bg-[#272727] rounded-full h-8 overflow-hidden shrink-0">
+                    <button onclick="toggleSubscribeAndFavorite()" id="like-pill-btn" class="h-full px-2.5 hover:bg-[#3f3f3f] flex items-center space-x-1 text-xs font-medium text-white transition border-r border-white/10">
                       <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg>
-                      <span id="like-counter-label">698</span>
+                      <span id="like-counter-label">842</span>
                     </button>
                     <button onclick="playNextChannel()" class="h-full px-2.5 hover:bg-[#3f3f3f] flex items-center text-white text-[11px] font-medium transition" title="Next Channel">
                       ⏭
                     </button>
                   </div>
 
-                  <button onclick="openRightRailEpg()" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-[11px] sm:text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
+                  <button onclick="openRightRailEpg()" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
                     <span>✦</span>
                     <span>Live EPG</span>
                   </button>
 
-                  <button onclick="copyStreamShareLink()" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-[11px] sm:text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
+                  <button onclick="copyStreamShareLink()" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
                     <span>↗</span>
                     <span>Share</span>
                   </button>
@@ -842,12 +877,11 @@
           </div>
 
           <!-- =================================================================
-               RIGHT-HAND SPACE: UP NEXT + LIVE EPG + INDIAN + LANGUAGES
-               (Collapsed by default on mobile so main channel feed is clean!)
+               RIGHT-HAND SPACE: FULL UNCAPPED LISTS FOR ALL / EPG / INDIAN / LANGUAGES / SUGGESTIONS / RECENT
                ================================================================= -->
-          <aside id="watch-up-next-rail" class="hidden xl:flex w-full shrink-0 px-2.5 sm:px-0 pb-2.5 xl:pb-0 flex-col bg-[#141414] xl:bg-transparent border-t border-white/10 xl:border-none pt-2 xl:pt-0">
+          <aside id="watch-up-next-rail" class="hidden xl:flex w-full shrink-0 px-2.5 sm:px-0 pb-2 xl:pb-0 flex-col bg-[#141414] xl:bg-transparent border-t border-white/10 xl:border-none pt-2 xl:pt-0">
 
-            <!-- Right Rail Chips: All | Live EPG | 🇮🇳 Indian | 🌐 Languages ▾ | Suggestions | Recent -->
+            <!-- Right Rail Chips: All (Global) | Live EPG | 🇮🇳 Indian | 🌐 Languages ▾ | Suggestions | Recent | Related -->
             <div class="flex items-center justify-between gap-1 mb-2">
               <div id="right-rail-chips" class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-0.5">
                 <button onclick="setRightRailFilter('all')" id="rchip-all" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#f1f1f1] text-[#0f0f0f] shrink-0 transition">All</button>
@@ -860,39 +894,47 @@
                 </button>
                 <button onclick="setRightRailFilter('suggestions')" id="rchip-suggestions" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition">Suggestions</button>
                 <button onclick="setRightRailFilter('recently_played')" id="rchip-recently_played" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition">Recent</button>
+                <button onclick="setRightRailFilter('related')" id="rchip-related" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition">Related</button>
               </div>
               <button onclick="cycleRightRailTab()" class="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center text-white shrink-0" title="Next Tab">›</button>
             </div>
 
-            <!-- Inline Quick Language Sub-Chips Bar -->
-            <div id="right-language-subbar" class="mb-2 pb-1.5 border-b border-white/10 flex items-center space-x-1.5 overflow-x-auto no-scrollbar"></div>
+            <!-- Inline Quick Language Sub-Chips Bar + Active Count -->
+            <div class="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-white/10">
+              <div id="right-language-subbar" class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar"></div>
+              <span id="right-rail-total-badge" class="text-[10px] font-mono-code text-[#aaaaaa] shrink-0">0 ch</span>
+            </div>
 
             <!-- Docked Right-Rail EPG Header -->
             <div id="right-epg-header" class="hidden mb-2 p-2.5 rounded-xl bg-[#212121] border border-white/10 items-center justify-between">
               <div class="flex items-center space-x-2">
                 <span class="w-2 h-2 rounded-full bg-[var(--accent)] animate-ping"></span>
-                <span class="text-xs font-medium text-white">Live Program Guide (EPG)</span>
+                <span class="text-xs font-medium text-white">Live Program Guide (Full EPG)</span>
               </div>
               <button onclick="setRightRailFilter('all')" class="text-xs text-[#aaaaaa] hover:text-white px-2 py-0.5 rounded bg-white/5">✕</button>
             </div>
 
-            <!-- Right-Space Cards Container -->
-            <div id="up-next-container" class="flex xl:flex-col gap-2 overflow-x-auto xl:overflow-y-auto no-scrollbar max-h-[210px] xl:max-h-[calc(100dvh-150px)] pr-0.5"></div>
+            <!-- Right-Space Cards Container (Full Infinite Scroll — Zero Artificial Caps!) -->
+            <div id="up-next-container" class="flex xl:flex-col gap-2 overflow-x-auto xl:overflow-y-auto no-scrollbar max-h-[260px] xl:max-h-[calc(100dvh-165px)] pr-0.5"></div>
           </aside>
 
         </div>
       </section>
 
       <!-- =====================================================================
-           BELOW-THE-FOLD BROWSE CATALOG (Supports Live Hover Video Previews!)
+           BELOW-THE-FOLD BROWSE CATALOG (Guaranteed Non-Empty Filter Engine!)
            ===================================================================== -->
-      <section id="catalog-section" class="w-full px-2.5 sm:px-4 pt-2 sm:pt-4">
-        <div id="sticky-chip-bar" class="py-2 mb-3 border-b border-white/10 flex items-center justify-between gap-2">
+      <section id="catalog-section" class="w-full px-2.5 sm:px-4 pt-3 sm:pt-4">
+        <div id="sticky-chip-bar" class="sticky top-0 z-20 bg-[var(--bg-canvas)]/95 backdrop-blur-md py-2 mb-3 border-b border-white/10 flex items-center justify-between gap-2">
           <div id="category-chips" class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar"></div>
           <div class="flex items-center space-x-1.5 shrink-0">
             <button onclick="toggleLanguagePopover(event)" class="px-2.5 py-1 rounded-lg bg-[#272727] hover:bg-[#3f3f3f] text-[11px] font-medium text-white flex items-center space-x-1">
               <span>🌐</span>
               <span id="catalog-lang-label">Language: All</span>
+            </button>
+            <button onclick="openStartupChannelModal()" class="hidden sm:flex px-2.5 py-1 rounded-lg bg-[#272727] hover:bg-[#3f3f3f] text-[11px] font-medium text-amber-400 items-center space-x-1">
+              <span>★</span>
+              <span>Startup</span>
             </button>
           </div>
         </div>
@@ -900,7 +942,7 @@
         <div id="platform-viewport"></div>
 
         <div id="load-more-wrap" class="hidden flex justify-center py-6">
-          <button onclick="renderNextBatch()" class="bg-[#272727] hover:bg-[#3f3f3f] text-xs sm:text-sm font-medium px-7 py-2.5 rounded-full text-white transition">
+          <button onclick="renderNextBatch()" id="load-more-catalog-btn" class="bg-[#272727] hover:bg-[#3f3f3f] text-xs sm:text-sm font-medium px-7 py-2.5 rounded-full text-white transition">
             Show More Channels
           </button>
         </div>
@@ -921,7 +963,7 @@
   </div>
 
   <!-- =========================================================================
-       8. NATIVE MOBILE APP BOTTOM NAVIGATION BAR (No Startup Button Here!)
+       8. NATIVE MOBILE APP BOTTOM NAVIGATION BAR
        ========================================================================= -->
   <nav class="md:hidden fixed bottom-0 inset-x-0 h-14 bg-[#0f0f0f]/95 backdrop-blur-xl border-t border-white/10 grid grid-cols-5 items-center z-50 text-[10px] pb-safe select-none">
     <button onclick="resetHomeView()" id="mob-tab-home" class="flex flex-col items-center justify-center py-1 text-[var(--accent)] font-semibold">
@@ -936,9 +978,9 @@
       <span class="text-base leading-none mb-0.5">🌐</span>
       <span>Languages</span>
     </button>
-    <button onclick="openRightRailEpg()" id="mob-tab-epg" class="flex flex-col items-center justify-center py-1 text-gray-400">
-      <span class="text-base leading-none mb-0.5">📅</span>
-      <span>Live EPG</span>
+    <button onclick="openStartupChannelModal()" id="mob-tab-startup" class="flex flex-col items-center justify-center py-1 text-gray-400">
+      <span class="text-base leading-none mb-0.5 text-amber-400">★</span>
+      <span>Startup</span>
     </button>
     <button onclick="openSourceManagerModal()" id="mob-tab-sources" class="flex flex-col items-center justify-center py-1 text-gray-400">
       <span class="text-base leading-none mb-0.5">🔗</span>
@@ -958,89 +1000,11 @@
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
     /*************************************************************************
-     * 2. INSTANT OFFLINE SVG BROADCAST POSTER GENERATOR
-     * Eliminates 100% of broken image icons (<img src>) seen on mobile!
-     *************************************************************************/
-    const svgPosterCache = {};
-    const PALETTE_GRADIENTS = [
-      ['#991b1b', '#1e1b4b', '#ef4444'],
-      ['#065f46', '#0f172a', '#10b981'],
-      ['#1e40af', '#090d16', '#3b82f6'],
-      ['#6b21a8', '#111827', '#a855f7'],
-      ['#9a3412', '#18181b', '#f97316'],
-      ['#155e75', '#0f172a', '#06b6d4'],
-      ['#831843', '#18181b', '#ec4899']
-    ];
-
-    function hashString(str) {
-      let h = 0;
-      const s = String(str || 'TV');
-      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-      return Math.abs(h);
-    }
-
-    function generateCanvasPosterDataUri(name = 'Live TV', group = 'General', lang = '') {
-      const key = `${name}|${group}|${lang}`;
-      if (svgPosterCache[key]) return svgPosterCache[key];
-
-      const h = hashString(name);
-      const [c1, c2, accent] = PALETTE_GRADIENTS[h % PALETTE_GRADIENTS.length];
-      const cleanName = String(name).replace(/[&<>'"]/g, '').slice(0, 26);
-      const cleanGroup = String(group || 'LIVE').replace(/[&<>'"]/g, '').toUpperCase().slice(0, 14);
-      const cleanLang = String(lang && lang !== 'English' ? lang : 'HD 24/7').replace(/[&<>'"]/g, '').toUpperCase().slice(0, 10);
-      const initials = String(name)
-        .replace(/[^a-zA-Z0-9 ]/g, '')
-        .split(' ')
-        .filter(Boolean)
-        .slice(0, 2)
-        .map(w => w[0]?.toUpperCase() || '')
-        .join('') || 'TV';
-
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
-        <defs>
-          <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stop-color="${c1}"/>
-            <stop offset="100%" stop-color="${c2}"/>
-          </linearGradient>
-        </defs>
-        <rect width="640" height="360" fill="url(#g)"/>
-        <circle cx="540" cy="70" r="160" fill="${accent}" fill-opacity="0.12"/>
-        <circle cx="100" cy="310" r="140" fill="${accent}" fill-opacity="0.1"/>
-        <rect x="36" y="32" width="118" height="34" rx="8" fill="#000000" fill-opacity="0.55"/>
-        <circle cx="56" cy="49" r="5" fill="#ff0033"/>
-        <text x="70" y="54" fill="#ffffff" font-family="Roboto,Arial,sans-serif" font-size="14" font-weight="700">${cleanGroup}</text>
-        <rect x="510" y="32" width="94" height="32" rx="8" fill="#ffffff" fill-opacity="0.12"/>
-        <text x="557" y="53" text-anchor="middle" fill="#f1f1f1" font-family="Roboto,Arial,sans-serif" font-size="13" font-weight="700">${cleanLang}</text>
-        <circle cx="320" cy="158" r="54" fill="#000000" fill-opacity="0.4" stroke="${accent}" stroke-width="2.5" stroke-opacity="0.6"/>
-        <text x="320" y="173" text-anchor="middle" fill="#ffffff" font-family="Roboto,Arial,sans-serif" font-size="38" font-weight="900" letter-spacing="1">${initials}</text>
-        <text x="320" y="265" text-anchor="middle" fill="#ffffff" font-family="Roboto,Arial,sans-serif" font-size="25" font-weight="700">${cleanName}</text>
-        <text x="320" y="295" text-anchor="middle" fill="#cbd5e1" font-family="Roboto,Arial,sans-serif" font-size="15" font-weight="500">StreamOS Live Broadcast Network</text>
-      </svg>`;
-
-      const uri = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
-      svgPosterCache[key] = uri;
-      return uri;
-    }
-
-    function getChannelPoster(ch) {
-      if (!ch) return generateCanvasPosterDataUri('StreamOS Live', 'TV', 'HD');
-      if (ch.logo && ch.logo.startsWith('https://') && !ch.logo.includes('images.unsplash.com')) {
-        return ch.logo;
-      }
-      return generateCanvasPosterDataUri(ch.name, ch.group, ch.lang);
-    }
-
-    function handleImgFallback(imgEl, name, group, lang = '') {
-      imgEl.onerror = null;
-      imgEl.src = generateCanvasPosterDataUri(name, group, lang);
-    }
-
-    /*************************************************************************
-     * 3. INDIAN & GLOBAL LANGUAGES ENGINE + NON-BLOCKING REGIONAL FETCHER
+     * 2. INDIAN & GLOBAL LANGUAGES ENGINE + NON-BLOCKING REGIONAL FETCHER
      *************************************************************************/
     const LANGUAGE_CATALOGS = [
-      { id: 'All',       label: 'All Languages', icon: '🌐', region: 'global', m3uUrl: '' },
-      { id: 'Indian',    label: 'All Indian Live', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/countries/in.m3u', keywords: ['india', 'bharat', 'dd ', 'doordarshan', 'aaj tak', 'ndtv', 'zeetv', 'zee ', 'star ', 'sony ', 'sun ', 'etv', 'tv9', 'abp', 'republic', 'times now', 'india today', 'colors', 'sakshi', 'ntv', 'v6', 'asianet', 'polimer', 'puthiya', 'manorama'] },
+      { id: 'All',       label: 'All (Global)', icon: '🌐', region: 'global', m3uUrl: '' },
+      { id: 'Indian',    label: 'All Indian Live', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/countries/in.m3u', keywords: ['india', 'bharat', 'dd ', 'doordarshan', 'aaj tak', 'ndtv', 'zeetv', 'zee ', 'star ', 'sony ', 'sun ', 'etv', 'tv9', 'abp', 'republic', 'times now', 'india today', 'colors', 'sakshi', 'ntv', 'v6', 'asianet', 'polimer', 'puthiya', 'manorama', 'telugu', 'hindi', 'tamil', 'malayalam', 'kannada', 'bengali', 'marathi', 'punjabi', 'gujarati'] },
       { id: 'Telugu',    label: 'Telugu (తెలుగు)', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/languages/tel.m3u', keywords: ['telugu', 'etv', 'sakshi', 'ntv', 'tv9 telugu', 'v6', 'abn', 'mahaa', 't news', '10tv', 'hmtv', 'raj news telugu', 'vanitha', 'gemini', 'maa '] },
       { id: 'Hindi',     label: 'Hindi (हिन्दी)', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/languages/hin.m3u', keywords: ['hindi', 'aaj tak', 'ndtv india', 'zee news', 'india tv', 'abp news', 'republic bharat', 'dd national', 'dd news', 'news18 india', 'good news today', 'tv9 bharatvarsh', 'sansad'] },
       { id: 'Tamil',     label: 'Tamil (தமிழ்)', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/languages/tam.m3u', keywords: ['tamil', 'sun ', 'polimer', 'puthiya', 'thanthi', 'news7 tamil', 'kalaignar', 'jaya', 'raj tv', 'captain', 'makkal', 'vasanth', 'adithya'] },
@@ -1050,7 +1014,7 @@
       { id: 'Marathi',   label: 'Marathi (मराठी)', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/languages/mar.m3u', keywords: ['marathi', 'abp majha', 'zee 24 taas', 'tv9 marathi', 'saam', 'lokshahi', 'sahyadri', 'jai maharashtra'] },
       { id: 'Punjabi',   label: 'Punjabi (ਪੰਜਾਬੀ)', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/languages/pan.m3u', keywords: ['punjabi', 'ptc', 'chardikla', 'mh1', 'dd punjabi', 'pitaara', 'balle balle'] },
       { id: 'Gujarati',  label: 'Gujarati (ગુજરાતી)', icon: '🇮🇳', region: 'india', m3uUrl: 'https://iptv-org.github.io/iptv/languages/guj.m3u', keywords: ['gujarati', 'tv9 gujarati', 'abp asmita', 'vtv gujarati', 'sandesh', 'gstv', 'dd girnar'] },
-      { id: 'English',   label: 'English', icon: '🌐', region: 'global', m3uUrl: 'https://iptv-org.github.io/iptv/languages/eng.m3u', keywords: ['english', 'bbc', 'cnn', 'dw ', 'al jazeera', 'cbs', 'abc ', 'nbc', 'fox', 'sky news', 'france 24', 'nhk', 'trt', 'cgtn', 'red bull', 'bloomberg', 'cnbc'] },
+      { id: 'English',   label: 'English', icon: '🌐', region: 'global', m3uUrl: 'https://iptv-org.github.io/iptv/languages/eng.m3u', keywords: ['english', 'bbc', 'cnn', 'dw ', 'al jazeera', 'cbs', 'abc ', 'nbc', 'fox', 'sky news', 'france 24', 'nhk', 'trt', 'cgtn', 'red bull', 'bloomberg', 'cnbc', 'nasa', 'earth'] },
       { id: 'Arabic',    label: 'Arabic (العربية)', icon: '🌐', region: 'global', m3uUrl: 'https://iptv-org.github.io/iptv/languages/ara.m3u', keywords: ['arabic', 'al arabiya', 'al hadath', 'asharq', 'rotana', 'mbc', 'dubai', 'abu dhabi'] },
       { id: 'Spanish',   label: 'Spanish (Español)', icon: '🌐', region: 'global', m3uUrl: 'https://iptv-org.github.io/iptv/languages/spa.m3u', keywords: ['spanish', 'español', 'rtve', 'telemundo', 'univision', 'antena 3', 'telefe', 'caracol'] },
       { id: 'French',    label: 'French (Français)', icon: '🌐', region: 'global', m3uUrl: 'https://iptv-org.github.io/iptv/languages/fra.m3u', keywords: ['french', 'français', 'tv5monde', 'bfm', 'cnews', 'arte', 'france 2'] },
@@ -1075,21 +1039,25 @@
 
     function channelMatchesLanguage(ch, langId) {
       if (!langId || langId === 'All') return true;
-      if (ch.lang === langId) return true;
+      if (ch.lang && ch.lang.toLowerCase() === langId.toLowerCase()) return true;
       if (langId === 'Indian' && ['Telugu', 'Hindi', 'Tamil', 'Malayalam', 'Kannada', 'Bengali', 'Marathi', 'Punjabi', 'Gujarati', 'Indian'].includes(ch.lang)) {
         return true;
       }
-      const hay = `${ch.name} ${ch.group}`.toLowerCase();
+      const hay = `${ch.name} ${ch.group} ${ch.sourceName || ''}`.toLowerCase();
       const langObj = LANGUAGE_CATALOGS.find(l => l.id === langId);
       return langObj && langObj.keywords ? langObj.keywords.some(kw => hay.includes(kw)) : false;
     }
 
     async function selectLanguageFeed(langId) {
       currentLanguageFilter = langId;
+      // Clear conflicting category or scope filters so selecting a language NEVER causes an empty intersection!
+      currentCategory = 'All';
+      currentScope = 'all';
+
       document.getElementById('language-picker-popover').classList.add('hidden');
 
       const langObj = LANGUAGE_CATALOGS.find(l => l.id === langId) || LANGUAGE_CATALOGS[0];
-      const shortName = langObj.label.split(' ')[0];
+      const shortName = langId === 'All' ? 'All (Global)' : langObj.label.split(' ')[0];
       document.getElementById('rchip-lang-label').textContent = langId === 'All' ? 'Languages' : shortName;
       document.getElementById('catalog-lang-label').textContent = `Language: ${shortName}`;
       document.getElementById('header-lang-label').textContent = langId === 'All' ? 'Languages' : shortName;
@@ -1097,6 +1065,7 @@
 
       const indChip = document.getElementById('rchip-indian');
       const langChip = document.getElementById('rchip-language');
+      const allChip = document.getElementById('rchip-all');
       if (indChip) {
         indChip.className = langId === 'Indian'
           ? 'rchip px-2.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#f1f1f1] text-[#0f0f0f] shrink-0 transition'
@@ -1108,8 +1077,20 @@
           : 'rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 flex items-center space-x-1 transition';
       }
 
-      renderRightLanguageSubbar();
+      if (langId !== 'All') {
+        rightRailMode = 'language';
+        if (allChip) allChip.className = 'rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition';
+      } else {
+        rightRailMode = 'all';
+        if (allChip) allChip.className = 'rchip px-2.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#f1f1f1] text-[#0f0f0f] shrink-0 transition';
+      }
 
+      renderRightLanguageSubbar();
+      renderCategoryBars();
+      renderViewport();
+      renderUpNextQueue(true);
+
+      // Fetch dedicated regional/language M3U pack on-demand if not yet cached
       if (langObj.m3uUrl && !fetchedLanguageUrls.has(langObj.m3uUrl)) {
         fetchedLanguageUrls.add(langObj.m3uUrl);
         showToast(`Loading ${langObj.label} Live Channels...`);
@@ -1125,23 +1106,15 @@
             forcedLang: langObj.id
           };
           iptvSources.push(targetSrc);
+        } else {
+          targetSrc.selected = true;
         }
         const parsed = await fetchAndParseSource(targetSrc);
         parsed.forEach(c => { c.lang = langObj.id; });
         rebuildCombinedChannelCatalog();
+      } else {
+        showToast(`Showing ${langObj.label} Channels`);
       }
-
-      if (langId !== 'All') {
-        currentScope = 'all';
-        rightRailMode = 'language';
-      } else if (rightRailMode === 'language') {
-        rightRailMode = 'all';
-      }
-
-      renderCategoryBars();
-      renderViewport();
-      renderUpNextQueue();
-      showToast(`Filtered by Language: ${langObj.label}`);
     }
 
     function renderRightLanguageSubbar() {
@@ -1154,7 +1127,7 @@
           <button onclick="selectLanguageFeed('${l.id}')" class="px-2.5 py-1 rounded-full text-[11px] whitespace-nowrap transition ${
             active ? 'bg-[var(--accent)] text-white font-semibold' : 'bg-[#1f1f1f] text-[#aaaaaa] hover:text-white border border-white/10'
           }">
-            ${l.icon} ${escapeHtml(l.label.split(' ')[0])}
+            ${l.icon} ${escapeHtml(l.id === 'All' ? 'All (Global)' : l.label.split(' ')[0])}
           </button>
         `;
       }).join('');
@@ -1228,7 +1201,7 @@
     }
 
     /*************************************************************************
-     * 4. STARTUP CHANNEL ENGINE (Scoped Strictly to Search, Left Menu & Video HUD!)
+     * 3. DEFAULT / STARTUP CHANNEL ENGINE (Default = BBC Earth US!)
      *************************************************************************/
     let startupChannelConfig = JSON.parse(localStorage.getItem('streamos_startup_channel_v15') || 'null');
 
@@ -1237,25 +1210,38 @@
         const match = allChannels.find(c => c.url === startupChannelConfig.url);
         return match || startupChannelConfig;
       }
+      // Default to BBC Earth US (VERIFIED_STREAMS[0])
       return VERIFIED_STREAMS[0];
+    }
+
+    function resetStartupToBbcEarth() {
+      localStorage.removeItem('streamos_startup_channel_v15');
+      startupChannelConfig = null;
+      const bbc = VERIFIED_STREAMS[0];
+      updateStartupChannelUI();
+      playStream(bbc, 0);
+      renderStartupChannelsPicker('');
+      showToast('★ Restored Default Startup Channel to BBC Earth US');
     }
 
     function setStartupChannel(ch) {
       if (!ch || !ch.url) return;
       startupChannelConfig = {
         name: ch.name,
-        group: ch.group || 'General',
+        group: ch.group || 'Documentary',
         lang: ch.lang || 'English',
         logo: ch.logo || '',
         url: ch.url,
         backupUrl: ch.backupUrl || '',
-        mp4Fallback: ch.mp4Fallback || '',
+        ytEmbed: ch.ytEmbed || '',
         verified: !!ch.verified,
         viewers: ch.viewers || 'LIVE'
       };
       localStorage.setItem('streamos_startup_channel_v15', JSON.stringify(startupChannelConfig));
       updateStartupChannelUI();
-      showToast(`★ Startup Channel updated to: ${ch.name}`);
+      renderViewport();
+      renderUpNextQueue(false);
+      showToast(`★ Default Startup Channel set to: ${ch.name}`);
     }
 
     function setCurrentPlayingAsStartup() {
@@ -1266,34 +1252,42 @@
     function playStartupDefaultChannel() {
       const target = getStartupChannelObject();
       playStream(target, 0);
-      showToast(`★ Playing Startup Channel: ${target.name}`);
+      showToast(`★ Playing Default Startup Channel: ${target.name}`);
     }
 
     function updateStartupChannelUI() {
       const def = getStartupChannelObject();
       const isCurrentStartup = activeChannel && def && activeChannel.url === def.url;
 
-      // 1. Left Sidebar Menu Startup Label
       const drawerName = document.getElementById('drawer-startup-name');
       if (drawerName && def) drawerName.textContent = def.name;
 
-      // 2. Startup Modal Labels
+      const headerStartup = document.getElementById('header-startup-label');
+      if (headerStartup && def) headerStartup.textContent = def.name.length > 14 ? def.name.slice(0, 14) + '…' : def.name;
+
       const modalName = document.getElementById('modal-current-startup-name');
       const modalMeta = document.getElementById('modal-current-startup-meta');
       if (modalName && def) modalName.textContent = def.name;
-      if (modalMeta && def) modalMeta.textContent = `${def.group || 'Live'} • ${def.lang || 'Global'}`;
+      if (modalMeta && def) modalMeta.textContent = `${def.group || 'Documentary'} • ${def.lang || 'English'} • ${def.url.slice(0, 48)}...`;
 
-      // 3. Video Player Controls Bar (HUD) Button
+      const indicator = document.getElementById('player-startup-indicator');
+      if (indicator) indicator.classList.toggle('hidden', !isCurrentStartup);
+
+      const pillBtn = document.getElementById('set-startup-pill-btn');
+      const pillLabel = document.getElementById('set-startup-pill-label');
       const hudBtn = document.getElementById('hud-startup-btn');
-      const hudLabel = document.getElementById('hud-startup-label');
-      if (hudBtn && hudLabel) {
+
+      if (pillBtn && pillLabel) {
         if (isCurrentStartup) {
-          hudBtn.className = 'px-2 py-0.5 rounded bg-amber-500 text-black text-[10px] font-bold transition flex items-center space-x-1';
-          hudLabel.textContent = 'Startup ✓';
+          pillBtn.className = 'h-8 px-3 rounded-full bg-amber-500 text-black text-xs font-bold flex items-center space-x-1 transition shrink-0';
+          pillLabel.textContent = 'Startup Default';
         } else {
-          hudBtn.className = 'px-2 py-0.5 rounded bg-white/15 hover:bg-amber-500 hover:text-black text-[10px] font-semibold text-amber-300 transition flex items-center space-x-1';
-          hudLabel.textContent = 'Set Startup';
+          pillBtn.className = 'h-8 px-3 rounded-full bg-[#272727] hover:bg-amber-500 hover:text-black text-amber-400 text-xs font-medium flex items-center space-x-1 transition shrink-0';
+          pillLabel.textContent = 'Set Startup';
         }
+      }
+      if (hudBtn) {
+        hudBtn.textContent = isCurrentStartup ? '★ Startup ✓' : '★ Set Default';
       }
     }
 
@@ -1313,8 +1307,8 @@
       const q = query.trim().toLowerCase();
       const def = getStartupChannelObject();
       const pool = q
-        ? allChannels.filter(c => c.name.toLowerCase().includes(q) || c.group.toLowerCase().includes(q) || (c.lang && c.lang.toLowerCase().includes(q))).slice(0, 40)
-        : [...VERIFIED_STREAMS, ...favorites, ...allChannels.slice(0, 30)].filter((v, i, a) => a.findIndex(t => t.url === v.url) === i).slice(0, 35);
+        ? allChannels.filter(c => c.name.toLowerCase().includes(q) || c.group.toLowerCase().includes(q) || (c.lang && c.lang.toLowerCase().includes(q))).slice(0, 60)
+        : [...VERIFIED_STREAMS, ...favorites, ...allChannels.slice(0, 45)].filter((v, i, a) => a.findIndex(t => t.url === v.url) === i).slice(0, 50);
 
       box.innerHTML = pool.map(ch => {
         const isDef = def && def.url === ch.url;
@@ -1322,7 +1316,7 @@
         return `
           <div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-white/5 transition">
             <div class="flex items-center space-x-3 min-w-0 flex-1">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}')" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
                 <p class="text-[10px] text-[#aaaaaa] truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live')}</p>
@@ -1332,7 +1326,7 @@
               <button onclick="setStartupChannelByUrl('${escapeAttr(ch.url)}')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
                 isDef ? 'bg-amber-500 text-black' : 'bg-white/10 hover:bg-amber-500 hover:text-black text-amber-300'
               }">
-                ${isDef ? '★ Active Startup' : 'Set Startup'}
+                ${isDef ? '★ Default' : 'Set Startup'}
               </button>
               <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); closeStartupChannelModal()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px]">
                 Play
@@ -1347,8 +1341,8 @@
       const found = allChannels.find(c => c.url === url) || favorites.find(c => c.url === url);
       if (found) {
         setStartupChannel(found);
-        const sInput = document.getElementById('startup-search-input');
-        if (sInput) renderStartupChannelsPicker(sInput.value);
+        const searchBox = document.getElementById('startup-search-input');
+        if (searchBox) renderStartupChannelsPicker(searchBox.value);
       }
     }
 
@@ -1367,7 +1361,7 @@
     }
 
     /*************************************************************************
-     * 5. YOUTUBE-STYLE LIVE HOVER VIDEO PREVIEW (Fine Pointer Only)
+     * 4. YOUTUBE-STYLE LIVE HOVER VIDEO PREVIEW (Pointer-Safe, Zero Mobile Lag)
      *************************************************************************/
     let hoverPreviewEnabled = true;
     let hoverIntentTimer = null;
@@ -1378,7 +1372,7 @@
     function toggleHoverPreviewSetting(enabled) {
       hoverPreviewEnabled = enabled;
       if (!enabled) stopCardHoverPreview();
-      showToast(enabled ? 'Desktop Hover Video Previews Enabled' : 'Hover Video Previews Disabled');
+      showToast(enabled ? 'YouTube Hover Video Previews Enabled' : 'Hover Video Previews Disabled');
     }
 
     function startCardHoverPreview(cardEl, streamUrl) {
@@ -1422,7 +1416,7 @@
 
         if (Hls.isSupported()) {
           activePreviewHls = new Hls({
-            enableWorker: false,
+            enableWorker: true,
             lowLatencyMode: true,
             maxBufferLength: 4,
             backBufferLength: 0,
@@ -1474,8 +1468,53 @@
     }
 
     /*************************************************************************
-     * 6. ASPECT-FIT & EPG GENERATOR
+     * 5. POSTERS & ASPECT-FIT ENGINE
      *************************************************************************/
+    const WEB_CATEGORY_POSTERS = {
+      Documentary: [
+        'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=640&q=80',
+        'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=640&q=80'
+      ],
+      Sports: [
+        'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=640&q=80',
+        'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=640&q=80'
+      ],
+      News: [
+        'https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=640&q=80',
+        'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=640&q=80'
+      ],
+      Movies: [
+        'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=640&q=80',
+        'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=640&q=80'
+      ],
+      General: [
+        'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=640&q=80',
+        'https://images.unsplash.com/photo-1593784991095-a205069470b6?auto=format&fit=crop&w=640&q=80'
+      ]
+    };
+
+    function hashString(str) {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+      return Math.abs(h);
+    }
+
+    function getWebFallbackPoster(name = 'Live', group = 'General') {
+      const pool = WEB_CATEGORY_POSTERS[group] || WEB_CATEGORY_POSTERS.General;
+      return pool[hashString(name) % pool.length];
+    }
+
+    function getChannelPoster(ch) {
+      if (!ch) return WEB_CATEGORY_POSTERS.Documentary[0];
+      if (ch.logo && ch.logo.startsWith('https://')) return ch.logo;
+      return getWebFallbackPoster(ch.name, ch.group);
+    }
+
+    function handleImgFallback(imgEl, name, group) {
+      imgEl.onerror = null;
+      imgEl.src = getWebFallbackPoster(name, group);
+    }
+
     const mainVideoEl = document.getElementById('video-player');
     mainVideoEl.addEventListener('resize', syncPlayerAspectToStream);
     mainVideoEl.addEventListener('loadedmetadata', syncPlayerAspectToStream);
@@ -1502,10 +1541,10 @@
     }
 
     const EPG_TEMPLATES = {
+      Documentary: ['Planet Earth 4K Special', 'Blue Planet Deep Ocean', 'Frozen Planet Expedition', 'Dynasties Wildlife HD'],
       News: ['World News Hour Live', 'Global Markets & Tech Brief', 'Prime Time International Report', 'Breaking News Desk'],
       Sports: ['Live Championship Arena', 'World Motorsport Highlights', 'Premier Matchday Studio', 'Pro League Replay Special'],
       Movies: ['4K Cinema Blockbuster Feature', 'Sci-Fi Premiere Special', 'Action & Thriller Night', 'Classic Cinema Restored'],
-      Documentary: ['Secrets of the Ancient World', 'Deep Earth & Wildlife 4K', 'Engineering Mega Structures', 'Future Frontiers Science'],
       General: ['Live Prime Time Broadcast', 'Regional Drama & Classics', 'Special Studio Feature', 'Late Night Live Desk']
     };
 
@@ -1533,20 +1572,25 @@
     }
 
     /*************************************************************************
-     * 7. MULTI-SOURCE IPTV URL MANAGER (Non-Blocking Time-Sliced Parser)
+     * 6. MULTI-SOURCE IPTV URL MANAGER (ALL M3U URLS SELECTED BY DEFAULT!)
      *************************************************************************/
     const DEFAULT_IPTV_SOURCES = [
-      { id: 'src-verified', name: 'Built-in 24/7 Verified HD Streams', url: 'builtin://verified', selected: true, count: 14 },
+      { id: 'src-verified', name: 'Built-in 24/7 Verified HD Streams (BBC Earth US + Global)', url: 'builtin://verified', selected: true, count: 15 },
       { id: 'src-india',    name: '🇮🇳 India Regional & National Live TV', url: 'https://iptv-org.github.io/iptv/countries/in.m3u', selected: true, count: 0, forcedLang: 'Indian' },
       { id: 'src-telugu',   name: '🇮🇳 Telugu Live TV Channels', url: 'https://iptv-org.github.io/iptv/languages/tel.m3u', selected: true, count: 0, forcedLang: 'Telugu' },
       { id: 'src-hindi',    name: '🇮🇳 Hindi Live TV Channels', url: 'https://iptv-org.github.io/iptv/languages/hin.m3u', selected: true, count: 0, forcedLang: 'Hindi' },
-      { id: 'src-tamil',    name: '🇮🇳 Tamil Live TV Channels', url: 'https://iptv-org.github.io/iptv/languages/tam.m3u', selected: false, count: 0, forcedLang: 'Tamil' },
-      { id: 'src-news',     name: 'Global 24/7 News Networks', url: 'https://iptv-org.github.io/iptv/categories/news.m3u', selected: false, count: 0 },
-      { id: 'src-sports',   name: 'World Sports Broadcasts', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u', selected: false, count: 0 },
-      { id: 'src-global',   name: 'IPTV-ORG Global Master (On-Demand)', url: 'https://iptv-org.github.io/iptv/index.m3u', selected: false, count: 0 }
+      { id: 'src-tamil',    name: '🇮🇳 Tamil Live TV Channels', url: 'https://iptv-org.github.io/iptv/languages/tam.m3u', selected: true, count: 0, forcedLang: 'Tamil' },
+      { id: 'src-doc',      name: '🌍 Documentary & Science Networks (BBC Earth, NatGeo)', url: 'https://iptv-org.github.io/iptv/categories/documentary.m3u', selected: true, count: 0 },
+      { id: 'src-news',     name: '📰 Global 24/7 News Networks', url: 'https://iptv-org.github.io/iptv/categories/news.m3u', selected: true, count: 0 },
+      { id: 'src-sports',   name: '🏆 World Sports Broadcasts', url: 'https://iptv-org.github.io/iptv/categories/sports.m3u', selected: true, count: 0 },
+      { id: 'src-movies',   name: '🎬 Cinema & Blockbuster Movies', url: 'https://iptv-org.github.io/iptv/categories/movies.m3u', selected: true, count: 0 },
+      { id: 'src-global',   name: '🌐 IPTV-ORG Global Master Index', url: 'https://iptv-org.github.io/iptv/index.m3u', selected: true, count: 0 }
     ];
 
-    let iptvSources = JSON.parse(localStorage.getItem('streamos_sources_v15') || 'null') || [...DEFAULT_IPTV_SOURCES];
+    let iptvSources = JSON.parse(localStorage.getItem('streamos_sources_v15') || 'null') || JSON.parse(JSON.stringify(DEFAULT_IPTV_SOURCES));
+    // Ensure every source defaults to selected: true if not explicitly unchecked in v15
+    iptvSources.forEach(s => { if (typeof s.selected !== 'boolean') s.selected = true; });
+
     let playlistFilterMode = localStorage.getItem('streamos_source_mode_v15') || 'all';
     const sourceChannelCache = {};
 
@@ -1563,7 +1607,7 @@
       const selBtn = document.getElementById('mode-selected-urls-btn');
 
       if (playlistFilterMode === 'all') {
-        if (badge) badge.textContent = 'All';
+        if (badge) badge.textContent = `All (${iptvSources.length})`;
         if (allBtn) allBtn.className = 'px-2.5 py-1.5 rounded-lg font-medium bg-[#f1f1f1] text-[#0f0f0f] transition';
         if (selBtn) selBtn.className = 'px-2.5 py-1.5 rounded-lg font-medium bg-[#272727] text-white hover:bg-[#3f3f3f] transition';
       } else {
@@ -1571,6 +1615,15 @@
         if (selBtn) selBtn.className = 'px-2.5 py-1.5 rounded-lg font-medium bg-[#f1f1f1] text-[#0f0f0f] transition';
         if (allBtn) allBtn.className = 'px-2.5 py-1.5 rounded-lg font-medium bg-[#272727] text-white hover:bg-[#3f3f3f] transition';
       }
+    }
+
+    function selectAllSourcesAndSync() {
+      iptvSources.forEach(s => { s.selected = true; });
+      playlistFilterMode = 'all';
+      saveSourcesState();
+      renderSourcesManagerList();
+      syncAllActivePlaylists(true);
+      showToast('All M3U Sources Selected & Syncing');
     }
 
     function openSourceManagerModal() {
@@ -1589,7 +1642,7 @@
       saveSourcesState();
       syncAllActivePlaylists(false);
       renderSourcesManagerList();
-      showToast(mode === 'all' ? 'Showing channels from All Active URLs' : 'Showing channels from Checked URLs only');
+      showToast(mode === 'all' ? 'Showing channels from All M3U URLs' : 'Showing channels from Checked URLs only');
     }
 
     function toggleSourceSelection(id) {
@@ -1705,7 +1758,7 @@
       saveSourcesState();
       renderSourcesManagerList();
       syncAllActivePlaylists(true);
-      showToast('Restored default IPTV sources');
+      showToast('Restored all default IPTV sources (All Selected)');
     }
 
     function renderSourcesManagerList() {
@@ -1725,7 +1778,7 @@
               <div class="min-w-0 flex-1">
                 <div class="flex items-center space-x-2">
                   <p class="text-xs font-medium text-white truncate">${escapeHtml(src.name)}</p>
-                  <span class="text-[10px] font-mono-code bg-white/10 text-green-400 px-1.5 py-0.2 rounded">${src.count ? src.count.toLocaleString() + ' ch' : 'Ready'}</span>
+                  <span class="text-[10px] font-mono-code bg-white/10 text-green-400 px-1.5 py-0.2 rounded">${src.count ? src.count.toLocaleString() + ' ch' : 'Selected'}</span>
                 </div>
                 <p class="text-[10px] font-mono-code text-[#aaaaaa] truncate mt-0.5">${escapeHtml(src.url)}</p>
               </div>
@@ -1742,15 +1795,15 @@
       }).join('');
     }
 
-    // Time-Sliced Non-Blocking M3U Parser (Yields every 350 lines so Mobile UI NEVER freezes!)
-    async function parseRawM3uTextAsync(rawText, sourceId, sourceName, forcedLang = '') {
+    // Time-Sliced Non-Blocking M3U Parser (Yields every 400 lines so UI stays 60fps while loading thousands of channels)
+    async function parseRawM3uTextAsync(rawText, sourceId, sourceName, forcedLang = '', isMasterIndex = false) {
       const lines = rawText.split(/\r?\n/);
       const parsed = [];
       let cur = null;
-      const maxCap = IS_MOBILE_VIEW() ? 1200 : 4500;
+      const maxCap = isMasterIndex ? (IS_MOBILE_VIEW() ? 1800 : 4000) : (IS_MOBILE_VIEW() ? 1500 : 3500);
 
       for (let i = 0; i < lines.length; i++) {
-        if (i > 0 && i % 350 === 0) {
+        if (i > 0 && i % 400 === 0) {
           await yieldToMain();
         }
         const line = lines[i].trim();
@@ -1832,41 +1885,60 @@
         }
       }
 
-      const parsed = await parseRawM3uTextAsync(rawText, src.id, src.name, src.forcedLang || '');
+      const isMaster = src.url.endsWith('/index.m3u');
+      const parsed = await parseRawM3uTextAsync(rawText, src.id, src.name, src.forcedLang || '', isMaster);
       sourceChannelCache[src.id] = parsed;
       src.count = parsed.length;
       return parsed;
     }
 
+    let isSyncingSources = false;
+
     async function syncAllActivePlaylists(forceToast = false) {
-      const targetSources = iptvSources.filter(s => s.selected);
+      if (isSyncingSources) return;
+      isSyncingSources = true;
+
+      const targetSources = playlistFilterMode === 'selected'
+        ? iptvSources.filter(s => s.selected)
+        : iptvSources;
+
       if (targetSources.length === 0) {
         allChannels = [...VERIFIED_STREAMS];
         buildCategories();
         renderViewport();
+        renderUpNextQueue(false);
+        isSyncingSources = false;
         return;
       }
 
+      // Sync incrementally and refresh catalog after each playlist so the user sees channels immediately!
       for (const src of targetSources) {
         await fetchAndParseSource(src);
+        rebuildCombinedChannelCatalog();
         await yieldToMain();
       }
 
       saveSourcesState();
       renderSourcesManagerList();
-      rebuildCombinedChannelCatalog();
+      isSyncingSources = false;
       if (forceToast) {
-        showToast(`Synced ${allChannels.length.toLocaleString()} live channels`);
+        showToast(`Synced ${allChannels.length.toLocaleString()} live channels from ${targetSources.length} M3U sources`);
       }
     }
 
     function rebuildCombinedChannelCatalog() {
       const targetSources = playlistFilterMode === 'selected'
         ? iptvSources.filter(s => s.selected)
-        : iptvSources.filter(s => sourceChannelCache[s.id]);
+        : iptvSources;
 
       const combined = [];
       const seenUrls = new Set();
+
+      // Always include VERIFIED_STREAMS first so BBC Earth US and core genres/languages are 100% present
+      VERIFIED_STREAMS.forEach(ch => {
+        seenUrls.add(ch.url);
+        combined.push(ch);
+      });
 
       targetSources.forEach(src => {
         const list = sourceChannelCache[src.id] || [];
@@ -1878,40 +1950,52 @@
         });
       });
 
-      allChannels = combined.length > 0 ? combined : [...VERIFIED_STREAMS];
+      allChannels = combined;
       buildCategories();
       renderViewport();
-      renderUpNextQueue();
+      renderUpNextQueue(false);
     }
 
     /*************************************************************************
-     * 7. VERIFIED 24/7 STREAMS (Global + Indian Verified Streams)
+     * 7. VERIFIED 24/7 STREAMS (BBC Earth US #1 Default + Indian & Global HD)
      *************************************************************************/
     const VERIFIED_STREAMS = [
+      {
+        name: 'BBC Earth US',
+        group: 'Documentary',
+        lang: 'English',
+        logo: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=640&q=80',
+        url: 'https://amg00793-bbcstudios-amg00793c3-lg-us-2528.playouts.now.amagi.tv/playlist/amg00793-bbcstudios-bbcearth-lgus/playlist.m3u8',
+        backupUrl: 'https://nhkwlive-ojp.akamaized.net/hls/live/2003459/nhkwlive-ojp-en/index.m3u8',
+        verified: true,
+        viewers: '210K',
+        plays: 250
+      },
       { name: 'Red Bull TV Global Sports', group: 'Sports', lang: 'English', logo: 'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=640&q=80', url: 'https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8', backupUrl: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', verified: true, viewers: '150K', plays: 162 },
       { name: 'NDTV 24x7 India Live', group: 'News', lang: 'Indian', logo: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=640&q=80', url: 'https://ndtv24x7elemarchana.akamaized.net/hls/live/2003678/ndtv24x7/master.m3u8', backupUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', verified: true, viewers: '92.4K', plays: 155 },
       { name: 'Aaj Tak Hindi Live HD', group: 'News', lang: 'Hindi', logo: 'https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=640&q=80', url: 'https://aajtaklive-amd.akamaized.net/hls/live/2014416/aajtak/aajtaklive/live_720p/chunks.m3u8', backupUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', verified: true, viewers: '185K', plays: 190 },
+      { name: 'TV9 Telugu Live HD', group: 'News', lang: 'Telugu', logo: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=640&q=80', url: 'https://dyjmyiv3bp2ez.cloudfront.net/pub-iotv9telcmjhcs/liveabr/playlist.m3u8', backupUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', verified: true, viewers: '88.2K', plays: 145 },
+      { name: 'Polimer News Tamil Live', group: 'News', lang: 'Tamil', logo: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=640&q=80', url: 'https://segment.yuppcdn.net/110322/polimernews/playlist.m3u8', backupUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', verified: true, viewers: '67.5K', plays: 132 },
+      { name: 'Asianet News Malayalam', group: 'News', lang: 'Malayalam', logo: 'https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=640&q=80', url: 'https://vidcdn.vidgyor.com/asianet-origin/liveabr/playlist.m3u8', backupUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', verified: true, viewers: '59.1K', plays: 120 },
+      { name: 'TV9 Kannada Live HD', group: 'News', lang: 'Kannada', logo: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=640&q=80', url: 'https://dyjmyiv3bp2ez.cloudfront.net/pub-iotv9kanmo698/liveabr/playlist.m3u8', backupUrl: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', verified: true, viewers: '54.0K', plays: 115 },
       { name: 'DW English 24/7 World News', group: 'News', lang: 'English', logo: 'https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=640&q=80', url: 'https://dwamdstream102.akamaized.net/hls/live/2015525/dwstream102/index.m3u8', ytEmbed: 'https://www.youtube.com/embed/live_stream?channel=UCknLrEdhRCp1aegoMqRaCZg&autoplay=1', verified: true, viewers: '31.9K', plays: 118 },
       { name: 'Al Jazeera English HD', group: 'News', lang: 'English', logo: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=640&q=80', url: 'https://live-hls-web-aje.getaj.net/AJE/index.m3u8', ytEmbed: 'https://www.youtube.com/embed/gCNeDWCI0vo?autoplay=1', verified: true, viewers: '64.5K', plays: 165 },
       { name: 'NHK World Japan Documentary', group: 'Documentary', lang: 'Japanese', logo: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=640&q=80', url: 'https://nhkwlive-ojp.akamaized.net/hls/live/2003459/nhkwlive-ojp-en/index.m3u8', verified: true, viewers: '19.4K', plays: 94 },
       { name: 'CBS News 24/7 Network', group: 'News', lang: 'English', logo: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=640&q=80', url: 'https://cbsn-us.cbsnstream.cbsnews.com/out/v1/55a8648e8f134e82a470f83d562deeca/master.m3u8', verified: true, viewers: '27.1K', plays: 88 },
       { name: 'ABC News Live America', group: 'News', lang: 'English', logo: 'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=640&q=80', url: 'https://content.uplynk.com/channel/3324f2467c414329b3b0cc5cd987b6be.m3u8', verified: true, viewers: '22.8K', plays: 76 },
-      { name: 'TRT World Global HD', group: 'News', lang: 'English', logo: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=640&q=80', url: 'https://tv-trtworld.medya.trt.com.tr/master.m3u8', ytEmbed: 'https://www.youtube.com/embed/CV5Fooi8YJA?autoplay=1', verified: true, viewers: '15.3K', plays: 63 },
       { name: 'France 24 English HD', group: 'News', lang: 'French', logo: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=640&q=80', url: 'https://f24hls-i.akamaihd.net/hls/live/221193/F24_EN_LO_HLS/master_900.m3u8', ytEmbed: 'https://www.youtube.com/embed/Ap-UM1O9RBU?autoplay=1', verified: true, viewers: '29.0K', plays: 82 },
-      { name: 'Tears of Steel 4K Sci-Fi Cinema', group: 'Movies', lang: 'English', logo: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=640&q=80', url: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8', verified: true, viewers: '98K', plays: 110 },
-      { name: 'Big Buck Bunny 1080p Animation', group: 'Movies', lang: 'English', logo: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=640&q=80', url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8', verified: true, viewers: '12.1K', plays: 72 },
-      { name: 'Apple 4K HDR Mastering Stream', group: 'Documentary', lang: 'English', logo: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=640&q=80', url: 'https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8', verified: true, viewers: '24K', plays: 49 }
+      { name: 'Tears of Steel 4K Sci-Fi Cinema', group: 'Movies', lang: 'English', logo: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=640&q=80', url: 'https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8', verified: true, viewers: '98K', plays: 110 }
     ];
 
     let allChannels = [...VERIFIED_STREAMS];
     let filteredChannels = [...VERIFIED_STREAMS];
-    let favorites = JSON.parse(localStorage.getItem('streamos_favs_v14') || '[]');
-    let playStats = JSON.parse(localStorage.getItem('streamos_stats_v14') || '{}');
-    let recentHistory = JSON.parse(localStorage.getItem('streamos_history_v14') || '[]');
+    let favorites = JSON.parse(localStorage.getItem('streamos_favs_v15') || '[]');
+    let playStats = JSON.parse(localStorage.getItem('streamos_stats_v15') || '{}');
+    let recentHistory = JSON.parse(localStorage.getItem('streamos_history_v15') || '[]');
 
     let categoryCounts = {};
     let currentCategory = 'All';
-    let currentScope = 'verified';
+    let currentScope = 'all'; // Default to 'all' so below-the-player catalog shows all channels immediately!
     let rightRailMode = 'all';
     let currentTheme = 'youtube';
     let isTheatreMode = false;
@@ -1924,7 +2008,12 @@
     let ccTimer = null;
     let mobileHudFadeTimer = null;
     let renderedItems = 0;
-    const PAGE_BATCH = 24;
+    const PAGE_BATCH = 36;
+
+    // Right-Rail Full List Virtual Pagination State (Zero Artificial Caps!)
+    let currentRightRailPool = [];
+    let upNextRenderedCount = 0;
+    const RIGHT_RAIL_BATCH = 60;
 
     let activeChannel = null;
     let hls = null;
@@ -1971,7 +2060,6 @@
         }
         lastTouchTapTime = now;
 
-        // Toggle HUD visibility cleanly on single mobile tap
         if (hud) {
           hud.classList.toggle('mobile-hud-hidden');
           clearTimeout(mobileHudFadeTimer);
@@ -2078,7 +2166,7 @@
         box.innerHTML = `<p class="px-3 py-2 text-xs text-[#aaaaaa]">Click "Subscribe" on any channel to pin it here.</p>`;
         return;
       }
-      box.innerHTML = favorites.slice(0, 8).map(ch => {
+      box.innerHTML = favorites.map(ch => {
         const poster = getChannelPoster(ch);
         return `
           <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-2 rounded-[10px] hover:bg-[#272727] text-left transition">
@@ -2112,7 +2200,7 @@
     }
 
     /*************************************************************************
-     * 11. ROBUST MOBILE & DESKTOP HLS STREAM ENGINE (Guaranteed Video Playback!)
+     * 11. ROBUST MOBILE & DESKTOP HLS STREAM ENGINE
      *************************************************************************/
     function resetVideoInstance() {
       stopCardHoverPreview();
@@ -2133,10 +2221,10 @@
       stat.plays += 1;
       playStats[channel.url] = stat;
       channel.plays = stat.plays;
-      localStorage.setItem('streamos_stats_v14', JSON.stringify(playStats));
+      localStorage.setItem('streamos_stats_v15', JSON.stringify(playStats));
 
-      recentHistory = [channel, ...recentHistory.filter(c => c.url !== channel.url)].slice(0, 25);
-      localStorage.setItem('streamos_history_v14', JSON.stringify(recentHistory));
+      recentHistory = [channel, ...recentHistory.filter(c => c.url !== channel.url)].slice(0, 200);
+      localStorage.setItem('streamos_history_v15', JSON.stringify(recentHistory));
     }
 
     function playStreamByUrl(url) {
@@ -2174,7 +2262,7 @@
 
       updateStartupChannelUI();
       updateSubscribeLikeUI();
-      renderUpNextQueue();
+      renderUpNextQueue(false);
       updateClosedCaptionText();
 
       spinner.classList.remove('hidden');
@@ -2266,7 +2354,6 @@
           }
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native iOS / Mobile Safari HLS Playback
         video.src = useProxy ? PROXY_RELAYS[0](channel.url) : channel.url;
         const iosWatchdog = setTimeout(() => {
           if (video.readyState < 2 && activeChannel === channel) escalateStage(channel);
@@ -2286,7 +2373,6 @@
       }
     }
 
-    // Mobile-Safe Autoplay: Starts muted if browser blocks unmuted autoplay, showing a clear "Tap to Unmute" pill
     function safeAutoplayVideo(video) {
       const unmutePill = document.getElementById('mobile-unmute-pill');
 
@@ -2303,7 +2389,6 @@
           video.play().then(() => syncPlayPauseIcons(false)).catch(() => {});
         });
       } else {
-        // First load on mobile/desktop: try unmuted, fallback immediately to muted + visible Unmute pill
         video.muted = false;
         video.play().then(() => {
           userHasInteractedWithAudio = true;
@@ -2476,7 +2561,7 @@
         favorites.unshift(activeChannel);
         showToast('Subscribed to channel');
       }
-      localStorage.setItem('streamos_favs_v14', JSON.stringify(favorites));
+      localStorage.setItem('streamos_favs_v15', JSON.stringify(favorites));
       updateSubscribeLikeUI();
       renderDrawerSubscriptions();
     }
@@ -2503,8 +2588,19 @@
     }
 
     /*************************************************************************
-     * 13. RIGHT-SPACE DOCKED EPG, INDIAN, LANGUAGES & UP NEXT
+     * 13. RIGHT-SPACE FULL UNCAPPED CHANNEL LISTS (All, EPG, Indian, Languages, Suggestions, Recent, Related)
      *************************************************************************/
+    const upNextContainerEl = document.getElementById('up-next-container');
+    if (upNextContainerEl) {
+      upNextContainerEl.addEventListener('scroll', () => {
+        const nearBottom = upNextContainerEl.scrollTop + upNextContainerEl.clientHeight >= upNextContainerEl.scrollHeight - 240;
+        const nearRight = upNextContainerEl.scrollLeft + upNextContainerEl.clientWidth >= upNextContainerEl.scrollWidth - 240;
+        if ((nearBottom || nearRight) && upNextRenderedCount < currentRightRailPool.length) {
+          appendNextRightRailBatch();
+        }
+      });
+    }
+
     function openRightRailEpg() {
       const rail = document.getElementById('watch-up-next-rail');
       if (IS_MOBILE_VIEW() && rail.classList.contains('hidden')) {
@@ -2519,7 +2615,7 @@
     }
 
     function cycleRightRailTab() {
-      const order = ['all', 'epg', 'suggestions', 'recently_played'];
+      const order = ['all', 'epg', 'suggestions', 'recently_played', 'related'];
       const next = order[(order.indexOf(rightRailMode) + 1) % order.length];
       setRightRailFilter(next);
     }
@@ -2529,7 +2625,8 @@
       if (mode === 'all') {
         currentLanguageFilter = 'All';
         document.getElementById('rchip-lang-label').textContent = 'Languages';
-        document.getElementById('catalog-lang-label').textContent = 'Language: All';
+        document.getElementById('catalog-lang-label').textContent = 'Language: All (Global)';
+        document.getElementById('header-lang-label').textContent = 'Languages';
       }
       document.querySelectorAll('.rchip').forEach(c => {
         c.className = 'rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition';
@@ -2542,96 +2639,137 @@
         ? 'flex mb-2 p-2.5 rounded-xl bg-[#212121] border border-white/10 items-center justify-between'
         : 'hidden';
       renderRightLanguageSubbar();
-      renderUpNextQueue();
+      renderViewport();
+      renderUpNextQueue(true);
     }
 
-    function renderUpNextQueue() {
-      const box = document.getElementById('up-next-container');
-      if (!box) return;
-
-      if (rightRailMode === 'epg') {
-        const activeEpg = activeChannel ? getChannelEpgSchedule(activeChannel) : [];
-        const epgChannels = filteredChannels.slice(0, 16);
-
-        let html = '';
-        if (activeChannel) {
-          html += `
-            <div class="w-72 xl:w-full shrink-0 p-3 rounded-xl bg-[#212121] border border-white/10 mb-1">
-              <div class="flex items-center justify-between text-[11px] font-semibold text-[var(--accent)] mb-1">
-                <span>● ON AIR NOW</span>
-                <span>LIVE EPG</span>
-              </div>
-              <p class="text-xs font-semibold text-white truncate mb-2">${escapeHtml(activeChannel.name)}</p>
-              <div class="space-y-1.5">
-                ${activeEpg.map(s => `
-                  <div class="p-2 rounded-lg bg-black/40 border ${s.live ? 'border-[var(--accent)]/50' : 'border-white/5'}">
-                    <div class="flex justify-between text-[10px] ${s.live ? 'text-[var(--accent)] font-medium' : 'text-[#aaaaaa]'}">
-                      <span>${s.slot}</span><span>${s.time}</span>
-                    </div>
-                    <p class="text-xs font-normal text-white truncate mt-0.5">${escapeHtml(s.title)}</p>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          `;
-        }
-
-        html += epgChannels.map(ch => {
-          const poster = getChannelPoster(ch);
-          const epg = getChannelEpgSchedule(ch);
-          return `
-            <div onclick="playStreamByUrl('${escapeAttr(ch.url)}')" class="w-64 xl:w-full shrink-0 p-2 rounded-xl bg-[#181818] hover:bg-[#272727] border border-white/5 cursor-pointer transition">
-              <div class="flex items-center space-x-2.5">
-                <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}')" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
-                <div class="min-w-0 flex-1">
-                  <p class="text-xs font-medium text-white truncate">${escapeHtml(ch.name)}</p>
-                  <p class="text-[11px] text-[#aaaaaa] truncate">${escapeHtml(epg[0].title)}</p>
-                </div>
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        box.innerHTML = html;
-        return;
-      }
-
+    function computeRightRailPool() {
       let list = [...allChannels];
+
+      // Filter by language if a specific language is selected
       if (currentLanguageFilter !== 'All') {
         list = list.filter(c => channelMatchesLanguage(c, currentLanguageFilter));
       }
 
-      if (rightRailMode === 'suggestions') {
-        const activeGroup = activeChannel ? activeChannel.group : 'News';
-        list = [...list].sort((a, b) => ((b.group === activeGroup ? 50 : 0) + (b.plays || 0)) - ((a.group === activeGroup ? 50 : 0) + (a.plays || 0)));
+      if (rightRailMode === 'related' && activeChannel) {
+        const rel = list.filter(c => c.group && activeChannel.group && c.group.toLowerCase() === activeChannel.group.toLowerCase());
+        if (rel.length > 0) list = rel;
+      } else if (rightRailMode === 'suggestions') {
+        const activeGroup = activeChannel ? activeChannel.group : 'Documentary';
+        list = [...list].sort((a, b) => {
+          const aScore = (a.group === activeGroup ? 60 : 0) + (a.verified ? 35 : 0) + (a.plays || 0);
+          const bScore = (b.group === activeGroup ? 60 : 0) + (b.verified ? 35 : 0) + (b.plays || 0);
+          return bScore - aScore;
+        });
       } else if (rightRailMode === 'recently_played') {
-        list = recentHistory.length ? [...recentHistory] : [...VERIFIED_STREAMS];
+        // Show full recent history + all remaining channels in order so the list is complete!
+        const seen = new Set(recentHistory.map(r => r.url));
+        list = [...recentHistory, ...list.filter(c => !seen.has(c.url))];
       }
 
-      const queue = list.filter(c => !activeChannel || c.url !== activeChannel.url).slice(0, 18);
+      return list;
+    }
+
+    function renderUpNextQueue(resetScroll = false) {
+      const box = document.getElementById('up-next-container');
+      if (!box) return;
+
+      currentRightRailPool = computeRightRailPool();
+      upNextRenderedCount = 0;
+      box.innerHTML = '';
+      if (resetScroll) {
+        box.scrollTop = 0;
+        box.scrollLeft = 0;
+      }
+
+      const countBadge = document.getElementById('right-rail-total-badge');
+      if (countBadge) {
+        countBadge.textContent = `${currentRightRailPool.length.toLocaleString()} ch`;
+      }
+
+      // If in Live EPG mode, prepend the active channel's 24h schedule card
+      if (rightRailMode === 'epg' && activeChannel) {
+        const activeEpg = getChannelEpgSchedule(activeChannel);
+        const headerCard = document.createElement('div');
+        headerCard.className = 'w-72 xl:w-full shrink-0 p-3 rounded-xl bg-[#212121] border border-white/10 mb-1';
+        headerCard.innerHTML = `
+          <div class="flex items-center justify-between text-[11px] font-semibold text-[var(--accent)] mb-1">
+            <span>● ON AIR NOW</span>
+            <span>FULL LIVE EPG (${currentRightRailPool.length.toLocaleString()})</span>
+          </div>
+          <p class="text-xs font-semibold text-white truncate mb-2">${escapeHtml(activeChannel.name)}</p>
+          <div class="space-y-1.5">
+            ${activeEpg.map(s => `
+              <div class="p-2 rounded-lg bg-black/40 border ${s.live ? 'border-[var(--accent)]/50' : 'border-white/5'}">
+                <div class="flex justify-between text-[10px] ${s.live ? 'text-[var(--accent)] font-medium' : 'text-[#aaaaaa]'}">
+                  <span>${s.slot}</span><span>${s.time}</span>
+                </div>
+                <p class="text-xs font-normal text-white truncate mt-0.5">${escapeHtml(s.title)}</p>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        box.appendChild(headerCard);
+      }
+
+      appendNextRightRailBatch();
+    }
+
+    function appendNextRightRailBatch(loadAllRemaining = false) {
+      const box = document.getElementById('up-next-container');
+      if (!box) return;
+
+      const oldBtn = document.getElementById('right-rail-load-more-btn');
+      if (oldBtn) oldBtn.remove();
+
+      const batchSize = loadAllRemaining ? currentRightRailPool.length : RIGHT_RAIL_BATCH;
+      const slice = currentRightRailPool.slice(upNextRenderedCount, upNextRenderedCount + batchSize);
+      if (slice.length === 0) return;
+
+      const frag = document.createDocumentFragment();
       const def = getStartupChannelObject();
 
-      box.innerHTML = queue.map(ch => {
+      slice.forEach((ch, idx) => {
+        const globalIdx = upNextRenderedCount + idx + 1;
         const poster = getChannelPoster(ch);
-        const epgNow = getChannelEpgSchedule(ch)[0];
+        const epg = getChannelEpgSchedule(ch);
         const isDef = def && def.url === ch.url;
-        const tagLabel = ch.lang && ch.lang !== 'English' ? ch.lang.toUpperCase() : 'LIVE';
+        const isPlaying = activeChannel && activeChannel.url === ch.url;
 
-        return `
-          <div
-            onclick="playStreamByUrl('${escapeAttr(ch.url)}')"
-            onmouseenter="startCardHoverPreview(this, '${escapeAttr(ch.url)}')"
-            onmouseleave="stopCardHoverPreview()"
-            class="w-64 xl:w-full shrink-0 flex items-start space-x-2 cursor-pointer group p-1 rounded-lg hover:bg-white/5 transition"
-          >
-            <div class="preview-thumb-box relative w-[140px] xl:w-[160px] aspect-video rounded-[8px] overflow-hidden bg-[#181818] shrink-0">
+        const item = document.createElement('div');
+
+        if (rightRailMode === 'epg') {
+          item.className = `w-64 xl:w-full shrink-0 p-2 rounded-xl border cursor-pointer transition ${
+            isPlaying ? 'bg-[#272727] border-[var(--accent)]' : 'bg-[#181818] hover:bg-[#272727] border-white/5'
+          }`;
+          item.onclick = () => playStreamByUrl(ch.url);
+          item.innerHTML = `
+            <div class="flex items-center space-x-2.5">
+              <span class="text-[10px] font-mono-code text-[#888888] w-5 text-right shrink-0">${globalIdx}</span>
+              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}')" loading="lazy" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
+              <div class="min-w-0 flex-1">
+                <p class="text-xs font-medium text-white truncate">${escapeHtml(ch.name)}</p>
+                <p class="text-[11px] text-[#aaaaaa] truncate">${escapeHtml(epg[0].title)} (${epg[0].time})</p>
+              </div>
+            </div>
+          `;
+        } else {
+          const tagLabel = ch.lang && ch.lang !== 'English' ? ch.lang.toUpperCase() : 'LIVE';
+          item.className = `w-64 xl:w-full shrink-0 flex items-start space-x-2 cursor-pointer group p-1.5 rounded-lg transition ${
+            isPlaying ? 'bg-white/10 ring-1 ring-[var(--accent)]' : 'hover:bg-white/5'
+          }`;
+          item.onclick = () => playStreamByUrl(ch.url);
+          item.onmouseenter = () => startCardHoverPreview(item, ch.url);
+          item.onmouseleave = () => stopCardHoverPreview();
+          item.innerHTML = `
+            <div class="preview-thumb-box relative w-[140px] xl:w-[156px] aspect-video rounded-[8px] overflow-hidden bg-[#181818] shrink-0">
               <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
               <span class="absolute bottom-1 right-1 bg-black/85 text-white text-[9px] font-semibold px-1.5 py-0.2 rounded">${escapeHtml(tagLabel)}</span>
-              ${isDef ? `<span class="absolute top-1 left-1 bg-amber-500 text-black text-[9px] font-bold px-1 rounded">★ STARTUP</span>` : ''}
+              ${isDef ? `<span class="absolute top-1 left-1 bg-amber-500 text-black text-[9px] font-bold px-1 rounded">★ STARTUP</span>` : `<span class="absolute top-1 left-1 bg-black/70 text-gray-300 text-[9px] font-mono-code px-1 rounded">#${globalIdx}</span>`}
             </div>
             <div class="min-w-0 flex-1 pt-0.5">
               <h4 class="text-[12px] xl:text-[13px] font-medium text-[#f1f1f1] line-clamp-2 leading-snug group-hover:text-white">${escapeHtml(ch.name)}</h4>
-              <p class="text-[11px] text-[#aaaaaa] truncate mt-0.5">${escapeHtml(ch.group)} • ${escapeHtml(epgNow.title)}</p>
+              <p class="text-[11px] text-[#aaaaaa] truncate mt-0.5">${escapeHtml(ch.group)} • ${escapeHtml(epg[0].title)}</p>
               <div class="flex items-center justify-between mt-1">
                 <span class="text-[10px] text-[#888888]">${ch.viewers || '24K'} watching</span>
                 <button
@@ -2643,9 +2781,31 @@
                 </button>
               </div>
             </div>
-          </div>
+          `;
+        }
+
+        frag.appendChild(item);
+      });
+
+      box.appendChild(frag);
+      upNextRenderedCount += slice.length;
+
+      // If more channels remain in the pool, provide an explicit button (plus auto-scroll) to load more or load all
+      if (upNextRenderedCount < currentRightRailPool.length) {
+        const remaining = currentRightRailPool.length - upNextRenderedCount;
+        const moreWrap = document.createElement('div');
+        moreWrap.id = 'right-rail-load-more-btn';
+        moreWrap.className = 'w-56 xl:w-full shrink-0 py-2 flex items-center justify-center gap-2';
+        moreWrap.innerHTML = `
+          <button onclick="appendNextRightRailBatch(false)" class="flex-1 py-2 px-3 rounded-lg bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white transition">
+            + Next ${Math.min(RIGHT_RAIL_BATCH, remaining)} (${remaining.toLocaleString()} left)
+          </button>
+          <button onclick="appendNextRightRailBatch(true)" class="py-2 px-3 rounded-lg bg-white/10 hover:bg-[var(--accent)] text-xs font-medium text-white transition" title="Render Complete List">
+            Load All
+          </button>
         `;
-      }).join('');
+        box.appendChild(moreWrap);
+      }
     }
 
     /*************************************************************************
@@ -2670,9 +2830,9 @@
       drop.classList.remove('hidden');
 
       if (!query) {
-        const suggestedTerms = ['Telugu Live TV', 'Hindi News 24/7', 'Tamil Live Channels', 'Indian Live TV', 'Sports HD'];
+        const suggestedTerms = ['BBC Earth US', 'Telugu Live TV', 'Hindi News 24/7', 'Tamil Live Channels', 'Indian Live TV', 'Sports HD'];
         listEl.innerHTML = `
-          <div class="px-3.5 py-1 text-[11px] font-medium text-[#aaaaaa]">Quick Languages & Categories</div>
+          <div class="px-3.5 py-1 text-[11px] font-medium text-[#aaaaaa]">Quick Channels, Languages & Categories</div>
           ${suggestedTerms.map(term => `
             <div onclick="applySearchSuggestion('${escapeAttr(term)}')" class="px-3.5 py-2 hover:bg-white/10 cursor-pointer flex items-center space-x-3 transition">
               <span class="text-xs text-[#aaaaaa]">🔍</span>
@@ -2698,7 +2858,7 @@
         c.name.toLowerCase().includes(lower) ||
         c.group.toLowerCase().includes(lower) ||
         (c.lang && c.lang.toLowerCase().includes(lower))
-      ).slice(0, 10);
+      ).slice(0, 15);
 
       if (matches.length === 0) {
         listEl.innerHTML = `<div class="p-4 text-xs text-[#aaaaaa] text-center">No matching channels found.</div>`;
@@ -2723,6 +2883,11 @@
     }
 
     function applySearchSuggestion(term) {
+      if (term === 'BBC Earth US') {
+        closeSearchDropdown();
+        playStream(VERIFIED_STREAMS[0], 0);
+        return;
+      }
       const firstWord = term.split(' ')[0];
       const matchedLang = LANGUAGE_CATALOGS.find(l => l.id.toLowerCase() === firstWord.toLowerCase());
       if (matchedLang) {
@@ -2734,6 +2899,8 @@
       document.getElementById('clear-search-btn').classList.remove('hidden');
       closeSearchDropdown();
       currentScope = 'all';
+      currentCategory = 'All';
+      currentLanguageFilter = 'All';
       renderViewport();
     }
 
@@ -2782,10 +2949,9 @@
       });
 
       renderViewport();
-      renderUpNextQueue();
+      renderUpNextQueue(false);
     }
 
-    // Theatre Mode Fix: Keeps player + HUD controls 100% inside the visible viewport without scrolling!
     function toggleTheatreMode() {
       isTheatreMode = !isTheatreMode;
       const cols = document.getElementById('watch-columns');
@@ -2803,58 +2969,81 @@
     }
 
     /*************************************************************************
-     * 16. CATEGORIES & BELOW-THE-FOLD RENDERER (With Hover Video Previews!)
+     * 16. BELOW-THE-PLAYER CATEGORY & FILTER ENGINE (Zero Empty Filter Bug!)
      *************************************************************************/
     function buildCategories() {
       categoryCounts = { All: allChannels.length };
       allChannels.forEach(c => {
-        categoryCounts[c.group] = (categoryCounts[c.group] || 0) + 1;
+        const g = c.group || 'General';
+        categoryCounts[g] = (categoryCounts[g] || 0) + 1;
       });
       renderCategoryBars();
       renderLanguagePickerGrids();
     }
 
+    function selectCatalogMode(modeObj) {
+      // Clear search box if active so clicking a chip below the player NEVER gets blocked by leftover search text
+      if (searchInputEl.value.trim() !== '') {
+        searchInputEl.value = '';
+        document.getElementById('clear-search-btn').classList.add('hidden');
+      }
+
+      if (modeObj.isLang) {
+        selectLanguageFeed(modeObj.isLang);
+        return;
+      }
+
+      if (modeObj.isCat) {
+        currentLanguageFilter = 'All';
+        currentScope = 'all';
+        currentCategory = modeObj.isCat;
+        document.getElementById('rchip-lang-label').textContent = 'Languages';
+        document.getElementById('catalog-lang-label').textContent = 'Language: All';
+      } else {
+        currentLanguageFilter = 'All';
+        currentCategory = 'All';
+        currentScope = modeObj.id;
+        document.getElementById('rchip-lang-label').textContent = 'Languages';
+        document.getElementById('catalog-lang-label').textContent = 'Language: All';
+      }
+
+      renderRightLanguageSubbar();
+      renderCategoryBars();
+      renderViewport();
+      renderUpNextQueue(false);
+    }
+
     function renderCategoryBars() {
       const chips = document.getElementById('category-chips');
       const explore = document.getElementById('drawer-explore-categories');
+      if (!chips || !explore) return;
       chips.innerHTML = '';
       explore.innerHTML = '';
 
       const specialModes = [
-        { id: 'verified', label: 'Verified HD' },
+        { id: 'all', label: `All (${allChannels.length.toLocaleString()})` },
+        { id: 'verified', label: `Verified HD (${allChannels.filter(c => c.verified).length})` },
         { id: 'indian_quick', label: '🇮🇳 Indian Live', isLang: 'Indian' },
         { id: 'telugu_quick', label: 'Telugu', isLang: 'Telugu' },
         { id: 'hindi_quick', label: 'Hindi', isLang: 'Hindi' },
         { id: 'tamil_quick', label: 'Tamil', isLang: 'Tamil' },
         { id: 'malayalam_quick', label: 'Malayalam', isLang: 'Malayalam' },
         { id: 'kannada_quick', label: 'Kannada', isLang: 'Kannada' },
-        { id: 'favs', label: `Subscribed (${favorites.length})` },
-        { id: 'all', label: `All (${allChannels.length.toLocaleString()})` }
+        { id: 'suggestions', label: 'Suggestions' },
+        { id: 'recently_played', label: 'Recently Played' },
+        { id: 'favs', label: `Subscribed (${favorites.length})` }
       ];
 
       specialModes.forEach(sm => {
         const active = sm.isLang
-          ? currentLanguageFilter === sm.isLang
+          ? (currentLanguageFilter === sm.isLang && currentCategory === 'All')
           : (currentScope === sm.id && currentCategory === 'All' && currentLanguageFilter === 'All');
         const btn = document.createElement('button');
         btn.className = `px-3 py-1.5 rounded-[8px] text-xs font-medium whitespace-nowrap transition ${
           active ? 'bg-[#f1f1f1] text-[#0f0f0f]' : 'bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f]'
         }`;
         btn.textContent = sm.label;
-        btn.onclick = () => {
-          if (sm.isLang) {
-            selectLanguageFeed(sm.isLang);
-          } else {
-            currentLanguageFilter = 'All';
-            document.getElementById('rchip-lang-label').textContent = 'Languages';
-            document.getElementById('catalog-lang-label').textContent = 'Language: All';
-            currentScope = sm.id;
-            currentCategory = 'All';
-            renderRightLanguageSubbar();
-            renderCategoryBars();
-            renderViewport();
-          }
-        };
+        btn.onclick = () => selectCatalogMode(sm);
         chips.appendChild(btn);
       });
 
@@ -2868,23 +3057,15 @@
             isAct ? 'bg-[#f1f1f1] text-[#0f0f0f] font-medium' : 'bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f]'
           }`;
           chip.textContent = `${cat} (${categoryCounts[cat]})`;
-          chip.onclick = () => {
-            currentScope = 'all';
-            currentCategory = cat;
-            renderCategoryBars();
-            renderViewport();
-          };
+          chip.onclick = () => selectCatalogMode({ isCat: cat });
           chips.appendChild(chip);
 
           const row = document.createElement('button');
           row.className = `w-full flex items-center justify-between px-3 py-1.5 rounded-[10px] text-xs text-[#f1f1f1] hover:bg-[#272727] transition`;
           row.innerHTML = `<span class="truncate">${escapeHtml(cat)}</span><span class="text-[11px] text-[#aaaaaa]">${categoryCounts[cat]}</span>`;
           row.onclick = () => {
-            currentScope = 'all';
-            currentCategory = cat;
             toggleSidebarDrawer(false);
-            renderCategoryBars();
-            renderViewport();
+            selectCatalogMode({ isCat: cat });
           };
           explore.appendChild(row);
         });
@@ -2895,17 +3076,35 @@
       const q = searchInputEl.value.trim().toLowerCase();
       let pool = [...allChannels];
 
+      // 1. Language Filter
       if (currentLanguageFilter !== 'All') {
         pool = pool.filter(c => channelMatchesLanguage(c, currentLanguageFilter));
-      } else if (currentScope === 'verified' && !q && playlistFilterMode === 'all') {
-        pool = allChannels.filter(c => c.verified);
-      } else if (currentScope === 'favs') {
-        pool = [...favorites];
+      }
+      // 2. Scope Filter (only when no specific language or category overrides it)
+      else if (currentCategory === 'All') {
+        if (currentScope === 'verified' && !q) {
+          pool = allChannels.filter(c => c.verified);
+        } else if (currentScope === 'favs') {
+          pool = favorites.length > 0 ? [...favorites] : [];
+        } else if (currentScope === 'suggestions') {
+          const activeGroup = activeChannel ? activeChannel.group : 'Documentary';
+          pool = [...allChannels].sort((a, b) => ((b.group === activeGroup ? 50 : 0) + (b.plays || 0)) - ((a.group === activeGroup ? 50 : 0) + (a.plays || 0)));
+        } else if (currentScope === 'recently_played') {
+          const seen = new Set(recentHistory.map(r => r.url));
+          pool = [...recentHistory, ...allChannels.filter(c => !seen.has(c.url))];
+        }
       }
 
+      // 3. Category & Search Filter (Case-Insensitive + Partial Group Match)
+      const targetCatLower = currentCategory.toLowerCase();
       filteredChannels = pool.filter(c => {
-        if (currentCategory !== 'All' && c.group !== currentCategory) return false;
-        if (q && !c.name.toLowerCase().includes(q) && !c.group.toLowerCase().includes(q) && !(c.lang && c.lang.toLowerCase().includes(q))) return false;
+        if (currentCategory !== 'All') {
+          const cg = (c.group || 'General').toLowerCase();
+          if (cg !== targetCatLower && !cg.includes(targetCatLower)) return false;
+        }
+        if (q && !c.name.toLowerCase().includes(q) && !(c.group && c.group.toLowerCase().includes(q)) && !(c.lang && c.lang.toLowerCase().includes(q))) {
+          return false;
+        }
         return true;
       });
 
@@ -2916,13 +3115,14 @@
       if (filteredChannels.length === 0) {
         viewport.innerHTML = `
           <div class="bg-[#181818] border border-white/10 rounded-xl p-6 text-center my-4">
-            <p class="text-sm font-medium text-white mb-1">No channels match your current filter</p>
-            <div class="flex justify-center space-x-2 mt-3">
+            <p class="text-sm font-medium text-white mb-1">${currentScope === 'favs' ? 'You have not subscribed to any channels yet' : 'Syncing matching channels from M3U playlists...'}</p>
+            <p class="text-xs text-[#aaaaaa] mb-3">Click below to view all ${allChannels.length.toLocaleString()} live channels or sync all M3U playlists</p>
+            <div class="flex justify-center space-x-2">
               <button onclick="resetHomeView()" class="bg-[var(--accent)] text-white text-xs font-medium px-4 py-2 rounded-full">
-                Reset All Filters
+                Show All Channels (${allChannels.length.toLocaleString()})
               </button>
-              <button onclick="openSourceManagerModal()" class="bg-[#272727] text-white text-xs font-medium px-4 py-2 rounded-full">
-                Manage IPTV Sources
+              <button onclick="selectAllSourcesAndSync()" class="bg-[#272727] text-white text-xs font-medium px-4 py-2 rounded-full">
+                ↻ Sync All M3U URLs
               </button>
             </div>
           </div>
@@ -2993,7 +3193,13 @@
 
       grid.appendChild(frag);
       renderedItems += slice.length;
-      document.getElementById('load-more-wrap').classList.toggle('hidden', renderedItems >= filteredChannels.length);
+      const remaining = filteredChannels.length - renderedItems;
+      const moreWrap = document.getElementById('load-more-wrap');
+      const moreBtn = document.getElementById('load-more-catalog-btn');
+      if (moreWrap) moreWrap.classList.toggle('hidden', remaining <= 0);
+      if (moreBtn && remaining > 0) {
+        moreBtn.textContent = `Show More Channels (${remaining.toLocaleString()} remaining)`;
+      }
     }
 
     function renderNetflixSwimlanes(viewport) {
@@ -3119,15 +3325,19 @@
     }
 
     function resetHomeView() {
+      searchInputEl.value = '';
+      document.getElementById('clear-search-btn').classList.add('hidden');
       currentLanguageFilter = 'All';
-      document.getElementById('rchip-lang-label').textContent = 'Languages';
-      document.getElementById('catalog-lang-label').textContent = 'Language: All';
-      document.getElementById('header-lang-label').textContent = 'Languages';
-      currentScope = 'verified';
+      currentScope = 'all';
       currentCategory = 'All';
+      rightRailMode = 'all';
+      document.getElementById('rchip-lang-label').textContent = 'Languages';
+      document.getElementById('catalog-lang-label').textContent = 'Language: All (Global)';
+      document.getElementById('header-lang-label').textContent = 'Languages';
       renderRightLanguageSubbar();
       renderCategoryBars();
       renderViewport();
+      renderUpNextQueue(true);
       expandPlayerAndScrollTop();
     }
 
@@ -3153,12 +3363,12 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'StreamOS-Pro-v14.html';
+      a.download = 'StreamOS-Pro-v15.html';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      showToast('Exported Clean StreamOS-Pro-v14.html');
+      showToast('Exported Clean StreamOS-Pro-v15.html');
     }
 
     function showToast(msg) {
@@ -3212,20 +3422,20 @@
     });
 
     /*************************************************************************
-     * 18. INITIALIZE & BOOT ON USER'S CONFIGURED STARTUP CHANNEL
+     * 18. INITIALIZE & BOOT ON BBC EARTH US (DEFAULT) + SYNC ALL M3U URLS
      *************************************************************************/
     updateSourceBadgesUI();
     buildCategories();
     renderRightLanguageSubbar();
     switchTheme('youtube');
 
-    // Automatically tune to the user's saved Default Startup Channel (or Red Bull TV HD by default)
+    // Automatically tune to BBC Earth US (or user-overridden startup channel)
     playStream(getStartupChannelObject(), 0);
 
-    // Defer background M3U syncing by 1200ms so initial video playback & mobile UI are 100% instant
+    // Sync all selected M3U playlists in the background and update the catalog incrementally
     setTimeout(() => {
       syncAllActivePlaylists(false);
-    }, 1200);
+    }, 600);
   </script>
 </body>
 </html>
