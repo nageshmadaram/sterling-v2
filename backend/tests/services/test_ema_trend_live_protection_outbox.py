@@ -438,7 +438,7 @@ def test_gtt_ack_requires_unknown_pre_send_fence_and_preserves_idempotency():
     assert outbox.get("ack-1").broker_trigger_id=="901"
 
 
-@pytest.mark.parametrize("bad",["", "0", "not-a-gtt", "-1", " 901", "９０１"])
+@pytest.mark.parametrize("bad",["", "0", "000901", "not-a-gtt", "-1", " 901", "９０１", "9"*100])
 def test_invalid_or_forged_gtt_ack_id_never_changes_status(bad):
     c=filled_campaign()
     outbox.reserve_stop_command(c.id,"ack-1",kind="PLACE",
@@ -690,3 +690,39 @@ async def test_verified_stop_transaction_rollback_cannot_release_fence(monkeypat
     recovered=await outbox.verify_acknowledged_stop("ack-crash",broker_client=kite)
     assert recovered.status=="VERIFIED"
     _no_writes(kite)
+
+
+def test_existing_stop_outbox_table_upgrades_in_place_with_no_data_loss():
+    # A deployed pre-ACK schema is automatically migrated on first read.
+    # Never require the operator to drop a pending command table.
+    with order_journal._transaction() as conn:
+        conn.execute("""
+            CREATE TABLE ema_live_stop_commands(
+                command_id TEXT PRIMARY KEY,
+                campaign_id TEXT NOT NULL,
+                owner_uid TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                prior_gtt_id TEXT NOT NULL,
+                desired_trigger TEXT NOT NULL,
+                held_qty INTEGER NOT NULL,
+                campaign_revision INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_ms INTEGER NOT NULL)
+        """)
+        conn.execute("""
+            INSERT INTO ema_live_stop_commands VALUES(
+                'legacy-pending','legacy-campaign','alice','KITE-LIVE-TEST',
+                'PLACE','','95',4,2,'OUTCOME_UNKNOWN',1)
+        """)
+    persisted=outbox.get("legacy-pending")
+    assert persisted.status=="OUTCOME_UNKNOWN"
+    assert persisted.broker_trigger_id==""
+    accepted=outbox.record_unverified_broker_ack("legacy-pending","901")
+    assert accepted.status=="ACK_PENDING_VERIFICATION"
+    assert accepted.broker_trigger_id=="901"
+    with order_journal._transaction() as conn:
+        indexes={r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        ).fetchall()}
+        assert "ux_ema_live_stop_outstanding_v2" in indexes
