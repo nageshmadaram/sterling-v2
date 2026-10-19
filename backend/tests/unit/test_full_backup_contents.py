@@ -211,6 +211,33 @@ def test_a_full_backup_proves_its_own_restore(tmp_path, sources, monkeypatch):
     assert set(proof.restored_row_counts) == {"snapback_observations.db", "intents.db"}
 
 
+def test_missing_authoritative_evidence_db_blocks_full_restore_proof(
+    tmp_path, sources, monkeypatch
+):
+    """A readable copied SQLite file cannot mask a missing declared source."""
+    evidence, runtime = sources
+    safety = tmp_path / "data" / "safe_mode.json"
+    safety.parent.mkdir(parents=True, exist_ok=True)
+    safety.write_text("{}", encoding="utf-8")
+
+    # The explicit authoritative evidence pointer takes precedence over the
+    # valid fallback observation DB. Its absence MUST fail the full restore.
+    monkeypatch.setenv(
+        "STERLING_EVIDENCE_DB", str(tmp_path / "not-the-evidence.db")
+    )
+    monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(evidence))
+    monkeypatch.setenv("STERLING_DB_PATH", str(runtime))
+    result = create_full_backup(
+        backup_root=tmp_path / "backups", root=tmp_path,
+        databases=[evidence, runtime],
+    )
+    proof = prove_restore(result.directory)
+    assert not proof.passed
+    assert any(
+        "authoritative_evidence_db" in reason for reason in proof.failures
+    ), proof.failures
+
+
 def test_a_snapshot_is_consistent_while_the_source_is_open(tmp_path):
     source = _make_db(tmp_path / "live.db", rows=4)
     holder = sqlite3.connect(str(source))
