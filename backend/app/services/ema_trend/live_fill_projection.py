@@ -39,8 +39,10 @@ def _intent_status(fact: LiveOrderFact) -> str:
     status = fact.status
     if status == "COMPLETE":
         return "COMPLETE"
-    if status in {"CANCELLED", "CANCELED", "EXPIRED"}:
+    if status in {"CANCELLED", "CANCELED"}:
         return "CANCELLED"
+    # "EXPIRED" is not a canonical terminal broker fact in the evidence
+    # parser. Treat it as UNKNOWN until order history is reconciled.
     if status == "REJECTED":
         return "REJECTED"
     if status in {"UNKNOWN", "SUBMITTING"}:
