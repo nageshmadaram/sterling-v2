@@ -40,6 +40,7 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
     const displayed = activeCycleProduct === 'tv' ? options.tvLabel
       : activeCycleProduct === 'simulation' ? 'Simulation' : 'KITE';
     return <button type="button" role="button" data-testid="spectrum-cycle-switch"
+      data-active-view={activeCycleProduct === 'simulation' ? 'simulation' : 'live'}
       className="mobile-view-toggle unified-view-toggle"
       aria-label={`Cycle Spectrum: ${displayed}`}
       title={cycleChoices.length > 1 ? 'Switch to next Spectrum workspace' : displayed}
