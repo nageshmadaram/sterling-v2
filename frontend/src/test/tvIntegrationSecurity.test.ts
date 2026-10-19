@@ -19,6 +19,8 @@ describe('Sterling TV static integration safety', () => {
     expect(tvPage).not.toContain('corsproxy.io');
     expect(tvPage).not.toContain('api.allorigins.win');
     expect(tvPage).not.toContain('PROXY_RELAYS');
+    expect(tvPage).not.toContain('98% Match');
+    expect(tvPage).toContain('Guide preview');
   });
 
   it('enforces an opaque-origin media document even when navigated to directly', () => {
