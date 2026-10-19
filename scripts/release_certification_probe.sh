@@ -128,7 +128,10 @@ if [[ -x "$PYTHON" ]]; then
     tests/unit/test_safety_wiring_end_to_end.py::test_nonfinite_used_exposure_fails_closed \
     tests/unit/test_operator_report.py::test_supertrend_modes_are_declared_but_all_follow_the_global_kill_switch \
     tests/unit/test_operator_report.py::test_dashboard_reports_undefined_rules_when_a_lane_is_unqualified \
-    tests/unit/test_operator_report.py::test_rendering_names_the_state_and_the_reason
+    tests/unit/test_operator_report.py::test_rendering_names_the_state_and_the_reason \
+    tests/unit/test_operator_report.py::test_global_only_risk_hierarchy_is_incomplete_not_ready \
+    tests/unit/test_operator_report.py::test_a_complete_live_lane_risk_hierarchy_passes \
+    tests/unit/test_operator_report.py::test_a_missing_live_lane_cap_fails_doctor_with_scope
 else blocked backend_tests "Python virtual environment missing"; fi
 
 if [[ -x "$ROOT/frontend/node_modules/.bin/vitest" ]]; then
