@@ -1,4 +1,4 @@
-import { useViewStore } from '../store/useViewStore';
+import { useViewStore, type AppView } from '../store/useViewStore';
 import { ProfileMenu, useSterlingProfile } from '../components/kite/ProfileMenu';
 import { useExperienceOptions, orderedNavigation } from '../store/useExperienceOptions';
 import { groupPrimaryNavigation } from '../components/kite/navigationDensity';
@@ -11,7 +11,7 @@ import type { NavItem } from '../components/kite/KiteLayout';
 import { useKiteSettings } from '../store/useKiteSettings';
 import { hasUnsavedDraft } from '../components/kite/config/unsavedDraftGuard';
 import { SterlingLogo } from '../components/SterlingLogo';
-import { ViewSwitch } from '../components/sim/ViewSwitch';
+import { SpectrumNavigation } from '../components/sim/SpectrumNavigation';
 import { SimBanner } from '../components/sim/SimBanner';
 import '../styles/terminal.css';
 import { MobileExperienceMenu } from '../components/kite/MobileExperienceMenu';
@@ -26,11 +26,14 @@ export function SimpleTerminal() {
   const [showSettings, setShowSettings] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [spectrum, setSpectrum] = useState<'kite' | 'tv'>('kite');
-  const chooseSpectrum = (next: 'kite' | 'tv') => {
-    if (next === spectrum) return;
+  const selectedView = useViewStore(s => s.view);
+  const setSelectedView = useViewStore(s => s.setView);
+  const chooseSpectrum = (next: 'kite' | 'tv', targetView?: AppView) => {
+    if (next === spectrum && (!targetView || targetView === selectedView)) return;
     if (hasUnsavedDraft() && !window.confirm('You have unsaved settings changes. Switch workspace and discard them?')) return;
     setToolsOpen(false);
     setShowSettings(false);
+    if (targetView && targetView !== selectedView) setSelectedView(targetView);
     setSpectrum(next);
   };
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -38,6 +41,12 @@ export function SimpleTerminal() {
   const userNavigatedRef = useRef(!!notificationDestination(new URLSearchParams(window.location.search).get('notification')));
   const [kiteNav, setKiteNav] = useState<NavItem>(() => notificationDestination(new URLSearchParams(window.location.search).get('notification')) || useKiteSettings.getState().defaultSection || 'dashboard');
   const navOptions=useExperienceOptions(s=>s.options);
+  useEffect(() => {
+    // Never leave the screen stuck on a workspace a new configuration hides.
+    if (spectrum === 'tv' && !navOptions.spectrumVisible.tv) setSpectrum('kite');
+    if (spectrum === 'kite' && !navOptions.spectrumVisible.kite
+        && navOptions.spectrumVisible.tv) setSpectrum('tv');
+  }, [spectrum, navOptions.spectrumVisible.kite, navOptions.spectrumVisible.tv]);
   const {data:sterlingProfile}=useSterlingProfile();
   const navigation = orderedNavigation([
     { id: 'dashboard' as const, label: 'Dashboard' },
@@ -77,7 +86,6 @@ export function SimpleTerminal() {
   }, [preferredSection, kiteNav]);
 
   const handleKiteNav = (nav: NavItem) => {
-    if (spectrum === 'tv') setSpectrum('kite');
     userNavigatedRef.current = true;
     if (nav !== kiteNav && hasUnsavedDraft()) {
       window.dispatchEvent(new CustomEvent('kite-scroll-to-draft-bar'));
@@ -85,6 +93,7 @@ export function SimpleTerminal() {
         return;
       }
     }
+    if (spectrum === 'tv') setSpectrum('kite');
     setToolsOpen(false);
     setKiteNav(nav);
     window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: nav }));
@@ -124,7 +133,7 @@ export function SimpleTerminal() {
         flexShrink: 0,
         borderBottom: '1px solid var(--t-border)', position: 'relative', zIndex: 20,
       }}>
-        {/* Spectrum header: STERLING | KITE | TV. Only KITE shows trading controls. */}
+        {/* Original KITE header and mode switch; TV uses the same button style. */}
         <div className="sterling-header-row" style={{
           display: 'flex', alignItems: 'center', gap: 0,
           height: 44, padding: '0 20px',
@@ -138,14 +147,7 @@ export function SimpleTerminal() {
               STERLING
             </span>
           </span>
-          <nav className="sterling-spectrum-tabs" role="tablist" aria-label="Sterling spectrum">
-            <button type="button" role="tab" aria-selected={spectrum === 'kite'}
-              aria-controls="sterling-kite-surface" data-testid="spectrum-kite-tab"
-              onClick={() => chooseSpectrum('kite')}>KITE</button>
-            <button type="button" role="tab" aria-selected={spectrum === 'tv'}
-              aria-controls="sterling-tv-surface" data-testid="spectrum-tv-tab"
-              onClick={() => chooseSpectrum('tv')}>TV</button>
-          </nav>
+          <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} />
 
           <div style={{ flex: 1 }} />
           {spectrum === 'kite' && <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
@@ -192,7 +194,6 @@ export function SimpleTerminal() {
             </div>}
             <span style={{ width: 1, height: 18, background: 'var(--t-border)', margin: '0 8px', flexShrink: 0 }} />
 
-            <ViewSwitch modeLabel />
             <ThemeToggle />
             <ProfileMenu />
 
@@ -207,6 +208,12 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
+          {spectrum === 'tv' && <button type="button" aria-label="Experience settings"
+            title="Experience settings" onClick={() => setShowSettings(true)}
+            style={{ background:'none', border:'1px solid var(--t-border)', cursor:'pointer',
+              width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
+            ⚙
+          </button>}
         </div>
       </div>
 
