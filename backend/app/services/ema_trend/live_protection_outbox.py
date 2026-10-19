@@ -226,6 +226,77 @@ def mark_outcome_unknown(command_id: str) -> StopCommand:
 
 
 
+def claim_stop_transmission(command_id: str) -> StopCommand:
+    """Single-use durable pre-send claim, suitable for fake-Kite failure drills.
+
+    This operation itself sends NOTHING to Kite. It atomically transitions
+    RESERVED to OUTCOME_UNKNOWN before a broker adapter could attempt a write.
+    A second concurrent/restarted worker cannot claim the same command.
+    A crash after claim always requires reconciliation; never blind retry.
+    The production EMA broker-write adapter remains unconnected.
+    """
+    with order_journal._transaction() as conn:
+        store._schema(conn)
+        _schema(conn)
+        row=conn.execute(
+            "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
+            (command_id,),
+        ).fetchone()
+        if row is None:
+            raise StopCommandConflict("EMA_STOP_COMMAND_NOT_FOUND")
+        cmd=_row(row)
+        if cmd.status != "RESERVED":
+            raise StopCommandConflict("EMA_STOP_ALREADY_CLAIMED_OR_UNRESOLVED")
+        campaign=store._get(conn,cmd.campaign_id)
+        if (campaign.revision != cmd.revision
+                or campaign.owner_uid != cmd.owner_uid
+                or campaign.account_id != cmd.account_id
+                or campaign.held_qty != cmd.held_qty
+                or campaign.product != "CNC"
+                or campaign.orphan_stop_ids
+                or campaign.protection_submission_unknown
+                or campaign.flatten_requested):
+            raise StopCommandConflict("EMA_STOP_CLAIM_CAMPAIGN_CHANGED")
+        if any(o.status not in {"COMPLETE","CANCELLED","REJECTED"}
+               for o in campaign.entries+campaign.exits):
+            raise StopCommandConflict("EMA_STOP_CLAIM_PENDING_CANONICAL_ORDER")
+        if cmd.kind=="PLACE":
+            if campaign.phase!="PROTECTION_REQUIRED" or campaign.protection is not None:
+                raise StopCommandConflict("EMA_STOP_CLAIM_PLACE_NO_LONGER_ELIGIBLE")
+        elif cmd.kind=="TIGHTEN":
+            existing=campaign.protection
+            if (campaign.phase!="PROTECTED" or existing is None
+                    or not existing.verified_active or existing.child_order_unresolved
+                    or existing.trigger_id!=cmd.prior_gtt_id
+                    or existing.qty!=cmd.held_qty
+                    or cmd.desired_trigger<=existing.trigger):
+                raise StopCommandConflict("EMA_STOP_CLAIM_TRAIL_NO_LONGER_ELIGIBLE")
+        else:
+            raise StopCommandConflict("EMA_STOP_CLAIM_KIND_UNSUPPORTED")
+        inv=fill_ledger._read_inventory(
+            conn,cmd.account_id,cmd.owner_uid,campaign.symbol)
+        if (inv is None or inv.net_quantity != cmd.held_qty
+                or inv.exchange != campaign.exchange or inv.reconciliation_required):
+            raise StopCommandConflict("EMA_STOP_CLAIM_INVENTORY_CHANGED")
+        if conn.execute("""
+            SELECT 1 FROM kite_order_intents
+            WHERE uid=? AND account_id=?
+              AND (projection_pending=1 OR reconciliation_required=1
+                   OR state IN ('RESERVED','SUBMITTING','UNKNOWN','SUBMITTED','PARTIAL'))
+            LIMIT 1
+        """,(cmd.owner_uid,cmd.account_id)).fetchone():
+            raise StopCommandConflict("EMA_STOP_CLAIM_CANONICAL_ORDER_PENDING")
+        updated=conn.execute("""
+            UPDATE ema_live_stop_commands SET status='OUTCOME_UNKNOWN'
+            WHERE command_id=? AND status='RESERVED'
+        """,(command_id,)).rowcount
+        if updated != 1:
+            raise StopCommandConflict("EMA_STOP_CLAIM_CONCURRENT_WORKER")
+        return _row(conn.execute(
+            "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
+            (command_id,)).fetchone())
+
+
 def record_unverified_broker_ack(command_id: str, trigger_id: str) -> StopCommand:
     """Store an HTTP GTT ACK without treating it as active stop coverage.
 
