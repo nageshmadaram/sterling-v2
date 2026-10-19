@@ -1229,3 +1229,61 @@ async def test_wrong_broker_account_cannot_quarantine_another_owners_stop():
     assert store.get(c.id).phase=="PROTECTED"
     kite.get_gtt.assert_not_called()
     _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_gtt_signed_inventory_drift_quarantines_instead_of_leaving_false_protection():
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    with order_journal._transaction() as conn:
+        conn.execute("""
+            UPDATE kite_inventory SET net_quantity=3
+            WHERE account_id=? AND uid=? AND symbol=?
+        """,(c.account_id,c.owner_uid,c.symbol))
+    kite=_fake_ack_kite(c)
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="GTT_SIGNED_LEDGER_DIVERGED"
+    assert report.held_qty_unmodified==4
+    after=store.get(c.id)
+    assert after.phase=="RECOVERY_REQUIRED"
+    assert after.confirmed_sold==0
+    assert after.protection is None
+    assert after.orphan_stop_ids==["901"]
+    assert recovery.get_observation(c.id,"901")==report
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_pending_trailing_stop_fence_quarantines_even_when_previous_gtt_still_active():
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"pending-unknown-trail",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("pending-unknown-trail")
+    kite=_fake_ack_kite(c)
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="GTT_STOP_COMMAND_UNRESOLVED"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).protection is None
+    assert outbox.get("pending-unknown-trail").status=="OUTCOME_UNKNOWN"
+    assert recovery.get_observation(c.id,"901")==report
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_active_gtt_with_wrong_sell_child_instrument_is_not_protected():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    record,_=_fired_gtt(status="active")
+    record["orders"][0]["tradingsymbol"]="TCS"
+    kite.get_gtt=AsyncMock(return_value=record)
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="ACTIVE_GTT_CONTRACT_CHANGED"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).confirmed_sold==0
+    _no_writes(kite)
