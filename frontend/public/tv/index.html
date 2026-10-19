@@ -9,6 +9,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>StreamOS Pro v13 — Live Hover Previews, Indian & Regional Languages IPTV Suite</title>
 
+  <!-- Standalone navigation is unsupported: outside Sterling's sandbox,
+       third-party IPTV scripts must not execute with the trading SPA origin. -->
+  <script>if (window.top === window.self) window.location.replace('/');</script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 
@@ -1773,12 +1776,9 @@
         if (!res.ok) throw new Error('HTTP ' + res.status);
         rawText = await res.text();
       } catch (directErr) {
-        try {
-          const proxyRes = await fetch(PROXY_RELAYS[0](src.url));
-          rawText = await proxyRes.text();
-        } catch (proxyErr) {
-          return [];
-        }
+        // Do not leak private playlist URLs or embedded access tokens to a
+        // public CORS proxy without explicit user authorisation.
+        return [];
       }
 
       const parsed = parseRawM3uTextToList(rawText, src.id, src.name, src.forcedLang || '');
@@ -2006,10 +2006,7 @@
     let hls = null;
     let serverStage = 0;
 
-    const PROXY_RELAYS = [
-      u => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-      u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`
-    ];
+    // No automatic third-party relay: IPTV URLs may contain credentials.
 
     /*************************************************************************
      * 7. DOUBLE-CLICK FULLSCREEN & TOUCH GESTURES (Fixed!)
@@ -2275,7 +2272,7 @@
       document.getElementById('sp-q-now-title').textContent = channel.name;
       document.getElementById('sp-q-now-sub').textContent = `${channel.group} • ${epgList[0].title}`;
 
-      document.getElementById('stat-relay').textContent = stage === 0 ? 'Stage 1 Direct HLS' : stage === 1 ? 'Stage 2 Proxy Tunnel' : 'Stage 3 Backup';
+      document.getElementById('stat-relay').textContent = stage === 0 ? 'Direct HLS' : 'Backup';
       document.getElementById('stat-lang').textContent = channel.lang || 'Auto';
 
       updateMediaSessionAndWakeLock(channel, epgList[0].title, posterUri);
@@ -2293,35 +2290,13 @@
       if (stage === 0) {
         spinnerLabel.textContent = 'Connecting Live Stream...';
         badge.textContent = 'Join';
-        startHlsPlayback(channel, video, spinner, false);
-      } else if (stage === 1) {
-        spinnerLabel.textContent = 'Routing via Proxy Relay...';
-        badge.textContent = 'Relay 2';
-        startHlsPlayback(channel, video, spinner, true);
+        startHlsPlayback(channel, video, spinner);
       } else {
         startBackupFallback(channel, video, spinner, badge);
       }
     }
 
-    function createCustomProxyLoader(BaseLoader) {
-      return class CustomProxyLoader extends BaseLoader {
-        load(context, config, callbacks) {
-          const trueUrl = context.url;
-          if (trueUrl.startsWith('http') && !trueUrl.includes('corsproxy.io') && !trueUrl.includes('allorigins.win')) {
-            context.url = PROXY_RELAYS[0](trueUrl);
-          }
-          const origSuccess = callbacks.onSuccess;
-          callbacks.onSuccess = function (response, stats, ctx, net) {
-            response.url = trueUrl;
-            ctx.url = trueUrl;
-            origSuccess(response, stats, ctx, net);
-          };
-          super.load(context, config, callbacks);
-        }
-      };
-    }
-
-    function startHlsPlayback(channel, video, spinner, useProxy) {
+    function startHlsPlayback(channel, video, spinner) {
       if (Hls.isSupported()) {
         let parsed = false;
         const cfg = {
@@ -2333,8 +2308,7 @@
           manifestLoadingMaxRetry: 1,
           levelLoadingTimeOut: 6500
         };
-        if (useProxy) cfg.loader = createCustomProxyLoader(Hls.DefaultConfig.loader);
-
+ 
         hls = new Hls(cfg);
         hls.loadSource(channel.url);
         hls.attachMedia(video);
@@ -2374,7 +2348,7 @@
           }
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = useProxy ? PROXY_RELAYS[0](channel.url) : channel.url;
+        video.src = channel.url;
         video.onloadedmetadata = () => {
           spinner.classList.add('hidden');
           syncPlayerAspectToStream();
@@ -2416,7 +2390,6 @@
     function escalateStage(channel) {
       if (activeChannel !== channel) return;
       if (serverStage === 0) playStream(channel, 1);
-      else if (serverStage === 1) playStream(channel, 2);
     }
 
     function startBackupFallback(channel, video, spinner, badge) {
@@ -3288,7 +3261,7 @@
 
     function cycleServerMode() {
       if (!activeChannel) return;
-      playStream(activeChannel, (serverStage + 1) % 3);
+      playStream(activeChannel, (serverStage + 1) % 2);
     }
 
     function playNextChannel() {
@@ -3451,7 +3424,8 @@
     buildCategories();
     switchTheme('youtube');
     playStream(VERIFIED_STREAMS[0], 0);
-    syncAllActivePlaylists(false);
+    // Playlist fetch starts after the parent hydrates saved TV sources,
+    // avoiding duplicate network traffic and overwriting stored preferences.
     window.parent.postMessage({type:'sterling.tv.ready'},'*');
   </script>
 </body>
