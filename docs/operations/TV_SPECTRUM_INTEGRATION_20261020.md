@@ -94,3 +94,43 @@
   and operation/deployment certification remain release blockers.
   CI/CD stays deferred until the end of the Sterling release as previously
   directed.
+
+
+## Release follow-up: 20 October 2026 — Node gateway CSP and stale build
+
+The operator's pasted build log at `c948bf5f` establishes:
+- `npm run build` **PASS**: 428 transformed modules, 1.13 s Vite build,
+  with only a non-blocking >500 kB dashboard chunk warning.
+- TV frontend: **20/20** selected tests PASS across 4 suites; the owner-denied
+  ViewSwitch case emitted a non-fatal React `act` warning.
+- Loopback Vite `http://127.0.0.1:5174/tv/index.html` served the TV file.
+- The live gateway on `http://127.0.0.1:5180` was healthy but retained
+  `release_commit=8ffd0d40`, `release_stale=true` and
+  `release_error=CalledProcessError`. A dev-route check is **not**
+  proof that this published gateway contains the latest TV files.
+
+The actual production gateway is `scripts/serve_frontend.mjs`, not only
+`frontend/nginx.conf`. This was a separate TV security/playback bug:
+the Node gateway formerly assigned the trading SPA's default CSP to the
+IPTV page. This blocked third-party media resources, and direct TV
+navigation did not receive an origin-opaque policy. The Node route now
+explicitly redirects `/tv` to `/tv/index.html`, applies a dedicated
+sandbox CSP for direct and embedded visits, admits streaming media/HLS
+workers inside that sandbox only, and preserves the original trading CSP.
+An isolated `node --test scripts/tests/tv_gateway.test.mjs` test exercises
+a separate ephemeral gateway and proves these headers without contacting
+the trading backend. Additional Vitest source tests enforce route parity.
+
+**Verification of these new gateway changes remains pending local tests.**
+The running Node gateway loads server source at process startup. Publishing a
+new static build alone does not reload the gateway's CSP source; refresh only
+the presentation gateway through the safe Sterling supervisor after release
+validation, without stopping an in-flight Kite trading backend.
+
+The `CalledProcessError` root cause is *not established* by the pasted
+logs. Sterling intentionally compiles committed source separately from the
+working-tree build, logs failed `npm ci` or `npm run build` output to
+`.runtime/stack/release-build.log`, and retains the last good published
+release on failure. Inspect that log and free disk space before any
+destructive cache clear. Do not force-publish a dirty frontend or flip the
+live order switch.
