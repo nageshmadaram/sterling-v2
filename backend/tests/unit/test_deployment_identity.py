@@ -80,6 +80,13 @@ class TestTheVerdict:
         store.record(host_id="family-nuc", outbound_ip=IP, observed_at="not-a-date")
         assert verify_deployment_identity(expected_ip=IP, store=store).verified is None
 
+    def test_timezone_naive_deployment_observation_is_not_current(self, store):
+        naive = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        store.record(host_id="family-nuc", outbound_ip=IP, observed_at=naive)
+        verdict = verify_deployment_identity(expected_ip=IP, store=store)
+        assert verdict.verified is None
+        assert "no timezone" in verdict.reason
+
     def test_a_corrupt_file_is_no_observation_rather_than_a_crash(self, tmp_path):
         path = tmp_path / "deployment_identity.json"
         path.write_text("{ not json", encoding="utf-8")
