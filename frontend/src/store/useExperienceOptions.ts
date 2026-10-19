@@ -50,14 +50,16 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
   const raw: Record<string, unknown> = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown> : {};
   const ids = NAV_OPTIONS.map(n => n[0]) as string[];
-  const navOrder = [
-    ...new Set([
-      ...(Array.isArray(raw.navOrder) ? raw.navOrder.filter(x => has(x, ids)) : []),
+  const navOrder: string[] = [
+    ...new Set<string>([
+      ...(Array.isArray(raw.navOrder)
+        ? raw.navOrder.filter((x: unknown): x is string => has(x, ids)) : []),
       ...ids,
     ]),
   ];
-  const navHidden = Array.isArray(raw.navHidden)
-    ? [...new Set(raw.navHidden.filter(x => has(x, ids) && !['connect','help'].includes(x)))]
+  const navHidden: string[] = Array.isArray(raw.navHidden)
+    ? [...new Set<string>(raw.navHidden.filter((x: unknown): x is string =>
+      has(x, ids) && !['connect','help'].includes(x)))]
     : [];
   const selected = raw.spectrumVisible && typeof raw.spectrumVisible === 'object'
     ? raw.spectrumVisible as Record<string, unknown> : {};
@@ -69,13 +71,14 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
   // Never hide every entry into the configuration UI. A TV-only view can
   // still navigate back to KITE through Settings in the app shell.
   if (!spectrumVisible.kite && !spectrumVisible.tv) spectrumVisible.kite = true;
-  const order = [
-    ...new Set([
+  const order: SpectrumProduct[] = [
+    ...new Set<SpectrumProduct>([
       ...(Array.isArray(raw.spectrumOrder)
-        ? raw.spectrumOrder.filter(x => has(x, SPECTRUM_ORDER)) : []),
+        ? raw.spectrumOrder.filter((x: unknown): x is SpectrumProduct =>
+          has(x, SPECTRUM_ORDER)) : []),
       ...SPECTRUM_ORDER,
     ]),
-  ] as SpectrumProduct[];
+  ];
   return {
     navOrder, navHidden,
     tickerLayout: raw.tickerLayout === 'mobile' ? 'mobile' : 'classic',
