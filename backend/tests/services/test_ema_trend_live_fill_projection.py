@@ -139,6 +139,7 @@ def test_partial_sell_flags_orphan_stop_instead_of_claiming_coverage():
     assert result.campaign.protection_submission_unknown
     assert result.next_proof == "BROKER_STOP_CLEANUP"
     assert result.prior_stop_id == "GTT-1"
+    assert result.campaign.orphan_stop_ids == ["GTT-1"]
     assert original.protection is not None  # previous broker fact preserved
 
 
@@ -254,3 +255,38 @@ def test_cached_active_stop_does_not_upgrade_unprotected_campaign_to_protected()
     result = rehearse_verified_fill(original, "intent-1", fact(identity(), "COMPLETE", 4))
     assert result.campaign.phase == "PROTECTION_REQUIRED"
     assert result.next_proof == "BROKER_STOP_VERIFICATION"
+
+
+def test_orphan_stop_id_survives_serialization_and_repeated_fill_replay():
+    buys = [order(filled=4, status="COMPLETE")]
+    sells = [order(side="SELL",quantity=4,order_id="ORDER-X",key="exit-1")]
+    current = campaign(entries=buys,exits=sells,phase="EXIT_PENDING",
+                       stop=protected_stop())
+    first = rehearse_verified_fill(current,"exit-1",fact(
+        identity(side="SELL",order_id="ORDER-X"),"OPEN",2))
+    recovered = type(current).model_validate_json(first.campaign.model_dump_json())
+    assert recovered.orphan_stop_ids == ["GTT-1"]
+    again = rehearse_verified_fill(recovered,"exit-1",fact(
+        identity(side="SELL",order_id="ORDER-X"),"OPEN",2))
+    assert again.fill_delta.quantity == 0
+    assert again.campaign.orphan_stop_ids == ["GTT-1"]
+    assert again.next_proof == "BROKER_STOP_CLEANUP"
+
+
+def test_orphan_stop_prevents_false_closed_or_protected_status():
+    buys=[order(filled=4,status="COMPLETE")]
+    sells=[order(side="SELL",quantity=4,filled=4,status="COMPLETE",
+                 order_id="ORDER-X",key="exit-1")]
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match="CLOSED_REQUIRES_TERMINAL"):
+        campaign(entries=buys,exits=sells,phase="CLOSED",
+                 orphan_stop_ids=["GTT-1"])
+    with pytest.raises(ValidationError, match="PROTECTED_REQUIRES_EXACT"):
+        campaign(entries=buys,phase="PROTECTED",stop=protected_stop(),
+                 orphan_stop_ids=["GTT-1"])
+
+
+def test_duplicate_orphan_stop_ids_cannot_hide_multiple_uncertainties():
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError,match="ORPHAN_STOP_ID_INVALID"):
+        campaign(orphan_stop_ids=["GTT-1","GTT-1"])
