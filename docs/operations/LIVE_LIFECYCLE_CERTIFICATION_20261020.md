@@ -99,3 +99,69 @@ Use `docs/operations/ISSUE_REGISTER_151_20261018.csv` as the canonical
 acceptance register. Its 151 `OPEN_UNVERIFIED` acceptance items cannot be
 marked closed without per-ID evidence, verified on the final release SHA.
 No item was automatically closed by this change.
+
+## 2026-10-20 03:11 IST — exact-commit owner probe results and fixes
+
+The operator ran `scripts/release_certification_probe.sh` on
+`5e51c8d9a5ace2481411d82c50e6a558c870f8a8`. The summary was
+provided in the conversation; private machine logs remain on the operator
+host and were **not uploaded to public GitHub**. Verified test outcomes:
+
+- Snapback: **323 passed, 2 failed, 1 skipped**. The two failures were in
+  `test_snapback_validation` and `test_snapback_execution_contract_path`.
+- Gamma-Unwind: PASS in the selected isolated regression group.
+- SuperTrend: PASS in the selected isolated regression group.
+- Telegram durable outbox: PASS in the selected isolated regression group.
+- Broker/backup safety: **110 passed, 1 failed** in
+  `test_full_backup_contents::test_a_full_backup_proves_its_own_restore`.
+- Frontend build, selected frontend regressions and isolated TV gateway: PASS.
+
+Code-level corrections on the next SHA:
+
+1. Snapback's validation test previously asserted that `intraday` was an
+   unsupported live lane. The current planner explicitly maps intraday to a
+   live lane. That stale test now checks current support and separately
+   checks an **unknown mode is refused**.
+2. The isolated evidence-failure test attempted a paper entry with
+   the lane-origination gate **correctly refusing** it. Only that test now
+   stubs the lane decision to isolate the evidence subsystem, while a new
+   regression separately demands `LANE_NOT_ORIGINATING` when admission
+   refuses. **Production lane admission is unchanged.**
+3. Backup restore test created a temporary evidence database, but the probe
+   intentionally exported `STERLING_EVIDENCE_DB` pointing to another,
+   non-existent isolated path; full restore correctly rejected that missing
+   authoritative source. The test now sets `STERLING_EVIDENCE_DB` to its
+   fixture and separately checks that a missing authoritative path still
+   **fails the restore proof**, even if the fallback observations DB exists.
+4. The probe no longer labels readable binding or exposure inventory as
+   `PASS`: read success is `OBSERVED` until broker truth is independently
+   verified. It checks both fetched Git branch SHAs and protects operator
+   log output from shared terminal disclosure.
+5. `scripts/sterlingctl certify strict` now uses the existing
+   `CertificationReport.release_ready` verdict, returning non-zero if
+   any required gate is FAIL/UNKNOWN or exposure is not provably zero.
+   It does **not** remove old advisory reporting or change live-entry gates.
+
+### Observed operator blockers from the owner probe
+
+- `doctor` failed **allocation_capital**, **risk_limits**,
+  **deployment_identity**, **static_egress**, and **account_binding**.
+  Network reachability could not be proved.
+- The host's observed outbound IPv4 **does not match its previously
+  registered broker egress**. Never simply mark the new IP approved in
+  Sterling: the broker developer console must independently confirm
+  an actually stable/whitelisted address and callback.
+- `bindings` command exited zero but did not prove an ACTIVE usable
+  binding (this is why its status is now `OBSERVED`, not certified).
+  `exposure` exited zero but cannot by itself certify current ownership,
+  freshness, broker-side GTT/triggers and account binding.
+- `drills` reported all **12 NOT RUN** for this exact build.
+- Disk reserve remains below the conservative probe check of **10 GiB**
+  free on the checkout filesystem. Check the actual deployment policy and
+  separately encrypted backup destination; no live backup was attempted.
+- Broker console approvals, physical market reconnect drill, real lifecycle
+  receipts, Telegram destination receipt and full restore remain unproven.
+
+**Evidence status of these corrections: SOURCE PATCHED, NOT YET RERUN on
+the corrected exact SHA.** No operational acceptance can be inferred from
+the unit test cleanup. Full certification stays blocked.
