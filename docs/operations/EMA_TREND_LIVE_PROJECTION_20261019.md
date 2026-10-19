@@ -398,3 +398,57 @@ Next production milestone is integration with existing canonical protection
 and reduction capability, verified account binding, broker-owned order
 journals, fresh quotes, and fired GTT child reconciliation. This is **not**
 an authorization to flip `STERLING_LIVE_EXECUTION`.
+
+
+## 20 October — fired-GTT child recovery, read-only and fail-closed
+
+User verified the previous EMA suite at `9d9527ab` with
+**240/240 tests passing in 8.17 seconds** and
+`STERLING_LIVE_EXECUTION=0`. Local main/dev were synchronized;
+`sterling-iptv/` was preserved untracked.
+
+New continuation, **not yet locally tested**:
+
+- `live_gtt_child_recovery.inspect_and_quarantine` inspects a verified
+  live CNC campaign's exact broker GTT detail and order book using its
+  account-bound read-only Kite client.
+- A freshly active GTT with the exact CNC SELL child contract leaves the
+  campaign unchanged. Every other status (triggered, inert, unknown,
+  malformed, read timeout) moves the campaign to `RECOVERY_REQUIRED`,
+  clears its *claim* of active protection, and persists the GTT ID in
+  `orphan_stop_ids`.
+- When a triggered GTT includes an attributable broker child order ID, its
+  exact account bucket, instrument, SELL side, quantity, status and reported
+  filled amount are inspected. Complete, partly filled, working, rejected,
+  malformed and missing children remain **unprojected evidence**.
+- The observed GTT/child identity, status and reported fill quantity are
+  stored in `ema_live_gtt_child_recovery` in the **same FULL-sync SQLite
+  transaction** that fences the campaign. A simulated crash rolls back the
+  whole transition. This is not the canonical execution journal.
+- Neither `confirmed_sold`, signed Kite fill increments, nor
+  `held_qty` are ever changed by a GTT trigger or its child status alone.
+  The canonical journal and signed ledger must independently reconcile an
+  exact child SELL and prove broker holdings before release/closure.
+- Offline fake-Kite tests cover active GTT, child COMPLETE, partial, open,
+  cancelled, rejected, mismatched exchange/product/side/quantity, missing
+  or duplicate child IDs, API outage, replay and SQLite crash.
+- No GTT placement, modification, cancellation, or SELL is sent by this
+  recovery module. It never unlocks the real execution switch.
+
+**Still blocked:** adoption of a fired GTT's real child order into the
+canonical order journal and signed fill ledger, independent account/holdings
+and order-history reconciliation, safe resolution of orphan GTTs, and
+automatic real-money exit capability. A triggered GTT is not proof of fill.
+
+
+### Additional fired-stop fail-closed checks
+
+The observer additionally quarantines a `PROTECTED` campaign when its
+signed ledger no longer agrees with campaign holdings, even if Kite still
+lists the old GTT as active. A concurrent unresolved stop mutation
+(`RESERVED`, `OUTCOME_UNKNOWN`, or `ACK_PENDING_VERIFICATION`) also
+blocks claiming the old GTT still protects the position. Both cases
+preserve the original GTT identity, leave fill projections unchanged, and
+require independent operator/canonical recovery. Additional fake-Kite
+regressions cover the ledger drift, unresolved TSL and a changed SELL
+child instrument. None of these changes enables live trading.

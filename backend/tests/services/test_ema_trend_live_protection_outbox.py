@@ -1034,3 +1034,276 @@ async def test_cancelled_fake_stop_driver_leaves_pre_send_fence_durable():
     assert outbox.get("driver-cancel").status=="OUTCOME_UNKNOWN"
     assert store.get(c.id).phase=="PROTECTION_REQUIRED"
     assert len(wire.attempts)<=1
+
+
+def _fired_gtt(*,status="triggered",child_id="GTT-SELL-1",
+               child_status="COMPLETE",filled=4,
+               exchange="NSE",symbol="INFY",product="CNC",side="SELL"):
+    record={
+        "id":901,"status":status,
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                     "trigger_values":[95]},
+        "orders":[{
+            "exchange":"NSE","tradingsymbol":"INFY",
+            "transaction_type":"SELL","product":"CNC",
+            "quantity":4,"order_type":"LIMIT","price":94.5,
+            "result":{"order_result":{"order_id":child_id}},
+        }],
+    }
+    child={
+        "order_id":child_id,"status":child_status,
+        "exchange":exchange,"tradingsymbol":symbol,
+        "product":product,"transaction_type":side,
+        "quantity":4,"filled_quantity":filled,
+    }
+    return record,child
+
+
+@pytest.mark.asyncio
+async def test_active_gtt_readback_never_mutates_verified_campaign():
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    observed=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert observed.verdict=="ACTIVE_VERIFIED"
+    assert observed.campaign_revision==c.revision
+    assert store.get(c.id).phase=="PROTECTED"
+    assert store.get(c.id).revision==c.revision
+    with pytest.raises(recovery.GTTChildRecoveryConflict,match="NOT_FOUND"):
+        recovery.get_observation(c.id,"901")
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,filled,expected",[
+    ("COMPLETE",4,"TRIGGERED_CHILD_COMPLETE_UNPROJECTED"),
+    ("OPEN",2,"TRIGGERED_CHILD_WORKING_UNPROJECTED"),
+    ("OPEN",0,"TRIGGERED_CHILD_WORKING_UNPROJECTED"),
+    ("REJECTED",0,"TRIGGERED_CHILD_TERMINAL_UNPROJECTED"),
+    ("CANCELLED",2,"TRIGGERED_CHILD_TERMINAL_UNPROJECTED"),
+    ("SOME NEW BROKER STATE",0,"TRIGGERED_CHILD_STATUS_UNVERIFIED"),
+])
+async def test_fired_gtt_child_never_counts_as_signed_campaign_exit(status,filled,expected):
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    gtt,child=_fired_gtt(child_status=status,filled=filled)
+    kite.get_gtt=AsyncMock(return_value=gtt)
+    kite.get_orders=AsyncMock(return_value=[child])
+    observed=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert observed.verdict==expected
+    assert observed.child_order_id=="GTT-SELL-1"
+    assert observed.child_filled_observed==filled
+    assert not observed.signed_fill_projected
+    assert not observed.broker_orders_issued
+    recovered=store.get(c.id)
+    assert recovered.phase=="RECOVERY_REQUIRED"
+    assert recovered.protection is None
+    assert recovered.orphan_stop_ids==["901"]
+    assert recovered.protection_submission_unknown
+    assert recovered.reason=="EMA_"+expected
+    assert recovered.confirmed_sold==0
+    assert recovered.held_qty==4
+    assert recovery.get_observation(c.id,"901")==observed
+    inv=fill_ledger.inventory(c.account_id,c.owner_uid,c.symbol)
+    assert inv.net_quantity==4
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault,expected",[
+    ("missing","TRIGGERED_CHILD_MISSING_OR_DUPLICATE"),
+    ("duplicate","TRIGGERED_CHILD_MISSING_OR_DUPLICATE"),
+    ("wrong_symbol","TRIGGERED_CHILD_IDENTITY_CONFLICT"),
+    ("wrong_product","TRIGGERED_CHILD_IDENTITY_CONFLICT"),
+    ("wrong_side","TRIGGERED_CHILD_IDENTITY_CONFLICT"),
+    ("wrong_qty","TRIGGERED_CHILD_QUANTITY_CONFLICT"),
+    ("invalid_filled","TRIGGERED_CHILD_QUANTITY_INVALID"),
+    ("no_child_id","TRIGGERED_CHILD_UNATTRIBUTED"),
+    ("broker_disconnected","GTT_DETAIL_UNVERIFIED"),
+    ("deleted","GTT_INERT_NO_CHILD_PROVEN"),
+])
+async def test_ambiguous_or_absent_gtt_child_forces_durable_recovery(fault,expected):
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    gtt,child=_fired_gtt(child_status="OPEN",filled=0)
+    if fault=="missing":
+        kite.get_orders=AsyncMock(return_value=[])
+    elif fault=="duplicate":
+        kite.get_orders=AsyncMock(return_value=[child,dict(child)])
+    elif fault=="wrong_symbol":
+        kite.get_orders=AsyncMock(return_value=[{**child,"tradingsymbol":"TCS"}])
+    elif fault=="wrong_product":
+        kite.get_orders=AsyncMock(return_value=[{**child,"product":"MIS"}])
+    elif fault=="wrong_side":
+        kite.get_orders=AsyncMock(return_value=[{**child,"transaction_type":"BUY"}])
+    elif fault=="wrong_qty":
+        kite.get_orders=AsyncMock(return_value=[{**child,"quantity":5}])
+    elif fault=="invalid_filled":
+        kite.get_orders=AsyncMock(return_value=[{**child,"filled_quantity":"not-a-number"}])
+        expected="TRIGGERED_CHILD_QUANTITY_UNVERIFIED"
+    elif fault=="no_child_id":
+        gtt["orders"][0].pop("result")
+        kite.get_orders=AsyncMock(return_value=[child])
+    elif fault=="broker_disconnected":
+        kite.get_gtt=AsyncMock(side_effect=TimeoutError("broker timeout"))
+    elif fault=="deleted":
+        gtt["status"]="cancelled"
+    if fault not in {"broker_disconnected"}:
+        kite.get_gtt=AsyncMock(return_value=gtt)
+    if fault not in {"missing","duplicate","wrong_symbol","wrong_product",
+                     "wrong_side","wrong_qty","invalid_filled",
+                     "no_child_id","broker_disconnected"}:
+        kite.get_orders=AsyncMock(return_value=[child])
+    observed=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert observed.verdict==expected
+    assert observed.child_filled_observed==0
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).confirmed_sold==0
+    assert store.get(c.id).orphan_stop_ids==["901"]
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_gtt_recovery_repeated_call_requires_new_verification_not_second_projection():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    gtt,child=_fired_gtt()
+    kite.get_gtt=AsyncMock(return_value=gtt)
+    kite.get_orders=AsyncMock(return_value=[child])
+    first=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    with pytest.raises(recovery.GTTChildRecoveryConflict,match="NOT_ELIGIBLE"):
+        await recovery.inspect_and_quarantine(
+            c.id,expected_revision=c.revision,broker_client=kite)
+    assert recovery.get_observation(c.id,"901")==first
+    assert store.get(c.id).confirmed_sold==0
+    kite.get_gtt.assert_awaited_once()
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_gtt_recovery_commit_rollback_keeps_original_stop_fence(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    gtt,child=_fired_gtt()
+    kite.get_gtt=AsyncMock(return_value=gtt)
+    kite.get_orders=AsyncMock(return_value=[child])
+    original=store._save
+    def crash(*args,**kwargs):
+        raise RuntimeError("CRASH_BEFORE_GTT_RECOVERY_COMMIT")
+    monkeypatch.setattr(store,"_save",crash)
+    with pytest.raises(RuntimeError,match="CRASH_BEFORE_GTT_RECOVERY_COMMIT"):
+        await recovery.inspect_and_quarantine(
+            c.id,expected_revision=c.revision,broker_client=kite)
+    monkeypatch.setattr(store,"_save",original)
+    assert store.get(c.id).phase=="PROTECTED"
+    with pytest.raises(recovery.GTTChildRecoveryConflict,match="NOT_FOUND"):
+        recovery.get_observation(c.id,"901")
+    recovered=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert recovered.verdict=="TRIGGERED_CHILD_COMPLETE_UNPROJECTED"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_wrong_broker_account_cannot_quarantine_another_owners_stop():
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    kite._account_id="KITE-OTHER"
+    with pytest.raises(recovery.GTTChildRecoveryConflict,match="NOT_ELIGIBLE"):
+        await recovery.inspect_and_quarantine(
+            c.id,expected_revision=c.revision,broker_client=kite)
+    assert store.get(c.id).phase=="PROTECTED"
+    kite.get_gtt.assert_not_called()
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_gtt_signed_inventory_drift_quarantines_instead_of_leaving_false_protection():
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    with order_journal._transaction() as conn:
+        conn.execute("""
+            UPDATE kite_inventory SET net_quantity=3
+            WHERE account_id=? AND uid=? AND symbol=?
+        """,(c.account_id,c.owner_uid,c.symbol))
+    kite=_fake_ack_kite(c)
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="GTT_SIGNED_LEDGER_DIVERGED"
+    assert report.held_qty_unmodified==4
+    after=store.get(c.id)
+    assert after.phase=="RECOVERY_REQUIRED"
+    assert after.confirmed_sold==0
+    assert after.protection is None
+    assert after.orphan_stop_ids==["901"]
+    assert recovery.get_observation(c.id,"901")==report
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_pending_trailing_stop_fence_quarantines_even_when_previous_gtt_still_active():
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"pending-unknown-trail",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("pending-unknown-trail")
+    kite=_fake_ack_kite(c)
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="GTT_STOP_COMMAND_UNRESOLVED"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).protection is None
+    assert outbox.get("pending-unknown-trail").status=="OUTCOME_UNKNOWN"
+    assert recovery.get_observation(c.id,"901")==report
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_active_gtt_with_wrong_sell_child_instrument_is_not_protected():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    record,_=_fired_gtt(status="active")
+    record["orders"][0]["tradingsymbol"]="TCS"
+    kite.get_gtt=AsyncMock(return_value=record)
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="ACTIVE_GTT_CONTRACT_CHANGED"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).confirmed_sold==0
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_active_gtt_does_not_prove_protection_with_competing_sell():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    kite.get_orders=AsyncMock(return_value=[{
+        "order_id":"OTHER-SELL","exchange":"NSE","tradingsymbol":"INFY",
+        "product":"CNC","transaction_type":"SELL","status":"OPEN",
+        "quantity":4,"filled_quantity":0,
+    }])
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="ACTIVE_GTT_COMPETING_BROKER_ORDER"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).confirmed_sold==0
+    assert store.get(c.id).orphan_stop_ids==["901"]
+    _no_writes(kite)
