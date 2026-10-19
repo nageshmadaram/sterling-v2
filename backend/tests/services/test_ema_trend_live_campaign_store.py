@@ -168,6 +168,30 @@ def test_wrong_account_or_missing_canonical_observation_fails_closed():
             campaign.id,key,broker_fact("OPEN",0,account_id="OTHER"),expected_revision=1)
 
 
+@pytest.mark.parametrize("identity_changes", [
+    {"uid": "mallory"},
+    {"account_id": "KITE-OTHER"},
+    {"exchange": "BSE"},
+    {"symbol": "TCS"},
+    {"product": "MIS"},
+])
+def test_foreign_broker_facts_refused_before_or_after_observation(identity_changes):
+    # The canonical intent belongs to alice and one exact NSE/CNC broker
+    # contract. Changing even one fact identity field must not project it,
+    # regardless of whether the journal has recorded a fill.
+    campaign, key = prepare()
+    foreign = replace(broker_fact("OPEN", 0),
+                      identity=replace(broker_fact("OPEN", 0).identity, **identity_changes))
+    with pytest.raises(store.LiveStoreConflict, match="IDENTITY_CONFLICT"):
+        store.project_verified_order(campaign.id, key, foreign, expected_revision=1)
+    observe(key, "OPEN", 0)
+    with pytest.raises(store.LiveStoreConflict, match="IDENTITY_CONFLICT"):
+        store.project_verified_order(campaign.id, key, foreign, expected_revision=1)
+    assert store.get(campaign.id).revision == 1
+    assert store.get(campaign.id).confirmed_bought == 0
+    assert order_journal.get(key).projection_pending
+
+
 def test_canonical_conflict_blocks_strategy_projection():
     campaign,key=prepare()
     observe(key,"OPEN",2)
