@@ -54,7 +54,6 @@ export function TvWorkspace() {
   const [reloadKey, setReloadKey] = useState(0);
 
   const onLoad = useCallback(() => {
-    setFailed(false);
     // Mobile WebKit can finish frame navigation before its one-shot "ready"
     // message reaches React's effect listener. The child repeats "ready"
     // until hydration; this extra onLoad nudge covers that race too.
