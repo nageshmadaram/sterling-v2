@@ -37,6 +37,7 @@ function readTvPreferences(): Partial<Record<TvKey, string>> {
 
 export function TvWorkspace() {
   const ref = useRef<HTMLIFrameElement>(null);
+  const readyRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -54,11 +55,15 @@ export function TvWorkspace() {
       const data = event.data;
       if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
       if (data.type === MESSAGE_READY) {
+        readyRef.current = true;
         frame.contentWindow?.postMessage({
           type: MESSAGE_HYDRATE,
           values: readTvPreferences(),
         }, '*'); // opaque-origin sandbox requires "*" for targetOrigin
       } else if (data.type === MESSAGE_SAVE) {
+        // Startup playback emits play-history writes before hydration. Never
+        // overwrite persisted preferences with temporary boot defaults.
+        if (!readyRef.current) return;
         if (!ALLOWED_KEYS.has(data.key) ||
             typeof data.value !== 'string' ||
             data.value.length > MAX_VALUE_LENGTH) return;
