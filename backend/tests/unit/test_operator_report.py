@@ -318,14 +318,63 @@ def test_an_unconfigured_risk_hierarchy_is_reported(monkeypatch):
     assert "not enforced" in check.detail
 
 
-def test_a_configured_risk_hierarchy_passes(monkeypatch):
+def test_global_only_risk_hierarchy_is_incomplete_not_ready(monkeypatch):
     from app.core.operator_report import lane_doctor_checks
     from app.core.risk_hierarchy import ENV_VAR
 
     monkeypatch.setenv(ENV_VAR, '{"global": {"": 1000}}')
     check = _by_name(lane_doctor_checks())["risk_limits"]
+    assert check.passed is False
+    assert "strategy:" in check.detail
+    assert "mode:" in check.detail
+    assert "position:" in check.detail
+
+
+def test_a_complete_live_lane_risk_hierarchy_passes(monkeypatch):
+    from app.core.horizon import LaneState
+    from app.core.lane_registry import all_lanes
+    from app.core.operator_report import lane_doctor_checks
+    from app.core.risk_hierarchy import ENV_VAR
+
+    lanes = [
+        lane for lane in all_lanes()
+        if lane.state in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED)
+        and lane.rules_defined
+    ]
+    limits = {
+        "global": {"": 100000},
+        "strategy": {lane.strategy_id: 30000 for lane in lanes},
+        "mode": {lane.lane_key: 10000 for lane in lanes},
+        "position": {lane.lane_key: 3000 for lane in lanes},
+    }
+    monkeypatch.setenv(ENV_VAR, json.dumps(limits))
+    check = _by_name(lane_doctor_checks())["risk_limits"]
     assert check.passed is True
     assert "config_hash" in check.detail
+
+
+def test_a_missing_live_lane_cap_fails_doctor_with_scope(monkeypatch):
+    from app.core.horizon import LaneState
+    from app.core.lane_registry import all_lanes
+    from app.core.operator_report import lane_doctor_checks
+    from app.core.risk_hierarchy import ENV_VAR
+
+    lanes = [
+        lane for lane in all_lanes()
+        if lane.state in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED)
+        and lane.rules_defined
+    ]
+    limits = {
+        "global": {"": 100000},
+        "strategy": {lane.strategy_id: 30000 for lane in lanes},
+        "mode": {lane.lane_key: 10000 for lane in lanes},
+        "position": {lane.lane_key: 3000 for lane in lanes},
+    }
+    del limits["position"]["supertrend:intraday"]
+    monkeypatch.setenv(ENV_VAR, json.dumps(limits))
+    check = _by_name(lane_doctor_checks())["risk_limits"]
+    assert check.passed is False
+    assert "position:supertrend:intraday" in check.detail
 
 
 def test_a_malformed_risk_hierarchy_is_could_not_check_not_a_pass(monkeypatch):
