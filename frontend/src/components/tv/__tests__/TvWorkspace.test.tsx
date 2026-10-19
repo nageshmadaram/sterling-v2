@@ -33,7 +33,29 @@ describe('Sterling Spectrum IPTV isolation', () => {
     expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
     expect(frame).toHaveAttribute('allowfullscreen');
     fireEvent.load(frame);
+    // A loaded document may still be stalled on a mobile CDN/script error.
+    // Only the verified player-ready handshake dismisses its loading state.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading TV');
+    sendFromFrame('sterling.tv.ready');
     expect(screen.queryByText('Loading TV…')).not.toBeInTheDocument();
+  });
+
+  it('sends TV preference hydration on iframe load to avoid the mobile ready race', () => {
+    localStorage.setItem(storagePrefix + 'streamos_startup_channel_v14',
+      '{"name":"Saved mobile channel","url":"https://example.com/live.m3u8"}');
+    render(<TvWorkspace />);
+    const frame = screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    fireEvent.load(frame);
+    expect(post).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'sterling.tv.hydrate',
+      values: expect.objectContaining({
+        streamos_startup_channel_v14: expect.stringContaining('Saved mobile channel'),
+      }),
+    }), '*');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading TV');
+    sendFromFrame('sterling.tv.ready');
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('hydrates only explicitly allowlisted TV preferences', () => {
