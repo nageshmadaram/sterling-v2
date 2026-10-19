@@ -112,7 +112,7 @@ export function SuperTrendEnginePanel() {
     <>
       <EnginePowerHeader
         name="SuperTrend"
-        tagline="Triple SuperTrend on a 1H Heikin-Ashi chart."
+        tagline="Triple SuperTrend on the selected mode’s Heikin-Ashi candles."
         on={on}
         liveOn={serverCfg?.engine_enabled ?? on}
         busy={saving}
@@ -122,6 +122,19 @@ export function SuperTrendEnginePanel() {
       />
 
       <PanelCard>
+        <Section title="Trading horizon" summary={cfg.horizon_mode ?? 'swing'} description="Signal candles and holding rules for new positions. Mode changes require existing SuperTrend positions to be closed." defaultOpen persistKey="st-horizon">
+          <Field label="Mode" hint="Intraday modes close by 15:20 IST. Overnight holds at most three sessions and does not carry over weekends or holiday gaps.">
+            <ChoiceRow value={cfg.horizon_mode ?? 'swing'} options={[
+              { value: 'ultra_scalping', label: 'Ultra scalping' }, { value: 'scalping', label: 'Scalping' },
+              { value: 'intraday', label: 'Intraday' }, { value: 'overnight', label: 'Overnight' }, { value: 'swing', label: 'Swing' },
+            ]} onChange={value => patch({ horizon_mode: value as EngineConfigModel['horizon_mode'], signal_timeframe_minutes: null })} />
+          </Field>
+          <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
+            <ChoiceRow value={String(cfg.signal_timeframe_minutes ?? ({ ultra_scalping: 1, scalping: 5, intraday: 15, overnight: 60, swing: 60 }[cfg.horizon_mode ?? 'swing']))}
+              options={({ ultra_scalping: [1], scalping: [1, 3, 5], intraday: [5, 15, 30], overnight: [30, 60], swing: [60] }[cfg.horizon_mode ?? 'swing']).map(value => ({ value: String(value), label: `${value} min` }))}
+              onChange={value => patch({ signal_timeframe_minutes: Number(value) })} />
+          </Field>
+        </Section>
         <Section
           title="Chart source"
           description="Which price series SuperTrend reads a setup from."

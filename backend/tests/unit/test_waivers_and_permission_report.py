@@ -107,10 +107,17 @@ class TestLanePermission:
         for key in ("snapback:scalping", "snapback:swing", "supertrend:swing"):
             assert report.lane_permission(key).allowed is True, key
 
-    def test_a_research_lane_is_refused_for_its_state_alone(self, quiet_report):
+    def test_a_research_lane_is_refused_for_its_state_alone(self, quiet_report, monkeypatch):
+        from dataclasses import replace
+        from app.core.lane_registry import LANES
+        from app.core.horizon import LaneState
+        lane = LANES['supertrend:intraday']
+        monkeypatch.setitem(LANES, lane.lane_key, replace(lane, state=LaneState.RESEARCH, note='runtime under development'))
         verdict = report.lane_permission("supertrend:intraday")
         assert verdict.allowed is False
         assert verdict.blockers == ("LANE_NOT_LIVE_STATE",)
+        assert 'not implemented for live execution' in verdict.reasons[0]
+        assert 'runtime under development' in verdict.reasons[0]
 
     def test_the_kill_switch_blocks_and_says_so(self, quiet_report, monkeypatch):
         monkeypatch.setattr("app.core.lane_registry.LIVE_EXECUTION_ENABLED", False)
@@ -263,7 +270,7 @@ class TestSterlingctlRuns:
         rows = {line.split()[0]: line for line in done.stdout.splitlines() if line.strip()}
         for live in ("snapback:scalping", "snapback:swing", "supertrend:swing"):
             assert " yes" in rows[live], rows[live]
-        assert " no" in rows["supertrend:intraday"]
+        assert " yes" in rows["supertrend:intraday"]
         assert "gamma_move" in rows and " yes" in rows["gamma_move"]
         assert "Live entries: ENABLED" in done.stdout
 

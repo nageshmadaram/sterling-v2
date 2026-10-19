@@ -22,6 +22,7 @@ from typing import Awaitable, Callable, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from app.core.logging import get_logger
+from app.core.mode_execution import timeframe_minutes as mode_timeframe_minutes
 from app.domain.models import Candle
 from app.engines.indicators.adx import adx as _adx
 from app.engines.indicators.atr import atr_percentile as _atr_pct, compute_atr as _compute_atr
@@ -71,7 +72,7 @@ PlaceCb = Callable[[EngineSignalRow, UniverseItem], Awaitable[None]]
 # ── pure helpers (unit-tested) ──────────────────────────────────────────────
 def drop_forming(candles: List[Candle], now_ms: Optional[int] = None, *,
                  allow_forming: bool = False, exchange: str | None = None,
-                 cas_eligible: bool = False) -> List[Candle]:
+                 cas_eligible: bool = False, timeframe_ms: int = _TF_MS) -> List[Candle]:
     """Use only finalized raw bars; exclude auctions from continuous signals.
 
     Final session bars can be shorter than one hour. The optional forming mode
@@ -91,7 +92,7 @@ def drop_forming(candles: List[Candle], now_ms: Optional[int] = None, *,
                 or bar.high < max(bar.open, bar.close)):
             return []
         previous = ts
-        end_ms = ts + _TF_MS
+        end_ms = ts + timeframe_ms
         start = datetime.fromtimestamp(ts / 1000, _IST)
         if exchange is not None and start.date() >= market_hours.CAS_START:
             close = market_hours.continuous_close(start.date(), exchange,
@@ -269,6 +270,8 @@ def evaluate_item(
         end_idx = last_idx if exit_j is None else int(exit_j)
         stop_loss = exits.reported_trail_level(r, direction, int(i), exit_j, last_idx, cfg)
         rows.append(EngineSignalRow(
+            horizon_mode=cfg.horizon_mode,
+            signal_timeframe_minutes=mode_timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes),
             underlying=item.name, token=item.token, exchange=item.option_exchange,
             regime="BULL" if direction == "long" else "BEAR",
             alignment=AlignmentChip(fast=int(r.t_fast[i]), mid=int(r.t_mid[i]), slow=int(r.t_slow[i])),
@@ -478,6 +481,8 @@ def evaluate_derivative_contract(
         stop_loss = exits.reported_trail_level(r, "long", int(i), exit_j, last_idx, cfg)
         entry_sl = _entry_sl_value(r, i, cfg)
         rows.append(EngineSignalRow(
+            horizon_mode=cfg.horizon_mode,
+            signal_timeframe_minutes=mode_timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes),
             underlying=item.name, token=pick.token, exchange=item.option_exchange,
             regime="BULL" if is_ce else "BEAR",
             alignment=AlignmentChip(fast=int(r.t_fast[i]), mid=int(r.t_mid[i]), slow=int(r.t_slow[i])),
@@ -632,12 +637,17 @@ class ScanDiag:
 @dataclass
 class UserScan:
     engine: SterlingKiteEngine
+    timeframe_minutes: int = 60
+    horizon_mode: str = 'swing'
     rows: List[EngineSignalRow] = field(default_factory=list)
     candle_cache: Dict[int, tuple] = field(default_factory=dict)  # token -> (mono_ts, candles)
     generated_ms: int = 0
     scanning: bool = False
     scanning_label: str = ""
     cancelled: bool = False
+
+    def finalized(self, candles, now_ms=None, **kwargs):
+        return drop_forming(candles, now_ms, timeframe_ms=self.timeframe_minutes * 60_000, **kwargs)
     diag: ScanDiag = field(default_factory=ScanDiag)
     # Internal de-duplication for the held-contract extension. Unlike the removed
     # per-contract report, this retains symbols only—no trace payload or API surface.
@@ -723,10 +733,18 @@ class KiteEngineScanner:
                 log.debug("suppressed: %s", _exc)
 
     def _user(self, uid: str, cfg: SterlingKiteEngineConfig) -> UserScan:
+        from app.core.mode_execution import timeframe_minutes
+        tf = timeframe_minutes(getattr(cfg, 'horizon_mode', 'swing'), getattr(cfg, 'signal_timeframe_minutes', None))
         us = self._users.get(uid)
+        if us is not None and (us.timeframe_minutes != tf or us.horizon_mode != getattr(cfg, 'horizon_mode', 'swing')):
+            if us.scanning:
+                raise ValueError('Cannot change signal timeframe during a scan')
+            us = None
+            state.save_signal_cache(uid, [], 0)
         if us is None:
-            us = UserScan(engine=SterlingKiteEngine(cfg))
-            self._hydrate_from_cache(us, uid)
+            us = UserScan(engine=SterlingKiteEngine(cfg), timeframe_minutes=tf, horizon_mode=getattr(cfg, 'horizon_mode', 'swing'))
+            if tf == 60:
+                self._hydrate_from_cache(us, uid)
             self._users[uid] = us
         return us
 
@@ -784,16 +802,19 @@ class KiteEngineScanner:
         failure for the full TTL would blank every row that needs that contract for
         the rest of the scan.
         """
-        hit = us.candle_cache.get(token)
-        if hit and (time.monotonic() - hit[0]) < (_CANDLE_TTL_S if hit[1] else _EMPTY_CANDLE_TTL_S):
+        cache_key = (token, us.timeframe_minutes)
+        hit = us.candle_cache.get(cache_key)
+        ttl = min(_CANDLE_TTL_S, us.timeframe_minutes * 30) if hit and hit[1] else _EMPTY_CANDLE_TTL_S
+        if hit and (time.monotonic() - hit[0]) < ttl:
             return hit[1]
         inst = InstrumentMeta(
             underlying=name, tick_size=0.05, strike_step=1.0, exchange_currency="INR",
             index_name=name, has_options=True, exchange="zerodha",
             zerodha_token=token,
         )
-        candles = await client.get_candles(inst, "1H", _LOOKBACK_BARS)
-        us.candle_cache[token] = (time.monotonic(), candles)
+        interval = '1H' if us.timeframe_minutes == 60 else f'{us.timeframe_minutes}m'
+        candles = await client.get_candles(inst, interval, _LOOKBACK_BARS)
+        us.candle_cache[cache_key] = (time.monotonic(), candles)
         return candles
 
     async def _fetch_1h(self, client, us: UserScan, item: UniverseItem) -> List[Candle]:
@@ -837,7 +858,7 @@ class KiteEngineScanner:
                         candles = await self._fetch_candles(
                             client, us, int(leg.token), leg.option_symbol)
                     candidates = [
-                        candle for candle in drop_forming(candles, exchange=row.exchange)
+                        candle for candle in us.finalized(candles, exchange=row.exchange)
                         if int(candle.timestamp_ms) <= int(row.timestamp_ms)
                     ]
                     if candidates:
@@ -982,7 +1003,7 @@ class KiteEngineScanner:
                     log_cb(f"Scanning spot: {item.name} ({item.exchange})")
                 async with sem:
                     try:
-                        candles = drop_forming(await self._fetch_1h(client, us, item), now_ms, exchange="NSE" if item.option_exchange == "NFO" else "BSE", cas_eligible=True)
+                        candles = us.finalized(await self._fetch_1h(client, us, item), now_ms, exchange="NSE" if item.option_exchange == "NFO" else "BSE", cas_eligible=True)
                     except Exception as exc:  # noqa: BLE001
                         log.warning("kite-engine scan candle fail %s: %s", item.name, exc)
                         _no_data(item)
@@ -1050,7 +1071,7 @@ class KiteEngineScanner:
                     return
                 async with sem:
                     try:
-                        under = drop_forming(await self._fetch_candles(
+                        under = us.finalized(await self._fetch_candles(
                             client, us, item.token, item.tradingsymbol), now_ms, exchange="NSE" if item.option_exchange == "NFO" else "BSE", cas_eligible=True)
                     except Exception as exc:  # noqa: BLE001
                         log.warning("kite-engine deriv spot-anchor fail %s: %s", item.name, exc)
@@ -1129,7 +1150,7 @@ class KiteEngineScanner:
                         log_cb(f"Scanning derivative: {readable} ({m})")
                     async with sem:
                         try:
-                            oc = drop_forming(await self._fetch_candles(
+                            oc = us.finalized(await self._fetch_candles(
                                 client, us, pick.token, pick.option_symbol), now_ms, exchange=item.option_exchange)
                         except Exception as exc:  # noqa: BLE001
                             log.warning("kite-engine deriv chart fail %s: %s", pick.option_symbol, exc)
@@ -1222,7 +1243,7 @@ class KiteEngineScanner:
                     log_cb(f"Scanning confluence: {item.name} ({item.exchange})")
                 async with sem:
                     try:
-                        candles = drop_forming(await self._fetch_1h(client, us, item), now_ms, exchange="NSE" if item.option_exchange == "NFO" else "BSE", cas_eligible=True)
+                        candles = us.finalized(await self._fetch_1h(client, us, item), now_ms, exchange="NSE" if item.option_exchange == "NFO" else "BSE", cas_eligible=True)
                     except Exception as exc:  # noqa: BLE001
                         log.warning("kite-engine confluence candle fail %s: %s", item.name, exc)
                         _no_data(item)
@@ -1277,7 +1298,7 @@ class KiteEngineScanner:
                             continue  # no premium series to confirm against
                         async with sem:
                             try:
-                                oc = drop_forming(await self._fetch_candles(
+                                oc = us.finalized(await self._fetch_candles(
                                     client, us, pick.token, pick.option_symbol), now_ms, exchange=item.option_exchange)
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("kite-engine confluence chart fail %s: %s",
@@ -1354,7 +1375,10 @@ async def build_setup_chart(
 ) -> SetupChart:
     item = UniverseItem(name=underlying or str(token), tradingsymbol=underlying or str(token),
                         token=token, exchange="", option_exchange="NFO")
-    candles = drop_forming(await client.get_candles(_inst(item), "1H", _LOOKBACK_BARS))
+    from app.core.mode_execution import timeframe_minutes
+    tf = timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes)
+    interval = '1H' if tf == 60 else f'{tf}m'
+    candles = drop_forming(await client.get_candles(_inst(item), interval, _LOOKBACK_BARS), timeframe_ms=tf * 60_000)
     o = np.array([c.open for c in candles], float)
     h = np.array([c.high for c in candles], float)
     l = np.array([c.low for c in candles], float)

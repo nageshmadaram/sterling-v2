@@ -247,9 +247,14 @@ def decide_scalp(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecisio
         return decision
 
     timeframe_ms = max(1, int(rules.get("timeframe_minutes") or 1)) * 60_000
-    bars_held = max(0, (now_ms - int(pos.opened_ms or now_ms)) // timeframe_ms)
+    if (rules.get('mode_policy') or {}).get('allow_overnight'):
+        from app.core.mode_execution import trading_minutes_held
+        bars_held = trading_minutes_held(int(pos.opened_ms or now_ms), now_ms) // max(1, timeframe_ms // 60_000)
+    else:
+        bars_held = max(0, (now_ms - int(pos.opened_ms or now_ms)) // timeframe_ms)
     minute = local.hour * 60 + local.minute
-    session_end = minute >= int(rules.get("square_off_minute") or 915)
+    session_end = (not (rules.get('mode_policy') or {}).get('allow_overnight')
+                   and minute >= int(rules.get("square_off_minute") or 915))
 
     if bid <= 0 and not session_end:
         # No observable bid: the broker stop stands, but nothing else may be inferred.
@@ -289,7 +294,11 @@ def decide_scalp(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecisio
 
 
 def decide_exit(pos: LivePosition, *, bid: float, now: datetime) -> ExitDecision:
-    if str(pos.rules.get("lane") or pos.lane) == "scalp":
+    from app.core.mode_execution import policy_exit_reason
+    reason = policy_exit_reason(pos.rules.get('mode_policy', {}), now)
+    if reason:
+        return ExitDecision(reason=reason)
+    if 'stop_points' in pos.rules or str(pos.rules.get("lane") or pos.lane) == "scalp":
         return decide_scalp(pos, bid=bid, now=now)
     return decide_swing(pos, bid=bid, now=now)
 

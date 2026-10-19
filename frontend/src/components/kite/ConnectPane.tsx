@@ -30,6 +30,7 @@ import { DisplayScaleSettings } from './DisplayScaleSettings';
 import { DefaultSectionSettings } from './DefaultSectionSettings';
 import { DailyLossLimitPanel } from './DailyLossLimitPanel';
 import { SharedRiskSettings } from './SharedRiskSettings';
+import { ProductionSettingsPanel } from './ProductionSettingsPanel';
 import { KiteExchangeSettingsCard } from './KiteExchangeSettingsCard';
 import { DataLakeSettingsPanel } from '../datalake/DataLakeSettingsPanel';
 import { GammaMoveSettingsPanel } from './GammaMoveSettingsPanel';
@@ -1290,7 +1291,7 @@ export function ConnectPane() {
                 <TradingModePanel />
                 {sim ? (
                   <SimDeniedNote what="The live daily loss limit" why="The simulation has its own: it stops for the day at a 2% loss and warns at 1% of the virtual capital (change the capital from the Simulation banner)." />
-                ) : <><SharedRiskSettings /><DailyLossLimitPanel /></>}
+                ) : <><ProductionSettingsPanel /><SharedRiskSettings /><DailyLossLimitPanel /></>}
                 <KiteExchangeSettingsCard />
               </>
             )}

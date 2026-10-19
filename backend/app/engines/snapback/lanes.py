@@ -31,6 +31,8 @@ LEGACY_MODE_MAP: Final[Mapping[str, HorizonMode]] = {
     "swing": HorizonMode.SWING,
     "scalp": HorizonMode.SCALPING,
     "intraday": HorizonMode.INTRADAY,
+    'ultra_scalping': HorizonMode.ULTRA_SCALPING,
+    'overnight': HorizonMode.OVERNIGHT,
 }
 
 #: Canonical mode -> the engine's own ``trading_mode`` string, for the reverse
@@ -39,13 +41,15 @@ ENGINE_MODE_MAP: Final[Mapping[HorizonMode, str]] = {
     HorizonMode.SWING: "swing",
     HorizonMode.SCALPING: "scalp",
     HorizonMode.INTRADAY: "intraday",
+    HorizonMode.ULTRA_SCALPING: 'ultra_scalping',
+    HorizonMode.OVERNIGHT: 'overnight',
 }
 
 MODE_VERSIONS: Final[Mapping[HorizonMode, str]] = {
-    HorizonMode.ULTRA_SCALPING: "snapback_ultra_scalping_v0",
+    HorizonMode.ULTRA_SCALPING: "snapback_ultra_scalping_v1",
     HorizonMode.SCALPING: "snapback_scalping_v1",
-    HorizonMode.INTRADAY: "snapback_intraday_v0",
-    HorizonMode.OVERNIGHT: "snapback_overnight_v0",
+    HorizonMode.INTRADAY: "snapback_intraday_v1",
+    HorizonMode.OVERNIGHT: "snapback_overnight_v1",
     HorizonMode.SWING: "snapback_swing_v1",
 }
 
@@ -96,9 +100,12 @@ def lane_rule_hash(mode: str | HorizonMode, cfg: Any = None) -> str:
         from app.engines.snapback.config import SnapbackConfig
 
         cfg = SnapbackConfig()
+    fields = _MODE_RULE_FIELDS.get(resolved, ())
+    if resolved in (HorizonMode.ULTRA_SCALPING, HorizonMode.INTRADAY, HorizonMode.OVERNIGHT):
+        fields = _MODE_RULE_FIELDS[HorizonMode.SCALPING]
     mode_rules = {
         field: getattr(cfg, field, None)
-        for field in _MODE_RULE_FIELDS.get(resolved, ())
+        for field in fields
     }
     return stable_hash(
         {
@@ -106,6 +113,7 @@ def lane_rule_hash(mode: str | HorizonMode, cfg: Any = None) -> str:
             "mode": resolved.value,
             "mode_version": MODE_VERSIONS[resolved],
             "mode_rules": mode_rules,
+            **({'execution_policy': 'mode_execution_v1'} if resolved in (HorizonMode.ULTRA_SCALPING, HorizonMode.INTRADAY, HorizonMode.OVERNIGHT) else {}),
         }
     )
 

@@ -200,7 +200,11 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
         )
 
     from app.engines.snapback import validate
-    cfg = validate(dict(values), base=get_config(uid))
+    from app.engines.snapback.config import MODE_DEFAULTS
+    current = get_config(uid)
+    if values.get('trading_mode', current.trading_mode) != current.trading_mode:
+        values = {**MODE_DEFAULTS.get(values['trading_mode'], {}), **values}
+    cfg = validate(dict(values), base=current)
     from app.services import db
     db.set_config(f"{_CONFIG_KEY}:{uid}" if uid else _CONFIG_KEY,
                   json.dumps(cfg.as_dict(), separators=(",", ":")))
@@ -677,7 +681,9 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
     if reason is None and not (premium and lots > 0):
         reason = "no executable premium plan"
     return {
-        "signal_id": signal_id_for(sig.symbol, sig.side, sig.timestamp_ms),
+        "signal_id": signal_id_for(sig.symbol, sig.side, sig.timestamp_ms) + (
+            f':{cfg.trading_mode}:{cfg.scalp_timeframe_minutes}m'
+            if cfg.trading_mode in ('ultra_scalping', 'intraday', 'overnight') else ''),
         "strategy": STRATEGY_ID, "trading_mode": cfg.trading_mode,
         # A minute-bar row arms when its plan is accepted on a clean observed book,
         # exactly as a daily row does. It was hard-coded "watching", so the scalp
@@ -729,7 +735,8 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
     cfg = get_effective_config(uid)
     st = status(uid) if mode_override is None else ScanState(config_generation=status(uid).config_generation)
     if mode_override is not None:
-        cfg = replace(cfg, trading_mode=mode_override, **({"scalp_timeframe_minutes": 1, "scalp_max_hold_bars": 20, "scalp_runner_max_bars": 60} if mode_override == "scalp" else {"scalp_timeframe_minutes": 5, "scalp_max_hold_bars": 12, "scalp_runner_max_bars": 36} if mode_override == "intraday" else {}))
+        from app.engines.snapback.config import MODE_DEFAULTS
+        cfg = replace(cfg, trading_mode=mode_override, **MODE_DEFAULTS.get(mode_override, {}))
     if not cfg.enabled:
         st.rows = []
         st.last_error = "engine disabled"
@@ -2290,7 +2297,7 @@ async def scan_modes(uid: str, modes: list[str] | None = None) -> dict:
     if uid in _interactive_scans or status(uid).scanning:
         return snapshot(uid)
     selected = list(dict.fromkeys(modes or [get_config(uid).trading_mode]))
-    if not selected or any(mode not in ('swing', 'scalp', 'intraday') for mode in selected):
+    if not selected or any(mode not in ('swing', 'scalp', 'intraday', 'ultra_scalping', 'overnight') for mode in selected):
         raise ValueError('Choose supported Snapback scan modes')
     async def run():
         st = status(uid)

@@ -594,6 +594,19 @@ class TestTheBackupActuallyCapturesThem:
         proof = prove_restore(result.directory)
         assert proof.passed is True, proof.failures
 
+    def test_pre_freeze_backup_restores_without_unwritten_lane_manifests(self, host, monkeypatch):
+        from app.core.backup_manifest import create_full_backup, prove_restore
+        (host / 'data/manifests/strategies/snapback.json').unlink()
+        (host / 'data/manifests/strategies').rmdir()
+        with sqlite3.connect(host / 'backend/sterling_paper.db') as conn:
+            conn.execute('CREATE TABLE kite_order_intents (intent_key TEXT)')
+        monkeypatch.setattr('app.core.release_manifest.repo_root', lambda: host)
+        result = create_full_backup(backup_root=host / 'backups', root=host)
+        proof = prove_restore(result.directory)
+        assert proof.passed is True, proof.failures
+        coverage = json.loads((result.directory / 'coverage.json').read_text())
+        assert next(row for row in coverage if row['name'] == 'lane_manifests')['coverage'] == 'ABSENT'
+
     def test_restore_fails_when_required_source_artifact_never_existed(
             self, host, monkeypatch):
         from app.core.backup_manifest import create_full_backup, prove_restore

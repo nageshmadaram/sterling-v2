@@ -22,7 +22,7 @@ const HISTORY_KEY = ['snapback-history'];
 const BASE = '/api/v1/config/snapback';
 
 export type SnapbackSide = 'fade_up' | 'fade_down';
-export type SnapbackTradingMode = 'swing' | 'scalp' | 'intraday';
+export type SnapbackTradingMode = 'swing' | 'scalp' | 'intraday' | 'ultra_scalping' | 'overnight';
 export type ExitMode = 'horizon' | 'mean_touch' | 'either';
 export type SizingMode = 'PREMIUM_PCT' | 'LOTS';
 export type StopMode = 'broker' | 'monitor' | 'both';

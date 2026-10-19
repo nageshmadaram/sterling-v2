@@ -46,8 +46,8 @@ def _slice(bars: Bars, mask: Any) -> Bars:
 
 
 def _validate(bars: Bars, timeframe: int, *, contiguous: bool = False) -> None:
-    if timeframe not in (1, 3, 5):
-        raise ValueError("Intraday timeframe must be 1, 3 or 5 minutes")
+    if timeframe not in (1, 3, 5, 15, 30, 60):
+        raise ValueError("Unsupported intraday candle timeframe")
     cols = [np.asarray(getattr(bars, n), dtype=float) for n in
             ("time", "open", "high", "low", "close", "volume")]
     if any(x.ndim != 1 or len(x) != len(bars) for x in cols):
@@ -80,7 +80,7 @@ def evaluate_intraday(bars: Bars, cfg: SnapbackConfig, symbol: str = "",
     Session gaps restart the warmup. ADX needs 29 observations, so neither its
     zero-filled warmup nor yesterday's regime can authorize a trade today.
     """
-    if getattr(cfg, "trading_mode", "swing") not in ("scalp", "intraday"):
+    if getattr(cfg, "trading_mode", "swing") not in ("scalp", "intraday", "ultra_scalping", "overnight"):
         return []
     now = time.time() if asof is None else float(asof)
     tf = cfg.scalp_timeframe_minutes
@@ -91,14 +91,17 @@ def evaluate_intraday(bars: Bars, cfg: SnapbackConfig, symbol: str = "",
         if not cfg.scalp_entry_start_minute <= minute <= cfg.scalp_entry_end_minute:
             return []
         day = ist_day(now)
-        mask = np.array([ist_day(t) == day and t + tf * 60 <= now for t in bars.time], dtype=bool)
+        multi_session = cfg.trading_mode in ('intraday', 'overnight') and tf >= 15
+        mask = np.array([(multi_session or ist_day(t) == day) and t + tf * 60 <= now for t in bars.time], dtype=bool)
         b = _slice(bars, mask)
         _validate(b, tf)
     except (ValueError, OverflowError, OSError, TypeError):
         return []
     if len(b) < _WARMUP or now - (b.time[-1] + tf * 60) >= tf * 60:
         return []
-    gaps = np.flatnonzero(np.diff(b.time) != tf * 60)
+    gaps = np.flatnonzero([(b.time[i] - b.time[i-1] != tf * 60)
+                          and (not multi_session or ist_day(b.time[i]) == ist_day(b.time[i-1]))
+                          for i in range(1, len(b.time))])
     if len(gaps):
         b = _slice(b, slice(int(gaps[-1]) + 1, None))
     if len(b) < _WARMUP:
@@ -332,7 +335,7 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
     apply. A session truncated before square-off leaves an unresolved position;
     no later entries are permitted until its outcome is known.
     """
-    if cfg.trading_mode not in ("scalp", "intraday"):
+    if cfg.trading_mode not in ("scalp", "intraday", "ultra_scalping", "overnight"):
         raise ValueError("Select scalp or intraday mode for option-candle replay")
     if option_type not in ("CE", "PE") or isinstance(lot_size, bool) or int(lot_size) != lot_size or lot_size <= 0:
         raise ValueError("A CE/PE option type and positive integer contract lot size are required")

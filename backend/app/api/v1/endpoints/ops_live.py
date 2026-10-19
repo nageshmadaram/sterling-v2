@@ -15,8 +15,60 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.auth import UserContext, get_current_user, require_admin
+from app.services.production_settings import ProductionSettings
 
 router = APIRouter(prefix="/ops", tags=["live-ops"])
+
+
+@router.get('/production-settings')
+def production_settings(_user: UserContext = Depends(require_admin)) -> dict:
+    from app.services.production_settings import read_settings
+    from app.services import live_runtime, live_posture
+    from app.core.operator_report import doctor_from_preflight, lane_doctor_checks
+    from app.core.waivers import is_advisory_doctor_check
+    from app.services.snapback_preflight import run_preflight
+    report = doctor_from_preflight(run_preflight().checks, extra=lane_doctor_checks())
+    return {
+        'settings': read_settings().model_dump(),
+        'runtime': live_runtime.live_execution_state(),
+        'safe_mode': live_runtime._safe_mode_service().read().as_dict(),
+        'posture': live_posture.posture_status(),
+        'checks': [
+            {'name': check.name, 'passed': check.passed, 'detail': check.detail,
+             'advisory': is_advisory_doctor_check(check.name)}
+            for check in report.checks
+        ],
+        'activation': 'Restart the backend after saving. Startup and order safety gates still apply.',
+    }
+
+
+class ProductionSettingsRequest(BaseModel):
+    settings: ProductionSettings
+    confirm: str = Field(default='', max_length=32)
+
+
+@router.put('/production-settings')
+def update_production_settings(
+    body: ProductionSettingsRequest, _user: UserContext = Depends(require_admin),
+) -> dict:
+    from app.services.production_settings import save_settings
+    from app.services import live_runtime, live_posture
+    cfg = body.settings
+    if cfg.live_execution:
+        if body.confirm != 'ENABLE LIVE ENTRIES':
+            raise HTTPException(400, 'Type ENABLE LIVE ENTRIES to request live entries after restart')
+        posture = live_posture.posture_status(refresh=True)
+        if not posture['ready']:
+            raise HTTPException(409, 'Resolve live setup first: ' + ', '.join(posture['missing']))
+        if live_runtime._safe_mode_service().read().active:
+            raise HTTPException(409, 'Resolve and resume safe mode before enabling entries')
+        if not cfg.allocation_capital_inr or not cfg.risk_limits:
+            raise HTTPException(409, 'Set approved allocation and risk limits before enabling entries')
+    try:
+        save_settings(cfg)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(409, 'Production settings could not be saved') from exc
+    return {'settings': cfg.model_dump(), 'restart_required': True}
 
 
 class SafeModeResumeRequest(BaseModel):

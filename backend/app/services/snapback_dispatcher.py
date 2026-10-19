@@ -426,7 +426,7 @@ class SnapbackDispatcher:
         st = snapback.status(uid)
         age_s = (snapback.ist_now_ms() - int(st.last_scan_ms or 0)) / 1000.0
         limit = (max(60.0, float(cfg.scalp_timeframe_minutes) * 60.0)
-                 if lane_for(cfg) == LANE_SCALP else RESCAN_AGE_S)
+                 if lane_for(cfg) != 'swing' else RESCAN_AGE_S)
         if st.scanning or age_s < limit:
             return
         try:
@@ -898,7 +898,14 @@ class SnapbackDispatcher:
                         sim_scan_lane.spawn("snapback", uid, lambda uid=uid: self.cycle(uid))
                 except Exception as exc:  # noqa: BLE001
                     log.warning("snapback dispatcher iteration error: %s", exc)
-                await asyncio.sleep(interval)
+                review = interval
+                try:
+                    from app.services.snapback import get_config
+                    from app.core.horizon import timeline_for
+                    review = min([interval] + [timeline_for(get_config(uid).trading_mode).review_interval_seconds for uid in real])
+                except Exception:
+                    pass
+                await asyncio.sleep(review)
         except asyncio.CancelledError:
             log.info("snapback live dispatcher stopped")
             raise

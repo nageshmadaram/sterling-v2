@@ -208,9 +208,6 @@ def auto_execution_blocker(cfg: Any = None) -> Optional[str]:
     from app.services.snapback_plan_producer import unsupported_config_reasons
     from app.services.snapback_readiness import reason_text
 
-    if getattr(cfg, "trading_mode", "") == "intraday":
-        return ("Snapback intraday has no rules of its own (it shares the scalp "
-                "settings); choose scalp or swing")
     reasons = unsupported_config_reasons(cfg)
     return reason_text(reasons[0]) if reasons else None
 

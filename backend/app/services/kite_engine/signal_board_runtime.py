@@ -207,6 +207,7 @@ async def _rebuild_retained_confluence(
             underlying = scanner_mod.drop_forming(
                 await self._fetch_1h(client, us, item),
                 allow_forming=True,
+                timeframe_ms=getattr(us, 'timeframe_minutes', 60) * 60_000,
             )
         except Exception as exc:  # noqa: BLE001
             scanner_mod.log.warning(
@@ -278,6 +279,7 @@ async def _rebuild_retained_confluence(
                                 client, us, pick.token, pick.option_symbol
                             ),
                             allow_forming=True,
+                            timeframe_ms=getattr(us, 'timeframe_minutes', 60) * 60_000,
                         )
                     except Exception as exc:  # noqa: BLE001
                         scanner_mod.log.warning(

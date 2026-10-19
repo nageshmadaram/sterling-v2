@@ -296,7 +296,7 @@ def _initial_stop(rules: Dict[str, Any], entry: float, tick: float) -> float:
     import math
 
     tick = tick if tick > 0 else 0.05
-    if str(rules.get("lane")) == "scalp":
+    if 'stop_points' in rules:
         raw = float(entry) - float(rules.get("stop_points") or 0.0)
     else:
         raw = float(entry) * (1.0 - float(rules.get("premium_stop_pct") or 35.0) / 100.0)

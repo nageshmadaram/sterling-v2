@@ -127,6 +127,28 @@ def _future_expiry(days: int = 10) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
 
 
+@pytest.mark.parametrize('mode,tf', [('ultra_scalping', 1), ('scalping', 5),
+                                   ('intraday', 15), ('overnight', 60), ('swing', 60)])
+def test_each_mode_records_its_execution_policy_and_protects_the_position(monkeypatch, mode, tf):
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 10, 7, 10, 0, tzinfo=_IST)
+            return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+    monkeypatch.setattr(service, 'datetime', Clock)
+    client = FakeClient()
+    cfg = EngineConfigModel(horizon_mode=mode)
+    row = _spot_row_no_premium().model_copy(update={'horizon_mode': mode, 'signal_timeframe_minutes': tf})
+    opened = _run(cfg, row, client)
+    assert len(opened) == 1, [e.message for e in state.activity(UID)]
+    held = opened[0]
+    assert held.horizon_mode == mode
+    assert held.mode_policy['mode'] == mode
+    assert held.mode_policy['signal_timeframe_minutes'] == tf
+    assert held.stop_premium > 0 and held.gtt_id
+    assert held.mode_policy['hard_exit_ms'] > held.mode_policy['entry_ms']
+
+
 def test_unknown_broker_mode_blocks_before_any_order_work():
     class UnknownModeClient(FakeClient):
         _is_paper = None

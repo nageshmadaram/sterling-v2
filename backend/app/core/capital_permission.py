@@ -122,13 +122,18 @@ class CapitalPermission:
     unknowns: tuple[str, ...] = field(default_factory=tuple)
     #: Waived gates that did not pass (or could not be read). Informational only.
     advisories: tuple[str, ...] = field(default_factory=tuple)
+    lane_state_detail: str = ''
 
     def __bool__(self) -> bool:  # pragma: no cover - convenience
         return self.allowed
 
     @property
     def reasons(self) -> tuple[str, ...]:
-        return tuple(_REASONS.get(code, code) for code in self.blockers)
+        return tuple(
+            self.lane_state_detail if code == 'LANE_NOT_LIVE_STATE' and self.lane_state_detail
+            else _REASONS.get(code, code)
+            for code in self.blockers
+        )
 
     @property
     def advisory_reasons(self) -> tuple[str, ...]:

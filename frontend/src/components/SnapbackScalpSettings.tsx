@@ -72,7 +72,7 @@ export function SnapbackScalpSettings({ cfg, defaults, patch }: {
       summary="Premium points and completed bars" defaultOpen persistKey="snapback-scalp-plan">
       <Field label="Candle interval" hint="Use completed candles. Scalp starts at 1 minute; intraday starts at 5 minutes.">
         <ChoiceRow value={String(cfg.scalp_timeframe_minutes ?? defaults.scalp_timeframe_minutes ?? 1)}
-          options={['1', '3', '5'].map((value) => ({ value, label: `${value} min` }))}
+          options={(cfg.trading_mode === 'overnight' ? ['30', '60'] : cfg.trading_mode === 'ultra_scalping' ? ['1'] : cfg.trading_mode === 'intraday' ? ['5', '15', '30'] : ['1', '3', '5']).map((value) => ({ value, label: `${value} min` }))}
           onChange={(value) => patch({ scalp_timeframe_minutes: Number(value) })} />
       </Field>
       {controls(PLAN)}

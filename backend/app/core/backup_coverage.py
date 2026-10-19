@@ -149,6 +149,10 @@ REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
         lambda r: r / "data/manifests/strategies",
         "the frozen identity of each lane; without it the evidence cannot say "
         "what it is evidence of",
+        # Written together with release_manifest at freeze. Pre-freeze backups
+        # carry the live lane snapshot in release.json; a frozen release must
+        # still capture and verify its exact lane files in prove_restore().
+        required_before_live=False,
     ),
     RequiredArtifact(
         "vehicle_manifests", ArtifactKind.DIRECTORY,

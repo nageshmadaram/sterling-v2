@@ -1228,6 +1228,8 @@ class SnapbackLiveExecutor:
             lot_size = int(plan.get("lot_size") or 0)
         priced = bool(order_type) and order_type.upper() != "MARKET" and price > 0
         payload = {"product": str(plan.get("product") or "NRML")}
+        if (plan.get('rules') or {}).get('mode_policy'):
+            payload['mode_policy'] = plan['rules']['mode_policy']
         if lot_size > 0:
             payload["lot_size"] = lot_size
         if priced:

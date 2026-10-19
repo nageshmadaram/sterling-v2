@@ -48,6 +48,7 @@ ADVISORY_DOCTOR_CHECKS: Final[frozenset[str]] = frozenset(
         "evidence_meta",
         "dataset_start",
         "evidence_authority",
+        "experiment_config_identity",
         # lane doctor: release identity and certification
         "release_tag",
         "supertrend_core_frozen",

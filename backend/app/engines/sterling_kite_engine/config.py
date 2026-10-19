@@ -29,6 +29,8 @@ class SterlingKiteEngineConfig:
     pair, verbatim from the spec.
     """
 
+    horizon_mode: str = 'swing'
+    signal_timeframe_minutes: int | None = None
     fast: Tuple[int, float] = (21, 1.0)
     mid: Tuple[int, float] = (14, 2.0)
     slow: Tuple[int, float] = (7, 3.0)

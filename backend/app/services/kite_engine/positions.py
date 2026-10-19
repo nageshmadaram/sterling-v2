@@ -67,6 +67,8 @@ class OpenPosition:
     signal_direction: str = ""
     vehicle: str = "otm_options" # otm_options | deep_itm_options | futures
     underlying: str = ""        # display underlying ("NIFTY 50") — for correlation grouping
+    horizon_mode: str = 'swing'
+    mode_policy: dict = field(default_factory=dict)
     opened_ms: int = field(default_factory=lambda: int(time.time() * 1000))
     closed_ms: int = 0
     exit_reason: str = ""

@@ -14,6 +14,7 @@ the same verdict today and a lie in the report.
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import replace
 
 from app.services import lane_gate_inputs
 from app.core.capital_permission import (
@@ -111,7 +112,7 @@ def lane_permission(
     strategy = lane.strategy_id if lane else ""
     may_increase, risk_ok, exposure_ok = _safety_reading(strategy)
 
-    return may_send_entry(
+    decision = may_send_entry(
         EntryPermissionInputs(
             lane_key=lane_key,
             global_live_switch=LIVE_EXECUTION_ENABLED,
@@ -134,6 +135,9 @@ def lane_permission(
             shadow_gate_passed=lane_gate_inputs.shadow_gate_passed(lane_key),
         )
     )
+    if lane is not None and 'LANE_NOT_LIVE_STATE' in decision.blockers:
+        return replace(decision, lane_state_detail=f'Mode is not implemented for live execution: {lane.note}')
+    return decision
 
 
 def originator_permission(

@@ -219,6 +219,8 @@ export interface EngineDetailResponse {
 }
 
 export interface EngineConfigModel {
+  horizon_mode?: 'ultra_scalping' | 'scalping' | 'intraday' | 'overnight' | 'swing';
+  signal_timeframe_minutes?: number | null;
   engine_enabled: boolean;
   trail_target: TrailTarget;
   exit_mode: ExitMode;

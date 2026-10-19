@@ -94,6 +94,7 @@ RESOLUTION_MAP = {
     "15m": "15minute",
     "30m": "30minute",
     "1H": "60minute",
+    "60m": "60minute",
     "4H": "60minute",   # 4×60min aggregated client-side
     "D": "day",
     "1D": "day",

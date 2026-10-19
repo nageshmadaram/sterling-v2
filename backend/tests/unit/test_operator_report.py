@@ -42,6 +42,25 @@ def test_all_passing_checks_exit_zero():
     assert report.exit_code == EXIT_OK
 
 
+def test_custom_live_config_does_not_require_the_frozen_experiment_hash():
+    from app.core.waivers import split_doctor_checks
+    report = doctor_from_preflight([_Preflight('config_identity', False, ['config_hash_mismatch'])])
+    checks = {check.name: check for check in report.checks}
+    assert checks['config_identity'].passed is True
+    assert checks['experiment_config_identity'].passed is False
+    assert split_doctor_checks(report.checks).safe is True
+
+
+@pytest.mark.parametrize('reason', ['config_store_unavailable', 'snapback_disabled', 'config_load_failed:invalid'])
+def test_live_config_failures_remain_blocking_alongside_experiment_drift(reason):
+    from app.core.waivers import split_doctor_checks
+    report = doctor_from_preflight([_Preflight('config_identity', False, ['config_hash_mismatch', reason])])
+    split = split_doctor_checks(report.checks)
+    assert split.safe is False
+    assert split.failures[0].name == 'config_identity'
+    assert reason in split.failures[0].detail
+
+
 def test_a_failed_check_exits_unsafe():
     report = DoctorReport(
         checks=(DoctorCheck("clock", True), DoctorCheck("disk", False, "full"))
@@ -308,6 +327,23 @@ def test_future_broker_reachability_timestamp_is_not_healthy(monkeypatch):
     assert check.passed is None
     assert "future" in check.detail
     assert "not trustworthy" in check.detail
+
+
+@pytest.mark.parametrize('fresh,same_deployment,expected', [
+    (True, True, True), (False, True, None), (True, False, None),
+])
+def test_network_path_uses_only_current_binding_proof(monkeypatch, fresh, same_deployment, expected):
+    from types import SimpleNamespace
+    from app.core.operator_report import lane_doctor_checks
+    from app.services import account_binding_service as bindings
+    monkeypatch.delenv('STERLING_BROKER_REACHABLE_AT', raising=False)
+    monkeypatch.setenv('STERLING_DEPLOYMENT_ID', 'this-host')
+    binding = SimpleNamespace(deployment_id='this-host' if same_deployment else 'other-host',
+                              verified_at=datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(bindings.AccountBindingStore, 'active', lambda self: binding)
+    monkeypatch.setattr(bindings, 'verification_is_current', lambda value: fresh)
+    check = _by_name(lane_doctor_checks())['network_path']
+    assert check.passed is expected
 
 
 def test_future_market_tick_timestamp_is_not_healthy(monkeypatch):

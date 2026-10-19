@@ -180,98 +180,32 @@ def _lane(strategy: str, mode: HorizonMode, state: LaneState, defined: bool, not
     )
 
 
-_SNAPBACK: Final[tuple[LaneDefinition, ...]] = (
-    _lane(
-        "snapback",
-        HorizonMode.ULTRA_SCALPING,
-        LaneState.RESEARCH,
-        False,
-        "1m reversal mechanics are sketched, not frozen; no rule hash yet",
-    ),
-    _lane(
-        "snapback",
-        HorizonMode.SCALPING,
-        LaneState.LIVE_MINIMUM,
-        True,
-        "live: the 'scalp' path; day-one exposure caps apply (live_minimum)",
-    ),
-    _lane(
-        "snapback",
-        HorizonMode.INTRADAY,
-        LaneState.RESEARCH,
-        False,
-        # There is no separate intraday strategy in the runtime today. The
-        # engine branches on `trading_mode in ("scalp", "intraday")` and reads
-        # the same scalp_* knobs for both, so "intraday" is the scalping rule
-        # wearing a second label. Treating them as two lanes would demand two
-        # 300-trade samples from one rule and let the same edge be counted
-        # twice. The lane opens once it has rules of its own: a 5-15m signal
-        # timeframe and a 45min-4h budget, as specified.
-        "no distinct rules yet: shares the scalp_* path and knobs with scalping",
-    ),
-    _lane(
-        "snapback",
-        HorizonMode.OVERNIGHT,
-        LaneState.RESEARCH,
-        False,
-        # The specification labels this lane RESEARCH and, in the dashboard
-        # mock, DISABLED. Both readings agree on the only thing that matters:
-        # it must not trade. It is kept RESEARCH per the lane section, and
-        # blocked by rules_defined=False, because gap policy, DTE policy,
-        # overnight theta, stop behaviour and hedging are all still undefined.
-        "gap, DTE, theta, stop and hedge policy are undefined; cannot be hashed",
-    ),
-    _lane(
-        "snapback",
-        HorizonMode.SWING,
-        LaneState.LIVE_MINIMUM,
-        True,
-        "live: the daily lineage; day-one exposure caps apply (live_minimum)",
-    ),
+# Each declared live lane has an actual scanner, entry adapter, broker
+# protection path and immutable mode deadline. Settings select one active
+# mode per engine; declaring support never arms AUTO or waives admission.
+_SNAPBACK_NOTES = {
+    HorizonMode.ULTRA_SCALPING: '1m option reversal; 20-minute ceiling; same-session square-off',
+    HorizonMode.SCALPING: 'option reversal on configured 1/3/5m candles; broker stop and scalp lifecycle',
+    HorizonMode.INTRADAY: '5/15/30m option reversal; multi-session indicator warmup; intraday hard deadline',
+    HorizonMode.OVERNIGHT: '30/60m long-option reversal; broker stop; expiry buffer; three-session budget; no weekend/holiday-gap carry',
+    HorizonMode.SWING: 'daily lineage; existing hedge, protection and swing exit lifecycle',
+}
+_SUPERTREND_NOTES = {
+    HorizonMode.ULTRA_SCALPING: '1m closed Heikin-Ashi triple-ST; 20-minute hard deadline',
+    HorizonMode.SCALPING: '1/3/5m closed Heikin-Ashi triple-ST; 90-minute hard deadline',
+    HorizonMode.INTRADAY: '5/15/30m closed Heikin-Ashi triple-ST; hard square-off 15:20 IST',
+    HorizonMode.OVERNIGHT: '30/60m triple-ST; broker stop; expiry buffer; three-session budget; no weekend/holiday-gap carry',
+    HorizonMode.SWING: '60m Heikin-Ashi triple-ST; existing protection and trailing exits; session holding ceiling',
+}
+_SNAPBACK: Final[tuple[LaneDefinition, ...]] = tuple(
+    _lane('snapback', mode, LaneState.LIVE_MINIMUM, True, _SNAPBACK_NOTES[mode])
+    for mode in HorizonMode
+)
+_SUPERTREND: Final[tuple[LaneDefinition, ...]] = tuple(
+    _lane('supertrend', mode, LaneState.LIVE_MINIMUM, True, _SUPERTREND_NOTES[mode])
+    for mode in HorizonMode
 )
 
-_SUPERTREND: Final[tuple[LaneDefinition, ...]] = (
-    _lane(
-        "supertrend",
-        HorizonMode.ULTRA_SCALPING,
-        LaneState.RESEARCH,
-        True,
-        "1m Heikin-Ashi, same triple-ST alignment rule; no engine runs this timeframe",
-    ),
-    _lane(
-        "supertrend",
-        HorizonMode.SCALPING,
-        LaneState.RESEARCH,
-        True,
-        "5m Heikin-Ashi, same triple-ST alignment rule; no engine runs this timeframe",
-    ),
-    _lane(
-        "supertrend",
-        HorizonMode.INTRADAY,
-        LaneState.RESEARCH,
-        True,
-        "15m Heikin-Ashi; hard square-off 15:20 IST; no engine runs this timeframe",
-    ),
-    _lane(
-        "supertrend",
-        HorizonMode.OVERNIGHT,
-        LaneState.RESEARCH,
-        True,
-        "60m Heikin-Ashi; shares the swing engine; gap, theta and weekend policy undefined",
-    ),
-    _lane(
-        "supertrend",
-        HorizonMode.SWING,
-        LaneState.LIVE_MINIMUM,
-        True,
-        # The Kite engine (id 'sterling-kite') is a single 60m Heikin-Ashi
-        # engine, so this is the only SuperTrend lane the runtime really
-        # trades. The other four modes have rules on paper but no engine behind
-        # them, so they stay RESEARCH rather than advertising capacity that
-        # does not exist.
-        "live: the 60m Heikin-Ashi engine; day-one exposure caps apply (live_minimum)",
-    ),
-)
 
 LANES: Final[Mapping[str, LaneDefinition]] = {
     lane.lane_key: lane for lane in (*_SNAPBACK, *_SUPERTREND)

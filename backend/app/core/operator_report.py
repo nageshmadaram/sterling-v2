@@ -123,14 +123,27 @@ def doctor_from_preflight(
     Accepts anything with ``code`` and ``passed``, so the preflight module does
     not have to import this one.
     """
-    checks = tuple(
-        DoctorCheck(
-            name=getattr(c, "code", "unknown"),
-            passed=bool(getattr(c, "passed", False)),
-            detail=str(getattr(c, "details", "") or ""),
-        )
-        for c in preflight_checks
-    )
+    checks_list = []
+    for c in preflight_checks:
+        name = getattr(c, 'code', 'unknown')
+        details = getattr(c, 'details', '')
+        passed = bool(getattr(c, 'passed', False))
+        # The prospective runner still requires its exact frozen hypothesis.
+        # Live controls intentionally support other universes/timeframes and
+        # auto on/off. A historical hash mismatch is evidence drift, not an
+        # unreadable or invalid live configuration. Keep all other config
+        # failures blocking, including when they accompany the drift.
+        if (name == 'config_identity' and not passed and isinstance(details, list)
+                and 'config_hash_mismatch' in details):
+            checks_list.append(DoctorCheck(
+                'experiment_config_identity', False,
+                'Live settings differ from the frozen Snapback experiment; '
+                'the prospective runner remains blocked for this configuration.',
+            ))
+            details = [reason for reason in details if reason != 'config_hash_mismatch']
+            passed = not details
+        checks_list.append(DoctorCheck(name=name, passed=passed, detail=str(details or '')))
+    checks = tuple(checks_list)
     health = compose_health(dict(components)) if components is not None else None
     return DoctorReport(checks=checks + tuple(extra), health=health)
 
@@ -267,8 +280,20 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
 
         observed = (os.environ.get("STERLING_BROKER_REACHABLE_AT") or "").strip()
         if not observed:
-            return None, ("STERLING_BROKER_REACHABLE_AT is unset: nothing has recorded "
-                          "whether this host can reach the broker")
+            # Successful binding verification already proves authenticated
+            # broker reachability. Read its intact, fresh evidence rather than
+            # requiring an unrelated manually maintained environment timestamp.
+            from app.services.account_binding_service import (
+                AccountBindingStore, verification_is_current,
+            )
+            deployment = (os.environ.get("STERLING_DEPLOYMENT_ID") or "").strip()
+            binding = AccountBindingStore().active()
+            if (binding is not None and deployment
+                    and binding.deployment_id == deployment
+                    and verification_is_current(binding)):
+                return True, f"broker profile and inventory read at {binding.verified_at}"
+            return None, ("No fresh broker reachability evidence: verify the account "
+                          "binding or set STERLING_BROKER_REACHABLE_AT")
         try:
             stamp = datetime.fromisoformat(observed)
         except ValueError:

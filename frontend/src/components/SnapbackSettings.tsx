@@ -149,9 +149,11 @@ function CaptionedSwitch({ checked, label, onChange }: {
   );
 }
 const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: string }> = [
+  { value: 'ultra_scalping', label: 'Ultra scalping', hint: '1-minute reversal; hard holding limit 20 minutes; no overnight carry.' },
   { value: 'swing', label: 'Swing', hint: 'Daily signals and session-based holding periods.' },
   { value: 'scalp', label: 'Scalp', hint: 'Research preset: 1-minute bars, 20-bar initial hold, 60-bar runner limit.' },
-  { value: 'intraday', label: 'Intraday', hint: 'Research preset: 5-minute bars, 12-bar initial hold, 36-bar runner limit.' },
+  { value: 'intraday', label: 'Intraday', hint: '15-minute reversal; session square-off and finite holding budget.' },
+  { value: 'overnight', label: 'Overnight', hint: 'Hourly reversal; at most three trading sessions; broker stop; no weekend or holiday-gap carry.' },
 ];
 
 export function SnapbackSettings() {
@@ -213,7 +215,7 @@ export function SnapbackSettings() {
   const measured = (key: string) => strategy.calibrated_fields.includes(key);
   const tag = (key: string, hint: string) =>
     (measured(key) ? `${hint} MEASURED.` : `${hint} Not measured — a judgement call.`);
-  const shortHorizon = cfg.trading_mode === 'scalp' || cfg.trading_mode === 'intraday';
+  const shortHorizon = (cfg.trading_mode ?? 'swing') !== 'swing';
 
   return (
     <>
@@ -235,7 +237,7 @@ export function SnapbackSettings() {
         busy={setCfg.isPending}
         onToggle={() => patch({ enabled: !cfg.enabled })}
         runningNote={shortHorizon
-          ? 'Scanning completed minute bars for reversal plans. Broker execution is unavailable for this mode.'
+          ? 'Scanning completed option candles. Live entries require automatic entry and all broker safety checks.'
           : 'Scanning daily bars for instruments stretched past a 20-session extreme.'}
         offNote="Off. Nothing is scanned and no orders can be placed."
       />
@@ -246,7 +248,9 @@ export function SnapbackSettings() {
           <ChoiceRow value={cfg.trading_mode ?? 'swing'} options={TRADING_MODES} onChange={(mode) => patch({
             trading_mode: mode,
             ...(mode === 'scalp' ? { scalp_timeframe_minutes: 1, scalp_max_hold_bars: 20, scalp_runner_max_bars: 60 } : {}),
-            ...(mode === 'intraday' ? { scalp_timeframe_minutes: 5, scalp_max_hold_bars: 12, scalp_runner_max_bars: 36 } : {}),
+            ...(mode === 'ultra_scalping' ? { scalp_timeframe_minutes: 1, scalp_max_hold_bars: 20, scalp_runner_max_bars: 20 } : {}),
+            ...(mode === 'intraday' ? { scalp_timeframe_minutes: 15, scalp_max_hold_bars: 16, scalp_runner_max_bars: 24 } : {}),
+            ...(mode === 'overnight' ? { scalp_timeframe_minutes: 60, scalp_max_hold_bars: 18, scalp_runner_max_bars: 18 } : {}),
           })} />
         </Field>
       </Section>

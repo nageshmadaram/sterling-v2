@@ -152,10 +152,9 @@ def test_daily_history_and_promotion_cannot_be_reused_for_intraday(monkeypatch):
     assert snapback.recent_signals(USER.user_id) == []
     assert descriptor(CFG)["validated"] is False
     assert descriptor(CFG)["calibrated_fields"] == []
-    # Scalp is a live lane; only the lane-less "intraday" mode is refused.
+    # Each runtime lane still reports the evidence limitation independently.
     assert snapback_validation.auto_execution_blocker(CFG) is None
-    assert "intraday" in snapback_validation.auto_execution_blocker(
-        replace(CFG, trading_mode="intraday"))
+    assert snapback_validation.auto_execution_blocker(replace(CFG, trading_mode="intraday")) is None
     assert "daily evidence does not apply" in snapback_validation.evidence_advisory(CFG)
     monkeypatch.setattr("app.services.snapback_readiness.live_conditions",
                         lambda uid, cfg=None, account_id="": LiveConditions())

@@ -46,7 +46,13 @@ from .hedge import HEDGE_MODES  # noqa: E402,F401
 #: fillable is the spread on the contract, and that is measurable at scan time.
 UNIVERSE_MODES: frozenset[str] = frozenset({"curated", "fno"})
 STOP_MODES: frozenset[str] = frozenset({"broker", "monitor", "both"})
-TRADING_MODES: frozenset[str] = frozenset({"swing", "scalp", "intraday"})
+TRADING_MODES: frozenset[str] = frozenset({"swing", "scalp", "intraday", "ultra_scalping", "overnight"})
+MODE_DEFAULTS = {
+    'ultra_scalping': dict(scalp_timeframe_minutes=1, scalp_max_hold_bars=20, scalp_runner_max_bars=20),
+    'scalp': dict(scalp_timeframe_minutes=1, scalp_max_hold_bars=20, scalp_runner_max_bars=60),
+    'intraday': dict(scalp_timeframe_minutes=15, scalp_max_hold_bars=16, scalp_runner_max_bars=24),
+    'overnight': dict(scalp_timeframe_minutes=60, scalp_max_hold_bars=18, scalp_runner_max_bars=18),
+}
 
 #: Index instruments this engine will name a contract for.
 _INDEX_DEFAULTS: tuple[str, ...] = ("NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX")
@@ -605,6 +611,8 @@ def validate(values: dict[str, Any], base: SnapbackConfig | None = None) -> Snap
         raise ValueError(f"unknown settings: {', '.join(unknown)}")
 
     merged = cfg.as_dict()
+    if values.get('trading_mode', cfg.trading_mode) != cfg.trading_mode:
+        merged.update(MODE_DEFAULTS.get(values['trading_mode'], {}))
     merged.update(values)
     for name in known:
         if isinstance(getattr(cfg, name), bool) and not isinstance(merged[name], bool):
@@ -692,7 +700,7 @@ def validate(values: dict[str, Any], base: SnapbackConfig | None = None) -> Snap
     _range(merged, "scalp_max_adx", 1.0, 100.0, float)
     _range(merged, "scalp_min_relative_volume", 0.0, 20.0, float)
     for name, lo, hi in (
-        ("scalp_timeframe_minutes", 1, 5),
+        ("scalp_timeframe_minutes", 1, 60),
         ("scalp_max_hold_bars", 1, 375),
         ("scalp_runner_max_bars", 1, 375),
         ("scalp_cooldown_bars", 0, 375),
@@ -702,8 +710,9 @@ def validate(values: dict[str, Any], base: SnapbackConfig | None = None) -> Snap
         ("scalp_square_off_minute", 557, 925),
     ):
         _range(merged, name, lo, hi, int)
-    if merged["scalp_timeframe_minutes"] not in (1, 3, 5):
-        raise ValueError("scalp_timeframe_minutes must be 1, 3 or 5")
+    allowed_tf = {'ultra_scalping': (1,), 'scalp': (1, 3, 5), 'intraday': (1, 3, 5, 15, 30), 'overnight': (30, 60), 'swing': (1, 3, 5)}
+    if merged["scalp_timeframe_minutes"] not in allowed_tf[merged['trading_mode']]:
+        raise ValueError(f"Unsupported timeframe for {merged['trading_mode']}")
     if merged["scalp_runner_max_bars"] < merged["scalp_max_hold_bars"]:
         raise ValueError("scalp_runner_max_bars cannot be below scalp_max_hold_bars")
     if merged["scalp_lock_points"] >= merged["scalp_target_points"]:

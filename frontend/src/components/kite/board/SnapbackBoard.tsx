@@ -139,11 +139,11 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const mode = data?.trading_mode ?? data?.config?.trading_mode ?? 'swing';
   const [savedModes, setSavedModes] = useSavedSelection<string>('snapback.scanModes', '');
   let selectedModes: string[] = [];
-  try { selectedModes = JSON.parse(savedModes || '[]').filter((m:string)=>['swing','scalp','intraday'].includes(m)); } catch { /* use configured mode */ }
+  try { selectedModes = JSON.parse(savedModes || '[]').filter((m:string)=>['swing','scalp','intraday','ultra_scalping','overnight'].includes(m)); } catch { /* use configured mode */ }
   if (!selectedModes.length) selectedModes = [mode];
   const scanBusy = scan.isPending || data?.scanning === true;
   const shortHorizon = !selectedModes.includes('swing');
-  const researchOnly = mode === 'intraday';
+  const researchOnly = false;
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
@@ -214,7 +214,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {scanBusy ? 'Scanning…' : 'Scan now'}
         </button>
         <details className="snapback-scan-modes"><summary>Modes · {selectedModes.length}</summary><div role="group" aria-label="Snapback scan modes">
-          {[['swing','Swing · daily'],['scalp','Scalp'],['intraday','Intraday · research']].map(([value,label])=><label key={value}><input type="checkbox" checked={selectedModes.includes(value)} disabled={replay || scanBusy || (selectedModes.length===1 && selectedModes.includes(value))} onChange={()=>setSavedModes(JSON.stringify(selectedModes.includes(value)?selectedModes.filter(m=>m!==value):[...selectedModes,value]))}/>{label}</label>)}
+          {[['ultra_scalping','Ultra scalping'],['scalp','Scalp'],['intraday','Intraday'],['overnight','Overnight'],['swing','Swing · daily']].map(([value,label])=><label key={value}><input type="checkbox" checked={selectedModes.includes(value)} disabled={replay || scanBusy || (selectedModes.length===1 && selectedModes.includes(value))} onChange={()=>setSavedModes(JSON.stringify(selectedModes.includes(value)?selectedModes.filter(m=>m!==value):[...selectedModes,value]))}/>{label}</label>)}
         </div></details>
         {scanBusy && <button type="button" disabled={stopScan.isPending || (!data?.scan_cancellable && !scan.isPending)} onClick={()=>stopScan.mutate()}>{stopScan.isPending?'Stopping…':'Stop scan'}</button>}
         <span style={{ fontSize: 11, color: k.dim }}>

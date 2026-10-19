@@ -746,8 +746,8 @@ async def get_snapback_config(user: UserContext = Depends(get_current_user)) -> 
         "config": cfg.as_dict(),
         "defaults": SnapbackConfig().as_dict(),
         "vocabularies": {
-            "trading_mode": ["swing", "scalp", "intraday"],
-            "scalp_timeframe_minutes": [1, 3, 5],
+            "trading_mode": ["swing", "scalp", "intraday", "ultra_scalping", "overnight"],
+            "scalp_timeframe_minutes": [1, 3, 5, 15, 30, 60],
             "exit_mode": sorted(EXIT_MODES),
             "sizing_mode": sorted(SIZING_MODES),
             "stop_mode": sorted(STOP_MODES),
@@ -809,7 +809,7 @@ async def snapback_scan(body: Optional[dict] = Body(None), user: UserContext = D
     """
     from app.services.snapback import scan_modes
     modes = body.get("modes") if body else None
-    if modes is not None and (not isinstance(modes, list) or not modes or len(modes)>3 or any(m not in ("swing", "scalp", "intraday") for m in modes)):
+    if modes is not None and (not isinstance(modes, list) or not modes or len(modes)>5 or any(m not in ("swing", "scalp", "intraday", "ultra_scalping", "overnight") for m in modes)):
         raise HTTPException(422, "Choose one or more supported scan modes")
     try:
         return await scan_modes(_snapback_uid(user), modes)

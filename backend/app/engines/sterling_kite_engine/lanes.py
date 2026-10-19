@@ -56,10 +56,10 @@ MODE_SIGNAL_TIMEFRAMES: Final[Mapping[HorizonMode, str]] = {
 }
 
 MODE_VERSIONS: Final[Mapping[HorizonMode, str]] = {
-    HorizonMode.ULTRA_SCALPING: "supertrend_ultra_scalping_v1",
-    HorizonMode.SCALPING: "supertrend_scalping_v1",
-    HorizonMode.INTRADAY: "supertrend_intraday_v1",
-    HorizonMode.OVERNIGHT: "supertrend_overnight_v1",
+    HorizonMode.ULTRA_SCALPING: "supertrend_ultra_scalping_v2",
+    HorizonMode.SCALPING: "supertrend_scalping_v2",
+    HorizonMode.INTRADAY: "supertrend_intraday_v2",
+    HorizonMode.OVERNIGHT: "supertrend_overnight_v2",
     HorizonMode.SWING: "supertrend_swing_v1",
 }
 
@@ -148,6 +148,7 @@ def lane_rule_hash(mode: str | HorizonMode) -> str:
             "mode": resolved.value,
             "mode_version": MODE_VERSIONS[resolved],
             "signal_timeframe": MODE_SIGNAL_TIMEFRAMES[resolved],
+            **({'execution_policy': 'mode_execution_v1'} if resolved is not HorizonMode.SWING else {}),
         }
     )
 

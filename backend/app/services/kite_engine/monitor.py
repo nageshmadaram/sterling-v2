@@ -1859,6 +1859,12 @@ async def on_tick(uid: str, token: int, ltp: float, *, client) -> Optional[str]:
                 # market exit that rests unfilled must not hold the position naked.
                 await _watch_resting_exit(client, uid, p)
                 return None
+            from app.core.mode_execution import policy_exit_reason
+            from datetime import datetime, timezone
+            mode_reason = policy_exit_reason(getattr(p, 'mode_policy', {}), datetime.now(timezone.utc))
+            if mode_reason:
+                await _exit_position(client, uid, p, ltp, price_stop_exit=False, reason=mode_reason)
+                return p.symbol
             # Price trail breach (original)
             price_exit = pos.should_exit(p.stop_premium, ltp, p.direction)
             # Target, when the signal set one (Navigator only). Checked AFTER the stop

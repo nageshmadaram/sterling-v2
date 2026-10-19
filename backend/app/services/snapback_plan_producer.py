@@ -39,8 +39,8 @@ LANE_SWING = "swing"
 LANE_SCALP = "scalp"
 #: engine ``trading_mode`` -> the lane that trades it. ``intraday`` has no rules
 #: of its own (it shares the scalp knobs) and is not a lane.
-_LANE_OF_MODE = {"swing": LANE_SWING, "scalp": LANE_SCALP}
-_HORIZON_OF_LANE = {LANE_SWING: "swing", LANE_SCALP: "scalping"}
+_LANE_OF_MODE = {"swing": LANE_SWING, "scalp": LANE_SCALP, 'ultra_scalping': 'ultra_scalping', 'intraday': 'intraday', 'overnight': 'overnight'}
+_HORIZON_OF_LANE = {LANE_SWING: "swing", LANE_SCALP: "scalping", 'ultra_scalping': 'ultra_scalping', 'intraday': 'intraday', 'overnight': 'overnight'}
 
 #: The swing signal is a daily close; it is traded in the NEXT session only, and
 #: only inside this window (the opening minutes have no usable book).
@@ -381,6 +381,24 @@ async def build_plan(row: Dict[str, Any], ctx: PlanContext) -> PlanOutcome:
             hedge_delta=hedge.get("delta"),
             hedge_error_pct=hedge.get("error_pct"),
         )
+    if lane in (LANE_SWING, LANE_SCALP):
+        return PlanOutcome(ok=True, plan=plan)
+    from app.core.mode_execution import freeze_policy, carry_entry_refusal
+    try:
+        policy = freeze_policy('snapback', _HORIZON_OF_LANE[lane], now, exchange=option_exchange)
+        refusal = carry_entry_refusal(policy, expiry=plan['option_expiry'], now=now,
+                                      stop_mode=str(getattr(cfg, 'stop_mode', 'both')))
+        if refusal:
+            return _refuse(refusal)
+    except Exception as exc:
+        return _refuse('mode_policy_unavailable', detail=str(exc))
+    plan['rules'].update(lane=lane, mode_policy=policy)
+    from app.engines.snapback.lanes import MODE_VERSIONS
+    from app.core.horizon import canonical_mode
+    plan['mode_version'] = MODE_VERSIONS[canonical_mode(_HORIZON_OF_LANE[lane])]
+    if lane != LANE_SWING:
+        plan['rules']['hard_exit_ms'] = policy['hard_exit_ms']
+    plan['horizon_plan_id'] = policy['horizon_plan_id']
     return PlanOutcome(ok=True, plan=plan)
 
 

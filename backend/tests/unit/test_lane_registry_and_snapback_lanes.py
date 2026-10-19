@@ -111,7 +111,7 @@ def test_the_promoted_lanes_are_live_minimum():
     live = {
         lane.lane_key for lane in all_lanes() if lane.state is LaneState.LIVE_MINIMUM
     }
-    assert live == {"snapback:scalping", "snapback:swing", "supertrend:swing"}
+    assert live == set(LANES)
     for lane in all_lanes():
         assert lane.state is not LaneState.LIVE_SCALED
         assert lane.state not in (LaneState.PAPER, LaneState.SHADOW)
@@ -171,37 +171,30 @@ def test_a_live_lane_with_defined_rules_may_originate():
     assert may_originate("supertrend", "swing", policy=BOTH).allowed is True
 
 
-def test_a_research_lane_may_not_originate():
-    """The engine serves only the 60m timeframe, so the other modes stay research."""
-    for mode in ("ultra_scalping", "scalping", "intraday", "overnight"):
-        decision = may_originate("supertrend", mode, policy=BOTH)
-        assert decision.allowed is False
-        assert decision.reason == "LANE_STATE_BLOCKS_ORIGINATION"
+def test_a_research_lane_may_not_originate(monkeypatch):
+    from dataclasses import replace
+    for mode in HorizonMode:
+        lane = get_lane('supertrend', mode)
+        monkeypatch.setitem(LANES, lane.lane_key, replace(lane, state=LaneState.RESEARCH))
+        decision = may_originate('supertrend', mode, policy=BOTH)
+        assert not decision.allowed
+        assert decision.reason == 'LANE_STATE_BLOCKS_ORIGINATION'
 
 
-def test_a_lane_without_rules_cannot_originate_even_while_research():
-    """State and rule-definedness are separate refusals.
-
-    Snapback Overnight reads RESEARCH, but its gap, DTE, theta, stop and hedge
-    policies are undefined, so there is nothing to hash and nothing to attribute
-    evidence to.
-    """
-    for mode in ("ultra_scalping", "overnight"):
-        decision = may_originate("snapback", mode, policy=BOTH)
-        assert decision.allowed is False
-        assert decision.reason == "LANE_RULES_UNDEFINED"
+def test_a_lane_without_rules_cannot_originate(monkeypatch):
+    from dataclasses import replace
+    for mode in HorizonMode:
+        lane = get_lane('snapback', mode)
+        monkeypatch.setitem(LANES, lane.lane_key, replace(lane, rules_defined=False))
+        decision = may_originate('snapback', mode, policy=BOTH)
+        assert not decision.allowed
+        assert decision.reason == 'LANE_RULES_UNDEFINED'
 
 
-def test_snapback_intraday_is_blocked_because_it_has_no_rules_of_its_own():
-    """The runtime shares the scalp_* path and knobs between the two labels.
-
-    Gating them as two lanes would demand two 300-trade samples from one rule
-    and let one edge be counted twice.
-    """
-    lane = get_lane("snapback", "intraday")
-    assert lane.rules_defined is False
-    decision = may_originate("snapback", "intraday", policy=BOTH)
-    assert decision.reason == "LANE_RULES_UNDEFINED"
+def test_all_implemented_modes_have_rules_and_distinct_identity():
+    for strategy in ('snapback', 'supertrend'):
+        assert all(get_lane(strategy, mode).rules_defined for mode in HorizonMode)
+    assert snapback_lanes.lane_rule_hash('intraday') != snapback_lanes.lane_rule_hash('scalping')
 
 
 def test_focus_refusal_outranks_a_lane_refusal():
@@ -218,9 +211,7 @@ def test_dashboard_lists_every_lane_with_a_reason():
         assert row["note"]
         if not row["may_originate"]:
             assert row["reason"]
-    assert {r["lane_key"] for r in rows if r["may_originate"]} == {
-        "snapback:scalping", "snapback:swing", "supertrend:swing",
-    }
+    assert {r['lane_key'] for r in rows if r['may_originate']} == set(LANES)
 
 
 def test_gamma_unwind_is_live_capable_through_the_release_scope_allowlist():
@@ -232,8 +223,8 @@ def test_gamma_unwind_is_live_capable_through_the_release_scope_allowlist():
     assert set(rows) == set(RELEASE_ORIGINATORS)
     assert rows["gamma_move"]["live_capable"] is True
     assert rows["gamma_move"]["lane_backed"] is False
-    assert rows["snapback"]["live_lanes"] == ["snapback:scalping", "snapback:swing"]
-    assert rows["sterling-kite"]["live_lanes"] == ["supertrend:swing"]
+    assert set(rows["snapback"]["live_lanes"]) == {lane.lane_key for lane in lanes_for("snapback")}
+    assert set(rows["sterling-kite"]["live_lanes"]) == {lane.lane_key for lane in lanes_for("supertrend")}
     assert all(r["live_capable"] for r in rows.values())
     assert len(LANES) == 10, "no horizon mode is invented for Gamma-Unwind"
 
@@ -262,10 +253,9 @@ def test_scalp_is_the_only_rename():
     assert snapback_lanes.engine_mode_of("intraday") == "intraday"
 
 
-def test_new_modes_have_no_engine_counterpart():
-    """Returning a plausible string would send them down an existing path."""
-    assert snapback_lanes.engine_mode_of("ultra_scalping") is None
-    assert snapback_lanes.engine_mode_of("overnight") is None
+def test_new_modes_have_explicit_engine_counterparts():
+    assert snapback_lanes.engine_mode_of('ultra_scalping') == 'ultra_scalping'
+    assert snapback_lanes.engine_mode_of('overnight') == 'overnight'
 
 
 def test_the_legacy_spelling_is_recorded_on_the_identity():

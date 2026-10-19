@@ -251,6 +251,7 @@ async def arm_position(
     exit_mode: str = "one_red", guard_key: str = "", entry_spot: float = 0.0,
     entry_delta: float = 0.0, strike: float = 0.0, expiry: str = "",
     target_premium: float = 0.0, product: str = "NRML",
+    horizon_mode: str = 'swing', mode_policy: dict | None = None,
 ) -> ArmResult:
     """Register a freshly-placed position and arm whatever protection is configured.
 
@@ -354,6 +355,8 @@ async def arm_position(
         signal_direction=(signal_direction
                           or (prior.signal_direction if prior_live and prior is not None else "")),
         vehicle=vehicle, underlying=underlying, exit_mode=exit_mode,
+        horizon_mode=prior.horizon_mode if prior_live else horizon_mode,
+        mode_policy=dict(prior.mode_policy if prior_live else (mode_policy or {})),
         entry_spot=entry_spot, entry_delta=entry_delta, strike=strike, expiry=expiry,
         initial_stop_premium=stop_premium, target_premium=target_premium,
         qty_by_order=qty_by_order, product=product,

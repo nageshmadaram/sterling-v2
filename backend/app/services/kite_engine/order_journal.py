@@ -143,6 +143,46 @@ def make_key(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
     return sha256(_json(["kite-intent-v2", *values]).encode()).hexdigest()
 
 
+def _mode_admission(conn, *, uid, account_id, strategy_id, payload, now):
+    policy = (payload or {}).get('mode_policy')
+    if not policy:
+        return
+    from datetime import datetime
+    from app.core.mode_execution import IST
+    from app.core.horizon import canonical_mode, timeline_for
+    mode = canonical_mode(policy['mode']).value
+    limits = timeline_for(mode)
+    day_start = int(datetime.fromtimestamp(now / 1000, IST).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+    history = conn.execute('SELECT * FROM kite_order_intents WHERE uid=? AND account_id=? AND strategy_id=?',
+                           (uid, account_id, strategy_id)).fetchall()
+    today = 0
+    active = set()
+    for row in history:
+        recorded = json.loads(row['payload_json'] or '{}').get('mode_policy') or {}
+        if recorded.get('mode') != mode:
+            continue
+        if row['state'] in ('REJECTED', 'CANCELLED') and not row['observed_quantity']:
+            continue
+        if row['created_ms'] >= day_start:
+            today += 1
+        if row['state'] in UNRESOLVED or row['reconciliation_required'] or row['projection_pending']:
+            active.add((row['exchange'], row['symbol']))
+    if today >= limits.max_new_entries_per_session:
+        raise ValueError('mode_daily_entry_limit')
+    if strategy_id == 'sterling-kite':
+        from app.services.kite_engine.positions import open_positions
+        held = open_positions(uid)
+        active.update((p.exchange, p.symbol) for p in held
+                      if p.account_id == account_id and p.horizon_mode == mode)
+    elif strategy_id == 'snapback':
+        from app.services.snapback_live_positions import default_store
+        held = default_store().open_positions(uid)
+        active.update((p.option_exchange, p.option_symbol) for p in held
+                      if p.account_id == account_id and (p.rules.get('mode_policy') or {}).get('mode') == mode)
+    if len(active) >= limits.max_concurrent_positions:
+        raise ValueError('mode_concurrent_position_limit')
+
+
 def reserve(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
             signal_id: str, exchange: str, symbol: str, side: str, quantity: int,
             payload: Optional[Dict[str, Any]] = None, capital_required: float = 0,
@@ -179,6 +219,8 @@ def reserve(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
                     or existing.capital_required != capital_required):
                 raise ValueError("immutable_intent_conflict")
             return existing
+        _mode_admission(conn, uid=uid, account_id=account_id, strategy_id=strategy_id,
+                        payload=payload, now=now)
         if capital_required:
             marks = ",".join("?" for _ in UNRESOLVED)
             held = conn.execute(f"""SELECT COALESCE(SUM(capital_required),0)

@@ -47,6 +47,8 @@ class OptionLeg(BaseModel):
 
 
 class EngineSignalRow(BaseModel):
+    horizon_mode: str = 'swing'
+    signal_timeframe_minutes: int = 60
     underlying: str
     token: int
     exchange: str  # option exchange (NFO / BFO)
@@ -338,6 +340,16 @@ DeepItmMoneyness = Literal["ITM5", "ITM10", "ITM15", "ITM20"]
 
 
 class EngineConfigModel(BaseModel):
+    horizon_mode: Literal['ultra_scalping', 'scalping', 'intraday', 'overnight', 'swing'] = 'swing'
+    signal_timeframe_minutes: Optional[int] = None
+
+    @field_validator('signal_timeframe_minutes')
+    @classmethod
+    def validate_mode_timeframe(cls, value, info):
+        from app.core.mode_execution import timeframe_minutes
+        if value is not None:
+            timeframe_minutes(info.data.get('horizon_mode', 'swing'), value)
+        return value
     # Master gate. True (default) = Sterling Kite Engine active (scanning,
     # signals, auto-execute). False = engine OFF; the Kite platform runs as normal
     # (manual trading only). Toggled from the Connect tab.

@@ -57,6 +57,13 @@ def set_config(uid: str, cfg: EngineConfigModel) -> EngineConfigModel:
     must survive restart exactly as acknowledged to the operator. A failed write
     therefore leaves the previous in-memory configuration unchanged and raises.
     """
+    previous = get_config(uid)
+    changed_mode = (previous.horizon_mode, previous.signal_timeframe_minutes) != (cfg.horizon_mode, cfg.signal_timeframe_minutes)
+    if changed_mode:
+        from app.services.kite_engine.positions import open_positions
+        if open_positions(uid):
+            from fastapi import HTTPException
+            raise HTTPException(409, 'Close existing SuperTrend positions before changing their signal mode or timeframe')
     key = f"kite_engine_config_{uid}"
     payload = cfg.model_dump_json()
     db.set_config_strict(key, payload)
@@ -335,7 +342,12 @@ def load_signal_cache(uid:str):
     # Boards written before pruning existed may hold rows the scan stopped emitting
     # long ago. They must not be hydrated back as live signals.
     cutoff=int(time.time()*1000)-SIGNAL_RETENTION_MS
-    return [r for r in rows if _row_ts(r)<=0 or _row_ts(r)>=cutoff],gen
+    from app.core.mode_execution import timeframe_minutes
+    cfg = get_config(uid)
+    tf = timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes)
+    return [r for r in rows if (_row_ts(r)<=0 or _row_ts(r)>=cutoff)
+            and r.get('horizon_mode', 'swing') == cfg.horizon_mode
+            and r.get('signal_timeframe_minutes', 60) == tf],gen
 
 def reset(uid:str="")->None:
     if uid:

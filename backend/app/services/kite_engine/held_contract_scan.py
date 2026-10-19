@@ -231,7 +231,7 @@ async def _held_contract_body(
             # Heikin-Ashi bar must never sell a position whose closed trend is intact.
             candles = drop_forming(await scanner_obj._fetch_candles(
                 client, us, pick.token, pick.option_symbol),
-                exchange=spec.item.option_exchange)
+                exchange=spec.item.option_exchange, timeframe_ms=getattr(us, 'timeframe_minutes', 60) * 60_000)
         except Exception:  # noqa: BLE001
             us.diag.deriv_no_data += 1
             continue

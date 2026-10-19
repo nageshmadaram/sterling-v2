@@ -63,6 +63,8 @@ def has_scanned() -> bool:
 
 def _ts_cfg(c: EngineConfigModel) -> SterlingKiteEngineConfig:
     return SterlingKiteEngineConfig(
+        horizon_mode=getattr(c, 'horizon_mode', 'swing'),
+        signal_timeframe_minutes=getattr(c, 'signal_timeframe_minutes', None),
         trail_target=c.trail_target,
         exit_mode=c.exit_mode,
         allow_short=getattr(c, 'allow_short', False),
@@ -761,6 +763,11 @@ def _make_place_cb(client, uid: str):
     directional_mode is OFF (default)."""
     async def _cb(row, item) -> None:
         cfg = state.get_effective_config(uid)
+        from app.core.mode_execution import timeframe_minutes
+        if (getattr(row, 'horizon_mode', 'swing') != cfg.horizon_mode
+                or getattr(row, 'signal_timeframe_minutes', 60) != timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes)):
+            state.log(uid, 'order_blocked', 'Signal mode/timeframe changed; rescan before entry')
+            return
         # The leg nearest the money among those the expiry square-off would not sell at its
         # very next pass (see ``_without_expiring_legs``).
         tradable = _without_expiring_legs(row, cfg)
@@ -1239,6 +1246,13 @@ def _make_place_cb(client, uid: str):
                 capital_required=(required_margin if use_futures else entry_px * qty * limit_buffer),
                 generation_id=generation,
                 signal_id=f"{row.source}:{row.timestamp_ms}:{row.direction}")
+            from app.core.mode_execution import freeze_policy, carry_entry_refusal
+            mode_policy = freeze_policy('supertrend', cfg.horizon_mode, datetime.now(_IST), exchange=trade_exchange)
+            mode_policy.update(signal_timeframe_minutes=timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes),
+                               time_stop_bars=int(getattr(cfg, 'time_stop_bars', 0) or 0))
+            refusal = carry_entry_refusal(mode_policy, expiry=pos_expiry, now=datetime.now(_IST), stop_mode=cfg.stop_mode)
+            if refusal:
+                raise ValueError(refusal)
             entry_payload = dict(symbol=trade_symbol, exchange=trade_exchange, quantity=qty,
                 lot_size=trade_lot, entry_premium=entry_px, stop_premium=stop_px,
                 direction=pos_direction, signal_direction=signal_dir, vehicle=vehicle_label,
@@ -1249,7 +1263,7 @@ def _make_place_cb(client, uid: str):
                 # The stop the entry was risk-sized against. A LIVE position is built
                 # from this payload by register_pending, and without it nothing could
                 # tell a stop that was never moved (SL) from one that has trailed (TSL).
-                initial_stop_premium=stop_px)
+                initial_stop_premium=stop_px, horizon_mode=cfg.horizon_mode, mode_policy=mode_policy)
         except Exception as exc:
             state.log(uid, "order_blocked", f"{trade_symbol}: canonical entry preparation failed: {exc}")
             return
@@ -1381,7 +1395,7 @@ def _make_place_cb(client, uid: str):
             underlying=row.underlying, exit_mode=cfg.exit_mode, guard_key=guard_key,
             entry_spot=pos_entry_spot, entry_delta=pos_delta,
             strike=pos_strike, expiry=pos_expiry,
-            target_premium=target_px)
+            target_premium=target_px, horizon_mode=cfg.horizon_mode, mode_policy=mode_policy)
 
         veh_note = f"{vehicle_label} " if cfg.directional_mode else ""
         dir_note = f" [{pos_direction}]" if cfg.directional_mode else ""
@@ -1825,14 +1839,32 @@ async def _time_stop_positions(client, uid: str) -> None:
     the tick-monitor exit path (correct side, GTT cancel, guard release, unsubscribe)."""
     cfg = state.get_effective_config(uid)
     bars = int(getattr(cfg, "time_stop_bars", 0) or 0)
-    if bars <= 0 or not is_management_session():
+    if not is_management_session():
         return
     now_ms = int(datetime.now(_IST).timestamp() * 1000)
     for p in positions.open_positions(uid):
         if p.status != positions.OPEN or not p.opened_ms:
             continue
-        held = session_bars_held(int(p.opened_ms), now_ms)
-        if held < bars:
+        from app.core.mode_execution import policy_exit_reason
+        mode_reason = policy_exit_reason(getattr(p, 'mode_policy', {}), datetime.now(_IST))
+        if mode_reason:
+            try:
+                quote = await client.get_ltp([f'{p.exchange}:{p.symbol}'])
+                ltp = float((quote or {}).get(f'{p.exchange}:{p.symbol}', {}).get('last_price') or 0)
+            except Exception:
+                ltp = 0.0
+            await monitor._exit_position(client, uid, p, ltp, price_stop_exit=False, reason=mode_reason)
+            continue
+        policy = getattr(p, 'mode_policy', {})
+        position_bar_limit = int(policy.get('time_stop_bars', bars))
+        if position_bar_limit <= 0:
+            continue
+        if getattr(p, 'horizon_mode', 'swing') != 'swing':
+            from app.core.mode_execution import trading_minutes_held
+            held = trading_minutes_held(int(p.opened_ms), now_ms) // int(policy.get('signal_timeframe_minutes', 60))
+        else:
+            held = session_bars_held(int(p.opened_ms), now_ms)
+        if held < position_bar_limit:
             continue
         try:
             key = f"{p.exchange}:{p.symbol}"
@@ -1842,7 +1874,7 @@ async def _time_stop_positions(client, uid: str) -> None:
             ltp = p.stop_premium
         await monitor._exit_position(
             client, uid, p, ltp, price_stop_exit=False,
-            reason=f"time stop ({held}≥{bars} bars held)")
+            reason=f"time stop ({held}≥{position_bar_limit} bars held)")
 
 
 def _new_trail_for_open(p, rows) -> Optional[float]:
@@ -2413,7 +2445,8 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         state.log(uid, "info", "Scan skipped — cancelled recently (60s cooldown).")
         return 0
     state.set_scanning(uid, True)
-    state.log(uid, "scan_start", "Initiating 1H Sterling Kite Engine scan…")
+    from app.core.mode_execution import timeframe_minutes
+    state.log(uid, "scan_start", f"Initiating {timeframe_minutes(cfg_model.horizon_mode, cfg_model.signal_timeframe_minutes)}m {cfg_model.horizon_mode} SuperTrend scan…")
     done: set = set()  # maintenance steps that already completed this cycle
     try:
         # Broker truth comes before signal origination. A missed fill/exit postback
@@ -2719,12 +2752,35 @@ async def _scan_all_connected_once() -> None:
         _last_scan_wall_s = time.time()
 
 
+async def _mode_deadline_loop() -> None:
+    """Manage new-mode clocks independently of slow whole-universe scans."""
+    from app.services.exchanges.kite import accounts as kite_accounts
+    while True:
+        try:
+            if is_management_session():
+                for account in kite_accounts._load_from_db():
+                    if not account.connected or not account.is_active:
+                        continue
+                    held = positions.open_positions(account.user_id)
+                    if not any(getattr(p, 'mode_policy', {}) and getattr(p, 'horizon_mode', 'swing') != 'swing' for p in held):
+                        continue
+                    try:
+                        client = await kite_accounts.acquire_client(account)
+                        await _time_stop_positions(client, account.user_id)
+                    except Exception as exc:
+                        log.warning('mode deadline management failed for %s: %s', account.user_id, exc)
+        except Exception as exc:
+            log.warning('mode deadline observer failed: %s', exc)
+        await asyncio.sleep(5)
+
+
 async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
     """Background task: scan all connected accounts every ``interval_s`` seconds.
     Runs one initial scan regardless of market hours (to seed the DB cache), then
     gates subsequent iterations on market-open only."""
     global _auto_running
     _auto_running = True
+    deadline_task = asyncio.create_task(_mode_deadline_loop(), name='supertrend-mode-deadlines')
     log.info("kite-engine auto-scan loop started (every %ss)", interval_s)
     try:
         while True:
@@ -2736,11 +2792,23 @@ async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
                 await _scan_all_connected_once()
             except Exception as exc:  # noqa: BLE001
                 log.warning("kite-engine auto-scan iteration error: %s", exc)
-            await asyncio.sleep(interval_s)
+            cadence = interval_s
+            try:
+                from app.core.mode_execution import timeframe_minutes
+                from app.services.exchanges.kite import accounts as kite_accounts
+                for account in kite_accounts._load_from_db():
+                    if account.connected and account.is_active:
+                        cfg = state.get_effective_config(account.user_id)
+                        cadence = min(cadence, timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes) * 60)
+            except Exception:
+                pass
+            await asyncio.sleep(cadence)
     except asyncio.CancelledError:
         log.info("kite-engine auto-scan loop stopped")
         raise
     finally:
+        deadline_task.cancel()
+        await asyncio.gather(deadline_task, return_exceptions=True)
         _auto_running = False
 
 
