@@ -376,7 +376,12 @@ def verify_deployment_identity(
             None, f"observation timestamp is unreadable: {latest.observed_at!r}",
             latest, registered, source=source)
     if seen_at.tzinfo is None:
-        seen_at = seen_at.replace(tzinfo=timezone.utc)
+        return IdentityVerdict(
+            None,
+            "deployment observation timestamp has no timezone; cannot establish "
+            "when the egress address was checked",
+            latest, registered_ip, source=source,
+        )
     age = moment - seen_at
     if age < timedelta(0):
         return IdentityVerdict(
