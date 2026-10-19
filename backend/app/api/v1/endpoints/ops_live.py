@@ -64,6 +64,17 @@ def update_production_settings(
             raise HTTPException(409, 'Resolve and resume safe mode before enabling entries')
         if not cfg.allocation_capital_inr or not cfg.risk_limits:
             raise HTTPException(409, 'Set approved allocation and risk limits before enabling entries')
+        from app.core.risk_hierarchy import (
+            ENV_VAR, configured_hierarchy, missing_live_lane_caps,
+        )
+
+        hierarchy = configured_hierarchy({ENV_VAR: cfg.risk_limits})
+        missing = missing_live_lane_caps(hierarchy)
+        if missing:
+            raise HTTPException(
+                409, 'Complete the strategy, mode and position risk caps before '
+                'enabling entries: ' + ', '.join(missing),
+            )
     try:
         save_settings(cfg)
     except (OSError, ValueError) as exc:
