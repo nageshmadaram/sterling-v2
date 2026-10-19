@@ -234,3 +234,82 @@ async def test_pending_or_unknown_stop_prevents_false_active_gtt_certification()
     kite.place_gtt.assert_not_called()
     kite.modify_gtt.assert_not_called()
     kite.delete_gtt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unknown_gtt_readback_is_advisory_and_never_releases_fence():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-1",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("stop-1")
+    kite=KiteClient(api_key="fake",api_secret="fake",access_token="fake",is_paper=False)
+    kite._account_id=c.account_id
+    kite.get_gtts=AsyncMock(return_value=[{
+        "id":901,"status":"active","condition":{
+            "exchange":"NSE","tradingsymbol":"INFY"},
+    }])
+    kite.get_orders=AsyncMock(return_value=[])
+    kite.place_gtt=AsyncMock(side_effect=AssertionError("NO WRITE"))
+    kite.modify_gtt=AsyncMock(side_effect=AssertionError("NO MODIFY"))
+    kite.delete_gtt=AsyncMock(side_effect=AssertionError("NO DELETE"))
+    report=await outbox.readback_stop_command("stop-1",broker_client=kite)
+    assert report.blocker=="POSSIBLE_EXISTING_GTT_REQUIRES_OPERATOR_RECONCILIATION"
+    assert report.candidate_gtt_ids==("901",)
+    assert not report.retry_authorized and not report.broker_writes
+    assert outbox.get("stop-1").status=="OUTCOME_UNKNOWN"
+    with pytest.raises(outbox.StopCommandConflict,match="PREVIOUS_CHANGE_UNRESOLVED"):
+        outbox.reserve_stop_command(c.id,"new-key",kind="PLACE",
+                                    desired_trigger=95,expected_revision=c.revision)
+    kite.place_gtt.assert_not_called()
+    kite.modify_gtt.assert_not_called()
+    kite.delete_gtt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_gtt_or_broker_disconnection_does_not_authorize_retry():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-1",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("stop-1")
+    kite=KiteClient(api_key="fake",api_secret="fake",access_token="fake",is_paper=False)
+    kite._account_id=c.account_id
+    kite.get_gtts=AsyncMock(return_value=[])
+    kite.get_orders=AsyncMock(return_value=[])
+    report=await outbox.readback_stop_command("stop-1",broker_client=kite)
+    assert report.blocker=="ABSENCE_OF_GTT_DOES_NOT_PROVE_NO_PRIOR_SUBMISSION"
+    assert not report.retry_authorized
+    kite.get_gtts=AsyncMock(side_effect=TimeoutError("Kite disconnected"))
+    report=await outbox.readback_stop_command("stop-1",broker_client=kite)
+    assert report.blocker=="BROKER_BOOK_READ_UNAVAILABLE"
+    assert not report.retry_authorized
+    assert outbox.get("stop-1").status=="OUTCOME_UNKNOWN"
+
+
+@pytest.mark.asyncio
+async def test_open_gtt_child_or_unknown_identity_never_auto_resolves():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-1",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    kite=KiteClient(api_key="fake",api_secret="fake",access_token="fake",is_paper=False)
+    kite._account_id=c.account_id
+    kite.get_gtts=AsyncMock(return_value=[])
+    kite.get_orders=AsyncMock(return_value=[{
+        "exchange":"NSE","tradingsymbol":"INFY",
+        "transaction_type":"SELL","status":"OPEN",
+    }])
+    report=await outbox.readback_stop_command("stop-1",broker_client=kite)
+    assert report.blocker=="BROKER_CHILD_OR_MANUAL_ORDER_UNRESOLVED"
+    kite._account_id="OTHER"
+    report=await outbox.readback_stop_command("stop-1",broker_client=kite)
+    assert report.blocker=="BROKER_CLIENT_IDENTITY_UNVERIFIED"
+    assert not report.retry_authorized
+    assert outbox.get("stop-1").status=="RESERVED"
