@@ -1,5 +1,14 @@
 # Sterling — The Ten Lane Manifests
 
+> **Historical snapshot — not a live-entry authorization (20 October 2026).**
+> The lane-state tables below describe an earlier implementation. The current
+> `backend/app/core/lane_registry.py` declares all five Snapback modes and all
+> five SuperTrend modes as `LIVE_MINIMUM` with defined rules, behind the master
+> live-entry kill switch. Gamma-Unwind is a separate release originator.
+> Do not use the older swing-only/research rows below to infer present runtime
+> support, nor interpret `LIVE_MINIMUM` as broker certification. The current
+> operator probe still blocks release on missing host/broker/restore evidence.
+
 A lane is one `(strategy, mode)` experiment. It carries its own rules, its own
 evidence and its own verdict, and none of that leaks sideways.
 
