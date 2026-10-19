@@ -37,7 +37,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
   });
 
   it('hydrates only explicitly allowlisted TV preferences', () => {
-    localStorage.setItem(storagePrefix + 'streamos_favs_v13', '["demo"]');
+    localStorage.setItem(storagePrefix + 'streamos_favs_v14', '["demo"]');
     localStorage.setItem('sterling.auth.token', 'PRIVATE-CREDENTIAL');
     render(<TvWorkspace />);
     const frame = screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
@@ -46,7 +46,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
     expect(post).toHaveBeenCalledTimes(1);
     const payload = post.mock.calls[0][0] as { type: string; values: Record<string, string> };
     expect(payload.type).toBe('sterling.tv.hydrate');
-    expect(payload.values.streamos_favs_v13).toBe('["demo"]');
+    expect(payload.values.streamos_favs_v14).toBe('["demo"]');
     expect(JSON.stringify(payload)).not.toContain('PRIVATE-CREDENTIAL');
     expect(post.mock.calls[0][1]).toBe('*'); // opaque sandbox frame
   });
@@ -55,50 +55,83 @@ describe('Sterling Spectrum IPTV isolation', () => {
     render(<TvWorkspace />);
     sendFromFrame('sterling.tv.ready');
     sendFromFrame('sterling.tv.save', {
-      key: 'streamos_sources_v13', value: '[{"name":"Demo"}]',
+      key: 'streamos_sources_v14', value: '[{"name":"Demo"}]',
     });
-    expect(localStorage.getItem(storagePrefix + 'streamos_sources_v13'))
+    expect(localStorage.getItem(storagePrefix + 'streamos_sources_v14'))
       .toBe('[{"name":"Demo"}]');
     sendFromFrame('sterling.tv.save', {
       key: 'sterling.auth.token', value: 'ATTACK',
     });
     expect(localStorage.getItem(storagePrefix + 'sterling.auth.token')).toBeNull();
     sendFromFrame('sterling.tv.save', {
-      key: 'streamos_stats_v13', value: 'X'.repeat(500_001),
+      key: 'streamos_stats_v14', value: 'X'.repeat(500_001),
     });
-    expect(localStorage.getItem(storagePrefix + 'streamos_stats_v13')).toBeNull();
-    expect(TV_STORAGE_KEYS).toHaveLength(5);
+    expect(localStorage.getItem(storagePrefix + 'streamos_stats_v14')).toBeNull();
+    expect(TV_STORAGE_KEYS).toHaveLength(6);
+  });
+
+  it('migrates saved v13 subscriptions into the v14 player without exposing app secrets', () => {
+    localStorage.setItem(storagePrefix + 'streamos_favs_v13', '["older favorite"]');
+    localStorage.setItem('sterling.auth.token', 'secret-not-shared');
+    render(<TvWorkspace />);
+    const frame = screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    sendFromFrame('sterling.tv.ready');
+    const payload = post.mock.calls[0][0] as {
+      type: string;
+      values: Record<string, string>;
+    };
+    expect(payload.values.streamos_favs_v14).toBe('["older favorite"]');
+    expect(localStorage.getItem(storagePrefix + 'streamos_favs_v14'))
+      .toBe('["older favorite"]');
+    expect(JSON.stringify(payload)).not.toContain('secret-not-shared');
+    expect(payload.values.streamos_favs_v13).toBeUndefined();
+  });
+
+  it('persists v14 startup channels independently from broker state', () => {
+    render(<TvWorkspace />);
+    sendFromFrame('sterling.tv.ready');
+    const startup = JSON.stringify({
+      name: 'Default station',
+      url: 'https://example.com/stream.m3u8',
+    });
+    sendFromFrame('sterling.tv.save', {
+      key: 'streamos_startup_channel_v14', value: startup,
+    });
+    expect(localStorage.getItem(storagePrefix + 'streamos_startup_channel_v14'))
+      .toBe(startup);
+    expect(localStorage.getItem('sterling.auth.token')).toBeNull();
   });
 
   it('ignores early player-history writes before stored playlists have hydrated', () => {
-    localStorage.setItem(storagePrefix + 'streamos_history_v13', '["saved"]');
+    localStorage.setItem(storagePrefix + 'streamos_history_v14', '["saved"]');
     render(<TvWorkspace />);
     sendFromFrame('sterling.tv.save', {
-      key: 'streamos_history_v13', value: '["temporary startup channel"]',
+      key: 'streamos_history_v14', value: '["temporary startup channel"]',
     });
-    expect(localStorage.getItem(storagePrefix + 'streamos_history_v13')).toBe('["saved"]');
+    expect(localStorage.getItem(storagePrefix + 'streamos_history_v14')).toBe('["saved"]');
     sendFromFrame('sterling.tv.ready');
     sendFromFrame('sterling.tv.save', {
-      key: 'streamos_history_v13', value: '["newly played channel"]',
+      key: 'streamos_history_v14', value: '["newly played channel"]',
     });
-    expect(localStorage.getItem(storagePrefix + 'streamos_history_v13'))
+    expect(localStorage.getItem(storagePrefix + 'streamos_history_v14'))
       .toBe('["newly played channel"]');
   });
 
   it('ignores iframe messages with the wrong origin or unrelated sender', () => {
     render(<TvWorkspace />);
     sendFromFrame('sterling.tv.save', {
-      key: 'streamos_favs_v13', value: '["bad"]',
+      key: 'streamos_favs_v14', value: '["bad"]',
     }, 'https://example.com');
-    expect(localStorage.getItem(storagePrefix + 'streamos_favs_v13')).toBeNull();
+    expect(localStorage.getItem(storagePrefix + 'streamos_favs_v14')).toBeNull();
     act(() => {
       window.dispatchEvent(new MessageEvent('message', {
-        data: { type: 'sterling.tv.save', key: 'streamos_favs_v13', value: '["bad"]' },
+        data: { type: 'sterling.tv.save', key: 'streamos_favs_v14', value: '["bad"]' },
         origin: 'null',
         source: window,
       }));
     });
-    expect(localStorage.getItem(storagePrefix + 'streamos_favs_v13')).toBeNull();
+    expect(localStorage.getItem(storagePrefix + 'streamos_favs_v14')).toBeNull();
   });
 
   it('does not mount broker or order UI inside the TV view', () => {
