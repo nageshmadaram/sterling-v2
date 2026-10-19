@@ -35,16 +35,9 @@ check() {
     esac
   else
     record "$label" FAIL "exit=$status, see private log"
-    case "$label" in
-      operator_*)
-        # Operator logs can contain personal identity and account details.
-        # Do not spill them into shared terminals or copied chat transcripts.
-        ;;
-      *)
-        tail -n 12 "$REPORT/$label.log" |
-          sed -E 's/(token|password|secret|access_key)=([^[:space:]]+)/\1=[REDACTED]/Ig'
-        ;;
-    esac
+    # Build and test logs can contain credentials, paths and broker identity,
+    # not only logs from operator_ commands. Keep every raw log in the private
+    # report directory; do not replay excerpts to a shared terminal.
   fi
 }
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
@@ -80,7 +73,6 @@ test_group() {
     record "$label" PASS "isolated regression suite passed"
   else
     record "$label" FAIL "exit=$status, see private log"
-    tail -n 16 "$REPORT/$label.log"
   fi
 }
 
