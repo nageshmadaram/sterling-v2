@@ -329,5 +329,6 @@ def test_cli_offers_fail_closed_certify_strict_while_advisory_is_separate():
     content = cli.read_text(encoding="utf-8")
     assert 'if [ "${2:-}" = "strict" ]; then' in content
     assert "if report.release_ready:" in content
+    assert "exposure_snapshot(include_broker=True)" in content
     assert "STRICT CERTIFICATION: BLOCKED" in content
     assert "sys.exit(1)" in content
