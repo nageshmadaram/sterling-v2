@@ -214,7 +214,7 @@ async def test_pending_or_unknown_stop_prevents_false_active_gtt_certification()
         "id":901,"status":"active",
         "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                      "trigger_values":[95]},
-        "orders":[{"transaction_type":"SELL","product":"CNC",
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                    "quantity":4,"order_type":"LIMIT","price":94.5}],
     })
     kite.get_orders=AsyncMock(return_value=[])
@@ -530,7 +530,7 @@ async def test_unverified_ack_vetoes_existing_stop_certification():
         "id":901,"status":"active",
         "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                      "trigger_values":[95]},
-        "orders":[{"transaction_type":"SELL","product":"CNC",
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                    "quantity":4,"order_type":"LIMIT","price":94.5}],
     })
     kite.get_orders=AsyncMock(return_value=[])
@@ -552,7 +552,7 @@ def _fake_ack_kite(campaign, *, trigger=95, gtts=None, orders=None,
         "id":901,"status":"active",
         "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                      "trigger_values":[trigger]},
-        "orders":[{"transaction_type":"SELL","product":"CNC",
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                    "quantity":4,"order_type":"LIMIT","price":float(trigger)-0.5}],
     }
     kite.get_gtt=AsyncMock(return_value=rec)
@@ -659,7 +659,7 @@ async def test_broker_gtt_faults_leave_ack_and_campaign_unverified(fault,expecte
             "id":901,"status":"active",
             "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                          "trigger_values":[94]},
-            "orders":[{"transaction_type":"SELL","product":"CNC",
+            "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                        "quantity":4,"order_type":"LIMIT","price":93.5}],
         })
     elif fault=="wrong_child":
@@ -667,7 +667,7 @@ async def test_broker_gtt_faults_leave_ack_and_campaign_unverified(fault,expecte
             "id":901,"status":"active",
             "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                          "trigger_values":[95]},
-            "orders":[{"transaction_type":"BUY","product":"CNC",
+            "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"BUY","product":"CNC",
                        "quantity":4,"order_type":"LIMIT","price":94.5}],
         })
     elif fault=="disconnect":
