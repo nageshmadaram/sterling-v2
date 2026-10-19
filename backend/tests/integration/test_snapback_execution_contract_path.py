@@ -242,6 +242,14 @@ def test_evidence_failure_never_breaks_an_entry(collector, cfg, monkeypatch):
         raise RuntimeError("evidence subsystem down")
 
     monkeypatch.setattr(mod, "build_execution_contract_record", explode)
+    # Scope THIS PAPER-OBSERVATION TEST to evidence failure. An isolated
+    # test environment has no promoted lane, and production capacity must
+    # still refuse originations without one. Only the test's lane decision
+    # is substituted; the real production guard is not changed.
+    monkeypatch.setattr(
+        "app.services.snapback_capacity._lane_origination",
+        lambda _lane: None,
+    )
 
     candidate = _candidate(25000)
     _, result = _enter(collector, cfg, [candidate], {candidate.symbol: _quote(candidate.symbol)})
