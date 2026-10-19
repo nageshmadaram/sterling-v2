@@ -439,3 +439,16 @@ New continuation, **not yet locally tested**:
 canonical order journal and signed fill ledger, independent account/holdings
 and order-history reconciliation, safe resolution of orphan GTTs, and
 automatic real-money exit capability. A triggered GTT is not proof of fill.
+
+
+### Additional fired-stop fail-closed checks
+
+The observer additionally quarantines a `PROTECTED` campaign when its
+signed ledger no longer agrees with campaign holdings, even if Kite still
+lists the old GTT as active. A concurrent unresolved stop mutation
+(`RESERVED`, `OUTCOME_UNKNOWN`, or `ACK_PENDING_VERIFICATION`) also
+blocks claiming the old GTT still protects the position. Both cases
+preserve the original GTT identity, leave fill projections unchanged, and
+require independent operator/canonical recovery. Additional fake-Kite
+regressions cover the ledger drift, unresolved TSL and a changed SELL
+child instrument. None of these changes enables live trading.
