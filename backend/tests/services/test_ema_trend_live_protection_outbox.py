@@ -539,3 +539,154 @@ async def test_unverified_ack_vetoes_existing_stop_certification():
             c.id,"901",expected_revision=c.revision,broker_client=kite)
     assert store.get(c.id).phase=="PROTECTION_REQUIRED"
     assert outbox.get("ack-cert").status=="ACK_PENDING_VERIFICATION"
+
+
+def _fake_ack_kite(campaign, *, trigger=95, gtts=None, orders=None,
+                   broker_qty=None):
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+    kite=KiteClient(api_key="fake",api_secret="fake",
+                    access_token="fake",is_paper=False)
+    kite._account_id=campaign.account_id
+    rec={
+        "id":901,"status":"active",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                     "trigger_values":[trigger]},
+        "orders":[{"transaction_type":"SELL","product":"CNC",
+                   "quantity":4,"order_type":"LIMIT","price":float(trigger)-0.5}],
+    }
+    kite.get_gtt=AsyncMock(return_value=rec)
+    kite.get_gtts=AsyncMock(return_value=gtts if gtts is not None else [{
+        "id":901,"status":"active",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY"},
+    }])
+    kite.get_orders=AsyncMock(return_value=orders if orders is not None else [])
+    kite.get_positions_raw=AsyncMock(return_value={
+        "net":[{"exchange":"NSE","tradingsymbol":"INFY","product":"CNC",
+                "quantity":campaign.held_qty if broker_qty is None else broker_qty}],
+    })
+    kite.get_holdings=AsyncMock(return_value=[])
+    for name in ("place_order","cancel_order","modify_order",
+                 "place_gtt","modify_gtt","delete_gtt"):
+        setattr(kite,name,AsyncMock(side_effect=AssertionError("NO BROKER MUTATION")))
+    return kite
+
+
+def _no_writes(kite):
+    for name in ("place_order","cancel_order","modify_order",
+                 "place_gtt","modify_gtt","delete_gtt"):
+        getattr(kite,name).assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verified_ack_atomically_advances_campaign_and_releases_fence():
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-verified",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-verified")
+    outbox.record_unverified_broker_ack("ack-verified","901")
+    kite=_fake_ack_kite(c)
+    verified=await outbox.verify_acknowledged_stop("ack-verified",broker_client=kite)
+    assert verified.status=="VERIFIED" and verified.broker_trigger_id=="901"
+    saved=store.get(c.id)
+    assert saved.phase=="PROTECTED"
+    assert saved.protection.verified_active
+    assert saved.protection.trigger_id=="901"
+    assert saved.confirmed_bought==4 and saved.held_qty==4
+    assert saved.revision==c.revision+1
+    assert outbox.get("ack-verified").status=="VERIFIED"
+    _no_writes(kite)
+    with pytest.raises(outbox.StopCommandConflict,match="BROKER_ACK_UNVERIFIED"):
+        await outbox.verify_acknowledged_stop("ack-verified",broker_client=kite)
+
+
+@pytest.mark.asyncio
+async def test_trailing_ack_only_increases_confirmed_stop_and_preserves_gtt_identity():
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"trail-verified",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("trail-verified")
+    outbox.record_unverified_broker_ack("trail-verified","901")
+    kite=_fake_ack_kite(c,trigger=96)
+    result=await outbox.verify_acknowledged_stop("trail-verified",broker_client=kite)
+    assert result.status=="VERIFIED"
+    after=store.get(c.id)
+    assert after.stop==Decimal("96")
+    assert after.protection.trigger==Decimal("96")
+    assert after.protection.trigger_id=="901"
+    assert after.phase=="PROTECTED"
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault,expected",[
+    ("missing","MISSING_OR_COMPETING_GTT"),
+    ("competing","MISSING_OR_COMPETING_GTT"),
+    ("order","WORKING_BROKER_ORDER"),
+    ("qty","BROKER_HOLDING_MISMATCH"),
+    ("weak","WEAKER_THAN_REQUEST"),
+    ("disconnect","BROKER_FACTS_UNAVAILABLE"),
+])
+async def test_broker_gtt_faults_leave_ack_and_campaign_unverified(fault,expected):
+    from unittest.mock import AsyncMock
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-fault",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-fault")
+    outbox.record_unverified_broker_ack("ack-fault","901")
+    kite=_fake_ack_kite(c)
+    if fault=="missing":
+        kite.get_gtts=AsyncMock(return_value=[])
+    elif fault=="competing":
+        kite.get_gtts=AsyncMock(return_value=[
+            {"id":901,"status":"active","condition":{
+                "exchange":"NSE","tradingsymbol":"INFY"}},
+            {"id":902,"status":"active","condition":{
+                "exchange":"NSE","tradingsymbol":"INFY"}},
+        ])
+    elif fault=="order":
+        kite.get_orders=AsyncMock(return_value=[{
+            "exchange":"NSE","tradingsymbol":"INFY",
+            "transaction_type":"SELL","status":"OPEN",
+        }])
+    elif fault=="qty":
+        kite.get_positions_raw=AsyncMock(return_value={
+            "net":[{"exchange":"NSE","tradingsymbol":"INFY",
+                    "product":"CNC","quantity":3}]})
+    elif fault=="weak":
+        kite.get_gtt=AsyncMock(return_value={
+            "id":901,"status":"active",
+            "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                         "trigger_values":[94]},
+            "orders":[{"transaction_type":"SELL","product":"CNC",
+                       "quantity":4,"order_type":"LIMIT","price":93.5}],
+        })
+    elif fault=="disconnect":
+        kite.get_gtt=AsyncMock(side_effect=TimeoutError("Kite offline"))
+    with pytest.raises(outbox.StopCommandConflict,match=expected):
+        await outbox.verify_acknowledged_stop("ack-fault",broker_client=kite)
+    assert outbox.get("ack-fault").status=="ACK_PENDING_VERIFICATION"
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_verified_stop_transaction_rollback_cannot_release_fence(monkeypatch):
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-crash",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-crash")
+    outbox.record_unverified_broker_ack("ack-crash","901")
+    kite=_fake_ack_kite(c)
+    original=store._save
+    def simulated_disk_fault(*args,**kwargs):
+        raise RuntimeError("CRASH_DURING_ATOMIC_STOP_COMMIT")
+    monkeypatch.setattr(store,"_save",simulated_disk_fault)
+    with pytest.raises(RuntimeError,match="CRASH_DURING_ATOMIC_STOP_COMMIT"):
+        await outbox.verify_acknowledged_stop("ack-crash",broker_client=kite)
+    monkeypatch.setattr(store,"_save",original)
+    assert outbox.get("ack-crash").status=="ACK_PENDING_VERIFICATION"
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+    recovered=await outbox.verify_acknowledged_stop("ack-crash",broker_client=kite)
+    assert recovered.status=="VERIFIED"
+    _no_writes(kite)
