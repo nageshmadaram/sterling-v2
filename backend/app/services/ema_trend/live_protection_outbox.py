@@ -349,9 +349,20 @@ async def readback_stop_command(command_id: str, *, broker_client) -> StopReadba
             return StopReadback(command_id,cmd.status,
                                 "BROKER_CHILD_OR_MANUAL_ORDER_UNRESOLVED",
                                 tuple(sorted(set(ids))))
-    if ids:
+    candidates=tuple(sorted(set(ids)))
+    if cmd.status=="ACK_PENDING_VERIFICATION":
+        if cmd.broker_trigger_id not in candidates:
+            return StopReadback(command_id,cmd.status,
+                                "ACKED_GTT_NOT_PRESENT_IN_BROKER_BOOK",candidates)
+        if len(candidates)!=1:
+            return StopReadback(command_id,cmd.status,
+                                "MULTIPLE_GTT_IDENTITIES_REQUIRE_RECONCILIATION",candidates)
+        return StopReadback(command_id,cmd.status,
+                            "ACKED_GTT_REQUIRES_EXACT_STOP_COVERAGE_VERIFICATION",
+                            candidates)
+    if candidates:
         return StopReadback(command_id,cmd.status,
                             "POSSIBLE_EXISTING_GTT_REQUIRES_OPERATOR_RECONCILIATION",
-                            tuple(sorted(set(ids))))
+                            candidates)
     return StopReadback(command_id,cmd.status,
                         "ABSENCE_OF_GTT_DOES_NOT_PROVE_NO_PRIOR_SUBMISSION")
