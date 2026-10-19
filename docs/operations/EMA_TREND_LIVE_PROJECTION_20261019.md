@@ -249,3 +249,37 @@ STERLING_LIVE_EXECUTION=0 .venv/bin/python -m pytest -q \
   tests/services/test_ema_trend_signal_admission.py \
   tests/services/test_ema_trend_runtime.py
 ```
+
+
+## Latest offline gate: stop request staging after 179 green tests
+
+The operator reran the earlier selected suite on commit `d8b47c84` and
+reported **179 passed, 0 failed in 6.16 seconds**, with
+`STERLING_LIVE_EXECUTION=0`. Main and dev were clean and synchronized.
+
+Additional changes (not yet locally verified):
+- `live_protection_outbox.reserve_stop_command` refuses a stop mutation if
+  **any** entry or exit remains nonterminal, and also refuses canonical
+  `SUBMITTED` and `PARTIAL` orders. A pending fill can change the number of
+  shares requiring broker protection even when the last journal projection
+  was acknowledged.
+- `live_stop_draft.draft_stop_command` builds a deterministic, **non-executable**
+  single CNC SELL GTT request using the existing Kite request builder. It
+  requires a durable command reservation, unchanged owner/account/instrument,
+  strict tightening for TSL, a positive tick-aligned bid and stop, and a stop
+  strictly below the quote. It checks the resulting SELL leg, exact quantity,
+  order type and limit price before returning a fingerprint.
+- `StopDraft.broker_write_authorized` is permanently `False`. The preview
+  contains **no** Kite client or order-write call. A caller-supplied bid
+  is NOT broker-certified market evidence; production must revalidate
+  authenticated current quotes, exposure and the canonical cross-process
+  write lease immediately before a permitted order mutation.
+- New offline test cases in `test_ema_trend_live_protection_outbox.py`
+  exercise GTT placement/TSL drafts, unknown outcomes, quote/tick failures,
+  pending order vetoes and draft determinism.
+
+**Still blocked:** transmitting real stop placements/modifications, GTT
+cancellation/child-fill reconciliation and automatic live SELL execution,
+including CNC settlement authorization and MIS-native stops. The offline
+request preview is preparation for fake-Kite write-path drills; it is not a
+release certification or an order-send authorization.
