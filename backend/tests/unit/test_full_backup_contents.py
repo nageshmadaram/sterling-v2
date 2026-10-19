@@ -194,6 +194,11 @@ def test_a_full_backup_proves_its_own_restore(tmp_path, sources, monkeypatch):
     safe.write_text("{}", encoding="utf-8")
     (lanes / "snapback.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv("STERLING_OBSERVATIONS_DB_PATH", str(evidence))
+    # The release probe sets an isolated STERLING_EVIDENCE_DB globally.
+    # Full-restore coverage checks that authoritative path before the
+    # observations fallback, so this test must point it to its actual
+    # temporary evidence fixture rather than the probe's empty DB.
+    monkeypatch.setenv("STERLING_EVIDENCE_DB", str(evidence))
     monkeypatch.setenv("STERLING_DB_PATH", str(runtime))
 
     result = create_full_backup(
