@@ -281,3 +281,53 @@ def test_automated_unknown_cannot_be_replaced_by_stored_pass(monkeypatch):
     gate = report.by_key["backup_restore"]
     assert gate.status == certification.UNKNOWN
     assert gate.detail == "backup could not be verified"
+
+
+def test_strict_release_verdict_requires_every_gate_and_known_zero_exposure():
+    """The CLI strict path consumes this verdict, not advisory/waiver text."""
+    all_pass = tuple(
+        certification.GateResult(g.key, certification.PASS, "verified")
+        for g in certification.RELEASE_GATES
+    )
+    report = certification.CertificationReport(
+        sha="a" * 40,
+        tag="candidate",
+        results=all_pass,
+        unresolved_exposure=0,
+    )
+    assert report.release_ready is True
+
+    unknown = certification.CertificationReport(
+        sha=report.sha,
+        tag=report.tag,
+        results=all_pass[:-1],
+        unresolved_exposure=0,
+    )
+    assert unknown.release_ready is False
+
+    unresolved = certification.CertificationReport(
+        sha=report.sha,
+        tag=report.tag,
+        results=all_pass,
+        unresolved_exposure=None,
+    )
+    assert unresolved.release_ready is False
+
+    stale_exposure = certification.CertificationReport(
+        sha=report.sha,
+        tag=report.tag,
+        results=all_pass,
+        unresolved_exposure=1,
+    )
+    assert stale_exposure.release_ready is False
+
+
+def test_cli_offers_fail_closed_certify_strict_while_advisory_is_separate():
+    from pathlib import Path
+
+    cli = Path(__file__).resolve().parents[3] / "scripts" / "sterlingctl"
+    content = cli.read_text(encoding="utf-8")
+    assert 'if [ "${2:-}" = "strict" ]; then' in content
+    assert "if report.release_ready:" in content
+    assert "STRICT CERTIFICATION: BLOCKED" in content
+    assert "sys.exit(1)" in content
