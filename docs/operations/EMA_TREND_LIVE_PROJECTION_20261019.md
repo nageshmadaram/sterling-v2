@@ -147,3 +147,54 @@ STERLING_LIVE_EXECUTION=0 .venv/bin/python -m pytest -q \
 ```
 
 No automated test execution has been reported against this follow-on commit.
+
+
+## Offline verification and exit-preflight continuation
+
+At commit `5e7ad334`, the operator verified **145/145 EMA offline tests
+passed** on Ubuntu with `STERLING_LIVE_EXECUTION=0`. No broker orders were sent
+by these tests.
+
+The subsequent fail-closed changes (not yet verified locally) are:
+
+- `LiveCampaign.orphan_stop_ids` persists each still-possibly-live GTT ID
+  after an exit makes the broker stop oversized. The ID survives restart,
+  is never silently dropped on repeated order-history replay, and prevents
+  claiming `PROTECTED` or `CLOSED` without explicit cleanup proof.
+- `live_lifecycle.decide_exit` now refuses a second automatic reduction if
+  an exit is still reserved/acknowledged/partial/unknown, or if an additional
+  entry might still fill. It preserves manual reconciliation requirements.
+- `live_exit_preflight.inspect_exit` performs **read-only Kite operations**:
+  fresh positions, holdings, orders, and GTTs on an exact real-account client.
+  It rejects ambiguous product ownership, overlapping settled/T1 holdings,
+  pending orders/GTTs, orphan stops, unknown client identity, and stale
+  campaign ownership. It returns `live_order_authorized=False` even when
+  all the checks pass; it is an evidence report, not a trading capability.
+- `test_ema_trend_live_exit_preflight.py` uses a fake Kite client with
+  AsyncMock wire reads. All mutation methods fail the test if touched.
+  Regression cases include disconnection, competing manual SELL, pending
+  BUY, stop-trigger child, stale/inconsistent broker inventory and orphan GTT.
+
+To rerun the selected EMA offline tests, add the new module to the earlier
+145-case suite:
+
+```bash
+cd ~/Sterling/backend
+STERLING_LIVE_EXECUTION=0 .venv/bin/python -m pytest -q \
+    tests/engines/ema_trend/test_live_contracts.py \
+    tests/services/test_ema_trend_live_order_facts.py \
+    tests/services/test_ema_trend_live_fill_projection.py \
+    tests/services/test_ema_trend_live_campaign_store.py \
+    tests/services/test_ema_trend_live_lifecycle.py \
+    tests/services/test_ema_trend_live_exit_preflight.py \
+    tests/services/test_ema_trend_readiness.py \
+    tests/services/test_ema_trend_signal_admission.py \
+    tests/services/test_ema_trend_runtime.py
+```
+
+**Not implemented and NOT certified:** broker stop `place_gtt` /
+`modify_gtt` / `delete_gtt` lifecycle for real EMA positions, safe
+automatic SELL through the canonical execution service after stop-child
+reconciliation, MIS exchange-native protective orders, account-wide broker
+order ownership, production static-egress/Kite binding checks, and moving-market
+acceptance. CI/CD remains out of scope until the end. Keep live entries OFF.
