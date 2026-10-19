@@ -115,3 +115,36 @@ def test_read_only_decisions_do_not_call_a_broker_order_method():
     result=decide_exit(campaign(),bid=100,stop_candidate=96)
     assert result.action=="REPLACE_STOP"
     assert verify_active_cnc_gtt(campaign(),gtt(),trigger_id="901").verified_active
+
+
+def test_pending_sell_prevents_second_stop_or_target_exit():
+    pending=BrokerIntent(
+        intent_key="exit-1",side="SELL",requested_qty=4,
+        order_id="SELL-1",status="ACKNOWLEDGED",
+    )
+    current=campaign().model_copy(update={"exits":[pending],"phase":"EXIT_PENDING"})
+    for price in (90,100,110):
+        result=decide_exit(current,bid=price,target=105,deadline_reached=(price==100))
+        assert result.action=="RECONCILE_BROKER"
+        assert result.reason=="EXIT_ALREADY_PENDING_OR_UNKNOWN"
+
+
+def test_live_orphan_broker_stop_disallows_another_exit_proposal():
+    current=campaign(protected=False).model_copy(
+        update={"phase":"RECOVERY_REQUIRED",
+                "orphan_stop_ids":["901"],
+                "protection_submission_unknown":True,
+                "flatten_requested":True})
+    result=decide_exit(current,bid=80)
+    assert result.action=="RECONCILE_BROKER"
+    assert result.reason=="UNRESOLVED_BROKER_STATE"
+
+
+def test_outstanding_additional_buy_blocks_duplicate_exit_on_stop_breach():
+    current=campaign()
+    add=BrokerIntent(intent_key="add-1",side="BUY",
+                     requested_qty=2,order_id="BUY-2",status="ACKNOWLEDGED")
+    current=current.model_copy(update={"entries":[*current.entries,add]})
+    result=decide_exit(current,bid=90)
+    assert result.action=="RECONCILE_BROKER"
+    assert result.reason=="PENDING_ENTRY_CAN_INCREASE_LIVE_EXPOSURE"
