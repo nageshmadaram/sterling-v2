@@ -8,6 +8,8 @@ import { describe, expect, it } from 'vitest';
 const tvPage = readFileSync(resolve(process.cwd(), 'public/tv/index.html'), 'utf8');
 const nginx = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
 const gateway = readFileSync(resolve(process.cwd(), '../scripts/serve_frontend.mjs'), 'utf8');
+const originalKiteCss = readFileSync(resolve(process.cwd(), 'src/styles/terminal.css'), 'utf8');
+const spectrumSpacingCss = readFileSync(resolve(process.cwd(), 'src/styles/globals.css'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
   it('serves a distinct streaming document instead of injecting its scripts into trading', () => {
@@ -18,6 +20,21 @@ describe('Sterling TV static integration safety', () => {
     expect(tvPage).toContain('window.top === window.self');
     expect(tvPage).not.toContain('localStorage.getItem(');
     expect(tvPage).not.toContain('localStorage.setItem(');
+  });
+
+  it('includes newly pushed v14 IPTV channels, startup settings and mobile tools', () => {
+    expect(tvPage).toContain('streamos_startup_channel_v14');
+    expect(tvPage).toContain('streamos_sources_v14');
+    expect(tvPage).toContain('playStream(getStartupChannelObject(),0)');
+    expect(tvPage).toContain('toggleEmbeddedTvTools');
+    expect(tvPage).toContain('toggleHoverPreviewAudio');
+    expect(tvPage).toContain("type:'sterling.tv.ready'");
+  });
+
+  it('spaces adjacent KITE and TV underlines without restyling original KITE', () => {
+    expect(spectrumSpacingCss).toContain('margin-inline-start: 10px');
+    expect(spectrumSpacingCss).toContain('.mobile-view-toggle.unified-view-toggle');
+    expect(originalKiteCss).not.toContain('sterling-spectrum-tabs');
   });
 
   it('never automatically sends the operator playlist URL to public proxy services', () => {
