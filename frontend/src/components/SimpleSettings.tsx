@@ -2,6 +2,7 @@ import { api } from '../utils/api';
 import { useKiteTelegramTargets } from '../hooks/useKiteTelegram';
 import { useKiteSettings } from '../store/useKiteSettings';
 import type { NavItem } from './kite/KiteLayout';
+import { SpectrumSettings } from './kite/SpectrumSettings';
 
 // ── Status dots shown in header (always visible in simple mode) ───────────────
 export function SimpleStatusDots() {
@@ -43,6 +44,9 @@ export function SimpleSettingsDrawer({ open, onClose }: { open: boolean; onClose
             <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--t-bright)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>DISPLAY</span>
           </div>
           <DefaultPageLoadSectionPicker />
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <SpectrumSettings />
         </div>
 
       </div>
