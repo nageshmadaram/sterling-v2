@@ -313,3 +313,35 @@ def test_an_unknown_submission_stays_unknown(tmp_path):
                                "filled_quantity": 0, "order_id": ""})(),
     )
     assert intents.get(intent.intent_id).state is IntentState.SUBMITTED_UNKNOWN
+
+
+@pytest.mark.parametrize("bad_limit", ["NaN", "Infinity", "-Infinity", '"nan"', '"inf"'])
+def test_nonfinite_limits_fail_closed(bad_limit):
+    raw = '{"global": {"": ' + bad_limit + '}}'
+    with pytest.raises(RiskConfigurationError, match="non-finite"):
+        configured_hierarchy({ENV_VAR: raw})
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_risk_request_fails_closed(invalid):
+    hierarchy = configured_hierarchy({ENV_VAR: LIMITS})
+    assert hierarchy is not None
+    with pytest.raises(RiskConfigurationError, match="requested risk must be finite"):
+        hierarchy.check(
+            strategy_id="snapback", lane_key="snapback:swing",
+            requested=invalid, underlying="NIFTY",
+        )
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+def test_nonfinite_used_exposure_fails_closed(invalid):
+    from app.core.risk_hierarchy import RiskLevel
+
+    hierarchy = configured_hierarchy({ENV_VAR: LIMITS})
+    assert hierarchy is not None
+    with pytest.raises(RiskConfigurationError, match="non-finite usage"):
+        hierarchy.check(
+            strategy_id="snapback", lane_key="snapback:swing",
+            requested=1.0, used={RiskLevel.GLOBAL: invalid},
+            underlying="NIFTY",
+        )
