@@ -625,6 +625,7 @@ async def test_trailing_ack_only_increases_confirmed_stop_and_preserves_gtt_iden
     ("order","WORKING_BROKER_ORDER"),
     ("qty","BROKER_HOLDING_MISMATCH"),
     ("weak","WEAKER_THAN_REQUEST"),
+    ("wrong_child","GTT_CONTRACT_UNVERIFIED"),
     ("disconnect","BROKER_FACTS_UNAVAILABLE"),
 ])
 async def test_broker_gtt_faults_leave_ack_and_campaign_unverified(fault,expected):
@@ -660,6 +661,14 @@ async def test_broker_gtt_faults_leave_ack_and_campaign_unverified(fault,expecte
                          "trigger_values":[94]},
             "orders":[{"transaction_type":"SELL","product":"CNC",
                        "quantity":4,"order_type":"LIMIT","price":93.5}],
+        })
+    elif fault=="wrong_child":
+        kite.get_gtt=AsyncMock(return_value={
+            "id":901,"status":"active",
+            "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                         "trigger_values":[95]},
+            "orders":[{"transaction_type":"BUY","product":"CNC",
+                       "quantity":4,"order_type":"LIMIT","price":94.5}],
         })
     elif fault=="disconnect":
         kite.get_gtt=AsyncMock(side_effect=TimeoutError("Kite offline"))
@@ -726,3 +735,23 @@ def test_existing_stop_outbox_table_upgrades_in_place_with_no_data_loss():
             "SELECT name FROM sqlite_master WHERE type='index'"
         ).fetchall()}
         assert "ux_ema_live_stop_outstanding_v2" in indexes
+
+
+@pytest.mark.asyncio
+async def test_trail_weak_against_requested_stop_leaves_original_gtt_and_fence():
+    # The broker's GTT still meets the old 95 stop, but the acknowledged
+    # trailing command requested 96. It MUST NOT be marked verified.
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"trail-weak",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("trail-weak")
+    outbox.record_unverified_broker_ack("trail-weak","901")
+    kite=_fake_ack_kite(c,trigger=95)
+    with pytest.raises(outbox.StopCommandConflict,match="WEAKER_THAN_REQUEST"):
+        await outbox.verify_acknowledged_stop("trail-weak",broker_client=kite)
+    after=store.get(c.id)
+    assert after.revision==c.revision
+    assert after.stop==Decimal("95")
+    assert after.protection.trigger_id=="901"
+    assert outbox.get("trail-weak").status=="ACK_PENDING_VERIFICATION"
+    _no_writes(kite)
