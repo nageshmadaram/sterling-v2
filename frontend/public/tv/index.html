@@ -691,6 +691,12 @@
                   allowfullscreen
                 ></iframe>
 
+                <!-- A real, user-gesture recovery path for mobile WebKit and
+                     Android browsers that block iframe autoplay. -->
+                <button id="tv-mobile-play" type="button"
+                  onclick="event.stopPropagation(); resumeTvPlayback()"
+                  class="hidden absolute z-40 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 border border-white/40 text-white text-xs sm:text-sm font-semibold rounded-xl px-5 py-3 shadow-2xl"
+                  aria-label="Tap to play live TV">Tap to play live TV</button>
                 <!-- MOBILE / BROWSER AUTO-PLAY UNMUTE PILL (Prevents Mobile Autoplay Deadlock!) -->
                 <button
                   id="mobile-unmute-pill"
@@ -2185,7 +2191,11 @@
       embed.classList.add('hidden');
       const video = document.getElementById('video-player');
       video.classList.remove('hidden');
+      video.pause();
+      video.onloadedmetadata = null;
+      video.onerror = null;
       video.removeAttribute('src');
+      video.load();
     }
 
     function recordChannelPlay(channel) {
@@ -2212,6 +2222,7 @@
       serverStage = stage;
 
       resetVideoInstance();
+      document.getElementById('tv-mobile-play')?.classList.add('hidden');
 
       const video = document.getElementById('video-player');
       const spinner = document.getElementById('player-spinner');
@@ -2253,8 +2264,20 @@
       }
     }
 
+    // Safari/iOS supports HLS natively even when MediaSource and hls.js are
+    // unavailable or blocked by mobile network policy.
+    const hasHlsJs = () => typeof Hls !== 'undefined' && Hls.isSupported();
+    const hasNativeHls = video => !!video.canPlayType('application/vnd.apple.mpegurl') ||
+      !!video.canPlayType('application/x-mpegURL');
+    const preferNativeHls = video => hasNativeHls(video) &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
     function startHlsPlayback(channel, video, spinner) {
-      if (Hls.isSupported()) {
+      // Mobile WebKit has better reliability with native HLS than MSE workers.
+      if (preferNativeHls(video)) {
+        startNativeHlsPlayback(channel, video, spinner);
+      } else if (hasHlsJs()) {
         let parsed = false;
         const cfg = {
           enableWorker: true,
@@ -2302,58 +2325,81 @@
             }
           }
         });
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native iOS / Mobile Safari HLS Playback
-        video.src = channel.url;
-        const iosWatchdog = setTimeout(() => {
-          if (video.readyState < 2 && activeChannel === channel) escalateStage(channel);
-        }, 7000);
-        video.onloadedmetadata = () => {
-          clearTimeout(iosWatchdog);
-          spinner.classList.add('hidden');
-          syncPlayerAspectToStream();
-          safeAutoplayVideo(video);
-        };
-        video.onerror = () => {
-          clearTimeout(iosWatchdog);
-          escalateStage(channel);
-        };
+      } else if (hasNativeHls(video)) {
+        startNativeHlsPlayback(channel, video, spinner);
       } else {
-        escalateStage(channel);
+        showTvPlaybackPrompt('This browser cannot play this stream');
       }
     }
 
-    // Mobile-Safe Autoplay: Starts muted if browser blocks unmuted autoplay, showing a clear "Tap to Unmute" pill
+    function startNativeHlsPlayback(channel, video, spinner) {
+      const watchdog = setTimeout(() => {
+        if (activeChannel === channel && video.readyState < 2) escalateStage(channel);
+      }, 10000);
+      video.onloadedmetadata = () => {
+        clearTimeout(watchdog);
+        spinner.classList.add('hidden');
+        syncPlayerAspectToStream();
+        safeAutoplayVideo(video);
+      };
+      video.onerror = () => {
+        clearTimeout(watchdog);
+        escalateStage(channel);
+      };
+      video.src = channel.url;
+      video.load();
+    }
+
+    // User gesture is required by mobile browsers inside embedded iframes.
+    // Do not start with sound on mobile and then hope autoplay rejects: a
+    // failed promise otherwise leaves the spinner/player apparently frozen.
+    function showTvPlaybackPrompt(label = 'Tap to play live TV') {
+      const button = document.getElementById('tv-mobile-play');
+      if (button) {
+        button.textContent = label;
+        button.classList.remove('hidden');
+      }
+      document.getElementById('player-spinner')?.classList.add('hidden');
+    }
+
+    function resumeTvPlayback() {
+      const video = document.getElementById('video-player');
+      const button = document.getElementById('tv-mobile-play');
+      if (!video || !activeChannel) return;
+      if (video.readyState === 0 && !video.src && !hls) {
+        playStream(activeChannel, 0);
+        return;
+      }
+      video.muted = true;
+      const promise = video.play(); // must run synchronously inside the tap
+      Promise.resolve(promise).then(() => {
+        if (button) button.classList.add('hidden');
+        syncPlayPauseIcons(false);
+        updateVolIcon(true);
+        document.getElementById('mobile-unmute-pill')?.classList.remove('hidden');
+      }).catch(() => showTvPlaybackPrompt('Tap to retry playback'));
+    }
+
     function safeAutoplayVideo(video) {
       const unmutePill = document.getElementById('mobile-unmute-pill');
-
-      if (userHasInteractedWithAudio) {
-        video.muted = false;
-        video.play().then(() => {
+      const playButton = document.getElementById('tv-mobile-play');
+      const mutedFirst = IS_MOBILE_VIEW() || !userHasInteractedWithAudio;
+      video.muted = mutedFirst;
+      const attempt = Promise.resolve(video.play());
+      attempt.then(() => {
+        syncPlayPauseIcons(false);
+        updateVolIcon(video.muted);
+        if (unmutePill) unmutePill.classList.toggle('hidden', !video.muted);
+        if (playButton) playButton.classList.add('hidden');
+      }).catch(() => {
+        video.muted = true;
+        Promise.resolve(video.play()).then(() => {
           syncPlayPauseIcons(false);
-          updateVolIcon(false);
-          if (unmutePill) unmutePill.classList.add('hidden');
-        }).catch(() => {
-          video.muted = true;
           updateVolIcon(true);
           if (unmutePill) unmutePill.classList.remove('hidden');
-          video.play().then(() => syncPlayPauseIcons(false)).catch(() => {});
-        });
-      } else {
-        // First load on mobile/desktop: try unmuted, fallback immediately to muted + visible Unmute pill
-        video.muted = false;
-        video.play().then(() => {
-          userHasInteractedWithAudio = true;
-          syncPlayPauseIcons(false);
-          updateVolIcon(false);
-          if (unmutePill) unmutePill.classList.add('hidden');
-        }).catch(() => {
-          video.muted = true;
-          updateVolIcon(true);
-          if (unmutePill) unmutePill.classList.remove('hidden');
-          video.play().then(() => syncPlayPauseIcons(false)).catch(() => {});
-        });
-      }
+          if (playButton) playButton.classList.add('hidden');
+        }).catch(() => showTvPlaybackPrompt('Tap to play live TV'));
+      });
     }
 
     function unmuteFromBanner() {
@@ -2413,14 +2459,18 @@
       } else {
         badge.textContent = 'Backup HD';
         const fallbackUrl = channel.backupUrl || VERIFIED_STREAMS[0].url;
-        if (Hls.isSupported()) {
-          hls = new Hls({ enableWorker: true });
+        if (hasHlsJs() && !preferNativeHls(video)) {
+          hls = new Hls({ enableWorker: false });
           hls.loadSource(fallbackUrl);
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, () => safeAutoplayVideo(video));
-        } else {
+        } else if (hasNativeHls(video)) {
+          video.onloadedmetadata = () => safeAutoplayVideo(video);
+          video.onerror = () => showTvPlaybackPrompt('Stream unavailable. Tap to retry');
           video.src = fallbackUrl;
-          safeAutoplayVideo(video);
+          video.load();
+        } else {
+          showTvPlaybackPrompt('No compatible player. Tap to retry');
         }
       }
     }
@@ -3098,12 +3148,15 @@
 
         fourChannels.forEach((ch, idx) => {
           const v = document.getElementById(`quad-vid-${idx}`);
-          if (Hls.isSupported()) {
+          if (hasHlsJs() && !preferNativeHls(v)) {
             const h = new Hls({ enableWorker: true, lowLatencyMode: true, maxBufferLength: 8 });
             h.loadSource(ch.url);
             h.attachMedia(v);
             h.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
             quadHlsInstances.push(h);
+          } else if (hasNativeHls(v)) {
+            v.src = ch.url;
+            v.play().catch(() => {});
           }
         });
       } else {
