@@ -283,3 +283,46 @@ cancellation/child-fill reconciliation and automatic live SELL execution,
 including CNC settlement authorization and MIS-native stops. The offline
 request preview is preparation for fake-Kite write-path drills; it is not a
 release certification or an order-send authorization.
+
+
+## 20 October: durable broker GTT ACK and verified-stop settlement
+
+The operator verified the earlier EMA offline suite at `c5a96be2`:
+**194 passed, 0 failed in 5.69 seconds**, with the global live-entry
+switch OFF and clean synchronized main/dev branches.
+
+New continuation (not locally verified yet):
+- `ema_live_stop_commands.broker_trigger_id` is added through a backward
+  compatible SQLite schema migration. Existing unresolved commands and their
+  idempotency keys survive.
+- `record_unverified_broker_ack` can attach a numeric GTT ID only to a
+  persistently `OUTCOME_UNKNOWN` command, transitioning it to
+  `ACK_PENDING_VERIFICATION`. Same-ID replay is idempotent; conflicting IDs,
+  second keys, forged IDs, and a TSL response referring to the wrong original
+  GTT are rejected. The command **remains fenced**, not protected.
+- `readback_stop_command` distinguishes ACKed GTT present/missing/multiple,
+  but never authorizes a duplicate write just from that book inspection.
+- `verify_acknowledged_stop` independently reads GTT detail, listed GTTs,
+  order history, broker net positions, and holdings from a real-account
+  `KiteClient`. It checks the active single CNC SELL LIMIT GTT's instrument,
+  quantity, trigger, broker account, existing order conflicts and exact
+  ownership. The signed fill ledger and canonical journal are checked again
+  inside one FULL-sync transaction.
+- Only when all read-only checks pass can the command move to `VERIFIED`
+  and the EMA live campaign move to `PROTECTED` with the exact stop price
+  in the **same SQLite commit**. A crash rolls back both transitions.
+  A verified TSL advances the campaign's floor and cannot weaken it.
+- New fake-Kite/SQLite tests cover placement and trailing ACKs, duplicate
+  trigger IDs, stale broker quantities, disappeared GTT, broker disconnect,
+  competing open orders, unsupported/stale stop price, and crash rollback.
+
+**Important limits:** These APIs do not perform GTT `place`, `modify`,
+`cancel` or SELL execution. They only accept **already observed broker
+ACKs** from a later separately certified canonical adapter. The existence
+of an active GTT does NOT guarantee the resulting LIMIT child will fill
+after a gap. The account-wide live switch and EMA strategy release scope
+remain unchanged and live entries must stay OFF.
+
+Run `tests/services/test_ema_trend_live_protection_outbox.py` plus the
+previous ten-file EMA offline suite to validate this continuation; test
+completion has not yet been recorded for the latest commit.
