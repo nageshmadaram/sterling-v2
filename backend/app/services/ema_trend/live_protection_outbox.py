@@ -234,7 +234,8 @@ def record_unverified_broker_ack(command_id: str, trigger_id: str) -> StopComman
     trigger id fails closed and leaves the first acknowledgement intact.
     """
     if (not isinstance(trigger_id,str) or not trigger_id.isascii()
-            or not trigger_id.isdigit() or int(trigger_id)<=0):
+            or not trigger_id.isdigit() or not 1<=len(trigger_id)<=24
+            or trigger_id.startswith("0")):
         raise StopCommandConflict("EMA_STOP_BROKER_ACK_ID_INVALID")
     with order_journal._transaction() as conn:
         _schema(conn)
