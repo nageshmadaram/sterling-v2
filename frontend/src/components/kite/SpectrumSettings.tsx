@@ -69,7 +69,7 @@ export function SpectrumSettings() {
       })}
     </fieldset>
     <p style={{ marginTop:7, fontSize:12, color:'var(--k-dim)' }}>
-      When KITE and Simulation are combined, the original KITE switch handles both views. Hiding Simulation removes the optional switch when possible; existing Simulation sessions keep a route back to KITE. At least KITE or TV must remain visible.
+      In toggle mode, KITE and Simulation share the original KITE switch. In separate mode, each visible destination has its own tab and uses the order above. Hiding Simulation does not remove the return route from an open Simulation session. At least KITE or TV must remain visible.
     </p>
     <label style={{ display:'block', margin:'14px 0' }}>
       TV display name
@@ -78,7 +78,7 @@ export function SpectrumSettings() {
         onChange={e => setNameDraft(e.target.value)}
         onBlur={applyName}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyName(); e.currentTarget.blur(); } }} />
-      <small style={{ display:'block' }}>Up to 24 characters. Only the label changes; IPTV remains isolated from trading.</small>
+      <small style={{ display:'block' }}>Up to 24 characters. Saved in this browser only; IPTV remains isolated from trading.</small>
     </label>
     <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
       <button type="button" onClick={() => { setNameDraft('TV'); update({tvLabel:'TV'}); }}>Reset TV name</button>
