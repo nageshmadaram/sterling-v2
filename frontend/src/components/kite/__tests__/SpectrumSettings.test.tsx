@@ -50,6 +50,17 @@ describe('Spectrum settings in Settings → Experience', () => {
     expect(localStorage.getItem(EXPERIENCE_KEY)).toContain('"spectrumLayout":"separate"');
   });
 
+  it('offers the one-button cycle in addition to the original toggle and separate tabs', () => {
+    render(<SpectrumSettings />);
+    const layout = screen.getByRole('combobox',{name:'Spectrum navigation layout'});
+    expect(layout.querySelectorAll('option')).toHaveLength(3);
+    fireEvent.change(layout,{target:{value:'cycle'}});
+    expect(useExperienceOptions.getState().options.spectrumLayout).toBe('cycle');
+    expect(readExperienceOptions().spectrumLayout).toBe('cycle');
+    fireEvent.click(screen.getByRole('button',{name:'Restore Spectrum defaults'}));
+    expect(layout).toHaveValue('toggle');
+  });
+
   it('permits TV-only mode with a route to restore settings', () => {
     render(<SpectrumSettings />);
     fireEvent.click(screen.getByRole('checkbox',{name:'Show KITE'}));
