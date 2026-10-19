@@ -155,14 +155,41 @@ def test_every_blocked_lane_states_a_reason():
     assert set(payload["lanes_originating"]) & set(payload["lanes_blocked"]) == set()
 
 
-def test_only_the_lane_the_engine_really_runs_originates_for_supertrend():
-    """The Kite engine is a single 60m engine: swing originates, the other four
-    SuperTrend modes have no engine behind them and must not advertise capacity."""
+def test_supertrend_modes_are_declared_but_all_follow_the_global_kill_switch(monkeypatch):
+    """A mode in LIVE_MINIMUM never escapes the independent master entry switch.
+
+    SuperTrend now supports five selectable modes; the old swing-only dashboard
+    expectation silently drifted from the registered and selectable runtime.
+    """
+    from app.core import lane_registry
+    from app.core.horizon import HorizonMode
+
+    declared = {f"supertrend:{mode.value}" for mode in HorizonMode}
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    enabled = operator_dashboard()
+    assert {key for key in enabled["lanes_originating"] if key.startswith("supertrend:")} == declared
+    assert not declared.intersection(enabled["lanes_blocked"])
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+    disabled = operator_dashboard()
+    assert not declared.intersection(disabled["lanes_originating"])
+    assert {key: disabled["lanes_blocked"].get(key) for key in declared} == {
+        key: "LIVE_EXECUTION_DISABLED" for key in declared
+    }
+
+
+def test_dashboard_reports_undefined_rules_when_a_lane_is_unqualified(monkeypatch):
+    """The refusal still appears when a declaration really lacks entry rules."""
+    from dataclasses import replace
+    from app.core import lane_registry
+
+    key = "supertrend:intraday"
+    original = lane_registry.LANES[key]
+    monkeypatch.setitem(lane_registry.LANES, key, replace(original, rules_defined=False))
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     payload = operator_dashboard()
-    live = {key for key in payload["lanes_originating"] if key.startswith("supertrend:")}
-    assert live == {"supertrend:swing"}
-    for key in ("ultra_scalping", "scalping", "intraday", "overnight"):
-        assert f"supertrend:{key}" in payload["lanes_blocked"]
+    assert payload["lanes_blocked"][key] == "LANE_RULES_UNDEFINED"
+    assert "LANE_RULES_UNDEFINED" in render_dashboard(payload)
 
 
 def test_the_rendered_lane_state_is_not_truncated():
@@ -177,7 +204,10 @@ def test_an_unreported_system_shows_as_recovery_required():
     assert payload["system"]["may_open_new_exposure"] is False
 
 
-def test_rendering_names_the_state_and_the_reason():
+def test_rendering_names_the_state_and_the_reason(monkeypatch):
+    from app.core import lane_registry
+
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
     healthy = compose_health(
         {
             name: ComponentHealth(name, SystemHealth.NORMAL)
@@ -188,7 +218,8 @@ def test_rendering_names_the_state_and_the_reason():
     assert "STERLING STATUS" in text
     assert "NORMAL" in text
     assert "snapback" not in text or "SNAPBACK" in text
-    assert "LANE_RULES_UNDEFINED" in text
+    assert "LIVE_EXECUTION_DISABLED" in text
+    assert "blocked (LIVE_EXECUTION_DISABLED)" in text
     # Column padding must not run the name into its value.
     assert "reconciliationNORMAL" not in text
 
