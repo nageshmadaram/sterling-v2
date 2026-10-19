@@ -166,3 +166,56 @@ Code-level corrections on the next SHA:
 **Evidence status of these corrections: SOURCE PATCHED, NOT YET RERUN on
 the corrected exact SHA.** No operational acceptance can be inferred from
 the unit test cleanup. Full certification stays blocked.
+
+## 2026-10-20 — operator regression follow-up (post 5e51c8d9)
+
+The owner provided terminal output from **local** `5e51c8d9` after fetching
+remote `d3550ed4` but **before** fast-forwarding local `main`/`dev`.
+The targeted safety command returned **16 passed, 3 failed** on that old checkout.
+It is not a test result for the fetched/current GitHub commit.
+
+All three failures involved `tests/unit/test_sterlingctl_environment.py`:
+temporary `backend/app/core` directories did not have package
+`__init__.py` files, so the subprocess could import the actual checkout's
+`app.core.runtime_env` and actual `backend/.env` instead of the temporary
+fixture. The leaked production paths and missing synthetic marker are consistent
+with that import-resolution fault. The regression tests now create importable
+temporary `app` and `app.core` packages in all three fixtures (source
+commit `f3414d6`). The read-only release probe's broker/backup safety suite
+now also runs `test_sterlingctl_environment.py` and
+`test_load_sterling_env.py` (source commit `142c86d`).
+
+**STATUS: SOURCE PATCHED; corrected tests NOT YET PROVEN on the exact
+post-patch SHA.** This is test-harness isolation, not evidence of a damaged
+broker account or successful live trading. The real local database and broker
+secrets have not been modified by these GitHub patches.
+
+The October 18 host audit already established GitHub check runs with
+`runner_id=0`, no executed steps, and an annotation that recent account
+payments failed or the Actions spending limit must increase. This is a
+GitHub account/runner-start blocker, distinct from actual application test
+failures. Do not attempt to pass certification by waiving these contexts.
+
+The historical 151-row issue register remains **151 OPEN_UNVERIFIED**:
+31 P0, 95 P1 and 25 P2. Narrow fixes and earlier-source test passes do not
+close any acceptance row without evidence tied to the final release identity.
+
+### Exact-release next actions
+
+1. On the Sterling host, verify the working tree is clean; fetch and
+   **fast-forward only** `main` and `dev` to the same remote SHA.
+   Do not reset, force checkout or overwrite operator-created files.
+2. Run `bash -n scripts/sterlingctl` and
+   `bash -n scripts/release_certification_probe.sh`.
+3. Rerun the environment-loader unit tests and all five release-probe
+   regression groups, saving their private logs outside the checkout.
+4. Resolve the GitHub Actions account-level billing/runner blocker in GitHub,
+   then obtain required remote check contexts; CI/CD pipeline redesign
+   remains intentionally deferred until release work is completed.
+5. Preserve SAFE_MODE and **new entries OFF** while independently verifying
+   broker-approved egress/redirect, fresh authentication and binding, zero
+   exposure, Telegram destination receipts, market reconnect, isolated full
+   restore and all required failure drills.
+6. Do not submit live real-money orders, pretend to have protective fill
+   receipts, promote an unverified issue, or freeze a release on the strength
+   of a source-only patch.
