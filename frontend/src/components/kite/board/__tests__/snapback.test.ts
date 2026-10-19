@@ -291,7 +291,7 @@ describe('snapback board adapter', () => {
     expect(s.flags?.some((f) => f.label === 'hold 0d')).toBe(false);
     expect(s.origin?.hint).toContain('Bollinger');
     const runner = s.flags?.find((f) => f.label.startsWith('runs above'));
-    expect(runner?.hint).toContain('Research continuation threshold');
+    expect(runner?.hint).toContain('Continuation threshold');
     expect(runner?.hint).not.toContain('409 entry days');
     const plan = s.sections.find((section) => section.title === 'Premium target and lifecycle plan');
     expect(plan?.stats).toEqual(expect.arrayContaining([
