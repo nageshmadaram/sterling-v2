@@ -1287,3 +1287,23 @@ async def test_active_gtt_with_wrong_sell_child_instrument_is_not_protected():
     assert store.get(c.id).phase=="RECOVERY_REQUIRED"
     assert store.get(c.id).confirmed_sold==0
     _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_active_gtt_does_not_prove_protection_with_competing_sell():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend import live_gtt_child_recovery as recovery
+    c=protect_for_test(filled_campaign())
+    kite=_fake_ack_kite(c)
+    kite.get_orders=AsyncMock(return_value=[{
+        "order_id":"OTHER-SELL","exchange":"NSE","tradingsymbol":"INFY",
+        "product":"CNC","transaction_type":"SELL","status":"OPEN",
+        "quantity":4,"filled_quantity":0,
+    }])
+    report=await recovery.inspect_and_quarantine(
+        c.id,expected_revision=c.revision,broker_client=kite)
+    assert report.verdict=="ACTIVE_GTT_COMPETING_BROKER_ORDER"
+    assert store.get(c.id).phase=="RECOVERY_REQUIRED"
+    assert store.get(c.id).confirmed_sold==0
+    assert store.get(c.id).orphan_stop_ids==["901"]
+    _no_writes(kite)
