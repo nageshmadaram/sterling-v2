@@ -60,3 +60,53 @@ def test_legacy_defaults_and_literal_shell_text(tmp_path):
     assert result['STERLING_TEST_LITERAL'] == literal
     assert not marker.exists()
     assert result['STERLING_DB_PATH'] == str(tmp_path / 'backend/sterling_paper.db')
+
+
+def test_cli_rejects_failed_environment_loader(tmp_path):
+    """A failed process substitution must not continue with fallback stores."""
+    core = tmp_path / "backend/app/core"
+    core.mkdir(parents=True)
+    (core / "runtime_env.py").write_text(
+        "raise RuntimeError('simulated config import failure')\\n".replace("\\n", "\n"),
+        encoding="utf-8",
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("STERLING_")}
+    env.update(STERLING_ROOT=str(tmp_path), STERLING_PYTHON=sys.executable)
+    prefix = (ROOT / "scripts/sterlingctl").read_text().split("\nusage() {", 1)[0]
+    result = subprocess.run(
+        ["bash", "-c", prefix + '\nprintf "UNSAFE_CONTINUATION\\n"\n'],
+        env=env, capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2
+    assert "UNSAFE_CONTINUATION" not in result.stdout
+    assert "configuration did not load" in result.stderr
+
+
+def test_cli_rejects_invalid_environment_variable_name(tmp_path):
+    """A broken imported key must not partially initialize the operator CLI."""
+    core = tmp_path / "backend/app/core"
+    core.mkdir(parents=True)
+    (core / "runtime_env.py").write_text(
+        (ROOT / "backend/app/core/runtime_env.py").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "backend/.env").write_text("STERLING_INVALID-NAME=bad\n", encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("STERLING_")}
+    env.update(STERLING_ROOT=str(tmp_path), STERLING_PYTHON=sys.executable)
+    prefix = (ROOT / "scripts/sterlingctl").read_text().split("\nusage() {", 1)[0]
+    result = subprocess.run(
+        ["bash", "-c", prefix + '\nprintf "UNSAFE_CONTINUATION\\n"\n'],
+        env=env, capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 2
+    assert "UNSAFE_CONTINUATION" not in result.stdout
+    assert "Invalid Sterling configuration key" in result.stderr
+
+
+def test_release_probe_keeps_all_failed_process_logs_private():
+    """Pytest and build output can contain secrets as easily as operator logs."""
+    script = (ROOT / "scripts/release_certification_probe.sh").read_text(encoding="utf-8")
+    assert 'tail -n 12 "$REPORT/$label.log"' not in script
+    assert 'tail -n 16 "$REPORT/$label.log"' not in script
+    assert 'umask 077' in script
+    assert 'chmod 700 "$REPORT"' in script
