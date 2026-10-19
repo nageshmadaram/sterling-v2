@@ -216,3 +216,73 @@ def get(command_id: str) -> StopCommand:
         if row is None:
             raise StopCommandConflict("EMA_STOP_COMMAND_NOT_FOUND")
         return _row(row)
+
+
+@dataclass(frozen=True)
+class StopReadback:
+    """Advisory recovery evidence. Never unblocks a GTT retry or live entry."""
+    command_id: str
+    status: str
+    blocker: str
+    candidate_gtt_ids: tuple[str, ...] = ()
+    broker_writes: bool = False
+    retry_authorized: bool = False
+
+
+async def readback_stop_command(command_id: str, *, broker_client) -> StopReadback:
+    """Read Kite's books after restart without attributing an unknown request.
+
+    A matching active GTT is only a candidate: Kite GTTs lack this application's
+    immutable idempotency key, and a triggered LIMIT child may still be live.
+    The fence remains UNKNOWN until independently certified reconciliation.
+    """
+    import asyncio
+    import json
+    from app.services.exchanges.kite.client import KiteClient
+    cmd=get(command_id)
+    if (not isinstance(broker_client,KiteClient)
+            or getattr(broker_client,"_is_paper",None) is not False
+            or getattr(broker_client,"_account_id",None)!=cmd.account_id):
+        return StopReadback(command_id,cmd.status,"BROKER_CLIENT_IDENTITY_UNVERIFIED")
+    campaign=store.get(cmd.campaign_id)
+    if campaign.owner_uid!=cmd.owner_uid or campaign.account_id!=cmd.account_id:
+        return StopReadback(command_id,cmd.status,"CAMPAIGN_ACCOUNT_IDENTITY_CHANGED")
+    try:
+        gtts,orders=await asyncio.wait_for(
+            asyncio.gather(broker_client.get_gtts(),broker_client.get_orders()),10)
+    except Exception:
+        return StopReadback(command_id,cmd.status,"BROKER_BOOK_READ_UNAVAILABLE")
+    if (not isinstance(gtts,list) or not all(isinstance(item,dict) for item in gtts)
+            or not isinstance(orders,list) or not all(isinstance(item,dict) for item in orders)):
+        return StopReadback(command_id,cmd.status,"BROKER_BOOK_SCHEMA_UNVERIFIED")
+    ids=[]
+    for item in gtts:
+        cond=item.get("condition")
+        if isinstance(cond,str):
+            try:
+                cond=json.loads(cond)
+            except (TypeError,ValueError):
+                return StopReadback(command_id,cmd.status,"GTT_CONDITION_UNREADABLE")
+        if not isinstance(cond,dict):
+            return StopReadback(command_id,cmd.status,"GTT_CONDITION_UNREADABLE")
+        if (str(cond.get("exchange") or "").upper()==campaign.exchange
+                and str(cond.get("tradingsymbol") or "").upper()==campaign.symbol):
+            ident=item.get("id")
+            if ident is None or not str(ident).isdigit():
+                return StopReadback(command_id,cmd.status,"GTT_ID_UNVERIFIED")
+            ids.append(str(ident))
+    for item in orders:
+        if (str(item.get("exchange") or "").upper()==campaign.exchange
+                and str(item.get("tradingsymbol") or "").upper()==campaign.symbol
+                and str(item.get("status") or "").upper() not in {
+                    "COMPLETE","CANCELLED","CANCELED","REJECTED","EXPIRED"
+                }):
+            return StopReadback(command_id,cmd.status,
+                                "BROKER_CHILD_OR_MANUAL_ORDER_UNRESOLVED",
+                                tuple(sorted(set(ids))))
+    if ids:
+        return StopReadback(command_id,cmd.status,
+                            "POSSIBLE_EXISTING_GTT_REQUIRES_OPERATOR_RECONCILIATION",
+                            tuple(sorted(set(ids))))
+    return StopReadback(command_id,cmd.status,
+                        "ABSENCE_OF_GTT_DOES_NOT_PROVE_NO_PRIOR_SUBMISSION")
