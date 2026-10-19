@@ -92,6 +92,7 @@ Usage: sterlingctl <command>
   drills record DRILL PASS|FAIL WHO "what happened" [REF]
 
   certify          the release certification gate table for this build (advisory: waived)
+  certify strict   fail unless every release gate has real PASS evidence
   certify attest GATE PASS|FAIL WHO [REF]   record one human-observed gate
   certify ci        the required CI contexts recorded for this build (advisory)
   certify ci-sync   read this build's check runs from GitHub and record them
@@ -799,6 +800,23 @@ PY
     ;;
 
   certify)
+    if [ "${2:-}" = "strict" ]; then
+      run_py <<'PY'
+import sys
+from app.services.release_certification import (
+    certification_report, render_certification,
+)
+
+report = certification_report()
+print(render_certification(report))
+if report.release_ready:
+    print("STRICT CERTIFICATION: PASS for this release identity.")
+    sys.exit(0)
+print("STRICT CERTIFICATION: BLOCKED — gates that are FAIL or UNKNOWN never count as PASS.")
+sys.exit(1)
+PY
+      exit $?
+    fi
     if [ "${2:-}" = "ci" ]; then
       run_py <<'PY'
 import sys
