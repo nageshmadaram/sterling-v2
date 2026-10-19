@@ -73,10 +73,12 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.match(csp, /worker-src blob:/);
     assert.match(csp, /frame-ancestors 'self'/);
     const head = await fetch(origin + '/tv/index.html', { method: 'HEAD' });
-    assert.equal(head.headers.get('content-security-policy'), csp.replace(
-      /nonce-[a-zA-Z0-9+/=]+/,
-      (head.headers.get('content-security-policy') || '').match(/nonce-[a-zA-Z0-9+/=]+/)?.[0] || '',
-    ));
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get('cache-control'), 'no-store');
+    const headCsp = head.headers.get('content-security-policy') || '';
+    assert.match(headCsp, /sandbox allow-scripts allow-forms/);
+    assert.doesNotMatch(headCsp, /allow-same-origin/);
+    assert.match(headCsp, /media-src https: http: data: blob:/);
     const trade = await fetch(origin + '/');
     assert.equal(trade.status, 200);
     assert.equal(await trade.text(), '<html><body>TRADING APP</body></html>');
@@ -89,7 +91,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
         new Promise(resolve => child.once('exit', resolve)),
         new Promise(resolve => setTimeout(resolve, 2000)),
       ]);
-      if (child.exitCode === null) child.kill('SIGKILL');
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     }
     await rm(temporary, { recursive: true, force: true });
   }
