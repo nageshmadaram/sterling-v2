@@ -37,6 +37,27 @@ describe('Sterling TV static integration safety', () => {
     expect(originalKiteCss).not.toContain('sterling-spectrum-tabs');
   });
 
+  it('keeps original KITE green/amber underline and scopes active-TV underline', () => {
+    expect(spectrumSpacingCss).toContain('border-bottom:2px solid var(--k-green)');
+    expect(spectrumSpacingCss).toContain('[aria-checked=false]{color:var(--k-warn);border-bottom-color:var(--k-amber)}');
+    expect(spectrumSpacingCss).toContain('[aria-current="page"]');
+    expect(spectrumSpacingCss).toContain('border-bottom-color: transparent');
+    expect(spectrumSpacingCss).toContain('data-testid="spectrum-simulation-tab"');
+    expect(originalKiteCss).not.toContain('sterling-spectrum-tabs');
+  });
+
+  it('supports mobile native HLS, blocked autoplay retry and reliable hydration', () => {
+    expect(tvPage).toContain('id="tv-mobile-play"');
+    expect(tvPage).toContain('function resumeTvPlayback()');
+    expect(tvPage).toContain("typeof Hls !== 'undefined'");
+    expect(tvPage).toContain('function startNativeHlsPlayback(');
+    expect(tvPage).toContain('preferNativeHls(video)');
+    expect(tvPage).toContain('showTvPlaybackPrompt(');
+    expect(tvPage).toContain('const readyTimer=setInterval(');
+    expect(tvPage).toContain('clearInterval(readyTimer)');
+    expect(tvPage).not.toContain('PROXY_RELAYS');
+  });
+
   it('never automatically sends the operator playlist URL to public proxy services', () => {
     expect(tvPage).not.toContain('corsproxy.io');
     expect(tvPage).not.toContain('api.allorigins.win');
