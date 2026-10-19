@@ -9,7 +9,7 @@ export const NAV_OPTIONS = [
 ] as const;
 export type TickerContent = 'graph'|'pcr'|'both'|'badge'|'detail'|'price';
 export type SpectrumProduct = 'kite'|'simulation'|'tv';
-export type SpectrumLayout = 'toggle'|'separate';
+export type SpectrumLayout = 'toggle'|'separate'|'cycle';
 export type SpectrumVisible = Record<SpectrumProduct, boolean>;
 export const SPECTRUM_ORDER: readonly SpectrumProduct[] = ['kite','simulation','tv'];
 export type ExperienceOptions = {
@@ -20,7 +20,7 @@ export type ExperienceOptions = {
   pcrMetric: 'oi'|'volume'|'changeOi';
   pcrTimestamp: boolean;
   pcrRatio: boolean;
-  /** toggle = original KITE⇄Simulation control + TV; separate = dedicated tabs. */
+  /** toggle = original Kite/Simulation + TV; separate = tabs; cycle = next workspace. */
   spectrumLayout: SpectrumLayout;
   spectrumVisible: SpectrumVisible;
   spectrumOrder: SpectrumProduct[];
@@ -88,7 +88,8 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
       ? raw.pcrMetric as ExperienceOptions['pcrMetric'] : 'oi',
     pcrTimestamp: raw.pcrTimestamp !== false,
     pcrRatio: raw.pcrRatio !== false,
-    spectrumLayout: raw.spectrumLayout === 'separate' ? 'separate' : 'toggle',
+    spectrumLayout: raw.spectrumLayout === 'separate' ? 'separate'
+      : raw.spectrumLayout === 'cycle' ? 'cycle' : 'toggle',
     spectrumVisible, spectrumOrder: order, tvLabel: cleanTvLabel(raw.tvLabel),
   };
 }
