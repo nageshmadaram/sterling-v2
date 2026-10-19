@@ -23,10 +23,28 @@ check() {
   ( "$@" ) > "$REPORT/$label.log" 2>&1
   local status=$?
   if (( status == 0 )); then
-    record "$label" PASS "exit=0"
+    case "$label" in
+      operator_bindings|operator_exposure)
+        # Exit zero means inventory could be READ, not that a fresh usable
+        # binding or reconciled zero-exposure account has been proven.
+        record "$label" OBSERVED "read-only inventory returned exit=0; see private log"
+        ;;
+      *)
+        record "$label" PASS "exit=0"
+        ;;
+    esac
   else
     record "$label" FAIL "exit=$status, see private log"
-    tail -n 12 "$REPORT/$label.log" | sed -E 's/(token|password|secret|access_key)=([^[:space:]]+)/\1=[REDACTED]/Ig'
+    case "$label" in
+      operator_*)
+        # Operator logs can contain personal identity and account details.
+        # Do not spill them into shared terminals or copied chat transcripts.
+        ;;
+      *)
+        tail -n 12 "$REPORT/$label.log" |
+          sed -E 's/(token|password|secret|access_key)=([^[:space:]]+)/\1=[REDACTED]/Ig'
+        ;;
+    esac
   fi
 }
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
@@ -35,6 +53,12 @@ else record clean_tree PASS "$SHA"; fi
 if [[ "$(git rev-parse main)" == "$(git rev-parse dev)" ]]; then
   record branch_alignment PASS "main=dev"
 else blocked branch_alignment "main and dev differ"; fi
+if [[ "$SHA" == "$(git rev-parse origin/main 2>/dev/null)" ]] &&
+   [[ "$SHA" == "$(git rev-parse origin/dev 2>/dev/null)" ]]; then
+  record remote_identity PASS "checked-out SHA matches both fetched remotes"
+else
+  blocked remote_identity "candidate is not the current fetched main/dev SHA"
+fi
 
 PYTHON="$ROOT/backend/.venv/bin/python"
 test_group() {
