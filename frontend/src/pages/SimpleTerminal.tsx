@@ -208,7 +208,7 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
-          {spectrum === 'tv' && <button type="button" aria-label="Experience settings"
+          {spectrum === 'tv' && !navOptions.spectrumVisible.kite && <button type="button" aria-label="Experience settings"
             title="Experience settings" onClick={() => setShowSettings(true)}
             style={{ background:'none', border:'1px solid var(--t-border)', cursor:'pointer',
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
