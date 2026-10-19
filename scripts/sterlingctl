@@ -135,6 +135,12 @@ PY
 cmd_doctor() {
   run_py <<'PY'
 import sys
+from app.services import db
+if not db.is_available() and not db.init():
+    print('Database unavailable; doctor checks could not be run.')
+    sys.exit(2)
+from app.services.exchanges.kite import accounts
+accounts.bootstrap()
 from app.core.operator_report import doctor_from_preflight, lane_doctor_checks
 from app.core.waivers import WAIVER_NOTE, is_advisory_doctor_check, split_doctor_checks
 from app.services.snapback_preflight import run_preflight
