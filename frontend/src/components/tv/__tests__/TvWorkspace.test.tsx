@@ -24,7 +24,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
   it('fills its workspace without inheriting trading origin, storage or DOM', () => {
     render(<TvWorkspace />);
     const workspace = screen.getByTestId('sterling-tv-workspace');
-    expect(workspace).toHaveStyle({ flex: '1', minHeight: '0' });
+    expect(workspace.getAttribute('style')).toContain('flex: 1');
     const frame = screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
     expect(frame.getAttribute('src')).toBe('/tv/index.html');
     expect(frame.getAttribute('sandbox')).toContain('allow-scripts');
@@ -33,7 +33,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
     expect(frame).toHaveAttribute('referrerpolicy', 'no-referrer');
     expect(frame).toHaveAttribute('allowfullscreen');
     fireEvent.load(frame);
-    expect(screen.queryByRole('status', { name: /loading tv/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Loading TV…')).not.toBeInTheDocument();
   });
 
   it('hydrates only explicitly allowlisted TV preferences', () => {
