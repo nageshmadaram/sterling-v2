@@ -122,3 +122,31 @@ def test_release_probe_keeps_all_failed_process_logs_private():
     assert 'tail -n 16 "$REPORT/$label.log"' not in script
     assert 'umask 077' in script
     assert 'chmod 700 "$REPORT"' in script
+
+
+def test_release_probe_scrubs_live_credentials_before_test_imports():
+    """Synthetic credentials must not be replaced by the operator's actual shell."""
+    script = (ROOT / "scripts/release_certification_probe.sh").read_text(encoding="utf-8")
+    start = script.index("    for inherited in ${!STERLING_@}")
+    end = script.index('    export STERLING_STATE_ROOT="$isolated"', start)
+    scrub = script[start:end]
+    env = dict(os.environ)
+    env.update({
+        "STERLING_TEST_SECRET": "cannot-reach-pytest",
+        "STERLING_LIVE_EXECUTION": "1",
+        "KITE_ACCESS_TOKEN": "cannot-reach-pytest",
+        "ZERODHA_API_KEY": "cannot-reach-pytest",
+        "TELEGRAM_BOT_TOKEN": "cannot-reach-pytest",
+        "ENVIRONMENT": "production",
+    })
+    command = (
+        "set -euo pipefail\n" + scrub + "\n"
+        + '''printf '%s\\n' "${STERLING_TEST_SECRET-absent}" "${KITE_ACCESS_TOKEN-absent}" "${ZERODHA_API_KEY-absent}" "${TELEGRAM_BOT_TOKEN-absent}" "${ENVIRONMENT-unset}" "${STERLING_LIVE_EXECUTION-unset}"\n'''
+    )
+    result = subprocess.run(
+        ["bash", "-c", command],
+        env=env, capture_output=True, text=True, timeout=15, check=True,
+    )
+    assert result.stdout.splitlines() == [
+        "absent", "absent", "absent", "absent", "development", "0"
+    ]
