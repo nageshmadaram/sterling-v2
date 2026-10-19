@@ -5,15 +5,16 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
  * scripts and third-party playlists MUST NOT share Sterling's origin/storage,
  * auth cookies, bearer tokens, broker APIs, or DOM.
  *
- * Only these five TV preferences cross the boundary; messages are accepted
+ * Only these six TV preferences cross the boundary; messages are accepted
  * exclusively from the mounted frame and contain no trading information.
  */
 export const TV_STORAGE_KEYS = [
-  'streamos_sources_v13',
-  'streamos_source_mode_v13',
-  'streamos_favs_v13',
-  'streamos_stats_v13',
-  'streamos_history_v13',
+  'streamos_sources_v14',
+  'streamos_source_mode_v14',
+  'streamos_favs_v14',
+  'streamos_stats_v14',
+  'streamos_history_v14',
+  'streamos_startup_channel_v14',
 ] as const;
 type TvKey = (typeof TV_STORAGE_KEYS)[number];
 
@@ -28,7 +29,17 @@ function readTvPreferences(): Partial<Record<TvKey, string>> {
   const values: Partial<Record<TvKey, string>> = {};
   for (const key of TV_STORAGE_KEYS) {
     try {
-      const value = window.localStorage.getItem(STORAGE_PREFIX + key);
+      let value = window.localStorage.getItem(STORAGE_PREFIX + key);
+      // V14 renamed the persisted TV keys. Preserve existing v13 playlists,
+      // subscriptions and watch history without ever sharing trading storage.
+      if (!value && key !== 'streamos_startup_channel_v14') {
+        const legacy = window.localStorage.getItem(
+          STORAGE_PREFIX + key.replace(/_v14$/, '_v13'));
+        if (legacy && legacy.length <= MAX_VALUE_LENGTH) {
+          value = legacy;
+          window.localStorage.setItem(STORAGE_PREFIX + key, legacy);
+        }
+      }
       if (value && value.length <= MAX_VALUE_LENGTH) values[key] = value;
     } catch { /* storage can be unavailable in a private browser */ }
   }

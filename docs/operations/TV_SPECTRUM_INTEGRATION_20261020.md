@@ -177,3 +177,48 @@ frontend TypeScript/Vite, existing header + TV tests, new Spectrum settings
 tests, Settings → Experience integration, and all three layouts on desktop
 and mobile before calling this UI change released. Disk reported 97% usage
 with 4.2 GB free; retain logs and backups, do not clear them blindly.
+
+
+## 2026-10-20 — User-pushed IPTV v14 update and KITE/TV underline separation
+
+A new `main` commit `bee47d4a` updated **only**
+`sterling-iptv/sterling-iptv.html` (source snapshot). The formerly published
+`frontend/public/tv/index.html` still contained the previous embedded player,
+so the new startup-channel, language/Indian-TV selection and mobile-player
+work was not yet visible in Sterling.
+
+The runtime IPTV document has now been **re-derived from the exact updated
+source snapshot**, with the retained Sterling integration:
+
+- The v14 startup channel is hydrated from local TV preferences **before
+  first playback**; M3U synchronization happens after initial playback. The
+  five previous v13 TV preference values are migrated to v14, with a sixth
+  preference key for `streamos_startup_channel_v14`.
+- Retains user-pushed v14 channels, Indian-language catalogs, startup
+  selector, mobile experience and hover previews.
+- The iframe still has an opaque origin, no broker/API auth access, no
+  top-navigation permission, and only allowlisted TV-key `postMessage`
+  persistence.
+- Automatic CORS relays for M3U playlists, live streams and hover previews
+  remain disabled: private stream links are not sent to public proxy services
+  without permission. As a tradeoff, browser CORS or mixed-content failures
+  cannot always be recovered.
+- The IPTV toolbar is kept accessible from the floating `TV tools` button;
+  Sterling's header is the only persistent header.
+- Template-based programme guides remain clearly marked as previews, and
+  fabricated concurrent-viewer estimates are not rendered in the active
+  player subtitle.
+
+The original KITE component and original `terminal.css` remain byte-for-byte
+unchanged. The additional rule in `globals.css` adds **10px inline-start
+spacing only when one original-style Spectrum button directly follows another**,
+separating their underline strokes without modifying KITE typography, color
+or active-state rule.
+
+New TV unit/static regression tests cover the v14 allowlist, v13 migration,
+startup-channel persistence, integration markers and tab-gap style.
+
+**Verification pending:** run frontend `npm run build`, selected TV and
+Spectrum Vitest suites, the isolated gateway CSP Node test, and browser checks
+for the v14 player and mobile viewport. There has been no live backend
+execution or actual stream-network playback verification.
