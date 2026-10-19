@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -6,6 +7,23 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from app.services.production_settings import ProductionSettings, read_settings, save_settings
+
+
+def _complete_risk_limits() -> str:
+    from app.core.horizon import LaneState
+    from app.core.lane_registry import all_lanes
+
+    lanes = [
+        lane for lane in all_lanes()
+        if lane.state in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED)
+        and lane.rules_defined
+    ]
+    return json.dumps({
+        "global": {"": 50000},
+        "strategy": {lane.strategy_id: 20000 for lane in lanes},
+        "mode": {lane.lane_key: 10000 for lane in lanes},
+        "position": {lane.lane_key: 2000 for lane in lanes},
+    })
 
 
 def test_roundtrip_preserves_secrets_and_does_not_change_runtime(tmp_path, monkeypatch):
@@ -122,6 +140,43 @@ def test_admin_snapshot_is_allowlisted_and_includes_checks(client, monkeypatch):
     assert 'STERLING_SECRET_KEY' not in response.text
 
 
+def test_enable_rejects_global_only_risk_cap_even_with_ready_broker(client, monkeypatch):
+    from app.services import live_posture
+
+    api, path = client
+    monkeypatch.setattr(live_posture, 'posture_status', lambda **kw: {'ready': True, 'missing': []})
+    response = api.put('/ops/production-settings', json={
+        'settings': ProductionSettings(
+            live_execution=True, allocation_capital_inr=50000,
+            risk_limits='{"global":{"":50000}}',
+        ).model_dump(),
+        'confirm': 'ENABLE LIVE ENTRIES',
+    })
+    assert response.status_code == 409
+    assert 'strategy:' in response.json()['detail']
+    assert 'position:' in response.json()['detail']
+    assert not path.exists()
+
+
+def test_enable_rejects_one_missing_position_cap(client, monkeypatch):
+    from app.services import live_posture
+
+    api, path = client
+    monkeypatch.setattr(live_posture, 'posture_status', lambda **kw: {'ready': True, 'missing': []})
+    limits = json.loads(_complete_risk_limits())
+    del limits['position']['supertrend:intraday']
+    response = api.put('/ops/production-settings', json={
+        'settings': ProductionSettings(
+            live_execution=True, allocation_capital_inr=50000,
+            risk_limits=json.dumps(limits),
+        ).model_dump(),
+        'confirm': 'ENABLE LIVE ENTRIES',
+    })
+    assert response.status_code == 409
+    assert 'position:supertrend:intraday' in response.json()['detail']
+    assert not path.exists()
+
+
 def test_verified_enable_is_saved_for_restart_only(client, monkeypatch):
     import os
     from app.services import live_posture
@@ -130,7 +185,7 @@ def test_verified_enable_is_saved_for_restart_only(client, monkeypatch):
     monkeypatch.setenv('STERLING_LIVE_EXECUTION', 'false')
     response = api.put('/ops/production-settings', json={
         'settings': ProductionSettings(live_execution=True, allocation_capital_inr=50000,
-            risk_limits='{"global":{"":50000}}').model_dump(),
+            risk_limits=_complete_risk_limits()).model_dump(),
         'confirm': 'ENABLE LIVE ENTRIES',
     })
     assert response.status_code == 200
