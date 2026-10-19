@@ -45,9 +45,12 @@ def _intent_status(fact: LiveOrderFact) -> str:
     # parser. Treat it as UNKNOWN until order history is reconciled.
     if status == "REJECTED":
         return "REJECTED"
-    if status in {"UNKNOWN", "SUBMITTING"}:
-        return "UNKNOWN"
-    return "PARTIAL" if fact.filled_quantity else "ACKNOWLEDGED"
+    # Admit only explicit broker working states as a normal ACK/PARTIAL.
+    # Unknown status vocabularies (including EXPIRED) must never silently
+    # become a safe order acknowledgment.
+    if status in {"OPEN", "OPEN PENDING", "TRIGGER PENDING"}:
+        return "PARTIAL" if fact.filled_quantity else "ACKNOWLEDGED"
+    return "UNKNOWN"
 
 
 def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
