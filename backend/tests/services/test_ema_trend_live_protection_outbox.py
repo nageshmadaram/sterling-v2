@@ -866,3 +866,171 @@ async def test_fake_kite_timeout_leaves_unknown_and_never_retries_an_order():
         draft_stop_command("fake-timeout",reference_bid=100,tick_size="0.05")
     kite.place_gtt.assert_awaited_once()
     assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_fake_stop_driver_places_once_and_independently_verifies_gtt():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeKiteGTTWire,run_fake_stop,
+    )
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"driver-place",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    wire=FakeKiteGTTWire(c.account_id)
+    result=await run_fake_stop("driver-place",wire=wire,
+                               reference_bid=100,tick_size="0.05")
+    assert result.status=="ACK_PENDING_VERIFICATION"
+    assert result.trigger_id=="901" and not result.real_broker_write
+    assert not result.retry_authorized
+    assert wire.attempts==[("PLACE",None)]
+    kite=_fake_ack_kite(c)
+    kite.get_gtt=AsyncMock(side_effect=wire.get_gtt)
+    kite.get_gtts=AsyncMock(side_effect=wire.get_gtts)
+    verified=await outbox.verify_acknowledged_stop("driver-place",broker_client=kite)
+    assert verified.status=="VERIFIED"
+    assert store.get(c.id).protection.trigger_id=="901"
+    assert store.get(c.id).phase=="PROTECTED"
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_fake_stop_driver_tightens_same_gtt_and_preserves_stop_floor():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeKiteGTTWire,run_fake_stop,
+    )
+    c=protect_for_test(filled_campaign())
+    wire=FakeKiteGTTWire(c.account_id)
+    wire.seed(901,{
+        "exchange":"NSE","tradingsymbol":"INFY","trigger_values":[95],
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY",
+                   "transaction_type":"SELL","quantity":4,
+                   "order_type":"LIMIT","product":"CNC","price":94.5}],
+    })
+    outbox.reserve_stop_command(c.id,"driver-trail",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    result=await run_fake_stop("driver-trail",wire=wire,
+                               reference_bid=100,tick_size="0.05")
+    assert result.status=="ACK_PENDING_VERIFICATION"
+    assert result.trigger_id=="901"
+    assert wire.attempts==[("TIGHTEN",901)]
+    kite=_fake_ack_kite(c,trigger=96)
+    kite.get_gtt=AsyncMock(side_effect=wire.get_gtt)
+    kite.get_gtts=AsyncMock(side_effect=wire.get_gtts)
+    confirmed=await outbox.verify_acknowledged_stop("driver-trail",broker_client=kite)
+    assert confirmed.status=="VERIFIED"
+    saved=store.get(c.id)
+    assert saved.stop==Decimal("96")
+    assert saved.protection.trigger_id=="901"
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault",[
+    "TIMEOUT_AFTER_APPLY","MISSING_ACK_AFTER_APPLY","REJECT_BEFORE_APPLY",
+])
+async def test_fake_stop_driver_failures_never_resubmit_or_mark_position_protected(fault):
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeKiteGTTWire,run_fake_stop,
+    )
+    from app.services.ema_trend.live_stop_draft import StopDraftBlocked
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"driver-uncertain",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    wire=FakeKiteGTTWire(c.account_id)
+    wire.fault_next(fault)
+    result=await run_fake_stop("driver-uncertain",wire=wire,
+                               reference_bid=100,tick_size="0.05")
+    assert result.status=="OUTCOME_UNKNOWN"
+    assert result.reason
+    assert not result.retry_authorized and not result.real_broker_write
+    assert outbox.get("driver-uncertain").status=="OUTCOME_UNKNOWN"
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+    assert wire.attempts==[("PLACE",None)]
+    with pytest.raises(StopDraftBlocked,match="UNKNOWN_OUTCOME_CANNOT_RETRY"):
+        await run_fake_stop("driver-uncertain",wire=wire,
+                            reference_bid=100,tick_size="0.05")
+    assert wire.attempts==[("PLACE",None)]
+    if fault=="REJECT_BEFORE_APPLY":
+        assert await wire.get_gtts()==[]
+    else:
+        assert len(await wire.get_gtts())==1
+
+
+@pytest.mark.asyncio
+async def test_fake_stop_driver_rejects_real_kite_client_without_consume_or_writes():
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeStopRejected,run_fake_stop,
+    )
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"driver-fake-only",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    kite=_fake_ack_kite(c)
+    with pytest.raises(FakeStopRejected,match="NO_REAL_ORDER_PATH"):
+        await run_fake_stop("driver-fake-only",wire=kite,
+                            reference_bid=100,tick_size="0.05")
+    assert outbox.get("driver-fake-only").status=="RESERVED"
+    _no_writes(kite)
+
+
+@pytest.mark.asyncio
+async def test_fake_stop_driver_wrong_account_never_claims_or_sends():
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeKiteGTTWire,FakeStopRejected,run_fake_stop,
+    )
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"driver-wrong-account",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    wire=FakeKiteGTTWire("OTHER-ACCOUNT")
+    with pytest.raises(FakeStopRejected,match="ACCOUNT_MISMATCH"):
+        await run_fake_stop("driver-wrong-account",wire=wire,
+                            reference_bid=100,tick_size="0.05")
+    assert wire.attempts==[]
+    assert outbox.get("driver-wrong-account").status=="RESERVED"
+
+
+@pytest.mark.asyncio
+async def test_two_competing_fake_stop_workers_can_send_only_one_gtt():
+    import asyncio
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeKiteGTTWire,run_fake_stop,
+    )
+    from app.services.ema_trend.live_stop_draft import StopDraftBlocked
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"driver-race",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    wire=FakeKiteGTTWire(c.account_id)
+    results=await asyncio.gather(
+        run_fake_stop("driver-race",wire=wire,reference_bid=100,tick_size="0.05"),
+        run_fake_stop("driver-race",wire=wire,reference_bid=100,tick_size="0.05"),
+        return_exceptions=True,
+    )
+    acks=[v for v in results if not isinstance(v,Exception)]
+    refusals=[v for v in results if isinstance(v,StopDraftBlocked)]
+    assert len(acks)==1 and acks[0].status=="ACK_PENDING_VERIFICATION"
+    assert len(refusals)==1
+    assert wire.attempts==[("PLACE",None)]
+    assert len(await wire.get_gtts())==1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_fake_stop_driver_leaves_pre_send_fence_durable():
+    import asyncio
+    from app.services.ema_trend.fake_stop_driver import (
+        FakeKiteGTTWire,run_fake_stop,
+    )
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"driver-cancel",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    wire=FakeKiteGTTWire(c.account_id)
+    task=asyncio.create_task(run_fake_stop(
+        "driver-cancel",wire=wire,reference_bid=100,tick_size="0.05",
+    ))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert outbox.get("driver-cancel").status=="OUTCOME_UNKNOWN"
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+    assert len(wire.attempts)<=1
