@@ -59,7 +59,12 @@ def test_only_a_configuration_the_live_path_cannot_run_blocks_automatic_entry(mo
     base = SnapbackConfig()
 
     assert val.auto_execution_blocker(replace(base, short_leg_delta=0.3)).startswith("Spread")
-    assert "intraday" in val.auto_execution_blocker(replace(base, trading_mode="intraday"))
+    # The live planner now has an explicit intraday lane; the old rejection
+    # assertion was stale. Reject a genuinely unknown mode instead.
+    assert val.auto_execution_blocker(replace(base, trading_mode="intraday")) is None
+    assert "not a live lane" in val.auto_execution_blocker(
+        replace(base, trading_mode="unsupported_lane")
+    )
     assert "stop" in val.auto_execution_blocker(replace(base, stop_mode="monitor")).lower()
     assert val.auto_execution_blocker(replace(base, trading_mode="scalp")) is None
 
