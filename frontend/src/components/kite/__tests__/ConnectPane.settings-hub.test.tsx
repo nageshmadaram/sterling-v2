@@ -118,6 +118,8 @@ describe('ConnectPane settings hub', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Experience\s*Themes, fonts & motion/i }));
     expect(screen.getByRole('heading', { name: 'Experience' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Spectrum navigation settings' })).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Spectrum navigation layout' })).toHaveValue('toggle');
     expect(screen.getByText('Motion style choices')).toBeInTheDocument();
     expect(screen.getByText('Icon picker')).toBeInTheDocument();
   });
