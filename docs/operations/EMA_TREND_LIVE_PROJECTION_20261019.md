@@ -326,3 +326,39 @@ remain unchanged and live entries must stay OFF.
 Run `tests/services/test_ema_trend_live_protection_outbox.py` plus the
 previous ten-file EMA offline suite to validate this continuation; test
 completion has not yet been recorded for the latest commit.
+
+
+## 20 October: fake-Kite pre-send claims and executable-child instrument proof
+
+The operator reported **219/219 EMA offline tests passing in 9.87 s** at
+commit `b44970e9`, with `STERLING_LIVE_EXECUTION=0`. The extra local
+untracked `sterling-iptv/` directory was preserved, not modified.
+
+Latest changes are **NOT YET locally tested**:
+
+- The strict CNC GTT validator now requires the executable SELL LIMIT child
+  to have the **exact same exchange and trading symbol** as the campaign,
+  independently of the GTT condition. A matching trigger condition attached
+  to a BUY child or wrong-stock SELL child is not broker protection.
+- `live_protection_outbox.claim_stop_transmission` is a one-shot,
+  transactional pre-send claim: only `RESERVED` can transition to
+  `OUTCOME_UNKNOWN`. A second worker, a crash/restart, or a replay using
+  the same command cannot claim a second mutation. Current campaign
+  revision, owner/account, signed inventory and canonical orders must
+  all remain stable for the claim.
+- Fake-Kite integration tests draft a deterministic CNC GTT, claim the
+  durable command once, simulate one `place_gtt` or `modify_gtt`
+  **AsyncMock** result, record the ACK, and independently verify the
+  resulting active broker stop against simulated GTT/order/inventory reads.
+  Another test simulates a timeout **after** sending and proves no
+  blind replay and no false `PROTECTED` phase.
+- In all fake write drills, the executable Kite methods are replaced by
+  **AsyncMock**. No actual Kite endpoint is called and this work does NOT
+  connect or enable a production EMA GTT/SELL sender.
+
+Remaining release gates: authenticated real-account binding, fresh broker
+quote and order/GTT books at the moment of real mutation, cross-process
+canonical execution lease, definitive-refusal vs unknown-outcome
+reconciliation, GTT fired LIMIT child settlement, full automatic SELL
+reconciliation and production security/deployment certification.
+Keep live entry OFF; defer CI/CD until the end per release scope.
