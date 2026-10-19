@@ -54,9 +54,14 @@ export function TvWorkspace() {
 
   const onLoad = useCallback(() => {
     setLoaded(true);
-    // In a sandboxed opaque-origin frame, the contentWindow is available
-    // but the DOM is deliberately inaccessible. The child announces readiness
-    // after its standalone app has initialized.
+    setFailed(false);
+    // Mobile WebKit can finish frame navigation before its one-shot "ready"
+    // message reaches React's effect listener. The child repeats "ready"
+    // until hydration; this extra onLoad nudge covers that race too.
+    const frame = ref.current;
+    if (frame?.contentWindow) frame.contentWindow.postMessage({
+      type: MESSAGE_HYDRATE, values: readTvPreferences(),
+    }, '*');
   }, []);
 
   useEffect(() => {
