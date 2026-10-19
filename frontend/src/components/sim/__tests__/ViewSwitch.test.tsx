@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 
 const get = vi.fn();
 vi.mock('../../../utils/api', () => ({ api: { get: (...a: unknown[]) => get(...a), put: vi.fn(), post: vi.fn() } }));
@@ -49,7 +49,7 @@ describe('ViewSwitch', () => {
     get.mockRejectedValue(apiError(403, 'Admin access required'));
     renderWithClient(<ViewSwitch />);
     await waitFor(() => expect(get).toHaveBeenCalled());
-    await new Promise((r) => setTimeout(r, 20));
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     expect(screen.queryByTestId('view-switch')).toBeNull();
   });
 
