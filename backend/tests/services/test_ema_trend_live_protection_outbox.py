@@ -415,3 +415,127 @@ def test_campaign_with_working_buy_can_never_resize_a_stop_blindly():
     with pytest.raises(outbox.StopCommandConflict,match="CAMPAIGN_HAS_WORKING_ORDER"):
         outbox.reserve_stop_command(changed.id,"stop-1",kind="PLACE",
                                     desired_trigger=95,expected_revision=changed.revision)
+
+
+def test_gtt_ack_requires_unknown_pre_send_fence_and_preserves_idempotency():
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-1",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    with pytest.raises(outbox.StopCommandConflict,match="ACK_REQUIRES_PRE_SEND_FENCE"):
+        outbox.record_unverified_broker_ack("ack-1","901")
+    assert outbox.get("ack-1").status=="RESERVED"
+    outbox.mark_outcome_unknown("ack-1")
+    ack=outbox.record_unverified_broker_ack("ack-1","901")
+    assert ack.status=="ACK_PENDING_VERIFICATION"
+    assert ack.broker_trigger_id=="901"
+    assert outbox.record_unverified_broker_ack("ack-1","901")==ack
+    assert outbox.mark_outcome_unknown("ack-1")==ack
+    with pytest.raises(outbox.StopCommandConflict,match="CONFLICTING_BROKER_ACK"):
+        outbox.record_unverified_broker_ack("ack-1","902")
+    with pytest.raises(outbox.StopCommandConflict,match="PREVIOUS_CHANGE_UNRESOLVED"):
+        outbox.reserve_stop_command(c.id,"ack-2",kind="PLACE",
+                                    desired_trigger=95,expected_revision=c.revision)
+    assert outbox.get("ack-1").broker_trigger_id=="901"
+
+
+@pytest.mark.parametrize("bad",["", "0", "not-a-gtt", "-1", " 901", "９０１"])
+def test_invalid_or_forged_gtt_ack_id_never_changes_status(bad):
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-1",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-1")
+    with pytest.raises(outbox.StopCommandConflict,match="BROKER_ACK_ID_INVALID"):
+        outbox.record_unverified_broker_ack("ack-1",bad)
+    assert outbox.get("ack-1").status=="OUTCOME_UNKNOWN"
+
+
+def test_tightening_ack_must_refer_to_original_gtt():
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"trail-ack",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("trail-ack")
+    with pytest.raises(outbox.StopCommandConflict,match="TRAIL_ACK_GTT_ID_MISMATCH"):
+        outbox.record_unverified_broker_ack("trail-ack","999")
+    valid=outbox.record_unverified_broker_ack("trail-ack","901")
+    assert valid.kind=="TIGHTEN" and valid.status=="ACK_PENDING_VERIFICATION"
+    assert valid.prior_gtt_id=="901"
+
+
+def test_unverified_ack_stays_durable_after_read_reconnect_and_never_unblocks_draft():
+    from app.services.ema_trend.live_stop_draft import StopDraftBlocked,draft_stop_command
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-draft",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-draft")
+    outbox.record_unverified_broker_ack("ack-draft","901")
+    recovered=outbox.get("ack-draft")
+    assert recovered.broker_trigger_id=="901"
+    with pytest.raises(StopDraftBlocked,match="UNKNOWN_OUTCOME_CANNOT_RETRY"):
+        draft_stop_command("ack-draft",reference_bid=100,tick_size="0.05")
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_acknowledged_gtt_readback_still_cannot_unlock_broker_retry():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-readback",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-readback")
+    outbox.record_unverified_broker_ack("ack-readback","901")
+    client=KiteClient(api_key="fake",api_secret="fake",access_token="fake",is_paper=False)
+    client._account_id=c.account_id
+    client.get_gtts=AsyncMock(return_value=[{
+        "id":901,"status":"active",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY"},
+    }])
+    client.get_orders=AsyncMock(return_value=[])
+    client.place_gtt=AsyncMock(side_effect=AssertionError("NO GTT WRITE"))
+    client.modify_gtt=AsyncMock(side_effect=AssertionError("NO GTT MODIFY"))
+    client.delete_gtt=AsyncMock(side_effect=AssertionError("NO GTT DELETE"))
+    report=await outbox.readback_stop_command("ack-readback",broker_client=client)
+    assert report.blocker=="ACKED_GTT_REQUIRES_EXACT_STOP_COVERAGE_VERIFICATION"
+    assert report.candidate_gtt_ids==("901",)
+    assert not report.retry_authorized and not report.broker_writes
+    assert outbox.get("ack-readback").status=="ACK_PENDING_VERIFICATION"
+    client.get_gtts=AsyncMock(return_value=[])
+    missing=await outbox.readback_stop_command("ack-readback",broker_client=client)
+    assert missing.blocker=="ACKED_GTT_NOT_PRESENT_IN_BROKER_BOOK"
+    client.get_gtts=AsyncMock(return_value=[
+        {"id":901,"status":"active","condition":{"exchange":"NSE","tradingsymbol":"INFY"}},
+        {"id":902,"status":"active","condition":{"exchange":"NSE","tradingsymbol":"INFY"}},
+    ])
+    duplicates=await outbox.readback_stop_command("ack-readback",broker_client=client)
+    assert duplicates.blocker=="MULTIPLE_GTT_IDENTITIES_REQUIRE_RECONCILIATION"
+    assert not duplicates.retry_authorized
+    assert outbox.get("ack-readback").status=="ACK_PENDING_VERIFICATION"
+    client.place_gtt.assert_not_called()
+    client.modify_gtt.assert_not_called()
+    client.delete_gtt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unverified_ack_vetoes_existing_stop_certification():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"ack-cert",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("ack-cert")
+    outbox.record_unverified_broker_ack("ack-cert","901")
+    kite=KiteClient(api_key="fake",api_secret="fake",access_token="fake",is_paper=False)
+    kite._account_id=c.account_id
+    kite.get_gtt=AsyncMock(return_value={
+        "id":901,"status":"active",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                     "trigger_values":[95]},
+        "orders":[{"transaction_type":"SELL","product":"CNC",
+                   "quantity":4,"order_type":"LIMIT","price":94.5}],
+    })
+    kite.get_orders=AsyncMock(return_value=[])
+    with pytest.raises(store.LiveStoreConflict,match="STOP_CHANGE_OUTCOME_UNRESOLVED"):
+        await store.confirm_existing_cnc_stop(
+            c.id,"901",expected_revision=c.revision,broker_client=kite)
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+    assert outbox.get("ack-cert").status=="ACK_PENDING_VERIFICATION"
