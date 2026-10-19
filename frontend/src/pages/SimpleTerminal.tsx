@@ -44,9 +44,15 @@ export function SimpleTerminal() {
   useEffect(() => {
     // Never leave the screen stuck on a workspace a new configuration hides.
     if (spectrum === 'tv' && !navOptions.spectrumVisible.tv) setSpectrum('kite');
+    // A user may intentionally hide the KITE (live) destination while still
+    // showing Simulation separately. Keep that view reachable.
     if (spectrum === 'kite' && !navOptions.spectrumVisible.kite
-        && navOptions.spectrumVisible.tv) setSpectrum('tv');
-  }, [spectrum, navOptions.spectrumVisible.kite, navOptions.spectrumVisible.tv]);
+        && navOptions.spectrumVisible.tv
+        && !(selectedView === 'simulation' && navOptions.spectrumVisible.simulation)) {
+      setSpectrum('tv');
+    }
+  }, [spectrum, selectedView, navOptions.spectrumVisible.kite,
+      navOptions.spectrumVisible.simulation, navOptions.spectrumVisible.tv]);
   const {data:sterlingProfile}=useSterlingProfile();
   const navigation = orderedNavigation([
     { id: 'dashboard' as const, label: 'Dashboard' },
