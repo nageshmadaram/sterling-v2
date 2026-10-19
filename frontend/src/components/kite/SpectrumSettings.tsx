@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import {
   DEFAULT_EXPERIENCE_OPTIONS,
   SPECTRUM_ORDER,
@@ -12,6 +13,9 @@ const labels: Record<SpectrumProduct, string> = {
 
 export function SpectrumSettings() {
   const { options, update } = useExperienceOptions();
+  const [nameDraft, setNameDraft] = useState(options.tvLabel);
+  useEffect(() => { setNameDraft(options.tvLabel); }, [options.tvLabel]);
+  const applyName = () => update({ tvLabel: nameDraft });
   const changeVisible = (key: SpectrumProduct, enabled: boolean) => {
     const next: SpectrumVisible = { ...options.spectrumVisible, [key]: enabled };
     if (!next.kite && !next.tv) return;
@@ -70,12 +74,14 @@ export function SpectrumSettings() {
     <label style={{ display:'block', margin:'14px 0' }}>
       TV display name
       <input aria-label="TV display name" maxLength={24} type="text"
-        placeholder="TV" value={options.tvLabel}
-        onChange={e => update({ tvLabel:e.target.value })} />
+        placeholder="TV" value={nameDraft}
+        onChange={e => setNameDraft(e.target.value)}
+        onBlur={applyName}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyName(); e.currentTarget.blur(); } }} />
       <small style={{ display:'block' }}>Up to 24 characters. Only the label changes; IPTV remains isolated from trading.</small>
     </label>
     <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
-      <button type="button" onClick={() => update({tvLabel:'TV'})}>Reset TV name</button>
+      <button type="button" onClick={() => { setNameDraft('TV'); update({tvLabel:'TV'}); }}>Reset TV name</button>
       <button type="button" onClick={() => update({
         spectrumLayout:DEFAULT_EXPERIENCE_OPTIONS.spectrumLayout,
         spectrumVisible:{...DEFAULT_EXPERIENCE_OPTIONS.spectrumVisible},
