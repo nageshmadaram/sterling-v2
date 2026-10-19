@@ -237,7 +237,7 @@ async def test_read_only_kite_gtt_confirmation_requires_existing_filled_cnc_inve
         "id":901,"status":"active",
         "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                      "trigger_values":[95]},
-        "orders":[{"transaction_type":"SELL","product":"CNC",
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                    "quantity":4,"order_type":"LIMIT","price":94.5}],
     })
     client.get_orders=AsyncMock(return_value=[])
@@ -275,7 +275,7 @@ async def test_stale_gtt_and_open_external_sell_never_prove_protection():
         "id":901,"status":"triggered",
         "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                      "trigger_values":[95]},
-        "orders":[{"transaction_type":"SELL","product":"CNC",
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                    "quantity":4,"order_type":"LIMIT","price":94.5}],
     }
     client.get_gtt=AsyncMock(return_value=record)
