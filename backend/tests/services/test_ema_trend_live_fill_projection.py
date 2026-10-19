@@ -222,3 +222,35 @@ def test_replay_same_partial_fill_remains_idempotent():
     assert again.fill_delta.quantity == 0
     assert again.fill_delta.value == Decimal("0")
     assert again.campaign.confirmed_bought == 2
+
+def test_terminal_cancelled_order_cannot_reopen_without_manual_reconciliation():
+    original = campaign(entries=[order(status="CANCELLED")],
+                        phase="RECOVERY_REQUIRED")
+    with pytest.raises(LiveOrderEvidenceError, match="terminal_order_must_not_reopen"):
+        rehearse_verified_fill(original, "intent-1", fact(identity(), "OPEN", 0))
+
+
+def test_complete_order_cannot_be_downgraded_to_open():
+    original = campaign(entries=[order(filled=4, status="COMPLETE")],
+                        phase="PROTECTION_REQUIRED")
+    with pytest.raises(LiveOrderEvidenceError, match="terminal_order_must_not_reopen"):
+        rehearse_verified_fill(original, "intent-1", fact(identity(), "OPEN", 4))
+
+
+def test_closed_campaign_cannot_be_reopened_by_delayed_broker_fact():
+    original = campaign(
+        entries=[order(filled=4, status="COMPLETE")],
+        exits=[order(side="SELL", quantity=4, filled=4, status="COMPLETE",
+                     order_id="ORDER-X", key="exit-1")],
+        confirmed_sold=4, phase="CLOSED",
+    )
+    with pytest.raises(LiveOrderEvidenceError, match="closed_campaign_must_not_reopen"):
+        rehearse_verified_fill(original, "intent-1", fact(identity(), "COMPLETE", 4))
+
+
+def test_cached_active_stop_does_not_upgrade_unprotected_campaign_to_protected():
+    original = campaign(entries=[order(filled=4, status="COMPLETE")],
+                        phase="PROTECTION_REQUIRED", stop=protected_stop())
+    result = rehearse_verified_fill(original, "intent-1", fact(identity(), "COMPLETE", 4))
+    assert result.campaign.phase == "PROTECTION_REQUIRED"
+    assert result.next_proof == "BROKER_STOP_VERIFICATION"
