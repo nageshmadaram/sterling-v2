@@ -336,6 +336,17 @@ async def confirm_existing_cnc_stop(
             LIMIT 1
         """,(campaign.owner_uid,campaign.account_id)).fetchone():
             raise LiveStoreConflict("EMA_LIVE_STOP_CANONICAL_PROJECTION_PENDING")
+        # A timed-out PLACE or TIGHTEN may already have created another GTT.
+        # Checking a single active trigger is NOT sufficient to claim unique
+        # protective coverage while that prior mutation remains unresolved.
+        from . import live_protection_outbox
+        live_protection_outbox._schema(conn)
+        if conn.execute("""
+            SELECT 1 FROM ema_live_stop_commands
+            WHERE campaign_id=? AND status IN ('RESERVED','OUTCOME_UNKNOWN')
+            LIMIT 1
+        """,(campaign.id,)).fetchone():
+            raise LiveStoreConflict("EMA_LIVE_STOP_CHANGE_OUTCOME_UNRESOLVED")
         model = LiveCampaign.model_validate({
             **campaign.model_dump(mode="python"),
             "protection":stop.model_dump(mode="python"),
