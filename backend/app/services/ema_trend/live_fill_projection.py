@@ -58,6 +58,8 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
     ledger and the actual broker inventory have been independently reconciled.
     """
     identity = fact.identity
+    if campaign.phase == "CLOSED":
+        raise LiveOrderEvidenceError("ema_closed_campaign_must_not_reopen")
     if (identity.uid != campaign.owner_uid
             or identity.account_id != campaign.account_id
             or identity.exchange != campaign.exchange
@@ -86,13 +88,16 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
 
     prior = LiveOrderFact(identity, previous.status, previous.confirmed_qty,
                           previous.cumulative_value)
+    next_status = _intent_status(fact)
+    if previous.status in {"COMPLETE", "CANCELLED", "REJECTED"} and next_status != previous.status:
+        raise LiveOrderEvidenceError("ema_terminal_order_must_not_reopen")
     delta = incremental_confirmed_fill(prior, fact)
     next_order = BrokerIntent.model_validate({
         **previous.model_dump(mode="python"),
         "order_id": identity.order_id,
         "confirmed_qty": fact.filled_quantity,
         "cumulative_value": fact.cumulative_value,
-        "status": _intent_status(fact),
+        "status": next_status,
     })
     if side == "BUY":
         entries[index] = next_order
@@ -116,6 +121,7 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
                and not campaign.protection_submission_unknown else 0)
     gap = max(0, held - covered)
     ambiguous = (campaign.protection_submission_unknown or cleanup
+                 or campaign.phase == "RECOVERY_REQUIRED"
                  or next_order.status == "UNKNOWN")
     if ambiguous:
         phase = "RECOVERY_REQUIRED"
@@ -131,6 +137,11 @@ def rehearse_verified_fill(campaign: LiveCampaign, intent_key: str,
     elif gap:
         phase = "PROTECTION_REQUIRED"
         proof = "BROKER_STOP_REPLACEMENT"
+    elif campaign.phase != "PROTECTED":
+        # A fill observation cannot promote a previously unprotected campaign
+        # to PROTECTED, even if an old cached stop record says ACTIVE.
+        phase = "PROTECTION_REQUIRED"
+        proof = "BROKER_STOP_VERIFICATION"
     else:
         # Preserve PROTECTED only if an earlier, independently verified stop
         # still exactly covers the current holding. No GTT is fabricated here.
