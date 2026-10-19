@@ -19,9 +19,6 @@ vi.mock('../../components/SterlingLogo', () => ({
 vi.mock('../../components/kite/ThemeToggle', () => ({
   ThemeToggle: () => null,
 }));
-vi.mock('../../components/sim/ViewSwitch', () => ({
-  ViewSwitch: () => <span>Broker mode</span>,
-}));
 vi.mock('../../components/sim/SimBanner', () => ({
   SimBanner: () => <span>Simulation banner</span>,
 }));
@@ -72,7 +69,8 @@ describe('Sterling Spectrum product navigation', () => {
       .toHaveClass('mobile-view-toggle','unified-view-toggle');
     expect(screen.getByRole('button', {name:'TV'}))
       .toHaveClass('mobile-view-toggle','unified-view-toggle');
-    expect(nav.textContent).toBe('KITETV');
+    expect(Array.from(nav.querySelectorAll(':scope > .mobile-view-toggle'))
+      .map(button => button.textContent)).toEqual(['KITE','TV']);
     expect(screen.getByTestId('kite-trading-docks')).toBeInTheDocument();
     expect(screen.queryByTestId('fake-tv-content')).toBeNull();
   });
