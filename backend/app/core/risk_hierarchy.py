@@ -209,6 +209,39 @@ class RiskHierarchy:
 ENV_VAR = "STERLING_RISK_LIMITS"
 
 
+def missing_live_lane_caps(hierarchy: RiskHierarchy) -> tuple[str, ...]:
+    """Missing configured limits for every declared live Snapback/SuperTrend lane.
+
+    This is an operator-readiness check, not an order admission shortcut.
+    Requests still pass through RiskHierarchy.check and the other live safety
+    gates. The underlying layer remains optional and is enforced when set.
+    """
+    from app.core.horizon import LaneState
+    from app.core.lane_registry import all_lanes
+
+    required = (RiskLevel.GLOBAL, RiskLevel.STRATEGY, RiskLevel.MODE, RiskLevel.POSITION)
+    missing = [
+        f"{level.value}:<no scopes>"
+        for level in required if not hierarchy.declares(level)
+    ]
+    if hierarchy.limit_for(RiskLevel.GLOBAL, "") is None:
+        missing.append("global:<book>")
+
+    for lane in all_lanes():
+        if lane.state not in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED):
+            continue
+        if not lane.rules_defined:
+            continue
+        for level, scope in (
+            (RiskLevel.STRATEGY, lane.strategy_id),
+            (RiskLevel.MODE, lane.lane_key),
+            (RiskLevel.POSITION, lane.lane_key),
+        ):
+            if hierarchy.limit_for(level, scope) is None:
+                missing.append(f"{level.value}:{scope}")
+    return tuple(sorted(set(missing)))
+
+
 def configured_hierarchy(env: Mapping[str, str] | None = None) -> "RiskHierarchy | None":
     """The hierarchy the operator configured, or ``None`` when none is set.
 
