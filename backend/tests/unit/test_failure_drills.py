@@ -31,7 +31,8 @@ def register(tmp_path):
 def _record_all(register, sha=SHA):
     for drill in DRILLS:
         register.record(sha, drill.key, "PASS", observed_by="operator",
-                        observed=f"behaved as required: {drill.required_outcome}")
+                        observed=f"behaved as required: {drill.required_outcome}",
+                        evidence_refs=[f"fixture://{drill.key}/observed-rehearsal"])
 
 
 class TestTheDeclaredDrills:
@@ -77,8 +78,42 @@ class TestRecording:
                 "PASS",
                 observed_by="operator",
                 observed="blocked new exposure",
+                evidence_refs=["fixture://disk_full/observation"],
                 started_at=future,
             )
+
+    def test_a_pass_requires_observed_evidence_reference(self, register):
+        with pytest.raises(ValueError, match="requires at least one evidence reference"):
+            register.record(
+                SHA, "disk_full", "PASS",
+                observed_by="operator", observed="blocked new exposure",
+            )
+
+    def test_empty_reference_does_not_count_as_evidence(self, register):
+        with pytest.raises(ValueError, match="requires at least one evidence reference"):
+            register.record(
+                SHA, "disk_full", "PASS",
+                observed_by="operator", observed="blocked new exposure",
+                evidence_refs=[" ", ""],
+            )
+
+    def test_legacy_pass_without_evidence_reference_is_unknown(self, register):
+        register._path(SHA).write_text(
+            json.dumps({
+                "sha": SHA,
+                "drills": [{
+                    "key": "disk_full", "status": "PASS",
+                    "observed": "blocked new exposure",
+                    "observed_by": "operator",
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "recorded_at": datetime.now(timezone.utc).isoformat(),
+                }],
+            }),
+            encoding="utf-8",
+        )
+        result = drill_report(SHA, register=register).by_key["disk_full"]
+        assert result.status == "UNKNOWN"
+        assert "no referenced drill evidence" in result.observed
 
     def test_a_failure_needs_neither_but_is_still_recorded(self, register):
         result = register.record(SHA, "disk_full", "FAIL", observed_by="", observed="")
