@@ -803,11 +803,16 @@ PY
     if [ "${2:-}" = "strict" ]; then
       run_py <<'PY'
 import sys
+from app.services.exposure_snapshot import exposure_snapshot
 from app.services.release_certification import (
     certification_report, render_certification,
 )
 
-report = certification_report()
+# A strict, one-shot certification must obtain broker truth NOW. The ordinary
+# advisory report uses the last recorded snapshot so dashboards can poll
+# without repeatedly contacting Kite. Do not certify from a cached flat book.
+fresh = exposure_snapshot(include_broker=True)
+report = certification_report(exposure_snapshot_value=fresh)
 print(render_certification(report))
 if report.release_ready:
     print("STRICT CERTIFICATION: PASS for this release identity.")
