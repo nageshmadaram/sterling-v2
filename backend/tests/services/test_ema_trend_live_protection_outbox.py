@@ -755,3 +755,114 @@ async def test_trail_weak_against_requested_stop_leaves_original_gtt_and_fence()
     assert after.protection.trigger_id=="901"
     assert outbox.get("trail-weak").status=="ACK_PENDING_VERIFICATION"
     _no_writes(kite)
+
+
+def test_pre_send_claim_is_single_use_and_preserves_uncertain_state_after_restart():
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"claim-once",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    first=outbox.claim_stop_transmission("claim-once")
+    assert first.status=="OUTCOME_UNKNOWN"
+    assert outbox.get("claim-once")==first
+    with pytest.raises(outbox.StopCommandConflict,match="ALREADY_CLAIMED_OR_UNRESOLVED"):
+        outbox.claim_stop_transmission("claim-once")
+    with pytest.raises(outbox.StopCommandConflict,match="PREVIOUS_CHANGE_UNRESOLVED"):
+        outbox.reserve_stop_command(c.id,"claim-other-key",kind="PLACE",
+                                    desired_trigger=95,expected_revision=c.revision)
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
+
+
+def test_pre_send_claim_refuses_signed_inventory_change():
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"claim-drift",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    with order_journal._transaction() as conn:
+        conn.execute("""
+            UPDATE kite_inventory SET net_quantity=3
+            WHERE account_id=? AND uid=? AND symbol=?
+        """,(c.account_id,c.owner_uid,c.symbol))
+    with pytest.raises(outbox.StopCommandConflict,match="INVENTORY_CHANGED"):
+        outbox.claim_stop_transmission("claim-drift")
+    assert outbox.get("claim-drift").status=="RESERVED"
+
+
+def test_pre_send_claim_refuses_campaign_revision_change():
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"claim-revision",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    changed=c.model_copy(update={"revision":c.revision+1})
+    with order_journal._transaction() as conn:
+        store._save(conn,changed)
+    with pytest.raises(outbox.StopCommandConflict,match="CAMPAIGN_CHANGED"):
+        outbox.claim_stop_transmission("claim-revision")
+    assert outbox.get("claim-revision").status=="RESERVED"
+
+
+@pytest.mark.asyncio
+async def test_fake_kite_placement_drill_one_write_followed_by_broker_verified_ack():
+    # Only an explicit AsyncMock receives a simulated GTT write. The real
+    # adapter is disconnected and the live-entry switch stays OFF.
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend.live_stop_draft import draft_stop_command
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"fake-place",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    draft=draft_stop_command("fake-place",reference_bid=100,tick_size="0.05")
+    kite=_fake_ack_kite(c)
+    kite.place_gtt=AsyncMock(return_value={"trigger_id":901})
+    assert outbox.claim_stop_transmission("fake-place").status=="OUTCOME_UNKNOWN"
+    result=await kite.place_gtt(**draft.request)
+    assert result=={"trigger_id":901}
+    ack=outbox.record_unverified_broker_ack("fake-place",str(result["trigger_id"]))
+    assert ack.status=="ACK_PENDING_VERIFICATION"
+    verified=await outbox.verify_acknowledged_stop("fake-place",broker_client=kite)
+    assert verified.status=="VERIFIED"
+    assert store.get(c.id).phase=="PROTECTED"
+    kite.place_gtt.assert_awaited_once_with(**draft.request)
+    for name in ("place_order","cancel_order","modify_order",
+                 "modify_gtt","delete_gtt"):
+        getattr(kite,name).assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fake_kite_trailing_stop_drill_is_same_gtt_id_and_stricter_stop():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend.live_stop_draft import draft_stop_command
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"fake-trail",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    draft=draft_stop_command("fake-trail",reference_bid=100,tick_size="0.05")
+    kite=_fake_ack_kite(c,trigger=96)
+    kite.modify_gtt=AsyncMock(return_value={"trigger_id":901})
+    assert outbox.claim_stop_transmission("fake-trail").status=="OUTCOME_UNKNOWN"
+    result=await kite.modify_gtt(int(draft.prior_trigger_id),**draft.request)
+    outbox.record_unverified_broker_ack("fake-trail",str(result["trigger_id"]))
+    verified=await outbox.verify_acknowledged_stop("fake-trail",broker_client=kite)
+    assert verified.status=="VERIFIED"
+    assert store.get(c.id).stop==Decimal("96")
+    kite.modify_gtt.assert_awaited_once_with(901,**draft.request)
+    for name in ("place_order","cancel_order","modify_order",
+                 "place_gtt","delete_gtt"):
+        getattr(kite,name).assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fake_kite_timeout_leaves_unknown_and_never_retries_an_order():
+    from unittest.mock import AsyncMock
+    from app.services.ema_trend.live_stop_draft import draft_stop_command,StopDraftBlocked
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"fake-timeout",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    draft=draft_stop_command("fake-timeout",reference_bid=100,tick_size="0.05")
+    kite=_fake_ack_kite(c)
+    kite.place_gtt=AsyncMock(side_effect=TimeoutError("ACK lost after request"))
+    outbox.claim_stop_transmission("fake-timeout")
+    with pytest.raises(TimeoutError,match="ACK lost"):
+        await kite.place_gtt(**draft.request)
+    assert outbox.get("fake-timeout").status=="OUTCOME_UNKNOWN"
+    with pytest.raises(outbox.StopCommandConflict,match="ALREADY_CLAIMED_OR_UNRESOLVED"):
+        outbox.claim_stop_transmission("fake-timeout")
+    with pytest.raises(StopDraftBlocked,match="UNKNOWN_OUTCOME_CANNOT_RETRY"):
+        draft_stop_command("fake-timeout",reference_bid=100,tick_size="0.05")
+    kite.place_gtt.assert_awaited_once()
+    assert store.get(c.id).phase=="PROTECTION_REQUIRED"
