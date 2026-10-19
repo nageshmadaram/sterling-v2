@@ -51,9 +51,9 @@ export function TvWorkspace() {
   const readyRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const onLoad = useCallback(() => {
-    setLoaded(true);
     setFailed(false);
     // Mobile WebKit can finish frame navigation before its one-shot "ready"
     // message reaches React's effect listener. The child repeats "ready"
@@ -72,6 +72,8 @@ export function TvWorkspace() {
       if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
       if (data.type === MESSAGE_READY) {
         readyRef.current = true;
+        setLoaded(true);
+        setFailed(false);
         frame.contentWindow?.postMessage({
           type: MESSAGE_HYDRATE,
           values: readTvPreferences(),
@@ -87,9 +89,17 @@ export function TvWorkspace() {
         catch { /* browsing remains functional even with disabled storage */ }
       }
     };
+    // A loaded iframe is not proof its scripts started. Make a blocked CDN
+    // or mobile WebKit failure visible, with a TV-only retry path.
+    const watchdog = window.setTimeout(() => {
+      if (!readyRef.current) setFailed(true);
+    }, 15000);
     window.addEventListener('message', onMessage);
-    return () => window.removeEventListener('message', onMessage);
-  }, []);
+    return () => {
+      window.clearTimeout(watchdog);
+      window.removeEventListener('message', onMessage);
+    };
+  }, [reloadKey]);
 
   return (
     <section
@@ -107,10 +117,21 @@ export function TvWorkspace() {
       {failed && (
         <div role="alert" style={{ position: 'absolute', inset: 0, display: 'grid',
           placeItems: 'center', color: '#ededed', fontSize: 13 }}>
-          TV could not load. Select KITE and return to TV to retry.
+          <div style={{ textAlign: 'center', padding: 16 }}>
+            <p>TV did not initialize. Check the network or retry this player.</p>
+            <button type="button" onClick={() => {
+              readyRef.current = false;
+              setLoaded(false);
+              setFailed(false);
+              setReloadKey(n => n + 1);
+            }} style={{ cursor: 'pointer', marginTop: 12, padding: '8px 16px',
+              border: '1px solid #888', color: '#fff', background: '#222',
+              borderRadius: 6 }}>Retry TV</button>
+          </div>
         </div>
       )}
       <iframe
+        key={reloadKey}
         ref={ref}
         title="Sterling TV player"
         data-testid="sterling-tv-frame"
