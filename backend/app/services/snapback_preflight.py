@@ -16,6 +16,7 @@ Every check fails closed. A probe that raises counts as failed, never as passed.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import shutil
 import sqlite3
@@ -406,6 +407,8 @@ def _default_allocation_capital() -> Tuple[bool, Dict[str, Any]]:
         value = float(raw)
     except ValueError:
         return False, {"error": f"unparseable:{raw!r}"}
+    if not math.isfinite(value):
+        return False, {"error": "allocation_capital_not_finite"}
     if value <= 0:
         return False, {"error": f"non_positive:{value}"}
     return True, {"allocation_capital": value}
