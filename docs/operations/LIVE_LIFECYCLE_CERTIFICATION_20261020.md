@@ -137,7 +137,8 @@ Code-level corrections on the next SHA:
    `PASS`: read success is `OBSERVED` until broker truth is independently
    verified. It checks both fetched Git branch SHAs and protects operator
    log output from shared terminal disclosure.
-5. `scripts/sterlingctl certify strict` now uses the existing
+5. `scripts/sterlingctl certify strict` now performs a one-shot
+   **fresh read-only broker exposure query** and uses the existing
    `CertificationReport.release_ready` verdict, returning non-zero if
    any required gate is FAIL/UNKNOWN or exposure is not provably zero.
    It does **not** remove old advisory reporting or change live-entry gates.
