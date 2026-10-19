@@ -139,11 +139,16 @@ def reserve_stop_command(campaign_id: str, command_id: str, *,
         if (inv is None or inv.net_quantity!=campaign.held_qty
                 or inv.exchange!=campaign.exchange or inv.reconciliation_required):
             raise StopCommandConflict("EMA_STOP_SIGNED_INVENTORY_UNVERIFIED")
+        # Even an ACKed order may fill later and change the broker stop's
+        # required size. A PARTIAL buy/exit is NOT a stable inventory snapshot.
+        if any(item.status not in {"COMPLETE","CANCELLED","REJECTED"}
+               for item in campaign.entries+campaign.exits):
+            raise StopCommandConflict("EMA_STOP_CAMPAIGN_HAS_WORKING_ORDER")
         if conn.execute("""
             SELECT 1 FROM kite_order_intents
             WHERE uid=? AND account_id=?
             AND (projection_pending=1 OR reconciliation_required=1
-                 OR state IN ('RESERVED','SUBMITTING','UNKNOWN'))
+                 OR state IN ('RESERVED','SUBMITTING','UNKNOWN','SUBMITTED','PARTIAL'))
             LIMIT 1
         """,(campaign.owner_uid,campaign.account_id)).fetchone():
             raise StopCommandConflict("EMA_STOP_CANONICAL_ORDER_RECOVERY_PENDING")
