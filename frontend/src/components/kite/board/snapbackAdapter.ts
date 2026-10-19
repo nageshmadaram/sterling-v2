@@ -34,7 +34,7 @@ const n = (v: number | null | undefined, dp = 2): string => fmtPx(v, dp);
 // All non-swing modes use the completed-minute-candle signal/plan presentation.
 // Execution eligibility comes exclusively from the server's row decision.
 const isMinuteBarMode = (row: SnapbackRow) =>
-  ['ultra_scalping', 'scalp', 'intraday', 'overnight'].includes(row.trading_mode);
+  ['ultra_scalping', 'scalp', 'intraday', 'overnight'].includes(row.trading_mode ?? 'swing');
 const metric = (row: SnapbackRow, key: string): number | null => {
   const value = row.metrics?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
