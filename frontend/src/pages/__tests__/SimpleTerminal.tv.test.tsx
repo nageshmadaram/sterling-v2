@@ -78,7 +78,7 @@ describe('Sterling Spectrum product navigation', () => {
     render(<SimpleTerminal />);
     fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
     expect(screen.getByTestId('spectrum-tv-tab')).toHaveAttribute('aria-selected', 'true');
-    expect(document.getElementById('sterling-tv-surface')).toHaveStyle({ flex: '1' });
+    expect(document.getElementById('sterling-tv-surface')?.getAttribute('style')).toContain('flex: 1');
     expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
     expect(screen.queryByText('Simulation banner')).toBeNull();
     expect(screen.queryByText('Trading mobile navigation')).toBeNull();
