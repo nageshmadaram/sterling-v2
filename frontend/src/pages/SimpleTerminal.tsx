@@ -24,6 +24,7 @@ export function SimpleTerminal() {
   useEffect(() => { document.body.dataset.mobileStyle = mobileStyle; return () => { delete document.body.dataset.mobileStyle; }; }, [mobileStyle]);
   useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('view')==='live'&&notificationDestination(params.get('notification')))useViewStore.getState().setView('live');},[]);
   const [showSettings, setShowSettings] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [spectrum, setSpectrum] = useState<'kite' | 'tv'>('kite');
   const chooseSpectrum = (next: 'kite' | 'tv') => {
     if (next === spectrum) return;
@@ -32,7 +33,6 @@ export function SimpleTerminal() {
     setShowSettings(false);
     setSpectrum(next);
   };
-  const [toolsOpen, setToolsOpen] = useState(false);
   const toolsRef = useRef<HTMLDivElement>(null);
   const preferredSection = useKiteSettings((s) => s.defaultSection);
   const userNavigatedRef = useRef(!!notificationDestination(new URLSearchParams(window.location.search).get('notification')));
