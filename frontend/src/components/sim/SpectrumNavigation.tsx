@@ -22,6 +22,29 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
   const simulationAllowed = view === 'simulation' || status.isSuccess ||
     (status.isError && !isOwnerDenied(status.error));
   const { spectrumVisible: visible, spectrumLayout: layout } = options;
+  const cycleChoices = options.spectrumOrder.filter(key =>
+    visible[key] && (key !== 'simulation' || simulationAllowed));
+  const currentProduct: SpectrumProduct = workspace === 'tv' ? 'tv'
+    : view === 'simulation' ? 'simulation' : 'kite';
+  const activeCycleProduct = cycleChoices.includes(currentProduct)
+    ? currentProduct : cycleChoices[0] || 'kite';
+  const cycleNext = () => {
+    if (cycleChoices.length < 2) return;
+    const next = cycleChoices[
+      (cycleChoices.indexOf(activeCycleProduct) + 1) % cycleChoices.length
+    ];
+    if (next === 'tv') onSelect('tv');
+    else onSelect('kite',next === 'simulation' ? 'simulation' : 'live');
+  };
+  if (layout === 'cycle') {
+    const displayed = activeCycleProduct === 'tv' ? options.tvLabel
+      : activeCycleProduct === 'simulation' ? 'Simulation' : 'KITE';
+    return <button type="button" role="button" data-testid="spectrum-cycle-switch"
+      className="mobile-view-toggle unified-view-toggle"
+      aria-label={`Cycle Spectrum: ${displayed}`}
+      title={cycleChoices.length > 1 ? 'Switch to next Spectrum workspace' : displayed}
+      onClick={cycleNext}>{displayed}</button>;
+  }
   const navButton = (key: SpectrumProduct, label: string, selected: boolean,
                      onClick: () => void) =>
     <button key={key} type="button"
