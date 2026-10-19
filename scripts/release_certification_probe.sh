@@ -102,6 +102,8 @@ if [[ -x "$PYTHON" ]]; then
     tests/services/test_telegram_lifecycle_outbox.py \
     tests/unit/test_snapback_alert_telegram_sink.py
   test_group broker_backup_safety \
+    tests/unit/test_sterlingctl_environment.py \
+    tests/unit/test_load_sterling_env.py \
     tests/unit/test_broker_binding_verification.py \
     tests/unit/test_release_operational_gates.py \
     tests/unit/test_release_certification_authority.py \
