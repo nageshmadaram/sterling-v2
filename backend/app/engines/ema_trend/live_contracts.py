@@ -81,6 +81,9 @@ class LiveCampaign(Strict):
     stop: Decimal = Field(gt=0)
     protection: BrokerStop | None = None
     protection_submission_unknown: bool = False
+    # GTTs made oversized by partial/manual exits remain broker-side until
+    # independently cancelled/verified. Never lose their IDs on restart.
+    orphan_stop_ids: list[str] = Field(default_factory=list)
     flatten_requested: bool = False
     reason: str = ""
     revision: int = Field(default=0, ge=0)
@@ -105,6 +108,10 @@ class LiveCampaign(Strict):
             raise ValueError("LIVE_ENTRY_ACCOUNTING_DIVERGENCE")
         if self.confirmed_sold != sum(o.confirmed_qty for o in self.exits):
             raise ValueError("LIVE_EXIT_ACCOUNTING_DIVERGENCE")
+        if (len(self.orphan_stop_ids) != len(set(self.orphan_stop_ids))
+                or any(not isinstance(value, str) or not value.strip()
+                       or value != value.strip() for value in self.orphan_stop_ids)):
+            raise ValueError("LIVE_ORPHAN_STOP_ID_INVALID")
         if self.protection is not None:
             stop = self.protection
             if (stop.exchange, stop.symbol, stop.product) != (self.exchange, self.symbol, self.product):
@@ -118,11 +125,13 @@ class LiveCampaign(Strict):
                     or not self.protection.verified_active
                     or self.protection.child_order_unresolved
                     or self.protection.qty != self.held_qty
-                    or self.protection_submission_unknown):
+                    or self.protection_submission_unknown
+                    or self.orphan_stop_ids):
                 raise ValueError("LIVE_PROTECTED_REQUIRES_EXACT_VERIFIED_BROKER_COVERAGE")
         if self.phase == "CLOSED":
             if (self.held_qty or self.protection is not None
                     or self.protection_submission_unknown
+                    or self.orphan_stop_ids
                     or any(o.status not in {"COMPLETE", "CANCELLED", "REJECTED"} for o in self.entries + self.exits)):
                 raise ValueError("LIVE_CLOSED_REQUIRES_TERMINAL_ORDERS_AND_ZERO_INVENTORY")
         return self
