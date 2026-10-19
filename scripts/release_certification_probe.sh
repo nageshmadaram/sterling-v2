@@ -120,7 +120,12 @@ if [[ -x "$PYTHON" ]]; then
     tests/unit/test_release_backup_gate.py \
     tests/unit/test_backup_manifest_restore_proof.py \
     tests/unit/test_full_backup_contents.py \
-    tests/unit/test_release_exposure_freshness.py
+    tests/unit/test_release_exposure_freshness.py \
+    tests/unit/test_snapback_preflight.py::test_preflight_rejects_nonfinite_approved_capital \
+    tests/unit/test_snapback_preflight.py::test_preflight_accepts_a_real_positive_finite_capital \
+    tests/unit/test_safety_wiring_end_to_end.py::test_nonfinite_limits_fail_closed \
+    tests/unit/test_safety_wiring_end_to_end.py::test_nonfinite_risk_request_fails_closed \
+    tests/unit/test_safety_wiring_end_to_end.py::test_nonfinite_used_exposure_fails_closed
 else blocked backend_tests "Python virtual environment missing"; fi
 
 if [[ -x "$ROOT/frontend/node_modules/.bin/vitest" ]]; then
