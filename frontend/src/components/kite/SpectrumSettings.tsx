@@ -37,10 +37,12 @@ export function SpectrumSettings() {
       <select aria-label="Spectrum navigation layout"
         value={options.spectrumLayout}
         onChange={event => update({
-          spectrumLayout: event.target.value === 'separate' ? 'separate' : 'toggle',
+          spectrumLayout: event.target.value === 'separate' ? 'separate'
+            : event.target.value === 'cycle' ? 'cycle' : 'toggle',
         })}>
         <option value="toggle">KITE ⇄ Simulation toggle + TV (default)</option>
         <option value="separate">KITE, Simulation and TV as separate tabs</option>
+        <option value="cycle">One button: KITE → Simulation → TV → KITE</option>
       </select>
     </label>
     <fieldset style={{ border:'1px solid var(--k-border)', padding:12, borderRadius:8 }}>
@@ -69,7 +71,7 @@ export function SpectrumSettings() {
       })}
     </fieldset>
     <p style={{ marginTop:7, fontSize:12, color:'var(--k-dim)' }}>
-      In toggle mode, KITE and Simulation share the original KITE switch. In separate mode, each visible destination has its own tab and uses the order above. Hiding Simulation does not remove the return route from an open Simulation session. At least KITE or TV must remain visible.
+      In toggle mode, KITE and Simulation share the original KITE switch. Separate mode gives each visible destination its own tab. Cycle mode uses one button to visit visible destinations in the order above. Hiding Simulation does not remove the return route from an open Simulation session. At least KITE or TV must remain visible.
     </p>
     <label style={{ display:'block', margin:'14px 0' }}>
       TV display name
