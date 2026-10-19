@@ -198,3 +198,54 @@ automatic SELL through the canonical execution service after stop-child
 reconciliation, MIS exchange-native protective orders, account-wide broker
 order ownership, production static-egress/Kite binding checks, and moving-market
 acceptance. CI/CD remains out of scope until the end. Keep live entries OFF.
+
+
+## 19 October: stop-command timeout/restart fence (offline-only)
+
+The operator verified the prior selected EMA suite at `e28bdb5b`:
+**162 passed, 0 failed, 5.64 seconds**, with live-entry switch OFF.
+
+New **unverified** continuation:
+- `live_protection_outbox.py` persists a unique CNC `PLACE` or
+  `TIGHTEN` command per campaign, scoped to a real campaign's exact account,
+  instrument and signed confirmed holdings. It enforces revisioned idempotency,
+  strictly tighter TSL, and blocks when journal projection/unknown submissions
+  are unresolved.
+- `mark_outcome_unknown` durably marks a possibly-sent GTT mutation as
+  `OUTCOME_UNKNOWN`. Restart/replay and a different request ID cannot cause
+  a second attempt. In-process state alone is never relied upon.
+- `readback_stop_command` can query Kite GTTs and orders using an exact
+  real-account read client. A matching candidate GTT or an empty broker book
+  is **not sufficient** to prove the original mutation's outcome. It never
+  releases the fence or authorizes a retry.
+- Existing `confirm_existing_cnc_stop` now checks the stop-command outbox
+  inside its durable SQLite confirmation transaction. Any outstanding
+  `RESERVED`/`OUTCOME_UNKNOWN` command prevents a false `PROTECTED` phase.
+- `test_ema_trend_live_protection_outbox.py` uses isolated SQLite and
+  fake Kite reads with all broker write methods forbidden. It covers persisted
+  idempotency, crash-before-commit rollback, UNKNOWN recovery, a competing
+  request key, changed holdings, pending journal projection, trailing stop
+  non-weakening, missing GTT and stale broker order book.
+
+**No live broker write path is enabled by this work.** Additional production
+certification is needed to establish a broker-safe canonical GTT mutation
+capability, reconcile ambiguous HTTP outcomes and fired LIMIT child orders,
+verify delivery/CNC authorisation, and authorize automatic live SELLs without
+overselling. No test assertion may itself unlock these gates.
+
+Suggested next offline suite (including the new file):
+
+```bash
+cd ~/Sterling/backend
+STERLING_LIVE_EXECUTION=0 .venv/bin/python -m pytest -q \
+  tests/engines/ema_trend/test_live_contracts.py \
+  tests/services/test_ema_trend_live_order_facts.py \
+  tests/services/test_ema_trend_live_fill_projection.py \
+  tests/services/test_ema_trend_live_campaign_store.py \
+  tests/services/test_ema_trend_live_lifecycle.py \
+  tests/services/test_ema_trend_live_exit_preflight.py \
+  tests/services/test_ema_trend_live_protection_outbox.py \
+  tests/services/test_ema_trend_readiness.py \
+  tests/services/test_ema_trend_signal_admission.py \
+  tests/services/test_ema_trend_runtime.py
+```
