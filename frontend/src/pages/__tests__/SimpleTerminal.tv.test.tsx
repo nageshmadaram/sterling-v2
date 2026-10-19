@@ -31,10 +31,9 @@ vi.mock('../../components/kite/MobileExperienceMenu', () => ({
 vi.mock('../../components/SimpleSettings', () => ({
   SimpleSettingsDrawer: () => null,
 }));
-vi.mock('../../store/useExperienceOptions', () => ({
-  useExperienceOptions: (selector: (s: { options: Record<string, unknown> }) => unknown) =>
-    selector({ options: {} }),
-  orderedNavigation: (items: unknown[]) => items,
+vi.mock('../../hooks/useSim', () => ({
+  useSimStatus: () => ({ isSuccess: true, isError: false }),
+  isOwnerDenied: () => false,
 }));
 vi.mock('../../components/kite/navigationDensity', () => ({
   groupPrimaryNavigation: (items: unknown[]) => ({ primary: items, overflow: [] }),
@@ -48,6 +47,8 @@ vi.mock('../../store/useKiteSettings', () => {
   return { useKiteSettings: hook };
 });
 
+import { useExperienceOptions, readExperienceOptions } from '../../store/useExperienceOptions';
+import { useViewStore } from '../../store/useViewStore';
 import { SimpleTerminal } from '../SimpleTerminal';
 import { resetDraftGuard, setDraftDirty } from '../../components/kite/config/unsavedDraftGuard';
 
@@ -55,6 +56,8 @@ beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
   resetDraftGuard();
+  useViewStore.setState({ view: 'live' });
+  useExperienceOptions.setState({ options: readExperienceOptions() });
 });
 afterEach(() => {
   cleanup();
@@ -63,42 +66,89 @@ afterEach(() => {
 });
 
 describe('Sterling Spectrum product navigation', () => {
-  it('puts TV next to KITE under the Sterling header and keeps KITE the default', () => {
+  it('restores the original KITE switch styling beside Sterling; TV matches it', () => {
     render(<SimpleTerminal />);
-    const tabs = screen.getByRole('tablist', { name: 'Sterling spectrum' });
-    expect(tabs).toBeInTheDocument();
-    const buttons = screen.getAllByRole('tab');
-    expect(buttons.map(button => button.textContent)).toEqual(['KITE', 'TV']);
-    expect(screen.getByTestId('spectrum-kite-tab')).toHaveAttribute('aria-selected', 'true');
+    const nav = screen.getByRole('navigation', { name:'Sterling Spectrum' });
+    expect(nav).toBeInTheDocument();
+    expect(screen.getByRole('switch', {name:'Live trading view'})).toHaveTextContent('KITE');
+    expect(screen.getByRole('switch', {name:'Live trading view'}))
+      .toHaveClass('mobile-view-toggle','unified-view-toggle');
+    expect(screen.getByRole('button', {name:'TV'}))
+      .toHaveClass('mobile-view-toggle','unified-view-toggle');
+    expect(nav.textContent).toBe('KITETV');
     expect(screen.getByTestId('kite-trading-docks')).toBeInTheDocument();
     expect(screen.queryByTestId('fake-tv-content')).toBeNull();
   });
 
-  it('gives TV all space beneath the header without trading rails or banners', () => {
+  it('gives TV the full screen below the original header without trading controls', () => {
     render(<SimpleTerminal />);
     fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
-    expect(screen.getByTestId('spectrum-tv-tab')).toHaveAttribute('aria-selected', 'true');
-    expect(document.getElementById('sterling-tv-surface')?.getAttribute('style')).toContain('flex: 1');
+    expect(screen.getByTestId('spectrum-tv-tab')).toHaveAttribute('aria-current','page');
+    expect(document.getElementById('sterling-tv-surface')?.getAttribute('style'))
+      .toContain('flex: 1');
     expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
     expect(screen.queryByText('Simulation banner')).toBeNull();
     expect(screen.queryByText('Trading mobile navigation')).toBeNull();
     const kite = document.getElementById('sterling-kite-surface')!;
-    expect(kite).toHaveStyle({ display: 'none' });
-    expect(screen.getByTestId('kite-trading-docks')).toBeInTheDocument();
+    expect(kite).toHaveStyle({display:'none'});
     fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
     expect(screen.queryByTestId('fake-tv-content')).toBeNull();
-    expect(kite).toHaveStyle({ display: 'flex' });
+    expect(kite).toHaveStyle({display:'flex'});
+    expect(screen.getByRole('switch', {name:'Live trading view'})).toBeInTheDocument();
   });
 
-  it('guards unsaved trading settings before entering TV', () => {
+  it('guards unsaved settings before entering TV', () => {
     render(<SimpleTerminal />);
     setDraftDirty('settings', true);
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const confirm = vi.spyOn(window,'confirm').mockReturnValue(false);
     fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('spectrum-kite-tab')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('kite-trading-docks')).toBeInTheDocument();
     confirm.mockReturnValue(true);
     fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
-    expect(screen.getByTestId('spectrum-tv-tab')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+  });
+
+  it('shows KITE, Simulation and renamed TV separately in the requested order', () => {
+    useExperienceOptions.getState().update({
+      spectrumLayout:'separate',
+      tvLabel:'My Channels',
+      spectrumOrder:['tv','kite','simulation'],
+    });
+    render(<SimpleTerminal />);
+    const buttons=Array.from(screen.getByRole('navigation',{name:'Sterling Spectrum'})
+      .querySelectorAll('button')).map(button=>button.textContent);
+    expect(buttons).toEqual(['My Channels','KITE','Simulation']);
+    fireEvent.click(screen.getByTestId('spectrum-simulation-tab'));
+    expect(useViewStore.getState().view).toBe('simulation');
+    expect(screen.getByTestId('spectrum-simulation-tab')).toHaveAttribute('aria-current','page');
+    fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
+    expect(useViewStore.getState().view).toBe('live');
+    fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+    expect(screen.getByTestId('spectrum-tv-tab')).toHaveTextContent('My Channels');
+  });
+
+  it('can hide Simulation without losing the KITE or TV destinations', () => {
+    useExperienceOptions.getState().update({
+      spectrumVisible:{kite:true,simulation:false,tv:true},
+    });
+    render(<SimpleTerminal />);
+    expect(screen.queryByRole('switch',{name:'Live trading view'})).toBeNull();
+    expect(screen.getByTestId('spectrum-kite-tab')).toHaveTextContent('KITE');
+    expect(screen.getByTestId('spectrum-tv-tab')).toHaveTextContent('TV');
+  });
+
+  it('exposes Experience settings while using TV-only navigation', () => {
+    useExperienceOptions.getState().update({
+      spectrumVisible:{kite:false,simulation:false,tv:true},
+    });
+    render(<SimpleTerminal />);
+    expect(screen.queryByTestId('spectrum-kite-tab')).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'Experience settings'}));
+    expect(screen.getByRole('region',{name:'Spectrum navigation settings'})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Restore Spectrum defaults'}));
+    expect(screen.getByTestId('spectrum-tv-tab')).toBeInTheDocument();
+    expect(screen.getByRole('switch',{name:'Live trading view'})).toBeInTheDocument();
   });
 });
