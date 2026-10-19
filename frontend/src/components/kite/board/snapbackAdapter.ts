@@ -31,8 +31,10 @@ const price = (v: number | null | undefined): number | null =>
 // dash for unknown (see lib/format).
 const n = (v: number | null | undefined, dp = 2): string => fmtPx(v, dp);
 
-const isIntraday = (row: SnapbackRow) => row.trading_mode === 'scalp' || row.trading_mode === 'intraday';
-const isResearchOnly = (row: SnapbackRow) => row.trading_mode === 'intraday';
+// All non-swing modes use the completed-minute-candle signal/plan presentation.
+// Execution eligibility comes exclusively from the server's row decision.
+const isMinuteBarMode = (row: SnapbackRow) =>
+  ['ultra_scalping', 'scalp', 'intraday', 'overnight'].includes(row.trading_mode);
 const metric = (row: SnapbackRow, key: string): number | null => {
   const value = row.metrics?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -74,7 +76,7 @@ function instrument(row: SnapbackRow): BoardInstrument {
 function origin(row: SnapbackRow): BoardOrigin {
   return {
     label: SIDE_LABEL[row.side] ?? row.side,
-    hint: isIntraday(row)
+    hint: isMinuteBarMode(row)
       ? 'A completed candle reversed a Bollinger stretch across EMA9, with ADX below the entry cutoff.'
       : row.side === 'fade_up'
       ? `Closed above its ${row.metrics?.lookback_days ?? 20}-session high while `
@@ -93,15 +95,23 @@ function origin(row: SnapbackRow): BoardOrigin {
  */
 function flags(row: SnapbackRow): BoardOrigin[] {
   const o = row.outcome;
-  const intraday = isIntraday(row);
+  const intraday = isMinuteBarMode(row);
   const mode = (row.trading_mode || 'swing').toLowerCase();
-  const modeLabel = mode === 'scalp' ? 'SCALP' : mode === 'intraday' ? 'INTRADAY' : 'SWING';
-  const modeTone: BoardOrigin['tone'] = mode === 'scalp' ? 'amber' : mode === 'intraday' ? 'purple' : 'blue';
-  const modeHint = mode === 'scalp'
-    ? 'Scalp mode — fast 1m/5m option mean reversion with rapid trail and lock.'
-    : mode === 'intraday'
-    ? 'Intraday mode — 5m candle mean reversion research setup.'
-    : 'Swing mode — multi-day holding period tracking stretch from session mean.';
+  const modeLabel = ({
+    ultra_scalping: 'ULTRA', scalp: 'SCALP', intraday: 'INTRADAY',
+    overnight: 'OVERNIGHT', swing: 'SWING',
+  } as Record<string, string>)[mode] ?? 'SWING';
+  const modeTone: BoardOrigin['tone'] = mode === 'scalp' || mode === 'ultra_scalping'
+    ? 'amber' : mode === 'intraday' ? 'purple' : 'blue';
+  const modeHint = mode === 'ultra_scalping'
+    ? 'Ultra scalping — closed 1m reversal signals, bounded by a 20-minute holding deadline.'
+    : mode === 'scalp'
+      ? 'Scalp mode — fast option mean reversion with a premium stop and trailing management.'
+      : mode === 'intraday'
+        ? 'Intraday mode — completed 5/15/30m reversal candles and a same-session deadline.'
+        : mode === 'overnight'
+          ? 'Overnight mode — completed 30/60m reversal candles, broker protection and no weekend-gap carry.'
+          : 'Swing mode — multi-day holding period tracking stretch from the session mean.';
 
   const out: BoardOrigin[] = [
     {
@@ -132,9 +142,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     out.push({
       label: `runs above \u20b9${row.runner_premium.toFixed(0)}`,
       hint: intraday
-        ? (isResearchOnly(row)
-          ? `A strong completed candle above this premium can activate a research runner. Trail ${n(row.trail_points)} premium points, with a ${n(row.lock_points)}-point lock above estimated break-even. This mode cannot place broker orders.`
-          : `Research continuation threshold: the current live scalp manager exits at its premium target unless completed option-candle continuation is available. Before target, the broker stop can ratchet to lock gains.`)
+        ? 'Continuation threshold. The entry and exit manager checks completed option candles, targets and broker stop updates before treating a runner as active.'
         : 'Above this premium the position is held PAST the horizon, under a '
         + 'give-back ratchet, instead of being closed on the session count. '
         + 'The edge here is a right tail — the top 1% of trades carry 148% of '
@@ -219,7 +227,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     const timeframe = row.timeframe_minutes ?? metric(row, 'timeframe_minutes');
     out.push({
       label: row.max_hold_bars && timeframe ? `hold ≤${row.max_hold_bars * timeframe}m` : 'same session',
-      hint: `${row.max_hold_bars ?? '—'} initial bars; runner maximum ${row.runner_max_bars ?? '—'} bars in total. Session square-off takes precedence.`,
+      hint: `${row.max_hold_bars ?? '—'} initial bars; runner maximum ${row.runner_max_bars ?? '—'} bars in total. ${mode === 'overnight' ? 'Frozen overnight and no-gap-carry deadlines' : 'Same-session square-off and mode deadlines'} take precedence.`,
       tone: 'dim',
     });
   } else {
@@ -235,7 +243,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
 
 function sections(row: SnapbackRow): BoardSection[] {
   const out: BoardSection[] = [];
-  const intraday = isIntraday(row);
+  const intraday = isMinuteBarMode(row);
   out.push({
     title: 'Why it fired',
     layout: 'rows',
@@ -293,9 +301,7 @@ function sections(row: SnapbackRow): BoardSection[] {
   if (intraday) {
     out.push({
       title: 'Premium target and lifecycle plan', layout: 'tiles',
-      summary: isResearchOnly(row)
-        ? 'Research only. The target rises when needed to cover estimated costs and net reward/risk. A qualifying completed candle may extend the research trade; this mode has no broker execution.'
-        : 'Live scalp plan. A broker-side stop protects the option, gains can be locked before target, target touch exits conservatively in the current live manager, and hold/session limits force liquidation.',
+      summary: 'Minute-bar option plan. Confirmed broker stops protect filled option quantity. Targets, trailing rules and the frozen mode deadline govern exits. Broker submission still requires fresh server-side risk, account and signal-eligibility checks.',
       stats: [
         { label: 'Target (requested)', value: `${n(metric(row, 'requested_target_points'))} pts` },
         { label: 'Target (effective)', value: `${n(metric(row, 'effective_target_points'))} pts` },
@@ -401,7 +407,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // `timestamp_ms` is the signal candle's OPEN. A minute-bar setup exists only
     // once that candle has closed, so the time shown is the close, matching the
     // daily lane where the stamp is the 15:30 close.
-    atMs: (isIntraday(row) ? row.signal_close_ms : null) ?? row.timestamp_ms ?? null,
+    atMs: (isMinuteBarMode(row) ? row.signal_close_ms : null) ?? row.timestamp_ms ?? null,
     // How old the quote behind `levels.ltp` is, computed by the server when it
     // served the row. Rows outlive their scan; an unlabelled old LTP reads as live.
     quoteAgeS: row.quote_age_s ?? null,
@@ -431,7 +437,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
       // The minute-bar plan prices its own loss INCLUDING round-trip costs, and
       // the detail tile shows that same figure; the table must not quote a
       // smaller one (points x quantity alone).
-      atRiskInr: isIntraday(row) && row.planned_risk_inr != null
+      atRiskInr: isMinuteBarMode(row) && row.planned_risk_inr != null
         ? row.planned_risk_inr
         : plannedRisk,
       deployedInr: row.deployed_inr ?? null,
@@ -459,7 +465,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // manual ticket can place only rows the backend marks execution-eligible;
     // unsupported spreads/hedges stay visible as model/replay evidence.
     noTrailingStop: true,
-    executionEligible: !isResearchOnly(row) && row.execution_eligible === true && !row.historical && !row.premium_is_modelled,
+    executionEligible: row.execution_eligible === true && !row.historical && !row.premium_is_modelled,
     sections: row.metrics?.missing_setup_metrics ? [] : sections(row),
   };
 }
