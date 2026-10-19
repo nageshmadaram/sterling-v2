@@ -362,3 +362,39 @@ canonical execution lease, definitive-refusal vs unknown-outcome
 reconciliation, GTT fired LIMIT child settlement, full automatic SELL
 reconciliation and production security/deployment certification.
 Keep live entry OFF; defer CI/CD until the end per release scope.
+
+
+## 20 October: sealed fake-Kite stop mutation driver (offline)
+
+User-reported baseline at `ac718341`: **231 of 231 selected EMA tests
+passed in 6.54 seconds**, with `STERLING_LIVE_EXECUTION=0`.
+Local `main`/`dev` were in sync; `sterling-iptv/` was the only
+untracked directory and was preserved.
+
+Newly implemented, **not yet run on the operator's laptop**:
+
+- `app/services/ema_trend/fake_stop_driver.py` provides an in-memory
+  `FakeKiteGTTWire` with no HTTP/client imports and no access to a
+  broker mutation capability. `run_fake_stop` refuses actual KiteClient
+  and every transport type other than this fake class.
+- The orchestration sequence is: use an existing durable stop reservation;
+  generate and validate the offline GTT draft; atomically claim the one
+  allowed send attempt in the SQLite outbox; issue exactly one fake mutation;
+  record the returned GTT ID only as `ACK_PENDING_VERIFICATION`.
+  Independent GTT/order/inventory readback is still required to advance
+  the campaign to `PROTECTED`.
+- Fault injection models `TIMEOUT_AFTER_APPLY` (a GTT might exist),
+  `MISSING_ACK_AFTER_APPLY`, and `REJECT_BEFORE_APPLY`.
+  All failed attempts stay `OUTCOME_UNKNOWN`, never blindly replayed.
+  Task cancellation after the durable claim also preserves the unknown
+  fence across process restarts.
+- Regression scenarios cover simulated place and tighten operations,
+  explicit wrong-account/real-Kite rejection, concurrent duplicate send
+  workers and a timeout following a simulated broker write. All fake
+  mutations are local in-memory, NOT routed into production Kite APIs.
+
+The mock does not establish production permissions or connectivity.
+Next production milestone is integration with existing canonical protection
+and reduction capability, verified account binding, broker-owned order
+journals, fresh quotes, and fired GTT child reconciliation. This is **not**
+an authorization to flip `STERLING_LIVE_EXECUTION`.
