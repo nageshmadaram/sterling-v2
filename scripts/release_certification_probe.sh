@@ -133,3 +133,10 @@ printf '\n=== CERTIFICATION EVIDENCE ===\n'
 cat "$SUMMARY"
 printf '\nPrivate report directory: %s\n' "$REPORT"
 echo "No live-order approval is granted by this probe."
+# A status of zero would be easy to misread as an approved release. Be explicit:
+# until real-world evidence gates are satisfied, certification fails closed.
+if grep -Eq '=(BLOCKED|FAIL) ' "$SUMMARY"; then
+  echo "RELEASE CERTIFICATION: BLOCKED (see summary for evidence requirements)"
+  exit 1
+fi
+echo "RELEASE CERTIFICATION: PROBE COMPLETE; independent operational acceptance still required"
