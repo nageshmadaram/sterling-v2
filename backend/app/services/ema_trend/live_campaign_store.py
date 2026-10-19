@@ -343,7 +343,7 @@ async def confirm_existing_cnc_stop(
         live_protection_outbox._schema(conn)
         if conn.execute("""
             SELECT 1 FROM ema_live_stop_commands
-            WHERE campaign_id=? AND status IN ('RESERVED','OUTCOME_UNKNOWN')
+            WHERE campaign_id=? AND status IN ('RESERVED','OUTCOME_UNKNOWN','ACK_PENDING_VERIFICATION')
             LIMIT 1
         """,(campaign.id,)).fetchone():
             raise LiveStoreConflict("EMA_LIVE_STOP_CHANGE_OUTCOME_UNRESOLVED")
