@@ -32,7 +32,7 @@ def gtt():
         "id":901,"status":"active",
         "condition":{"exchange":"NSE","tradingsymbol":"INFY",
                      "trigger_values":[95]},
-        "orders":[{"transaction_type":"SELL","product":"CNC",
+        "orders":[{"exchange":"NSE","tradingsymbol":"INFY","transaction_type":"SELL","product":"CNC",
                    "quantity":4,"order_type":"LIMIT","price":94.5}],
     }
 
