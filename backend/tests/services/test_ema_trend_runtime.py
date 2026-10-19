@@ -124,6 +124,12 @@ def virtual(monkeypatch):
     monkeypatch.setattr(execution,"paper_client",paper)
     monkeypatch.setattr(scanner,"market_client",market)
     monkeypatch.setattr(execution,"_session_check",lambda *_args,**_kw:None)
+    # This integration drives ONLY a concrete virtual transport. The
+    # production master switch remains OFF, including when the operator runs
+    # pytest with STERLING_LIVE_EXECUTION=0. Other tests verify the live kill
+    # switch independently. No real broker write client is available here.
+    from app.core import lane_registry
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     # This integration exercises canonical reservations, broker transport,
     # journal and ledger, while the independent global gate has its own tests.
     monkeypatch.setattr("app.services.execution_service.CanonicalExecutionService.is_trading_allowed",lambda *a,**kw:(True,"test virtual admission"))
