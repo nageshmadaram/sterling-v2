@@ -367,7 +367,22 @@ describe('snapback board adapter', () => {
     expect(s.origin?.hint).toContain('40-session low');
   });
 
-  it('cannot expose an intraday research plan as executable even with a stale eligibility flag', () => {
-    expect(snapbackRowToBoard({ ...base, trading_mode: 'intraday', execution_eligible: true }).executionEligible).toBe(false);
+  it.each(['ultra_scalping', 'scalp', 'intraday', 'overnight', 'swing'] as const)(
+    'honors backend row eligibility for %s without removing quote or history safeguards',
+    (mode) => {
+      const valid = { ...base, trading_mode: mode, execution_eligible: true };
+      expect(snapbackRowToBoard(valid).executionEligible).toBe(true);
+      expect(snapbackRowToBoard({ ...valid, execution_eligible: false }).executionEligible).toBe(false);
+      expect(snapbackRowToBoard({ ...valid, historical: true }).executionEligible).toBe(false);
+      expect(snapbackRowToBoard({ ...valid, premium_is_modelled: true }).executionEligible).toBe(false);
+    },
+  );
+
+  it('labels ultra scalping and overnight as their own modes, not swing', () => {
+    const ultra = snapbackRowToBoard({ ...base, trading_mode: 'ultra_scalping', timeframe_minutes: 1, max_hold_bars: 20 });
+    const overnight = snapbackRowToBoard({ ...base, trading_mode: 'overnight', timeframe_minutes: 60, max_hold_bars: 18 });
+    expect(ultra.flags?.some((flag) => flag.label === 'ULTRA')).toBe(true);
+    expect(overnight.flags?.some((flag) => flag.label === 'OVERNIGHT')).toBe(true);
+    expect(overnight.flags?.some((flag) => flag.label.startsWith('hold 10d'))).toBe(false);
   });
 });
