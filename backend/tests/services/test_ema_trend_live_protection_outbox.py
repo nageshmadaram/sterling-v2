@@ -313,3 +313,105 @@ async def test_open_gtt_child_or_unknown_identity_never_auto_resolves():
     assert report.blocker=="BROKER_CLIENT_IDENTITY_UNVERIFIED"
     assert not report.retry_authorized
     assert outbox.get("stop-1").status=="RESERVED"
+
+
+def test_stop_gtt_draft_uses_exact_owned_cnc_sell_contract_without_writing():
+    from app.services.ema_trend.live_stop_draft import draft_stop_command
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-draft",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    draft=draft_stop_command("stop-draft",reference_bid=100,tick_size="0.05")
+    assert not draft.broker_write_authorized
+    assert draft.prior_trigger_id==""
+    assert draft.change_kind=="PLACE"
+    assert draft.request["exchange"]=="NSE"
+    assert draft.request["tradingsymbol"]=="INFY"
+    assert draft.request["trigger_values"]==[95]
+    leg=draft.request["orders"][0]
+    assert leg["transaction_type"]=="SELL"
+    assert leg["quantity"]==4
+    assert leg["product"]=="CNC"
+    assert leg["order_type"]=="LIMIT"
+    assert Decimal(str(leg["price"]))<=Decimal("95")
+    assert draft.fingerprint==draft_stop_command(
+        "stop-draft",reference_bid=100,tick_size="0.05").fingerprint
+    assert outbox.get("stop-draft").status=="RESERVED"
+    assert store.get(c.id).protection is None
+
+
+def test_trailing_stop_draft_targets_original_broker_gtt_and_never_weakens():
+    from app.services.ema_trend.live_stop_draft import draft_stop_command
+    c=protect_for_test(filled_campaign())
+    outbox.reserve_stop_command(c.id,"trail-draft",kind="TIGHTEN",
+                                desired_trigger=96,expected_revision=c.revision)
+    draft=draft_stop_command("trail-draft",reference_bid=100,tick_size="0.05")
+    assert draft.change_kind=="TIGHTEN"
+    assert draft.prior_trigger_id=="901"
+    assert draft.request["trigger_values"]==[96]
+    assert draft.request["orders"][0]["quantity"]==4
+    assert store.get(c.id).protection.trigger==Decimal("95")
+    assert not draft.broker_write_authorized
+
+
+@pytest.mark.parametrize("bid,tick,expected",[
+    (94,"0.05","BREACHED_OR_CROSSED_BID"),
+    (95,"0.05","BREACHED_OR_CROSSED_BID"),
+    (0,"0.05","REFERENCE_BID_INVALID"),
+    (float("nan"),"0.05","REFERENCE_BID_INVALID"),
+    (True,"0.05","REFERENCE_BID_INVALID"),
+    (100,0,"TICK_INVALID"),
+    (100,"nan","TICK_INVALID"),
+    (100.03,"0.05","PRICE_OFF_TICK_GRID"),
+    (100,"0.03","PRICE_OFF_TICK_GRID"),
+])
+def test_stop_draft_invalid_quote_or_tick_cannot_generate_executable_request(
+        bid,tick,expected):
+    from app.services.ema_trend.live_stop_draft import StopDraftBlocked,draft_stop_command
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-draft",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    with pytest.raises(StopDraftBlocked,match=expected):
+        draft_stop_command("stop-draft",reference_bid=bid,tick_size=tick)
+    assert outbox.get("stop-draft").status=="RESERVED"
+
+
+def test_unknown_stop_outcome_cannot_be_reconverted_to_a_new_gtt_draft():
+    from app.services.ema_trend.live_stop_draft import StopDraftBlocked,draft_stop_command
+    c=filled_campaign()
+    outbox.reserve_stop_command(c.id,"stop-draft",kind="PLACE",
+                                desired_trigger=95,expected_revision=c.revision)
+    outbox.mark_outcome_unknown("stop-draft")
+    with pytest.raises(StopDraftBlocked,match="UNKNOWN_OUTCOME_CANNOT_RETRY"):
+        draft_stop_command("stop-draft",reference_bid=100,tick_size="0.05")
+    assert outbox.get("stop-draft").status=="OUTCOME_UNKNOWN"
+
+
+@pytest.mark.parametrize("state",["SUBMITTED","PARTIAL"])
+def test_acknowledged_or_partially_filled_canonical_order_blocks_gtt_reservation(state):
+    c=filled_campaign()
+    with order_journal._transaction() as conn:
+        conn.execute(
+            "UPDATE kite_order_intents SET state=? WHERE uid='alice' AND strategy_id='ema_trend'",
+            (state,))
+    with pytest.raises(outbox.StopCommandConflict,
+                       match="CANONICAL_ORDER_RECOVERY_PENDING"):
+        outbox.reserve_stop_command(c.id,"stop-1",kind="PLACE",
+                                    desired_trigger=95,expected_revision=c.revision)
+
+
+def test_campaign_with_working_buy_can_never_resize_a_stop_blindly():
+    c=filled_campaign()
+    buy=BrokerIntent(
+        intent_key="pending-buy",side="BUY",requested_qty=1,
+        order_id="SECOND-1",status="ACKNOWLEDGED")
+    changed=LiveCampaign.model_validate({
+        **c.model_dump(mode="python"),
+        "entries":[*c.model_dump(mode="python")["entries"],buy.model_dump(mode="python")],
+        "revision":c.revision+1,
+    })
+    with order_journal._transaction() as conn:
+        store._schema(conn)
+        store._save(conn,changed)
+    with pytest.raises(outbox.StopCommandConflict,match="CAMPAIGN_HAS_WORKING_ORDER"):
+        outbox.reserve_stop_command(changed.id,"stop-1",kind="PLACE",
+                                    desired_trigger=95,expected_revision=changed.revision)
