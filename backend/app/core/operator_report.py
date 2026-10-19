@@ -187,13 +187,42 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         return True, tag
 
     def _risk_limits():
-        from app.core.risk_hierarchy import ENV_VAR, configured_hierarchy
+        from app.core.horizon import LaneState
+        from app.core.lane_registry import all_lanes
+        from app.core.risk_hierarchy import ENV_VAR, RiskLevel, configured_hierarchy
 
         hierarchy = configured_hierarchy()
         if hierarchy is None:
             return False, (
                 f"{ENV_VAR} unset: the four-level risk hierarchy is not enforced; "
                 "only the capital arithmetic in capacity applies"
+            )
+
+        # A JSON object with only a global cap is parseable, but every
+        # declared live lane would be refused at the strategy/mode/position
+        # layers. Do not label that configuration as an operational PASS.
+        required = (RiskLevel.GLOBAL, RiskLevel.STRATEGY, RiskLevel.MODE, RiskLevel.POSITION)
+        missing = [f"{level.value}:<no scopes>" for level in required if not hierarchy.declares(level)]
+        if hierarchy.limit_for(RiskLevel.GLOBAL, "") is None:
+            missing.append("global:<book>")
+
+        live_lanes = (
+            lane for lane in all_lanes()
+            if lane.state in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED)
+            and lane.rules_defined
+        )
+        for lane in live_lanes:
+            for level, scope in (
+                (RiskLevel.STRATEGY, lane.strategy_id),
+                (RiskLevel.MODE, lane.lane_key),
+                (RiskLevel.POSITION, lane.lane_key),
+            ):
+                if hierarchy.limit_for(level, scope) is None:
+                    missing.append(f"{level.value}:{scope}")
+        if missing:
+            return False, (
+                "risk hierarchy missing live-lane caps: "
+                + ", ".join(sorted(set(missing)))
             )
         return True, f"config_hash {hierarchy.config_hash}"
 
