@@ -225,7 +225,16 @@ def project_verified_order(
         except KeyError as exc:
             raise LiveStoreConflict("EMA_LIVE_CANONICAL_INTENT_NOT_FOUND") from exc
         key = broker_fact.identity
-        if (intent.strategy_id != "ema_trend"
+        # Check both the canonical intent AND the independently supplied broker
+        # fact against the bound campaign before inspecting projection status.
+        # An unrelated account's order must not be classified as merely
+        # "not yet projectable" (or accepted after a journal state transition).
+        if (key.uid != campaign.owner_uid
+                or key.account_id != campaign.account_id
+                or key.exchange != campaign.exchange
+                or key.symbol != campaign.symbol
+                or key.product != campaign.product
+                or intent.strategy_id != "ema_trend"
                 or intent.intent_key != intent_key
                 or intent.uid != campaign.owner_uid
                 or intent.account_id != campaign.account_id
