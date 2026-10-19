@@ -1448,7 +1448,7 @@
         if (location.protocol === 'https:' && streamUrl.startsWith('http://')) return;
         const targetUrl=streamUrl;
 
-        if (Hls.isSupported()) {
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
           activePreviewHls = new Hls({
             enableWorker: true,
             lowLatencyMode: true,
@@ -3314,10 +3314,22 @@
     // Hydrate settings BEFORE playback. This preserves v14 saved startup
     // channels, playlists, language selections, favorites and history.
     let didHydrate=false;
+    // A fast mobile iframe can announce itself before the host registers its
+    // message handler. Retry the one-way ready handshake until hydrated.
+    let readyRequests=0;
+    const announceReady=()=>window.parent.postMessage({type:'sterling.tv.ready'},'*');
+    const readyTimer=setInterval(()=>{
+      if(didHydrate || ++readyRequests>20) {
+        clearInterval(readyTimer);
+        return;
+      }
+      announceReady();
+    },750);
     window.addEventListener('message',event=>{
       if(event.source!==window.parent || event.data?.type!=='sterling.tv.hydrate'
           || didHydrate)return;
       didHydrate=true;
+      clearInterval(readyTimer);
       tvStorage.hydrate(event.data.values);
       try{
         const raw=tvStorage.getItem('streamos_startup_channel_v14');
@@ -3363,7 +3375,7 @@
       button.setAttribute('aria-expanded',String(open));
       button.textContent=open?'Close TV tools':'TV tools';
     }
-    window.parent.postMessage({type:'sterling.tv.ready'},'*');
+    announceReady();
   </script>
 </body>
 </html>
