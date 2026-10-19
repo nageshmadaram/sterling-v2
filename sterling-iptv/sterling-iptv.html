@@ -3,11 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="referrer" content="no-referrer" />
   <meta name="theme-color" content="#0f0f0f" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>StreamOS Pro v14 — Native Mobile App, Startup Channel, Hover Previews & Indian IPTV</title>
+  <title>StreamOS Pro v15 — Native Mobile & Desktop Live IPTV Suite</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
@@ -96,7 +95,7 @@
     /* Overlay Sidebar Drawer */
     #overlay-sidebar {
       transform: translateX(-100%);
-      transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1);
+      transition: transform 0.22s cubic-bezier(0.2, 0, 0, 1);
     }
     #overlay-sidebar.open {
       transform: translateX(0);
@@ -107,25 +106,25 @@
        ========================================================================= */
     @media (min-width: 1280px) {
       #left-watch-column:not(.theatre-full) {
-        width: min(calc(100% - 412px), calc((100dvh - 178px) * var(--video-aspect)));
+        width: min(calc(100% - 410px), calc((100dvh - 175px) * var(--video-aspect)));
         flex: 0 0 auto;
       }
       #watch-up-next-rail:not(.theatre-rail) {
-        flex: 1 1 386px;
-        min-width: 360px;
+        flex: 1 1 384px;
+        min-width: 356px;
         max-width: 540px;
       }
     }
 
-    /* Theatre Mode Fix: Constrains player height so HUD controls are 100% visible without scrolling */
+    /* Theatre Mode Fix: Locks max-height so bottom player controls are always visible without scrolling */
     #left-watch-column.theatre-full {
       width: 100% !important;
       max-width: 100% !important;
     }
     #left-watch-column.theatre-full #video-surface-card {
       width: 100% !important;
-      height: calc(100dvh - 154px) !important;
-      max-height: calc(100dvh - 154px) !important;
+      height: calc(100dvh - 150px) !important;
+      max-height: calc(100dvh - 150px) !important;
       aspect-ratio: auto !important;
       border-radius: 8px !important;
     }
@@ -137,7 +136,7 @@
     #video-surface-card {
       width: 100%;
       aspect-ratio: var(--video-aspect);
-      max-height: calc(100dvh - 172px);
+      max-height: calc(100dvh - 170px);
       background: #000;
       box-shadow: 0 20px 80px -10px var(--ambilight-color);
       transition: box-shadow 0.6s ease;
@@ -158,20 +157,13 @@
     #video-player.fit-zoom    { object-fit: cover;   transform: scale(1.16); }
 
     /* =========================================================================
-       NATIVE MOBILE APP ARCHITECTURE (Zero Freeze, Sticky 16:9 Dock, Clean UX)
+       NATIVE MOBILE APP ARCHITECTURE (Docked Top Player + Scrollable Feed)
        ========================================================================= */
     @media (max-width: 767px) {
-      #player-stage {
-        position: sticky;
-        top: 0;
-        z-index: 45;
-        background: #0f0f0f;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-      }
       #video-surface-card {
         border-radius: 0 !important;
         aspect-ratio: 16 / 9 !important;
-        max-height: 34dvh !important;
+        max-height: 33dvh !important;
         box-shadow: none !important;
       }
       #custom-video-hud {
@@ -216,25 +208,12 @@
     .nf-rank-num {
       font-family: 'Inter', Impact, sans-serif;
       font-weight: 900;
-      font-size: 6.5rem;
+      font-size: 6rem;
       line-height: 0.8;
       color: #141414;
       -webkit-text-stroke: 3px #595959;
       letter-spacing: -6px;
     }
-
-    @keyframes eqPulse {
-      0%, 100% { height: 3px; }
-      50% { height: 13px; }
-    }
-    .eq-bar {
-      width: 2.5px;
-      background-color: var(--accent);
-      border-radius: 1px;
-      animation: eqPulse 0.75s ease-in-out infinite;
-    }
-    .eq-bar:nth-child(2) { animation-delay: 0.2s; }
-    .eq-bar:nth-child(3) { animation-delay: 0.4s; }
 
     input[type="range"].player-slider {
       -webkit-appearance: none;
@@ -261,14 +240,14 @@
 <body class="theme-youtube flex flex-col overflow-hidden">
 
   <!-- =========================================================================
-       1. OVERLAY SIDEBAR MENU (With Startup Channel, Explore Languages & Categories)
+       1. LEFT SIDEBAR MENU (Contains Startup Channel #1 + Explore Languages & Categories)
        ========================================================================= -->
   <div id="sidebar-backdrop" onclick="toggleSidebarDrawer(false)" class="hidden fixed inset-0 bg-black/65 z-[80] transition-opacity"></div>
 
-  <aside id="overlay-sidebar" class="fixed top-0 left-0 bottom-0 w-[264px] bg-[#0f0f0f] border-r border-white/10 z-[90] flex flex-col select-none">
-    <div class="h-14 px-3 flex items-center justify-between shrink-0 border-b border-white/5">
+  <aside id="overlay-sidebar" class="fixed top-0 left-0 bottom-0 w-[268px] bg-[#0f0f0f] border-r border-white/10 z-[90] flex flex-col select-none">
+    <div class="h-13 sm:h-14 px-3 flex items-center justify-between shrink-0 border-b border-white/5">
       <div class="flex items-center space-x-3">
-        <button onclick="toggleSidebarDrawer(false)" class="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition">
+        <button onclick="toggleSidebarDrawer(false)" class="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center text-white transition">
           <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M21 6H3V5h18v1zm0 5H3v1h18v-1zm0 6H3v1h18v-1z"/></svg>
         </button>
         <div class="flex items-center space-x-1">
@@ -279,7 +258,7 @@
           <sup class="text-[10px] text-[#aaaaaa] font-medium ml-0.5">IN</sup>
         </div>
       </div>
-      <span class="text-[10px] font-mono-code bg-white/10 text-gray-300 px-1.5 py-0.5 rounded">v14</span>
+      <span class="text-[10px] font-mono-code bg-white/10 text-emerald-400 px-1.5 py-0.5 rounded font-semibold">v15</span>
     </div>
 
     <div class="flex-1 overflow-y-auto px-3 py-2.5 space-y-3 text-[13px]">
@@ -289,7 +268,9 @@
           <svg class="w-5 h-5 fill-current shrink-0" viewBox="0 0 24 24"><path d="M12 4.44 19 10.1v9.9h-4v-6H9v6H5v-9.9l7-5.66M12 3 3 10.29V21h7v-6h4v6h7V10.29L12 3z"/></svg>
           <span class="truncate">Home (Verified HD)</span>
         </button>
-        <button onclick="playStartupDefaultChannel(); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
+
+        <!-- ALLOWED LOCATION #1: LEFT MENU STARTUP CHANNEL -->
+        <div class="w-full flex items-center justify-between px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition cursor-pointer" onclick="playStartupDefaultChannel(); toggleSidebarDrawer(false)">
           <div class="flex items-center space-x-4 min-w-0">
             <span class="text-amber-400 text-base leading-none w-5 text-center shrink-0">★</span>
             <div class="min-w-0 text-left">
@@ -297,8 +278,11 @@
               <p id="drawer-startup-name" class="text-[11px] text-[#aaaaaa] truncate">Red Bull TV Global Sports</p>
             </div>
           </div>
-          <span onclick="event.stopPropagation(); openStartupChannelModal(); toggleSidebarDrawer(false)" class="text-[10px] bg-white/10 hover:bg-white/20 px-2 py-0.5 rounded text-amber-300 shrink-0">Change</span>
-        </button>
+          <button onclick="event.stopPropagation(); openStartupChannelModal(); toggleSidebarDrawer(false)" class="text-[10px] bg-white/10 hover:bg-amber-500 hover:text-black px-2 py-1 rounded text-amber-300 font-semibold shrink-0 transition">
+            Change
+          </button>
+        </div>
+
         <button onclick="selectLanguageFeed('Indian'); toggleSidebarDrawer(false)" class="w-full flex items-center space-x-4 px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <span class="text-base leading-none w-5 text-center shrink-0">🇮🇳</span>
           <span class="truncate font-medium">Indian Live TV</span>
@@ -309,12 +293,22 @@
         </button>
         <button onclick="openSourceManagerModal(); toggleSidebarDrawer(false)" class="w-full flex items-center space-x-4 px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <svg class="w-5 h-5 fill-current shrink-0 text-[var(--accent)]" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9h-4v4h-2v-4H9V9h4V5h2v4h4v2z"/></svg>
-          <span class="truncate font-medium">IPTV Sources & Startup</span>
+          <span class="truncate font-medium">IPTV URL Sources</span>
         </button>
         <button onclick="toggleMultiviewQuad(); toggleSidebarDrawer(false)" class="hidden sm:flex w-full items-center space-x-4 px-3 py-2 rounded-[10px] text-[#f1f1f1] hover:bg-[#272727] transition">
           <svg class="w-5 h-5 fill-current shrink-0" viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg>
           <span class="truncate">4-Screen Multiview</span>
         </button>
+      </div>
+
+      <!-- Mobile Theme Switcher inside Drawer -->
+      <div class="lg:hidden pt-2.5 border-t border-white/10">
+        <div class="px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-[#aaaaaa]">App Appearance</div>
+        <div class="grid grid-cols-3 gap-1.5 px-2 mt-1">
+          <button onclick="switchTheme('youtube'); toggleSidebarDrawer(false)" class="py-1.5 rounded-lg bg-[#272727] text-xs font-medium text-white">YouTube</button>
+          <button onclick="switchTheme('netflix'); toggleSidebarDrawer(false)" class="py-1.5 rounded-lg bg-[#272727] text-xs font-medium text-white">Netflix</button>
+          <button onclick="switchTheme('spotify'); toggleSidebarDrawer(false)" class="py-1.5 rounded-lg bg-[#272727] text-xs font-medium text-white">Spotify</button>
+        </div>
       </div>
 
       <!-- Subscriptions -->
@@ -326,7 +320,7 @@
         <div id="drawer-subscriptions-list" class="space-y-0.5 mt-1"></div>
       </div>
 
-      <!-- EXPLORE SECTION: Languages + Genres (As Requested!) -->
+      <!-- EXPLORE SECTION: Languages + Genres -->
       <div class="pt-2.5 border-t border-white/10 space-y-2">
         <div class="px-3 flex items-center justify-between text-[13px] font-semibold text-white">
           <span>Explore — Languages</span>
@@ -343,7 +337,7 @@
   </aside>
 
   <!-- =========================================================================
-       2. GLOBAL HEADER (Responsive Mobile App Header + Desktop Studio Bar)
+       2. GLOBAL HEADER (No Startup Clutter — Clean Search, Languages & Sources)
        ========================================================================= -->
   <header id="global-header" class="h-12 sm:h-14 px-2 sm:px-4 bg-[#0f0f0f] flex items-center justify-between shrink-0 z-50 relative select-none border-b border-white/10">
 
@@ -358,7 +352,7 @@
         <div class="w-7 h-5 rounded-[5px] bg-[#ff0033] flex items-center justify-center">
           <svg class="w-3.5 h-3.5 fill-white ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         </div>
-        <span class="font-bold text-[16px] sm:text-[18px] tracking-tight text-white">YouTube</span>
+        <span class="font-bold text-[15px] sm:text-[18px] tracking-tight text-white">YouTube</span>
         <sup class="text-[10px] text-[#aaaaaa] font-normal ml-0.5 hidden sm:inline">IN</sup>
       </div>
 
@@ -369,7 +363,6 @@
           <button onclick="resetHomeView()" class="hover:text-white font-semibold text-white">Home</button>
           <button onclick="selectLanguageFeed('Indian')" class="hover:text-white">🇮🇳 Indian TV</button>
           <button onclick="toggleLanguagePopover(event)" class="hover:text-white">🌐 Languages ▾</button>
-          <button onclick="openStartupChannelModal()" class="hover:text-white text-amber-400">★ Startup</button>
           <button onclick="openRightRailEpg()" class="hover:text-white text-[#e50914] font-semibold">Live EPG</button>
         </nav>
       </div>
@@ -383,19 +376,15 @@
       </div>
     </div>
 
-    <!-- CENTER: Smart Search Bar -->
+    <!-- CENTER: Smart Search Bar (ALLOWED LOCATION #2: Startup Channel Selection in Search Dropdown) -->
     <div class="flex-1 max-w-[580px] mx-1.5 sm:mx-4 flex items-center justify-center relative">
-      <button id="sp-home-btn" onclick="resetHomeView()" class="hidden mr-2 w-9 h-9 rounded-full bg-[#1f1f1f] hover:bg-[#2a2a2a] items-center justify-center text-white shrink-0 transition" title="Home">
-        <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24"><path d="M12.5 3.247a1 1 0 0 0-1 0L4 7.577V20h4.5v-6a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v6H20V7.577l-7.5-4.33z"/></svg>
-      </button>
-
       <div class="relative flex items-center w-full">
         <div class="relative flex items-center flex-1">
           <input
             id="search-input"
             type="text"
             autocomplete="off"
-            placeholder="Search channels, Telugu, Hindi, Tamil, or paste .m3u8..."
+            placeholder="Search channels, Telugu, Hindi, Tamil, or Startup..."
             class="w-full h-8 sm:h-10 bg-[#121212] focus:bg-[#0a0a0a] border border-[#303030] focus:border-[#1c62b9] rounded-l-full pl-3 pr-7 text-[12px] sm:text-[14px] text-white placeholder-[#888888] outline-none transition"
           />
           <button id="clear-search-btn" onclick="clearSearch()" class="hidden absolute right-2 text-[#aaaaaa] hover:text-white text-xs p-1">✕</button>
@@ -407,26 +396,20 @@
           </svg>
         </button>
 
-        <!-- Smart Search Dropdown -->
+        <!-- Smart Search Dropdown (Includes Startup Channel selector & setter) -->
         <div id="search-dropdown" class="hidden absolute top-10 sm:top-11 left-0 right-0 bg-[#212121] border border-white/15 rounded-xl shadow-2xl overflow-hidden z-[100] max-h-[380px] flex flex-col">
           <div id="search-dropdown-list" class="overflow-y-auto py-1.5"></div>
         </div>
       </div>
     </div>
 
-    <!-- RIGHT: Theme Switcher + Startup Channel + Indian/Language Quick + Sources -->
-    <div class="flex items-center space-x-1 sm:space-x-2 shrink-0 relative">
+    <!-- RIGHT: Theme Switcher + Languages + Sources -->
+    <div class="flex items-center space-x-1.5 sm:space-x-2 shrink-0 relative">
       <div class="hidden lg:flex items-center bg-[#212121] p-0.5 rounded-full border border-white/10">
         <button onclick="switchTheme('youtube')" id="pill-youtube" class="px-2.5 py-1 rounded-full text-xs font-medium bg-[#ff0033] text-white transition">YouTube</button>
         <button onclick="switchTheme('netflix')" id="pill-netflix" class="px-2.5 py-1 rounded-full text-xs font-medium text-gray-400 hover:text-white transition">Netflix</button>
         <button onclick="switchTheme('spotify')" id="pill-spotify" class="px-2.5 py-1 rounded-full text-xs font-medium text-gray-400 hover:text-white transition">Spotify</button>
       </div>
-
-      <!-- Default / Startup Channel Quick Button -->
-      <button onclick="openStartupChannelModal()" class="h-8 sm:h-9 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-amber-400 flex items-center space-x-1 transition" title="Select or Update Default Startup Channel">
-        <span>★</span>
-        <span class="hidden md:inline text-white" id="header-startup-label">Startup</span>
-      </button>
 
       <!-- Languages Quick Button -->
       <button onclick="toggleLanguagePopover(event)" class="h-8 sm:h-9 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition" title="Filter by Indian or Global Languages">
@@ -436,15 +419,15 @@
       </button>
 
       <!-- "+ Sources" IPTV URL Manager Button -->
-      <button onclick="openSourceManagerModal()" class="hidden sm:flex h-9 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white items-center space-x-1.5 transition" title="Manage IPTV Playlist URLs">
+      <button onclick="openSourceManagerModal()" class="h-8 sm:h-9 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition" title="Manage IPTV Playlist URLs">
         <span>+ Sources</span>
-        <span id="active-sources-badge" class="bg-[var(--accent)] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">All</span>
+        <span id="active-sources-badge" class="hidden sm:inline bg-[var(--accent)] text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">All</span>
       </button>
     </div>
   </header>
 
   <!-- =========================================================================
-       3. DEFAULT / STARTUP CHANNEL SELECTOR & UPDATER MODAL
+       3. STARTUP CHANNEL MODAL (Opened from Left Menu or Video Player Control Bar)
        ========================================================================= -->
   <div id="startup-channel-modal" class="hidden fixed inset-0 z-[118] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="closeStartupChannelModal()">
     <div class="bg-[#212121] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
@@ -452,17 +435,16 @@
         <div>
           <h3 class="text-sm sm:text-base font-semibold text-white flex items-center space-x-1.5">
             <span class="text-amber-400">★</span>
-            <span>Default / Startup Channel Manager</span>
+            <span>Default / Startup Channel</span>
           </h3>
-          <p class="text-[11px] text-[#aaaaaa] mt-0.5">Choose which channel automatically plays when you launch StreamOS Pro</p>
+          <p class="text-[11px] text-[#aaaaaa] mt-0.5">Select or update the channel that plays automatically on launch</p>
         </div>
         <button onclick="closeStartupChannelModal()" class="w-8 h-8 rounded-full hover:bg-white/10 text-gray-400 hover:text-white flex items-center justify-center text-base">✕</button>
       </div>
 
-      <!-- Current Startup Channel Banner + Quick Set Active -->
       <div class="p-4 bg-[#181818] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="min-w-0">
-          <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Currently Configured Startup Channel</span>
+          <span class="text-[10px] font-semibold uppercase tracking-wider text-amber-400">Active Startup Channel</span>
           <p id="modal-current-startup-name" class="text-sm font-bold text-white truncate mt-0.5">Red Bull TV Global Sports</p>
           <p id="modal-current-startup-meta" class="text-[11px] text-[#aaaaaa] truncate">Sports • English</p>
         </div>
@@ -471,27 +453,25 @@
             ★ Set Current Playing
           </button>
           <button onclick="playStartupDefaultChannel(); closeStartupChannelModal()" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium text-xs transition">
-            ▶ Tune Now
+            ▶ Play Now
           </button>
         </div>
       </div>
 
-      <!-- Search & Pick Any Channel as Startup -->
       <div class="p-3 border-b border-white/10 bg-black/20">
         <input
           id="startup-search-input"
           type="text"
           oninput="renderStartupChannelsPicker(this.value)"
-          placeholder="Search any channel to set as your Default Startup Channel..."
+          placeholder="Search any channel to set as Default Startup..."
           class="w-full bg-[#121212] border border-white/15 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-400"
         />
       </div>
 
       <div id="startup-channels-list" class="flex-1 overflow-y-auto divide-y divide-white/5 p-2"></div>
 
-      <!-- Custom Direct Stream URL as Startup -->
       <div class="p-3.5 bg-black/40 border-t border-white/10 flex flex-col sm:flex-row items-center gap-2">
-        <input id="custom-startup-name" type="text" placeholder="Custom Startup Name" class="w-full sm:w-44 bg-[#121212] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white outline-none" />
+        <input id="custom-startup-name" type="text" placeholder="Channel Name" class="w-full sm:w-44 bg-[#121212] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white outline-none" />
         <input id="custom-startup-url" type="url" placeholder="Or paste custom .m3u8 URL as startup..." class="w-full flex-1 bg-[#121212] border border-white/15 rounded-lg px-3 py-1.5 text-xs text-white outline-none" />
         <button onclick="saveCustomStartupUrl()" class="w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-white text-black font-semibold text-xs shrink-0 hover:bg-gray-200 transition">
           Save URL
@@ -523,7 +503,6 @@
         </div>
       </div>
 
-      <!-- Filter Mode Switcher Bar -->
       <div class="px-4 sm:px-5 py-2.5 bg-[#181818] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center space-x-1.5">
           <span class="text-[#aaaaaa] font-medium">Feed Scope:</span>
@@ -539,7 +518,6 @@
         </button>
       </div>
 
-      <!-- Add / Edit IPTV URL Form -->
       <div class="p-3.5 border-b border-white/10 bg-black/20 space-y-2">
         <div class="flex items-center justify-between">
           <span id="source-form-title" class="text-[11px] font-semibold uppercase tracking-wider text-[#aaaaaa]">Add New IPTV Playlist (.M3U) or Direct Stream (.M3U8)</span>
@@ -555,25 +533,13 @@
         </div>
       </div>
 
-      <!-- Scrollable List of Configured IPTV URLs -->
       <div id="iptv-sources-list" class="flex-1 overflow-y-auto divide-y divide-white/5 p-2"></div>
 
-      <!-- Audio EQ, Hover Preview Toggle & Sleep Timer Footer -->
       <div class="px-4 sm:px-5 py-3 bg-black/40 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center space-x-3">
-          <div class="flex items-center space-x-1.5">
-            <span class="text-[#aaaaaa]">Audio EQ:</span>
-            <select id="audio-eq-select" onchange="applyAudioPreset(this.value)" class="bg-[#181818] border border-white/15 rounded-lg px-2 py-1 text-white text-xs outline-none">
-              <option value="flat">Flat Studio</option>
-              <option value="voice">News / Voice Clarity</option>
-              <option value="cinema">Cinema Bass Boost</option>
-              <option value="sports">Stadium Crowd</option>
-              <option value="boost">Max Loudness</option>
-            </select>
-          </div>
           <label class="flex items-center space-x-1.5 cursor-pointer text-white">
             <input type="checkbox" id="hover-preview-checkbox" checked onchange="toggleHoverPreviewSetting(this.checked)" class="accent-[var(--accent)] rounded" />
-            <span>Hover Video Preview</span>
+            <span>Desktop Hover Video Preview</span>
           </label>
         </div>
         <div class="flex items-center space-x-2">
@@ -614,17 +580,17 @@
   </div>
 
   <!-- =========================================================================
-       6. MAIN WORKSPACE (Sticky Mobile App Dock + Viewport-Safe Desktop Theatre)
+       6. MAIN WORKSPACE (Native Mobile App Docked Player + Desktop Split View)
        ========================================================================= -->
   <div id="app-workspace" class="flex flex-1 overflow-hidden relative">
 
     <main id="main-scroll" class="flex-1 flex flex-col overflow-y-auto pb-20 md:pb-14 relative scroll-smooth">
 
       <!-- =====================================================================
-           STAGE SECTION: Sticky on Mobile App, Aspect-Locked on Desktop
+           STAGE SECTION: Sticky Top on Mobile App, Split Columns on Desktop
            ===================================================================== -->
-      <section id="player-stage" class="w-full px-0 sm:px-3 lg:px-4 pt-0 sm:pt-1.5">
-        <div id="watch-columns" class="flex flex-col xl:flex-row gap-3 items-start">
+      <section id="player-stage" class="w-full px-0 sm:px-3 lg:px-4 pt-0 sm:pt-1.5 sticky top-0 z-40 md:static bg-[#0f0f0f] md:bg-transparent border-b border-white/10 md:border-none">
+        <div id="watch-columns" class="flex flex-col xl:flex-row gap-0 sm:gap-3 items-start">
 
           <!-- LEFT PRIMARY WATCH COLUMN -->
           <div id="left-watch-column" class="w-full min-w-0">
@@ -636,9 +602,6 @@
                 <span id="sp-stage-header-title" class="text-sm font-semibold tracking-tight truncate">Live Broadcast</span>
               </div>
               <div class="flex items-center space-x-2 shrink-0">
-                <button onclick="setCurrentPlayingAsStartup()" class="px-2.5 py-1 rounded-full bg-black/40 hover:bg-black/65 text-xs font-medium text-amber-400 border border-white/10 transition">
-                  ★ Set Default
-                </button>
                 <button onclick="openRightRailEpg()" class="px-2.5 py-1 rounded-full bg-black/40 hover:bg-black/65 text-xs font-medium text-[#1ed760] border border-white/10 transition">
                   Live EPG
                 </button>
@@ -673,28 +636,18 @@
                   allowfullscreen
                 ></iframe>
 
-                <!-- MOBILE / BROWSER AUTO-PLAY UNMUTE PILL (Prevents Mobile Autoplay Deadlock!) -->
+                <!-- MOBILE / BROWSER UNMUTE BANNER (Guarantees Mobile Autoplay Never Blocks!) -->
                 <button
                   id="mobile-unmute-pill"
                   onclick="event.stopPropagation(); unmuteFromBanner()"
-                  class="hidden absolute top-3 left-3 z-40 bg-black/85 hover:bg-black border border-white/25 text-white text-xs font-semibold px-3.5 py-1.5 rounded-full shadow-2xl flex items-center space-x-1.5 animate-pulse"
+                  class="hidden absolute top-3 left-3 z-40 bg-black/85 hover:bg-black border border-white/25 text-white text-xs font-semibold px-3.5 py-1.5 rounded-full shadow-2xl flex items-center space-x-1.5"
                 >
-                  <span>🔇</span>
-                  <span>Tap to Unmute Live Audio</span>
+                  <span class="text-amber-400">🔇</span>
+                  <span>Tap to Unmute Audio</span>
                 </button>
-
-                <!-- Startup Default Badge on Player -->
-                <div id="player-startup-indicator" class="hidden absolute top-3 right-3 z-30 bg-amber-500/90 text-black text-[10px] font-bold px-2 py-0.5 rounded-full pointer-events-none">
-                  ★ STARTUP CHANNEL
-                </div>
 
                 <!-- Gesture Visual Ripple Feedback -->
                 <div id="gesture-feedback-pill" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-40 bg-black/80 backdrop-blur-md text-white text-xs font-semibold px-4 py-2 rounded-full pointer-events-none"></div>
-
-                <!-- Channel Surfing Numeric OSD Overlay -->
-                <div id="channel-numpad-osd" class="hidden absolute top-4 right-4 z-40 bg-black/85 border border-white/20 rounded-xl px-4 py-2 text-2xl font-mono-code font-bold text-[#1ed760] shadow-2xl">
-                  CH --
-                </div>
 
                 <!-- "Stats for Nerds" Live Stream Telemetry Overlay -->
                 <div id="stats-for-nerds" onclick="event.stopPropagation()" class="hidden absolute top-3 left-3 z-40 bg-black/90 backdrop-blur-md border border-white/15 rounded-xl p-3 text-[11px] font-mono-code text-gray-200 space-y-1 w-64 sm:w-72 shadow-2xl">
@@ -729,20 +682,23 @@
 
                 <!-- Stream Loading Spinner -->
                 <div id="player-spinner" class="hidden absolute inset-0 z-20 bg-black/60 flex flex-col items-center justify-center p-4 text-center pointer-events-none">
-                  <div class="w-9 h-9 border-2 border-white/20 border-t-[var(--accent)] rounded-full animate-spin"></div>
+                  <div class="w-8 h-8 sm:w-9 sm:h-9 border-2 border-white/20 border-t-[var(--accent)] rounded-full animate-spin"></div>
                   <p id="spinner-label" class="text-[11px] font-normal text-white mt-2 bg-black/80 px-3 py-1 rounded-full">
                     Connecting Live Stream...
                   </p>
                 </div>
 
-                <!-- Clean Native Player Controls HUD (Always inside viewport even in Theatre Mode!) -->
+                <!-- ===========================================================
+                     VIDEO PLAYER CONTROLS BAR (HUD)
+                     ALLOWED LOCATION #3 FOR STARTUP CHANNEL BUTTON!
+                     =========================================================== -->
                 <div
                   id="custom-video-hud"
                   onclick="event.stopPropagation()"
                   ondblclick="event.stopPropagation()"
-                  class="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/50 to-transparent pt-6 pb-1.5 px-2.5 sm:px-4 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
+                  class="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/55 to-transparent pt-6 pb-1.5 px-2.5 sm:px-4 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
                 >
-                  <!-- Clean Seeking Bar -->
+                  <!-- Seeking Bar -->
                   <div class="relative w-full py-1 cursor-pointer group/scrub" onclick="seekLiveEdge(event)">
                     <div class="w-full h-1 group-hover/scrub:h-1.5 bg-white/30 rounded-full overflow-hidden transition-all">
                       <div id="scrub-progress-bar" class="w-[96%] h-full bg-[var(--accent)]"></div>
@@ -772,9 +728,15 @@
                     </div>
 
                     <div class="flex items-center space-x-1.5 sm:space-x-2">
-                      <!-- Set Default Startup Button right inside HUD -->
-                      <button onclick="setCurrentPlayingAsStartup()" id="hud-startup-btn" class="px-2 py-0.5 rounded bg-white/10 hover:bg-amber-500 hover:text-black text-[10px] font-medium text-amber-300 transition" title="Set current channel as Default Startup Channel">
-                        ★ Default
+                      <!-- ALLOWED LOCATION #3: STARTUP CHANNEL BUTTON IN VIDEO PLAYER CONTROLS BAR -->
+                      <button
+                        onclick="setCurrentPlayingAsStartup()"
+                        id="hud-startup-btn"
+                        class="px-2 py-0.5 rounded bg-white/15 hover:bg-amber-500 hover:text-black text-[10px] font-semibold text-amber-300 transition flex items-center space-x-1"
+                        title="Set current channel as Startup Channel (Double-click to open Startup Manager)"
+                      >
+                        <span>★</span>
+                        <span id="hud-startup-label">Startup</span>
                       </button>
 
                       <!-- Video Fit / Fill / Crop Selector -->
@@ -790,7 +752,7 @@
 
                       <!-- Settings / HLS Resolution & Telemetry Popover -->
                       <button onclick="toggleQualityPopover(event)" class="relative p-1 hover:text-white text-white/90 transition" title="Stream Quality & Telemetry">
-                        <svg class="w-4 h-4 sm:w-5 sm:h-5 fill-current" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                        <svg class="w-4 h-4 sm:w-5 sm:h-5 fill-current" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
                         <span id="hud-quality-badge" class="absolute -top-0.5 -right-1 bg-[#cc0000] text-white text-[8px] font-bold px-1 rounded-[2px] leading-tight">HD</span>
                       </button>
 
@@ -815,53 +777,48 @@
             </div>
 
             <!-- ===============================================================
-                 COMPACT MOBILE-APP & DESKTOP METADATA BAR BELOW PLAYER
+                 ULTRA-CLEAN COMPACT MOBILE-APP & DESKTOP METADATA BAR
+                 (No Clumsy Multi-Row Clutter on Mobile!)
                  =============================================================== -->
-            <div id="yt-metadata-below" class="px-2.5 sm:px-0 py-2 sm:mt-2 space-y-2">
+            <div id="yt-metadata-below" class="px-2.5 sm:px-0 py-2 sm:mt-2 space-y-1.5 bg-[#0f0f0f]">
               <div class="flex items-center justify-between gap-2">
-                <h1 id="active-title" class="text-[14px] sm:text-[17px] font-semibold text-[#f1f1f1] leading-snug truncate">
+                <h1 id="active-title" class="text-[13px] sm:text-[17px] font-semibold text-[#f1f1f1] leading-snug truncate">
                   Select a Live Broadcast
                 </h1>
-                <!-- Mobile Toggle for Up Next / EPG Drawer -->
+                <!-- Mobile Drawer Toggle for Up Next / EPG -->
                 <button onclick="toggleMobileUpNextDrawer()" id="mobile-upnext-toggle" class="xl:hidden shrink-0 px-2.5 py-1 rounded-full bg-[#272727] text-[11px] font-medium text-white flex items-center space-x-1">
-                  <span>Up Next / EPG</span>
+                  <span id="mobile-upnext-label">Up Next / EPG</span>
                   <span id="mobile-upnext-chevron">▾</span>
                 </button>
               </div>
 
-              <!-- Single-Row Horizontal Scrollable Action Bar on Mobile, Wrapped on Desktop -->
-              <div class="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar pb-0.5">
+              <!-- Single-Line Horizontal Scrollable Bar on Mobile & Desktop -->
+              <div class="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar">
                 <!-- Left: Channel Avatar + Name + Relay + Subscribe -->
                 <div class="flex items-center space-x-2 shrink-0">
-                  <img id="active-poster" src="" alt="" referrerpolicy="no-referrer" class="w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover bg-[#272727] shrink-0" />
-                  <div class="min-w-0 pr-1 max-w-[130px] sm:max-w-[200px]">
+                  <img id="active-poster" src="" alt="" class="w-7 h-7 sm:w-9 sm:h-9 rounded-full object-cover bg-[#272727] shrink-0" />
+                  <div class="min-w-0 pr-1 max-w-[125px] sm:max-w-[210px]">
                     <div class="flex items-center space-x-1">
-                      <h2 id="active-channel-owner" class="text-[13px] sm:text-[14px] font-medium text-[#f1f1f1] truncate">Global Broadcast</h2>
+                      <h2 id="active-channel-owner" class="text-[12px] sm:text-[14px] font-medium text-[#f1f1f1] truncate">Global Broadcast</h2>
                       <svg class="w-3.5 h-3.5 fill-[#aaaaaa] shrink-0" viewBox="0 0 24 24"><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zM9.8 17.3l-4.2-4.1L7 11.8l2.8 2.7L17 7.4l1.4 1.4-8.6 8.5z"/></svg>
                     </div>
-                    <p id="active-subtitle" class="text-[11px] text-[#aaaaaa] truncate">24.7K subscribers</p>
+                    <p id="active-subtitle" class="text-[10px] sm:text-[11px] text-[#aaaaaa] truncate">150K watching</p>
                   </div>
 
-                  <button onclick="cycleServerMode()" id="server-badge" class="h-8 px-3 rounded-full bg-[#f1f1f1] hover:bg-[#d9d9d9] text-[#0f0f0f] text-xs font-semibold transition shrink-0" title="Switch Relay Server">
-                    Relay 1
+                  <button onclick="cycleServerMode()" id="server-badge" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#f1f1f1] hover:bg-[#d9d9d9] text-[#0f0f0f] text-[11px] sm:text-xs font-semibold transition shrink-0" title="Switch Stream Relay Server">
+                    HD Direct
                   </button>
 
-                  <button onclick="toggleSubscribeAndFavorite()" id="fav-action-btn" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-white text-xs font-medium flex items-center space-x-1 transition shrink-0">
+                  <button onclick="toggleSubscribeAndFavorite()" id="fav-action-btn" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-white text-[11px] sm:text-xs font-medium flex items-center space-x-1 transition shrink-0">
                     <span>🔔</span>
                     <span>Subscribe</span>
                   </button>
                 </div>
 
-                <!-- Right Action Pills: Set Default Startup + Like + Indian + Languages + EPG + Share -->
+                <!-- Right Pills: Like + Next + Live EPG + Share (Startup Removed from Here!) -->
                 <div class="flex items-center space-x-1.5 shrink-0">
-                  <!-- Set as Default / Startup Channel Button -->
-                  <button onclick="setCurrentPlayingAsStartup()" id="set-startup-pill-btn" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-amber-500 hover:text-black text-amber-400 text-xs font-medium flex items-center space-x-1 transition shrink-0" title="Set or Update this channel as your Startup Default">
-                    <span>★</span>
-                    <span id="set-startup-pill-label">Set Startup</span>
-                  </button>
-
-                  <div class="flex items-center bg-[#272727] rounded-full h-8 overflow-hidden shrink-0">
-                    <button onclick="toggleSubscribeAndFavorite()" id="like-pill-btn" class="h-full px-2.5 hover:bg-[#3f3f3f] flex items-center space-x-1 text-xs font-medium text-white transition border-r border-white/10">
+                  <div class="flex items-center bg-[#272727] rounded-full h-7 sm:h-8 overflow-hidden shrink-0">
+                    <button onclick="toggleSubscribeAndFavorite()" id="like-pill-btn" class="h-full px-2.5 hover:bg-[#3f3f3f] flex items-center space-x-1 text-[11px] sm:text-xs font-medium text-white transition border-r border-white/10">
                       <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M18.77 11h-4.23l1.52-4.94C16.38 5.03 15.54 4 14.38 4c-.58 0-1.14.24-1.52.65L7 11H3v10h4h1h9.43c1.06 0 1.98-.67 2.19-1.61l1.34-6C21.23 12.15 20.18 11 18.77 11z"/></svg>
                       <span id="like-counter-label">698</span>
                     </button>
@@ -870,12 +827,12 @@
                     </button>
                   </div>
 
-                  <button onclick="openRightRailEpg()" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
+                  <button onclick="openRightRailEpg()" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-[11px] sm:text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
                     <span>✦</span>
                     <span>Live EPG</span>
                   </button>
 
-                  <button onclick="copyStreamShareLink()" class="h-8 px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
+                  <button onclick="copyStreamShareLink()" class="h-7 sm:h-8 px-2.5 sm:px-3 rounded-full bg-[#272727] hover:bg-[#3f3f3f] text-[11px] sm:text-xs font-medium text-white flex items-center space-x-1 transition shrink-0">
                     <span>↗</span>
                     <span>Share</span>
                   </button>
@@ -886,16 +843,15 @@
 
           <!-- =================================================================
                RIGHT-HAND SPACE: UP NEXT + LIVE EPG + INDIAN + LANGUAGES
-               (Collapsible on Mobile so Catalog is Immediately Accessible!)
+               (Collapsed by default on mobile so main channel feed is clean!)
                ================================================================= -->
-          <aside id="watch-up-next-rail" class="hidden xl:flex w-full shrink-0 px-2.5 sm:px-0 pb-2 xl:pb-0 flex-col bg-[#141414] xl:bg-transparent border-t border-white/10 xl:border-none pt-2 xl:pt-0">
+          <aside id="watch-up-next-rail" class="hidden xl:flex w-full shrink-0 px-2.5 sm:px-0 pb-2.5 xl:pb-0 flex-col bg-[#141414] xl:bg-transparent border-t border-white/10 xl:border-none pt-2 xl:pt-0">
 
-            <!-- Right Rail Chips: All | Live EPG | 🇮🇳 Indian | 🌐 Languages ▾ | Suggestions | Recently played -->
+            <!-- Right Rail Chips: All | Live EPG | 🇮🇳 Indian | 🌐 Languages ▾ | Suggestions | Recent -->
             <div class="flex items-center justify-between gap-1 mb-2">
               <div id="right-rail-chips" class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar py-0.5">
                 <button onclick="setRightRailFilter('all')" id="rchip-all" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#f1f1f1] text-[#0f0f0f] shrink-0 transition">All</button>
                 <button onclick="setRightRailFilter('epg')" id="rchip-epg" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition">Live EPG</button>
-                <!-- Indian & Languages right next to Live EPG as requested! -->
                 <button onclick="selectLanguageFeed('Indian')" id="rchip-indian" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 transition">🇮🇳 Indian</button>
                 <button onclick="toggleLanguagePopover(event)" id="rchip-language" class="rchip px-2.5 py-1.5 rounded-[8px] text-xs font-normal bg-[#272727] text-[#f1f1f1] hover:bg-[#3f3f3f] shrink-0 flex items-center space-x-1 transition">
                   <span>🌐</span>
@@ -908,7 +864,7 @@
               <button onclick="cycleRightRailTab()" class="w-7 h-7 rounded-full hover:bg-white/10 flex items-center justify-center text-white shrink-0" title="Next Tab">›</button>
             </div>
 
-            <!-- Inline Quick Language Sub-Chips Bar (Always visible when Indian or Language is selected) -->
+            <!-- Inline Quick Language Sub-Chips Bar -->
             <div id="right-language-subbar" class="mb-2 pb-1.5 border-b border-white/10 flex items-center space-x-1.5 overflow-x-auto no-scrollbar"></div>
 
             <!-- Docked Right-Rail EPG Header -->
@@ -921,7 +877,7 @@
             </div>
 
             <!-- Right-Space Cards Container -->
-            <div id="up-next-container" class="flex xl:flex-col gap-2 overflow-x-auto xl:overflow-y-auto no-scrollbar max-h-[220px] xl:max-h-[calc(100dvh-150px)] pr-0.5"></div>
+            <div id="up-next-container" class="flex xl:flex-col gap-2 overflow-x-auto xl:overflow-y-auto no-scrollbar max-h-[210px] xl:max-h-[calc(100dvh-150px)] pr-0.5"></div>
           </aside>
 
         </div>
@@ -930,17 +886,13 @@
       <!-- =====================================================================
            BELOW-THE-FOLD BROWSE CATALOG (Supports Live Hover Video Previews!)
            ===================================================================== -->
-      <section id="catalog-section" class="w-full px-2.5 sm:px-4 pt-3 sm:pt-4">
-        <div id="sticky-chip-bar" class="sticky top-0 z-20 bg-[var(--bg-canvas)]/95 backdrop-blur-md py-2 mb-3 border-b border-white/10 flex items-center justify-between gap-2">
+      <section id="catalog-section" class="w-full px-2.5 sm:px-4 pt-2 sm:pt-4">
+        <div id="sticky-chip-bar" class="py-2 mb-3 border-b border-white/10 flex items-center justify-between gap-2">
           <div id="category-chips" class="flex items-center space-x-1.5 overflow-x-auto no-scrollbar"></div>
           <div class="flex items-center space-x-1.5 shrink-0">
             <button onclick="toggleLanguagePopover(event)" class="px-2.5 py-1 rounded-lg bg-[#272727] hover:bg-[#3f3f3f] text-[11px] font-medium text-white flex items-center space-x-1">
               <span>🌐</span>
               <span id="catalog-lang-label">Language: All</span>
-            </button>
-            <button onclick="openStartupChannelModal()" class="hidden sm:flex px-2.5 py-1 rounded-lg bg-[#272727] hover:bg-[#3f3f3f] text-[11px] font-medium text-amber-400 items-center space-x-1">
-              <span>★</span>
-              <span>Startup</span>
             </button>
           </div>
         </div>
@@ -969,7 +921,7 @@
   </div>
 
   <!-- =========================================================================
-       8. NATIVE MOBILE APP BOTTOM NAVIGATION BAR (iOS / Android App Feel)
+       8. NATIVE MOBILE APP BOTTOM NAVIGATION BAR (No Startup Button Here!)
        ========================================================================= -->
   <nav class="md:hidden fixed bottom-0 inset-x-0 h-14 bg-[#0f0f0f]/95 backdrop-blur-xl border-t border-white/10 grid grid-cols-5 items-center z-50 text-[10px] pb-safe select-none">
     <button onclick="resetHomeView()" id="mob-tab-home" class="flex flex-col items-center justify-center py-1 text-[var(--accent)] font-semibold">
@@ -984,9 +936,9 @@
       <span class="text-base leading-none mb-0.5">🌐</span>
       <span>Languages</span>
     </button>
-    <button onclick="openStartupChannelModal()" id="mob-tab-startup" class="flex flex-col items-center justify-center py-1 text-gray-400">
-      <span class="text-base leading-none mb-0.5 text-amber-400">★</span>
-      <span>Startup</span>
+    <button onclick="openRightRailEpg()" id="mob-tab-epg" class="flex flex-col items-center justify-center py-1 text-gray-400">
+      <span class="text-base leading-none mb-0.5">📅</span>
+      <span>Live EPG</span>
     </button>
     <button onclick="openSourceManagerModal()" id="mob-tab-sources" class="flex flex-col items-center justify-center py-1 text-gray-400">
       <span class="text-base leading-none mb-0.5">🔗</span>
@@ -1006,7 +958,85 @@
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
     /*************************************************************************
-     * 2. INDIAN & GLOBAL LANGUAGES ENGINE + NON-BLOCKING REGIONAL FETCHER
+     * 2. INSTANT OFFLINE SVG BROADCAST POSTER GENERATOR
+     * Eliminates 100% of broken image icons (<img src>) seen on mobile!
+     *************************************************************************/
+    const svgPosterCache = {};
+    const PALETTE_GRADIENTS = [
+      ['#991b1b', '#1e1b4b', '#ef4444'],
+      ['#065f46', '#0f172a', '#10b981'],
+      ['#1e40af', '#090d16', '#3b82f6'],
+      ['#6b21a8', '#111827', '#a855f7'],
+      ['#9a3412', '#18181b', '#f97316'],
+      ['#155e75', '#0f172a', '#06b6d4'],
+      ['#831843', '#18181b', '#ec4899']
+    ];
+
+    function hashString(str) {
+      let h = 0;
+      const s = String(str || 'TV');
+      for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+      return Math.abs(h);
+    }
+
+    function generateCanvasPosterDataUri(name = 'Live TV', group = 'General', lang = '') {
+      const key = `${name}|${group}|${lang}`;
+      if (svgPosterCache[key]) return svgPosterCache[key];
+
+      const h = hashString(name);
+      const [c1, c2, accent] = PALETTE_GRADIENTS[h % PALETTE_GRADIENTS.length];
+      const cleanName = String(name).replace(/[&<>'"]/g, '').slice(0, 26);
+      const cleanGroup = String(group || 'LIVE').replace(/[&<>'"]/g, '').toUpperCase().slice(0, 14);
+      const cleanLang = String(lang && lang !== 'English' ? lang : 'HD 24/7').replace(/[&<>'"]/g, '').toUpperCase().slice(0, 10);
+      const initials = String(name)
+        .replace(/[^a-zA-Z0-9 ]/g, '')
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(w => w[0]?.toUpperCase() || '')
+        .join('') || 'TV';
+
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" width="640" height="360">
+        <defs>
+          <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="${c1}"/>
+            <stop offset="100%" stop-color="${c2}"/>
+          </linearGradient>
+        </defs>
+        <rect width="640" height="360" fill="url(#g)"/>
+        <circle cx="540" cy="70" r="160" fill="${accent}" fill-opacity="0.12"/>
+        <circle cx="100" cy="310" r="140" fill="${accent}" fill-opacity="0.1"/>
+        <rect x="36" y="32" width="118" height="34" rx="8" fill="#000000" fill-opacity="0.55"/>
+        <circle cx="56" cy="49" r="5" fill="#ff0033"/>
+        <text x="70" y="54" fill="#ffffff" font-family="Roboto,Arial,sans-serif" font-size="14" font-weight="700">${cleanGroup}</text>
+        <rect x="510" y="32" width="94" height="32" rx="8" fill="#ffffff" fill-opacity="0.12"/>
+        <text x="557" y="53" text-anchor="middle" fill="#f1f1f1" font-family="Roboto,Arial,sans-serif" font-size="13" font-weight="700">${cleanLang}</text>
+        <circle cx="320" cy="158" r="54" fill="#000000" fill-opacity="0.4" stroke="${accent}" stroke-width="2.5" stroke-opacity="0.6"/>
+        <text x="320" y="173" text-anchor="middle" fill="#ffffff" font-family="Roboto,Arial,sans-serif" font-size="38" font-weight="900" letter-spacing="1">${initials}</text>
+        <text x="320" y="265" text-anchor="middle" fill="#ffffff" font-family="Roboto,Arial,sans-serif" font-size="25" font-weight="700">${cleanName}</text>
+        <text x="320" y="295" text-anchor="middle" fill="#cbd5e1" font-family="Roboto,Arial,sans-serif" font-size="15" font-weight="500">StreamOS Live Broadcast Network</text>
+      </svg>`;
+
+      const uri = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+      svgPosterCache[key] = uri;
+      return uri;
+    }
+
+    function getChannelPoster(ch) {
+      if (!ch) return generateCanvasPosterDataUri('StreamOS Live', 'TV', 'HD');
+      if (ch.logo && ch.logo.startsWith('https://') && !ch.logo.includes('images.unsplash.com')) {
+        return ch.logo;
+      }
+      return generateCanvasPosterDataUri(ch.name, ch.group, ch.lang);
+    }
+
+    function handleImgFallback(imgEl, name, group, lang = '') {
+      imgEl.onerror = null;
+      imgEl.src = generateCanvasPosterDataUri(name, group, lang);
+    }
+
+    /*************************************************************************
+     * 3. INDIAN & GLOBAL LANGUAGES ENGINE + NON-BLOCKING REGIONAL FETCHER
      *************************************************************************/
     const LANGUAGE_CATALOGS = [
       { id: 'All',       label: 'All Languages', icon: '🌐', region: 'global', m3uUrl: '' },
@@ -1065,7 +1095,6 @@
       document.getElementById('header-lang-label').textContent = langId === 'All' ? 'Languages' : shortName;
       document.getElementById('stat-lang').textContent = langObj.label;
 
-      // Highlight active right-rail language/Indian chip
       const indChip = document.getElementById('rchip-indian');
       const langChip = document.getElementById('rchip-language');
       if (indChip) {
@@ -1199,9 +1228,9 @@
     }
 
     /*************************************************************************
-     * 3. DEFAULT / STARTUP CHANNEL PERSISTENCE & MANAGER
+     * 4. STARTUP CHANNEL ENGINE (Scoped Strictly to Search, Left Menu & Video HUD!)
      *************************************************************************/
-    let startupChannelConfig = JSON.parse(localStorage.getItem('streamos_startup_channel_v14') || 'null');
+    let startupChannelConfig = JSON.parse(localStorage.getItem('streamos_startup_channel_v15') || 'null');
 
     function getStartupChannelObject() {
       if (startupChannelConfig && startupChannelConfig.url) {
@@ -1220,14 +1249,13 @@
         logo: ch.logo || '',
         url: ch.url,
         backupUrl: ch.backupUrl || '',
-        ytEmbed: ch.ytEmbed || '',
+        mp4Fallback: ch.mp4Fallback || '',
         verified: !!ch.verified,
         viewers: ch.viewers || 'LIVE'
       };
-      localStorage.setItem('streamos_startup_channel_v14', JSON.stringify(startupChannelConfig));
+      localStorage.setItem('streamos_startup_channel_v15', JSON.stringify(startupChannelConfig));
       updateStartupChannelUI();
-      renderViewport();
-      showToast(`★ Default Startup Channel set to: ${ch.name}`);
+      showToast(`★ Startup Channel updated to: ${ch.name}`);
     }
 
     function setCurrentPlayingAsStartup() {
@@ -1238,39 +1266,34 @@
     function playStartupDefaultChannel() {
       const target = getStartupChannelObject();
       playStream(target, 0);
-      showToast(`★ Playing Default Startup Channel: ${target.name}`);
+      showToast(`★ Playing Startup Channel: ${target.name}`);
     }
 
     function updateStartupChannelUI() {
       const def = getStartupChannelObject();
       const isCurrentStartup = activeChannel && def && activeChannel.url === def.url;
 
+      // 1. Left Sidebar Menu Startup Label
       const drawerName = document.getElementById('drawer-startup-name');
       if (drawerName && def) drawerName.textContent = def.name;
 
+      // 2. Startup Modal Labels
       const modalName = document.getElementById('modal-current-startup-name');
       const modalMeta = document.getElementById('modal-current-startup-meta');
       if (modalName && def) modalName.textContent = def.name;
-      if (modalMeta && def) modalMeta.textContent = `${def.group || 'Live'} • ${def.lang || 'Global'} • ${def.url.slice(0, 48)}...`;
+      if (modalMeta && def) modalMeta.textContent = `${def.group || 'Live'} • ${def.lang || 'Global'}`;
 
-      const indicator = document.getElementById('player-startup-indicator');
-      if (indicator) indicator.classList.toggle('hidden', !isCurrentStartup);
-
-      const pillBtn = document.getElementById('set-startup-pill-btn');
-      const pillLabel = document.getElementById('set-startup-pill-label');
+      // 3. Video Player Controls Bar (HUD) Button
       const hudBtn = document.getElementById('hud-startup-btn');
-
-      if (pillBtn && pillLabel) {
+      const hudLabel = document.getElementById('hud-startup-label');
+      if (hudBtn && hudLabel) {
         if (isCurrentStartup) {
-          pillBtn.className = 'h-8 px-3 rounded-full bg-amber-500 text-black text-xs font-bold flex items-center space-x-1 transition shrink-0';
-          pillLabel.textContent = 'Startup Default';
+          hudBtn.className = 'px-2 py-0.5 rounded bg-amber-500 text-black text-[10px] font-bold transition flex items-center space-x-1';
+          hudLabel.textContent = 'Startup ✓';
         } else {
-          pillBtn.className = 'h-8 px-3 rounded-full bg-[#272727] hover:bg-amber-500 hover:text-black text-amber-400 text-xs font-medium flex items-center space-x-1 transition shrink-0';
-          pillLabel.textContent = 'Set Startup';
+          hudBtn.className = 'px-2 py-0.5 rounded bg-white/15 hover:bg-amber-500 hover:text-black text-[10px] font-semibold text-amber-300 transition flex items-center space-x-1';
+          hudLabel.textContent = 'Set Startup';
         }
-      }
-      if (hudBtn) {
-        hudBtn.textContent = isCurrentStartup ? '★ Startup ✓' : '★ Set Default';
       }
     }
 
@@ -1299,7 +1322,7 @@
         return `
           <div class="flex items-center justify-between p-2.5 rounded-xl hover:bg-white/5 transition">
             <div class="flex items-center space-x-3 min-w-0 flex-1">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}')" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
                 <p class="text-[10px] text-[#aaaaaa] truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live')}</p>
@@ -1309,7 +1332,7 @@
               <button onclick="setStartupChannelByUrl('${escapeAttr(ch.url)}')" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
                 isDef ? 'bg-amber-500 text-black' : 'bg-white/10 hover:bg-amber-500 hover:text-black text-amber-300'
               }">
-                ${isDef ? '★ Default' : 'Set Startup'}
+                ${isDef ? '★ Active Startup' : 'Set Startup'}
               </button>
               <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); closeStartupChannelModal()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px]">
                 Play
@@ -1324,7 +1347,8 @@
       const found = allChannels.find(c => c.url === url) || favorites.find(c => c.url === url);
       if (found) {
         setStartupChannel(found);
-        renderStartupChannelsPicker(document.getElementById('startup-search-input').value);
+        const sInput = document.getElementById('startup-search-input');
+        if (sInput) renderStartupChannelsPicker(sInput.value);
       }
     }
 
@@ -1343,7 +1367,7 @@
     }
 
     /*************************************************************************
-     * 4. YOUTUBE-STYLE LIVE HOVER VIDEO PREVIEW (Pointer-Safe, Zero Mobile Lag)
+     * 5. YOUTUBE-STYLE LIVE HOVER VIDEO PREVIEW (Fine Pointer Only)
      *************************************************************************/
     let hoverPreviewEnabled = true;
     let hoverIntentTimer = null;
@@ -1354,11 +1378,10 @@
     function toggleHoverPreviewSetting(enabled) {
       hoverPreviewEnabled = enabled;
       if (!enabled) stopCardHoverPreview();
-      showToast(enabled ? 'YouTube Hover Video Previews Enabled' : 'Hover Video Previews Disabled');
+      showToast(enabled ? 'Desktop Hover Video Previews Enabled' : 'Hover Video Previews Disabled');
     }
 
     function startCardHoverPreview(cardEl, streamUrl) {
-      // Only trigger hover video previews on fine pointer devices (never on touch screens)
       if (!hoverPreviewEnabled || !streamUrl || !SUPPORTS_FINE_HOVER()) return;
       const thumbBox = cardEl.querySelector('.preview-thumb-box');
       if (!thumbBox || activePreviewContainer === thumbBox) return;
@@ -1399,7 +1422,7 @@
 
         if (Hls.isSupported()) {
           activePreviewHls = new Hls({
-            enableWorker: true,
+            enableWorker: false,
             lowLatencyMode: true,
             maxBufferLength: 4,
             backBufferLength: 0,
@@ -1451,53 +1474,8 @@
     }
 
     /*************************************************************************
-     * 5. POSTERS, ASPECT-FIT & DESKTOP-ONLY AMBILIGHT (Zero Mobile CPU Drain)
+     * 6. ASPECT-FIT & EPG GENERATOR
      *************************************************************************/
-    const WEB_CATEGORY_POSTERS = {
-      Sports: [
-        'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&w=640&q=80',
-        'https://images.unsplash.com/photo-1508098682722-e99c43a406b2?auto=format&fit=crop&w=640&q=80'
-      ],
-      News: [
-        'https://images.unsplash.com/photo-1495020689067-958852a7765e?auto=format&fit=crop&w=640&q=80',
-        'https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=640&q=80'
-      ],
-      Movies: [
-        'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?auto=format&fit=crop&w=640&q=80',
-        'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=640&q=80'
-      ],
-      Documentary: [
-        'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=640&q=80',
-        'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=640&q=80'
-      ],
-      General: [
-        'https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?auto=format&fit=crop&w=640&q=80',
-        'https://images.unsplash.com/photo-1593784991095-a205069470b6?auto=format&fit=crop&w=640&q=80'
-      ]
-    };
-
-    function hashString(str) {
-      let h = 0;
-      for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
-      return Math.abs(h);
-    }
-
-    function getWebFallbackPoster(name = 'Live', group = 'General') {
-      const pool = WEB_CATEGORY_POSTERS[group] || WEB_CATEGORY_POSTERS.General;
-      return pool[hashString(name) % pool.length];
-    }
-
-    function getChannelPoster(ch) {
-      if (!ch) return WEB_CATEGORY_POSTERS.General[0];
-      if (ch.logo && ch.logo.startsWith('https://')) return ch.logo;
-      return getWebFallbackPoster(ch.name, ch.group);
-    }
-
-    function handleImgFallback(imgEl, name, group) {
-      imgEl.onerror = null;
-      imgEl.src = getWebFallbackPoster(name, group);
-    }
-
     const mainVideoEl = document.getElementById('video-player');
     mainVideoEl.addEventListener('resize', syncPlayerAspectToStream);
     mainVideoEl.addEventListener('loadedmetadata', syncPlayerAspectToStream);
@@ -1555,7 +1533,7 @@
     }
 
     /*************************************************************************
-     * 6. MULTI-SOURCE IPTV URL MANAGER (Non-Blocking Time-Sliced Parser!)
+     * 7. MULTI-SOURCE IPTV URL MANAGER (Non-Blocking Time-Sliced Parser)
      *************************************************************************/
     const DEFAULT_IPTV_SOURCES = [
       { id: 'src-verified', name: 'Built-in 24/7 Verified HD Streams', url: 'builtin://verified', selected: true, count: 14 },
@@ -1568,13 +1546,13 @@
       { id: 'src-global',   name: 'IPTV-ORG Global Master (On-Demand)', url: 'https://iptv-org.github.io/iptv/index.m3u', selected: false, count: 0 }
     ];
 
-    let iptvSources = JSON.parse(localStorage.getItem('streamos_sources_v14') || 'null') || [...DEFAULT_IPTV_SOURCES];
-    let playlistFilterMode = localStorage.getItem('streamos_source_mode_v14') || 'all';
+    let iptvSources = JSON.parse(localStorage.getItem('streamos_sources_v15') || 'null') || [...DEFAULT_IPTV_SOURCES];
+    let playlistFilterMode = localStorage.getItem('streamos_source_mode_v15') || 'all';
     const sourceChannelCache = {};
 
     function saveSourcesState() {
-      localStorage.setItem('streamos_sources_v14', JSON.stringify(iptvSources));
-      localStorage.setItem('streamos_source_mode_v14', playlistFilterMode);
+      localStorage.setItem('streamos_sources_v15', JSON.stringify(iptvSources));
+      localStorage.setItem('streamos_source_mode_v15', playlistFilterMode);
       updateSourceBadgesUI();
     }
 
