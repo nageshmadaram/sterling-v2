@@ -225,7 +225,7 @@ export function SimpleTerminal() {
         aria-label="TV workspace" style={{ display: 'flex', flex: 1,
           minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
         <TvWorkspace />
-      </div> 
+      </div>}
 
       <SimpleSettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />
     </div>
