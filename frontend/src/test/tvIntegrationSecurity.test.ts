@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const tvPage = readFileSync(new URL('../../public/tv/index.html', import.meta.url), 'utf8');
-const nginx = readFileSync(new URL('../../nginx.conf', import.meta.url), 'utf8');
+// Vitest runs with jsdom's /src/... module URLs; those are not file: URLs.
+// The frontend package root is the test runner's working directory.
+const tvPage = readFileSync(resolve(process.cwd(), 'public/tv/index.html'), 'utf8');
+const nginx = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
   it('serves a distinct streaming document instead of injecting its scripts into trading', () => {
