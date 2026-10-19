@@ -469,6 +469,12 @@ async def verify_acknowledged_stop(command_id: str, *, broker_client) -> StopCom
         confirmed=verify_active_cnc_gtt(campaign,details,
                                          trigger_id=cmd.broker_trigger_id)
     except ValueError as exc:
+        # The strict GTT parser rejects a stop below the campaign floor
+        # before the request-specific tighter-stop comparison is reached.
+        # Preserve this more precise fail-closed reason; other invalid broker
+        # contracts remain classified as unverifiable.
+        if str(exc) == "EMA_GTT_STOP_WEAKER_THAN_CAMPAIGN":
+            raise StopCommandConflict("EMA_STOP_READBACK_GTT_WEAKER_THAN_REQUEST") from exc
         raise StopCommandConflict("EMA_STOP_READBACK_GTT_CONTRACT_UNVERIFIED") from exc
     if confirmed.trigger<cmd.desired_trigger:
         raise StopCommandConflict("EMA_STOP_READBACK_GTT_WEAKER_THAN_REQUEST")
