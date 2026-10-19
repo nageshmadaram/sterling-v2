@@ -88,3 +88,62 @@ for simulated tenants; `ema_trend.live_preflight.inspect()` returns
 No broker write should be attempted while the market is closed or the registered
 egress IP is unverified; the offline fake Kite transport provides the first
 acceptance gate without putting real capital at risk.
+
+
+## 19 October follow-on: durable live-campaign staging (not a release approval)
+
+The offline integration now includes:
+
+- `live_campaign_store.py` stores strictly validated, separate real-account
+  `LiveCampaign` records with revision CAS and a unique open ownership claim
+  for the exact account, exchange, symbol and product.
+- Only an already-existing canonical `SUBMITTED` order ACK can bind a reserved
+  campaign intent; it never creates or sends an order.
+- `project_verified_order` requires **three matching persisted facts**: exact
+  Kite journal order identity and pending projection version; independently
+  verified cumulative broker order history; and the signed fill ledger's exact
+  cumulative order quantity/value and reconciled net position.
+- Campaign revision and `kite_order_intents.projection_pending` acknowledgement
+  use one SQLite FULL-sync transaction. A failed proof rolls back both. Replays
+  cannot increment confirmed quantity twice.
+- `live_lifecycle.py` validates a broker-observed **active CNC GTT** and proposes
+  wait, protective-stop verification/replacement, or broker-exit action for
+  breached SL, target, time cutoff and operator flatten. These are **proposals
+  only**, not unverified live SELL orders.
+- `confirm_existing_cnc_stop` reads Kite GTT and orders with a real-client
+  identity, then independently checks signed inventory and unresolved journal
+  projections before recording active broker coverage. A triggered GTT, a
+  wrong-volume SELL child or outstanding external SELL refuses promotion.
+- Offline test modules: `test_ema_trend_live_campaign_store.py`,
+  `test_ema_trend_live_lifecycle.py`. They include synthetic Kite HTTP ACK,
+  signed ledger, partial/repeated fill, stale CAS, broker ambiguity, active and
+  triggered stop observations and **no real order-write methods**.
+- The separate existing virtual runtime tests failed when pytest was launched
+  with global `STERLING_LIVE_EXECUTION=0`, since the canonical entry gate
+  blocked virtual BUYs. The `virtual` pytest fixture now patches the gate only
+  while running its concrete `SimulatedKiteClient`; production switch is
+  unchanged. These failures must be rerun.
+
+**Still P0, not implemented:** automatic live EMA BUY/SELL submission,
+broker-side stop placement and replacement, MIS broker-native stop handling,
+GTT child-fill reconciliation, protective-stop cleanup after partial/manual
+exits, CNC holdings-sale authorization, authentic static-egress certification,
+and real-account replay/restart/timeout acceptance. Do not use an authenticated
+Kite login, a fake-Kite success, or the `PROTECTED` model phase alone as
+release signoff. A GTT limit leg may remain unfilled after a price gap.
+
+Run the local tests with the operator's global live-entry switch remaining off:
+```bash
+cd ~/Sterling/backend
+STERLING_LIVE_EXECUTION=0 .venv/bin/python -m pytest -q \
+  tests/engines/ema_trend/test_live_contracts.py \
+  tests/services/test_ema_trend_live_order_facts.py \
+  tests/services/test_ema_trend_live_fill_projection.py \
+  tests/services/test_ema_trend_live_campaign_store.py \
+  tests/services/test_ema_trend_live_lifecycle.py \
+  tests/services/test_ema_trend_readiness.py \
+  tests/services/test_ema_trend_signal_admission.py \
+  tests/services/test_ema_trend_runtime.py
+```
+
+No automated test execution has been reported against this follow-on commit.
