@@ -351,7 +351,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
                       title={canExecute
                         ? 'Publish a fresh server-owned Snapback plan and arm that exact revision'
                         : researchOnly
-                          ? 'Intraday is research-only; use the supported scalp or swing live lane'
+                          ? 'Execution requires current server approval for this signal and broker readiness'
                           : (sig.executionEligible === false
                               ? sig.reason || 'This row is not currently eligible for Snapback execution'
                               : (manualReason || 'Snapback execution is blocked'))}
