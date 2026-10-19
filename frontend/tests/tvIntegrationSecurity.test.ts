@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 // Vitest runs from the frontend package directory.
 const tvPage = readFileSync(resolve(process.cwd(), 'public/tv/index.html'), 'utf8');
 const nginx = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
+const gateway = readFileSync(resolve(process.cwd(), '../scripts/serve_frontend.mjs'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
   it('serves a distinct streaming document instead of injecting its scripts into trading', () => {
@@ -25,6 +26,15 @@ describe('Sterling TV static integration safety', () => {
     expect(tvPage).not.toContain('PROXY_RELAYS');
     expect(tvPage).not.toContain('98% Match');
     expect(tvPage).toContain('Guide preview');
+  });
+
+  it('secures the actual Node release gateway, not only optional Nginx deployments', () => {
+    expect(gateway).toContain("decoded === '/tv/index.html'");
+    expect(gateway).toContain('sandbox allow-scripts allow-forms allow-downloads allow-presentation');
+    expect(gateway).not.toContain('sandbox allow-scripts allow-same-origin');
+    expect(gateway).toContain('media-src https: http: data: blob:');
+    expect(gateway).toContain('frame-ancestors \'self\'');
+    expect(gateway).toContain("isTvDocument ? tvCsp : tradingCsp");
   });
 
   it('enforces an opaque-origin media document even when navigated to directly', () => {
