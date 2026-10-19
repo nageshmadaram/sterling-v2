@@ -1,6 +1,7 @@
 import { FeedTestSettings } from './FeedTestSettings';
 import { PushSettings } from './PushSettings';
 import { NavigationSettings } from './NavigationSettings';
+import { SpectrumSettings } from './SpectrumSettings';
 import { usePreferenceSync, flushPreferences } from '../../appearance/preferences';
 import { AppearanceSettings } from './AppearanceSettings';
 import { SterlingUsersPanel } from './SterlingUsersPanel';
@@ -1362,6 +1363,7 @@ export function ConnectPane() {
             {section === 'experience' && (
               <>
                 <section aria-label="Settings storage" style={{...S.card, padding:12}}><strong>Settings storage</strong><p role="status">{preferenceSync.state === 'saved' ? 'Saved to your account database.' : preferenceSync.state === 'error' ? preferenceSync.error : 'Saving your selections…'}</p>{preferenceSync.state === 'error' && <button onClick={() => void flushPreferences()}>Retry save</button>}</section>
+                <SpectrumSettings />
                 <AppearanceSettings />
                 <NavigationSettings />
                 <DefaultSectionSettings />
