@@ -28,9 +28,6 @@ vi.mock('../../components/sim/SimBanner', () => ({
 vi.mock('../../components/kite/MobileExperienceMenu', () => ({
   MobileExperienceMenu: () => <div>Trading mobile navigation</div>,
 }));
-vi.mock('../../components/SimpleSettings', () => ({
-  SimpleSettingsDrawer: () => null,
-}));
 vi.mock('../../hooks/useSim', () => ({
   useSimStatus: () => ({ isSuccess: true, isError: false }),
   isOwnerDenied: () => false,
@@ -150,6 +147,7 @@ describe('Sterling Spectrum product navigation', () => {
     expect(screen.getByRole('region',{name:'Spectrum navigation settings'})).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Restore Spectrum defaults'}));
     expect(screen.getByTestId('spectrum-tv-tab')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
     expect(screen.getByRole('switch',{name:'Live trading view'})).toBeInTheDocument();
   });
 });
