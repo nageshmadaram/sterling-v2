@@ -63,6 +63,23 @@ def test_wrong_gtt_child_contract_cannot_claim_broker_protection(change):
         verify_active_cnc_gtt(campaign(),record,trigger_id="901")
 
 
+@pytest.mark.parametrize("change",[
+    {"exchange":"BSE"},
+    {"tradingsymbol":"TCS"},
+    {"exchange":""},
+    {"tradingsymbol":""},
+    {"exchange":None},
+    {"tradingsymbol":None},
+])
+def test_gtt_trigger_instrument_does_not_prove_sell_child_instrument(change):
+    snapshot=gtt()
+    snapshot["orders"][0].update(change)
+    with pytest.raises(
+        LiveLifecycleEvidenceError,match="SELL_CHILD_INSTRUMENT_MISMATCH"
+    ):
+        verify_active_cnc_gtt(campaign(),snapshot,trigger_id="901")
+
+
 def test_broker_stop_cannot_be_weaker_than_campaign():
     record=gtt()
     record["condition"]["trigger_values"]=[94]
