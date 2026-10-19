@@ -104,8 +104,13 @@ def decide_exit(campaign: LiveCampaign, *, bid, stop_candidate=None,
     held = campaign.held_qty
     if (campaign.phase == "RECOVERY_REQUIRED"
             or campaign.protection_submission_unknown
+            or campaign.orphan_stop_ids
             or any(o.status in {"UNKNOWN","SUBMITTING"} for o in campaign.entries+campaign.exits)):
         return ExitDecision("RECONCILE_BROKER","UNRESOLVED_BROKER_STATE",held)
+    if any(o.status not in {"COMPLETE","CANCELLED","REJECTED"} for o in campaign.exits):
+        return ExitDecision("RECONCILE_BROKER","EXIT_ALREADY_PENDING_OR_UNKNOWN",held)
+    if any(o.status in {"RESERVED","ACKNOWLEDGED","PARTIAL","SUBMITTED"} for o in campaign.entries):
+        return ExitDecision("RECONCILE_BROKER","PENDING_ENTRY_CAN_INCREASE_LIVE_EXPOSURE",held)
     if held == 0:
         return ExitDecision("RECONCILE_BROKER","ZERO_PROJECTED_QUANTITY_NEEDS_BROKER_PROOF",0)
     if (isinstance(quote_age_s,bool) or isinstance(max_quote_age_s,bool)
