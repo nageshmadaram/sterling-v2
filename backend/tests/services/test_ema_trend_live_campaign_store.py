@@ -193,3 +193,82 @@ def test_paper_and_unknown_broker_modes_never_bind_in_strict_broker_fact_parser(
         with pytest.raises(LiveOrderEvidenceError):
             broker_order_fact(identity,history,broker_account_id="KITE-LIVE-TEST",
                               broker_is_paper=mode)
+
+
+@pytest.mark.asyncio
+async def test_read_only_kite_gtt_confirmation_requires_existing_filled_cnc_inventory():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+
+    campaign,key=prepare()
+    observe(key,"COMPLETE",4)
+    sign_fill(4)
+    projection=store.project_verified_order(
+        campaign.id,key,broker_fact("COMPLETE",4),expected_revision=1)
+    assert projection.campaign.phase=="PROTECTION_REQUIRED"
+    client=KiteClient(api_key="fake",api_secret="fake",access_token="fake",
+                      is_paper=False)
+    client._account_id="KITE-LIVE-TEST"
+    client.get_gtt=AsyncMock(return_value={
+        "id":901,"status":"active",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                     "trigger_values":[95]},
+        "orders":[{"transaction_type":"SELL","product":"CNC",
+                   "quantity":4,"order_type":"LIMIT","price":94.5}],
+    })
+    client.get_orders=AsyncMock(return_value=[])
+    client.place_order=AsyncMock(side_effect=AssertionError("LIVE ORDER WRITE"))
+    client.place_gtt=AsyncMock(side_effect=AssertionError("LIVE GTT WRITE"))
+    client.delete_gtt=AsyncMock(side_effect=AssertionError("LIVE GTT DELETE"))
+    verified=await store.confirm_existing_cnc_stop(
+        campaign.id,"901",expected_revision=projection.campaign.revision,
+        broker_client=client)
+    assert verified.phase=="PROTECTED"
+    assert verified.protection.verified_active
+    assert verified.protection.qty==4
+    assert store.get(campaign.id).phase=="PROTECTED"
+    client.get_gtt.assert_awaited_once()
+    client.get_orders.assert_awaited_once()
+    client.place_order.assert_not_called()
+    client.place_gtt.assert_not_called()
+    client.delete_gtt.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stale_gtt_and_open_external_sell_never_prove_protection():
+    from unittest.mock import AsyncMock
+    from app.services.exchanges.kite.client import KiteClient
+
+    campaign,key=prepare()
+    observe(key,"COMPLETE",4)
+    sign_fill(4)
+    projection=store.project_verified_order(
+        campaign.id,key,broker_fact("COMPLETE",4),expected_revision=1)
+    client=KiteClient(api_key="fake",api_secret="fake",access_token="fake",
+                      is_paper=False)
+    client._account_id="KITE-LIVE-TEST"
+    record={
+        "id":901,"status":"triggered",
+        "condition":{"exchange":"NSE","tradingsymbol":"INFY",
+                     "trigger_values":[95]},
+        "orders":[{"transaction_type":"SELL","product":"CNC",
+                   "quantity":4,"order_type":"LIMIT","price":94.5}],
+    }
+    client.get_gtt=AsyncMock(return_value=record)
+    client.get_orders=AsyncMock(return_value=[])
+    from app.services.ema_trend.live_lifecycle import LiveLifecycleEvidenceError
+    with pytest.raises(LiveLifecycleEvidenceError,match="NOT_ACTIVE"):
+        await store.confirm_existing_cnc_stop(
+            campaign.id,"901",expected_revision=projection.campaign.revision,
+            broker_client=client)
+    assert store.get("ema-1").phase=="PROTECTION_REQUIRED"
+    record["status"]="active"
+    client.get_orders=AsyncMock(return_value=[{
+        "exchange":"NSE","tradingsymbol":"INFY",
+        "transaction_type":"SELL","status":"OPEN",
+    }])
+    with pytest.raises(store.LiveStoreConflict,match="DUPLICATE_EXIT"):
+        await store.confirm_existing_cnc_stop(
+            campaign.id,"901",expected_revision=projection.campaign.revision,
+            broker_client=client)
+    assert store.get("ema-1").phase=="PROTECTION_REQUIRED"
