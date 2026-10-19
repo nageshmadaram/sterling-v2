@@ -105,6 +105,58 @@ def create_prepared(campaign: LiveCampaign) -> LiveCampaign:
     return campaign
 
 
+
+def bind_acknowledged_order(campaign_id: str, intent_key: str, *,
+                            expected_revision: int) -> LiveCampaign:
+    """Attach only a journal-confirmed HTTP ACK; never place an order."""
+    from app.engines.ema_trend.live_contracts import BrokerIntent
+    with order_journal._transaction() as conn:
+        _schema(conn)
+        campaign = _get(conn,campaign_id)
+        if campaign.revision != expected_revision or campaign.phase == "CLOSED":
+            raise LiveStoreConflict("EMA_LIVE_CAMPAIGN_STALE_OR_CLOSED")
+        try:
+            intent = order_journal._get(conn,intent_key)
+        except KeyError as exc:
+            raise LiveStoreConflict("EMA_LIVE_CANONICAL_INTENT_NOT_FOUND") from exc
+        if (intent.strategy_id != "ema_trend"
+            or intent.uid != campaign.owner_uid
+            or intent.account_id != campaign.account_id
+            or intent.generation_id != campaign.config_hash
+            or intent.exchange != campaign.exchange or intent.symbol != campaign.symbol
+            or (intent.payload or {}).get("product") != campaign.product
+            or not intent.order_id or intent.state != "SUBMITTED"
+            or intent.reconciliation_required or intent.filled_quantity):
+            raise LiveStoreConflict("EMA_LIVE_UNVERIFIED_CANONICAL_ORDER_ACK")
+        entries, exits = list(campaign.entries), list(campaign.exits)
+        matches = [(side,i,v) for side,orders in (("BUY",entries),("SELL",exits))
+                   for i,v in enumerate(orders) if v.intent_key == intent_key]
+        if len(matches) != 1:
+            raise LiveStoreConflict("EMA_LIVE_MISSING_RESERVED_INTENT")
+        side,index,previous = matches[0]
+        if (side != intent.side or previous.requested_qty != intent.quantity
+            or previous.order_id or previous.status != "RESERVED"
+            or previous.confirmed_qty):
+            raise LiveStoreConflict("EMA_LIVE_ORDER_ID_ALREADY_BOUND_OR_CONFLICTED")
+        updated = BrokerIntent.model_validate({
+            **previous.model_dump(mode="python"),
+            "order_id":intent.order_id,"status":"ACKNOWLEDGED",
+        })
+        if side == "BUY":
+            entries[index] = updated
+        else:
+            exits[index] = updated
+        model = LiveCampaign.model_validate({
+            **campaign.model_dump(mode="python"),
+            "entries":[x.model_dump(mode="python") for x in entries],
+            "exits":[x.model_dump(mode="python") for x in exits],
+            "phase":"ENTRY_PENDING" if side=="BUY" else "EXIT_PENDING",
+            "revision":campaign.revision+1,
+        })
+        _save(conn,model)
+        return model
+
+
 def get(ident: str) -> LiveCampaign:
     order_journal._ready()
     from app.services import db
