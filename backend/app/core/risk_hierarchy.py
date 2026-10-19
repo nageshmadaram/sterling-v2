@@ -17,6 +17,7 @@ and it fails in the direction that costs money.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Mapping
@@ -81,6 +82,10 @@ class RiskHierarchy:
     def __post_init__(self) -> None:
         for level, scopes in self.limits.items():
             for scope, value in scopes.items():
+                if not math.isfinite(value):
+                    raise RiskConfigurationError(
+                        f"{level.value}/{scope or '*'}: non-finite limit {value}"
+                    )
                 if value < 0:
                     raise RiskConfigurationError(
                         f"{level.value}/{scope or '*'}: negative limit {value}"
@@ -121,6 +126,8 @@ class RiskHierarchy:
         caller that cannot name the underlying gets INCONCLUSIVE rather than a
         skipped level — an unnamed underlying is an unmeasured concentration.
         """
+        if not math.isfinite(requested):
+            raise RiskConfigurationError("requested risk must be finite")
         if requested < 0:
             raise RiskConfigurationError("requested risk must not be negative")
         consumed = used or {}
@@ -153,6 +160,10 @@ class RiskHierarchy:
                     None,
                 )
             already = float(consumed.get(level, 0.0))
+            if not math.isfinite(already):
+                raise RiskConfigurationError(
+                    f"{level.value}/{scope or '*'}: non-finite usage {already}"
+                )
             if already < 0:
                 raise RiskConfigurationError(
                     f"{level.value}/{scope or '*'}: negative usage {already}"
