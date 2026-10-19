@@ -136,6 +136,22 @@ def test_legacy_egress_contract_rejects_future_timestamp():
     assert "future" in status.reason
 
 
+def test_legacy_egress_rejects_timezone_ambiguous_timestamp():
+    from app.services.continuity_doctor import (
+        EXPECTED_EGRESS_ENV, OBSERVED_AT_ENV, OBSERVED_EGRESS_ENV,
+        egress_status,
+    )
+
+    naive = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    status = egress_status(env={
+        EXPECTED_EGRESS_ENV: "203.0.113.7",
+        OBSERVED_EGRESS_ENV: "203.0.113.7",
+        OBSERVED_AT_ENV: naive,
+    })
+    assert status.verified is False
+    assert "no timezone" in status.reason
+
+
 def test_documented_egress_record_store_is_the_default_static_egress_truth(
     tmp_path, monkeypatch
 ):
