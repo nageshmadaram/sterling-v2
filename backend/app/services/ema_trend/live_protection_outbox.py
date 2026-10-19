@@ -366,3 +366,153 @@ async def readback_stop_command(command_id: str, *, broker_client) -> StopReadba
                             candidates)
     return StopReadback(command_id,cmd.status,
                         "ABSENCE_OF_GTT_DOES_NOT_PROVE_NO_PRIOR_SUBMISSION")
+
+
+async def verify_acknowledged_stop(command_id: str, *, broker_client) -> StopCommand:
+    """Atomically settle an ACK only after independent live broker read-back.
+
+    NO broker mutation occurs. GTT placement/replacement must already have
+    happened through a future, separately certified canonical write adapter.
+    The existence of one active GTT only establishes declared broker coverage,
+    not that its LIMIT child will fill in a price gap.
+    """
+    import asyncio
+    import json
+    from app.engines.ema_trend.live_contracts import LiveCampaign
+    from app.services.exchanges.kite.client import KiteClient
+    from .live_lifecycle import verify_active_cnc_gtt
+    from .live_exit_preflight import _inventory
+
+    cmd=get(command_id)
+    if cmd.status!="ACK_PENDING_VERIFICATION" or not cmd.broker_trigger_id:
+        raise StopCommandConflict("EMA_STOP_BROKER_ACK_UNVERIFIED")
+    if (not isinstance(broker_client,KiteClient)
+            or getattr(broker_client,"_is_paper",None) is not False
+            or getattr(broker_client,"_account_id",None)!=cmd.account_id):
+        raise StopCommandConflict("EMA_STOP_READBACK_ACCOUNT_IDENTITY_UNPROVEN")
+    campaign=store.get(cmd.campaign_id)
+    if (campaign.revision!=cmd.revision
+            or campaign.owner_uid!=cmd.owner_uid
+            or campaign.account_id!=cmd.account_id
+            or campaign.held_qty!=cmd.held_qty
+            or campaign.product!="CNC" or campaign.orphan_stop_ids
+            or campaign.protection_submission_unknown):
+        raise StopCommandConflict("EMA_STOP_READBACK_CAMPAIGN_CHANGED")
+    if cmd.kind=="PLACE":
+        if campaign.phase!="PROTECTION_REQUIRED" or campaign.protection is not None:
+            raise StopCommandConflict("EMA_STOP_READBACK_PLACE_NOT_ELIGIBLE")
+    elif cmd.kind=="TIGHTEN":
+        prior=campaign.protection
+        if (campaign.phase!="PROTECTED" or prior is None
+                or not prior.verified_active or prior.child_order_unresolved
+                or prior.trigger_id!=cmd.prior_gtt_id
+                or prior.qty!=campaign.held_qty
+                or cmd.broker_trigger_id!=prior.trigger_id
+                or cmd.desired_trigger<=prior.trigger):
+            raise StopCommandConflict("EMA_STOP_READBACK_TRAIL_NOT_ELIGIBLE")
+    else:
+        raise StopCommandConflict("EMA_STOP_READBACK_KIND_INVALID")
+    if any(item.status not in {"COMPLETE","CANCELLED","REJECTED"}
+           for item in campaign.entries+campaign.exits):
+        raise StopCommandConflict("EMA_STOP_READBACK_WORKING_CANONICAL_ORDER")
+    try:
+        trigger_id=int(cmd.broker_trigger_id)
+        details,gtts,orders,positions,holdings=await asyncio.wait_for(
+            asyncio.gather(
+                broker_client.get_gtt(trigger_id),
+                broker_client.get_gtts(),
+                broker_client.get_orders(),
+                broker_client.get_positions_raw(),
+                broker_client.get_holdings(),
+            ),timeout=10)
+    except Exception as exc:
+        raise StopCommandConflict("EMA_STOP_READBACK_BROKER_FACTS_UNAVAILABLE") from exc
+    if (not isinstance(gtts,list) or not all(isinstance(r,dict) for r in gtts)
+            or not isinstance(orders,list) or not all(isinstance(r,dict) for r in orders)):
+        raise StopCommandConflict("EMA_STOP_READBACK_BROKER_BOOK_INVALID")
+    active=[]
+    found=False
+    for row in gtts:
+        condition=row.get("condition")
+        if isinstance(condition,str):
+            try:
+                condition=json.loads(condition)
+            except (ValueError,TypeError) as exc:
+                raise StopCommandConflict("EMA_STOP_READBACK_GTT_CONDITION_INVALID") from exc
+        if not isinstance(condition,dict):
+            raise StopCommandConflict("EMA_STOP_READBACK_GTT_CONDITION_INVALID")
+        if (str(condition.get("exchange") or "").upper()==campaign.exchange
+                and str(condition.get("tradingsymbol") or "").upper()==campaign.symbol):
+            status=str(row.get("status") or "").lower()
+            if status not in {"cancelled","canceled","disabled","deleted","expired","rejected"}:
+                active.append(str(row.get("id") or ""))
+            if str(row.get("id") or "")==cmd.broker_trigger_id and status=="active":
+                found=True
+    if not found or active!=[cmd.broker_trigger_id]:
+        raise StopCommandConflict("EMA_STOP_READBACK_MISSING_OR_COMPETING_GTT")
+    if any(
+        str(row.get("exchange") or "").upper()==campaign.exchange
+        and str(row.get("tradingsymbol") or "").upper()==campaign.symbol
+        and str(row.get("status") or "").upper()
+        not in {"COMPLETE","CANCELLED","CANCELED","REJECTED","EXPIRED"}
+        for row in orders
+    ):
+        raise StopCommandConflict("EMA_STOP_READBACK_WORKING_BROKER_ORDER")
+    try:
+        broker_qty=_inventory(campaign,positions,holdings)
+    except ValueError as exc:
+        raise StopCommandConflict("EMA_STOP_READBACK_INVENTORY_UNVERIFIABLE") from exc
+    if broker_qty!=campaign.held_qty:
+        raise StopCommandConflict("EMA_STOP_READBACK_BROKER_HOLDING_MISMATCH")
+    try:
+        confirmed=verify_active_cnc_gtt(campaign,details,
+                                         trigger_id=cmd.broker_trigger_id)
+    except ValueError as exc:
+        raise StopCommandConflict("EMA_STOP_READBACK_GTT_CONTRACT_UNVERIFIED") from exc
+    if confirmed.trigger<cmd.desired_trigger:
+        raise StopCommandConflict("EMA_STOP_READBACK_GTT_WEAKER_THAN_REQUEST")
+
+    # All state writes, including releasing the outstanding fence, must commit
+    # with FULL synchronous durability in ONE transaction. A crash rolls back
+    # the stop state, journal check and command together.
+    with order_journal._transaction() as conn:
+        store._schema(conn)
+        _schema(conn)
+        fresh=store._get(conn,cmd.campaign_id)
+        row=conn.execute(
+            "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
+            (command_id,),
+        ).fetchone()
+        if row is None or _row(row)!=cmd or fresh!=campaign:
+            raise StopCommandConflict("EMA_STOP_READBACK_CHANGED_DURING_VERIFY")
+        inv=fill_ledger._read_inventory(
+            conn,campaign.account_id,campaign.owner_uid,campaign.symbol)
+        if (inv is None or inv.net_quantity!=campaign.held_qty
+                or inv.exchange!=campaign.exchange or inv.reconciliation_required):
+            raise StopCommandConflict("EMA_STOP_READBACK_SIGNED_LEDGER_DIVERGED")
+        if conn.execute("""
+            SELECT 1 FROM kite_order_intents
+            WHERE uid=? AND account_id=?
+              AND (projection_pending=1 OR reconciliation_required=1
+                   OR state IN ('RESERVED','SUBMITTING','UNKNOWN','SUBMITTED','PARTIAL'))
+            LIMIT 1
+        """,(campaign.owner_uid,campaign.account_id)).fetchone():
+            raise StopCommandConflict("EMA_STOP_READBACK_CANONICAL_ORDER_PENDING")
+        updated=LiveCampaign.model_validate({
+            **campaign.model_dump(mode="python"),
+            "protection":confirmed.model_dump(mode="python"),
+            "stop":max(campaign.stop,confirmed.trigger),
+            "phase":"PROTECTED",
+            "revision":campaign.revision+1,
+        })
+        store._save(conn,updated)
+        changed=conn.execute("""
+            UPDATE ema_live_stop_commands SET status='VERIFIED'
+            WHERE command_id=? AND status='ACK_PENDING_VERIFICATION'
+              AND broker_trigger_id=?
+        """,(command_id,cmd.broker_trigger_id)).rowcount
+        if changed!=1:
+            raise StopCommandConflict("EMA_STOP_READBACK_ACK_CONCURRENT_CHANGE")
+        return _row(conn.execute(
+            "SELECT * FROM ema_live_stop_commands WHERE command_id=?",
+            (command_id,)).fetchone())
