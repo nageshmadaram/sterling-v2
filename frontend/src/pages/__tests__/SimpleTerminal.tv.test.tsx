@@ -125,6 +125,54 @@ describe('Sterling Spectrum product navigation', () => {
     expect(screen.getByTestId('spectrum-tv-tab')).toHaveTextContent('My Channels');
   });
 
+  it('cycles KITE → Simulation → renamed TV → KITE using the chosen order', () => {
+    useExperienceOptions.getState().update({
+      spectrumLayout:'cycle', tvLabel:'Cinema',
+    });
+    render(<SimpleTerminal />);
+    const next = () => fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
+    expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('KITE');
+    next();
+    expect(useViewStore.getState().view).toBe('simulation');
+    expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('Simulation');
+    next();
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+    expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('Cinema');
+    next();
+    expect(useViewStore.getState().view).toBe('live');
+    expect(screen.getByTestId('fake-tv-content')).not.toBeInTheDocument();
+    expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('KITE');
+  });
+
+  it('cycles only through enabled destinations', () => {
+    useExperienceOptions.getState().update({
+      spectrumLayout:'cycle',
+      spectrumVisible:{kite:true,simulation:false,tv:true},
+    });
+    render(<SimpleTerminal />);
+    fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+    expect(useViewStore.getState().view).toBe('live');
+    fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
+    expect(screen.getByTestId('fake-tv-content')).not.toBeInTheDocument();
+    expect(useViewStore.getState().view).toBe('live');
+  });
+
+  it('keeps a separately shown Simulation workspace accessible even with live KITE hidden', () => {
+    useExperienceOptions.getState().update({
+      spectrumLayout:'separate',
+      spectrumVisible:{kite:false,simulation:true,tv:true},
+    });
+    render(<SimpleTerminal />);
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('spectrum-simulation-tab'));
+    expect(useViewStore.getState().view).toBe('simulation');
+    expect(screen.getByTestId('kite-trading-docks')).toBeInTheDocument();
+    expect(screen.queryByTestId('fake-tv-content')).toBeNull();
+    fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+  });
+
   it('can hide Simulation without losing the KITE or TV destinations', () => {
     useExperienceOptions.getState().update({
       spectrumVisible:{kite:true,simulation:false,tv:true},
