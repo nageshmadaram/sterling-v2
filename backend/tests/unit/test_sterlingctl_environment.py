@@ -13,6 +13,10 @@ def cli_environment(tmp_path, text, overrides=None):
     backend = tmp_path / 'backend'
     core = backend / 'app' / 'core'
     core.mkdir(parents=True)
+    # Make this an actual importable package. Without __init__.py Python can
+    # import the checkout's app package instead of this isolated fixture.
+    (core.parent / "__init__.py").touch()
+    (core / "__init__.py").touch()
     (core / 'runtime_env.py').write_text(
         (ROOT / 'backend/app/core/runtime_env.py').read_text()
     )
@@ -66,6 +70,10 @@ def test_cli_rejects_failed_environment_loader(tmp_path):
     """A failed process substitution must not continue with fallback stores."""
     core = tmp_path / "backend/app/core"
     core.mkdir(parents=True)
+    # Make this an actual importable package. Without __init__.py Python can
+    # import the checkout's app package instead of this isolated fixture.
+    (core.parent / "__init__.py").touch()
+    (core / "__init__.py").touch()
     (core / "runtime_env.py").write_text(
         "raise RuntimeError('simulated config import failure')\\n".replace("\\n", "\n"),
         encoding="utf-8",
@@ -86,6 +94,10 @@ def test_cli_rejects_invalid_environment_variable_name(tmp_path):
     """A broken imported key must not partially initialize the operator CLI."""
     core = tmp_path / "backend/app/core"
     core.mkdir(parents=True)
+    # Make this an actual importable package. Without __init__.py Python can
+    # import the checkout's app package instead of this isolated fixture.
+    (core.parent / "__init__.py").touch()
+    (core / "__init__.py").touch()
     (core / "runtime_env.py").write_text(
         (ROOT / "backend/app/core/runtime_env.py").read_text(encoding="utf-8"),
         encoding="utf-8",
