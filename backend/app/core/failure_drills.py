@@ -161,6 +161,12 @@ class DrillRegister:
                     observed
                     or "legacy PASS lacks observer/observed outcome; drill must be rerun"
                 )
+            if status == PASS and not any(str(ref).strip() for ref in refs):
+                status = UNKNOWN
+                observed = (
+                    "PASS has no referenced drill evidence; record the real "
+                    "rehearsal and its evidence on this build"
+                )
 
             if status == PASS:
                 started = _parsed_utc(started_at)
@@ -218,6 +224,12 @@ class DrillRegister:
                 "a PASS must say what the system actually did; "
                 f"the required outcome is: {DRILLS_BY_KEY[key].required_outcome}"
             )
+        refs = tuple(str(r).strip() for r in evidence_refs if str(r).strip())
+        if status == PASS and not refs:
+            raise ValueError(
+                "a PASS requires at least one evidence reference from the observed drill; "
+                "a statement alone cannot certify an operational rehearsal"
+            )
 
         recorded_at = _now()
         resolved_started_at = started_at.strip() or recorded_at
@@ -235,7 +247,7 @@ class DrillRegister:
         existing[key] = DrillResult(
             key=key, status=status, observed=observed.strip(),
             observed_by=observed_by.strip(),
-            evidence_refs=tuple(str(r).strip() for r in evidence_refs if str(r).strip()),
+            evidence_refs=refs,
             started_at=resolved_started_at,
             recorded_at=recorded_at,
         )
