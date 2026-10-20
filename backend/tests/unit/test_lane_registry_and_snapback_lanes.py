@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 from app.core.focus import parse_focus
 from app.core.horizon import HorizonMode, LaneState
 from app.core.lane_registry import (
@@ -52,9 +54,18 @@ def test_unknown_lane_raises():
 # ── the live floor ────────────────────────────────────────────────────────
 
 
-def test_live_execution_is_enabled_by_default():
-    """Sterling is a live product: the master switch is ON unless an operator kills it."""
-    assert LIVE_EXECUTION_ENABLED is True
+def test_live_execution_defaults_off_without_operator_authorization():
+    """Test process opt-in must not masquerade as the production import default."""
+    import os
+    import subprocess
+    import sys
+    env = dict(os.environ)
+    env.pop("STERLING_LIVE_EXECUTION", None)
+    result = subprocess.check_output(
+        [sys.executable, "-c", "from app.core.lane_registry import LIVE_EXECUTION_ENABLED; print(int(LIVE_EXECUTION_ENABLED))"],
+        env=env, text=True,
+    )
+    assert result.strip() == "0"
 
 
 @pytest.mark.parametrize("raw", ["1", "true", "ON", "yes", "enabled"])

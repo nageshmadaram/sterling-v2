@@ -22,6 +22,13 @@ Keep this computer, the project, and its private recovery material intact.
   These use test brokers; they are not evidence of a real trade.
 - Ten CLI tests passed, including cold-process reconciliation bootstrap and
   refusal when its credential database cannot initialize.
+- Subsequent backend verification covered all 11,605 collected cases across
+  validation segments: 11,575 passed and 30 skipped. Corrected test modules
+  were rerun; production safety gates were retained.
+- All 76 browser cases passed across Chromium, Firefox and WebKit. WebKit's
+  longer paper-trade journey has a 60-second total test budget; action and
+  assertion checks remain enforced. Both dependency audits found no known
+  vulnerabilities.
 - Fresh real-broker binding verification succeeded at 00:18:27 UTC. A separate
   reconciliation at 00:20:06 UTC reported CLEAN: zero broker and Sterling positions.
 - Manual SuperTrend entries now retain the selected mode's immutable deadline
