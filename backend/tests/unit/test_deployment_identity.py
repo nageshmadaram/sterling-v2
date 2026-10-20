@@ -79,6 +79,7 @@ class TestTheVerdict:
     @pytest.mark.parametrize("address", [
         "127.0.0.1", "10.0.0.7", "192.168.1.30", "172.16.0.4",
         "100.64.12.30", "169.254.7.8", "0.0.0.0", "fc00::123",
+        "::ffff:192.168.1.30", "::ffff:127.0.0.1",
         "::1", "fe80::10",
     ])
     def test_non_broker_routable_egress_can_never_verify(self, store, address):
