@@ -376,7 +376,8 @@ db = os.environ.get("STERLING_DB_PATH") or "sterling_paper.db"
 result = migrate_secrets(
     db_path=db,
     env_file=os.environ["STERLING_MIGRATE_ENV_FILE"],
-    old_secret=os.environ.get("STERLING_MIGRATE_FROM_KEY") or None,
+    old_secret=(os.environ.get("STERLING_MIGRATE_FROM_KEY")
+                or os.environ.get("STERLING_SECRET_KEY") or None),
 )
 if not result.ok:
     print(f"migration did NOT happen: {result.error}")

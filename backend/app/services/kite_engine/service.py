@@ -299,6 +299,17 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             row = next((r for r in rows), None)
         if row is None:
             raise ValueError("stale_or_closed_manual_signal")
+        from app.core.mode_execution import freeze_policy, carry_entry_refusal, timeframe_minutes
+        mode = getattr(cfg, "horizon_mode", "swing")
+        timeframe = timeframe_minutes(mode, getattr(cfg, "signal_timeframe_minutes", None))
+        if getattr(row, "horizon_mode", "swing") != mode or getattr(row, "signal_timeframe_minutes", 60) != timeframe:
+            raise ValueError("manual_signal_mode_or_timeframe_mismatch")
+        now = datetime.now(_IST)
+        mode_policy = freeze_policy("supertrend", mode, now, exchange=exchange)
+        refusal = carry_entry_refusal(mode_policy, expiry=plan.expiry, now=now, stop_mode=cfg.stop_mode)
+        if refusal:
+            raise ValueError(refusal)
+        mode_policy.update(signal_timeframe_minutes=timeframe, time_stop_bars=cfg.time_stop_bars)
         prior = positions.get(uid, symbol)
         if prior and prior.status in (positions.OPEN, positions.PENDING):
             raise ValueError("live_scale_in_blocked")
@@ -346,7 +357,8 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
                        underlying=plan.underlying, token=plan.token, entry_spot=plan.entry_spot,
                        entry_delta=plan.entry_delta, strike=plan.strike, expiry=plan.expiry,
                        target_premium=plan.target_premium, stop_mode=cfg.stop_mode,
-                       exit_mode=cfg.exit_mode, variety=variety, allow_amo=(variety == "amo"))
+                       exit_mode=cfg.exit_mode, variety=variety, allow_amo=(variety == "amo"),
+                       horizon_mode=mode, mode_policy=mode_policy)
         acct = account_id(client)
         entry_evidence_proof = canonical_entry.EntryEvidence(
             available_capital=available, capital_required=required,
