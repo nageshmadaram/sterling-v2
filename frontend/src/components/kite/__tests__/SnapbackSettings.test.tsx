@@ -168,8 +168,8 @@ describe('Snapback settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Intraday' }));
     fireEvent.click(screen.getByRole('button', { name: /Apply/i }));
     expect(mutate.mock.calls[0][0]).toEqual({
-      trading_mode: 'intraday', scalp_timeframe_minutes: 5,
-      scalp_max_hold_bars: 12, scalp_runner_max_bars: 36,
+      trading_mode: 'intraday', scalp_timeframe_minutes: 15,
+      scalp_max_hold_bars: 16, scalp_runner_max_bars: 24,
     });
   });
 

@@ -7,19 +7,24 @@ import { describe, expect, it } from 'vitest';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const html = readFileSync(resolve(root, 'index.html'), 'utf8');
 const nginx = readFileSync(resolve(root, 'nginx.conf'), 'utf8');
+// TV has a separate sandbox policy; test trading authority on the SPA route.
+const spaLocation = /location\s+\/\s*\{([\s\S]*?)\n\s*\}/.exec(nginx)?.[1] ?? '';
+const spaPolicy = /add_header Content-Security-Policy "([^"]+)"/.exec(spaLocation)?.[1] ?? '';
 
 describe('nginx Content-Security-Policy', () => {
   it('allows every inline bootstrap script by exact hash', () => {
     const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
     expect(inline.length).toBeGreaterThan(0);
     const hashes = inline.map(script => `sha256-${createHash('sha256').update(script, 'utf8').digest('base64')}`);
-    const allowed = [...nginx.matchAll(/'sha256-([^']+)'/g)].map(match => `sha256-${match[1]}`);
+    expect(spaPolicy).not.toBe('');
+    const allowed = [...spaPolicy.matchAll(/'sha256-([^']+)'/g)].map(match => `sha256-${match[1]}`);
     expect(allowed.sort()).toEqual(hashes.sort());
     expect(nginx).toContain('https://telegram.org/js/telegram-web-app.js');
   });
 
   it('never falls back to unsafe-inline / unsafe-eval for scripts', () => {
-    const scriptSrc = /script-src([^;"]*)/.exec(nginx)?.[1] ?? '';
+    expect(spaPolicy).not.toBe('');
+    const scriptSrc = /script-src([^;"]*)/.exec(spaPolicy)?.[1] ?? '';
     expect(scriptSrc).not.toContain('unsafe-inline');
     expect(scriptSrc).not.toContain('unsafe-eval');
   });

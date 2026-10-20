@@ -13,6 +13,8 @@ import sqlite3
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 from app.core.evidence import EvidenceClass, eligible_for_lane
 from app.services import snapback_prospective_collector as collector
 from app.services.snapback_capacity import evaluate_capacity
@@ -48,25 +50,33 @@ def test_an_originating_lane_is_admitted():
     assert decision.allowed is True
 
 
-def test_a_lane_without_rules_is_refused_at_admission():
-    """snapback:overnight has no gap, DTE, theta, stop or hedge policy."""
+def test_a_lane_without_rules_is_refused_at_admission(monkeypatch):
+    from dataclasses import replace
+    from app.core import lane_registry
+    lane = lane_registry.get_lane("snapback", "overnight")
+    monkeypatch.setitem(lane_registry.LANES, lane.lane_key, replace(lane, rules_defined=False))
     decision = evaluate_capacity(**FUNDABLE, lane_key="snapback:overnight")
     assert decision.allowed is False
     assert decision.status == "LANE_NOT_ORIGINATING"
     assert "LANE_RULES_UNDEFINED" in decision.reasons
 
 
-def test_a_research_lane_is_refused_at_admission():
-    # supertrend:swing is a live lane now; the other Supertrend horizons are not.
+def test_a_research_lane_is_refused_at_admission(monkeypatch):
+    from dataclasses import replace
+    from app.core import lane_registry
+    from app.core.horizon import LaneState
+    lane = lane_registry.get_lane("supertrend", "scalping")
+    monkeypatch.setitem(lane_registry.LANES, lane.lane_key, replace(lane, state=LaneState.RESEARCH))
     decision = evaluate_capacity(**FUNDABLE, lane_key="supertrend:scalping")
     assert decision.allowed is False
     assert decision.status == "LANE_NOT_ORIGINATING"
 
 
-def test_snapback_intraday_is_refused_because_it_shares_the_scalp_rules():
+def test_snapback_intraday_has_distinct_rules_and_may_be_admitted():
+    from app.engines.snapback.lanes import lane_rule_hash
     decision = evaluate_capacity(**FUNDABLE, lane_key="snapback:intraday")
-    assert decision.allowed is False
-    assert "LANE_RULES_UNDEFINED" in decision.reasons
+    assert decision.allowed is True
+    assert lane_rule_hash("intraday") != lane_rule_hash("scalping")
 
 
 @pytest.mark.parametrize("bad", ["snapback:positional", "gamma_move:swing", "nonsense", ""])

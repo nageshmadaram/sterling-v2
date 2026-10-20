@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-pytestmark = pytest.mark.usefixtures("allow_live_execution")
+pytestmark = pytest.mark.usefixtures("allow_live_execution", "execution_policy_open_session")
 
 from app.services.kite_engine import monitor
 from app.services.kite_engine import positions as pos

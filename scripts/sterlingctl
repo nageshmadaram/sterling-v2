@@ -109,7 +109,7 @@ Usage: sterlingctl <command>
   egress record IP [ROUTER_GENERATION]   record what the deployment observed
   secrets plan     how many stored secrets would be re-encrypted
   secrets migrate --to-env-file PATH [--from-key KEY]   re-key every stored secret
-  drills record DRILL PASS|FAIL WHO "what happened" [REF]
+  drills record DRILL PASS|FAIL WHO "what happened" REF (required for PASS)
 
   certify          the release certification gate table for this build (advisory: waived)
   certify strict   fail unless every release gate has real PASS evidence
@@ -287,7 +287,7 @@ PY
     if [ "${2:-}" = "record" ]; then
       shift 2
       [ "$#" -ge 4 ] || {
-        echo 'usage: sterlingctl drills record DRILL PASS|FAIL WHO "what happened" [REF]'
+        echo 'usage: sterlingctl drills record DRILL PASS|FAIL WHO "what happened" REF (required for PASS)'
         exit 64; }
       STERLING_DRILL_KEY="$1" STERLING_DRILL_STATUS="$2" STERLING_DRILL_WHO="$3" \
       STERLING_DRILL_OBSERVED="$4" STERLING_DRILL_REF="${5:-}" run_py <<'PY'

@@ -63,14 +63,14 @@ export function SnapbackScalpSettings({ cfg, defaults, patch }: {
   ] as const;
   return <>
     <ConfigNote><span>
-      <strong>Research plans only.</strong> Daily swing results do not validate scalp or intraday trading.
+      <strong>Mode-specific execution.</strong> Daily swing results do not validate other trading modes.
       All target, stop and trail points refer to <strong>option premium</strong>, not the underlying index.
       Small targets can lose money after costs; no entry is guaranteed profitable.
-      Runner upgrades and trailing stops are plan levels only; this mode does not place or manage broker orders.
+      Automatic entries require the entry switches and broker safety checks. Filled positions retain their stop, trailing and holding policies.
     </span></ConfigNote>
     <Section title="Target, runner and timing" description="Start with a small target; a qualifying move can extend into a runner with a tighter stop."
       summary="Premium points and completed bars" defaultOpen persistKey="snapback-scalp-plan">
-      <Field label="Candle interval" hint="Use completed candles. Scalp starts at 1 minute; intraday starts at 5 minutes.">
+      <Field label="Candle interval" hint="Use completed candles. Presets: scalp 1 minute, intraday 15 minutes, overnight 60 minutes.">
         <ChoiceRow value={String(cfg.scalp_timeframe_minutes ?? defaults.scalp_timeframe_minutes ?? 1)}
           options={(cfg.trading_mode === 'overnight' ? ['30', '60'] : cfg.trading_mode === 'ultra_scalping' ? ['1'] : cfg.trading_mode === 'intraday' ? ['5', '15', '30'] : ['1', '3', '5']).map((value) => ({ value, label: `${value} min` }))}
           onChange={(value) => patch({ scalp_timeframe_minutes: Number(value) })} />

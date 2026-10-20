@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from app.core.auth import get_current_user
 from tests.route_surface import routes_under
 
+pytestmark = pytest.mark.usefixtures("allow_live_execution")
+
 
 @pytest.fixture()
 def client() -> TestClient:
@@ -49,8 +51,8 @@ def test_modes_report_state_and_rule_definedness(client):
     by_mode = {m["mode"]: m for m in body["modes"]}
     assert by_mode["swing"]["state"] == "live_minimum"
     assert by_mode["scalping"]["state"] == "live_minimum"
-    assert by_mode["overnight"]["state"] == "research"
-    assert by_mode["overnight"]["rules_defined"] is False
+    assert all(mode["state"] == "live_minimum" for mode in by_mode.values())
+    assert all(mode["rules_defined"] for mode in by_mode.values())
     assert by_mode["overnight"]["note"]
 
 
@@ -78,7 +80,11 @@ def test_lane_status_carries_identity_and_timeline(client):
     assert body["timeline"]["allow_overnight"] is True
 
 
-def test_a_blocked_lane_states_its_refusal(client):
+def test_a_blocked_lane_states_its_refusal(client, monkeypatch):
+    from dataclasses import replace
+    from app.core import lane_registry
+    lane = lane_registry.get_lane("snapback", "overnight")
+    monkeypatch.setitem(lane_registry.LANES, lane.lane_key, replace(lane, rules_defined=False))
     body = client.get("/api/v1/strategies/snapback/overnight/status").json()
     assert body["may_originate"] is False
     assert body["refusal"]["reason"] == "LANE_RULES_UNDEFINED"

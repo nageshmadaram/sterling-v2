@@ -22,6 +22,13 @@ Keep this computer, the project, and its private recovery material intact.
   These use test brokers; they are not evidence of a real trade.
 - Ten CLI tests passed, including cold-process reconciliation bootstrap and
   refusal when its credential database cannot initialize.
+- Subsequent backend verification covered all 11,605 collected cases across
+  validation segments: 11,575 passed and 30 skipped. Corrected test modules
+  were rerun; production safety gates were retained.
+- All 76 browser cases passed across Chromium, Firefox and WebKit. WebKit's
+  longer paper-trade journey has a 60-second total test budget; action and
+  assertion checks remain enforced. Both dependency audits found no known
+  vulnerabilities.
 - Fresh real-broker binding verification succeeded at 00:18:27 UTC. A separate
   reconciliation at 00:20:06 UTC reported CLEAN: zero broker and Sterling positions.
 - Manual SuperTrend entries now retain the selected mode's immutable deadline
@@ -49,6 +56,11 @@ is available. A restored database also needs its matching private encryption key
    as physical power, network, broker or device acceptance.
 6. Exact-commit remote CI, moving-market acceptance and final release freeze are
    outstanding. A candidate tag or archive is not production acceptance.
+   GitHub refused to start CI jobs on 20 October because account payments or
+   the Actions spending limit require attention. The account owner must resolve
+   Billing & plans; repeating workflow runs does not resolve this restriction.
+   Local verification subsequently passed all 2,150 frontend tests and the
+   production build; 44 focused tests also passed after the final mode-copy edits.
 7. Nominee details, future operator identity, developer-console access, hosting,
    secret recovery and account ownership have not been independently confirmed.
 

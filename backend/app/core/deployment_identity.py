@@ -18,7 +18,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from pathlib import Path
 
 from app.core.state_paths import state_root
@@ -72,6 +72,33 @@ def _literal_ip(value: str) -> str | None:
         return str(ip_address(str(value or "").strip()))
     except ValueError:
         return None
+
+
+# These addresses cannot represent the public broker-facing egress of a host.
+# Keep archival observations readable, but never let one satisfy the live gate.
+# Do not use is_private here: it also classifies documentation TEST-NET
+# addresses used by existing isolated operator tests.
+_NON_BROKER_EGRESS = tuple(ip_network(cidr) for cidr in (
+    "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8",
+    "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16",
+    "224.0.0.0/4", "240.0.0.0/4", "::/128", "::1/128",
+    "fc00::/7", "fe80::/10", "ff00::/8",
+))
+
+
+def is_unusable_broker_egress_ip(value: str) -> bool:
+    """Whether a literal address is clearly impossible as public broker egress.
+
+    This is a necessary check only: passing it does not prove the address is
+    static, globally routable, or approved in the broker developer console.
+    """
+    try:
+        ip = ip_address(str(value or "").strip())
+    except ValueError:
+        return True
+    candidate = getattr(ip, "ipv4_mapped", None) or ip
+    return any(candidate in network for network in _NON_BROKER_EGRESS
+               if candidate.version == network.version)
 
 
 @dataclass(frozen=True)
@@ -354,6 +381,12 @@ def verify_deployment_identity(
             registered,
             source=source,
         )
+    if is_unusable_broker_egress_ip(registered_ip):
+        return IdentityVerdict(
+            False, "registered egress is a local/private/shared or otherwise "
+            "non-broker-routable address; broker whitelist cannot be verified",
+            latest, registered_ip, source=source,
+        )
     if latest is None:
         return IdentityVerdict(
             None, "no deployment observation has been recorded", None, registered_ip,
@@ -369,6 +402,13 @@ def verify_deployment_identity(
             source=source,
         )
 
+    if is_unusable_broker_egress_ip(observed_ip):
+        return IdentityVerdict(
+            False, "observed egress is a local/private/shared or otherwise "
+            "non-broker-routable address; broker whitelist cannot be verified",
+            latest, registered_ip, source=source,
+        )
+
     try:
         seen_at = datetime.fromisoformat(latest.observed_at)
     except ValueError:
@@ -376,7 +416,12 @@ def verify_deployment_identity(
             None, f"observation timestamp is unreadable: {latest.observed_at!r}",
             latest, registered, source=source)
     if seen_at.tzinfo is None:
-        seen_at = seen_at.replace(tzinfo=timezone.utc)
+        return IdentityVerdict(
+            None,
+            "deployment observation timestamp has no timezone; cannot establish "
+            "when the egress address was checked",
+            latest, registered_ip, source=source,
+        )
     age = moment - seen_at
     if age < timedelta(0):
         return IdentityVerdict(
