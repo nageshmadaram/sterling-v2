@@ -121,8 +121,9 @@ def _is_own_orphan_gateway(pid):
             return False
         argv=[piece.decode('utf-8','replace') for piece in
               (proc/'cmdline').read_bytes().split(b'\x00') if piece]
-        expected=str(ROOT/'scripts/serve_frontend.mjs')
-        return (expected in argv and (proc/'cwd').resolve()==ROOT.resolve()
+        cwd=(proc/'cwd').resolve()
+        script=(cwd/argv[1]).resolve() if len(argv)>1 else None
+        return (script==(ROOT/'scripts/serve_frontend.mjs').resolve() and cwd==ROOT.resolve()
                 and any(Path(argv[0]).name==name for name in ('node','nodejs')))
     except (OSError,ValueError,IndexError):
         return False
@@ -329,24 +330,47 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
     print()
 
 
-def wait_for_up_status(manager_pid, *, seconds=12):
+def print_up_progress(state):
+    """Emit transitions during startup, rather than leave a frozen dashboard."""
+    stage=_clean_terminal_value(state.get('startup_stage',state.get('phase','starting')))
+    local='READY' if _managed_web_owns_port(state) else stage.upper()
+    print(f"  LOCAL APP  {local}  {_clean_terminal_value(state.get('local_url',''))}",flush=True)
+    for provider in ('cloudflare','ngrok'):
+        origin=_clean_terminal_value(state.get(f'{provider}_url',''))
+        verified=state.get('public_ready',{}).get(provider)
+        if origin.startswith('https://'):
+            print(f"  {provider.upper()}  {'VERIFIED' if verified else 'VERIFYING'}  {origin}",flush=True)
+    if state.get('phase')=='stopped':
+        print('  Launcher stopped; inspect ./sterling.sh status and .runtime/stack/manager.log',flush=True)
+
+
+def wait_for_up_status(manager_pid, *, seconds=60, notify=None):
     """Bounded readiness wait, never turning an unverified HTTPS URL green."""
-    deadline=time.monotonic()+max(0,min(float(seconds),20))
+    deadline=time.monotonic()+max(0,min(float(seconds),120))
     latest=read_state()
+    previous=None
     while time.monotonic()<deadline:
         state=read_state()
         if state.get('manager_pid')!=manager_pid:
             time.sleep(.2)
             continue
         latest=state
+        signature=(state.get('phase'),state.get('startup_stage'),
+                   state.get('cloudflare_url'),state.get('ngrok_url'),
+                   tuple(sorted((state.get('public_ready') or {}).items())),
+                   (state.get('children') or {}).get('web'))
+        if notify is not None and signature!=previous:
+            notify(state)
+        previous=signature
         if state.get('phase')=='stopped' or not alive(manager_pid):
             break
         if state.get('mode')=='local' and _managed_web_owns_port(state):
             break
-        if (_managed_web_owns_port(state)
-                and state.get('public_ready',{}).get('cloudflare')
-                and (state.get('public_ready',{}).get('ngrok')
-                     or state.get('ngrok_error')=='NGROK_BINARY_NOT_INSTALLED')):
+        providers=('ngrok',) if state.get('mode')=='ngrok' else ('cloudflare',)
+        if state.get('mode','both')=='both' and state.get('ngrok_error')!='NGROK_BINARY_NOT_INSTALLED':
+            providers+=('ngrok',)
+        if (_managed_web_owns_port(state) and
+                all(state.get('public_ready',{}).get(provider) for provider in providers)):
             break
         time.sleep(.2)
     return latest
@@ -830,7 +854,13 @@ class Stack:
         except Exception as error:
             self.release_results.put(('failed',error_code(error),False))
 
+    def startup_stage(self, stage):
+        self.status['startup_stage']=stage
+        self.status['children']={name:proc.pid for name,proc in self.children.items()}
+        save_state(self.status)
+
     def run(self):
+        self.startup_stage('preparing runtime')
         self.python=ensure_runtime(self.args.skip_build)
         if self.args.provider=='local':
             self.binary=None
@@ -847,6 +877,7 @@ class Stack:
             if not self.ngrok_binary:
                 self.status['ngrok_error']='NGROK_BINARY_NOT_INSTALLED'
                 print('ngrok not installed. Install: snap install ngrok  or  https://ngrok.com/download',flush=True)
+        self.startup_stage('waiting for backend')
         # Preserve any already-running backend; never start two trading engines.
         try:fetch('http://127.0.0.1:8000/docs',2)
         except Exception:
@@ -859,6 +890,7 @@ class Stack:
             try:fetch('http://127.0.0.1:8000/docs',2);break
             except Exception:time.sleep(1)
         else:raise RuntimeError('Backend did not become ready')
+        self.startup_stage('building committed frontend')
         # Fail closed before opening public URLs if no committed build exists.
         try:
             revision,promoted=self.publisher.publish()
@@ -870,7 +902,9 @@ class Stack:
                 raise RuntimeError('No valid committed frontend build. Check release-build.log.') from error
             self.status['release_commit']=previous
             self.status['release_stale']=True
+        self.startup_stage('starting gateway')
         self.start_web()
+        self.startup_stage('connecting tunnels')
         if getattr(self.args,'dev',False):self.start_dev()
         if self.args.provider!='local':
             self.launch_tunnel()
@@ -957,6 +991,9 @@ class Stack:
                     discovered|=(self.status.get('ngrok_url')!=url)
                     self.status['ngrok_url']=url
             if discovered:
+                # Discovery is useful even while HTTPS/DNS checks are pending.
+                self.status['children']={name:proc.pid for name,proc in self.children.items()}
+                save_state(self.status)
                 # The first probe often ran before the tunnel printed its
                 # hostname. Verify immediately instead of waiting 15 seconds.
                 next_probe=now
@@ -1149,7 +1186,8 @@ def main():
             if not backend_missing and (state.get('phase')!='ready'
                                         or _managed_web_owns_port(state)):
                 state=wait_for_up_status(state['manager_pid'],
-                    seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','12'))
+                    seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','60'),
+                    notify=print_up_progress)
                 print_up_dashboard(state,reused=True,
                                    gateway_ready=_managed_web_owns_port(state))
                 return
@@ -1176,7 +1214,8 @@ def main():
         # The manager continues asynchronously; wait briefly for *verified*
         # URLs so the first dashboard is useful instead of stale startup data.
         updated=(wait_for_up_status(manager.pid,
-                  seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','12'))
+                  seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','60'),
+                    notify=print_up_progress)
                  if args.command=='up' else {})
         if updated.get('manager_pid')!=manager.pid:
             updated={'phase':'starting','local_url':f'http://127.0.0.1:{args.port}',

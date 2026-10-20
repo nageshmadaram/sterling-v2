@@ -1107,3 +1107,47 @@ def test_cloudflare_can_use_tcp_transport_without_exposing_credentials(monkeypat
  monkeypatch.setenv('STERLING_CLOUDFLARE_PROTOCOL','invalid')
  with pytest.raises(RuntimeError):supervisor.launch_tunnel()
  assert len(commands)==1
+
+
+@pytest.mark.parametrize('script,expected', [
+ ('scripts/serve_frontend.mjs',True),
+ ('ABSOLUTE',True),
+ ('../other/scripts/serve_frontend.mjs',False),
+ ('-e',False),
+])
+def test_gateway_ownership_resolves_relative_script_in_same_checkout(monkeypatch,tmp_path,script,expected):
+ repo=tmp_path/'repo';repo.mkdir()
+ proc=tmp_path/'process';proc.mkdir()
+ (proc/'cwd').symlink_to(repo,target_is_directory=True)
+ value=str(repo/'scripts/serve_frontend.mjs') if script=='ABSOLUTE' else script
+ (proc/'cmdline').write_bytes(('node\0'+value+'\0').encode())
+ original_path=Path
+ monkeypatch.setattr(stack,'ROOT',repo)
+ monkeypatch.setattr(stack,'Path',lambda value:proc if str(value)=='/proc/987654' else original_path(value))
+ assert stack._is_own_orphan_gateway(987654) is expected
+
+
+def test_startup_reports_discovered_url_before_verification(monkeypatch):
+ initial={'manager_pid':999,'phase':'starting','mode':'both'}
+ discovered={**initial,'cloudflare_url':'https://new.trycloudflare.com'}
+ ready={**discovered,'phase':'ready','ngrok_url':'https://new.ngrok-free.app',
+        'public_ready':{'cloudflare':True,'ngrok':True}}
+ states=iter([initial,initial,discovered,ready])
+ monkeypatch.setattr(stack,'read_state',lambda:next(states))
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack.time,'sleep',lambda seconds:None)
+ updates=[]
+ assert stack.wait_for_up_status(999,seconds=2,notify=updates.append)==ready
+ assert updates==[initial,discovered,ready]
+ assert not updates[1].get('public_ready')
+
+
+@pytest.mark.parametrize('mode,provider',[('ngrok','ngrok'),('quick','cloudflare'),('named','cloudflare')])
+def test_single_provider_startup_does_not_wait_for_unused_tunnel(monkeypatch,mode,provider):
+ state={'manager_pid':999,'phase':'ready','mode':mode,'public_ready':{provider:True}}
+ monkeypatch.setattr(stack,'read_state',lambda:state)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack.time,'sleep',lambda _:pytest.fail('unused provider delayed startup'))
+ assert stack.wait_for_up_status(999,seconds=2)==state
