@@ -1566,7 +1566,7 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   body[data-mobile-style="app"] .sterling-header-row > .sterling-home-button { flex:0 0 auto; }
 }
 @media(max-width:490px) {
-  .sterling-header-row > .sterling-home-button > span[style] { display:none; }
+  .sterling-header-row > .sterling-home-button > span:last-child { display:none; }
   .sterling-header-row { padding-left:6px !important; padding-right:6px !important; }
   .sterling-header-row > .mobile-view-toggle.unified-view-toggle { font-size:10px !important; padding:0 2px !important; }
 }
@@ -1590,5 +1590,5 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   .kite-header-actions .sterling-profile { min-width:36px; max-width:40px; }
 }
 @media (max-width:650px) {
-  .sterling-header-row > .sterling-home-button > span[style] { display:none !important; }
+  .sterling-header-row > .sterling-home-button > span:last-child { display:none !important; }
 }
