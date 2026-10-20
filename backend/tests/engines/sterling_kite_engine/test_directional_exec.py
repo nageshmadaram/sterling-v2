@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-pytestmark = pytest.mark.usefixtures("allow_live_execution")
+pytestmark = pytest.mark.usefixtures("allow_live_execution", "execution_policy_open_session")
 
 
 from app.core import lane_registry
@@ -33,16 +33,6 @@ from app.services.kite_engine.universe import UniverseItem
 from tests.engines.sterling_kite_engine.canonical_double import CanonicalBrokerDouble
 
 UID = "test-dir-exec"
-
-
-@pytest.fixture(autouse=True)
-def execution_session_clock(monkeypatch):
-    """Execution scenarios run during a known open session, including on CI holidays."""
-    from app.core import mode_execution
-    original = mode_execution.freeze_policy
-    def policy(strategy, mode, now, **kwargs):
-        return original(strategy, mode, datetime(2026, 10, 7, 10, 0, tzinfo=_IST), **kwargs)
-    monkeypatch.setattr(mode_execution, "freeze_policy", policy)
 
 
 class FakeClient(CanonicalBrokerDouble):
