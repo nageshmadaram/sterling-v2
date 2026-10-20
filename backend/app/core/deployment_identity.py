@@ -96,8 +96,9 @@ def is_unusable_broker_egress_ip(value: str) -> bool:
         ip = ip_address(str(value or "").strip())
     except ValueError:
         return True
-    return any(ip in network for network in _NON_BROKER_EGRESS
-               if ip.version == network.version)
+    candidate = getattr(ip, "ipv4_mapped", None) or ip
+    return any(candidate in network for network in _NON_BROKER_EGRESS
+               if candidate.version == network.version)
 
 
 @dataclass(frozen=True)
