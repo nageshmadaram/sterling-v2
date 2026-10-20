@@ -1151,3 +1151,18 @@ def test_single_provider_startup_does_not_wait_for_unused_tunnel(monkeypatch,mod
  monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
  monkeypatch.setattr(stack.time,'sleep',lambda _:pytest.fail('unused provider delayed startup'))
  assert stack.wait_for_up_status(999,seconds=2)==state
+
+
+def test_ngrok_quota_error_is_reported_without_echoing_provider_page(monkeypatch,capsys):
+ import io
+ def exhausted(*args,**kwargs):
+  raise urllib.error.HTTPError('https://quota.ngrok-free.dev',403,'Forbidden',{},
+                               io.BytesIO(b'private provider text ERR_NGROK_725'))
+ monkeypatch.setattr(stack,'fetch',exhausted)
+ assert stack.probe_public_endpoint('https://quota.ngrok-free.dev')==(False,'ERR_NGROK_725')
+ state={'mode':'both','public_errors':{'ngrok':'ERR_NGROK_725'},
+        'ngrok_url':'https://quota.ngrok-free.dev'}
+ stack.print_up_dashboard(state,reused=True,gateway_ready=True)
+ out=capsys.readouterr().out
+ assert 'Monthly bandwidth exhausted (ERR_NGROK_725)' in out
+ assert 'UNAVAILABLE' in out and 'private provider text' not in out

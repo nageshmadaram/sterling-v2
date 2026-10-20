@@ -43,7 +43,7 @@ def fetch(url, timeout=8):
         return response.status,response.read(2_000_000).decode('utf-8',errors='replace')
 
 
-def public_ready(origin):
+def public_ready(origin, *, on_error=None):
     """Verify the HTTPS app, Telegram desk, and private API boundary concurrently.
 
     Each request retains fetch()'s bounded timeout and full TLS certificate
@@ -74,8 +74,27 @@ def public_ready(origin):
             except urllib.error.HTTPError as error:
                 return error.code == 401
             return False
+    except urllib.error.HTTPError as error:
+        code=f'HTTP_{error.code}'
+        try:
+            match=re.search(r'ERR_NGROK_\d+',error.read(32_000).decode('utf-8',errors='replace'))
+            if match:code=match.group(0)
+        except OSError:
+            pass
+        if on_error is not None:on_error(code)
+        return False
     except Exception:
         return False
+
+
+def probe_public_endpoint(origin):
+    errors=[]
+    return public_ready(origin,on_error=errors.append), errors[-1] if errors else ''
+
+
+def public_error_label(code):
+    return ('Monthly bandwidth exhausted (ERR_NGROK_725)' if code=='ERR_NGROK_725'
+            else _clean_terminal_value(code))
 
 
 def tunnel_unavailable(origin, port):
@@ -298,6 +317,9 @@ def print_up_dashboard(state, *, reused, gateway_ready=False):
             discovered=_clean_terminal_value(state.get(f'{provider}_url',''))
             if found:
                 line(name,found,'VERIFIED','green')
+            elif (state.get('public_errors') or {}).get(provider):
+                line(name,public_error_label(state['public_errors'][provider]),'UNAVAILABLE','yellow','!')
+                if discovered.startswith('https://'):print(f'                  {discovered} (unverified)')
             elif discovered.startswith('https://'):
                 line(name,discovered+' (unverified)','VERIFYING','yellow','◌')
             elif state.get('ngrok_error')=='NGROK_BINARY_NOT_INSTALLED' and provider=='ngrok':
@@ -338,7 +360,10 @@ def print_up_progress(state):
     for provider in ('cloudflare','ngrok'):
         origin=_clean_terminal_value(state.get(f'{provider}_url',''))
         verified=state.get('public_ready',{}).get(provider)
-        if origin.startswith('https://'):
+        error=(state.get('public_errors') or {}).get(provider)
+        if error:
+            print(f'  {provider.upper()}  UNAVAILABLE  {public_error_label(error)}',flush=True)
+        elif origin.startswith('https://'):
             print(f"  {provider.upper()}  {'VERIFIED' if verified else 'VERIFYING'}  {origin}",flush=True)
     if state.get('phase')=='stopped':
         print('  Launcher stopped; inspect ./sterling.sh status and .runtime/stack/manager.log',flush=True)
@@ -358,6 +383,7 @@ def wait_for_up_status(manager_pid, *, seconds=60, notify=None):
         signature=(state.get('phase'),state.get('startup_stage'),
                    state.get('cloudflare_url'),state.get('ngrok_url'),
                    tuple(sorted((state.get('public_ready') or {}).items())),
+                   tuple(sorted((state.get('public_errors') or {}).items())),
                    (state.get('children') or {}).get('web'))
         if notify is not None and signature!=previous:
             notify(state)
@@ -370,7 +396,8 @@ def wait_for_up_status(manager_pid, *, seconds=60, notify=None):
         if state.get('mode','both')=='both' and state.get('ngrok_error')!='NGROK_BINARY_NOT_INSTALLED':
             providers+=('ngrok',)
         if (_managed_web_owns_port(state) and
-                all(state.get('public_ready',{}).get(provider) for provider in providers)):
+                all(state.get('public_ready',{}).get(provider) or
+                    state.get('public_errors',{}).get(provider) for provider in providers)):
             break
         time.sleep(.2)
     return latest
@@ -1005,12 +1032,14 @@ class Stack:
                 # Probe the two independent HTTPS providers concurrently.
                 # Never infer authentication or readiness from URL discovery.
                 with ThreadPoolExecutor(max_workers=2) as pool:
-                    primary_task=pool.submit(public_ready,primary) if primary else None
-                    secondary_task=(pool.submit(public_ready,secondary)
+                    primary_task=pool.submit(probe_public_endpoint,primary) if primary else None
+                    secondary_task=(pool.submit(probe_public_endpoint,secondary)
                         if secondary and ngrok_child and ngrok_child.poll() is None else None)
-                    primary_ready=bool(primary_task and primary_task.result())
-                    ngrok_ready=bool(secondary_task and secondary_task.result())
+                    primary_ready,primary_error=primary_task.result() if primary_task else (False,'')
+                    ngrok_ready,ngrok_error=secondary_task.result() if secondary_task else (False,'')
                 primary_provider='ngrok' if self.args.provider=='ngrok' else 'cloudflare'
+                self.status['public_errors']={primary_provider:primary_error}
+                if self.args.provider=='both':self.status['public_errors']['ngrok']=ngrok_error
                 self.status['public_ready']={primary_provider:primary_ready}
                 if self.args.provider=='both':self.status['public_ready']['ngrok']=ngrok_ready
                 self.status['urls']={
