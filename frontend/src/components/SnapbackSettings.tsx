@@ -231,7 +231,7 @@ export function SnapbackSettings() {
 
       <EnginePowerHeader
         name={strategy.name}
-        tagline={shortHorizon ? 'Minute-bar reversal research with cost-aware targets and runner plans.' : strategy.tagline}
+        tagline={shortHorizon ? 'Completed-candle reversals with cost-aware targets and runner management.' : strategy.tagline}
         on={cfg.enabled}
         liveOn={server.enabled}
         busy={setCfg.isPending}
@@ -243,7 +243,7 @@ export function SnapbackSettings() {
       />
 
       <Section title="Trading mode" description="Choose the signal horizon. Changing mode loads its candle and holding presets."
-        summary={shortHorizon ? 'Intraday research' : 'Daily swing'} defaultOpen persistKey="snapback-mode">
+        summary={TRADING_MODES.find((mode) => mode.value === (cfg.trading_mode ?? 'swing'))?.label ?? 'Daily swing'} defaultOpen persistKey="snapback-mode">
         <Field label="Mode" hint="Scalp and intraday use separate rules and require their own validation. Saving a mode does not enable execution.">
           <ChoiceRow value={cfg.trading_mode ?? 'swing'} options={TRADING_MODES} onChange={(mode) => patch({
             trading_mode: mode,
