@@ -45,6 +45,7 @@ from app.core.deployment_identity import (
     RegistrationUnreadable,
     resolve_registered,
     verify_deployment_identity,
+    is_unusable_broker_egress_ip,
 )
 from app.core.state_paths import state_root
 
@@ -127,7 +128,7 @@ def _parse_ip(text: str) -> str | None:
         ip = ip_address(str(text or "").strip())
     except ValueError:
         return None
-    if ip.is_loopback or ip.is_unspecified or ip.is_multicast or ip.is_link_local:
+    if is_unusable_broker_egress_ip(str(ip)):
         return None
     return str(ip)
 

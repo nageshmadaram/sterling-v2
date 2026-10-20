@@ -95,6 +95,17 @@ class TestDiscovery:
         assert found.ip is None
         assert "could be reached" in found.reason
 
+    @pytest.mark.parametrize("address", [
+        "10.0.0.4", "192.168.1.3", "172.16.0.7",
+        "100.64.12.3", "127.0.0.1", "fc00::12", "::1",
+    ])
+    async def test_local_and_shared_addresses_cannot_win_echo_consensus(self, address):
+        found = await lp.discover_outbound_ip(
+            Echo({u: address for u in SERVICES}), SERVICES,
+        )
+        assert found.ip is None
+        assert "could be reached" in found.reason
+
     async def test_a_hanging_service_cannot_stall_the_others(self, monkeypatch):
         monkeypatch.setattr(lp, "ECHO_TIMEOUT_S", 0.05)
         started = asyncio.get_running_loop().time()

@@ -76,9 +76,37 @@ class TestTheVerdict:
         assert verdict.verified is True
         assert verdict.changed_from == "198.51.100.9"
 
+    @pytest.mark.parametrize("address", [
+        "127.0.0.1", "10.0.0.7", "192.168.1.30", "172.16.0.4",
+        "100.64.12.30", "169.254.7.8", "0.0.0.0", "fc00::123",
+        "::ffff:192.168.1.30", "::ffff:127.0.0.1",
+        "::1", "fe80::10",
+    ])
+    def test_non_broker_routable_egress_can_never_verify(self, store, address):
+        from app.core.deployment_identity import is_unusable_broker_egress_ip
+
+        assert is_unusable_broker_egress_ip(address)
+        store.record(host_id="family-nuc", outbound_ip=address)
+        verdict = verify_deployment_identity(expected_ip=address, store=store)
+        assert verdict.verified is False
+        assert "non-broker-routable" in verdict.reason
+
+    def test_public_like_egress_still_needs_a_matching_fresh_observation(self, store):
+        from app.core.deployment_identity import is_unusable_broker_egress_ip
+
+        assert not is_unusable_broker_egress_ip("8.8.8.8")
+        assert verify_deployment_identity(expected_ip="8.8.8.8", store=store).verified is None
+
     def test_an_unreadable_timestamp_is_unknown(self, store):
         store.record(host_id="family-nuc", outbound_ip=IP, observed_at="not-a-date")
         assert verify_deployment_identity(expected_ip=IP, store=store).verified is None
+
+    def test_timezone_naive_deployment_observation_is_not_current(self, store):
+        naive = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        store.record(host_id="family-nuc", outbound_ip=IP, observed_at=naive)
+        verdict = verify_deployment_identity(expected_ip=IP, store=store)
+        assert verdict.verified is None
+        assert "no timezone" in verdict.reason
 
     def test_a_corrupt_file_is_no_observation_rather_than_a_crash(self, tmp_path):
         path = tmp_path / "deployment_identity.json"
