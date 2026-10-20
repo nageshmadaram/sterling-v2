@@ -20,6 +20,10 @@ Keep this computer, the project, and its private recovery material intact.
 - 191 focused backend tests passed, covering credential migration, restoration,
   certification, drills, mode policies, directional execution and manual entries.
   These use test brokers; they are not evidence of a real trade.
+- Ten CLI tests passed, including cold-process reconciliation bootstrap and
+  refusal when its credential database cannot initialize.
+- Fresh real-broker binding verification succeeded at 00:18:27 UTC. A separate
+  reconciliation at 00:20:06 UTC reported CLEAN: zero broker and Sterling positions.
 - Manual SuperTrend entries now retain the selected mode's immutable deadline
   and timeframe, and refuse cached signals from another mode.
 
@@ -30,10 +34,12 @@ is available. A restored database also needs its matching private encryption key
 
 ## What remains unverified
 
-1. Kite login has expired. Fresh login requires the account holder or a properly
-   authorised operator; credentials or MFA must not be fabricated or bypassed.
-2. Broker inventory is unreadable without that login. No claim of flat positions,
-   complete order reconciliation or broker-held protection can be made yet.
+1. A new interactive Kite login was not performed. Existing session credentials
+   successfully passed broker-backed identity/inventory checks. Future login
+   requires the account holder or a properly authorised operator.
+2. Broker reads were intermittent; refresh inventory before use. Zero positions,
+   orders and protective orders were observed, so an open-position protection
+   lifecycle was not exercised.
 3. The observed public IP differs from the registered static IP. Ignoring its UI
    warning does not establish broker whitelist approval. Confirm the actual
    whitelist before recording a new accepted address.

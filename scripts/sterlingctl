@@ -505,6 +505,15 @@ PY
 import asyncio, sys
 
 from app.services.snapback_reconciliation import reconcile_family_account
+from app.services import db
+
+if not db.init():
+    print("reconcile COULD NOT RUN: credential database unavailable")
+    print("Broker state is unknown. Keep new entries blocked.")
+    sys.exit(2)
+
+from app.services.exchanges.kite import accounts
+accounts.bootstrap()
 
 try:
     snapshot = asyncio.run(reconcile_family_account())
