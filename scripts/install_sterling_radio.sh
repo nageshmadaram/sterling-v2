@@ -29,9 +29,9 @@ if [[ "$PUBLIC" == "$SRC" && -f "$SRC/package.json" ]] && grep -Eq 'src=["\x27]/
   exit 2
 fi
 
-python3 - "$PUBLIC" "$ENTRY" "$DEST" <<'PY'
+python3 - "$PUBLIC" "$ENTRY" "$DEST" "$HOME/.local/share/sterling-radio-backups" <<'PY'
 import pathlib, shutil, sys, re, time
-source, entry, dest = map(pathlib.Path, sys.argv[1:])
+source, entry, dest, backup_root = map(pathlib.Path, sys.argv[1:])
 if not source.is_dir() or not (source / entry).is_file():
     raise SystemExit("Radio input is missing")
 allowed = {".html", ".htm", ".css", ".js", ".mjs", ".svg", ".png",
@@ -59,7 +59,8 @@ for item,rel in paths:
         if re.search(r"-----BEGIN (?:OPENSSH|RSA|EC|DSA|PRIVATE) PRIVATE KEY-----",content):
             raise SystemExit(f"Refusing private key in public Radio asset: {rel}")
 if dest.exists() and any(dest.iterdir()):
-    backup = dest.parent / f"radio-backup-{time.strftime('%Y%m%d-%H%M%S')}"
+    backup_root.mkdir(parents=True,exist_ok=True)
+    backup = backup_root / f"radio-backup-{time.strftime('%Y%m%d-%H%M%S')}"
     if backup.exists():
         raise SystemExit("Radio backup path collision; retry")
     dest.rename(backup)
