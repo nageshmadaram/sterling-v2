@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import logging
 import os
 import secrets
@@ -50,6 +51,8 @@ __all__ = [
 ENCRYPTED_COLUMNS: Mapping[str, tuple[str, ...]] = {
     "kite_accounts": ("api_secret_enc", "access_token_enc", "refresh_token_enc"),
     "truedata_credentials": ("password_enc", "session_token_enc"),
+    "push_devices": ("subscription_enc",),
+    "push_vapid": ("key_enc",),
 }
 
 #: Minimum length the production validator enforces. Generated keys are longer.
@@ -80,6 +83,43 @@ def _decrypt_with(fernet, value: str) -> str:
 
 def _encrypt_with(fernet, plaintext: str) -> str:
     return "fernet:" + fernet.encrypt(plaintext.encode("utf-8")).decode("utf-8")
+
+
+def _config_credentials(key: str, value: str, transform) -> tuple[str, int]:
+    """Include encrypted system settings and nested Telegram target tokens."""
+    count = 0
+
+    def visit(item):
+        nonlocal count
+        if isinstance(item, str) and item.startswith(("fernet:", "b64:")):
+            count += 1
+            return transform(item)
+        if isinstance(item, list):
+            return [visit(child) for child in item]
+        if isinstance(item, dict):
+            result = {}
+            for name, child in item.items():
+                if name.endswith("_enc") and isinstance(child, str) and child and not child.startswith(("fernet:", "b64:")):
+                    count += 1
+                    result[name] = transform(child)
+                else:
+                    result[name] = visit(child)
+            return result
+        return item
+
+    if value.startswith(("fernet:", "b64:")):
+        return visit(value), count
+    if key.startswith("kite_tg_targets:"):
+        parsed = json.loads(value)
+        if not isinstance(parsed, list):
+            raise ValueError("Telegram target settings must be a list")
+        for target in parsed:
+            if not isinstance(target, dict):
+                raise ValueError("Telegram target settings must contain objects")
+        return json.dumps(visit(parsed)), count
+    if value and any(word in key.lower() for word in ("secret", "token", "password")):
+        return transform(value), 1
+    return value, 0
 
 
 @dataclass(frozen=True)
@@ -150,6 +190,12 @@ def plan_migration(db_path: Path | str) -> MigrationPlan:
             for column in sorted(_table_columns(conn, table)):
                 if column.endswith("_enc") and column not in ENCRYPTED_COLUMNS.get(table, ()):
                     unknown.append(f"{table}.{column}")
+
+        if "system_config" in tables:
+            for key, value in conn.execute("SELECT key, value FROM system_config"):
+                _, count = _config_credentials(str(key), str(value), lambda item: item)
+                if count:
+                    counts[f"system_config.{key}"] = count
 
     return MigrationPlan(counts=counts, unknown_columns=tuple(unknown),
                          missing_tables=tuple(missing))
@@ -272,6 +318,20 @@ def migrate_secrets(
                                 f"{table}.{column} did not round-trip under the new key")
                         verified += 1
                         updates.append((table, column, row["k"], reencrypted))
+            if _table_columns(conn, "system_config"):
+                def rekey(value):
+                    nonlocal verified
+                    plaintext = _decrypt_with(old_fernet, value)
+                    encrypted = _encrypt_with(new_fernet, plaintext)
+                    if _decrypt_with(new_fernet, encrypted) != plaintext:
+                        raise RuntimeError("system setting failed key round-trip")
+                    verified += 1
+                    return encrypted
+
+                for row in conn.execute("SELECT key, value FROM system_config"):
+                    value, count = _config_credentials(row["key"], row["value"], rekey)
+                    if count:
+                        updates.append(("system_config", "value", row["key"], value))
     except Exception as exc:  # noqa: BLE001
         # Nothing was written. The message must not carry a value.
         return MigrationResult(
@@ -284,7 +344,8 @@ def migrate_secrets(
         try:
             with conn:
                 for table, column, key, value in updates:
-                    key_column = "id" if "id" in _table_columns(conn, table) else "rowid"
+                    key_column = ("key" if table == "system_config" else
+                                  "id" if "id" in _table_columns(conn, table) else "rowid")
                     conn.execute(
                         f"UPDATE {table} SET {column} = ? WHERE {key_column} = ?",
                         (value, key))
@@ -304,8 +365,8 @@ def migrate_secrets(
             plan=plan, backup_path=str(backup_path),
             error=f"could not write {env_file} — database restored, nothing changed: {exc}")
 
-    log.info("secret migration: %d value(s) re-encrypted", len(updates))
+    log.info("secret migration: %d value(s) re-encrypted", verified)
     return MigrationResult(
-        migrated=len(updates), verified=verified, backup_path=str(backup_path),
+        migrated=verified, verified=verified, backup_path=str(backup_path),
         env_file=str(env_file), ok=True, plan=plan,
     )

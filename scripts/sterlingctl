@@ -376,7 +376,8 @@ db = os.environ.get("STERLING_DB_PATH") or "sterling_paper.db"
 result = migrate_secrets(
     db_path=db,
     env_file=os.environ["STERLING_MIGRATE_ENV_FILE"],
-    old_secret=os.environ.get("STERLING_MIGRATE_FROM_KEY") or None,
+    old_secret=(os.environ.get("STERLING_MIGRATE_FROM_KEY")
+                or os.environ.get("STERLING_SECRET_KEY") or None),
 )
 if not result.ok:
     print(f"migration did NOT happen: {result.error}")
@@ -504,6 +505,15 @@ PY
 import asyncio, sys
 
 from app.services.snapback_reconciliation import reconcile_family_account
+from app.services import db
+
+if not db.init():
+    print("reconcile COULD NOT RUN: credential database unavailable")
+    print("Broker state is unknown. Keep new entries blocked.")
+    sys.exit(2)
+
+from app.services.exchanges.kite import accounts
+accounts.bootstrap()
 
 try:
     snapshot = asyncio.run(reconcile_family_account())
