@@ -8,10 +8,28 @@ import { describe, expect, it } from 'vitest';
 const tvPage = readFileSync(resolve(process.cwd(), 'public/tv/index.html'), 'utf8');
 const nginx = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
 const gateway = readFileSync(resolve(process.cwd(), '../scripts/serve_frontend.mjs'), 'utf8');
+const latestTv = readFileSync(resolve(process.cwd(), '../sterling-iptv/sterling-iptv.html'), 'utf8');
 const originalKiteCss = readFileSync(resolve(process.cwd(), 'src/styles/terminal.css'), 'utf8');
 const spectrumSpacingCss = readFileSync(resolve(process.cwd(), 'src/styles/globals.css'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
+  it('embeds the same mobile UI assets in the standalone and published players', () => {
+    for (const file of ['mobile.css','mobile.js']) {
+      const asset = readFileSync(resolve(process.cwd(), 'tv-mobile', file), 'utf8');
+      expect(tvPage).toContain(asset);
+      expect(latestTv).toContain(asset);
+    }
+  });
+
+  it('ships the current IPTV design and controls rather than a stale player copy', () => {
+    const title = (html: string) => html.match(/<title>(.*?)<\/title>/)?.[1];
+    expect(title(tvPage)).toBe(title(latestTv));
+    expect(title(tvPage)).toContain('v18');
+    for (const id of ['audio-eq-popover', 'pip-drag-header', 'pip-resize-handle']) {
+      expect(latestTv).toContain(`id="${id}"`);
+      expect(tvPage).toContain(`id="${id}"`);
+    }
+  });
   it('serves a distinct streaming document instead of injecting its scripts into trading', () => {
     expect(tvPage).toContain('id="video-player"');
     expect(tvPage).toContain('id="source-manager-modal"');

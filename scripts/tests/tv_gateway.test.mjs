@@ -74,6 +74,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.doesNotMatch(csp, /allow-same-origin/);
     assert.match(csp, /media-src https: http: data: blob:/);
     assert.match(csp, /worker-src blob:/);
+    assert.match(csp, /(?:^|; )script-src-attr 'unsafe-inline'(?:;|$)/);
     assert.match(csp, /frame-ancestors 'self'/);
     const head = await fetch(origin + '/tv/index.html', { method: 'HEAD' });
     assert.equal(head.status, 200);
@@ -107,6 +108,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /sandbox allow-scripts/);
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /script-src-attr 'unsafe-inline'/);
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /media-src https:/);
+    assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /script-src-attr 'unsafe-inline'/);
   } finally {
     if (child && child.exitCode === null) {
       child.kill('SIGTERM');

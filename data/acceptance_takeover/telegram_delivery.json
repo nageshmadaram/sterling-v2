@@ -1,0 +1,13 @@
+{
+  "recorded_at": "2026-10-20T00:15:25.955641+00:00",
+  "sha": "8c67b27545ddf54d415d2c43759a6981d73baa5e",
+  "phone_receipt": "NOT_VERIFIED",
+  "deliveries": [
+    {
+      "destination_hash": "f935391a33a6",
+      "api_accepted": true,
+      "http_status": 200,
+      "message_id": 18323
+    }
+  ]
+}

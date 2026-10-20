@@ -59,6 +59,9 @@ export default defineConfig({
     },
     {
       name: 'webkit',
+      // The complete paper-trade journey spans several page transitions and
+      // confirmations. Safari needs a larger total budget than a single action.
+      timeout: 60_000,
       use: {
         ...devices['Desktop Safari'],
         storageState: authFile,
