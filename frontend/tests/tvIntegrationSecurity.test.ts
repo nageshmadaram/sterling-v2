@@ -13,6 +13,14 @@ const originalKiteCss = readFileSync(resolve(process.cwd(), 'src/styles/terminal
 const spectrumSpacingCss = readFileSync(resolve(process.cwd(), 'src/styles/globals.css'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
+  it('embeds the same mobile UI assets in the standalone and published players', () => {
+    for (const file of ['mobile.css','mobile.js']) {
+      const asset = readFileSync(resolve(process.cwd(), 'tv-mobile', file), 'utf8');
+      expect(tvPage).toContain(asset);
+      expect(latestTv).toContain(asset);
+    }
+  });
+
   it('ships the current IPTV design and controls rather than a stale player copy', () => {
     const title = (html: string) => html.match(/<title>(.*?)<\/title>/)?.[1];
     expect(title(tvPage)).toBe(title(latestTv));

@@ -89,7 +89,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
       key: 'streamos_stats_v14', value: 'X'.repeat(500_001),
     });
     expect(localStorage.getItem(storagePrefix + 'streamos_stats_v14')).toBeNull();
-    expect(TV_STORAGE_KEYS).toHaveLength(6);
+    expect(TV_STORAGE_KEYS).toHaveLength(7);
   });
 
   it('migrates saved v13 subscriptions into the v14 player without exposing app secrets', () => {
@@ -108,6 +108,14 @@ describe('Sterling Spectrum IPTV isolation', () => {
       .toBe('["older favorite"]');
     expect(JSON.stringify(payload)).not.toContain('secret-not-shared');
     expect(payload.values.streamos_favs_v13).toBeUndefined();
+  });
+
+  it('persists selected TV themes within the isolated TV preference allowlist', () => {
+    render(<TvWorkspace />);
+    sendFromFrame('sterling.tv.ready');
+    sendFromFrame('sterling.tv.save', {key:'streamos_theme_v14',value:'spotify'});
+    expect(localStorage.getItem(storagePrefix+'streamos_theme_v14')).toBe('spotify');
+    expect(localStorage.getItem('sterling.auth.token')).toBeNull();
   });
 
   it('persists v14 startup channels independently from broker state', () => {
