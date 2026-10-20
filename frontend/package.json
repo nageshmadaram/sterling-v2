@@ -12,7 +12,11 @@
     "e2e": "playwright test",
     "e2e:shard": "playwright test --shard",
     "e2e:update-snapshots": "playwright test --update-snapshots",
-    "e2e:baseline-bot": "echo 'Run with --update-snapshots after review; commit new -snapshots or use CI label to trigger update job (see e2e/README or CI)'"
+    "e2e:baseline-bot": "echo 'Run with --update-snapshots after review; commit new -snapshots or use CI label to trigger update job (see e2e/README or CI)'",
+    "media:styles": "node scripts/build-media-styles.mjs",
+    "prebuild": "npm run media:styles",
+    "predev": "npm run media:styles",
+    "pretest": "npm run media:styles"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",
@@ -26,6 +30,9 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/roboto": "^5.2.8",
+    "@fortawesome/fontawesome-free": "^6.5.1",
     "@playwright/test": "^1.44.0",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^16.0.0",
@@ -33,7 +40,9 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "agentation": "^3.0.2",
+    "hls.js": "^1.5.15",
     "jsdom": "^24.0.0",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.9.3",
     "vite": "^8.0.10",
     "vitest": "^5.0.3"

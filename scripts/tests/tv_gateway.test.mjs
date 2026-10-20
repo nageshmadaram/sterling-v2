@@ -76,6 +76,8 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.match(csp, /worker-src blob:/);
     assert.match(csp, /(?:^|; )script-src-attr 'unsafe-inline'(?:;|$)/);
     assert.match(csp, /frame-ancestors 'self'/);
+    assert.match(csp, /script-src 'self' 'nonce-/);
+    assert.doesNotMatch(csp, /unsafe-eval|cdn.tailwindcss/);
     const head = await fetch(origin + '/tv/index.html', { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(head.headers.get('cache-control'), 'no-store');
@@ -98,7 +100,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.doesNotMatch(radioCsp,/allow-same-origin/);
     assert.match(radioCsp,/media-src https: http: data: blob:/);
     assert.match(radioCsp,/connect-src https: http:/);
-    assert.match(radioCsp,/style-src 'unsafe-inline' https:\/\/fonts.googleapis.com https:\/\/cdnjs.cloudflare.com/);
+    assert.match(radioCsp,/style-src 'self' 'unsafe-inline'/);
     const radioHead=await fetch(origin+'/radio/index.html',{method:'HEAD'});
     assert.equal(radioHead.status,200);
     assert.match(radioHead.headers.get('content-security-policy') || '', /sandbox allow-scripts/);

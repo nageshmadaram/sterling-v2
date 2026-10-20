@@ -7,24 +7,14 @@
   <meta name="apple-mobile-web-app-capable" content="true" />
   <meta name="mobile-web-app-capable" content="true" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Spotify & YouTube Music — Live Radio, Shortwave & Podcasts</title>
+  <title>Sterling Radio</title>
 
-  <!-- Silence Tailwind Play CDN notice cleanly -->
-  <script>
-    (function() {
-      const origWarn = console.warn;
-      console.warn = function(...args) {
-        if (args[0] && typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return;
-        origWarn.apply(console, args);
-      };
-    })();
-  </script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+  <link rel="stylesheet" href="/media/interface.css">
+  <link rel="stylesheet" href="/media/fonts.css">
+  <script src="/media/hls.min.js"></script>
+  <link rel="stylesheet" href="/media/icons.css" />
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap');
 
     :root {
       --sp-green: #1ed760;
@@ -261,6 +251,7 @@
       #mobile-player-sheet>div:last-child {grid-column:2;grid-row:3;}
     }
   </style>
+<link rel="stylesheet" href="/radio/appearance.css">
 </head>
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
@@ -988,7 +979,7 @@
       </button>
       <button data-radio-click="23" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
         <i class="fa-solid fa-bolt text-[18px]"></i>
-        <span class="text-[10px] font-medium">Samples</span>
+        <span class="text-[10px] font-medium">Live Radio</span>
       </button>
       <button data-radio-click="24" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
         <i class="fa-regular fa-compass text-[18px]"></i>
@@ -1073,10 +1064,14 @@
 
     function onFirstUserGesture() {
       userHasInteracted = true;
-      if (pendingBootStation) triggerPendingBootPlay();
+
     }
     window.addEventListener('pointerdown', onFirstUserGesture, { once: true, passive: true });
     window.addEventListener('keydown', onFirstUserGesture, { once: true, passive: true });
+
+    function escapeRadioText(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    }
 
     function safeHaptic(ms = 8) {
       if (!userHasInteracted) return;
@@ -1142,6 +1137,7 @@
       grad.addColorStop(1, theme.bgBot);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 600, 600);
+      ctx.globalAlpha=0.14;ctx.fillStyle=theme.accent;ctx.fillRect(0,0,600,600);ctx.globalAlpha=1;
 
       // Subtle Top-Left Brand Mark + Frequency Tag
       const freqText = (ch.freqLabel || (ch.freqKhz ? `${ch.freqKhz} kHz` : 'LIVE')).toUpperCase();
@@ -1156,7 +1152,7 @@
 
       // Large Clean Frequency / Call-Sign Watermark
       const heroFreq = ch.freqKhz ? `${ch.freqKhz}` : (ch.shortFreq || 'FM');
-      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillStyle = 'rgba(255,255,255,0.22)';
       ctx.font = '800 136px "Inter", sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText(heroFreq, 40, 290);
@@ -1187,35 +1183,14 @@
       return dataUrl;
     }
 
-    function itunesJsonp(paramsObj) {
-      return new Promise((resolve) => {
-        const cbName = '__itunes_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
-        const script = document.createElement('script');
-        let settled = false;
-
-        const timer = setTimeout(() => {
-          if (!settled) { settled = true; cleanup(); resolve({ results: [] }); }
-        }, 4500);
-
-        function cleanup() {
-          clearTimeout(timer);
-          delete window[cbName];
-          if (script.parentNode) script.parentNode.removeChild(script);
-        }
-
-        window[cbName] = (data) => {
-          if (!settled) { settled = true; cleanup(); resolve(data || { results: [] }); }
-        };
-        script.onerror = () => {
-          if (!settled) { settled = true; cleanup(); resolve({ results: [] }); }
-        };
-
-        const qs = Object.entries({ ...paramsObj, callback: cbName })
-          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-          .join('&');
-        script.src = `https://itunes.apple.com/search?${qs}`;
-        document.head.appendChild(script);
-      });
+    async function itunesJsonp(paramsObj) {
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),4500);
+      try {
+        const response=await fetch('https://itunes.apple.com/search?'+new URLSearchParams(paramsObj),{signal:controller.signal});
+        return response.ok ? await response.json() : {results:[]};
+      } catch (_) {return {results:[]};}
+      finally {clearTimeout(timeout);}
     }
 
     function validateImageUrl(url) {
@@ -1975,28 +1950,7 @@
       try { radioStorage.setItem('omnicast_v11_config', JSON.stringify(appConfig)); } catch (_) {}
     }
 
-    if (recentsList.length === 0) {
-      recentsList = [
-        TELUGU_STATIONS[0],
-        SHORTWAVE_AM_STATIONS[6],
-        AKASHVANI_NATIONAL[0],
-        TELUGU_STATIONS[1],
-        TAMIL_STATIONS[1],
-        ELITE_GLOBAL_STATIONS[0]
-      ];
-      radioStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList));
-    }
-    if (Object.keys(playCounts).length === 0) {
-      playCounts = {
-        te_air_hyd_a: { count: 18, station: TELUGU_STATIONS[0] },
-        air_vividh_bharati: { count: 15, station: AKASHVANI_NATIONAL[0] },
-        sw_bbc_ws: { count: 12, station: SHORTWAVE_AM_STATIONS[6] },
-        te_air_hyd_rainbow: { count: 11, station: TELUGU_STATIONS[1] },
-        ta_air_chennai_rainbow: { count: 9, station: TAMIL_STATIONS[1] },
-        somafm_groovesalad: { count: 8, station: ELITE_GLOBAL_STATIONS[0] }
-      };
-      radioStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts));
-    }
+    const starterStations=[TELUGU_STATIONS[0],SHORTWAVE_AM_STATIONS[6],AKASHVANI_NATIONAL[0],TELUGU_STATIONS[1],TAMIL_STATIONS[1],ELITE_GLOBAL_STATIONS[0]];
 
     function recordStationPlay(stationObj) {
       if (!stationObj?.id) return;
@@ -2086,8 +2040,8 @@
         .filter((v, i, a) => v && v.id && a.findIndex(t => t.id === v.id) === i);
 
       sel.innerHTML = allChoices.map(ch => `
-        <option value="${ch.id}" ${ch.id === appConfig.startupStationId ? 'selected' : ''}>
-          ${ch.title} (${ch.freqLabel || ch.subtitle})
+        <option value="${escapeRadioText(ch.id)}" ${ch.id === appConfig.startupStationId ? 'selected' : ''}>
+          ${escapeRadioText(ch.title)} (${escapeRadioText(ch.freqLabel || ch.subtitle)})
         </option>
       `).join('');
     }
@@ -2154,12 +2108,20 @@
     let userPaused = true;
     let ytmQueueOpen = false;
     let searchTimer = null;
+    let searchRevision = 0;
+    let searchAbort = null;
     let watchdogTimer = null;
+    let pendingPlayRecord = null;
 
     const audio = document.getElementById('audio-engine');
     let hlsInstance = null;
 
     // --- 6. Initialization ---
+    let radioHosted = false;
+    let radioSearchQuery = '';
+    function publishRadioState() {
+      if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : 'youtube',query:radioSearchQuery}, '*');
+    }
     let radioBooted = false;
     let hostAcknowledged = false;
     let readyRetry;
@@ -2217,7 +2179,16 @@
         window.clearInterval(readyRetry);
         return;
       }
+      if (event.data?.type === 'sterling.radio.command' && radioHosted) {
+        const {action,value} = event.data;
+        if (action === 'theme' && ['spotify','youtube'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : 'ytmusic');
+        if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
+        if (action === 'more') openStartupModal();
+        return;
+      }
       if (event.data?.type !== 'sterling.radio.hydrate') return;
+      radioHosted = event.data.hostHeader === true;
+      document.documentElement.classList.toggle('radio-hosted',radioHosted);
       radioStorage.hydrate(event.data.values);
       appConfig = { ...DEFAULT_CONFIG, ...readRadioJson('omnicast_v11_config', {}) };
       recentsList = readRadioJson('omnicast_v11_recents', []);
@@ -2409,19 +2380,23 @@
       document.getElementById('sp-suggested-heading').textContent = `More like ${anchor.title}`;
       document.getElementById('ytm-suggested-heading').textContent = `Similar to ${anchor.title}`;
 
-      const topSix = [...recentsList.slice(0, 4), ...mostPlayedList.slice(0, 4)]
+      const recentShelf=recentsList.length ? recentsList : starterStations;
+      document.querySelector('#sp-recents-section h2').textContent=recentsList.length ? 'Recently played' : 'Start listening';
+      document.getElementById('ytm-recents-section').querySelector('h2').textContent=recentsList.length ? 'Listen again' : 'Start listening';
+      document.getElementById('sp-mostplayed-section').classList.toggle('hidden',!mostPlayedList.length);
+      const topSix = [...recentsList.slice(0, 4), ...mostPlayedList.slice(0, 4), ...starterStations]
         .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i)
         .slice(0, 6);
 
       document.getElementById('sp-top-compact-grid').innerHTML = topSix.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div data-radio-click="71" data-radio-arg="${ch.id}" class="group h-[56px] bg-[#242424] hover:bg-[#323232] rounded-[4px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
+          <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="group h-[56px] bg-[#242424] hover:bg-[#323232] rounded-[4px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
             <div class="flex items-center gap-3 min-w-0 h-full">
               <img src="${emblem}" class="w-[56px] h-[56px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
-                <div class="font-semibold text-[13px] text-white truncate">${ch.title}</div>
-                <div class="text-[11px] text-[#b3b3b3] truncate">${ch.freqLabel || ch.subtitle}</div>
+                <div class="font-semibold text-[13px] text-white truncate">${escapeRadioText(ch.title)}</div>
+                <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(ch.freqLabel || ch.subtitle)}</div>
               </div>
             </div>
             <div class="w-8 h-8 btn-circle bg-[#1ed760] text-black shadow-lg opacity-0 group-hover:opacity-100 transition">
@@ -2433,42 +2408,42 @@
 
       const renderCarouselCards = (list, showPlayCount = false) => list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
-        const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
+        const subText = showPlayCount && ch.playCount ? `${ch.playCount} ${ch.playCount === 1 ? 'play' : 'plays'} • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div data-radio-click="71" data-radio-arg="${ch.id}" class="snap-card w-[144px] sm:w-[158px] shrink-0 group bg-[#181818] hover:bg-[#242424] p-2.5 rounded-[6px] transition cursor-pointer flex flex-col">
+          <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="snap-card w-[144px] sm:w-[158px] shrink-0 group bg-[#181818] hover:bg-[#242424] p-2.5 rounded-[6px] transition cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[4px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
               <button class="w-10 h-10 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
                 <i class="fa-solid fa-play text-xs ml-0.5"></i>
               </button>
             </div>
-            <div class="font-semibold text-[13px] text-white truncate">${ch.title}</div>
-            <div class="text-[11px] text-[#b3b3b3] truncate mt-0.5">${subText}</div>
+            <div class="font-semibold text-[13px] text-white truncate">${escapeRadioText(ch.title)}</div>
+            <div class="text-[11px] text-[#b3b3b3] truncate mt-0.5">${escapeRadioText(subText)}</div>
           </div>
         `;
       }).join('');
 
-      document.getElementById('sp-recents-section').classList.toggle('hidden', recentsList.length === 0);
-      document.getElementById('sp-recents-carousel').innerHTML = renderCarouselCards(recentsList);
+      document.getElementById('sp-recents-section').classList.remove('hidden');
+      document.getElementById('sp-recents-carousel').innerHTML = renderCarouselCards(recentShelf);
       document.getElementById('sp-suggested-carousel').innerHTML = renderCarouselCards(similarList);
       document.getElementById('sp-mostplayed-carousel').innerHTML = renderCarouselCards(mostPlayedList, true);
 
       const renderYtmCarousel = (list, showPlayCount = false) => list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
-        const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
+        const subText = showPlayCount && ch.playCount ? `${ch.playCount} ${ch.playCount === 1 ? 'play' : 'plays'} • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div data-radio-click="71" data-radio-arg="${ch.id}" class="snap-card w-[142px] sm:w-[156px] shrink-0 group cursor-pointer flex flex-col">
+          <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="snap-card w-[142px] sm:w-[156px] shrink-0 group cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
-            <div class="font-medium text-[13px] text-white truncate">${ch.title}</div>
-            <div class="text-[11px] text-[#aaa] truncate mt-0.5">${subText}</div>
+            <div class="font-medium text-[13px] text-white truncate">${escapeRadioText(ch.title)}</div>
+            <div class="text-[11px] text-[#aaa] truncate mt-0.5">${escapeRadioText(subText)}</div>
           </div>
         `;
       }).join('');
 
-      document.getElementById('ytm-recents-section').classList.toggle('hidden', recentsList.length === 0);
-      document.getElementById('ytm-recents-carousel').innerHTML = renderYtmCarousel(recentsList);
+      document.getElementById('ytm-recents-section').classList.remove('hidden');
+      document.getElementById('ytm-recents-carousel').innerHTML = renderYtmCarousel(recentShelf);
       document.getElementById('ytm-suggested-carousel').innerHTML = renderYtmCarousel(similarList);
       document.getElementById('ytm-mostplayed-carousel').innerHTML = renderYtmCarousel(mostPlayedList, true);
 
@@ -2477,11 +2452,11 @@
         railSim.innerHTML = similarList.slice(0, 4).map(ch => {
           const emblem = getStationIdentityThumbnail(ch);
           return `
-            <div data-radio-click="71" data-radio-arg="${ch.id}" class="flex items-center gap-2.5 p-1.5 rounded hover:bg-white/10 cursor-pointer">
+            <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center gap-2.5 p-1.5 rounded hover:bg-white/10 cursor-pointer">
               <img src="${emblem}" class="w-9 h-9 rounded object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
-                <div class="text-xs font-medium text-white truncate">${ch.title}</div>
-                <div class="text-[11px] text-[#b3b3b3] truncate">${ch.subtitle}</div>
+                <div class="text-xs font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
+                <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(ch.subtitle)}</div>
               </div>
             </div>
           `;
@@ -2493,9 +2468,9 @@
         sheetSim.innerHTML = similarList.slice(0, 6).map(ch => {
           const emblem = getStationIdentityThumbnail(ch);
           return `
-            <div data-radio-click="71" data-radio-arg="${ch.id}" class="w-24 shrink-0 cursor-pointer">
+            <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="w-24 shrink-0 cursor-pointer">
               <img src="${emblem}" class="w-24 h-24 rounded-md object-cover mb-1" alt="" />
-              <div class="text-[11px] font-medium text-white truncate">${ch.title}</div>
+              <div class="text-[11px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
             </div>
           `;
         }).join('');
@@ -2528,6 +2503,7 @@
         spApp.classList.add('hidden'); spApp.classList.remove('flex');
         ytmApp.classList.remove('hidden'); ytmApp.classList.add('flex');
       }
+      publishRadioState();
     }
 
     function toggleYtmQueue() {
@@ -2555,12 +2531,12 @@
       box.innerHTML = list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div data-radio-click="71" data-radio-arg="${ch.id}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
+          <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
             <div class="flex items-center gap-3 min-w-0">
               <img src="${emblem}" class="w-10 h-10 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
-                <div class="text-xs font-medium text-white truncate">${ch.title}</div>
-                <div class="text-[11px] text-[#aaa] truncate">${ch.subtitle}</div>
+                <div class="text-xs font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
+                <div class="text-[11px] text-[#aaa] truncate">${escapeRadioText(ch.subtitle)}</div>
               </div>
             </div>
             <span class="text-[10px] font-mono-num text-[#aaa] shrink-0">${ch.freqLabel || 'LIVE'}</span>
@@ -2570,6 +2546,8 @@
     }
 
     function toggleMobileSearch() {
+      if (radioHosted) {window.parent.postMessage({type:'sterling.radio.focus-search'},'*');return;}
+
       const bar = document.getElementById('sp-mob-search-bar');
       bar.classList.toggle('hidden');
       if (!bar.classList.contains('hidden')) document.getElementById('sp-search-mobile').focus();
@@ -2577,6 +2555,11 @@
 
     // --- 11. Category Loader ---
     function loadCategory(cat, skipSave = false) {
+      searchRevision++;
+      searchAbort?.abort();
+      radioSearchQuery = '';
+      document.documentElement.classList.remove('radio-searching');
+      publishRadioState();
       if (!skipSave) safeHaptic(8);
       appConfig.activeCategory = cat;
       if (!skipSave) saveAppConfig();
@@ -2641,7 +2624,7 @@
         const res = await fetch(`${RADIO_MIRRORS[0]}/stations/bylanguageexact/${encodeURIComponent(lang)}?limit=20&order=clickcount&reverse=true&hidebroken=true`);
         if (!res.ok) return;
         const data = await res.json();
-        if (appConfig.activeCategory !== lang) return;
+        if (appConfig.activeCategory !== lang || radioSearchQuery.trim()) return;
 
         const seen = new Set(catalogItems.map(c => c.streamUrl));
         for (const s of data) {
@@ -2675,6 +2658,7 @@
 
     async function loadPodcastsViaJsonp(term) {
       const data = await itunesJsonp({ media: 'podcast', entity: 'podcast', term, limit: 30 });
+      if (appConfig.activeCategory !== 'podcasts' || radioSearchQuery.trim()) return;
       catalogItems = (data.results || []).filter(p => p.feedUrl).map(p => ({
         id: String(p.collectionId),
         kind: 'podcast_show',
@@ -2692,6 +2676,15 @@
       const ytmQuick = document.getElementById('ytm-quick-picks');
       const ytmCards = document.getElementById('ytm-cards-grid');
       document.getElementById('sp-grid-count').textContent = `${catalogItems.length} channels`;
+      ['sp-cards-grid','ytm-cards-grid'].forEach(id => {
+        const grid=document.getElementById(id);
+        grid.parentElement.querySelector('.radio-empty-state')?.remove();
+        if(!catalogItems.length) {
+          const empty=document.createElement('p');empty.className='radio-empty-state';empty.setAttribute('role','status');
+          empty.textContent=radioSearchQuery ? 'No stations found. Try a station name, language, or frequency.' : 'No channels available in this collection.';
+          grid.after(empty);
+        }
+      });
 
       spCards.innerHTML = catalogItems.map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
@@ -2703,8 +2696,8 @@
                 <i class="fa-solid fa-play text-sm ml-0.5"></i>
               </button>
             </div>
-            <div class="font-semibold text-[13px] text-white truncate">${ch.title}</div>
-            <div class="text-[12px] text-[#b3b3b3] truncate mt-0.5">${ch.subtitle}</div>
+            <div class="font-semibold text-[13px] text-white truncate">${escapeRadioText(ch.title)}</div>
+            <div class="text-[12px] text-[#b3b3b3] truncate mt-0.5">${escapeRadioText(ch.subtitle)}</div>
           </div>
         `;
       }).join('');
@@ -2716,8 +2709,8 @@
             <div class="flex items-center gap-3 min-w-0 flex-1">
               <img src="${emblem}" class="w-12 h-12 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
-                <div class="text-[14px] font-medium text-white truncate">${ch.title}</div>
-                <div class="text-[12px] text-[#aaa] truncate">${ch.subtitle}</div>
+                <div class="text-[14px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
+                <div class="text-[12px] text-[#aaa] truncate">${escapeRadioText(ch.subtitle)}</div>
               </div>
             </div>
             <i class="fa-solid fa-play text-xs text-white opacity-0 group-hover:opacity-100 px-2"></i>
@@ -2732,8 +2725,8 @@
             <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
-            <div class="font-medium text-[14px] text-white truncate">${ch.title}</div>
-            <div class="text-[12px] text-[#aaa] truncate mt-0.5">${ch.subtitle}</div>
+            <div class="font-medium text-[14px] text-white truncate">${escapeRadioText(ch.title)}</div>
+            <div class="text-[12px] text-[#aaa] truncate mt-0.5">${escapeRadioText(ch.subtitle)}</div>
           </div>
         `;
       }).join('');
@@ -2771,12 +2764,12 @@
 
       box.innerHTML = list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
-        const sub = ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
+        const sub = ch.playCount ? `${ch.playCount} ${ch.playCount === 1 ? 'play' : 'plays'} • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div data-radio-click="71" data-radio-arg="${ch.id}" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
+          <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
             <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
             <div class="min-w-0 flex-1">
-              <div class="text-[13px] font-medium text-white truncate">${ch.title}</div>
+              <div class="text-[13px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
               <div class="text-[11px] text-[#b3b3b3] truncate">${sub}</div>
             </div>
           </div>
@@ -2806,7 +2799,7 @@
       userPaused = false;
       const url = overrideUrl || streamObj.streamUrl;
 
-      if (!overrideUrl) recordStationPlay(streamObj);
+      if (!overrideUrl) pendingPlayRecord = streamObj;
 
       clearTimeout(watchdogTimer);
       if (hlsInstance) {
@@ -2879,6 +2872,8 @@
     }
 
     async function updateActivePlayerSongArtwork(streamObj) {
+      if (!streamObj.somaId) return;
+      let broadcastTrack=null;
       let query = streamObj.artQuery || streamObj.title.replace(/akashvani|all india radio|\(.*?\)/gi, '').trim();
 
       if (streamObj.somaId) {
@@ -2886,20 +2881,22 @@
           const r = await fetch(`https://somafm.com/songs/${streamObj.somaId}.json`);
           if (r.ok) {
             const j = await r.json();
-            if (j.songs?.[0]) query = `${j.songs[0].artist} ${j.songs[0].title}`;
+            if(!j.songs?.[0]?.artist || !j.songs[0].title)return;
+            broadcastTrack=j.songs[0];query=`${broadcastTrack.artist} ${broadcastTrack.title}`;
           }
         } catch (_) {}
       }
 
+      if(!broadcastTrack)return;
       const data = await itunesJsonp({ term: query, media: 'music', entity: 'song', limit: 10 });
       if (!data.results?.length) return;
 
-      const pick = data.results[Math.floor(Math.random() * Math.min(5, data.results.length))];
+      const pick = data.results[0];
       const hdUrl = pick.artworkUrl100?.replace('100x100bb', '600x600bb');
       const validUrl = await validateImageUrl(hdUrl);
       if (!validUrl || !activeStream || activeStream.id !== streamObj.id || !isPlaying) return;
 
-      const trackLabel = `${pick.artistName} • ${pick.trackName}`;
+      const trackLabel = `${broadcastTrack.artist} • ${broadcastTrack.title}`;
 
       // Updates ONLY active player surfaces; channel grids keep their clean station covers
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
@@ -2912,7 +2909,7 @@
         if (el) el.textContent = trackLabel;
       });
 
-      updateMediaSession(validUrl, pick.trackName, `${pick.artistName} • ${streamObj.title}`);
+      updateMediaSession(validUrl, broadcastTrack.title, `${broadcastTrack.artist} • ${streamObj.title}`);
     }
 
     function updateAmbientColorFromId(idStr) {
@@ -2928,6 +2925,7 @@
       audio.addEventListener('playing', () => {
         clearTimeout(watchdogTimer);
         isPlaying = true;
+        if(pendingPlayRecord && pendingPlayRecord.id === activeStream?.id){recordStationPlay(pendingPlayRecord);pendingPlayRecord=null;}
         pendingBootStation = null;
         document.getElementById('boot-resume-banner')?.classList.add('hidden');
         syncPlayerUI();
@@ -3022,17 +3020,23 @@
 
     // --- 14. Search, Podcasts & Transport ---
     function onSearchInput(val, clearId) {
+      radioSearchQuery = String(val).slice(0,200);
+      publishRadioState();
       const btn = document.getElementById(clearId);
       if (btn) {
         btn.classList.toggle('hidden', !val.trim());
         btn.classList.toggle('flex', !!val.trim());
       }
       clearTimeout(searchTimer);
-      if (!val.trim()) return;
+      searchRevision++;searchAbort?.abort();
+      if (!val.trim()) {clearAllSearches();return;}
       searchTimer = setTimeout(() => runOmniSearch(val), 300);
     }
 
     function clearAllSearches() {
+      clearTimeout(searchTimer);
+      radioSearchQuery='';
+      publishRadioState();
       ['sp-search-desktop', 'sp-search-mobile', 'ytm-search-input'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
@@ -3046,7 +3050,15 @@
 
     async function runOmniSearch(query) {
       const q = (query || '').trim().toLowerCase();
-      if (!q) return;
+      if (!q) {clearAllSearches();return;}
+      radioSearchQuery=query;
+      const revision=++searchRevision;
+      searchAbort?.abort();
+      searchAbort=new AbortController();
+      const abort=searchAbort;
+      const timeout=setTimeout(()=>abort.abort(),6000);
+      document.documentElement.classList.add('radio-searching');
+      document.querySelectorAll('main').forEach(main=>main.scrollTo({top:0,behavior:'instant'}));
       setHeadings(`Results for "${query.trim()}"`);
 
       const localMatches = MASTER_POOL.filter(s =>
@@ -3055,9 +3067,12 @@
         String(s.freqKhz || '').includes(q)
       );
 
+      catalogItems=localMatches;
+      renderCategoryGrids();
       try {
-        const res = await fetch(`${RADIO_MIRRORS[0]}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`);
+        const res = await fetch(`${RADIO_MIRRORS[0]}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`,{signal:abort.signal});
         const remote = res.ok ? await res.json() : [];
+        if (revision !== searchRevision) return;
         const remoteMapped = remote.filter(s => s.url_resolved && s.url_resolved.startsWith('http')).map(s => {
           const cleanName = s.name.trim();
           const freqMatch = cleanName.match(/\b(\d{2,3}\.\d|\d{3,4})\b/);
@@ -3082,9 +3097,10 @@
           return true;
         });
       } catch (_) {
+        if(revision !== searchRevision) return;
         catalogItems = localMatches;
-      }
-
+      } finally {clearTimeout(timeout);}
+      if(revision !== searchRevision) return;
       renderCategoryGrids();
     }
 
@@ -3111,7 +3127,7 @@
 
           document.getElementById('sp-pod-episodes').innerHTML = episodeList.map((ep, i) => `
             <div data-radio-click="73" data-radio-arg="${i}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
-              <span class="text-xs font-medium text-white truncate">${ep.title}</span>
+              <span class="text-xs font-medium text-white truncate">${escapeRadioText(ep.title)}</span>
               <i class="fa-solid fa-play text-xs text-[#1ed760]"></i>
             </div>
           `).join('');
@@ -3204,14 +3220,13 @@
     }
 
     function showLikedLibrary() {
+      searchRevision++;searchAbort?.abort();radioSearchQuery='';publishRadioState();
+      document.documentElement.classList.add('radio-searching');
       setSidebarFilter('liked');
-      if (likedStations.length) {
-        catalogItems = [...likedStations];
-        setHeadings('Liked Stations');
-        renderCategoryGrids();
-      } else {
-        showToast('Tap the heart icon on any station to save it');
-      }
+      catalogItems = [...likedStations];
+      setHeadings('Your Library');
+      renderCategoryGrids();
+      document.querySelectorAll('main').forEach(main=>main.scrollTo({top:0,behavior:'instant'}));
     }
 
     function handleM3UImport(e) {
@@ -3251,16 +3266,21 @@
       reader.readAsText(file);
     }
 
+    let radioSheetReturnFocus=null;
     function openMobileSheet() {
+      radioSheetReturnFocus=document.activeElement;
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-hidden');
       s.classList.add('drawer-visible');
+      s.setAttribute('role','dialog');s.setAttribute('aria-modal','true');s.setAttribute('aria-label','Now Playing');
+      s.querySelector('button')?.focus();
     }
 
     function closeMobileSheet() {
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-visible');
       s.classList.add('drawer-hidden');
+      s.removeAttribute('aria-modal');s.removeAttribute('role');radioSheetReturnFocus?.focus();
     }
 
     function bindTouchSheet() {
@@ -3314,6 +3334,26 @@
 
     // Real listeners keep static controls and generated station cards actionable
     // when a reverse proxy disallows inline event attributes. No eval is used.
+    const enhanceRadioControls=root=>{
+      const controls=[...(root.matches?.('[data-radio-click]')?[root]:[]),...root.querySelectorAll('[data-radio-click]')];
+      controls.forEach(control=>{if(control.dataset.radioClick !== '62' && !control.matches('button,input,a,select')){control.tabIndex=0;control.setAttribute('role','button');}});
+    };
+    enhanceRadioControls(document);
+    new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)enhanceRadioControls(node);}))).observe(document.body,{childList:true,subtree:true});
+    document.addEventListener('keydown',event=>{
+      const sheet=document.getElementById('mobile-player-sheet');
+      if(sheet.classList.contains('drawer-visible')) {
+        if(event.key==='Escape'){event.preventDefault();closeMobileSheet();return;}
+        if(event.key==='Tab'){
+          const items=[...sheet.querySelectorAll('button,input,[tabindex="0"]')].filter(el=>el.getClientRects().length);
+          const first=items[0],last=items[items.length-1];
+          if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+          else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+        }
+      }
+      const target=event.target.closest('[data-radio-click][role="button"]');
+      if(target && (event.key==='Enter'||event.key===' ')){event.preventDefault();target.click();}
+    });
     const radioActions = {
       "0": function(event) { openMobileSheet(); },
       "1": function(event) { handleM3UImport(event); },

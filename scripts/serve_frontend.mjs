@@ -127,12 +127,12 @@ const server = http.createServer((req,res) => {
   const tvCsp = [
     'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
     "default-src 'none'",
-    `script-src 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net`,
+    `script-src 'self' 'nonce-${nonce}'`,
     // The bundled media player contains inline onclick/oninput attributes.
     // Scope their permission to this origin-opaque document only.
     "script-src-attr 'unsafe-inline'",
-    "style-src 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com data:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src data:",
     'img-src https: data: blob:',
     'media-src https: http: data: blob:',
     'connect-src https: http:',
@@ -143,18 +143,18 @@ const server = http.createServer((req,res) => {
     "form-action 'none'",
     "frame-ancestors 'self'",
   ].join('; ');
-  // Radio loads Tailwind, HLS, Font Awesome, remote catalogs and HTTPS streams.
+  // Radio bundles its styles, HLS and icons; catalogs and streams stay remote.
   // It must remain origin-opaque, just like TV, while the trading SPA keeps
   // its strict first-party CSP. Never add allow-same-origin here.
   const radioCsp = [
     'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
     "default-src 'none'",
-    `script-src 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net`,
+    `script-src 'self' 'nonce-${nonce}'`,
     // The bundled media player contains inline onclick/oninput attributes.
     // Scope their permission to this origin-opaque document only.
     "script-src-attr 'unsafe-inline'",
-    "style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
-    "font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src data:",
     'img-src https: data: blob:',
     'media-src https: http: data: blob:',
     'connect-src https: http:',
@@ -167,7 +167,7 @@ const server = http.createServer((req,res) => {
   ].join('; ');
   const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
   res.writeHead(200,{'Content-Type':mime[path.extname(file)] || 'application/octet-stream',
-    'Cache-Control':isTvDocument || isRadioDocument || file.endsWith('index.html')?'no-store':'public, max-age=3600',
+    'Cache-Control':isTvDocument || isRadioDocument || file.endsWith('index.html')?'no-store':(decoded.startsWith('/media/') || /^\/(tv|radio)\/.*\.css$/.test(decoded))?'no-cache':'public, max-age=3600',
     'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
     'Content-Security-Policy':isTvDocument ? tvCsp : isRadioDocument ? radioCsp : tradingCsp});
   if (req.method==='HEAD') {res.end();return;}

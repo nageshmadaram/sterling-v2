@@ -29,7 +29,10 @@ function readRadioPrefs() {
  * inherited access to Sterling's DOM, auth cookies, Kite API or storage.
  * Only four isolated Radio keys are accepted through the message bridge.
  */
-export function RadioWorkspace() {
+export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'youtube';query:string})=>void}) {
+  const stateRef = useRef(onState);
+  stateRef.current = onState;
+  const commandsRef = useRef<Array<{action:string;value?:string}>>([]);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const hydratedRef = useRef(false);
   const readyRef = useRef(false);
@@ -40,7 +43,7 @@ export function RadioWorkspace() {
   const hydrate = useCallback(() => {
     const frame = frameRef.current;
     if (!frame?.contentWindow) return;
-    frame.contentWindow.postMessage({type:HYDRATE,values:readRadioPrefs()}, '*');
+    frame.contentWindow.postMessage({type:HYDRATE,hostHeader:true,values:readRadioPrefs()}, '*');
     hydratedRef.current = true;
   },[]);
 
@@ -56,6 +59,12 @@ export function RadioWorkspace() {
         setFailed(false);
         hydrate();
         frame.contentWindow?.postMessage({type:'sterling.radio.ack'}, '*');
+        commandsRef.current.splice(0).forEach(command => frame.contentWindow?.postMessage({type:'sterling.radio.command',...command},'*'));
+      } else if (message.type === 'sterling.radio.state') {
+        if ((message.theme === 'spotify' || message.theme === 'youtube') && typeof message.query === 'string' && message.query.length <= 200)
+          stateRef.current?.({theme:message.theme,query:message.query});
+      } else if (message.type === 'sterling.radio.focus-search') {
+        window.dispatchEvent(new Event('sterling-radio-focus-search'));
       } else if (message.type === SAVE && hydratedRef.current) {
         if (!ALLOWED_KEYS.has(message.key) ||
           (message.value !== null &&
@@ -75,8 +84,16 @@ export function RadioWorkspace() {
 
   useEffect(() => {
     const reload=() => {hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);};
+    const command=(event:Event) => {
+      const detail=(event as CustomEvent).detail;
+      if(!detail || !['theme','search','more'].includes(detail.action)) return;
+      const message={action:detail.action,value:detail.value};
+      if(readyRef.current)frameRef.current?.contentWindow?.postMessage({type:'sterling.radio.command',...message},'*');
+      else {commandsRef.current=commandsRef.current.filter(item=>item.action!==message.action);commandsRef.current.push(message);}
+    };
+    window.addEventListener('sterling-radio-command',command);
     window.addEventListener('sterling-radio-reload',reload);
-    return () => window.removeEventListener('sterling-radio-reload',reload);
+    return () => {window.removeEventListener('sterling-radio-reload',reload);window.removeEventListener('sterling-radio-command',command);};
   },[]);
 
   return <section aria-label="Sterling Radio workspace" data-testid="sterling-radio-workspace"

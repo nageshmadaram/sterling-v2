@@ -32,6 +32,10 @@ export function SimpleTerminal() {
     return home === 'tv' || home === 'radio' ? home : 'kite';
   });
   const [tvState,setTvState]=useState<{theme:'youtube'|'spotify'|'netflix';query:string}>(()=>{let theme='youtube';try{theme=localStorage.getItem('sterling.tv.streamos_theme_v14')||theme;}catch{}return {theme:theme==='spotify'||theme==='netflix'?theme:'youtube',query:''};});
+  const [radioState,setRadioState]=useState<{theme:'spotify'|'youtube';query:string}>({theme:'spotify',query:''});
+  const onRadioState=useCallback((state:{theme:'spotify'|'youtube';query:string})=>setRadioState(state),[]);
+  const radioCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-radio-command',{detail:{action,value}}));
+  useEffect(()=>{const focus=()=>document.querySelector<HTMLInputElement>('.sterling-radio-search input')?.focus();window.addEventListener('sterling-radio-focus-search',focus);return()=>window.removeEventListener('sterling-radio-focus-search',focus);},[]);
   const onTvState=useCallback((state:{theme:'youtube'|'spotify'|'netflix';query:string})=>setTvState(state),[]);
   const tvCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action,value}}));
   useEffect(()=>{const focus=()=>document.querySelector<HTMLInputElement>('.sterling-tv-search input')?.focus();window.addEventListener('sterling-tv-focus-search',focus);return()=>window.removeEventListener('sterling-tv-focus-search',focus);},[]);
@@ -169,7 +173,7 @@ export function SimpleTerminal() {
   useEffect(()=>{if(!('serviceWorker' in navigator))return;const receive=(event:MessageEvent)=>{if(event.data?.type!=='sterling-notification')return;try{const url=new URL(event.data.url,window.location.origin);if(url.origin!==window.location.origin)return;const next=notificationDestination(url.searchParams.get('notification'));if(next){if(hasUnsavedDraft()&&!window.confirm('Open this live-account notification and discard unapplied settings?'))return;useViewStore.getState().setView('live');window.location.assign(url.href);}}catch{/* malformed notification */}};navigator.serviceWorker.addEventListener('message',receive);return()=>navigator.serviceWorker.removeEventListener('message',receive);},[kiteNav]);
 
   return (
-    <div className={`term-root ${spectrum==='tv'?'sterling-tv-mode':spectrum==='radio'?'sterling-radio-mode':''}`} data-tv-theme={tvState.theme}>
+    <div className={`term-root ${spectrum==='tv'?'sterling-tv-mode':spectrum==='radio'?'sterling-radio-mode':''}`} data-tv-theme={tvState.theme} data-radio-theme={radioState.theme}>
       <style>{`
         .kite-header-actions > * { flex-shrink: 0; }
         .kite-topnav {
@@ -203,9 +207,9 @@ export function SimpleTerminal() {
               STERLING
             </span>
           </button>
-          <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} />
+          {spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>}
 {spectrum==='tv' && <div className="sterling-tv-header-controls">
-            <div className="sterling-tv-theme-switch" aria-label="TV theme">{(['youtube','spotify','netflix'] as const).map(theme=><button key={theme} type="button" aria-pressed={tvState.theme===theme} onClick={()=>{setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}>{theme==='youtube'?'YouTube':theme==='spotify'?'Spotify':'Netflix'}</button>)}</div>
+            <select className="sterling-media-theme-select" aria-label="TV appearance" value={tvState.theme} onChange={e=>{const theme=e.target.value as typeof tvState.theme;setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}><option value="spotify">Spotify</option><option value="youtube">YouTube</option><option value="netflix">Netflix</option></select><div className="sterling-tv-theme-switch" aria-label="TV theme">{(['youtube','spotify','netflix'] as const).map(theme=><button key={theme} type="button" aria-pressed={tvState.theme===theme} onClick={()=>{setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}>{theme==='youtube'?'YouTube':theme==='spotify'?'Spotify':'Netflix'}</button>)}</div>
             <form className="sterling-tv-search" role="search" onSubmit={e=>{e.preventDefault();tvCommand('play-search');}}><input type="search" aria-label="Search TV channels" placeholder="Search TV" maxLength={200} value={tvState.query} onChange={e=>{const query=e.target.value;setTvState(s=>({...s,query}));tvCommand('search',query);}}/><button type="submit" aria-label="Play first search result">⌕</button></form>
             <button type="button" className="sterling-tv-more" aria-label="TV features" onClick={()=>tvCommand('more')}>⋯</button>
           </div>}
@@ -269,7 +273,12 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
-          {spectrum === 'radio' && <div className="sterling-radio-header-controls"><button type="button" aria-label="Reload Radio" onClick={() => window.dispatchEvent(new Event('sterling-radio-reload'))}>↻ Radio</button></div>}
+          {spectrum === 'radio' && <div className="sterling-tv-header-controls sterling-radio-header-controls">
+            <select className="sterling-media-theme-select" aria-label="Radio appearance" value={radioState.theme} onChange={e=>radioCommand('theme',e.target.value)}><option value="spotify">Spotify</option><option value="youtube">YouTube Music</option></select>
+            <div className="sterling-tv-theme-switch" aria-label="Radio theme">{(['spotify','youtube'] as const).map(theme=><button key={theme} type="button" aria-pressed={radioState.theme===theme} onClick={()=>radioCommand('theme',theme)}>{theme==='spotify'?'Spotify':'YouTube Music'}</button>)}</div>
+            <form className="sterling-tv-search sterling-radio-search" role="search" onSubmit={e=>e.preventDefault()}><input type="search" aria-label="Search radio stations" placeholder="Search stations, languages, podcasts" maxLength={200} value={radioState.query} onChange={e=>{const query=e.target.value;setRadioState(s=>({...s,query}));radioCommand('search',query);}}/><button type="button" aria-label="Reload Radio" onClick={()=>window.dispatchEvent(new Event('sterling-radio-reload'))}>↻</button></form>
+            <button type="button" className="sterling-tv-more" aria-label="Radio settings" onClick={()=>radioCommand('more')}>⋯</button>
+          </div>}
           {(spectrum === 'tv' || spectrum === 'radio') && <ProfileMenu />}
           {(spectrum === 'tv' || spectrum === 'radio') && !navOptions.spectrumVisible.kite && <button type="button" aria-label="Experience settings"
             title="Experience settings" onClick={() => setShowSettings(true)}
@@ -282,13 +291,13 @@ export function SimpleTerminal() {
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
-      <MobileExperienceMenu userName={sterlingProfile?.display_name || sterlingProfile?.username || undefined}
+      {spectrum === 'kite' && <MobileExperienceMenu userName={sterlingProfile?.display_name || sterlingProfile?.username || undefined}
         activeNav={kiteNav} onNavClick={handleKiteNav} tools={overflow}
         onSearch={() => {
           if (chooseSpectrum('kite','live')) {
             requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('kite-open-watchlist-search')));
           }
-        }} />
+        }} />}
       {spectrum === 'kite' && <SimBanner />}
 
       {/* ── Content ──────────────────────────────────────────────── */}
@@ -300,7 +309,7 @@ export function SimpleTerminal() {
       </div>
       {spectrum === 'radio' && <div id="sterling-radio-surface" role="tabpanel"
         aria-label="Radio workspace" style={{ display:'flex', flex:1, minHeight:0, minWidth:0, overflow:'hidden' }}>
-        <RadioWorkspace />
+        <RadioWorkspace onState={onRadioState} />
       </div>}
       {spectrum === 'tv' && <div id="sterling-tv-surface" role="tabpanel"
         aria-label="TV workspace" style={{ display: 'flex', flex: 1,

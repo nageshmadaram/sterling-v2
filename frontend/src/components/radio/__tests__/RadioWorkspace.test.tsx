@@ -28,7 +28,7 @@ describe('Radio workspace isolation', () => {
     const frame=screen.getByTitle('Sterling Radio player') as HTMLIFrameElement;
     const post=vi.spyOn(frame.contentWindow!,'postMessage');
     fireEvent.load(frame);
-    expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',
+    expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',hostHeader:true,
       values:{omnicast_v11_liked:'["FM"]'}},'*');
     fromFrame('sterling.radio.ready');
     expect(screen.queryByText('Loading Radio…')).toBeNull();
@@ -53,6 +53,19 @@ describe('Radio workspace isolation', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(post).toHaveBeenCalledWith({type:'sterling.radio.ack'},'*');
     vi.useRealTimers();
+  });
+  it('queues theme changes until ready and accepts validated player state',()=>{
+    const state=vi.fn();render(<RadioWorkspace onState={state} />);
+    const frame=screen.getByTitle('Sterling Radio player') as HTMLIFrameElement;
+    const post=vi.spyOn(frame.contentWindow!,'postMessage');
+    fireEvent(window,new CustomEvent('sterling-radio-command',{detail:{action:'theme',value:'youtube'}}));
+    expect(post).not.toHaveBeenCalled();
+    fromFrame('sterling.radio.ready');
+    expect(post).toHaveBeenCalledWith({type:'sterling.radio.command',action:'theme',value:'youtube'},'*');
+    fromFrame('sterling.radio.state',{theme:'youtube',query:'BBC'});
+    expect(state).toHaveBeenCalledWith({theme:'youtube',query:'BBC'});
+    fromFrame('sterling.radio.state',{theme:'bogus',query:'BBC'});
+    expect(state).toHaveBeenCalledTimes(1);
   });
   it('reloads from Radio header command',()=>{
     render(<RadioWorkspace />);

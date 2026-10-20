@@ -71,4 +71,23 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(sheet.classList.contains('drawer-hidden')).toBe(true);
     expect(errors).toEqual([]);
   });
+  it('renders local Radio search immediately and ignores stale network results',async()=>{
+    const {w,errors}=boot('radio');
+    let release:(value:unknown)=>void=()=>{};
+    w.fetch=((url:string)=>url.includes('/byname/bbc')?new Promise(resolve=>{release=resolve;}):Promise.resolve({ok:true,json:async()=>[]})) as any;
+    const old=(w as any).runOmniSearch('BBC');
+    expect(w.document.querySelector('#sp-cards-grid')?.textContent).toContain('BBC');
+    await (w as any).runOmniSearch('Telugu');
+    release({ok:true,json:async()=>[{name:'Stale BBC result',url_resolved:'https://old.example/live.mp3',stationuuid:'old'}]});
+    await old;
+    expect(w.document.querySelector('#sp-grid-heading')?.textContent).toContain('Telugu');
+    expect(w.document.querySelector('#sp-cards-grid')?.textContent).not.toContain('Stale BBC result');
+    (w as any).onSearchInput('');
+    expect(w.document.documentElement.classList.contains('radio-searching')).toBe(false);
+    expect(w.document.querySelector('#sp-grid-heading')?.textContent).toContain('Shortwave');
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'theme',value:'youtube'}}));
+    expect(w.document.body.classList.contains('mode-ytmusic')).toBe(true);
+    expect(errors).toEqual([]);
+  });
+
 });

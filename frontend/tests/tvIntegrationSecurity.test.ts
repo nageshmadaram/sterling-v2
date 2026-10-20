@@ -13,6 +13,18 @@ const originalKiteCss = readFileSync(resolve(process.cwd(), 'src/styles/terminal
 const spectrumSpacingCss = readFileSync(resolve(process.cwd(), 'src/styles/globals.css'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
+  it('ships local media styles, fonts and icons without runtime Tailwind',()=>{
+    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    for(const page of [tvPage,radio]) {
+      expect(page).toContain('href="/media/interface.css"');
+      expect(page).toContain('href="/media/fonts.css"');
+      expect(page).not.toContain('src="https://cdn.tailwindcss.com"');
+    }
+    expect(radio).toContain('href="/media/icons.css"');
+    expect(gateway).toContain("style-src 'self' 'unsafe-inline'");
+    expect(readFileSync(resolve(process.cwd(),'public/media/interface.css'),'utf8')).toContain('.flex');
+    expect(readFileSync(resolve(process.cwd(),'public/media/icons.css'),'utf8')).toContain('data:font/woff2;base64,');
+  });
   it('embeds the same mobile UI assets in the standalone and published players', () => {
     for (const file of ['mobile.css','mobile.js']) {
       const asset = readFileSync(resolve(process.cwd(), 'tv-mobile', file), 'utf8');
@@ -24,7 +36,7 @@ describe('Sterling TV static integration safety', () => {
   it('ships the current IPTV design and controls rather than a stale player copy', () => {
     const title = (html: string) => html.match(/<title>(.*?)<\/title>/)?.[1];
     expect(title(tvPage)).toBe(title(latestTv));
-    expect(title(tvPage)).toContain('v18');
+    expect(title(tvPage)).toBe('Sterling TV');
     for (const id of ['audio-eq-popover', 'pip-drag-header', 'pip-resize-handle']) {
       expect(latestTv).toContain(`id="${id}"`);
       expect(tvPage).toContain(`id="${id}"`);

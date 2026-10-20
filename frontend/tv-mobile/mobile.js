@@ -3,17 +3,18 @@
   const mobile = matchMedia('(max-width:767px), (max-width:1024px) and (max-height:600px)');
   const icons = {
     home:'M3 10 12 3l9 7v11h-6v-7H9v7H3z', search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
-    library:'M4 3v18M9 3v18M15 3l6 17M13 3h3', play:'m9 5 11 7-11 7z', pause:'M8 5v14M16 5v14',
+    library:'M4 3v18M9 3v18M15 3l6 17M13 3h3', play:'m9 5 11 7-11 7z', pause:'M6 5h4v14H6zM14 5h4v14h-4z',
     next:'m5 5 11 7-11 7zM19 5v14', prev:'m19 5-11 7 11 7zM5 5v14', plus:'M12 5v14M5 12h14',
     check:'m5 12 4 4L19 6', down:'m6 9 6 6 6-6', close:'m6 6 12 12M6 18 18 6', more:'M5 12h.01M12 12h.01M19 12h.01',
     queue:'M4 5h16M4 11h16M4 17h9m4-2 4 3-4 3z', screen:'M3 4h18v13H3zM8 21h8M12 17v4',
     settings:'M4 7h16M4 17h16M8 4v6M16 14v6', share:'m14 3 7 7-7 7M21 10H10a7 7 0 0 0-7 7v4',
     globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18',
+    volume:'M11 5 6 9H3v6h3l5 4zM15 8c3 2 3 6 0 8M18 5c5 4 5 10 0 14', muted:'M11 5 6 9H3v6h3l5 4zM16 9l6 6M16 15l6-6',
     clock:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 7v5l3 2', bell:'M18 8a6 6 0 0 0-12 0c0 8-3 8-3 10h18c0-2-3-2-3-10M10 21h4',
     youtube:'M22 8c0-3-1-4-4-4H6C3 4 2 5 2 8v8c0 3 1 4 4 4h12c3 0 4-1 4-4zM10 8l6 4-6 4z',
     spotify:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M6 9c4-2 9-1 12 1M7 12c4-1 7-1 10 1M8 15c3-1 5-1 8 1'
   };
-  const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${icons[name] || icons.screen}"/></svg>`;
+  const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24" fill="${['play','pause'].includes(name)?'currentColor':'none'}" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${icons[name] || icons.screen}"/></svg>`;
   const action = (name,label,glyph,cls='tm-icon') => `<button type="button" class="${cls}" data-tm-action="${name}" aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
   const shell = document.createElement('div');
   shell.id='tv-mobile-shell';
@@ -29,7 +30,7 @@
   const mini=document.createElement('div');mini.id='tv-mobile-mini';mini.setAttribute('aria-label','Now playing');
   mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live television</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
   const now=document.createElement('section');now.id='tv-now-playing';now.setAttribute('aria-label','Now Playing');now.setAttribute('role','dialog');now.setAttribute('aria-modal','true');now.hidden=true;
-  now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','screen')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
+  now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false;
@@ -64,8 +65,9 @@
     if(stage)stage.inert=enabled&&currentTheme==='spotify'&&!expanded;
     home.inert=shell.inert=enabled&&expanded&&currentTheme==='spotify';
     if(lastLandscape!==(innerWidth>innerHeight)){lastLandscape=innerWidth>innerHeight;renderHome();}
-    document.body.classList.toggle('tm-catalog-view',enabled&&view!=='home');
+    document.body.classList.toggle('tm-catalog-view',enabled&&view!=='home'&&view!=='watch');
     document.body.classList.toggle('tm-browse-search',enabled&&currentTheme==='spotify'&&view==='search'&&!searchInputEl.value.trim());
+    document.body.classList.toggle('tm-watch-view',enabled&&view==='watch');
     document.body.classList.toggle('tm-now-open',enabled&&expanded&&currentTheme==='spotify');
     now.hidden=!(enabled&&expanded&&currentTheme==='spotify');
     if(!enabled) { now.hidden=true; return; }
@@ -84,6 +86,9 @@
     nav.querySelector('[data-tm-action="library"] span').textContent=currentTheme==='youtube'?'Subscriptions':'Your Library';
     nav.querySelector('[data-tm-action="more"] span').textContent=currentTheme==='youtube'?'You':'More';
     const paused=document.getElementById('video-player').paused;
+    const mute=now.querySelector('[data-tm-action="mute"]');
+    const muted=document.getElementById('video-player').muted;
+    mute.innerHTML=icon(muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
     [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');b.innerHTML=icon(paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');});
   }
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
@@ -162,10 +167,10 @@
   }
   document.addEventListener('click',event=>{
     const button=event.target.closest('[data-tm-action],[data-tm-channel],[data-tm-category],[data-tm-eq],[data-tm-quality]');
-    if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='home';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='home';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')run('live');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
@@ -198,7 +203,7 @@
     try{
       const saved=JSON.parse(uiStorage().getItem('streamos_ui_v14')||'null');
       if(!saved||typeof saved!=='object')return;
-      if(['home','live','library','history','search','news','sports'].includes(saved.view))view=saved.view;
+      if(['home','watch','live','library','history','search','news','sports'].includes(saved.view))view=saved.view;
       if(typeof saved.query==='string'&&saved.query.length<=200){searchInputEl.value=saved.query;document.getElementById('tm-search-input').value=saved.query;}
       if(typeof saved.category==='string'&&saved.category.length<=80)catalogCategory=saved.category;
       if(typeof saved.language==='string'&&saved.language.length<=40)catalogLanguage=saved.language;
@@ -229,7 +234,7 @@
     if(data.action==='search'&&typeof data.value==='string'&&data.value.length<=200)applySearch(data.value);
     if(data.action==='play-search'){
       const match=getRankedSearchMatches(searchInputEl.value)[0];
-      if(match){playStream(match,0);view='home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
+      if(match){playStream(match,0);view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
     }
     if(data.action==='more'){if(mobile.matches)showSheet();else toggleSidebarDrawer(true);}
   });
