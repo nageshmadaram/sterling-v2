@@ -149,6 +149,8 @@ class DrillRegister:
                 # Records written before the schema carried several refs.
                 single = str(row.get("evidence_ref") or "")
                 refs = [single] if single else []
+            if not isinstance(refs, (list, tuple)):
+                refs = []  # Malformed evidence is not a PASS.
 
             status = str(row.get("status") or UNKNOWN).strip().upper()
             observed = str(row.get("observed") or "").strip()
@@ -224,6 +226,8 @@ class DrillRegister:
                 "a PASS must say what the system actually did; "
                 f"the required outcome is: {DRILLS_BY_KEY[key].required_outcome}"
             )
+        if isinstance(evidence_refs, (str, bytes)):
+            raise ValueError("evidence_refs must be a sequence of references, not a string")
         refs = tuple(str(r).strip() for r in evidence_refs if str(r).strip())
         if status == PASS and not refs:
             raise ValueError(
