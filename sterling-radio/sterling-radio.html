@@ -7,9 +7,9 @@
   <meta name="apple-mobile-web-app-capable" content="true" />
   <meta name="mobile-web-app-capable" content="true" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>OmniCast v10.0 — Spotify & YouTube Music Replicas (Pro SW/AM Receiver, Startup Channel & HD DSP)</title>
+  <title>Spotify & YouTube Music — Live Radio, Shortwave & Podcasts</title>
 
-  <!-- Silence Tailwind Play CDN dev warning cleanly -->
+  <!-- Silence Tailwind Play CDN notice cleanly -->
   <script>
     (function() {
       const origWarn = console.warn;
@@ -24,7 +24,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
 
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;600;700;800&family=Roboto:wght@400;500;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap');
 
     :root {
       --sp-green: #1ed760;
@@ -39,7 +39,7 @@
       --ytm-red: #ff0033;
       --ytm-sub: #aaaaaa;
 
-      --ambient-rgb: 30, 215, 96;
+      --ambient-rgb: 28, 90, 56;
     }
 
     * {
@@ -48,10 +48,11 @@
     }
 
     body.mode-spotify {
-      font-family: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
-      letter-spacing: -0.015em;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: -0.011em;
       background-color: #000000;
       color: #ffffff;
+      -webkit-font-smoothing: antialiased;
     }
 
     body.mode-ytmusic {
@@ -59,15 +60,18 @@
       letter-spacing: 0;
       background-color: #030303;
       color: #ffffff;
+      -webkit-font-smoothing: antialiased;
     }
 
-    .font-dial {
+    .font-mono-num {
       font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
     }
 
+    /* Ultra-clean scrollbars */
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 9999px; }
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
@@ -79,36 +83,59 @@
       scroll-snap-align: start;
     }
 
-    /* Ambient Gradients */
-    .sp-ambient {
-      background: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.36) 0%, rgba(18,18,18,0.92) 250px, #121212 100%);
-      transition: background 0.7s ease;
-    }
-    .sp-mini-pill {
-      background: linear-gradient(90deg, rgba(var(--ambient-rgb), 0.36) 0%, rgba(36,36,36,0.98) 45%, rgba(24,24,24,0.99) 100%);
-      transition: background 0.5s ease;
-    }
-    .ytm-ambient {
-      background: radial-gradient(ellipse 95% 320px at 22% 0%, rgba(var(--ambient-rgb), 0.28) 0%, rgba(3,3,3,0) 80%), #030303;
-      transition: background 0.7s ease;
+    /* Strictly Circular Play/Pause Button Geometry (Never Squishes or Ovals) */
+    .btn-circle {
+      border-radius: 9999px !important;
+      aspect-ratio: 1 / 1 !important;
+      flex-shrink: 0 !important;
+      padding: 0 !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
     }
 
-    /* 100% Opaque Solid YouTube Music Overlay & Mobile Sheet */
-    .ytm-solid-overlay {
+    /* Subtle Top Ambient Wash on Main Scroll Canvas */
+    .sp-canvas-bg {
+      background: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.28) 0%, #121212 220px, #121212 100%);
+      transition: background 0.6s ease;
+    }
+    .ytm-canvas-bg {
+      background: radial-gradient(ellipse 90% 260px at 20% 0%, rgba(var(--ambient-rgb), 0.22) 0%, #030303 75%), #030303;
+      transition: background 0.6s ease;
+    }
+
+    /* 100% SOLID OPAQUE PLAYER BARS & OVERLAYS (Zero Transparency / Zero Text Bleed) */
+    .solid-sp-footer {
+      background-color: #000000 !important;
+      border-top: 1px solid #1f1f1f !important;
+    }
+    .solid-sp-miniplayer {
+      background-color: #242424 !important;
+      border: 1px solid #333333 !important;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.95) !important;
+    }
+    .solid-sp-mob-nav {
+      background-color: #000000 !important;
+      border-top: 1px solid #1f1f1f !important;
+    }
+    .solid-ytm-footer {
+      background-color: #212121 !important;
+    }
+    .solid-ytm-mob-nav {
       background-color: #030303 !important;
-      background-image: radial-gradient(circle at 25% 35%, rgba(var(--ambient-rgb), 0.28) 0%, rgba(3,3,3,0.98) 65%, #030303 100%) !important;
+      border-top: 1px solid #1f1f1f !important;
     }
-    .sheet-solid-ambient {
-      background-color: #080808 !important;
-      background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.62) 0%, #121212 58%, #050505 100%) !important;
+    .solid-ytm-overlay {
+      background-color: #030303 !important;
     }
-    .sp-nav-fade {
-      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.90) 26%, #000000 100%);
+    .solid-mobile-sheet {
+      background-color: #121212 !important;
+      background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.45) 0%, #121212 55%, #090909 100%) !important;
     }
 
-    /* Equalizer Animation */
-    @keyframes eqBounce {
-      0%, 100% { transform: scaleY(0.22); }
+    /* Equalizer Micro-Animation */
+    @keyframes eqPulse {
+      0%, 100% { transform: scaleY(0.25); }
       50% { transform: scaleY(1); }
     }
     .eq-bar {
@@ -116,39 +143,41 @@
       height: 12px;
       background-color: var(--sp-green);
       transform-origin: bottom;
-      animation: eqBounce 0.65s infinite ease-in-out;
-      border-radius: 2px;
+      animation: eqPulse 0.7s infinite ease-in-out;
+      border-radius: 1px;
     }
-    .eq-bar:nth-child(2) { animation-delay: 0.18s; }
-    .eq-bar:nth-child(3) { animation-delay: 0.34s; }
-    .paused .eq-bar { animation-play-state: paused; transform: scaleY(0.2); }
+    .eq-bar:nth-child(2) { animation-delay: 0.2s; }
+    .eq-bar:nth-child(3) { animation-delay: 0.35s; }
+    .paused .eq-bar { animation-play-state: paused; transform: scaleY(0.25); }
 
-    /* Standard Range Sliders */
-    input[type="range"].clean-range {
+    /* Clean Range Sliders */
+    input[type="range"].pro-slider {
       -webkit-appearance: none;
       appearance: none;
-      background: rgba(255,255,255,0.22);
+      background: #3e3e3e;
       height: 4px;
       border-radius: 999px;
       outline: none;
     }
-    input[type="range"].clean-range::-webkit-slider-thumb {
+    input[type="range"].pro-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 12px;
       height: 12px;
       border-radius: 50%;
       background: #ffffff;
       cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.6);
     }
-    input[type="range"].ytm-scrubber {
+
+    input[type="range"].ytm-line-slider {
       -webkit-appearance: none;
       appearance: none;
-      background: rgba(255,255,255,0.18);
+      background: #383838;
       height: 2px;
       outline: none;
       margin: 0;
     }
-    input[type="range"].ytm-scrubber::-webkit-slider-thumb {
+    input[type="range"].ytm-line-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
       width: 10px;
       height: 10px;
@@ -157,42 +186,36 @@
       cursor: pointer;
     }
 
-    /* Pro Shortwave / AM Receiver Touch Dial Slider */
-    input[type="range"].sw-receiver-dial {
+    /* Braun / Teenage Engineering Precision Hardware Tuner Slider */
+    input[type="range"].tuner-ruler-slider {
       -webkit-appearance: none;
       appearance: none;
       background: transparent;
-      height: 48px;
+      height: 36px;
       width: 100%;
       outline: none;
-      cursor: ew-resize;
+      cursor: pointer;
       position: relative;
-      z-index: 20;
+      z-index: 10;
     }
-    input[type="range"].sw-receiver-dial::-webkit-slider-thumb {
+    input[type="range"].tuner-ruler-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 22px;
-      height: 44px;
-      border-radius: 5px;
-      background: linear-gradient(180deg, #ff3b30 0%, #dc2626 100%);
-      border: 2px solid #ffffff;
-      box-shadow: 0 0 14px rgba(255, 59, 48, 0.9);
+      width: 14px;
+      height: 30px;
+      border-radius: 3px;
+      background: #ffffff;
+      border: 2px solid #000000;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.8);
       cursor: grab;
     }
-    input[type="range"].sw-receiver-dial:active::-webkit-slider-thumb {
-      cursor: grabbing;
-      transform: scaleX(1.12);
-    }
-
-    /* Receiver Scale Tick Marks Background */
-    .sw-scale-ticks {
+    .tuner-ruler-ticks {
       background-image:
-        repeating-linear-gradient(90deg, rgba(245, 158, 11, 0.45) 0px, rgba(245, 158, 11, 0.45) 1px, transparent 1px, transparent 10%),
-        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0px, rgba(255, 255, 255, 0.14) 1px, transparent 1px, transparent 2%);
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.28) 0px, rgba(255,255,255,0.28) 1px, transparent 1px, transparent 10%),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0px, rgba(255,255,255,0.08) 1px, transparent 1px, transparent 2%);
     }
 
     #mobile-player-sheet, #ytm-queue-drawer {
-      transition: transform 0.36s cubic-bezier(0.32, 0.72, 0, 1);
+      transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
       will-change: transform;
     }
     .drawer-hidden { transform: translateY(105%); pointer-events: none; }
@@ -202,205 +225,185 @@
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
 
-  <!-- Core HTML5 Audio Engine + M3U File Input -->
+  <!-- Audio Engine + M3U Import -->
   <audio id="audio-engine" playsinline webkit-playsinline preload="none"></audio>
   <input type="file" id="m3u-file" accept=".m3u,.m3u8" class="hidden" onchange="handleM3UImport(event)" />
 
-  <!-- Minimal Toast Pill -->
-  <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[170] pointer-events-none opacity-0 -translate-y-2 transition-all duration-300 bg-[#282828] border border-white/15 px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-semibold">
-    <span class="w-2 h-2 rounded-full bg-[#1ed760]"></span>
+  <!-- Subtle Notification Pill -->
+  <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[180] pointer-events-none opacity-0 -translate-y-2 transition-all duration-200 bg-[#282828] border border-[#3e3e3e] px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-medium text-white">
+    <span class="w-1.5 h-1.5 rounded-full bg-[#1ed760]"></span>
     <span id="toast-msg">Ready</span>
   </div>
 
-  <!-- Autoplay Handshake Banner (Shown only if browser blocks unmuted boot audio until first tap) -->
-  <div id="boot-resume-banner" onclick="triggerPendingBootPlay()" class="hidden fixed bottom-24 lg:bottom-24 left-1/2 -translate-x-1/2 z-[155] bg-[#1ed760] text-black font-extrabold text-xs px-5 py-2.5 rounded-full shadow-[0_10px_30px_rgba(30,215,96,0.5)] flex items-center gap-2.5 cursor-pointer animate-bounce">
-    <i class="fa-solid fa-play"></i>
-    <span id="boot-resume-text">Tap to resume your startup station</span>
+  <!-- Autoplay Handshake Pill (Only shown if browser blocks initial unmuted boot audio) -->
+  <div id="boot-resume-banner" onclick="triggerPendingBootPlay()" class="hidden fixed bottom-32 lg:bottom-28 left-1/2 -translate-x-1/2 z-[165] bg-white text-black font-semibold text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 cursor-pointer">
+    <i class="fa-solid fa-play text-[10px]"></i>
+    <span id="boot-resume-text">Resume station</span>
   </div>
 
   <!-- =========================================================================
-       MODAL 1: STARTUP CHANNEL & BOOT BEHAVIOR SETTINGS (PERSISTED)
+       MODAL 1: STARTUP CHANNEL & BOOT SETTINGS
        ========================================================================= -->
-  <div id="startup-modal" class="hidden fixed inset-0 z-[160] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-[#181818] border border-white/15 rounded-2xl max-w-md w-full p-5 shadow-2xl">
+  <div id="startup-modal" class="hidden fixed inset-0 z-[170] bg-black/80 flex items-center justify-center p-4">
+    <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <i class="fa-solid fa-power-off text-[#1ed760]"></i>
-          <h3 class="font-bold text-base text-white">Startup & Auto-Play Settings</h3>
-        </div>
-        <button onclick="closeStartupModal()" class="w-8 h-8 rounded-full bg-white/10 text-neutral-300 hover:text-white flex items-center justify-center">
-          <i class="fa-solid fa-xmark text-sm"></i>
+        <h3 class="font-semibold text-[15px] text-white">Startup Playback</h3>
+        <button onclick="closeStartupModal()" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
+          <i class="fa-solid fa-xmark text-xs"></i>
         </button>
       </div>
 
-      <p class="text-xs text-[#b3b3b3] mb-4">Choose what happens when you open OmniCast:</p>
-
-      <!-- Startup Mode Radio Options -->
       <div class="space-y-2 mb-4">
-        <button onclick="setBootBehavior('last')" id="boot-opt-last" class="w-full p-3 rounded-xl border border-[#1ed760] bg-[#1ed760]/10 text-left flex items-center justify-between transition">
+        <button onclick="setBootBehavior('last')" id="boot-opt-last" class="w-full p-3 rounded-lg border border-white/20 bg-[#242424] text-left flex items-center justify-between transition">
           <div>
-            <div class="text-xs font-bold text-white">Remember & Resume Last Played</div>
-            <div id="boot-last-station-name" class="text-[11px] text-[#b3b3b3] mt-0.5">Automatically resumes the last station you listened to</div>
+            <div class="text-xs font-semibold text-white">Resume last played station</div>
+            <div id="boot-last-station-name" class="text-[11px] text-[#b3b3b3] mt-0.5">Automatically plays your most recent station</div>
           </div>
-          <i class="fa-solid fa-circle-check text-[#1ed760]"></i>
+          <i class="fa-solid fa-check text-white text-xs"></i>
         </button>
 
-        <button onclick="setBootBehavior('custom')" id="boot-opt-custom" class="w-full p-3 rounded-xl border border-white/10 bg-[#242424] text-left flex items-center justify-between transition">
+        <button onclick="setBootBehavior('custom')" id="boot-opt-custom" class="w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition">
           <div>
-            <div class="text-xs font-bold text-white">Always Play Specific Startup Channel</div>
-            <div class="text-[11px] text-[#b3b3b3] mt-0.5">Starts your chosen favorite channel every time</div>
+            <div class="text-xs font-semibold text-white">Play specific startup station</div>
+            <div class="text-[11px] text-[#b3b3b3] mt-0.5">Always start with the channel selected below</div>
           </div>
-          <i class="fa-regular fa-circle text-neutral-400"></i>
+          <i class="fa-solid fa-check text-transparent text-xs"></i>
         </button>
 
-        <button onclick="setBootBehavior('quiet')" id="boot-opt-quiet" class="w-full p-3 rounded-xl border border-white/10 bg-[#242424] text-left flex items-center justify-between transition">
+        <button onclick="setBootBehavior('quiet')" id="boot-opt-quiet" class="w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition">
           <div>
-            <div class="text-xs font-bold text-white">Load Last Played Quietly (No Auto-Play)</div>
-            <div class="text-[11px] text-[#b3b3b3] mt-0.5">Cues up your station in the player bar without playing</div>
+            <div class="text-xs font-semibold text-white">Do not auto-play on open</div>
+            <div class="text-[11px] text-[#b3b3b3] mt-0.5">Loads your last station into the player paused</div>
           </div>
-          <i class="fa-regular fa-circle text-neutral-400"></i>
+          <i class="fa-solid fa-check text-transparent text-xs"></i>
         </button>
       </div>
 
-      <!-- Choose Specific Startup Channel Dropdown -->
-      <div class="mb-4 bg-[#121212] p-3.5 rounded-xl border border-white/10">
-        <div class="flex items-center justify-between mb-2">
-          <label class="text-[11px] font-bold uppercase tracking-wider text-[#b3b3b3]">Startup Channel Selection</label>
-          <button onclick="pinActiveAsStartupChannel()" class="text-[11px] font-bold text-[#1ed760] hover:underline">
-            <i class="fa-solid fa-thumbtack mr-1"></i>Use Currently Playing
-          </button>
+      <div class="mb-4 bg-[#121212] p-3 rounded-lg border border-[#282828]">
+        <div class="flex items-center justify-between mb-1.5">
+          <label class="text-[11px] font-medium text-[#b3b3b3]">Default startup channel</label>
+          <button onclick="pinActiveAsStartupChannel()" class="text-[11px] font-semibold text-white hover:underline">Use current</button>
         </div>
-        <select id="startup-channel-select" onchange="onStartupChannelChange(this.value)" class="w-full bg-[#242424] border border-white/15 rounded-lg px-3 py-2.5 text-xs font-semibold text-white outline-none focus:border-[#1ed760]"></select>
+        <select id="startup-channel-select" onchange="onStartupChannelChange(this.value)" class="w-full bg-[#242424] border border-[#383838] rounded-md px-2.5 py-2 text-xs text-white outline-none"></select>
       </div>
 
-      <div class="flex items-center justify-between pt-1">
-        <span class="text-[11px] text-[#b3b3b3]">Saved automatically to browser</span>
-        <button onclick="closeStartupModal()" class="px-5 py-2 rounded-full text-xs font-bold bg-[#1ed760] text-black">Save & Close</button>
+      <div class="flex justify-end">
+        <button onclick="closeStartupModal()" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
       </div>
     </div>
   </div>
 
   <!-- =========================================================================
-       MODAL 2: PRO AUDIO DSP & SOUND QUALITY MASTERING (PERSISTED)
+       MODAL 2: AUDIO QUALITY & EQUALIZER
        ========================================================================= -->
-  <div id="audio-dsp-modal" class="hidden fixed inset-0 z-[160] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
-    <div class="bg-[#181818] border border-white/15 rounded-2xl max-w-md w-full p-5 shadow-2xl">
-      <div class="flex items-center justify-between mb-3">
-        <div class="flex items-center gap-2">
-          <i class="fa-solid fa-sliders text-[#1ed760]"></i>
-          <h3 class="font-bold text-base text-white">Sound Quality & DSP Mastering</h3>
-        </div>
-        <button onclick="closeDspModal()" class="w-8 h-8 rounded-full bg-white/10 text-neutral-300 hover:text-white flex items-center justify-center">
-          <i class="fa-solid fa-xmark text-sm"></i>
+  <div id="audio-dsp-modal" class="hidden fixed inset-0 z-[170] bg-black/80 flex items-center justify-center p-4">
+    <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-[15px] text-white">Audio Quality & Equalizer</h3>
+        <button onclick="closeDspModal()" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
+          <i class="fa-solid fa-xmark text-xs"></i>
         </button>
       </div>
 
       <div class="mb-4">
-        <label class="text-[11px] font-bold uppercase tracking-wider text-[#b3b3b3] block mb-2">Stream Bitrate & Buffer Profile</label>
+        <label class="text-[11px] font-medium text-[#b3b3b3] block mb-2">Streaming quality</label>
         <div class="grid grid-cols-3 gap-2">
-          <button onclick="setStreamQualityProfile('hifi')" id="qprof-hifi" class="py-2 px-2 rounded-lg text-xs font-bold bg-[#1ed760] text-black transition">Hi-Fi 320k</button>
-          <button onclick="setStreamQualityProfile('balanced')" id="qprof-balanced" class="py-2 px-2 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">HD 128k</button>
-          <button onclick="setStreamQualityProfile('datasaver')" id="qprof-datasaver" class="py-2 px-2 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Low Data</button>
+          <button onclick="setStreamQualityProfile('hifi')" id="qprof-hifi" class="py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition">Very High</button>
+          <button onclick="setStreamQualityProfile('balanced')" id="qprof-balanced" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">High</button>
+          <button onclick="setStreamQualityProfile('datasaver')" id="qprof-datasaver" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Data Saver</button>
         </div>
       </div>
 
       <div class="mb-4">
-        <label class="text-[11px] font-bold uppercase tracking-wider text-[#b3b3b3] block mb-2">Acoustic EQ Profile</label>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <button onclick="applyDspPreset('flat')" id="dsp-flat" class="py-2 px-2.5 rounded-lg text-xs font-bold bg-white text-black transition">Hi-Fi Reference</button>
-          <button onclick="applyDspPreset('bass')" id="dsp-bass" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Bass Boost</button>
-          <button onclick="applyDspPreset('vocal')" id="dsp-vocal" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Vocal / News</button>
-          <button onclick="applyDspPreset('spatial')" id="dsp-spatial" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Spatial Warmth</button>
-          <button onclick="applyDspPreset('swclean')" id="dsp-swclean" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">SW/AM Clarifier</button>
-          <button onclick="applyDspPreset('classical')" id="dsp-classical" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Carnatic / Raaga</button>
+        <label class="text-[11px] font-medium text-[#b3b3b3] block mb-2">Presets</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="applyDspPreset('flat')" id="dsp-flat" class="py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition">Flat</button>
+          <button onclick="applyDspPreset('bass')" id="dsp-bass" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Bass Boost</button>
+          <button onclick="applyDspPreset('vocal')" id="dsp-vocal" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Spoken Word</button>
+          <button onclick="applyDspPreset('spatial')" id="dsp-spatial" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Acoustic</button>
+          <button onclick="applyDspPreset('swclean')" id="dsp-swclean" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">AM Voice</button>
+          <button onclick="applyDspPreset('classical')" id="dsp-classical" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Classical</button>
         </div>
       </div>
 
-      <div class="space-y-3 bg-[#121212] p-3.5 rounded-xl border border-white/5 mb-4">
+      <div class="space-y-3 bg-[#121212] p-3.5 rounded-lg border border-[#282828] mb-4">
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs font-semibold text-neutral-300 w-24">Bass (80Hz)</span>
-          <input id="eq-bass" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="clean-range flex-1 accent-[#1ed760]" />
-          <span id="eq-bass-val" class="text-xs font-dial text-[#1ed760] w-10 text-right">+2dB</span>
+          <span class="text-xs text-[#b3b3b3] w-20">Bass</span>
+          <input id="eq-bass" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="pro-slider flex-1" />
+          <span id="eq-bass-val" class="text-xs font-mono-num text-white w-10 text-right">+2dB</span>
         </div>
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs font-semibold text-neutral-300 w-24">Mid (1.5kHz)</span>
-          <input id="eq-mid" type="range" min="-6" max="8" step="1" value="1" oninput="updateCustomEq()" class="clean-range flex-1 accent-[#1ed760]" />
-          <span id="eq-mid-val" class="text-xs font-dial text-[#1ed760] w-10 text-right">+1dB</span>
+          <span class="text-xs text-[#b3b3b3] w-20">Midrange</span>
+          <input id="eq-mid" type="range" min="-6" max="8" step="1" value="1" oninput="updateCustomEq()" class="pro-slider flex-1" />
+          <span id="eq-mid-val" class="text-xs font-mono-num text-white w-10 text-right">+1dB</span>
         </div>
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs font-semibold text-neutral-300 w-24">Treble (10kHz)</span>
-          <input id="eq-treble" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="clean-range flex-1 accent-[#1ed760]" />
-          <span id="eq-treble-val" class="text-xs font-dial text-[#1ed760] w-10 text-right">+2dB</span>
+          <span class="text-xs text-[#b3b3b3] w-20">Treble</span>
+          <input id="eq-treble" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="pro-slider flex-1" />
+          <span id="eq-treble-val" class="text-xs font-mono-num text-white w-10 text-right">+2dB</span>
         </div>
       </div>
 
-      <div class="flex items-center justify-between pt-1">
-        <span class="text-[11px] text-[#b3b3b3]">All sound settings auto-save</span>
-        <button onclick="closeDspModal()" class="px-5 py-2 rounded-full text-xs font-bold bg-[#1ed760] text-black">Done</button>
+      <div class="flex justify-end">
+        <button onclick="closeDspModal()" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
       </div>
     </div>
   </div>
 
   <!-- =========================================================================
-       1. SPOTIFY REPLICA (DESKTOP 3-PANE + AUTHENTIC SPOTIFY MOBILE APP)
+       1. SPOTIFY REPLICA (DESKTOP 3-PANE + NATIVE SPOTIFY MOBILE APP)
        ========================================================================= -->
   <div id="spotify-app" class="flex flex-col h-full w-full bg-black overflow-hidden">
 
     <!-- SPOTIFY DESKTOP HEADER (lg+) -->
     <header class="hidden lg:flex h-16 px-4 items-center justify-between bg-black shrink-0 z-30">
-      <div class="flex items-center gap-3">
-        <button onclick="loadCategory('shortwave')" class="w-10 h-10 flex items-center justify-center text-white hover:scale-105 transition" title="Spotify">
+      <div class="flex items-center gap-2.5">
+        <button onclick="loadCategory('shortwave')" class="w-10 h-10 flex items-center justify-center text-white" title="Spotify">
           <i class="fa-brands fa-spotify text-[32px]"></i>
         </button>
-        <button onclick="loadCategory('shortwave')" class="w-11 h-11 rounded-full bg-[#1f1f1f] hover:bg-[#2a2a2a] flex items-center justify-center text-white transition" title="Home">
+        <button onclick="loadCategory('shortwave')" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
           <i class="fa-solid fa-house text-base"></i>
         </button>
 
-        <!-- Clean Pill Search -->
+        <!-- Search Input -->
         <div class="relative w-72 xl:w-[360px]">
           <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-[#b3b3b3] text-sm pointer-events-none"></i>
           <input id="sp-search-desktop" type="text" placeholder="What do you want to play?"
             oninput="onSearchInput(this.value, 'sp-clear-desktop')"
             onkeydown="if(event.key==='Enter') runOmniSearch(this.value)"
-            class="w-full bg-[#1f1f1f] hover:bg-[#2a2a2a] focus:bg-[#242424] text-[14px] text-white placeholder-[#b3b3b3] rounded-full pl-11 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-white transition" />
+            class="w-full bg-[#1f1f1f] hover:bg-[#2a2a2a] focus:bg-[#242424] text-[14px] text-white placeholder-[#b3b3b3] rounded-full pl-11 pr-10 py-2.5 outline-none focus:ring-1 focus:ring-white transition" />
           <button id="sp-clear-desktop" onclick="clearAllSearches()" class="hidden absolute right-3.5 top-2.5 w-6 h-6 text-[#b3b3b3] hover:text-white items-center justify-center">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
       </div>
 
-      <!-- Category Filter Pills -->
+      <!-- Category Pills -->
       <div class="flex items-center gap-1.5">
-        <button onclick="loadCategory('shortwave')" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-bold bg-white text-black transition">Shortwave & AM</button>
-        <button onclick="loadCategory('akashvani')" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
-        <button onclick="loadCategory('telugu')" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
-        <button onclick="loadCategory('tamil')" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
-        <button onclick="loadCategory('featured')" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
-        <button onclick="loadCategory('podcasts')" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
+        <button onclick="loadCategory('shortwave')" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
+        <button onclick="loadCategory('akashvani')" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
+        <button onclick="loadCategory('telugu')" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
+        <button onclick="loadCategory('tamil')" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
+        <button onclick="loadCategory('featured')" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
+        <button onclick="loadCategory('podcasts')" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
       </div>
 
-      <!-- Startup Channel Config, Sound DSP & Switch to YouTube Music -->
+      <!-- Right Controls -->
       <div class="flex items-center gap-2">
-        <button onclick="openStartupModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-amber-400 border border-amber-500/30 transition" title="Configure Startup Channel & Auto-Play">
-          <i class="fa-solid fa-power-off"></i> <span>Startup</span>
-        </button>
-        <button onclick="openDspModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#1ed760]/15 text-[#1ed760] border border-[#1ed760]/30 hover:bg-[#1ed760] hover:text-black transition">
-          <i class="fa-solid fa-sliders"></i> <span id="sp-dsp-label">HD Audio</span>
-        </button>
-        <button onclick="switchAppMode('ytmusic')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white border border-white/10 transition">
-          <span class="w-4 h-4 rounded-full bg-[#ff0033] flex items-center justify-center"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
+        <button onclick="openStartupModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
+        <button onclick="openDspModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
+        <button onclick="switchAppMode('ytmusic')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
+          <span class="w-4 h-4 btn-circle bg-[#ff0033]"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
           <span>YouTube Music</span>
         </button>
       </div>
     </header>
 
     <!-- SPOTIFY MOBILE NATIVE HEADER (< lg) -->
-    <header class="lg:hidden flex flex-col gap-2.5 px-4 pt-3 pb-2 bg-[#121212] shrink-0 z-30">
+    <header class="lg:hidden flex flex-col gap-2.5 px-4 pt-3 pb-2.5 bg-[#121212] shrink-0 z-30">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          <div onclick="openStartupModal()" class="w-8 h-8 rounded-full bg-[#1ed760] text-black font-extrabold flex items-center justify-center text-xs shrink-0 cursor-pointer" title="Startup Settings">
-            N
-          </div>
+          <button onclick="openStartupModal()" class="w-8 h-8 btn-circle bg-[#1ed760] text-black font-bold text-xs" title="Startup Settings">N</button>
           <button onclick="loadCategory('shortwave')" id="sp-mchip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition">SW / AM</button>
           <button onclick="loadCategory('akashvani')" id="sp-mchip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Akashvani</button>
           <button onclick="loadCategory('telugu')" id="sp-mchip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Telugu</button>
@@ -409,26 +412,18 @@
           <button onclick="loadCategory('podcasts')" id="sp-mchip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Podcasts</button>
         </div>
 
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button onclick="openStartupModal()" class="w-8 h-8 rounded-full bg-[#2a2a2a] text-amber-400 flex items-center justify-center text-xs" title="Startup Station">
-            <i class="fa-solid fa-power-off"></i>
-          </button>
-          <button onclick="openDspModal()" class="w-8 h-8 rounded-full bg-[#2a2a2a] text-[#1ed760] flex items-center justify-center text-xs" title="Sound Quality">
-            <i class="fa-solid fa-sliders"></i>
-          </button>
-          <button onclick="switchAppMode('ytmusic')" class="w-8 h-8 rounded-full bg-[#2a2a2a] flex items-center justify-center" title="Switch to YouTube Music">
-            <span class="w-4 h-4 rounded-full bg-[#ff0033] flex items-center justify-center"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
-          </button>
-        </div>
+        <button onclick="switchAppMode('ytmusic')" class="w-8 h-8 btn-circle bg-[#2a2a2a]" title="Switch to YouTube Music">
+          <span class="w-4 h-4 btn-circle bg-[#ff0033]"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
+        </button>
       </div>
 
-      <!-- Collapsible Mobile Search Bar -->
+      <!-- Collapsible Mobile Search Input -->
       <div id="sp-mob-search-bar" class="hidden relative">
         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-2.5 text-[#121212] text-sm pointer-events-none"></i>
         <input id="sp-search-mobile" type="text" placeholder="What do you want to listen to?"
           oninput="onSearchInput(this.value, 'sp-clear-mobile')"
           onkeydown="if(event.key==='Enter'){ runOmniSearch(this.value); this.blur(); }"
-          class="w-full bg-white text-[#121212] placeholder-[#555] font-semibold text-xs rounded-[6px] pl-9 pr-9 py-2.5 outline-none" />
+          class="w-full bg-white text-[#121212] placeholder-[#555] font-medium text-xs rounded-[6px] pl-9 pr-9 py-2.5 outline-none" />
         <button id="sp-clear-mobile" onclick="clearAllSearches()" class="hidden absolute right-2.5 top-2 text-neutral-600">
           <i class="fa-solid fa-circle-xmark"></i>
         </button>
@@ -439,13 +434,13 @@
     <div class="flex-1 flex gap-2 lg:px-2 lg:pb-2 min-h-0 overflow-hidden">
 
       <!-- PANE 1: LEFT SIDEBAR LIBRARY (Desktop lg+) -->
-      <aside class="hidden lg:flex w-[285px] bg-[#121212] rounded-lg flex-col min-h-0 shrink-0">
+      <aside class="hidden lg:flex w-[280px] bg-[#121212] rounded-lg flex-col min-h-0 shrink-0">
         <div class="px-4 py-3.5 flex items-center justify-between">
-          <div class="flex items-center gap-2.5 text-[#b3b3b3] hover:text-white font-bold text-sm transition cursor-pointer">
+          <div class="flex items-center gap-2.5 text-[#b3b3b3] hover:text-white font-semibold text-sm transition cursor-pointer">
             <i class="fa-solid fa-layer-group text-base"></i>
             <span>Your Library</span>
           </div>
-          <span id="sp-lib-counter" class="text-[11px] text-[#b3b3b3] font-medium"></span>
+          <span id="sp-lib-counter" class="text-[11px] text-[#b3b3b3]"></span>
         </div>
 
         <div class="flex gap-1.5 px-3 pb-2.5 overflow-x-auto no-scrollbar">
@@ -460,88 +455,79 @@
       </aside>
 
       <!-- PANE 2: CENTER MAIN BROWSE CANVAS -->
-      <main class="flex-1 sp-ambient lg:rounded-lg overflow-y-auto px-3.5 sm:px-6 pt-3 pb-36 lg:pb-8 min-h-0">
+      <main class="flex-1 sp-canvas-bg lg:rounded-lg overflow-y-auto px-3.5 sm:px-6 pt-3 pb-36 lg:pb-8 min-h-0">
 
         <!-- =================================================================
-             UPGRADED FULL-WIDTH MOBILE-FRIENDLY SW / AM DIGITAL RECEIVER DECK
+             REDESIGNED SLEEK COLLAPSIBLE SW / AM TUNER BAR (BRAUN / TE STYLE)
+             Collapsed by default (48px slim bar). Expands only when clicked.
              ================================================================= -->
-        <section id="sw-tuner-deck" class="mb-6 bg-gradient-to-b from-[#1a160c] via-[#141414] to-[#0e0e0e] border border-amber-500/35 rounded-2xl p-3.5 sm:p-5 shadow-2xl">
-          <!-- Row 1: Large Backlit LCD Readout + S-Meter + Station Info -->
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3.5 border-b border-white/10">
-            <div class="flex items-center gap-3.5">
-              <!-- Digital LCD Screen -->
-              <div class="bg-[#080b06] border-2 border-amber-500/40 rounded-xl px-4 py-2.5 shadow-inner min-w-[165px]">
-                <div class="flex items-center justify-between text-[10px] font-dial font-bold text-amber-400/80 mb-0.5">
-                  <span id="sw-band-badge">SW 31m</span>
-                  <span id="sw-smeter" class="text-emerald-400">▮▮▮▮▮ S9+20</span>
-                </div>
-                <div class="flex items-baseline gap-1.5">
-                  <span id="sw-freq-display" class="font-dial text-2xl sm:text-3xl font-extrabold text-amber-400 tracking-tight">9410</span>
-                  <span class="font-dial text-xs font-bold text-amber-300/80">kHz</span>
-                </div>
-              </div>
-
-              <!-- Locked Station Callout -->
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-1.5">
-                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                  <span class="text-[10px] font-dial font-extrabold uppercase tracking-wider text-amber-400">AUTO-LOCK TUNER</span>
-                </div>
-                <h3 id="sw-nearest-title" class="text-sm sm:text-base font-extrabold text-white truncate mt-0.5">BBC World Service</h3>
-                <p id="sw-nearest-sub" class="text-xs text-[#b3b3b3] truncate">9410 kHz • 31m Shortwave • Release dial to play</p>
-              </div>
+        <section id="sw-tuner-deck" class="mb-5 bg-[#181818] border border-[#282828] rounded-lg overflow-hidden transition-all">
+          <!-- Always-Visible Slim Bar (48px height) -->
+          <div class="h-12 px-3.5 flex items-center justify-between gap-3">
+            <div onclick="toggleSwDrawer()" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+              <span id="sw-freq-pill" class="font-mono-num text-xs font-semibold px-2.5 py-1 rounded bg-[#262626] text-white shrink-0">
+                9410 kHz
+              </span>
+              <span id="sw-band-badge" class="hidden sm:inline-block text-[11px] font-medium text-[#b3b3b3] shrink-0">
+                31m Band
+              </span>
+              <span class="text-[#3e3e3e]">•</span>
+              <span id="sw-nearest-title" class="text-xs font-medium text-white truncate">BBC World Service</span>
             </div>
 
-            <!-- Meter Band Quick-Jump Pills (Touch Friendly) -->
-            <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 sm:pt-0">
-              <button onclick="jumpAndPlaySw(738)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-emerald-300 shrink-0 transition">MW 738</button>
-              <button onclick="jumpAndPlaySw(1071)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-emerald-300 shrink-0 transition">MW 1071</button>
-              <button onclick="jumpAndPlaySw(6000)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-amber-300 shrink-0 transition">49m</button>
-              <button onclick="jumpAndPlaySw(7375)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-amber-300 shrink-0 transition">41m</button>
-              <button onclick="jumpAndPlaySw(9410)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-amber-300 shrink-0 transition">31m</button>
-              <button onclick="jumpAndPlaySw(11725)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-amber-300 shrink-0 transition">25m</button>
-              <button onclick="jumpAndPlaySw(15580)" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-amber-500 hover:text-black text-xs font-dial font-bold text-amber-300 shrink-0 transition">19m</button>
+            <!-- Quick Step & Expand Toggle -->
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button onclick="seekSwStation(-1)" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Previous Station">
+                <i class="fa-solid fa-chevron-left text-[10px]"></i>
+              </button>
+              <button onclick="seekSwStation(1)" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Next Station">
+                <i class="fa-solid fa-chevron-right text-[10px]"></i>
+              </button>
+              <button onclick="toggleSwDrawer()" id="sw-expand-btn" class="h-8 px-3 rounded-md bg-[#242424] hover:bg-[#303030] text-xs font-medium text-white flex items-center gap-1.5 transition">
+                <span>Tuner</span>
+                <i id="sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#b3b3b3] transition-transform duration-200"></i>
+              </button>
             </div>
           </div>
 
-          <!-- Row 2: Full-Width Visual Analog/Digital Scale with Station Markers & Touch Slider -->
-          <div class="my-3.5 relative bg-[#090909] border border-white/15 rounded-xl px-3 py-2 overflow-hidden">
-            <!-- Frequency Scale Labels -->
-            <div class="flex justify-between text-[10px] font-dial text-amber-400/70 mb-1 px-1">
-              <span>530 AM</span>
-              <span>3000</span>
-              <span>6000</span>
-              <span>9410</span>
-              <span>12000</span>
-              <span>15580</span>
-              <span>18000 kHz</span>
-            </div>
-            <!-- Scale Ruler Ticks + Touch Range Input -->
-            <div class="relative h-12 sw-scale-ticks rounded-lg flex items-center">
-              <input id="sw-freq-slider" type="range" min="530" max="18000" step="5" value="9410"
-                oninput="previewSwDial(this.value)"
-                onchange="commitSwTune(this.value)"
-                class="sw-receiver-dial" />
-            </div>
-          </div>
+          <!-- Expandable Precision Frequency Scale Drawer (Hidden by Default) -->
+          <div id="sw-tuner-drawer" class="hidden border-t border-[#262626] bg-[#141414] px-3.5 py-3 space-y-3">
+            <!-- Band Selector Row + Fine Step Controls -->
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-1 overflow-x-auto no-scrollbar">
+                <button onclick="jumpAndPlaySw(738)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 738</button>
+                <button onclick="jumpAndPlaySw(1071)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 1071</button>
+                <button onclick="jumpAndPlaySw(6000)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">49m</button>
+                <button onclick="jumpAndPlaySw(7375)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">41m</button>
+                <button onclick="jumpAndPlaySw(9410)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">31m</button>
+                <button onclick="jumpAndPlaySw(11725)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">25m</button>
+                <button onclick="jumpAndPlaySw(15580)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">19m</button>
+              </div>
 
-          <!-- Row 3: Mobile-Friendly Tactile Tuning Buttons (44px Height) -->
-          <div class="grid grid-cols-5 gap-2">
-            <button onclick="seekSwStation(-1)" class="h-11 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-xs font-bold text-white flex items-center justify-center gap-1.5 transition">
-              <i class="fa-solid fa-backward-fast text-amber-400"></i> <span>SEEK</span>
-            </button>
-            <button onclick="stepSwFreq(-5)" class="h-11 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-xs font-dial font-bold text-amber-300 flex items-center justify-center transition">
-              -5 kHz
-            </button>
-            <button onclick="commitSwTune(document.getElementById('sw-freq-slider').value)" class="h-11 rounded-xl bg-amber-500 hover:bg-amber-400 active:scale-95 text-xs font-extrabold text-black flex items-center justify-center gap-1.5 shadow-lg transition">
-              <i class="fa-solid fa-bolt"></i> <span>TUNE PLAY</span>
-            </button>
-            <button onclick="stepSwFreq(5)" class="h-11 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-xs font-dial font-bold text-amber-300 flex items-center justify-center transition">
-              +5 kHz
-            </button>
-            <button onclick="seekSwStation(1)" class="h-11 rounded-xl bg-white/10 hover:bg-white/20 active:scale-95 text-xs font-bold text-white flex items-center justify-center gap-1.5 transition">
-              <span>SEEK</span> <i class="fa-solid fa-forward-fast text-amber-400"></i>
-            </button>
+              <div class="flex items-center gap-1.5">
+                <button onclick="stepSwFreq(-5)" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">-5 kHz</button>
+                <button onclick="stepSwFreq(5)" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">+5 kHz</button>
+              </div>
+            </div>
+
+            <!-- Monochrome Precision Scale Ruler -->
+            <div class="bg-[#0c0c0c] border border-[#262626] rounded-md px-3 py-2">
+              <div class="flex justify-between text-[10px] font-mono-num text-[#777777] mb-1">
+                <span>530</span>
+                <span>3000</span>
+                <span>6000</span>
+                <span>9410</span>
+                <span>12000</span>
+                <span>15580</span>
+                <span>18000 kHz</span>
+              </div>
+              <div class="relative h-9 tuner-ruler-ticks flex items-center">
+                <input id="sw-freq-slider" type="range" min="530" max="18000" step="5" value="9410"
+                  oninput="previewSwDial(this.value)"
+                  onchange="commitSwTune(this.value)"
+                  class="tuner-ruler-slider" />
+              </div>
+            </div>
           </div>
         </section>
 
@@ -551,16 +537,16 @@
         </section>
 
         <!-- Podcast Episode Drawer -->
-        <section id="sp-podcast-box" class="hidden mb-7 bg-[#181818] rounded-xl p-4 border border-white/10">
+        <section id="sp-podcast-box" class="hidden mb-7 bg-[#181818] rounded-xl p-4 border border-[#282828]">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-3 min-w-0">
-              <img id="sp-pod-art" src="" class="w-14 h-14 rounded-lg object-cover shrink-0" alt="" />
+              <img id="sp-pod-art" src="" class="w-14 h-14 rounded-md object-cover shrink-0" alt="" />
               <div class="min-w-0">
                 <h3 id="sp-pod-title" class="text-base font-bold text-white truncate"></h3>
                 <p id="sp-pod-author" class="text-xs text-[#b3b3b3] truncate"></p>
               </div>
             </div>
-            <button onclick="closePodcastBox()" class="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center">
+            <button onclick="closePodcastBox()" class="w-8 h-8 btn-circle bg-[#282828] text-white">
               <i class="fa-solid fa-xmark text-xs"></i>
             </button>
           </div>
@@ -570,8 +556,8 @@
         <!-- 2. RECENTLY PLAYED CAROUSEL -->
         <section id="sp-recents-section" class="mb-7">
           <div class="flex items-center justify-between mb-2.5">
-            <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Recently played</h2>
-            <button onclick="clearRecentsHistory()" class="text-xs font-semibold text-[#b3b3b3] hover:text-white">Clear</button>
+            <h2 class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Recently played</h2>
+            <button onclick="clearRecentsHistory()" class="text-xs font-medium text-[#b3b3b3] hover:text-white">Clear</button>
           </div>
           <div id="sp-recents-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
@@ -579,8 +565,8 @@
         <!-- 3. SUGGESTED / SIMILAR CHANNELS CAROUSEL -->
         <section id="sp-suggested-section" class="mb-7">
           <div class="flex items-center justify-between mb-2.5">
-            <h2 id="sp-suggested-heading" class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Suggested for you</h2>
-            <span class="text-xs font-medium text-[#b3b3b3]">Similar channels</span>
+            <h2 id="sp-suggested-heading" class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Suggested for you</h2>
+            <span class="text-xs text-[#b3b3b3]">Similar channels</span>
           </div>
           <div id="sp-suggested-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
@@ -588,8 +574,8 @@
         <!-- 4. MOST PLAYED CAROUSEL -->
         <section id="sp-mostplayed-section" class="mb-7">
           <div class="flex items-center justify-between mb-2.5">
-            <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Most played</h2>
-            <span class="text-xs font-medium text-[#b3b3b3]">Top rotation</span>
+            <h2 class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Most played</h2>
+            <span class="text-xs text-[#b3b3b3]">Heavy rotation</span>
           </div>
           <div id="sp-mostplayed-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
@@ -597,37 +583,34 @@
         <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY -->
         <section>
           <div class="flex items-center justify-between mb-3">
-            <h2 id="sp-grid-heading" class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Shortwave & AM World Radio</h2>
-            <span id="sp-grid-count" class="text-xs font-medium text-[#b3b3b3]"></span>
+            <h2 id="sp-grid-heading" class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Shortwave & AM World Radio</h2>
+            <span id="sp-grid-count" class="text-xs text-[#b3b3b3]"></span>
           </div>
           <div id="sp-cards-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3.5 sm:gap-4"></div>
         </section>
       </main>
 
       <!-- PANE 3: RIGHT SIDEBAR NOW PLAYING -->
-      <aside class="hidden xl:flex w-[290px] bg-[#121212] rounded-lg p-4 flex-col justify-between shrink-0 overflow-y-auto">
+      <aside class="hidden xl:flex w-[285px] bg-[#121212] rounded-lg p-4 flex-col justify-between shrink-0 overflow-y-auto">
         <div>
           <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-bold text-white truncate">Now Playing</span>
+            <span class="text-xs font-semibold text-white truncate">Now Playing</span>
             <div id="sp-np-eq" class="flex items-end gap-0.5 h-3.5 paused">
               <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
             </div>
           </div>
 
-          <div class="relative aspect-square w-full rounded-xl overflow-hidden bg-[#181818] shadow-2xl mb-3.5">
+          <div class="relative aspect-square w-full rounded-lg overflow-hidden bg-[#181818] shadow-xl mb-3.5">
             <img id="sp-np-art" src="" class="w-full h-full object-cover transition-all duration-500" alt="Now Playing" />
-            <span id="sp-np-art-badge" class="hidden absolute top-2.5 right-2.5 bg-black/80 backdrop-blur-md text-[#1ed760] text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-[#1ed760]/40">
-              LIVE ALBUM ART
-            </span>
           </div>
 
           <div class="flex items-start justify-between gap-2 mb-4">
             <div class="min-w-0">
-              <h3 id="sp-np-title" class="text-base font-bold text-white truncate">Select a Station</h3>
+              <h3 id="sp-np-title" class="text-[15px] font-bold text-white truncate">Select a Station</h3>
               <p id="sp-np-sub" class="text-xs text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button onclick="pinActiveAsStartupChannel()" class="text-amber-400 hover:text-amber-300 text-sm" title="Set as Startup Channel">
+              <button onclick="pinActiveAsStartupChannel()" class="text-[#b3b3b3] hover:text-white text-xs" title="Set as Startup Channel">
                 <i class="fa-solid fa-thumbtack"></i>
               </button>
               <button onclick="toggleLikeCurrent()" id="sp-np-like" class="text-[#b3b3b3] hover:text-white text-base">
@@ -636,22 +619,22 @@
             </div>
           </div>
 
-          <div class="bg-[#181818] rounded-xl p-3">
-            <div class="text-xs font-bold text-white mb-2">Similar Channels</div>
+          <div class="bg-[#181818] rounded-lg p-3">
+            <div class="text-xs font-semibold text-white mb-2">Similar Channels</div>
             <div id="sp-rail-similar" class="space-y-2"></div>
           </div>
         </div>
 
-        <div class="pt-3 mt-3 border-t border-white/5">
-          <canvas id="sp-spectrum" width="250" height="40" class="w-full h-10 opacity-80"></canvas>
+        <div class="pt-3 mt-3 border-t border-[#222222]">
+          <canvas id="sp-spectrum" width="250" height="36" class="w-full h-9 opacity-75"></canvas>
         </div>
       </aside>
     </div>
 
-    <!-- SPOTIFY DESKTOP BOTTOM BAR (88px) -->
-    <footer class="hidden lg:flex h-[88px] bg-black px-4 items-center justify-between shrink-0 z-40">
+    <!-- SPOTIFY DESKTOP SOLID OPAQUE BOTTOM BAR (88px) -->
+    <footer class="hidden lg:flex h-[88px] solid-sp-footer px-4 items-center justify-between shrink-0 z-[80]">
       <div class="flex items-center gap-3.5 w-[30%] min-w-[220px]">
-        <img id="sp-bar-art" src="" class="w-14 h-14 rounded-md object-cover bg-[#181818] shrink-0 transition-all duration-500" alt="" />
+        <img id="sp-bar-art" src="" class="w-14 h-14 rounded-md object-cover bg-[#181818] shrink-0" alt="" />
         <div class="min-w-0">
           <div id="sp-bar-title" class="text-[14px] font-semibold text-white truncate">Ready to Play</div>
           <div id="sp-bar-sub" class="text-[12px] text-[#b3b3b3] truncate">Select any channel</div>
@@ -659,59 +642,60 @@
         <button onclick="toggleLikeCurrent()" id="sp-bar-like" class="text-[#b3b3b3] hover:text-white ml-2">
           <i class="fa-regular fa-heart"></i>
         </button>
-        <button onclick="pinActiveAsStartupChannel()" class="text-[#b3b3b3] hover:text-amber-400 text-xs ml-1" title="Set as Startup Channel on Open">
-          <i class="fa-solid fa-thumbtack"></i>
-        </button>
       </div>
 
       <div class="flex flex-col items-center max-w-xl w-[40%] px-4">
         <div class="flex items-center gap-6 mb-2">
           <button onclick="playRandomChannel()" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-shuffle"></i></button>
           <button onclick="playPrevChannel()" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-backward-step"></i></button>
-          <button onclick="togglePlayPause()" class="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition">
+          <button onclick="togglePlayPause()" class="w-9 h-9 btn-circle bg-white text-black hover:scale-105 transition">
             <i id="sp-bar-play" class="fa-solid fa-play text-xs ml-0.5"></i>
           </button>
           <button onclick="playNextChannel()" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-forward-step"></i></button>
           <button onclick="switchBackupServer()" class="text-[#b3b3b3] hover:text-white text-sm" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
         </div>
         <div class="w-full flex items-center gap-2 text-[11px] text-[#b3b3b3]">
-          <span id="sp-bar-cur" class="w-8 text-right">LIVE</span>
-          <input id="sp-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="clean-range flex-1 cursor-pointer accent-[#1ed760]" />
-          <span id="sp-bar-dur" class="w-8">HD</span>
+          <span id="sp-bar-cur" class="w-8 text-right font-mono-num">LIVE</span>
+          <input id="sp-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="pro-slider flex-1 cursor-pointer accent-[#1ed760]" />
+          <span id="sp-bar-dur" class="w-8 font-mono-num">HD</span>
         </div>
       </div>
 
       <div class="flex items-center justify-end gap-3 w-[30%] min-w-[220px]">
-        <button onclick="openStartupModal()" class="text-xs font-bold text-amber-400 bg-white/10 hover:bg-white/15 px-2.5 py-1 rounded-full" title="Startup Station">Boot</button>
-        <button onclick="openDspModal()" class="text-xs font-bold text-[#1ed760] bg-white/10 hover:bg-white/15 px-2.5 py-1 rounded-full">EQ</button>
+        <button onclick="openDspModal()" class="text-xs font-medium text-[#b3b3b3] hover:text-white px-2 py-1 rounded">EQ</button>
         <button onclick="toggleMute()" id="sp-mute-icon" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-volume-high"></i></button>
-        <input id="sp-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="clean-range w-24 cursor-pointer accent-[#1ed760]" />
+        <input id="sp-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="pro-slider w-24 cursor-pointer accent-[#1ed760]" />
       </div>
     </footer>
 
-    <!-- SPOTIFY MOBILE NATIVE FLOATING PILL MINI-PLAYER + BOTTOM NAV (< lg) -->
-    <div onclick="openMobileSheet()" class="lg:hidden fixed left-2 right-2 bottom-[60px] h-[56px] z-40 sp-mini-pill rounded-[8px] px-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.9)] flex items-center justify-between cursor-pointer border border-white/10">
+    <!-- =====================================================================
+         FIXED: 100% SOLID OPAQUE SPOTIFY MOBILE MINI-PLAYER + BOTTOM BAR
+         Includes solid black underlay mask so background text never mixes!
+         ===================================================================== -->
+    <div class="lg:hidden fixed inset-x-0 bottom-0 h-[118px] bg-black z-[75] pointer-events-none"></div>
+
+    <div onclick="openMobileSheet()" class="lg:hidden fixed left-2 right-2 bottom-[60px] h-[56px] z-[80] solid-sp-miniplayer rounded-[8px] px-2.5 flex items-center justify-between cursor-pointer">
       <div class="flex items-center gap-2.5 min-w-0 flex-1">
         <img id="sp-mini-art" src="" class="w-10 h-10 rounded-[5px] object-cover bg-[#181818] shrink-0" alt="" />
         <div class="min-w-0 flex-1 leading-tight">
-          <div id="sp-mini-title" class="text-[13px] font-bold text-white truncate">Select a Station</div>
+          <div id="sp-mini-title" class="text-[13px] font-semibold text-white truncate">Select a Station</div>
           <div id="sp-mini-sub" class="text-[11px] text-[#b3b3b3] truncate mt-0.5">Live Radio</div>
         </div>
       </div>
       <div class="flex items-center gap-1" onclick="event.stopPropagation()">
-        <button onclick="toggleLikeCurrent()" id="sp-mini-like" class="w-9 h-9 flex items-center justify-center text-[#b3b3b3]">
+        <button onclick="toggleLikeCurrent()" id="sp-mini-like" class="w-9 h-9 btn-circle text-[#b3b3b3]">
           <i class="fa-regular fa-heart text-base"></i>
         </button>
-        <button onclick="togglePlayPause()" class="w-9 h-9 flex items-center justify-center text-white">
-          <i id="sp-mini-play" class="fa-solid fa-play text-lg"></i>
+        <button onclick="togglePlayPause()" class="w-9 h-9 btn-circle text-white">
+          <i id="sp-mini-play" class="fa-solid fa-play text-base"></i>
         </button>
       </div>
-      <div class="absolute bottom-0 left-2 right-2 h-[2px] bg-white/15 overflow-hidden rounded-full">
+      <div class="absolute bottom-0 left-2 right-2 h-[2px] bg-[#383838] overflow-hidden rounded-full">
         <div id="sp-mini-prog" class="h-full bg-white w-full"></div>
       </div>
     </div>
 
-    <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[58px] sp-nav-fade z-40 flex items-center justify-around px-2">
+    <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[58px] solid-sp-mob-nav z-[80] flex items-center justify-around px-2">
       <button onclick="loadCategory('shortwave')" class="flex flex-col items-center justify-center gap-1 text-white w-16">
         <i class="fa-solid fa-house text-[18px]"></i>
         <span class="text-[10px] font-medium">Home</span>
@@ -737,10 +721,10 @@
   <div id="ytmusic-app" class="hidden flex-col h-full w-full bg-[#030303] overflow-hidden">
 
     <!-- YOUTUBE MUSIC HEADER -->
-    <header class="h-14 sm:h-16 px-4 sm:px-6 flex items-center justify-between bg-[#030303] border-b border-white/10 shrink-0 z-40 gap-3">
+    <header class="h-14 sm:h-16 px-4 sm:px-6 flex items-center justify-between bg-[#030303] border-b border-[#1f1f1f] shrink-0 z-40 gap-3">
       <div onclick="loadCategory('shortwave')" class="flex items-center gap-2 cursor-pointer shrink-0">
-        <div class="w-7 h-7 rounded-full bg-[#ff0033] flex items-center justify-center">
-          <div class="w-3.5 h-3.5 rounded-full border border-white flex items-center justify-center">
+        <div class="w-7 h-7 btn-circle bg-[#ff0033]">
+          <div class="w-3.5 h-3.5 btn-circle border border-white">
             <i class="fa-solid fa-play text-white text-[6px] ml-0.5"></i>
           </div>
         </div>
@@ -754,7 +738,7 @@
           <input id="ytm-search-input" type="text" placeholder="Search songs, stations, Akashvani, Telugu..."
             oninput="onSearchInput(this.value, 'ytm-clear-btn')"
             onkeydown="if(event.key==='Enter'){ runOmniSearch(this.value); this.blur(); }"
-            class="w-full bg-[#212121] focus:bg-[#121212] border border-white/10 rounded-full pl-9 pr-9 py-1.5 sm:py-2 text-xs sm:text-sm text-white placeholder-[#aaa] outline-none" />
+            class="w-full bg-[#212121] focus:bg-[#121212] border border-[#303030] rounded-full pl-9 pr-9 py-1.5 sm:py-2 text-xs sm:text-sm text-white placeholder-[#aaa] outline-none" />
           <button id="ytm-clear-btn" onclick="clearAllSearches()" class="hidden absolute right-3 text-[#aaa] hover:text-white">
             <i class="fa-solid fa-xmark text-sm"></i>
           </button>
@@ -762,13 +746,9 @@
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
-        <button onclick="openStartupModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-amber-400 border border-white/10" title="Startup Settings">
-          <i class="fa-solid fa-power-off mr-1"></i>Boot
-        </button>
-        <button onclick="openDspModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-white border border-white/10">
-          <i class="fa-solid fa-sliders text-[#ff0033] mr-1"></i>EQ
-        </button>
-        <button onclick="switchAppMode('spotify')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#212121] hover:bg-[#303030] text-[#1ed760] border border-white/10 transition">
+        <button onclick="openStartupModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-[#aaa] hover:text-white">Startup</button>
+        <button onclick="openDspModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-[#aaa] hover:text-white">EQ</button>
+        <button onclick="switchAppMode('spotify')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[#212121] hover:bg-[#303030] text-[#1ed760] transition">
           <i class="fa-brands fa-spotify text-sm"></i>
           <span class="hidden sm:inline">Spotify</span>
         </button>
@@ -779,110 +759,111 @@
     <div class="flex-1 flex min-h-0 overflow-hidden relative">
 
       <!-- YTM Left Navigation Rail (Desktop md+) -->
-      <aside class="hidden md:flex w-[220px] bg-[#030303] border-r border-white/10 px-3 py-3 flex-col gap-1 shrink-0">
-        <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-white/10 text-sm font-medium text-white">
+      <aside class="hidden md:flex w-[220px] bg-[#030303] border-r border-[#1f1f1f] px-3 py-3 flex-col gap-1 shrink-0">
+        <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-[#212121] text-sm font-medium text-white">
           <i class="fa-solid fa-house w-5"></i> <span>Home</span>
         </button>
-        <button onclick="loadCategory('featured')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-white/10 text-sm font-medium text-[#aaa] hover:text-white">
+        <button onclick="loadCategory('featured')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
           <i class="fa-regular fa-compass w-5"></i> <span>Explore</span>
         </button>
-        <button onclick="showLikedLibrary()" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-white/10 text-sm font-medium text-[#aaa] hover:text-white">
+        <button onclick="showLikedLibrary()" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
           <i class="fa-solid fa-bookmark w-5"></i> <span>Library</span>
         </button>
 
-        <div class="pt-3 mt-2 border-t border-white/10 space-y-1">
-          <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+        <div class="pt-3 mt-2 border-t border-[#1f1f1f] space-y-1">
+          <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-radio w-4"></i> <span>Shortwave & AM</span>
           </button>
-          <button onclick="loadCategory('akashvani')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+          <button onclick="loadCategory('akashvani')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-tower-cell w-4"></i> <span>Akashvani</span>
           </button>
-          <button onclick="loadCategory('telugu')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+          <button onclick="loadCategory('telugu')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-music w-4"></i> <span>Telugu</span>
           </button>
-          <button onclick="loadCategory('tamil')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+          <button onclick="loadCategory('tamil')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-drum w-4"></i> <span>Tamil</span>
           </button>
-          <button onclick="loadCategory('podcasts')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+          <button onclick="loadCategory('podcasts')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-podcast w-4"></i> <span>Podcasts</span>
           </button>
         </div>
       </aside>
 
       <!-- YTM Main Content Scroll -->
-      <main class="flex-1 ytm-ambient overflow-y-auto px-4 sm:px-8 pt-4 pb-36 lg:pb-24 min-h-0">
+      <main class="flex-1 ytm-canvas-bg overflow-y-auto px-4 sm:px-8 pt-4 pb-36 lg:pb-24 min-h-0">
 
-        <!-- YTM 8px-Radius Filter Chips -->
+        <!-- YTM Filter Chips -->
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-5">
           <button onclick="loadCategory('shortwave')" id="ytm-chip-sw" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition">Shortwave & AM</button>
-          <button onclick="loadCategory('akashvani')" id="ytm-chip-air" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Akashvani</button>
-          <button onclick="loadCategory('telugu')" id="ytm-chip-te" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Telugu</button>
-          <button onclick="loadCategory('tamil')" id="ytm-chip-ta" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Tamil</button>
-          <button onclick="loadCategory('featured')" id="ytm-chip-feat" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Global FM</button>
-          <button onclick="loadCategory('podcasts')" id="ytm-chip-pod" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Podcasts</button>
+          <button onclick="loadCategory('akashvani')" id="ytm-chip-air" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Akashvani</button>
+          <button onclick="loadCategory('telugu')" id="ytm-chip-te" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Telugu</button>
+          <button onclick="loadCategory('tamil')" id="ytm-chip-ta" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Tamil</button>
+          <button onclick="loadCategory('featured')" id="ytm-chip-feat" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Global FM</button>
+          <button onclick="loadCategory('podcasts')" id="ytm-chip-pod" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Podcasts</button>
         </div>
 
-        <!-- YTM Shortwave / AM Receiver Deck (Mirrored for YTM Mobile & Desktop) -->
-        <section id="ytm-sw-deck" class="mb-7 bg-[#121212] border border-white/10 rounded-2xl p-4 shadow-xl">
-          <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-            <div class="flex items-center gap-3">
-              <div class="bg-black border border-amber-500/40 rounded-xl px-3.5 py-2">
-                <span id="ytm-sw-freq" class="font-dial text-2xl font-extrabold text-amber-400">9410 kHz</span>
-              </div>
-              <div>
-                <div class="text-xs font-bold text-white" id="ytm-sw-title">BBC World Service</div>
-                <div class="text-[11px] text-[#aaa]">Slide or tap SEEK to lock & play</div>
-              </div>
+        <!-- YTM Collapsible SW / AM Tuner Bar -->
+        <section id="ytm-sw-deck" class="mb-6 bg-[#141414] border border-[#262626] rounded-lg overflow-hidden">
+          <div class="h-12 px-3.5 flex items-center justify-between gap-3">
+            <div onclick="toggleSwDrawer()" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+              <span id="ytm-sw-freq" class="font-mono-num text-xs font-semibold px-2.5 py-1 rounded bg-[#262626] text-white shrink-0">9410 kHz</span>
+              <span id="ytm-sw-title" class="text-xs font-medium text-white truncate">BBC World Service</span>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button onclick="seekSwStation(-1)" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold">◄ SEEK</button>
-              <button onclick="seekSwStation(1)" class="px-3 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-bold">SEEK ►</button>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button onclick="seekSwStation(-1)" class="w-8 h-8 rounded bg-[#242424] text-[#aaa] hover:text-white flex items-center justify-center"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
+              <button onclick="seekSwStation(1)" class="w-8 h-8 rounded bg-[#242424] text-[#aaa] hover:text-white flex items-center justify-center"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
+              <button onclick="toggleSwDrawer()" class="h-8 px-3 rounded bg-[#242424] text-xs font-medium text-white flex items-center gap-1.5">
+                <span>Tuner</span>
+                <i id="ytm-sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#aaa] transition-transform duration-200"></i>
+              </button>
             </div>
           </div>
-          <div class="relative h-11 sw-scale-ticks bg-black rounded-lg px-2 flex items-center border border-white/10">
-            <input id="ytm-sw-slider" type="range" min="530" max="18000" step="5" value="9410"
-              oninput="previewSwDial(this.value)"
-              onchange="commitSwTune(this.value)"
-              class="sw-receiver-dial" />
+          <div id="ytm-sw-drawer" class="hidden border-t border-[#262626] bg-[#101010] px-3.5 py-3">
+            <div class="relative h-9 tuner-ruler-ticks flex items-center">
+              <input id="ytm-sw-slider" type="range" min="530" max="18000" step="5" value="9410"
+                oninput="previewSwDial(this.value)"
+                onchange="commitSwTune(this.value)"
+                class="tuner-ruler-slider" />
+            </div>
           </div>
         </section>
 
         <!-- 1. YTM "Listen again" -->
         <section id="ytm-recents-section" class="mb-7">
-          <h2 class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Listen again</h2>
+          <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white mb-3">Listen again</h2>
           <div id="ytm-recents-carousel" class="flex gap-4 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
 
-        <!-- 2. YTM Signature "Quick picks" 4-Row Horizontal List -->
+        <!-- 2. YTM Signature "Quick picks" -->
         <section class="mb-8">
-          <h2 class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Quick picks</h2>
+          <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white mb-3">Quick picks</h2>
           <div id="ytm-quick-picks" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-1"></div>
         </section>
 
         <!-- 3. YTM "Similar to..." -->
         <section class="mb-7">
-          <h2 id="ytm-suggested-heading" class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Suggested channels</h2>
+          <h2 id="ytm-suggested-heading" class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white mb-3">Suggested channels</h2>
           <div id="ytm-suggested-carousel" class="flex gap-4 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
 
         <!-- 4. YTM "Most played" -->
         <section class="mb-7">
-          <h2 class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Most played</h2>
+          <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white mb-3">Most played</h2>
           <div id="ytm-mostplayed-carousel" class="flex gap-4 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
 
         <!-- 5. YTM All Channels Shelf -->
         <section>
-          <h2 id="ytm-grid-heading" class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3.5">Featured Channels</h2>
+          <h2 id="ytm-grid-heading" class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white mb-3.5">Featured Channels</h2>
           <div id="ytm-cards-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"></div>
         </section>
       </main>
 
-      <!-- 100% OPAQUE YOUTUBE MUSIC DESKTOP SPLIT-SCREEN PLAYER OVERLAY -->
-      <div id="ytm-queue-drawer" class="drawer-hidden ytm-solid-overlay fixed top-16 bottom-[72px] inset-x-0 z-50 hidden lg:flex p-8 gap-12 overflow-hidden">
+      <!-- SOLID OPAQUE YOUTUBE MUSIC DESKTOP SPLIT-SCREEN PLAYER OVERLAY -->
+      <div id="ytm-queue-drawer" class="drawer-hidden solid-ytm-overlay fixed top-16 bottom-[72px] inset-x-0 z-[70] hidden lg:flex p-8 gap-12 overflow-hidden">
         <div class="flex-1 flex flex-col items-center justify-center">
-          <div class="relative w-[380px] h-[380px] rounded-xl overflow-hidden shadow-[0_24px_60px_rgba(0,0,0,0.95)] border border-white/15 bg-[#121212]">
-            <img id="ytm-stage-art" src="" class="w-full h-full object-cover transition-all duration-500" alt="" />
+          <div class="relative w-[360px] h-[360px] rounded-lg overflow-hidden shadow-2xl border border-[#282828] bg-[#121212]">
+            <img id="ytm-stage-art" src="" class="w-full h-full object-cover" alt="" />
           </div>
           <div class="mt-4 text-center">
             <h3 id="ytm-stage-title" class="text-lg font-bold text-white">Select a Station</h3>
@@ -890,13 +871,13 @@
           </div>
         </div>
 
-        <div class="w-[460px] flex flex-col h-full bg-[#121212] rounded-2xl p-4 border border-white/10">
-          <div class="flex items-center justify-between border-b border-white/15 pb-3 mb-3">
+        <div class="w-[440px] flex flex-col h-full bg-[#121212] rounded-xl p-4 border border-[#242424]">
+          <div class="flex items-center justify-between border-b border-[#282828] pb-3 mb-3">
             <div class="flex gap-6 text-xs font-bold uppercase tracking-wider">
               <button onclick="switchYtmDrawerTab('upnext')" id="ytm-dtab-upnext" class="text-white border-b-2 border-white pb-3 -mb-3.5">UP NEXT</button>
-              <button onclick="switchYtmDrawerTab('related')" id="ytm-dtab-related" class="text-[#aaa] hover:text-white pb-3 -mb-3.5">SIMILAR CHANNELS</button>
+              <button onclick="switchYtmDrawerTab('related')" id="ytm-dtab-related" class="text-[#aaa] hover:text-white pb-3 -mb-3.5">RELATED</button>
             </div>
-            <button onclick="toggleYtmQueue()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center">
+            <button onclick="toggleYtmQueue()" class="w-8 h-8 btn-circle bg-[#242424] text-white">
               <i class="fa-solid fa-chevron-down text-xs"></i>
             </button>
           </div>
@@ -905,21 +886,21 @@
       </div>
     </div>
 
-    <!-- YOUTUBE MUSIC DESKTOP BOTTOM BAR (72px) -->
-    <footer class="hidden lg:flex flex-col h-[72px] bg-[#212121] shrink-0 z-[55]">
-      <input id="ytm-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="ytm-scrubber w-full cursor-pointer" />
+    <!-- YOUTUBE MUSIC DESKTOP SOLID BOTTOM BAR (72px) -->
+    <footer class="hidden lg:flex flex-col h-[72px] solid-ytm-footer shrink-0 z-[80]">
+      <input id="ytm-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="ytm-line-slider w-full cursor-pointer" />
       <div class="flex-1 px-4 flex items-center justify-between">
         <div class="flex items-center gap-5 w-[28%]">
           <button onclick="playPrevChannel()" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-backward-step"></i></button>
-          <button onclick="togglePlayPause()" class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition">
+          <button onclick="togglePlayPause()" class="w-10 h-10 btn-circle bg-white text-black hover:scale-105 transition">
             <i id="ytm-bar-play" class="fa-solid fa-play text-sm ml-0.5"></i>
           </button>
           <button onclick="playNextChannel()" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-forward-step"></i></button>
-          <span id="ytm-bar-time" class="text-xs text-[#aaa]">LIVE</span>
+          <span id="ytm-bar-time" class="text-xs text-[#aaa] font-mono-num">LIVE</span>
         </div>
 
         <div class="flex items-center justify-center gap-3.5 w-[44%] min-w-0">
-          <img onclick="toggleYtmQueue()" id="ytm-bar-art" src="" class="w-10 h-10 rounded-[4px] object-cover cursor-pointer shrink-0 transition-all duration-500" alt="" />
+          <img onclick="toggleYtmQueue()" id="ytm-bar-art" src="" class="w-10 h-10 rounded-[4px] object-cover cursor-pointer shrink-0" alt="" />
           <div onclick="toggleYtmQueue()" class="min-w-0 cursor-pointer">
             <div id="ytm-bar-title" class="text-sm font-medium text-white truncate">Select a Station</div>
             <div id="ytm-bar-sub" class="text-xs text-[#aaa] truncate">YouTube Music</div>
@@ -927,23 +908,20 @@
           <button onclick="toggleLikeCurrent()" id="ytm-bar-like" class="text-[#aaa] hover:text-white ml-2">
             <i class="fa-regular fa-thumbs-up text-sm"></i>
           </button>
-          <button onclick="pinActiveAsStartupChannel()" class="text-[#aaa] hover:text-amber-400 text-xs ml-1" title="Set as Startup Channel">
-            <i class="fa-solid fa-thumbtack"></i>
-          </button>
         </div>
 
         <div class="flex items-center justify-end gap-3 w-[28%]">
-          <input id="ytm-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="clean-range w-24 accent-white cursor-pointer" />
-          <button onclick="toggleYtmQueue()" class="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center text-white">
+          <input id="ytm-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="pro-slider w-24 accent-white cursor-pointer" />
+          <button onclick="toggleYtmQueue()" class="w-9 h-9 btn-circle hover:bg-white/10 text-white">
             <i class="fa-solid fa-caret-up"></i>
           </button>
         </div>
       </div>
     </footer>
 
-    <!-- YOUTUBE MUSIC MOBILE DOCKED MINI-PLAYER + 4-TAB BAR (< lg) -->
-    <div onclick="openMobileSheet()" class="lg:hidden fixed inset-x-0 bottom-[56px] h-[58px] bg-[#212121] z-40 flex items-center justify-between px-3 cursor-pointer">
-      <div class="absolute top-0 inset-x-0 h-[2px] bg-white/15">
+    <!-- YOUTUBE MUSIC MOBILE SOLID DOCKED MINI-PLAYER + 4-TAB BAR (< lg) -->
+    <div onclick="openMobileSheet()" class="lg:hidden fixed inset-x-0 bottom-[56px] h-[58px] solid-ytm-footer z-[80] flex items-center justify-between px-3 cursor-pointer border-t border-[#303030]">
+      <div class="absolute top-0 inset-x-0 h-[2px] bg-[#383838]">
         <div id="ytm-mini-prog" class="h-full bg-[#ff0033] w-full"></div>
       </div>
       <div class="flex items-center gap-3 min-w-0 flex-1">
@@ -953,17 +931,17 @@
           <div id="ytm-mini-sub" class="text-[11px] text-[#aaa] truncate">YouTube Music</div>
         </div>
       </div>
-      <div class="flex items-center gap-2" onclick="event.stopPropagation()">
-        <button onclick="togglePlayPause()" class="w-9 h-9 flex items-center justify-center text-white">
+      <div class="flex items-center gap-1" onclick="event.stopPropagation()">
+        <button onclick="togglePlayPause()" class="w-9 h-9 btn-circle text-white">
           <i id="ytm-mini-play" class="fa-solid fa-play text-base"></i>
         </button>
-        <button onclick="playNextChannel()" class="w-9 h-9 flex items-center justify-center text-white">
+        <button onclick="playNextChannel()" class="w-9 h-9 btn-circle text-white">
           <i class="fa-solid fa-forward-step text-base"></i>
         </button>
       </div>
     </div>
 
-    <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[56px] bg-[#030303] border-t border-white/10 z-40 flex items-center justify-around px-2">
+    <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[56px] solid-ytm-mob-nav z-[80] flex items-center justify-around px-2">
       <button onclick="loadCategory('shortwave')" class="flex flex-col items-center justify-center gap-1 text-white w-16">
         <i class="fa-solid fa-house text-[18px]"></i>
         <span class="text-[10px] font-medium">Home</span>
@@ -984,68 +962,69 @@
   </div>
 
   <!-- =========================================================================
-       OPAQUE MOBILE FULL-SCREEN PLAYER SHEET
+       SOLID OPAQUE MOBILE FULL-SCREEN PLAYER SHEET (PERFECT CIRCULAR PLAY BUTTON)
        ========================================================================= -->
-  <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[70] sheet-solid-ambient flex flex-col justify-between p-5 overflow-y-auto">
+  <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[90] solid-mobile-sheet flex flex-col justify-between p-5 overflow-y-auto">
     <div class="flex items-center justify-between shrink-0">
-      <button onclick="closeMobileSheet()" class="w-9 h-9 flex items-center justify-center text-white">
+      <button onclick="closeMobileSheet()" class="w-9 h-9 btn-circle text-white">
         <i class="fa-solid fa-chevron-down text-base"></i>
       </button>
-      <span class="text-xs font-bold text-white/90">Now Playing</span>
+      <span class="text-xs font-semibold text-white/90">Now Playing</span>
       <div class="flex items-center gap-1">
-        <button onclick="pinActiveAsStartupChannel()" class="w-9 h-9 flex items-center justify-center text-amber-400" title="Set as Startup Channel">
+        <button onclick="pinActiveAsStartupChannel()" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Set as Startup Channel">
           <i class="fa-solid fa-thumbtack text-sm"></i>
         </button>
-        <button onclick="openDspModal()" class="w-9 h-9 flex items-center justify-center text-[#1ed760]" title="Sound Quality & EQ">
+        <button onclick="openDspModal()" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Equalizer">
           <i class="fa-solid fa-sliders text-sm"></i>
         </button>
       </div>
     </div>
 
-    <div class="my-auto flex flex-col items-center py-3">
-      <div class="w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.9)] mb-5 bg-[#181818]">
-        <img id="sheet-art" src="" class="w-full h-full object-cover transition-all duration-500" alt="" />
+    <div class="my-auto flex flex-col items-center py-4">
+      <div class="w-64 h-64 sm:w-72 sm:h-72 rounded-lg overflow-hidden shadow-2xl mb-6 bg-[#181818]">
+        <img id="sheet-art" src="" class="w-full h-full object-cover" alt="" />
       </div>
 
       <div class="w-full flex items-center justify-between gap-3">
         <div class="min-w-0 flex-1">
           <h2 id="sheet-title" class="text-xl font-bold text-white truncate">Select a Station</h2>
-          <p id="sheet-sub" class="text-sm text-white/75 truncate mt-0.5">Live Broadcast</p>
+          <p id="sheet-sub" class="text-sm text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
         </div>
-        <button onclick="toggleLikeCurrent()" id="sheet-like" class="text-2xl text-white">
+        <button onclick="toggleLikeCurrent()" id="sheet-like" class="w-10 h-10 btn-circle text-white text-xl">
           <i class="fa-regular fa-heart"></i>
         </button>
       </div>
     </div>
 
-    <div class="w-full space-y-4">
+    <div class="w-full space-y-5">
       <div>
-        <input id="sheet-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="clean-range w-full accent-white" />
-        <div class="flex justify-between text-[11px] text-white/60 mt-1">
+        <input id="sheet-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="pro-slider w-full accent-white" />
+        <div class="flex justify-between text-[11px] text-[#b3b3b3] font-mono-num mt-1.5">
           <span id="sheet-cur">LIVE</span>
-          <span id="sheet-dur">HD AUDIO</span>
+          <span id="sheet-dur">STREAM</span>
         </div>
       </div>
 
+      <!-- Strictly Circular 64px Main Play/Pause Button -->
       <div class="flex items-center justify-between px-4">
-        <button onclick="playRandomChannel()" class="text-white/70 text-lg"><i class="fa-solid fa-shuffle"></i></button>
-        <button onclick="playPrevChannel()" class="text-2xl text-white"><i class="fa-solid fa-backward-step"></i></button>
-        <button onclick="togglePlayPause()" class="w-15 h-15 p-4 rounded-full bg-white text-black flex items-center justify-center text-xl shadow-xl">
+        <button onclick="playRandomChannel()" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-shuffle"></i></button>
+        <button onclick="playPrevChannel()" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-backward-step"></i></button>
+        <button onclick="togglePlayPause()" class="w-16 h-16 btn-circle bg-white text-black text-2xl shadow-xl active:scale-95 transition">
           <i id="sheet-play" class="fa-solid fa-play ml-0.5"></i>
         </button>
-        <button onclick="playNextChannel()" class="text-2xl text-white"><i class="fa-solid fa-forward-step"></i></button>
-        <button onclick="switchBackupServer()" class="text-white/70 text-lg" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
+        <button onclick="playNextChannel()" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-forward-step"></i></button>
+        <button onclick="switchBackupServer()" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
       </div>
 
       <div class="pt-3 border-t border-white/10">
-        <div class="text-[11px] font-bold uppercase tracking-wider text-white/70 mb-2">Similar Channels</div>
+        <div class="text-[11px] font-semibold text-[#b3b3b3] mb-2">Similar Channels</div>
         <div id="sheet-similar-row" class="flex gap-2.5 overflow-x-auto no-scrollbar pb-1"></div>
       </div>
     </div>
   </div>
 
   <!-- =========================================================================
-       MASTER APPLICATION ENGINE (SW AUTO-PLAY TUNER + STARTUP BOOT ENGINE)
+       MASTER APPLICATION ENGINE
        ========================================================================= -->
   <script>
     // --- 1. Hardware Gesture Gate ---
@@ -1054,14 +1033,12 @@
 
     function onFirstUserGesture() {
       userHasInteracted = true;
-      if (pendingBootStation) {
-        triggerPendingBootPlay();
-      }
+      if (pendingBootStation) triggerPendingBootPlay();
     }
     window.addEventListener('pointerdown', onFirstUserGesture, { once: true, passive: true });
     window.addEventListener('keydown', onFirstUserGesture, { once: true, passive: true });
 
-    function safeHaptic(ms = 10) {
+    function safeHaptic(ms = 8) {
       if (!userHasInteracted) return;
       if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
       try { if (navigator.vibrate) navigator.vibrate(ms); } catch (_) {}
@@ -1076,7 +1053,7 @@
       window.__toastTimer = setTimeout(() => {
         t.classList.add('opacity-0', '-translate-y-2');
         t.classList.remove('opacity-100', 'translate-y-0');
-      }, 2400);
+      }, 2200);
     }
 
     function hashString(str) {
@@ -1089,18 +1066,19 @@
     }
 
     // =========================================================================
-    // 2. BESPOKE 600x600 HD STATION IDENTITY EMBLEM GENERATOR
+    // 2. CLEAN MINIMALIST STUDIO STATION ARTWORK GENERATOR (NO AI CLUTTER)
+    //    Editorial Apple Music / Spotify Radio style typographic station covers
     // =========================================================================
-    const EMBLEM_THEMES = [
-      { bg1: '#090d16', bg2: '#1e3a8a', accent: '#38bdf8', glow: '#0284c7' },
-      { bg1: '#06140e', bg2: '#14532d', accent: '#4ade80', glow: '#16a34a' },
-      { bg1: '#180b26', bg2: '#581c87', accent: '#c084fc', glow: '#9333ea' },
-      { bg1: '#1f0d06', bg2: '#7c2d12', accent: '#fb923c', glow: '#ea580c' },
-      { bg1: '#210714', bg2: '#831843', accent: '#f472b6', glow: '#db2777' },
-      { bg1: '#041715', bg2: '#115e59', accent: '#2dd4bf', glow: '#0d9488' },
-      { bg1: '#1a1205', bg2: '#713f12', accent: '#facc15', glow: '#ca8a04' },
-      { bg1: '#1f0707', bg2: '#7f1d1d', accent: '#f87171', glow: '#dc2626' },
-      { bg1: '#0f1026', bg2: '#312e81', accent: '#818cf8', glow: '#4f46e5' }
+    const STUDIO_THEMES = [
+      { bgTop: '#16222f', bgBot: '#0c1218', accent: '#60a5fa' },
+      { bgTop: '#13261c', bgBot: '#09120e', accent: '#4ade80' },
+      { bgTop: '#24172b', bgBot: '#110b14', accent: '#c084fc' },
+      { bgTop: '#291b14', bgBot: '#140d09', accent: '#fb923c' },
+      { bgTop: '#29151d', bgBot: '#140a0e', accent: '#f472b6' },
+      { bgTop: '#132625', bgBot: '#091312', accent: '#2dd4bf' },
+      { bgTop: '#262113', bgBot: '#121009', accent: '#facc15' },
+      { bgTop: '#261515', bgBot: '#120a0a', accent: '#f87171' },
+      { bgTop: '#18192b', bgBot: '#0b0c14', accent: '#818cf8' }
     ];
 
     const stationBadgeCache = {};
@@ -1116,92 +1094,53 @@
       const ctx = canvas.getContext('2d');
 
       const h = hashString(cacheKey);
-      const theme = EMBLEM_THEMES[h % EMBLEM_THEMES.length];
+      const theme = STUDIO_THEMES[h % STUDIO_THEMES.length];
 
-      const grad = ctx.createLinearGradient(0, 0, 600, 600);
-      grad.addColorStop(0, theme.bg1);
-      grad.addColorStop(0.55, theme.bg2);
-      grad.addColorStop(1, '#050505');
+      // Matte Studio Surface
+      const grad = ctx.createLinearGradient(0, 0, 0, 600);
+      grad.addColorStop(0, theme.bgTop);
+      grad.addColorStop(1, theme.bgBot);
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, 600, 600);
 
-      const rad = ctx.createRadialGradient(460, 140, 20, 460, 140, 280);
-      rad.addColorStop(0, theme.glow + '66');
-      rad.addColorStop(1, 'transparent');
-      ctx.fillStyle = rad;
-      ctx.fillRect(0, 0, 600, 600);
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = 2;
-      [180, 220, 260].forEach(r => {
-        ctx.beginPath();
-        ctx.arc(300, 290, r, 0, Math.PI * 2);
-        ctx.stroke();
-      });
-
-      const freqText = (ch.freqLabel || (ch.freqKhz ? `${ch.freqKhz} kHz` : ch.badge || 'LIVE FM')).toUpperCase();
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-      ctx.beginPath();
-      ctx.roundRect(38, 38, 250, 56, 28);
-      ctx.fill();
-      ctx.strokeStyle = theme.accent;
-      ctx.lineWidth = 2.5;
-      ctx.stroke();
-
+      // Subtle Top-Left Brand Mark + Frequency Tag
+      const freqText = (ch.freqLabel || (ch.freqKhz ? `${ch.freqKhz} kHz` : 'LIVE')).toUpperCase();
       ctx.fillStyle = theme.accent;
-      ctx.beginPath();
-      ctx.arc(70, 66, 8, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '800 23px "JetBrains Mono", monospace';
+      ctx.font = '700 24px "JetBrains Mono", monospace';
       ctx.textAlign = 'left';
-      ctx.fillText(freqText.slice(0, 14), 92, 74);
+      ctx.fillText(freqText.slice(0, 16), 44, 68);
 
+      // Minimal Horizontal Hairline Rule
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      ctx.fillRect(44, 92, 512, 1.5);
+
+      // Large Clean Frequency / Call-Sign Watermark
       const heroFreq = ch.freqKhz ? `${ch.freqKhz}` : (ch.shortFreq || 'FM');
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.font = '900 120px "Figtree", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(heroFreq, 300, 285);
-
-      const bars = 24;
-      const startX = 132;
-      for (let i = 0; i < bars; i++) {
-        const barH = 18 + ((hashString(cacheKey + i) % 58));
-        ctx.fillStyle = i % 3 === 0 ? theme.accent : 'rgba(255,255,255,0.35)';
-        ctx.beginPath();
-        ctx.roundRect(startX + i * 14, 330 - barH / 2, 8, barH, 4);
-        ctx.fill();
-      }
-
-      ctx.fillStyle = 'rgba(8, 8, 12, 0.80)';
-      ctx.beginPath();
-      ctx.roundRect(28, 395, 544, 175, 24);
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '800 33px "Figtree", sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.font = '800 136px "Inter", sans-serif';
       ctx.textAlign = 'left';
+      ctx.fillText(heroFreq, 40, 290);
+
+      // Bottom Left Editorial Station Title & Subtitle
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 42px "Inter", sans-serif';
       const words = ch.title.split(' ');
       let line1 = '';
       let line2 = '';
       for (const w of words) {
-        if ((line1 + ' ' + w).trim().length <= 18) line1 = (line1 + ' ' + w).trim();
+        if ((line1 + ' ' + w).trim().length <= 15) line1 = (line1 + ' ' + w).trim();
         else line2 = (line2 + ' ' + w).trim();
       }
       if (!line2) {
-        ctx.fillText(line1, 54, 465);
+        ctx.fillText(line1, 44, 490);
       } else {
-        ctx.fillText(line1, 54, 450);
-        ctx.fillText(line2.slice(0, 20), 54, 490);
+        ctx.fillText(line1, 44, 442);
+        ctx.fillText(line2.slice(0, 17), 44, 492);
       }
 
-      ctx.fillStyle = theme.accent;
-      ctx.font = '700 21px "Figtree", sans-serif';
-      ctx.fillText((ch.subtitle || 'Live Broadcast').slice(0, 32), 54, 538);
+      ctx.fillStyle = 'rgba(255,255,255,0.58)';
+      ctx.font = '500 22px "Inter", sans-serif';
+      ctx.fillText((ch.subtitle || 'Live Broadcast').slice(0, 30), 44, 540);
 
       const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
       stationBadgeCache[cacheKey] = dataUrl;
@@ -1251,7 +1190,7 @@
     }
 
     // =========================================================================
-    // 3. MASTER CHANNELS (SORTED BY FREQUENCY FOR SEAMLESS SW/AM SEEKING)
+    // 3. MASTER CHANNELS
     // =========================================================================
     const SHORTWAVE_AM_STATIONS = [
       {
@@ -1914,11 +1853,12 @@
     ];
 
     // =========================================================================
-    // 4. UNIFIED PERSISTENT CONFIG & STARTUP BOOT ENGINE
+    // 4. PERSISTENT CONFIG & STARTUP BOOT ENGINE
     // =========================================================================
     const DEFAULT_CONFIG = {
       appMode: 'spotify',
       activeCategory: 'shortwave',
+      swDrawerExpanded: false,
       volume: 0.85,
       muted: false,
       qualityProfile: 'hifi',
@@ -1926,19 +1866,19 @@
       bass: 2,
       mid: 1,
       treble: 2,
-      bootBehavior: 'last', // 'last' | 'custom' | 'quiet'
+      bootBehavior: 'last',
       startupStationId: 'te_air_hyd_a',
       lastStationId: 'te_air_hyd_a',
       lastStationSnapshot: null
     };
 
-    let appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(localStorage.getItem('omnicast_v10_config') || '{}') };
-    let recentsList = JSON.parse(localStorage.getItem('omnicast_v10_recents') || '[]');
-    let playCounts = JSON.parse(localStorage.getItem('omnicast_v10_counts') || '{}');
-    let likedStations = JSON.parse(localStorage.getItem('omnicast_v10_liked') || '[]');
+    let appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(localStorage.getItem('omnicast_v11_config') || '{}') };
+    let recentsList = JSON.parse(localStorage.getItem('omnicast_v11_recents') || '[]');
+    let playCounts = JSON.parse(localStorage.getItem('omnicast_v11_counts') || '{}');
+    let likedStations = JSON.parse(localStorage.getItem('omnicast_v11_liked') || '[]');
 
     function saveAppConfig() {
-      try { localStorage.setItem('omnicast_v10_config', JSON.stringify(appConfig)); } catch (_) {}
+      try { localStorage.setItem('omnicast_v11_config', JSON.stringify(appConfig)); } catch (_) {}
     }
 
     if (recentsList.length === 0) {
@@ -1950,7 +1890,7 @@
         TAMIL_STATIONS[1],
         ELITE_GLOBAL_STATIONS[0]
       ];
-      localStorage.setItem('omnicast_v10_recents', JSON.stringify(recentsList));
+      localStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList));
     }
     if (Object.keys(playCounts).length === 0) {
       playCounts = {
@@ -1961,7 +1901,7 @@
         ta_air_chennai_rainbow: { count: 9, station: TAMIL_STATIONS[1] },
         somafm_groovesalad: { count: 8, station: ELITE_GLOBAL_STATIONS[0] }
       };
-      localStorage.setItem('omnicast_v10_counts', JSON.stringify(playCounts));
+      localStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts));
     }
 
     function recordStationPlay(stationObj) {
@@ -1971,11 +1911,11 @@
       saveAppConfig();
 
       recentsList = [stationObj, ...recentsList.filter(r => r.id !== stationObj.id)].slice(0, 16);
-      try { localStorage.setItem('omnicast_v10_recents', JSON.stringify(recentsList)); } catch (_) {}
+      try { localStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList)); } catch (_) {}
 
       const prev = playCounts[stationObj.id]?.count || 0;
       playCounts[stationObj.id] = { count: prev + 1, station: stationObj };
-      try { localStorage.setItem('omnicast_v10_counts', JSON.stringify(playCounts)); } catch (_) {}
+      try { localStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts)); } catch (_) {}
 
       renderPersonalizedShelves();
       renderSidebarList();
@@ -2009,12 +1949,32 @@
 
     function clearRecentsHistory() {
       recentsList = [];
-      localStorage.removeItem('omnicast_v10_recents');
+      localStorage.removeItem('omnicast_v11_recents');
       renderPersonalizedShelves();
       showToast('Recents cleared');
     }
 
-    // --- Startup Settings Modal Logic ---
+    // --- Collapsible SW/AM Tuner Drawer Toggle ---
+    function toggleSwDrawer(forceState = null) {
+      safeHaptic(8);
+      appConfig.swDrawerExpanded = forceState !== null ? forceState : !appConfig.swDrawerExpanded;
+      saveAppConfig();
+      syncSwDrawerUI();
+    }
+
+    function syncSwDrawerUI() {
+      const spDrawer = document.getElementById('sw-tuner-drawer');
+      const ytmDrawer = document.getElementById('ytm-sw-drawer');
+      const spIcon = document.getElementById('sw-expand-icon');
+      const ytmIcon = document.getElementById('ytm-sw-expand-icon');
+
+      if (spDrawer) spDrawer.classList.toggle('hidden', !appConfig.swDrawerExpanded);
+      if (ytmDrawer) ytmDrawer.classList.toggle('hidden', !appConfig.swDrawerExpanded);
+      if (spIcon) spIcon.style.transform = appConfig.swDrawerExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+      if (ytmIcon) ytmIcon.style.transform = appConfig.swDrawerExpanded ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+
+    // --- Startup Modal ---
     function openStartupModal() {
       safeHaptic(10);
       populateStartupSelectDropdown();
@@ -2043,7 +2003,6 @@
       appConfig.bootBehavior = mode;
       saveAppConfig();
       syncStartupModalUI();
-      showToast(`Startup Mode: ${mode === 'last' ? 'Resume Last Played' : mode === 'custom' ? 'Play Chosen Channel' : 'Quiet Cue'}`);
     }
 
     function onStartupChannelChange(stationId) {
@@ -2051,8 +2010,6 @@
       appConfig.bootBehavior = 'custom';
       saveAppConfig();
       syncStartupModalUI();
-      const st = findStationById(stationId);
-      if (st) showToast(`Startup Channel set to ${st.title}`);
     }
 
     function pinActiveAsStartupChannel() {
@@ -2064,22 +2021,22 @@
       saveAppConfig();
       populateStartupSelectDropdown();
       syncStartupModalUI();
-      showToast(`📌 Set "${activeStream.title}" to run on open!`);
+      showToast(`Set "${activeStream.title}" as startup station`);
     }
 
     function syncStartupModalUI() {
       const lastSt = findStationById(appConfig.lastStationId) || appConfig.lastStationSnapshot || TELUGU_STATIONS[0];
-      document.getElementById('boot-last-station-name').textContent = `Last played: ${lastSt.title} (${lastSt.freqLabel || lastSt.subtitle})`;
+      document.getElementById('boot-last-station-name').textContent = `Last played: ${lastSt.title}`;
 
       ['last', 'custom', 'quiet'].forEach(m => {
         const btn = document.getElementById(`boot-opt-${m}`);
         if (!btn) return;
         const active = appConfig.bootBehavior === m;
         btn.className = active
-          ? 'w-full p-3 rounded-xl border border-[#1ed760] bg-[#1ed760]/10 text-left flex items-center justify-between transition'
-          : 'w-full p-3 rounded-xl border border-white/10 bg-[#242424] text-left flex items-center justify-between transition';
+          ? 'w-full p-3 rounded-lg border border-white/25 bg-[#282828] text-left flex items-center justify-between transition'
+          : 'w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition';
         const icon = btn.querySelector('i');
-        if (icon) icon.className = active ? 'fa-solid fa-circle-check text-[#1ed760]' : 'fa-regular fa-circle text-neutral-400';
+        if (icon) icon.className = active ? 'fa-solid fa-check text-white text-xs' : 'fa-solid fa-check text-transparent text-xs';
       });
     }
 
@@ -2108,7 +2065,7 @@
     const audio = document.getElementById('audio-engine');
     let hlsInstance = null;
 
-    // --- 6. Initialization (Restores Config + Runs Chosen Startup Channel) ---
+    // --- 6. Initialization ---
     window.addEventListener('DOMContentLoaded', () => {
       audio.volume = appConfig.volume ?? 0.85;
       audio.muted = !!appConfig.muted;
@@ -2119,6 +2076,7 @@
       document.getElementById('eq-mid').value = appConfig.mid ?? 1;
       document.getElementById('eq-treble').value = appConfig.treble ?? 2;
       syncDspModalUI();
+      syncSwDrawerUI();
 
       switchAppMode(appConfig.appMode || 'spotify', true);
       loadCategory(appConfig.activeCategory || 'shortwave', true);
@@ -2129,19 +2087,13 @@
       bindTouchSheet();
       startSpectrumLoop();
 
-      // Determine Target Boot Station based on user's saved bootBehavior
       const targetId = appConfig.bootBehavior === 'custom' ? appConfig.startupStationId : appConfig.lastStationId;
       const bootStation = findStationById(targetId) || recentsList[0] || SHORTWAVE_AM_STATIONS[6];
       activeStream = bootStation;
 
-      if (bootStation.freqKhz) {
-        previewSwDial(bootStation.freqKhz);
-      }
+      if (bootStation.freqKhz) previewSwDial(bootStation.freqKhz);
+      syncPlayerUI(getStationIdentityThumbnail(bootStation));
 
-      const emblem = getStationIdentityThumbnail(bootStation);
-      syncPlayerUI(emblem);
-
-      // If bootBehavior is 'last' or 'custom', auto-start the station on open
       if (appConfig.bootBehavior !== 'quiet') {
         attemptBootAutoplay(bootStation);
       }
@@ -2159,8 +2111,7 @@
     }
 
     function triggerPendingBootPlay() {
-      const banner = document.getElementById('boot-resume-banner');
-      if (banner) banner.classList.add('hidden');
+      document.getElementById('boot-resume-banner')?.classList.add('hidden');
       if (pendingBootStation) {
         const st = pendingBootStation;
         pendingBootStation = null;
@@ -2169,7 +2120,7 @@
     }
 
     // =========================================================================
-    // 7. UPGRADED SHORTWAVE / AM RECEIVER TUNER LOGIC (PLAYS ON TUNE!)
+    // 7. SHORTWAVE / AM TUNER LOGIC (AUTO-LOCKS & PLAYS ON TUNE)
     // =========================================================================
     function findClosestSwStation(khzVal) {
       const khz = parseInt(khzVal, 10);
@@ -2185,51 +2136,29 @@
       return { closest, minDiff, khz };
     }
 
-    // Live 60fps preview while dragging the dial
     function previewSwDial(val) {
-      const { closest, minDiff, khz } = findClosestSwStation(val);
-      const band = khz < 1700 ? 'MW AM' : khz < 6200 ? 'SW 49m' : khz < 7600 ? 'SW 41m' : khz < 10100 ? 'SW 31m' : khz < 12200 ? 'SW 25m' : 'SW 19m';
+      const { closest, khz } = findClosestSwStation(val);
+      const band = khz < 1700 ? 'MW Band' : khz < 6200 ? '49m Band' : khz < 7600 ? '41m Band' : khz < 10100 ? '31m Band' : khz < 12200 ? '25m Band' : '19m Band';
 
-      document.getElementById('sw-freq-display').textContent = khz;
+      document.getElementById('sw-freq-pill').textContent = `${khz} kHz`;
       document.getElementById('sw-band-badge').textContent = band;
       document.getElementById('sw-freq-slider').value = khz;
+      document.getElementById('sw-nearest-title').textContent = closest.title;
 
       const ytmFreq = document.getElementById('ytm-sw-freq');
       const ytmSlider = document.getElementById('ytm-sw-slider');
       const ytmTitle = document.getElementById('ytm-sw-title');
       if (ytmFreq) ytmFreq.textContent = `${khz} kHz`;
       if (ytmSlider) ytmSlider.value = khz;
-      if (ytmTitle) ytmTitle.textContent = `${closest.title} (${closest.freqKhz} kHz)`;
-
-      // Dynamic Signal Meter based on proximity to carrier
-      const sMeter = document.getElementById('sw-smeter');
-      if (minDiff <= 25) {
-        sMeter.textContent = '▮▮▮▮▮ S9+25 LOCK';
-        sMeter.className = 'text-emerald-400';
-      } else if (minDiff <= 150) {
-        sMeter.textContent = '▮▮▮▮▯ S9+10 NEAR';
-        sMeter.className = 'text-amber-400';
-      } else {
-        sMeter.textContent = '▮▮▮▯▯ S7 AUTO-SNAP';
-        sMeter.className = 'text-amber-300/80';
-      }
-
-      document.getElementById('sw-nearest-title').textContent = closest.title;
-      document.getElementById('sw-nearest-sub').textContent = `${closest.freqKhz} kHz • ${closest.subtitle}`;
+      if (ytmTitle) ytmTitle.textContent = closest.title;
     }
 
-    // FIXED: Releasing the dial or clicking TUNE snaps to carrier & PLAYS the station!
     function commitSwTune(val) {
-      safeHaptic(14);
+      safeHaptic(12);
       const { closest } = findClosestSwStation(val);
       if (!closest) return;
-
-      // Snap dial cleanly to exact station carrier frequency
       previewSwDial(closest.freqKhz);
-      document.getElementById('sw-smeter').textContent = '▮▮▮▮▮ S9+30 LOCKED';
-      document.getElementById('sw-smeter').className = 'text-emerald-400';
-
-      showToast(`Locked ${closest.freqKhz} kHz: ${closest.title}`);
+      showToast(`Tuned ${closest.freqKhz} kHz • ${closest.title}`);
       startPlayback(closest);
     }
 
@@ -2246,7 +2175,7 @@
     }
 
     function seekSwStation(dir) {
-      safeHaptic(12);
+      safeHaptic(10);
       const curKhz = parseInt(document.getElementById('sw-freq-slider').value, 10);
       const sorted = [...SHORTWAVE_AM_STATIONS].sort((a, b) => a.freqKhz - b.freqKhz);
 
@@ -2261,7 +2190,7 @@
     }
 
     // =========================================================================
-    // 8. PRO AUDIO DSP & SOUND QUALITY ENGINE
+    // 8. AUDIO QUALITY & EQUALIZER
     // =========================================================================
     function openDspModal() {
       safeHaptic(10);
@@ -2277,19 +2206,18 @@
       appConfig.qualityProfile = profile;
       saveAppConfig();
       syncDspModalUI();
-      showToast(`Stream Profile: ${profile.toUpperCase()}`);
     }
 
     function applyDspPreset(preset) {
-      safeHaptic(10);
+      safeHaptic(8);
       appConfig.dspPreset = preset;
       const presets = {
-        flat: { bass: 0, mid: 0, treble: 0, label: 'Hi-Fi' },
-        bass: { bass: 6, mid: 1, treble: 2, label: 'Bass+' },
-        vocal: { bass: -2, mid: 5, treble: 3, label: 'Vocal HD' },
-        spatial: { bass: 4, mid: 2, treble: 5, label: 'Spatial' },
-        swclean: { bass: -3, mid: 6, treble: -2, label: 'SW Clean' },
-        classical: { bass: 2, mid: 3, treble: 4, label: 'Raaga HD' }
+        flat: { bass: 0, mid: 0, treble: 0 },
+        bass: { bass: 6, mid: 1, treble: 2 },
+        vocal: { bass: -2, mid: 5, treble: 3 },
+        spatial: { bass: 4, mid: 2, treble: 5 },
+        swclean: { bass: -3, mid: 6, treble: -2 },
+        classical: { bass: 2, mid: 3, treble: 4 }
       };
       const p = presets[preset] || presets.flat;
       appConfig.bass = p.bass;
@@ -2298,11 +2226,9 @@
       document.getElementById('eq-bass').value = p.bass;
       document.getElementById('eq-mid').value = p.mid;
       document.getElementById('eq-treble').value = p.treble;
-      document.getElementById('sp-dsp-label').textContent = p.label;
       saveAppConfig();
       syncDspModalUI();
       applyAcousticContourToAudio();
-      showToast(`Audio DSP: ${p.label}`);
     }
 
     function updateCustomEq() {
@@ -2319,14 +2245,14 @@
       ['hifi', 'balanced', 'datasaver'].forEach(q => {
         const el = document.getElementById(`qprof-${q}`);
         if (el) el.className = (appConfig.qualityProfile === q)
-          ? 'py-2 px-2 rounded-lg text-xs font-bold bg-[#1ed760] text-black transition'
-          : 'py-2 px-2 rounded-lg text-xs font-semibold bg-[#282828] text-white transition';
+          ? 'py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition'
+          : 'py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition';
       });
       ['flat', 'bass', 'vocal', 'spatial', 'swclean', 'classical'].forEach(p => {
         const el = document.getElementById(`dsp-${p}`);
         if (el) el.className = (appConfig.dspPreset === p)
-          ? 'py-2 px-2.5 rounded-lg text-xs font-bold bg-white text-black transition'
-          : 'py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition';
+          ? 'py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition'
+          : 'py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition';
       });
       const b = appConfig.bass ?? 0;
       const m = appConfig.mid ?? 0;
@@ -2360,15 +2286,15 @@
       document.getElementById('sp-top-compact-grid').innerHTML = topSix.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="playStationById('${ch.id}')" class="group h-[56px] bg-[#282828]/85 hover:bg-[#3e3e3e] rounded-[6px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
+          <div onclick="playStationById('${ch.id}')" class="group h-[56px] bg-[#242424] hover:bg-[#323232] rounded-[4px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
             <div class="flex items-center gap-3 min-w-0 h-full">
               <img src="${emblem}" class="w-[56px] h-[56px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
-                <div class="font-bold text-[13px] text-white truncate">${ch.title}</div>
-                <div class="text-[10px] font-dial text-[#1ed760] truncate">${ch.freqLabel || ch.subtitle}</div>
+                <div class="font-semibold text-[13px] text-white truncate">${ch.title}</div>
+                <div class="text-[11px] text-[#b3b3b3] truncate">${ch.freqLabel || ch.subtitle}</div>
               </div>
             </div>
-            <div class="w-8 h-8 rounded-full bg-[#1ed760] text-black flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition shrink-0">
+            <div class="w-8 h-8 btn-circle bg-[#1ed760] text-black shadow-lg opacity-0 group-hover:opacity-100 transition">
               <i class="fa-solid fa-play text-[10px] ml-0.5"></i>
             </div>
           </div>
@@ -2379,10 +2305,10 @@
         const emblem = getStationIdentityThumbnail(ch);
         const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div onclick="playStationById('${ch.id}')" class="snap-card w-[146px] sm:w-[162px] shrink-0 group bg-[#181818] hover:bg-[#282828] p-2.5 rounded-[8px] transition cursor-pointer flex flex-col">
-            <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212] shadow-md">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
-              <button class="w-10 h-10 rounded-full bg-[#1ed760] text-black flex items-center justify-center shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
+          <div onclick="playStationById('${ch.id}')" class="snap-card w-[144px] sm:w-[158px] shrink-0 group bg-[#181818] hover:bg-[#242424] p-2.5 rounded-[6px] transition cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2 rounded-[4px] overflow-hidden bg-[#121212]">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+              <button class="w-10 h-10 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
                 <i class="fa-solid fa-play text-xs ml-0.5"></i>
               </button>
             </div>
@@ -2401,9 +2327,9 @@
         const emblem = getStationIdentityThumbnail(ch);
         const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div onclick="playStationById('${ch.id}')" class="snap-card w-[144px] sm:w-[160px] shrink-0 group cursor-pointer flex flex-col">
-            <div class="relative aspect-square w-full mb-2 rounded-[8px] overflow-hidden bg-[#121212] border border-white/5">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
+          <div onclick="playStationById('${ch.id}')" class="snap-card w-[142px] sm:w-[156px] shrink-0 group cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
             <div class="font-medium text-[13px] text-white truncate">${ch.title}</div>
             <div class="text-[11px] text-[#aaa] truncate mt-0.5">${subText}</div>
@@ -2421,11 +2347,11 @@
         railSim.innerHTML = similarList.slice(0, 4).map(ch => {
           const emblem = getStationIdentityThumbnail(ch);
           return `
-            <div onclick="playStationById('${ch.id}')" class="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-white/10 cursor-pointer">
+            <div onclick="playStationById('${ch.id}')" class="flex items-center gap-2.5 p-1.5 rounded hover:bg-white/10 cursor-pointer">
               <img src="${emblem}" class="w-9 h-9 rounded object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
-                <div class="text-xs font-semibold text-white truncate">${ch.title}</div>
-                <div class="text-[10px] text-[#b3b3b3] truncate">${ch.subtitle}</div>
+                <div class="text-xs font-medium text-white truncate">${ch.title}</div>
+                <div class="text-[11px] text-[#b3b3b3] truncate">${ch.subtitle}</div>
               </div>
             </div>
           `;
@@ -2438,8 +2364,8 @@
           const emblem = getStationIdentityThumbnail(ch);
           return `
             <div onclick="playStationById('${ch.id}')" class="w-24 shrink-0 cursor-pointer">
-              <img src="${emblem}" class="w-24 h-24 rounded-lg object-cover mb-1 border border-white/10" alt="" />
-              <div class="text-[11px] font-semibold text-white truncate">${ch.title}</div>
+              <img src="${emblem}" class="w-24 h-24 rounded-md object-cover mb-1" alt="" />
+              <div class="text-[11px] font-medium text-white truncate">${ch.title}</div>
             </div>
           `;
         }).join('');
@@ -2499,7 +2425,7 @@
       box.innerHTML = list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="playStationById('${ch.id}')" class="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer">
+          <div onclick="playStationById('${ch.id}')" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
             <div class="flex items-center gap-3 min-w-0">
               <img src="${emblem}" class="w-10 h-10 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
@@ -2507,7 +2433,7 @@
                 <div class="text-[11px] text-[#aaa] truncate">${ch.subtitle}</div>
               </div>
             </div>
-            <span class="text-[10px] font-dial text-[#aaa] shrink-0">${ch.freqLabel || 'LIVE'}</span>
+            <span class="text-[10px] font-mono-num text-[#aaa] shrink-0">${ch.freqLabel || 'LIVE'}</span>
           </div>
         `;
       }).join('');
@@ -2535,8 +2461,8 @@
       Object.entries(chipKeys).forEach(([k, suffix]) => {
         const spEl = document.getElementById(`sp-chip-${suffix}`);
         if (spEl) spEl.className = (k === cat)
-          ? 'px-3.5 py-1.5 rounded-full text-xs font-bold bg-white text-black transition'
-          : 'px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition';
+          ? 'px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition'
+          : 'px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition';
 
         const spMob = document.getElementById(`sp-mchip-${suffix}`);
         if (spMob) spMob.className = (k === cat)
@@ -2545,8 +2471,8 @@
 
         const ytmEl = document.getElementById(`ytm-chip-${suffix}`);
         if (ytmEl) ytmEl.className = (k === cat)
-          ? 'px-3.5 py-1.5 rounded-[8px] text-xs font-bold bg-white text-black shrink-0 transition'
-          : 'px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition';
+          ? 'px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition'
+          : 'px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition';
       });
 
       if (cat === 'shortwave') {
@@ -2640,14 +2566,14 @@
       spCards.innerHTML = catalogItems.map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="selectChannel(${idx})" class="group bg-[#181818] hover:bg-[#282828] p-3 rounded-[8px] transition cursor-pointer flex flex-col">
-            <div class="relative aspect-square w-full mb-2.5 rounded-[6px] overflow-hidden bg-[#121212] shadow-md">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
-              <button class="w-11 h-11 rounded-full bg-[#1ed760] text-black flex items-center justify-center shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
+          <div onclick="selectChannel(${idx})" class="group bg-[#181818] hover:bg-[#242424] p-3 rounded-[6px] transition cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2.5 rounded-[4px] overflow-hidden bg-[#121212]">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+              <button class="w-11 h-11 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
                 <i class="fa-solid fa-play text-sm ml-0.5"></i>
               </button>
             </div>
-            <div class="font-semibold text-[14px] text-white truncate">${ch.title}</div>
+            <div class="font-semibold text-[13px] text-white truncate">${ch.title}</div>
             <div class="text-[12px] text-[#b3b3b3] truncate mt-0.5">${ch.subtitle}</div>
           </div>
         `;
@@ -2656,7 +2582,7 @@
       ytmQuick.innerHTML = catalogItems.slice(0, 12).map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="selectChannel(${idx})" class="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer group transition">
+          <div onclick="selectChannel(${idx})" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer group transition">
             <div class="flex items-center gap-3 min-w-0 flex-1">
               <img src="${emblem}" class="w-12 h-12 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
@@ -2673,8 +2599,8 @@
         const emblem = getStationIdentityThumbnail(ch);
         return `
           <div onclick="selectChannel(${idx})" class="group cursor-pointer flex flex-col">
-            <div class="relative aspect-square w-full mb-2 rounded-[8px] overflow-hidden bg-[#121212] border border-white/5">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
+            <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
             <div class="font-medium text-[14px] text-white truncate">${ch.title}</div>
             <div class="text-[12px] text-[#aaa] truncate mt-0.5">${ch.subtitle}</div>
@@ -2720,7 +2646,7 @@
           <div onclick="playStationById('${ch.id}')" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
             <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
             <div class="min-w-0 flex-1">
-              <div class="text-[13px] font-semibold text-white truncate">${ch.title}</div>
+              <div class="text-[13px] font-medium text-white truncate">${ch.title}</div>
               <div class="text-[11px] text-[#b3b3b3] truncate">${sub}</div>
             </div>
           </div>
@@ -2739,15 +2665,13 @@
       } else {
         activeIndex = index;
         backupCursor = 0;
-        if (item.freqKhz) {
-          previewSwDial(item.freqKhz);
-        }
+        if (item.freqKhz) previewSwDial(item.freqKhz);
         startPlayback(item);
       }
     }
 
     function startPlayback(streamObj, overrideUrl = null, isBootAttempt = false) {
-      if (!isBootAttempt) safeHaptic(12);
+      if (!isBootAttempt) safeHaptic(10);
       activeStream = streamObj;
       userPaused = false;
       const url = overrideUrl || streamObj.streamUrl;
@@ -2761,7 +2685,6 @@
       }
 
       audio.pause();
-      document.getElementById('sp-np-art-badge')?.classList.add('hidden');
 
       const isHls = url.includes('.m3u8');
       const isAppleNative = audio.canPlayType('application/vnd.apple.mpegurl');
@@ -2773,9 +2696,8 @@
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
           if (isBootAttempt && err.name === 'NotAllowedError') {
-            // Browser requires 1 user tap to unmute audio on initial page open
             const banner = document.getElementById('boot-resume-banner');
-            document.getElementById('boot-resume-text').textContent = `Tap anywhere to play ${streamObj.title}`;
+            document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
             banner?.classList.remove('hidden');
           } else {
             switchBackupServer();
@@ -2821,7 +2743,7 @@
       const backups = activeStream.backupUrls || [];
       if (backupCursor < backups.length) {
         const nextUrl = backups[backupCursor++];
-        showToast('Switched to Backup Stream');
+        showToast('Switched to backup stream');
         startPlayback(activeStream, nextUrl);
       }
     }
@@ -2849,12 +2771,12 @@
 
       const trackLabel = `${pick.artistName} • ${pick.trackName}`;
 
+      // Updates ONLY active player surfaces; channel grids keep their clean station covers
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.src = validUrl;
       });
 
-      document.getElementById('sp-np-art-badge')?.classList.remove('hidden');
       ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = trackLabel;
@@ -2866,9 +2788,8 @@
     function updateAmbientColorFromId(idStr) {
       const h = hashString(idStr);
       const rgbs = [
-        '29, 185, 84', '56, 189, 248', '168, 85, 247',
-        '251, 146, 60', '244, 114, 182', '45, 212, 191',
-        '250, 204, 21', '248, 113, 113'
+        '28, 90, 56', '30, 64, 110', '68, 42, 96',
+        '96, 52, 32', '92, 36, 58', '24, 82, 78'
       ];
       document.documentElement.style.setProperty('--ambient-rgb', rgbs[h % rgbs.length]);
     }
@@ -2946,7 +2867,7 @@
       }
 
       document.getElementById('sp-bar-play').className = `${icon} text-xs`;
-      document.getElementById('sp-mini-play').className = `${icon} text-lg`;
+      document.getElementById('sp-mini-play').className = `${icon} text-base`;
       document.getElementById('ytm-bar-play').className = `${icon} text-sm`;
       document.getElementById('ytm-mini-play').className = `${icon} text-base`;
       document.getElementById('sheet-play').className = icon;
@@ -2960,7 +2881,7 @@
       navigator.mediaSession.metadata = new MediaMetadata({
         title: title || 'OmniCast Live',
         artist: artist || 'Live Broadcast',
-        album: 'OmniCast v10.0',
+        album: 'OmniCast',
         artwork: [{ src: artUrl, sizes: '512x512', type: 'image/jpeg' }]
       });
       navigator.mediaSession.setActionHandler('play', () => { userPaused = false; audio.play(); });
@@ -3059,7 +2980,7 @@
           })).filter(e => e.streamUrl);
 
           document.getElementById('sp-pod-episodes').innerHTML = episodeList.map((ep, i) => `
-            <div onclick="startPlayback(episodeList[${i}])" class="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer">
+            <div onclick="startPlayback(episodeList[${i}])" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
               <span class="text-xs font-medium text-white truncate">${ep.title}</span>
               <i class="fa-solid fa-play text-xs text-[#1ed760]"></i>
             </div>
@@ -3081,11 +3002,8 @@
       }
       if (audio.paused) {
         userPaused = false;
-        if (!audio.src) {
-          startPlayback(activeStream);
-        } else {
-          audio.play().catch(() => startPlayback(activeStream));
-        }
+        if (!audio.src) startPlayback(activeStream);
+        else audio.play().catch(() => startPlayback(activeStream));
       } else {
         userPaused = true;
         audio.pause();
@@ -3134,11 +3052,11 @@
 
     function toggleLikeCurrent() {
       if (!activeStream) return;
-      safeHaptic(12);
+      safeHaptic(10);
       const idx = likedStations.findIndex(s => s.id === activeStream.id);
       if (idx > -1) likedStations.splice(idx, 1);
       else likedStations.unshift(activeStream);
-      localStorage.setItem('omnicast_v10_liked', JSON.stringify(likedStations));
+      localStorage.setItem('omnicast_v11_liked', JSON.stringify(likedStations));
       syncLikeIcons();
       if (sidebarFilter === 'liked') renderSidebarList();
     }
