@@ -30,10 +30,12 @@ export function SimpleTerminal() {
     useExperienceOptions.getState().options.spectrumHome === 'tv' ? 'tv' : 'kite');
   const selectedView = useViewStore(s => s.view);
   const setSelectedView = useViewStore(s => s.setView);
+  const initialHomePendingRef = useRef(true);
   const simStatus = useSimStatus();
   const simulationAllowed = selectedView === 'simulation' || simStatus.isSuccess ||
     (simStatus.isError && !isOwnerDenied(simStatus.error));
   const chooseSpectrum = (next: 'kite' | 'tv', targetView?: AppView) => {
+    initialHomePendingRef.current = false;
     if (next === spectrum && (!targetView || targetView === selectedView)) return true;
     if (targetView === 'simulation' && !simulationAllowed) return false;
     if (hasUnsavedDraft() && !window.confirm('You have unsaved settings changes. Switch workspace and discard them?')) return false;
@@ -49,11 +51,18 @@ export function SimpleTerminal() {
   const [kiteNav, setKiteNav] = useState<NavItem>(() => notificationDestination(new URLSearchParams(window.location.search).get('notification')) || useKiteSettings.getState().defaultSection || 'dashboard');
   const navOptions=useExperienceOptions(s=>s.options);
   useEffect(() => {
-    if (navOptions.spectrumHome === 'simulation' && simulationAllowed) setSelectedView('simulation');
-  // Initial home preference is applied when authorized; never override an operator's later selection.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!initialHomePendingRef.current) return;
+    // A live notification must never silently open a simulation workspace.
+    if (new URLSearchParams(window.location.search).get('view') === 'live') {
+      initialHomePendingRef.current = false;
+      return;
+    }
+    if (navOptions.spectrumHome === 'simulation' && !simulationAllowed) return;
+    initialHomePendingRef.current = false;
+    setSelectedView(navOptions.spectrumHome === 'simulation' ? 'simulation' : 'live');
+  }, [navOptions.spectrumHome, simulationAllowed, setSelectedView]);
   const goHome = () => {
+    initialHomePendingRef.current = false;
     // Close managed overlays before changing the underlying workspace.
     window.dispatchEvent(new Event('sterling-home'));
     setToolsOpen(false);

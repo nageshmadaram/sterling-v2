@@ -55,7 +55,8 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName,tools=[],onS
   }
   useMobileBackLayer(open,()=>setOpen(false),'mobile-menu');
   useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('sterling-home',close);return()=>window.removeEventListener('sterling-home',close);},[]);
-  const headerHost=document.getElementById('sterling-mobile-header-actions');
+  const [headerHost,setHeaderHost]=useState<HTMLElement|null>(null);
+  useEffect(()=>{setHeaderHost(document.getElementById('sterling-mobile-header-actions'));},[]);
   return <>
     {headerHost && createPortal(<div className="sterling-mobile-controls">
       <button className="sterling-mobile-search" type="button" aria-label="Search watchlist"

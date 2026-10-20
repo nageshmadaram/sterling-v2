@@ -1570,3 +1570,8 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   .sterling-header-row { padding-left:6px !important; padding-right:6px !important; }
   .sterling-header-row > .mobile-view-toggle.unified-view-toggle { font-size:10px !important; padding:0 2px !important; }
 }
+
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .sterling-header-row > .sterling-home-button { display:inline-flex !important; }
+  body[data-mobile-style="app"] .mobile-pane-tabs { position:relative; z-index:14050; }
+}

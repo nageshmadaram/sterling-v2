@@ -19,7 +19,7 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
   const navigable = selected.filter(key => key !== 'simulation' || simulationAllowed);
   const current: SpectrumProduct = workspace === 'tv' ? 'tv' :
     view === 'simulation' ? 'simulation' : 'kite';
-  const active = navigable.includes(current) ? current : navigable[0] || 'kite';
+  const active = navigable.includes(current) ? current : navigable[0] || selected[0] || 'kite';
   const navigate = (key: SpectrumProduct) =>
     key === 'tv' ? onSelect('tv') : onSelect('kite', key === 'simulation' ? 'simulation' : 'live');
   const label = (key: SpectrumProduct) =>
