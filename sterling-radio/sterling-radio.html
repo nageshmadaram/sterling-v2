@@ -1855,6 +1855,60 @@
     // =========================================================================
     // 4. PERSISTENT CONFIG & STARTUP BOOT ENGINE
     // =========================================================================
+    // An opaque-origin iframe cannot use browser localStorage. Persist only the
+    // following Radio-specific keys via an allowlisted host message bridge.
+    // Standalone Radio keeps using its own browser storage.
+    const RADIO_KEYS = new Set([
+      'omnicast_v11_config', 'omnicast_v11_recents',
+      'omnicast_v11_counts', 'omnicast_v11_liked'
+    ]);
+    const radioCached = new Map();
+    const radioNativeStore = (() => {
+      try {
+        const store = window.localStorage;
+        store.getItem('omnicast_v11_config');
+        return store;
+      } catch (_) { return null; }
+    })();
+    const radioStorage = {
+      getItem(key) {
+        if (!RADIO_KEYS.has(key)) return null;
+        return radioCached.has(key) ? radioCached.get(key) : radioNativeStore?.getItem(key) ?? null;
+      },
+      setItem(key, value) {
+        if (!RADIO_KEYS.has(key) || typeof value !== 'string' || value.length > 50000) return;
+        radioCached.set(key, value);
+        try { radioNativeStore?.setItem(key, value); } catch (_) {}
+        if (window.parent !== window) window.parent.postMessage({
+          type: 'sterling.radio.save', key, value
+        }, '*');
+      },
+      removeItem(key) {
+        if (!RADIO_KEYS.has(key)) return;
+        radioCached.delete(key);
+        try { radioNativeStore?.removeItem(key); } catch (_) {}
+        if (window.parent !== window) window.parent.postMessage({
+          type: 'sterling.radio.save', key, value: null
+        }, '*');
+      },
+      hydrate(values) {
+        if (!values || typeof values !== 'object' || Array.isArray(values)) return;
+        for (const key of RADIO_KEYS) {
+          if (Object.prototype.hasOwnProperty.call(values, key) &&
+              typeof values[key] === 'string' && values[key].length <= 50000) {
+            radioCached.set(key, values[key]);
+          }
+        }
+      }
+    };
+    function readRadioJson(key, fallback) {
+      try {
+        const value = JSON.parse(radioStorage.getItem(key) || 'null');
+        if (Array.isArray(fallback)) return Array.isArray(value) ? value : fallback;
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : fallback;
+      } catch (_) { return fallback; }
+    }
+
     const DEFAULT_CONFIG = {
       appMode: 'spotify',
       activeCategory: 'shortwave',
@@ -1872,13 +1926,13 @@
       lastStationSnapshot: null
     };
 
-    let appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(localStorage.getItem('omnicast_v11_config') || '{}') };
-    let recentsList = JSON.parse(localStorage.getItem('omnicast_v11_recents') || '[]');
-    let playCounts = JSON.parse(localStorage.getItem('omnicast_v11_counts') || '{}');
-    let likedStations = JSON.parse(localStorage.getItem('omnicast_v11_liked') || '[]');
+    let appConfig = { ...DEFAULT_CONFIG, ...readRadioJson('omnicast_v11_config', {}) };
+    let recentsList = readRadioJson('omnicast_v11_recents', []);
+    let playCounts = readRadioJson('omnicast_v11_counts', {});
+    let likedStations = readRadioJson('omnicast_v11_liked', []);
 
     function saveAppConfig() {
-      try { localStorage.setItem('omnicast_v11_config', JSON.stringify(appConfig)); } catch (_) {}
+      try { radioStorage.setItem('omnicast_v11_config', JSON.stringify(appConfig)); } catch (_) {}
     }
 
     if (recentsList.length === 0) {
@@ -1890,7 +1944,7 @@
         TAMIL_STATIONS[1],
         ELITE_GLOBAL_STATIONS[0]
       ];
-      localStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList));
+      radioStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList));
     }
     if (Object.keys(playCounts).length === 0) {
       playCounts = {
@@ -1901,7 +1955,7 @@
         ta_air_chennai_rainbow: { count: 9, station: TAMIL_STATIONS[1] },
         somafm_groovesalad: { count: 8, station: ELITE_GLOBAL_STATIONS[0] }
       };
-      localStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts));
+      radioStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts));
     }
 
     function recordStationPlay(stationObj) {
@@ -1911,11 +1965,11 @@
       saveAppConfig();
 
       recentsList = [stationObj, ...recentsList.filter(r => r.id !== stationObj.id)].slice(0, 16);
-      try { localStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList)); } catch (_) {}
+      try { radioStorage.setItem('omnicast_v11_recents', JSON.stringify(recentsList)); } catch (_) {}
 
       const prev = playCounts[stationObj.id]?.count || 0;
       playCounts[stationObj.id] = { count: prev + 1, station: stationObj };
-      try { localStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts)); } catch (_) {}
+      try { radioStorage.setItem('omnicast_v11_counts', JSON.stringify(playCounts)); } catch (_) {}
 
       renderPersonalizedShelves();
       renderSidebarList();
@@ -1949,7 +2003,7 @@
 
     function clearRecentsHistory() {
       recentsList = [];
-      localStorage.removeItem('omnicast_v11_recents');
+      radioStorage.removeItem('omnicast_v11_recents');
       renderPersonalizedShelves();
       showToast('Recents cleared');
     }
@@ -2066,7 +2120,10 @@
     let hlsInstance = null;
 
     // --- 6. Initialization ---
-    window.addEventListener('DOMContentLoaded', () => {
+    let radioBooted = false;
+    function bootRadioApplication() {
+      if (radioBooted) return;
+      radioBooted = true;
       audio.volume = appConfig.volume ?? 0.85;
       audio.muted = !!appConfig.muted;
       document.getElementById('sp-vol-slider').value = audio.volume;
@@ -2103,6 +2160,27 @@
           updateActivePlayerSongArtwork(activeStream);
         }
       }, 25000);
+    }
+
+    // Start only after host preferences hydrate; fallback also works when the
+    // application is opened standalone or a parent does not implement the bridge.
+    window.addEventListener('message', event => {
+      if (event.source !== window.parent ||
+          event.data?.type !== 'sterling.radio.hydrate') return;
+      radioStorage.hydrate(event.data.values);
+      appConfig = { ...DEFAULT_CONFIG, ...readRadioJson('omnicast_v11_config', {}) };
+      recentsList = readRadioJson('omnicast_v11_recents', []);
+      playCounts = readRadioJson('omnicast_v11_counts', {});
+      likedStations = readRadioJson('omnicast_v11_liked', []);
+      if (document.readyState !== 'loading') bootRadioApplication();
+    });
+    window.addEventListener('DOMContentLoaded', () => {
+      if (window.parent === window) {
+        bootRadioApplication();
+      } else {
+        window.parent.postMessage({type:'sterling.radio.ready'}, '*');
+        window.setTimeout(bootRadioApplication, 4000);
+      }
     });
 
     function attemptBootAutoplay(stationObj) {
@@ -3056,7 +3134,7 @@
       const idx = likedStations.findIndex(s => s.id === activeStream.id);
       if (idx > -1) likedStations.splice(idx, 1);
       else likedStations.unshift(activeStream);
-      localStorage.setItem('omnicast_v11_liked', JSON.stringify(likedStations));
+      radioStorage.setItem('omnicast_v11_liked', JSON.stringify(likedStations));
       syncLikeIcons();
       if (sidebarFilter === 'liked') renderSidebarList();
     }

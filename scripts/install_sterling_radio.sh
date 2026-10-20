@@ -31,7 +31,8 @@ fi
 
 python3 - "$PUBLIC" "$ENTRY" "$DEST" "$HOME/.local/share/sterling-radio-backups" <<'PY'
 import pathlib, shutil, sys, re, time
-source, entry, dest, backup_root = map(pathlib.Path, sys.argv[1:])
+source, entry_path, dest, backup_root = map(pathlib.Path, sys.argv[1:])
+entry = entry_path.as_posix()
 if not source.is_dir() or not (source / entry).is_file():
     raise SystemExit("Radio input is missing")
 allowed = {".html", ".htm", ".css", ".js", ".mjs", ".svg", ".png",
@@ -52,7 +53,7 @@ for item in source.rglob("*"):
         raise SystemExit(f"Unexpectedly large Radio file: {rel}")
     paths.append((item,rel))
 if not any(str(rel) == entry for _,rel in paths):
-    raise SystemExit("Radio entry excluded by asset safety filter")
+    raise SystemExit(f"Radio entry {entry!r} excluded by asset safety filter; allowed assets: {[str(p) for _, p in paths[:20]]}")
 for item,rel in paths:
     if item.suffix.lower() in {".html",".htm",".js",".mjs",".json"} and item.stat().st_size < 5_000_000:
         content=item.read_text(encoding="utf-8",errors="replace")
