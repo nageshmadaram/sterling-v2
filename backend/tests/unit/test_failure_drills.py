@@ -115,6 +115,32 @@ class TestRecording:
         assert result.status == "UNKNOWN"
         assert "no referenced drill evidence" in result.observed
 
+    def test_a_single_string_is_not_a_list_of_evidence_references(self, register):
+        with pytest.raises(ValueError, match="sequence of references"):
+            register.record(
+                SHA, "disk_full", "PASS",
+                observed_by="operator", observed="blocked new exposure",
+                evidence_refs="receipt.txt",
+            )
+
+    def test_malformed_stored_reference_shape_cannot_pass(self, register):
+        stamp = datetime.now(timezone.utc).isoformat()
+        register._path(SHA).write_text(
+            json.dumps({
+                "sha": SHA,
+                "drills": [{
+                    "key": "disk_full", "status": "PASS",
+                    "observed": "blocked new exposure", "observed_by": "operator",
+                    "evidence_refs": "receipt.txt",
+                    "started_at": stamp, "recorded_at": stamp,
+                }],
+            }),
+            encoding="utf-8",
+        )
+        result = drill_report(SHA, register=register).by_key["disk_full"]
+        assert result.status == "UNKNOWN"
+        assert "no referenced drill evidence" in result.observed
+
     def test_a_failure_needs_neither_but_is_still_recorded(self, register):
         result = register.record(SHA, "disk_full", "FAIL", observed_by="", observed="")
         assert result.status == "FAIL"
