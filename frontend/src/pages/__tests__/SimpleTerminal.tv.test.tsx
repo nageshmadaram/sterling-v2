@@ -6,6 +6,9 @@ import '@testing-library/jest-dom/vitest';
 vi.mock('../../components/kite/KiteTab', () => ({
   KiteTab: () => <div data-testid="kite-trading-docks">Trading docks</div>,
 }));
+vi.mock('../../components/radio/RadioWorkspace', () => ({
+  RadioWorkspace: () => <div data-testid="fake-radio-content">Radio content</div>,
+}));
 vi.mock('../../components/tv/TvWorkspace', () => ({
   TvWorkspace: () => <div data-testid="fake-tv-content">TV content</div>,
 }));
@@ -67,7 +70,7 @@ describe('Sterling Spectrum navigation and Home', () => {
 
   it('cycles in the chosen order and only through selected workspaces', () => {
     useExperienceOptions.getState().update({
-      spectrumOrder:['tv','kite','simulation'],spectrumVisible:{kite:true,simulation:false,tv:true},
+      spectrumOrder:['tv','kite','simulation','radio'],spectrumVisible:{kite:true,simulation:false,tv:true,radio:false},
     });
     render(<SimpleTerminal />);
     fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
@@ -79,12 +82,12 @@ describe('Sterling Spectrum navigation and Home', () => {
 
   it('displays selected destination buttons side by side', () => {
     useExperienceOptions.getState().update({
-      spectrumLayout:'separate',spectrumOrder:['tv','kite','simulation'],
+      spectrumLayout:'separate',spectrumOrder:['tv','kite','simulation','radio'],
     });
     render(<SimpleTerminal />);
     const buttons=Array.from(document.querySelectorAll('.sterling-header-row > .mobile-view-toggle'))
       .map(button=>button.textContent);
-    expect(buttons).toEqual(['TV','KITE','Simulation']);
+    expect(buttons).toEqual(['TV','KITE','Simulation','Radio']);
     fireEvent.click(screen.getByTestId('spectrum-simulation-tab'));
     expect(useViewStore.getState().view).toBe('simulation');
     fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
@@ -102,6 +105,16 @@ describe('Sterling Spectrum navigation and Home', () => {
     expect(screen.getByTestId('kite-trading-docks')).toBeVisible();
     expect(useViewStore.getState().view).toBe('live');
     window.removeEventListener('sterling-home',homeClose);
+  });
+
+  it('uses the Radio header tab and can set Radio as Home', () => {
+    useExperienceOptions.getState().update({spectrumHome:'radio',spectrumLayout:'separate'});
+    render(<SimpleTerminal />);
+    expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
+    fireEvent.click(screen.getByRole('button',{name:'Sterling Home'}));
+    expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Reload Radio'})).toBeInTheDocument();
   });
 
   it('uses a configured TV landing tab and home setting', () => {

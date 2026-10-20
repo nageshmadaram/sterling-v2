@@ -5,11 +5,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
  * scripts and third-party playlists MUST NOT share Sterling's origin/storage,
  * auth cookies, bearer tokens, broker APIs, or DOM.
  *
-<<<<<<< Updated upstream
- * Only these six TV preferences cross the boundary; messages are accepted
-=======
  * Only these eight TV preferences cross the boundary; messages are accepted
->>>>>>> Stashed changes
  * exclusively from the mounted frame and contain no trading information.
  */
 export const TV_STORAGE_KEYS = [
@@ -19,11 +15,8 @@ export const TV_STORAGE_KEYS = [
   'streamos_stats_v14',
   'streamos_history_v14',
   'streamos_startup_channel_v14',
-<<<<<<< Updated upstream
-=======
   'streamos_theme_v14',
   'streamos_ui_v14',
->>>>>>> Stashed changes
 ] as const;
 type TvKey = (typeof TV_STORAGE_KEYS)[number];
 

@@ -8,11 +8,11 @@ export const NAV_OPTIONS = [
   ['backtest','Backtest'], ['connect','Connect'], ['help','Help'],
 ] as const;
 export type TickerContent = 'graph'|'pcr'|'both'|'badge'|'detail'|'price';
-export type SpectrumProduct = 'kite'|'simulation'|'tv';
+export type SpectrumProduct = 'kite'|'simulation'|'tv'|'radio';
 export type SpectrumLayout = 'cycle'|'separate';
 export type SpectrumHome = SpectrumProduct;
 export type SpectrumVisible = Record<SpectrumProduct, boolean>;
-export const SPECTRUM_ORDER: readonly SpectrumProduct[] = ['kite','simulation','tv'];
+export const SPECTRUM_ORDER: readonly SpectrumProduct[] = ['kite','simulation','tv','radio'];
 export type ExperienceOptions = {
   navOrder: string[];
   navHidden: string[];
@@ -28,6 +28,7 @@ export type ExperienceOptions = {
   /** Target used on startup and for either Home control. */
   spectrumHome: SpectrumHome;
   tvLabel: string;
+  radioLabel: string;
 };
 
 export const DEFAULT_EXPERIENCE_OPTIONS: ExperienceOptions = {
@@ -35,10 +36,11 @@ export const DEFAULT_EXPERIENCE_OPTIONS: ExperienceOptions = {
   tickerLayout: 'classic', tickerContent: 'graph',
   pcrMetric: 'oi', pcrTimestamp: true, pcrRatio: true,
   spectrumLayout: 'cycle',
-  spectrumVisible: { kite: true, simulation: true, tv: true },
+  spectrumVisible: { kite: true, simulation: true, tv: true, radio: true },
   spectrumOrder: [...SPECTRUM_ORDER],
   spectrumHome: 'kite',
   tvLabel: 'TV',
+  radioLabel: 'Radio',
 };
 const has = (value: unknown, values: readonly string[]): value is string =>
   typeof value === 'string' && values.includes(value);
@@ -71,6 +73,7 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
     kite: selected.kite !== false,
     simulation: selected.simulation !== false,
     tv: selected.tv !== false,
+    radio: selected.radio !== false,
   };
   // Keep at least one selected destination. Home independently restores KITE
   // even when its Spectrum navigation button is hidden.
@@ -96,6 +99,7 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
     spectrumVisible, spectrumOrder: order,
     spectrumHome: has(raw.spectrumHome, SPECTRUM_ORDER) ? raw.spectrumHome as SpectrumHome : 'kite',
     tvLabel: cleanTvLabel(raw.tvLabel),
+    radioLabel: raw.radioLabel == null ? 'Radio' : cleanTvLabel(raw.radioLabel).replace(/^TV$/, 'Radio'),
   };
 }
 

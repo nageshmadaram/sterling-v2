@@ -272,8 +272,6 @@
       #tv-tools-reveal { top:5px;right:6px; }
     }
   </style>
-<<<<<<< Updated upstream
-=======
 
 
 
@@ -500,7 +498,6 @@
 }
 </style>
 <!-- TV MOBILE STYLE END -->
->>>>>>> Stashed changes
 </head>
 
 <body class="theme-youtube flex flex-col overflow-hidden">
@@ -926,7 +923,6 @@
                   onclick="event.stopPropagation(); resumeTvPlayback()"
                   class="hidden absolute z-40 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black/90 border border-white/40 text-white text-xs sm:text-sm font-semibold rounded-xl px-5 py-3 shadow-2xl"
                   aria-label="Tap to play live TV">Tap to play live TV</button>
-<<<<<<< Updated upstream
                 <!-- MOBILE / BROWSER AUTO-PLAY UNMUTE PILL (Prevents Mobile Autoplay Deadlock!) -->
                 <button
                   id="mobile-unmute-pill"
@@ -936,9 +932,6 @@
                   <span>🔇</span>
                   <span>Tap to Unmute Live Audio</span>
                 </button>
-=======
-                
->>>>>>> Stashed changes
 
                 <!-- Startup Default Badge on Player -->
                 <div id="player-startup-indicator" class="hidden absolute top-3 right-3 z-30 bg-amber-500/90 text-black text-[10px] font-bold px-2 py-0.5 rounded-full pointer-events-none">
@@ -1260,11 +1253,7 @@
     const tvStorage=(()=>{
       const allowed=new Set(['streamos_sources_v14','streamos_source_mode_v14',
         'streamos_favs_v14','streamos_stats_v14','streamos_history_v14',
-<<<<<<< Updated upstream
-        'streamos_startup_channel_v14']);
-=======
         'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14']);
->>>>>>> Stashed changes
       const memory=new Map();
       return Object.freeze({
         getItem(key){return allowed.has(key)&&memory.has(key)?memory.get(key):null;},
@@ -3614,8 +3603,6 @@
     }
     announceReady();
   </script>
-<<<<<<< Updated upstream
-=======
 
 
 
@@ -3917,6 +3904,5 @@
 })();
 </script>
 <!-- TV MOBILE SCRIPT END -->
->>>>>>> Stashed changes
 </body>
 </html>

@@ -3,8 +3,8 @@ import { useExperienceOptions, type SpectrumProduct } from '../../store/useExper
 import { useSimStatus, isOwnerDenied } from '../../hooks/useSim';
 
 export interface SpectrumNavigationProps {
-  workspace: 'kite'|'tv';
-  onSelect: (workspace: 'kite'|'tv', view?: AppView) => void;
+  workspace: 'kite'|'tv'|'radio';
+  onSelect: (workspace: 'kite'|'tv'|'radio', view?: AppView) => void;
 }
 
 /** Destination visibility never authorizes Simulation or broker orders. */
@@ -17,13 +17,13 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
   const visible = options.spectrumVisible;
   const selected = options.spectrumOrder.filter(key => visible[key]);
   const navigable = selected.filter(key => key !== 'simulation' || simulationAllowed);
-  const current: SpectrumProduct = workspace === 'tv' ? 'tv' :
+  const current: SpectrumProduct = workspace === 'radio' ? 'radio' : workspace === 'tv' ? 'tv' :
     view === 'simulation' ? 'simulation' : 'kite';
   const active = navigable.includes(current) ? current : navigable[0] || selected[0] || 'kite';
   const navigate = (key: SpectrumProduct) =>
-    key === 'tv' ? onSelect('tv') : onSelect('kite', key === 'simulation' ? 'simulation' : 'live');
+    key === 'tv' ? onSelect('tv') : key === 'radio' ? onSelect('radio') : onSelect('kite', key === 'simulation' ? 'simulation' : 'live');
   const label = (key: SpectrumProduct) =>
-    key === 'tv' ? options.tvLabel : key === 'simulation' ? 'Simulation' : 'KITE';
+    key === 'tv' ? options.tvLabel : key === 'radio' ? options.radioLabel : key === 'simulation' ? 'Simulation' : 'KITE';
 
   if (options.spectrumLayout === 'cycle') {
     const currentLabel = label(active);

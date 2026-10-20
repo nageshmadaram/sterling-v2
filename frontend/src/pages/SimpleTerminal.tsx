@@ -6,6 +6,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SimpleSettingsDrawer } from '../components/SimpleSettings';
 import { KiteTab } from '../components/kite/KiteTab';
 import { TvWorkspace } from '../components/tv/TvWorkspace';
+import { RadioWorkspace } from '../components/radio/RadioWorkspace';
 import { ThemeToggle } from '../components/kite/ThemeToggle';
 import type { NavItem } from '../components/kite/KiteLayout';
 import { useKiteSettings } from '../store/useKiteSettings';
@@ -26,23 +27,21 @@ export function SimpleTerminal() {
   useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('view')==='live'&&notificationDestination(params.get('notification')))useViewStore.getState().setView('live');},[]);
   const [showSettings, setShowSettings] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-<<<<<<< Updated upstream
-  const [spectrum, setSpectrum] = useState<'kite' | 'tv'>(() =>
-    useExperienceOptions.getState().options.spectrumHome === 'tv' ? 'tv' : 'kite');
-=======
-  const [spectrum, setSpectrum] = useState<'kite' | 'tv'>(()=>{try{return localStorage.getItem('sterling.workspace')==='tv'&&!new URLSearchParams(location.search).get('notification')?'tv':'kite';}catch{return 'kite';}});
+  const [spectrum, setSpectrum] = useState<'kite' | 'tv' | 'radio'>(() => {
+    const home = useExperienceOptions.getState().options.spectrumHome;
+    return home === 'tv' || home === 'radio' ? home : 'kite';
+  });
   const [tvState,setTvState]=useState<{theme:'youtube'|'spotify'|'netflix';query:string}>(()=>{let theme='youtube';try{theme=localStorage.getItem('sterling.tv.streamos_theme_v14')||theme;}catch{}return {theme:theme==='spotify'||theme==='netflix'?theme:'youtube',query:''};});
   const onTvState=useCallback((state:{theme:'youtube'|'spotify'|'netflix';query:string})=>setTvState(state),[]);
   const tvCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action,value}}));
   useEffect(()=>{try{localStorage.setItem('sterling.workspace',spectrum);}catch{}},[spectrum]);
->>>>>>> Stashed changes
   const selectedView = useViewStore(s => s.view);
   const setSelectedView = useViewStore(s => s.setView);
   const initialHomePendingRef = useRef(true);
   const simStatus = useSimStatus();
   const simulationAllowed = selectedView === 'simulation' || simStatus.isSuccess ||
     (simStatus.isError && !isOwnerDenied(simStatus.error));
-  const chooseSpectrum = (next: 'kite' | 'tv', targetView?: AppView) => {
+  const chooseSpectrum = (next: 'kite' | 'tv' | 'radio', targetView?: AppView) => {
     initialHomePendingRef.current = false;
     if (next === spectrum && (!targetView || targetView === selectedView)) return true;
     if (targetView === 'simulation' && !simulationAllowed) return false;
@@ -78,8 +77,8 @@ export function SimpleTerminal() {
     const home = navOptions.spectrumHome;
     const nextView: AppView = home === 'simulation' ? 'simulation' : 'live';
     if (home === 'simulation' && !simulationAllowed) return;
-    if (!chooseSpectrum(home === 'tv' ? 'tv' : 'kite', home === 'tv' ? undefined : nextView)) return;
-    if (home !== 'tv') {
+    if (!chooseSpectrum(home === 'tv' || home === 'radio' ? home : 'kite', home === 'tv' || home === 'radio' ? undefined : nextView)) return;
+    if (home === 'kite' || home === 'simulation') {
       userNavigatedRef.current = true;
       const section = useKiteSettings.getState().defaultSection || 'dashboard';
       setKiteNav(section);
@@ -136,7 +135,7 @@ export function SimpleTerminal() {
         return;
       }
     }
-    if (spectrum === 'tv') setSpectrum('kite');
+    if (spectrum !== 'kite') setSpectrum('kite');
     setToolsOpen(false);
     setKiteNav(nav);
     window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: nav }));
@@ -158,7 +157,7 @@ export function SimpleTerminal() {
   useEffect(()=>{if(!('serviceWorker' in navigator))return;const receive=(event:MessageEvent)=>{if(event.data?.type!=='sterling-notification')return;try{const url=new URL(event.data.url,window.location.origin);if(url.origin!==window.location.origin)return;const next=notificationDestination(url.searchParams.get('notification'));if(next){if(hasUnsavedDraft()&&!window.confirm('Open this live-account notification and discard unapplied settings?'))return;useViewStore.getState().setView('live');window.location.assign(url.href);}}catch{/* malformed notification */}};navigator.serviceWorker.addEventListener('message',receive);return()=>navigator.serviceWorker.removeEventListener('message',receive);},[kiteNav]);
 
   return (
-    <div className={`term-root ${spectrum==='tv'?'sterling-tv-mode':''}`} data-tv-theme={tvState.theme}>
+    <div className={`term-root ${spectrum==='tv'?'sterling-tv-mode':spectrum==='radio'?'sterling-radio-mode':''}`} data-tv-theme={tvState.theme}>
       <style>{`
         .kite-header-actions > * { flex-shrink: 0; }
         .kite-topnav {
@@ -181,34 +180,23 @@ export function SimpleTerminal() {
           display: 'flex', alignItems: 'center', gap: 0,
           height: 44, padding: '0 20px',
         }}>
-<<<<<<< Updated upstream
           <button type="button" className="sterling-home-button" aria-label="Sterling Home" title="Open configured Home workspace"
             onClick={goHome} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none',
               background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit', flexShrink: 0 }}>
             <SterlingLogo size={24} />
-=======
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none' }}>
-            <button type="button" aria-label={spectrum==='tv'?'Open KITE workspace':'Sterling home'} onClick={()=>chooseSpectrum('kite')}
-              style={{background:'none',border:0,padding:0,display:'flex',cursor:'pointer'}}><SterlingLogo size={24} /></button>
->>>>>>> Stashed changes
             <span style={{
               fontSize: 17, fontWeight: 800, letterSpacing: '0.18em',
               color: 'var(--t-bright)', fontFamily: 'inherit',
             }}>
               STERLING
             </span>
-<<<<<<< Updated upstream
           </button>
           <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} />
-=======
-          </span>
-          {spectrum==='kite' && <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} />}
-          {spectrum==='tv' && <div className="sterling-tv-header-controls">
+{spectrum==='tv' && <div className="sterling-tv-header-controls">
             <div className="sterling-tv-theme-switch" aria-label="TV theme">{(['youtube','spotify','netflix'] as const).map(theme=><button key={theme} type="button" aria-pressed={tvState.theme===theme} onClick={()=>{setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}>{theme==='youtube'?'YouTube':theme==='spotify'?'Spotify':'Netflix'}</button>)}</div>
             <form className="sterling-tv-search" role="search" onSubmit={e=>{e.preventDefault();tvCommand('play-search');}}><input type="search" aria-label="Search TV channels" placeholder="Search TV" maxLength={200} value={tvState.query} onChange={e=>{const query=e.target.value;setTvState(s=>({...s,query}));tvCommand('search',query);}}/><button type="submit" aria-label="Play first search result">⌕</button></form>
             <button type="button" className="sterling-tv-more" aria-label="TV features" onClick={()=>tvCommand('more')}>⋯</button>
           </div>}
->>>>>>> Stashed changes
 
           <div style={{ flex: 1 }} />
           {spectrum === 'kite' && <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
@@ -269,8 +257,9 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
-          {spectrum === 'tv' && <ProfileMenu />}
-          {spectrum === 'tv' && !navOptions.spectrumVisible.kite && <button type="button" aria-label="Experience settings"
+          {spectrum === 'radio' && <div className="sterling-radio-header-controls"><button type="button" aria-label="Reload Radio" onClick={() => window.dispatchEvent(new Event('sterling-radio-reload'))}>↻ Radio</button></div>}
+          {(spectrum === 'tv' || spectrum === 'radio') && <ProfileMenu />}
+          {(spectrum === 'tv' || spectrum === 'radio') && !navOptions.spectrumVisible.kite && <button type="button" aria-label="Experience settings"
             title="Experience settings" onClick={() => setShowSettings(true)}
             style={{ background:'none', border:'1px solid var(--t-border)', cursor:'pointer',
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
@@ -297,6 +286,10 @@ export function SimpleTerminal() {
           minHeight: 0, overflow: 'hidden', flexDirection: 'column' }}>
         <KiteTab />
       </div>
+      {spectrum === 'radio' && <div id="sterling-radio-surface" role="tabpanel"
+        aria-label="Radio workspace" style={{ display:'flex', flex:1, minHeight:0, minWidth:0, overflow:'hidden' }}>
+        <RadioWorkspace />
+      </div>}
       {spectrum === 'tv' && <div id="sterling-tv-surface" role="tabpanel"
         aria-label="TV workspace" style={{ display: 'flex', flex: 1,
           minHeight: 0, minWidth: 0, overflow: 'hidden' }}>

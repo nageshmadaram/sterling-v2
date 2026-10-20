@@ -8,7 +8,7 @@ import {
 } from '../../store/useExperienceOptions';
 
 const labels: Record<SpectrumProduct, string> = {
-  kite: 'KITE', simulation: 'Simulation', tv: 'TV',
+  kite: 'KITE', simulation: 'Simulation', tv: 'TV', radio: 'Radio',
 };
 
 export function SpectrumSettings() {
@@ -16,6 +16,9 @@ export function SpectrumSettings() {
   const [nameDraft, setNameDraft] = useState(options.tvLabel);
   useEffect(() => { setNameDraft(options.tvLabel); }, [options.tvLabel]);
   const applyName = () => update({ tvLabel: nameDraft });
+  const [radioDraft, setRadioDraft] = useState(options.radioLabel);
+  useEffect(() => { setRadioDraft(options.radioLabel); }, [options.radioLabel]);
+  const applyRadioName = () => update({ radioLabel: radioDraft });
   const changeVisible = (key: SpectrumProduct, enabled: boolean) => {
     const next: SpectrumVisible = { ...options.spectrumVisible, [key]: enabled };
     if (!SPECTRUM_ORDER.some(product => next[product])) return;
@@ -83,14 +86,23 @@ export function SpectrumSettings() {
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyName(); e.currentTarget.blur(); } }} />
       <small style={{ display:'block' }}>Up to 24 characters. Saved in this browser only; IPTV remains isolated from trading.</small>
     </label>
+    <label style={{ display:'block', margin:'14px 0' }}>
+      Radio display name
+      <input aria-label="Radio display name" maxLength={24} type="text" placeholder="Radio"
+        value={radioDraft} onChange={e => setRadioDraft(e.target.value)} onBlur={applyRadioName}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); applyRadioName(); e.currentTarget.blur(); } }} />
+      <small style={{ display:'block' }}>Radio is isolated from trading and uses its own player.</small>
+    </label>
     <div style={{ display:'flex', gap:8, alignItems:'center', flexWrap:'wrap' }}>
       <button type="button" onClick={() => { setNameDraft('TV'); update({tvLabel:'TV'}); }}>Reset TV name</button>
+      <button type="button" onClick={() => { setRadioDraft('Radio'); update({radioLabel:'Radio'}); }}>Reset Radio name</button>
       <button type="button" onClick={() => update({
         spectrumLayout:DEFAULT_EXPERIENCE_OPTIONS.spectrumLayout,
         spectrumVisible:{...DEFAULT_EXPERIENCE_OPTIONS.spectrumVisible},
         spectrumOrder:[...SPECTRUM_ORDER],
         spectrumHome:'kite',
         tvLabel:'TV',
+        radioLabel:'Radio',
       })}>Restore Spectrum defaults</button>
     </div>
   </section>;

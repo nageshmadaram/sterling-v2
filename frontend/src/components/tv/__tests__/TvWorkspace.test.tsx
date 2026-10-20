@@ -89,11 +89,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
       key: 'streamos_stats_v14', value: 'X'.repeat(500_001),
     });
     expect(localStorage.getItem(storagePrefix + 'streamos_stats_v14')).toBeNull();
-<<<<<<< Updated upstream
-    expect(TV_STORAGE_KEYS).toHaveLength(6);
-=======
     expect(TV_STORAGE_KEYS).toHaveLength(8);
->>>>>>> Stashed changes
   });
 
   it('migrates saved v13 subscriptions into the v14 player without exposing app secrets', () => {

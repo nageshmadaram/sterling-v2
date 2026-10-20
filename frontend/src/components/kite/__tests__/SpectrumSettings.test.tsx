@@ -20,7 +20,7 @@ describe('Spectrum settings in Settings → Experience', () => {
     expect(screen.getByRole('combobox', { name:'Default Spectrum home tab' })).toHaveValue('kite');
     expect(screen.getByRole('combobox', { name:'Spectrum navigation layout' })).toHaveValue('cycle');
     expect(screen.getByRole('combobox', { name:'Spectrum navigation layout' }).querySelectorAll('option')).toHaveLength(2);
-    for (const name of ['KITE', 'Simulation', 'TV']) {
+    for (const name of ['KITE', 'Simulation', 'TV', 'Radio']) {
       expect(screen.getByRole('checkbox', { name:`Show ${name}` })).toBeChecked();
     }
   });
@@ -33,8 +33,8 @@ describe('Spectrum settings in Settings → Experience', () => {
     fireEvent.click(screen.getByRole('button',{name:'Move TV left'}));
     expect(readExperienceOptions()).toMatchObject({
       spectrumHome:'tv', spectrumLayout:'separate',
-      spectrumVisible:{kite:true,simulation:false,tv:true},
-      spectrumOrder:['kite','tv','simulation'],
+      spectrumVisible:{kite:true,simulation:false,tv:true,radio:true},
+      spectrumOrder:['kite','tv','simulation','radio'],
     });
     expect(localStorage.getItem(EXPERIENCE_KEY)).toContain('"spectrumHome":"tv"');
   });
@@ -43,22 +43,31 @@ describe('Spectrum settings in Settings → Experience', () => {
     render(<SpectrumSettings />);
     fireEvent.click(screen.getByRole('checkbox',{name:'Show KITE'}));
     fireEvent.click(screen.getByRole('checkbox',{name:'Show TV'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Show Radio'}));
     expect(screen.getByRole('checkbox',{name:'Show Simulation'})).toBeDisabled();
     expect(useExperienceOptions.getState().options.spectrumVisible)
-      .toEqual({kite:false,simulation:true,tv:false});
+      .toEqual({kite:false,simulation:true,tv:false,radio:false});
   });
 
   it('migrates old layouts and safely normalizes invalid preferences', () => {
     expect(normalizeExperienceOptions({spectrumLayout:'toggle'}).spectrumLayout).toBe('cycle');
     const invalid = normalizeExperienceOptions({
-      spectrumHome:'bogus', spectrumVisible:{kite:false,simulation:false,tv:false},
+      spectrumHome:'bogus', spectrumVisible:{kite:false,simulation:false,tv:false,radio:false},
       spectrumOrder:['tv','tv','unknown','kite'], tvLabel:' <script> ',
     });
     expect(invalid.spectrumHome).toBe('kite');
-    expect(invalid.spectrumVisible).toEqual({kite:true,simulation:false,tv:false});
-    expect(invalid.spectrumOrder).toEqual(['tv','kite','simulation']);
+    expect(invalid.spectrumVisible).toEqual({kite:true,simulation:false,tv:false,radio:false});
+    expect(invalid.spectrumOrder).toEqual(['tv','kite','simulation','radio']);
     expect(invalid.tvLabel).toBe('script');
     expect(normalizeExperienceOptions({}).spectrumHome).toBe(DEFAULT_EXPERIENCE_OPTIONS.spectrumHome);
+  });
+
+  it('sets Radio Home and persists a custom Radio display label', () => {
+    render(<SpectrumSettings />);
+    fireEvent.change(screen.getByRole('combobox',{name:'Default Spectrum home tab'}),{target:{value:'radio'}});
+    fireEvent.change(screen.getByRole('textbox',{name:'Radio display name'}),{target:{value:'My FM'}});
+    fireEvent.blur(screen.getByRole('textbox',{name:'Radio display name'}));
+    expect(readExperienceOptions()).toMatchObject({spectrumHome:'radio',radioLabel:'My FM'});
   });
 
   it('keeps unrelated Experience preferences after restoring Spectrum defaults', () => {

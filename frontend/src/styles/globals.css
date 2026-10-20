@@ -1535,7 +1535,6 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 @keyframes cdlg-panel-in{from{opacity:0;transform:scale(.95) translateY(8px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.cdlg-overlay,.cdlg-panel{animation:none!important}}
 
-<<<<<<< Updated upstream
 /* Spectrum Home, compact mobile header and reliable mobile drawer. */
 .sterling-home-button:focus-visible,.sterling-mobile-controls button:focus-visible {
   outline:2px solid var(--k-brand); outline-offset:3px;
@@ -1593,7 +1592,7 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 @media (max-width:650px) {
   .sterling-header-row > .sterling-home-button > span:last-child { display:none !important; }
 }
-=======
+
 /* TV owns one shared Sterling header, with the active television palette. */
 .sterling-tv-mode {--tv-header-bg:#0f0f0f;--tv-header-text:#fff;}
 .sterling-tv-mode[data-tv-theme=spotify]{--tv-header-bg:#121212;}
@@ -1613,4 +1612,10 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 .sterling-tv-search:focus-within{box-shadow:0 0 0 1px #aaa;}
 .sterling-tv-search button,.sterling-tv-more{color:#eee;background:transparent;border:0;min-width:36px;min-height:36px;cursor:pointer;font-size:22px;}
 @media(max-width:600px){.sterling-tv-mode .sterling-header-row{gap:4px!important;}.sterling-tv-header-controls{display:contents;}.sterling-tv-mode .sterling-header-row>div:empty{display:none!important;}.sterling-tv-theme-switch{margin-left:auto;}.sterling-tv-theme-switch button{padding:6px 8px;font-size:10px;}.sterling-tv-search{order:3;flex-basis:calc(100% - 44px);margin:0 0 8px;max-width:none;}.sterling-tv-more{order:4;margin-bottom:8px;}.sterling-tv-mode .sterling-header-row>span>span{font-size:13px!important;}}
->>>>>>> Stashed changes
+
+/* Radio: same shared Spectrum header; no additional mobile header row. */
+.sterling-radio-mode .sterling-header {background:#101923;color:#f1f5f9;}
+.sterling-radio-mode .sterling-radio-header-controls {display:inline-flex;align-items:center;gap:6px;min-width:0;}
+.sterling-radio-header-controls button {background:transparent;color:inherit;border:1px solid #ffffff28;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;}
+.sterling-radio-header-controls button:focus-visible {outline:2px solid var(--k-brand);outline-offset:2px;}
+@media(max-width:900px){.sterling-radio-header-controls button {padding:4px 6px;}}
