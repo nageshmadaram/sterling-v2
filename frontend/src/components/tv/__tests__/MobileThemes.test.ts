@@ -15,7 +15,8 @@ beforeEach(()=>{
   vi.stubGlobal('requestAnimationFrame',(fn:()=>void)=>{fn();return 1;});
   vi.stubGlobal('innerWidth',390);vi.stubGlobal('innerHeight',844);
   (document.getElementById('main-scroll') as any).scrollTo=vi.fn();
-  env={currentTheme:'youtube',activeChannel:channel,allChannels:[channel,other],VERIFIED_STREAMS:[channel,other],recentHistory:[channel],favorites:[],INDIAN_LANG_IDS:['Indian'],catalogScope:'all',catalogCategory:'All',catalogLanguage:'All',hls:null,searchInputEl:document.getElementById('search-input'),
+  localStorage.clear();
+  env={rebuildCombinedChannelCatalog:vi.fn(),currentTheme:'youtube',activeChannel:channel,allChannels:[channel,other],VERIFIED_STREAMS:[channel,other],recentHistory:[channel],favorites:[],INDIAN_LANG_IDS:['Indian'],catalogScope:'all',catalogCategory:'All',catalogLanguage:'All',hls:null,searchInputEl:document.getElementById('search-input'),
     escapeAttr:(v:string)=>v.replaceAll('&','&amp;').replaceAll('"','&quot;'),escapeHtml:(v:string)=>v.replaceAll('&','&amp;').replaceAll('<','&lt;'),
     switchTheme:vi.fn((theme:string)=>{env.currentTheme=theme;document.body.className='theme-'+theme;}),playStream:vi.fn((ch:typeof channel)=>{env.activeChannel=ch;}),renderViewport:vi.fn(),renderNextBatch:vi.fn(),filteredChannels:[channel,other],renderCatalogControls:vi.fn(),dockVideoToTopLeftMini:vi.fn(),closeSearchDropdown:vi.fn(),computeRightRailPool:()=>[other],hasNativeHls:()=>false,
     toggleSubscribeAndFavorite:vi.fn(()=>{env.favorites=env.favorites.length?[]:[env.activeChannel];}),EQ_PRESETS:{flat:{label:'Flat'},voice:{label:'Vocal'}},applyAudioPreset:vi.fn(),setHlsQualityLevel:vi.fn(),handleCatalogLanguageChange:vi.fn(),handleCatalogGenreChange:vi.fn()};

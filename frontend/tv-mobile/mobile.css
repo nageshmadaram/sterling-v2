@@ -195,3 +195,19 @@
   .theme-youtube.tm-catalog-view #player-stage { display:none; }
   @media(orientation:landscape) { .theme-spotify.tm-browse-search #tm-browse-categories { grid-template-columns:repeat(4,minmax(0,1fr)); } }
 }
+
+/* The outer Sterling header owns theme selection and search for embedded TV. */
+.tm-host-header #global-header,.tm-host-header #tv-tools-reveal,.tm-host-header .tm-top,.tm-host-header .tm-search {display:none!important;}
+.tm-pip-controls {display:none;}
+#tm-pull-refresh {position:fixed;top:0;left:50%;transform:translate(-50%,-70px);z-index:124;padding:10px 16px;border-radius:24px;background:#fff;color:#111;box-shadow:0 3px 15px #0004;font-size:12px;transition:transform .15s;pointer-events:none;}
+@media(max-width:767px),(max-width:1024px) and (max-height:600px){
+  .tm-host-header #tv-mobile-shell{display:block;}
+  .tm-host-header .tm-context{display:flex!important;max-height:52px;transition:max-height .2s,padding .2s,opacity .2s;}
+  .tm-chips-hidden .tm-context{max-height:0!important;padding-top:0!important;padding-bottom:0!important;opacity:0;overflow:hidden;pointer-events:none;}
+  .tm-chips-hidden #sticky-chip-bar{display:none;}
+  .tm-scroll-pip #video-surface-card{position:fixed!important;top:auto!important;left:auto!important;right:10px!important;bottom:calc(var(--mobile-nav,62px) + 12px)!important;width:min(52vw,260px)!important;height:auto!important;aspect-ratio:16/9!important;max-height:none!important;z-index:100!important;border-radius:10px!important;box-shadow:0 8px 30px #0009!important;}
+  .tm-scroll-pip #custom-video-hud{display:none!important;}
+  .tm-scroll-pip .tm-pip-controls{position:absolute;inset:0 0 auto;display:flex;justify-content:space-between;z-index:60;background:linear-gradient(#0009,transparent);}
+  .tm-pip-controls .tm-icon{width:32px;height:32px;}.tm-pip-controls svg{width:17px;height:17px;}
+  .theme-spotify.tm-scroll-pip #player-stage{opacity:1;pointer-events:auto;overflow:visible;}
+}
