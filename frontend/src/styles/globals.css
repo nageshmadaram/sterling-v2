@@ -1619,3 +1619,15 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 .sterling-radio-header-controls button {background:transparent;color:inherit;border:1px solid #ffffff28;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:12px;}
 .sterling-radio-header-controls button:focus-visible {outline:2px solid var(--k-brand);outline-offset:2px;}
 @media(max-width:900px){.sterling-radio-header-controls button {padding:4px 6px;}}
+
+/* Multimedia headers must be allowed to wrap even in the compact app style. */
+@media(max-width:900px){
+  body[data-mobile-style] .sterling-tv-mode .sterling-header-row,
+  body[data-mobile-style] .sterling-radio-mode .sterling-header-row {flex-wrap:wrap!important;height:auto!important;min-height:48px;gap:6px!important;max-width:100%;}
+  .sterling-tv-mode .sterling-home-button,.sterling-radio-mode .sterling-home-button {margin-right:2px!important;}
+  .sterling-tv-mode .sterling-home-button>span:last-child,.sterling-radio-mode .sterling-home-button>span:last-child {display:inline!important;color:#fff!important;font-size:12px!important;letter-spacing:.04em!important;}
+  .sterling-tv-mode .sterling-tv-header-controls {min-width:0;}
+  .sterling-tv-mode .sterling-tv-theme-switch button {min-height:36px;}
+  .sterling-tv-mode .sterling-tv-search input {font-size:16px;min-height:40px;}
+  .sterling-tv-mode .sterling-header-row>* {max-width:100%;}
+}

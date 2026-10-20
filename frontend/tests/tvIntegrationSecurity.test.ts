@@ -72,7 +72,7 @@ describe('Sterling TV static integration safety', () => {
     expect(gateway).not.toContain('sandbox allow-scripts allow-same-origin');
     expect(gateway).toContain('media-src https: http: data: blob:');
     expect(gateway).toContain('frame-ancestors \'self\'');
-    expect(gateway).toContain("isTvDocument ? tvCsp : tradingCsp");
+    expect(gateway).toContain("isTvDocument ? tvCsp : isRadioDocument ? radioCsp : tradingCsp");
   });
 
   it('enforces an opaque-origin media document even when navigated to directly', () => {

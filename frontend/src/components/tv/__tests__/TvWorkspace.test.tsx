@@ -21,6 +21,16 @@ beforeEach(() => { localStorage.clear(); });
 afterEach(() => { cleanup(); localStorage.clear(); vi.restoreAllMocks(); });
 
 describe('Sterling Spectrum IPTV isolation', () => {
+  it('retains early header taps until the player is ready', () => {
+    render(<TvWorkspace />);
+    const frame=screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
+    const post=vi.spyOn(frame.contentWindow!, 'postMessage');
+    act(()=>window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action:'theme',value:'spotify'}})));
+    expect(post).not.toHaveBeenCalled();
+    sendFromFrame('sterling.tv.ready');
+    expect(post).toHaveBeenCalledWith({type:'sterling.tv.command',action:'theme',value:'spotify'},'*');
+  });
+
   it('fills its workspace without inheriting trading origin, storage or DOM', () => {
     render(<TvWorkspace />);
     const workspace = screen.getByTestId('sterling-tv-workspace');

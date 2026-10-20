@@ -34,6 +34,7 @@ export function SimpleTerminal() {
   const [tvState,setTvState]=useState<{theme:'youtube'|'spotify'|'netflix';query:string}>(()=>{let theme='youtube';try{theme=localStorage.getItem('sterling.tv.streamos_theme_v14')||theme;}catch{}return {theme:theme==='spotify'||theme==='netflix'?theme:'youtube',query:''};});
   const onTvState=useCallback((state:{theme:'youtube'|'spotify'|'netflix';query:string})=>setTvState(state),[]);
   const tvCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action,value}}));
+  useEffect(()=>{const focus=()=>document.querySelector<HTMLInputElement>('.sterling-tv-search input')?.focus();window.addEventListener('sterling-tv-focus-search',focus);return()=>window.removeEventListener('sterling-tv-focus-search',focus);},[]);
   useEffect(()=>{try{localStorage.setItem('sterling.workspace',spectrum);}catch{}},[spectrum]);
   const selectedView = useViewStore(s => s.view);
   const setSelectedView = useViewStore(s => s.setView);

@@ -52,6 +52,7 @@ export type TvHeaderState = {theme:'youtube'|'spotify'|'netflix';query:string};
 export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {}) {
   const ref = useRef<HTMLIFrameElement>(null);
   const readyRef = useRef(false);
+  const pendingCommands=useRef(new Map<string,Record<string,unknown>>());
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -80,6 +81,10 @@ export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {
           type: MESSAGE_HYDRATE,
           values: readTvPreferences(), hostHeader:true,
         }, '*'); // opaque-origin sandbox requires "*" for targetOrigin
+        for(const command of pendingCommands.current.values())frame.contentWindow?.postMessage(command,'*');
+        pendingCommands.current.clear();
+      } else if(data.type === 'sterling.tv.focus-search') {
+        window.dispatchEvent(new Event('sterling-tv-focus-search'));
       } else if(data.type === 'sterling.tv.state') {
         if(['youtube','spotify','netflix'].includes(data.theme) && typeof data.query==='string' && data.query.length<=200)onState?.({theme:data.theme,query:data.query});
       } else if (data.type === MESSAGE_SAVE) {
@@ -104,7 +109,9 @@ export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {
       if(!data||!['theme','search','more','play-search'].includes(data.action))return;
       if(data.action==='theme'&&!['youtube','spotify','netflix'].includes(data.value))return;
       if(data.action==='search'&&(typeof data.value!=='string'||data.value.length>200))return;
-      ref.current?.contentWindow?.postMessage({type:'sterling.tv.command',action:data.action,value:data.value},'*');
+      const payload={type:'sterling.tv.command',action:data.action,value:data.value};
+      if(!readyRef.current){pendingCommands.current.set(data.action,payload);return;}
+      ref.current?.contentWindow?.postMessage(payload,'*');
     };
     window.addEventListener('sterling-tv-command',command);
     return () => { window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);window.removeEventListener('sterling-tv-command',command); };
@@ -119,7 +126,7 @@ export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {
     >
       {!loaded && !failed && (
         <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid',
-          placeItems: 'center', color: '#ededed', fontSize: 13 }}>
+          placeItems: 'center', color: '#ededed', fontSize: 13, pointerEvents:'none' }}>
           Loading TV…
         </div>
       )}

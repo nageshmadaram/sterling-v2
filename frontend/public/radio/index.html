@@ -236,6 +236,30 @@
     }
     .drawer-hidden { transform: translateY(105%); pointer-events: none; }
     .drawer-visible { transform: translateY(0%); pointer-events: auto; }
+
+    /* Mobile hit areas, safe-area clearance and landscape player fit. */
+    @media(max-width:1023px) {
+      html,body {width:100%;height:100dvh;overflow:hidden;}
+      button,a,[onclick] {touch-action:manipulation;}
+      button.btn-circle,nav button {min-width:44px;min-height:44px;}
+      header button[id^="sp-mchip"] {min-height:40px;}
+      input[type="text"],input[type="search"] {font-size:16px!important;min-height:44px;}
+      #spotify-app>nav,#ytmusic-app>nav {height:calc(58px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);}
+      [onclick="openMobileSheet()"] {bottom:calc(60px + env(safe-area-inset-bottom,0px))!important;}
+      #spotify-app main,#ytmusic-app main {padding-bottom:calc(148px + env(safe-area-inset-bottom,0px));overscroll-behavior:contain;}
+      #mobile-player-sheet {padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));}
+      #mobile-player-sheet.drawer-hidden {visibility:hidden;}
+      #mobile-player-sheet.drawer-visible {visibility:visible;}
+      .group button.opacity-0 {opacity:1;}
+    }
+    @media(max-width:1023px) and (orientation:landscape) {
+      #mobile-player-sheet {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 24px;align-content:start;}
+      #mobile-player-sheet>div:first-child {grid-column:1/-1;}
+      #mobile-player-sheet>div:nth-child(2) {grid-column:1;grid-row:2/4;padding:0;margin:0;}
+      #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(35vw,210px);height:min(35vw,210px);margin-bottom:12px;}
+      #mobile-player-sheet>div:nth-child(3) {grid-column:2;grid-row:2;}
+      #mobile-player-sheet>div:last-child {grid-column:2;grid-row:3;}
+    }
   </style>
 </head>
 
@@ -3229,11 +3253,23 @@
 
     function bindTouchSheet() {
       const sheet = document.getElementById('mobile-player-sheet');
-      let startY = 0;
-      sheet.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
-      sheet.addEventListener('touchend', e => {
-        if (e.changedTouches[0].clientY - startY > 85) closeMobileSheet();
-      }, { passive: true });
+      const handle = sheet.firstElementChild;
+      let start = null;
+      // Drag only the header: scrolling the sheet or changing volume must not
+      // dismiss it or steal station/control taps.
+      handle.addEventListener('touchstart', e => {
+        start = null;
+        if(e.touches.length !== 1 || e.target.closest('button,input,a,select'))return;
+        start = {x:e.touches[0].clientX,y:e.touches[0].clientY};
+      }, {passive:true});
+      handle.addEventListener('touchend', e => {
+        if(start && e.changedTouches.length){
+          const dx=e.changedTouches[0].clientX-start.x,dy=e.changedTouches[0].clientY-start.y;
+          if(dy>85 && Math.abs(dx)<dy/2)closeMobileSheet();
+        }
+        start=null;
+      }, {passive:true});
+      handle.addEventListener('touchcancel',()=>{start=null;},{passive:true});
     }
 
     function startSpectrumLoop() {
