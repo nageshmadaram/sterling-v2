@@ -22,7 +22,12 @@ export function SpectrumSettings() {
   const changeVisible = (key: SpectrumProduct, enabled: boolean) => {
     const next: SpectrumVisible = { ...options.spectrumVisible, [key]: enabled };
     if (!SPECTRUM_ORDER.some(product => next[product])) return;
-    update({ spectrumVisible: next });
+    // Disabling the current Home must also move startup/Home to a destination
+    // that is still selected, using the operator's Spectrum order.
+    const spectrumHome = next[options.spectrumHome]
+      ? options.spectrumHome
+      : options.spectrumOrder.find(product => next[product]) ?? 'kite';
+    update({ spectrumVisible: next, spectrumHome });
   };
   const move = (key: SpectrumProduct, step: number) => {
     const order = [...options.spectrumOrder];
@@ -39,7 +44,8 @@ export function SpectrumSettings() {
       Default tab and Sterling Home
       <select aria-label="Default Spectrum home tab" value={options.spectrumHome}
         onChange={event => update({ spectrumHome: event.target.value as SpectrumProduct })}>
-        {SPECTRUM_ORDER.map(key => <option key={key} value={key}>{labels[key]}</option>)}
+        {options.spectrumOrder.filter(key => options.spectrumVisible[key]).map(key =>
+          <option key={key} value={key}>{key === 'tv' ? options.tvLabel : key === 'radio' ? options.radioLabel : labels[key]}</option>)}
       </select>
     </label>
     <label style={{ display:'block', margin:'14px 0' }}>
@@ -75,7 +81,7 @@ export function SpectrumSettings() {
       })}
     </fieldset>
     <p style={{ marginTop:7, fontSize:12, color:'var(--k-dim)' }}>
-      At least one destination must be selected. Toggle follows the order above; Buttons displays all selected destinations. Home remains independently configurable even if its destination is hidden from the buttons. Simulation still requires owner authorization.
+      At least one destination must be selected. Home and startup use a selected destination; if Home is hidden, the first enabled destination in your order becomes Home. Toggle follows this order. Simulation still requires owner authorization.
     </p>
     <label style={{ display:'block', margin:'14px 0' }}>
       TV display name

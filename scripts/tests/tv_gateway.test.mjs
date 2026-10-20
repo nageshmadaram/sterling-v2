@@ -70,6 +70,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.equal(tv.headers.get('cache-control'), 'no-store');
     const csp = tv.headers.get('content-security-policy') || '';
     assert.match(csp, /sandbox allow-scripts allow-forms allow-downloads allow-presentation/);
+    assert.match(csp, /script-src-attr 'unsafe-inline'/);
     assert.doesNotMatch(csp, /allow-same-origin/);
     assert.match(csp, /media-src https: http: data: blob:/);
     assert.match(csp, /worker-src blob:/);
@@ -92,6 +93,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.equal(radio.headers.get('cache-control'),'no-store');
     const radioCsp=radio.headers.get('content-security-policy') || '';
     assert.match(radioCsp,/sandbox allow-scripts allow-forms allow-downloads allow-presentation/);
+    assert.match(radioCsp,/script-src-attr 'unsafe-inline'/);
     assert.doesNotMatch(radioCsp,/allow-same-origin/);
     assert.match(radioCsp,/media-src https: http: data: blob:/);
     assert.match(radioCsp,/connect-src https: http:/);
@@ -103,6 +105,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.equal(trade.status, 200);
     assert.equal(await trade.text(), '<html><body>TRADING APP</body></html>');
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /sandbox allow-scripts/);
+    assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /script-src-attr 'unsafe-inline'/);
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /media-src https:/);
   } finally {
     if (child && child.exitCode === null) {

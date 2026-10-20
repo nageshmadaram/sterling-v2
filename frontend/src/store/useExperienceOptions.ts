@@ -86,6 +86,14 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
       ...SPECTRUM_ORDER,
     ]),
   ];
+  // Default Home must remain one of the enabled Spectrum destinations.
+  // Older saved settings can still say KITE after the user hides KITE;
+  // migrate them to the first selected destination in their chosen order.
+  const requestedHome: SpectrumProduct = has(raw.spectrumHome, SPECTRUM_ORDER)
+    ? raw.spectrumHome as SpectrumProduct : 'kite';
+  const spectrumHome = spectrumVisible[requestedHome]
+    ? requestedHome
+    : order.find(product => spectrumVisible[product]) ?? 'kite';
   return {
     navOrder, navHidden,
     tickerLayout: raw.tickerLayout === 'mobile' ? 'mobile' : 'classic',
@@ -97,7 +105,7 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
     pcrRatio: raw.pcrRatio !== false,
     spectrumLayout: raw.spectrumLayout === 'separate' ? 'separate' : 'cycle',
     spectrumVisible, spectrumOrder: order,
-    spectrumHome: has(raw.spectrumHome, SPECTRUM_ORDER) ? raw.spectrumHome as SpectrumHome : 'kite',
+    spectrumHome,
     tvLabel: cleanTvLabel(raw.tvLabel),
     radioLabel: raw.radioLabel == null ? 'Radio' : cleanTvLabel(raw.radioLabel).replace(/^TV$/, 'Radio'),
   };

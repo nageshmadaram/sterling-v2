@@ -128,6 +128,9 @@ const server = http.createServer((req,res) => {
     'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
     "default-src 'none'",
     `script-src 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net`,
+    // The bundled media player contains inline onclick/oninput attributes.
+    // Scope their permission to this origin-opaque document only.
+    "script-src-attr 'unsafe-inline'",
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com data:",
     'img-src https: data: blob:',
@@ -147,6 +150,9 @@ const server = http.createServer((req,res) => {
     'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
     "default-src 'none'",
     `script-src 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net`,
+    // The bundled media player contains inline onclick/oninput attributes.
+    // Scope their permission to this origin-opaque document only.
+    "script-src-attr 'unsafe-inline'",
     "style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
     "font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
     'img-src https: data: blob:',

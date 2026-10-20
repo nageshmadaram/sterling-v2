@@ -75,6 +75,22 @@
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+    /* Native taps and in-pane scroll on coarse-pointer mobile devices.
+       Keep range slider gestures horizontal and retain scrollable shelves. */
+    @media (hover: none) and (pointer: coarse) {
+      html, body { min-height: 100%; }
+      button, a, label, [role="button"], .cursor-pointer {
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: rgba(255,255,255,.12);
+      }
+      input[type="range"] { touch-action: pan-x; }
+      .overflow-y-auto, .overflow-y-scroll {
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior-y: contain;
+      }
+      .overflow-x-auto, .overflow-x-scroll { -webkit-overflow-scrolling: touch; }
+    }
+
     .snap-carousel {
       scroll-snap-type: x mandatory;
       -webkit-overflow-scrolling: touch;

@@ -39,6 +39,29 @@ describe('Spectrum settings in Settings → Experience', () => {
     expect(localStorage.getItem(EXPERIENCE_KEY)).toContain('"spectrumHome":"tv"');
   });
 
+  it('changes Home when KITE is hidden and restores the choice after reload', () => {
+    render(<SpectrumSettings />);
+    fireEvent.click(screen.getByRole('checkbox',{name:'Show KITE'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Show Simulation'}));
+    expect(readExperienceOptions()).toMatchObject({
+      spectrumHome:'tv',
+      spectrumVisible:{kite:false,simulation:false,tv:true,radio:true},
+    });
+    expect(screen.getByRole('combobox',{name:'Default Spectrum home tab'})).toHaveValue('tv');
+    expect(Array.from(screen.getByRole('combobox',{name:'Default Spectrum home tab'}).querySelectorAll('option')).map(e=>e.value))
+      .toEqual(['tv','radio']);
+    // Migration of previously saved preferences with a now-hidden KITE Home.
+    localStorage.setItem(EXPERIENCE_KEY, JSON.stringify({
+      ...readExperienceOptions(), spectrumHome:'kite',
+    }));
+    expect(readExperienceOptions().spectrumHome).toBe('tv');
+    // Honor chosen order when Radio comes first.
+    expect(normalizeExperienceOptions({
+      spectrumHome:'kite',spectrumVisible:{kite:false,simulation:false,tv:true,radio:true},
+      spectrumOrder:['radio','tv','kite','simulation'],
+    }).spectrumHome).toBe('radio');
+  });
+
   it('allows only Simulation to be selected but never zero destinations', () => {
     render(<SpectrumSettings />);
     fireEvent.click(screen.getByRole('checkbox',{name:'Show KITE'}));

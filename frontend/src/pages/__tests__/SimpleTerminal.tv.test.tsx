@@ -107,6 +107,22 @@ describe('Sterling Spectrum navigation and Home', () => {
     window.removeEventListener('sterling-home',homeClose);
   });
 
+  it('does not open hidden KITE after refresh when only TV and Radio are selected', () => {
+    useExperienceOptions.getState().update({
+      spectrumHome:'kite',
+      spectrumVisible:{kite:false,simulation:false,tv:true,radio:true},
+      spectrumOrder:['tv','radio','kite','simulation'],
+    });
+    // Simulates loading the settings again from persistent browser storage.
+    useExperienceOptions.setState({ options: readExperienceOptions() });
+    render(<SimpleTerminal />);
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+    expect(screen.queryByTestId('spectrum-kite-tab')).toBeNull();
+    expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('TV');
+    fireEvent.click(screen.getByRole('button',{name:'Sterling Home'}));
+    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+  });
+
   it('uses the Radio header tab and can set Radio as Home', () => {
     useExperienceOptions.getState().update({spectrumHome:'radio',spectrumLayout:'separate'});
     render(<SimpleTerminal />);
