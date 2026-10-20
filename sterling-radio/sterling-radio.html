@@ -1,0 +1,2867 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="true" />
+  <meta name="mobile-web-app-capable" content="true" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>OmniCast v9.0 — Spotify & YouTube Music Replicas (HD Station Emblems, Live Player Art & Pro Audio DSP)</title>
+
+  <!-- Silence Tailwind Play CDN dev warning cleanly -->
+  <script>
+    (function() {
+      const origWarn = console.warn;
+      console.warn = function(...args) {
+        if (args[0] && typeof args[0] === 'string' && args[0].includes('cdn.tailwindcss.com')) return;
+        origWarn.apply(console, args);
+      };
+    })();
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&family=Roboto:wght@400;500;700;900&display=swap');
+
+    :root {
+      --sp-green: #1ed760;
+      --sp-bg: #000000;
+      --sp-surface: #121212;
+      --sp-card: #181818;
+      --sp-card-hover: #282828;
+      --sp-sub: #b3b3b3;
+
+      --ytm-bg: #030303;
+      --ytm-player: #212121;
+      --ytm-red: #ff0033;
+      --ytm-sub: #aaaaaa;
+
+      --ambient-rgb: 30, 215, 96;
+    }
+
+    * {
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    body.mode-spotify {
+      font-family: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: -0.015em;
+      background-color: #000000;
+      color: #ffffff;
+    }
+
+    body.mode-ytmusic {
+      font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: 0;
+      background-color: #030303;
+      color: #ffffff;
+    }
+
+    .font-dial {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 9999px; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    .snap-carousel {
+      scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    .snap-card {
+      scroll-snap-align: start;
+    }
+
+    /* Ambient Gradients */
+    .sp-ambient {
+      background: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.38) 0%, rgba(18,18,18,0.92) 250px, #121212 100%);
+      transition: background 0.7s ease;
+    }
+    .sp-mini-pill {
+      background: linear-gradient(90deg, rgba(var(--ambient-rgb), 0.36) 0%, rgba(36,36,36,0.98) 45%, rgba(24,24,24,0.99) 100%);
+      transition: background 0.5s ease;
+    }
+    .ytm-ambient {
+      background: radial-gradient(ellipse 95% 320px at 22% 0%, rgba(var(--ambient-rgb), 0.28) 0%, rgba(3,3,3,0) 80%), #030303;
+      transition: background 0.7s ease;
+    }
+
+    /* FIXED: 100% Opaque Solid YouTube Music Overlay & Mobile Sheet (Zero Transparency Bleed) */
+    .ytm-solid-overlay {
+      background-color: #030303 !important;
+      background-image: radial-gradient(circle at 25% 35%, rgba(var(--ambient-rgb), 0.28) 0%, rgba(3,3,3,0.98) 65%, #030303 100%) !important;
+    }
+    .sheet-solid-ambient {
+      background-color: #080808 !important;
+      background-image: linear-gradient(180deg, rgba(var(--ambient-rgb), 0.62) 0%, #121212 58%, #050505 100%) !important;
+    }
+    .sp-nav-fade {
+      background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.90) 26%, #000000 100%);
+    }
+
+    @keyframes eqBounce {
+      0%, 100% { transform: scaleY(0.22); }
+      50% { transform: scaleY(1); }
+    }
+    .eq-bar {
+      width: 2.5px;
+      height: 12px;
+      background-color: var(--sp-green);
+      transform-origin: bottom;
+      animation: eqBounce 0.65s infinite ease-in-out;
+      border-radius: 2px;
+    }
+    .eq-bar:nth-child(2) { animation-delay: 0.18s; }
+    .eq-bar:nth-child(3) { animation-delay: 0.34s; }
+    .paused .eq-bar { animation-play-state: paused; transform: scaleY(0.2); }
+
+    input[type="range"].clean-range {
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255,255,255,0.22);
+      height: 4px;
+      border-radius: 999px;
+      outline: none;
+    }
+    input[type="range"].clean-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ffffff;
+      cursor: pointer;
+    }
+    input[type="range"].ytm-scrubber {
+      -webkit-appearance: none;
+      appearance: none;
+      background: rgba(255,255,255,0.18);
+      height: 2px;
+      outline: none;
+      margin: 0;
+    }
+    input[type="range"].ytm-scrubber::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff0033;
+      cursor: pointer;
+    }
+
+    #mobile-player-sheet, #ytm-queue-drawer {
+      transition: transform 0.36s cubic-bezier(0.32, 0.72, 0, 1);
+      will-change: transform;
+    }
+    .drawer-hidden { transform: translateY(105%); pointer-events: none; }
+    .drawer-visible { transform: translateY(0%); pointer-events: auto; }
+  </style>
+</head>
+
+<body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
+
+  <!-- Core HTML5 Audio Engine + M3U File Input -->
+  <audio id="audio-engine" playsinline webkit-playsinline preload="none"></audio>
+  <input type="file" id="m3u-file" accept=".m3u,.m3u8" class="hidden" onchange="handleM3UImport(event)" />
+
+  <!-- Minimal Toast Pill -->
+  <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[160] pointer-events-none opacity-0 -translate-y-2 transition-all duration-300 bg-[#282828] border border-white/15 px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-semibold">
+    <span class="w-2 h-2 rounded-full bg-[#1ed760]"></span>
+    <span id="toast-msg">Ready</span>
+  </div>
+
+  <!-- =========================================================================
+       PRO AUDIO DSP & SOUND QUALITY MASTERING MODAL (PERSISTED)
+       ========================================================================= -->
+  <div id="audio-dsp-modal" class="hidden fixed inset-0 z-[150] bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-[#181818] border border-white/15 rounded-2xl max-w-md w-full p-5 shadow-2xl">
+      <div class="flex items-center justify-between mb-3">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-[#1ed760]"></i>
+          <h3 class="font-bold text-base text-white">Sound Quality & DSP Mastering</h3>
+        </div>
+        <button onclick="closeDspModal()" class="w-8 h-8 rounded-full bg-white/10 text-neutral-300 hover:text-white flex items-center justify-center">
+          <i class="fa-solid fa-xmark text-sm"></i>
+        </button>
+      </div>
+
+      <!-- Stream Quality Selector -->
+      <div class="mb-4">
+        <label class="text-[11px] font-bold uppercase tracking-wider text-[#b3b3b3] block mb-2">Stream Bitrate & Buffer Profile</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="setStreamQualityProfile('hifi')" id="qprof-hifi" class="py-2 px-2 rounded-lg text-xs font-bold bg-[#1ed760] text-black transition">Hi-Fi 320k</button>
+          <button onclick="setStreamQualityProfile('balanced')" id="qprof-balanced" class="py-2 px-2 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">HD 128k</button>
+          <button onclick="setStreamQualityProfile('datasaver')" id="qprof-datasaver" class="py-2 px-2 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Low Data</button>
+        </div>
+      </div>
+
+      <!-- Acoustic Presets -->
+      <div class="mb-4">
+        <label class="text-[11px] font-bold uppercase tracking-wider text-[#b3b3b3] block mb-2">Acoustic EQ Profile</label>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <button onclick="applyDspPreset('flat')" id="dsp-flat" class="py-2 px-2.5 rounded-lg text-xs font-bold bg-white text-black transition">Hi-Fi Reference</button>
+          <button onclick="applyDspPreset('bass')" id="dsp-bass" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Bass Boost</button>
+          <button onclick="applyDspPreset('vocal')" id="dsp-vocal" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Vocal / News</button>
+          <button onclick="applyDspPreset('spatial')" id="dsp-spatial" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Spatial Warmth</button>
+          <button onclick="applyDspPreset('swclean')" id="dsp-swclean" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">SW/AM Clarifier</button>
+          <button onclick="applyDspPreset('classical')" id="dsp-classical" class="py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition">Carnatic / Raaga</button>
+        </div>
+      </div>
+
+      <!-- 3-Band Tone Sliders + Loudness Boost -->
+      <div class="space-y-3 bg-[#121212] p-3.5 rounded-xl border border-white/5 mb-4">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-xs font-semibold text-neutral-300 w-24">Bass (80Hz)</span>
+          <input id="eq-bass" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="clean-range flex-1 accent-[#1ed760]" />
+          <span id="eq-bass-val" class="text-xs font-dial text-[#1ed760] w-10 text-right">+2dB</span>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-xs font-semibold text-neutral-300 w-24">Mid (1.5kHz)</span>
+          <input id="eq-mid" type="range" min="-6" max="8" step="1" value="1" oninput="updateCustomEq()" class="clean-range flex-1 accent-[#1ed760]" />
+          <span id="eq-mid-val" class="text-xs font-dial text-[#1ed760] w-10 text-right">+1dB</span>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-xs font-semibold text-neutral-300 w-24">Treble (10kHz)</span>
+          <input id="eq-treble" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="clean-range flex-1 accent-[#1ed760]" />
+          <span id="eq-treble-val" class="text-xs font-dial text-[#1ed760] w-10 text-right">+2dB</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between pt-1">
+        <span class="text-[11px] text-[#b3b3b3]">All sound settings auto-save</span>
+        <button onclick="closeDspModal()" class="px-5 py-2 rounded-full text-xs font-bold bg-[#1ed760] text-black">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       1. SPOTIFY REPLICA (DESKTOP 3-PANE + AUTHENTIC SPOTIFY MOBILE APP)
+       ========================================================================= -->
+  <div id="spotify-app" class="flex flex-col h-full w-full bg-black overflow-hidden">
+
+    <!-- SPOTIFY DESKTOP HEADER (lg+) -->
+    <header class="hidden lg:flex h-16 px-4 items-center justify-between bg-black shrink-0 z-30">
+      <div class="flex items-center gap-3">
+        <button onclick="loadCategory('shortwave')" class="w-10 h-10 flex items-center justify-center text-white hover:scale-105 transition" title="Spotify">
+          <i class="fa-brands fa-spotify text-[32px]"></i>
+        </button>
+        <button onclick="loadCategory('shortwave')" class="w-11 h-11 rounded-full bg-[#1f1f1f] hover:bg-[#2a2a2a] flex items-center justify-center text-white transition" title="Home">
+          <i class="fa-solid fa-house text-base"></i>
+        </button>
+
+        <!-- Clean Pill Search -->
+        <div class="relative w-80 xl:w-[390px]">
+          <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-[#b3b3b3] text-sm pointer-events-none"></i>
+          <input id="sp-search-desktop" type="text" placeholder="What do you want to play?"
+            oninput="onSearchInput(this.value, 'sp-clear-desktop')"
+            onkeydown="if(event.key==='Enter') runOmniSearch(this.value)"
+            class="w-full bg-[#1f1f1f] hover:bg-[#2a2a2a] focus:bg-[#242424] text-[14px] text-white placeholder-[#b3b3b3] rounded-full pl-11 pr-10 py-2.5 outline-none focus:ring-2 focus:ring-white transition" />
+          <button id="sp-clear-desktop" onclick="clearAllSearches()" class="hidden absolute right-3.5 top-2.5 w-6 h-6 text-[#b3b3b3] hover:text-white items-center justify-center">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Category Filter Pills -->
+      <div class="flex items-center gap-1.5">
+        <button onclick="loadCategory('shortwave')" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-bold bg-white text-black transition">Shortwave & AM</button>
+        <button onclick="loadCategory('akashvani')" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
+        <button onclick="loadCategory('telugu')" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
+        <button onclick="loadCategory('tamil')" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
+        <button onclick="loadCategory('featured')" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
+        <button onclick="loadCategory('podcasts')" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
+      </div>
+
+      <!-- Sound Quality DSP & Switch to YouTube Music -->
+      <div class="flex items-center gap-2">
+        <button onclick="openDspModal()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#1ed760]/15 text-[#1ed760] border border-[#1ed760]/30 hover:bg-[#1ed760] hover:text-black transition">
+          <i class="fa-solid fa-sliders"></i> <span id="sp-dsp-label">HD Audio</span>
+        </button>
+        <button onclick="switchAppMode('ytmusic')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white border border-white/10 transition">
+          <span class="w-4 h-4 rounded-full bg-[#ff0033] flex items-center justify-center"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
+          <span>YouTube Music</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- SPOTIFY MOBILE NATIVE HEADER (< lg) -->
+    <header class="lg:hidden flex flex-col gap-2.5 px-4 pt-3 pb-2 bg-[#121212] shrink-0 z-30">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">
+          <div onclick="loadCategory('shortwave')" class="w-8 h-8 rounded-full bg-[#1ed760] text-black font-extrabold flex items-center justify-center text-xs shrink-0 cursor-pointer">
+            N
+          </div>
+          <button onclick="loadCategory('shortwave')" id="sp-mchip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition">SW / AM</button>
+          <button onclick="loadCategory('akashvani')" id="sp-mchip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Akashvani</button>
+          <button onclick="loadCategory('telugu')" id="sp-mchip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Telugu</button>
+          <button onclick="loadCategory('tamil')" id="sp-mchip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Tamil</button>
+          <button onclick="loadCategory('featured')" id="sp-mchip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Global FM</button>
+          <button onclick="loadCategory('podcasts')" id="sp-mchip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Podcasts</button>
+        </div>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button onclick="openDspModal()" class="w-8 h-8 rounded-full bg-[#2a2a2a] text-[#1ed760] flex items-center justify-center text-xs" title="Sound Quality">
+            <i class="fa-solid fa-sliders"></i>
+          </button>
+          <button onclick="switchAppMode('ytmusic')" class="w-8 h-8 rounded-full bg-[#2a2a2a] flex items-center justify-center" title="Switch to YouTube Music">
+            <span class="w-4 h-4 rounded-full bg-[#ff0033] flex items-center justify-center"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Collapsible Mobile Search Bar -->
+      <div id="sp-mob-search-bar" class="hidden relative">
+        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-2.5 text-[#121212] text-sm pointer-events-none"></i>
+        <input id="sp-search-mobile" type="text" placeholder="What do you want to listen to?"
+          oninput="onSearchInput(this.value, 'sp-clear-mobile')"
+          onkeydown="if(event.key==='Enter'){ runOmniSearch(this.value); this.blur(); }"
+          class="w-full bg-white text-[#121212] placeholder-[#555] font-semibold text-xs rounded-[6px] pl-9 pr-9 py-2.5 outline-none" />
+        <button id="sp-clear-mobile" onclick="clearAllSearches()" class="hidden absolute right-2.5 top-2 text-neutral-600">
+          <i class="fa-solid fa-circle-xmark"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- SPOTIFY MAIN 3-PANE WORKSPACE -->
+    <div class="flex-1 flex gap-2 lg:px-2 lg:pb-2 min-h-0 overflow-hidden">
+
+      <!-- PANE 1: LEFT SIDEBAR LIBRARY (Desktop lg+) -->
+      <aside class="hidden lg:flex w-[285px] bg-[#121212] rounded-lg flex-col min-h-0 shrink-0">
+        <div class="px-4 py-3.5 flex items-center justify-between">
+          <div class="flex items-center gap-2.5 text-[#b3b3b3] hover:text-white font-bold text-sm transition cursor-pointer">
+            <i class="fa-solid fa-layer-group text-base"></i>
+            <span>Your Library</span>
+          </div>
+          <span id="sp-lib-counter" class="text-[11px] text-[#b3b3b3] font-medium"></span>
+        </div>
+
+        <div class="flex gap-1.5 px-3 pb-2.5 overflow-x-auto no-scrollbar">
+          <button onclick="setSidebarFilter('recents')" id="slib-recents" class="px-3 py-1 rounded-full text-xs font-semibold bg-white text-black shrink-0">Recents</button>
+          <button onclick="setSidebarFilter('mostplayed')" id="slib-most" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">Most Played</button>
+          <button onclick="setSidebarFilter('liked')" id="slib-liked" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">Liked</button>
+          <button onclick="setSidebarFilter('shortwave')" id="slib-sw" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">SW/AM</button>
+          <button onclick="setSidebarFilter('akashvani')" id="slib-air" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">AIR</button>
+        </div>
+
+        <div id="sp-library-list" class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5"></div>
+      </aside>
+
+      <!-- PANE 2: CENTER MAIN BROWSE CANVAS -->
+      <main class="flex-1 sp-ambient lg:rounded-lg overflow-y-auto px-4 sm:px-6 pt-3 pb-36 lg:pb-8 min-h-0">
+
+        <!-- Shortwave / AM Digital Frequency Bar -->
+        <div id="sw-tuner-bar" class="mb-5 bg-black/50 backdrop-blur-md border border-white/10 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            <div class="bg-black border border-amber-500/40 rounded-lg px-3 py-1.5">
+              <span id="sw-freq-display" class="font-dial text-lg font-bold text-amber-400">9410 kHz</span>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white">World Band Shortwave & AM</div>
+              <div id="sw-nearest-label" class="text-[11px] text-[#b3b3b3]">BBC World Service • 9410 kHz</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 flex-1 max-w-md justify-end">
+            <div class="hidden sm:flex items-center gap-1">
+              <button onclick="jumpSwFreq(6000)" class="px-2 py-1 rounded bg-white/5 hover:bg-white/15 text-[10px] font-dial text-amber-300">6000</button>
+              <button onclick="jumpSwFreq(7375)" class="px-2 py-1 rounded bg-white/5 hover:bg-white/15 text-[10px] font-dial text-amber-300">7375</button>
+              <button onclick="jumpSwFreq(9410)" class="px-2 py-1 rounded bg-white/5 hover:bg-white/15 text-[10px] font-dial text-amber-300">9410</button>
+              <button onclick="jumpSwFreq(11725)" class="px-2 py-1 rounded bg-white/5 hover:bg-white/15 text-[10px] font-dial text-amber-300">11725</button>
+              <button onclick="jumpSwFreq(738)" class="px-2 py-1 rounded bg-white/5 hover:bg-white/15 text-[10px] font-dial text-emerald-300">738 AM</button>
+            </div>
+            <input id="sw-freq-slider" type="range" min="530" max="18000" step="5" value="9410"
+              oninput="scrubSwFreq(this.value)"
+              class="clean-range w-28 sm:w-36 accent-amber-400 cursor-pointer" />
+          </div>
+        </div>
+
+        <!-- 1. SPOTIFY 2-COLUMN (MOBILE) / 3-COLUMN (DESKTOP) 56px QUICK-ACCESS GRID -->
+        <section class="mb-6">
+          <div id="sp-top-compact-grid" class="grid grid-cols-2 lg:grid-cols-3 gap-2"></div>
+        </section>
+
+        <!-- Podcast Episode Drawer -->
+        <section id="sp-podcast-box" class="hidden mb-7 bg-[#181818] rounded-xl p-4 border border-white/10">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3 min-w-0">
+              <img id="sp-pod-art" src="" class="w-14 h-14 rounded-lg object-cover shrink-0" alt="" />
+              <div class="min-w-0">
+                <h3 id="sp-pod-title" class="text-base font-bold text-white truncate"></h3>
+                <p id="sp-pod-author" class="text-xs text-[#b3b3b3] truncate"></p>
+              </div>
+            </div>
+            <button onclick="closePodcastBox()" class="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center">
+              <i class="fa-solid fa-xmark text-xs"></i>
+            </button>
+          </div>
+          <div id="sp-pod-episodes" class="space-y-1.5 max-h-64 overflow-y-auto pr-1"></div>
+        </section>
+
+        <!-- 2. RECENTLY PLAYED CAROUSEL -->
+        <section id="sp-recents-section" class="mb-7">
+          <div class="flex items-center justify-between mb-2.5">
+            <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Recently played</h2>
+            <button onclick="clearRecentsHistory()" class="text-xs font-semibold text-[#b3b3b3] hover:text-white">Clear</button>
+          </div>
+          <div id="sp-recents-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
+        </section>
+
+        <!-- 3. SUGGESTED / SIMILAR CHANNELS CAROUSEL -->
+        <section id="sp-suggested-section" class="mb-7">
+          <div class="flex items-center justify-between mb-2.5">
+            <h2 id="sp-suggested-heading" class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Suggested for you</h2>
+            <span class="text-xs font-medium text-[#b3b3b3]">Similar channels</span>
+          </div>
+          <div id="sp-suggested-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
+        </section>
+
+        <!-- 4. MOST PLAYED CAROUSEL -->
+        <section id="sp-mostplayed-section" class="mb-7">
+          <div class="flex items-center justify-between mb-2.5">
+            <h2 class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Most played</h2>
+            <span class="text-xs font-medium text-[#b3b3b3]">Top rotation</span>
+          </div>
+          <div id="sp-mostplayed-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
+        </section>
+
+        <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY -->
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <h2 id="sp-grid-heading" class="text-[19px] sm:text-[21px] font-bold tracking-tight text-white">Shortwave & AM World Radio</h2>
+            <span id="sp-grid-count" class="text-xs font-medium text-[#b3b3b3]"></span>
+          </div>
+          <div id="sp-cards-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3.5 sm:gap-4"></div>
+        </section>
+      </main>
+
+      <!-- PANE 3: RIGHT SIDEBAR NOW PLAYING (SHOWS LIVE SONG ALBUM ART WHILE PLAYING) -->
+      <aside class="hidden xl:flex w-[290px] bg-[#121212] rounded-lg p-4 flex-col justify-between shrink-0 overflow-y-auto">
+        <div>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-bold text-white truncate">Now Playing</span>
+            <div id="sp-np-eq" class="flex items-end gap-0.5 h-3.5 paused">
+              <div class="eq-bar"></div><div class="eq-bar"></div><div class="eq-bar"></div>
+            </div>
+          </div>
+
+          <!-- Active Player Cover (Dynamically updates with playing song's Album Art) -->
+          <div class="relative aspect-square w-full rounded-xl overflow-hidden bg-[#181818] shadow-2xl mb-3.5">
+            <img id="sp-np-art" src="" class="w-full h-full object-cover transition-all duration-500" alt="Now Playing" />
+            <span id="sp-np-art-badge" class="hidden absolute top-2.5 right-2.5 bg-black/80 backdrop-blur-md text-[#1ed760] text-[9px] font-extrabold px-2 py-0.5 rounded-full border border-[#1ed760]/40">
+              LIVE ALBUM ART
+            </span>
+          </div>
+
+          <div class="flex items-start justify-between gap-2 mb-4">
+            <div class="min-w-0">
+              <h3 id="sp-np-title" class="text-base font-bold text-white truncate">Select a Station</h3>
+              <p id="sp-np-sub" class="text-xs text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
+            </div>
+            <button onclick="toggleLikeCurrent()" id="sp-np-like" class="text-[#b3b3b3] hover:text-white mt-0.5 text-base">
+              <i class="fa-regular fa-heart"></i>
+            </button>
+          </div>
+
+          <div class="bg-[#181818] rounded-xl p-3">
+            <div class="text-xs font-bold text-white mb-2">Similar Channels</div>
+            <div id="sp-rail-similar" class="space-y-2"></div>
+          </div>
+        </div>
+
+        <div class="pt-3 mt-3 border-t border-white/5">
+          <canvas id="sp-spectrum" width="250" height="40" class="w-full h-10 opacity-80"></canvas>
+        </div>
+      </aside>
+    </div>
+
+    <!-- SPOTIFY DESKTOP BOTTOM BAR (88px) -->
+    <footer class="hidden lg:flex h-[88px] bg-black px-4 items-center justify-between shrink-0 z-40">
+      <div class="flex items-center gap-3.5 w-[30%] min-w-[220px]">
+        <img id="sp-bar-art" src="" class="w-14 h-14 rounded-md object-cover bg-[#181818] shrink-0 transition-all duration-500" alt="" />
+        <div class="min-w-0">
+          <div id="sp-bar-title" class="text-[14px] font-semibold text-white truncate">Ready to Play</div>
+          <div id="sp-bar-sub" class="text-[12px] text-[#b3b3b3] truncate">Select any channel</div>
+        </div>
+        <button onclick="toggleLikeCurrent()" id="sp-bar-like" class="text-[#b3b3b3] hover:text-white ml-2">
+          <i class="fa-regular fa-heart"></i>
+        </button>
+      </div>
+
+      <div class="flex flex-col items-center max-w-xl w-[40%] px-4">
+        <div class="flex items-center gap-6 mb-2">
+          <button onclick="playRandomChannel()" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-shuffle"></i></button>
+          <button onclick="playPrevChannel()" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-backward-step"></i></button>
+          <button onclick="togglePlayPause()" class="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition">
+            <i id="sp-bar-play" class="fa-solid fa-play text-xs ml-0.5"></i>
+          </button>
+          <button onclick="playNextChannel()" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-forward-step"></i></button>
+          <button onclick="switchBackupServer()" class="text-[#b3b3b3] hover:text-white text-sm" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
+        </div>
+        <div class="w-full flex items-center gap-2 text-[11px] text-[#b3b3b3]">
+          <span id="sp-bar-cur" class="w-8 text-right">LIVE</span>
+          <input id="sp-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="clean-range flex-1 cursor-pointer accent-[#1ed760]" />
+          <span id="sp-bar-dur" class="w-8">HD</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-3 w-[30%] min-w-[220px]">
+        <button onclick="openDspModal()" class="text-xs font-bold text-[#1ed760] bg-white/10 hover:bg-white/15 px-2.5 py-1 rounded-full">EQ</button>
+        <button onclick="toggleMute()" id="sp-mute-icon" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-volume-high"></i></button>
+        <input id="sp-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="clean-range w-24 cursor-pointer accent-[#1ed760]" />
+      </div>
+    </footer>
+
+    <!-- SPOTIFY MOBILE NATIVE FLOATING PILL MINI-PLAYER + BOTTOM NAV (< lg) -->
+    <div onclick="openMobileSheet()" class="lg:hidden fixed left-2 right-2 bottom-[60px] h-[56px] z-40 sp-mini-pill rounded-[8px] px-2.5 shadow-[0_8px_24px_rgba(0,0,0,0.9)] flex items-center justify-between cursor-pointer border border-white/10">
+      <div class="flex items-center gap-2.5 min-w-0 flex-1">
+        <img id="sp-mini-art" src="" class="w-10 h-10 rounded-[5px] object-cover bg-[#181818] shrink-0" alt="" />
+        <div class="min-w-0 flex-1 leading-tight">
+          <div id="sp-mini-title" class="text-[13px] font-bold text-white truncate">Select a Station</div>
+          <div id="sp-mini-sub" class="text-[11px] text-[#b3b3b3] truncate mt-0.5">Live Radio</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-1" onclick="event.stopPropagation()">
+        <button onclick="toggleLikeCurrent()" id="sp-mini-like" class="w-9 h-9 flex items-center justify-center text-[#b3b3b3]">
+          <i class="fa-regular fa-heart text-base"></i>
+        </button>
+        <button onclick="togglePlayPause()" class="w-9 h-9 flex items-center justify-center text-white">
+          <i id="sp-mini-play" class="fa-solid fa-play text-lg"></i>
+        </button>
+      </div>
+      <div class="absolute bottom-0 left-2 right-2 h-[2px] bg-white/15 overflow-hidden rounded-full">
+        <div id="sp-mini-prog" class="h-full bg-white w-full"></div>
+      </div>
+    </div>
+
+    <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[58px] sp-nav-fade z-40 flex items-center justify-around px-2">
+      <button onclick="loadCategory('shortwave')" class="flex flex-col items-center justify-center gap-1 text-white w-16">
+        <i class="fa-solid fa-house text-[18px]"></i>
+        <span class="text-[10px] font-medium">Home</span>
+      </button>
+      <button onclick="toggleMobileSearch()" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
+        <i class="fa-solid fa-magnifying-glass text-[18px]"></i>
+        <span class="text-[10px] font-medium">Search</span>
+      </button>
+      <button onclick="showLikedLibrary()" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
+        <i class="fa-solid fa-layer-group text-[18px]"></i>
+        <span class="text-[10px] font-medium">Your Library</span>
+      </button>
+      <button onclick="switchAppMode('ytmusic')" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
+        <i class="fa-solid fa-circle-play text-[18px] text-[#ff0033]"></i>
+        <span class="text-[10px] font-medium">YT Music</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- =========================================================================
+       2. YOUTUBE MUSIC REPLICA (DESKTOP + AUTHENTIC YTM MOBILE APP)
+       ========================================================================= -->
+  <div id="ytmusic-app" class="hidden flex-col h-full w-full bg-[#030303] overflow-hidden">
+
+    <!-- YOUTUBE MUSIC HEADER -->
+    <header class="h-14 sm:h-16 px-4 sm:px-6 flex items-center justify-between bg-[#030303] border-b border-white/10 shrink-0 z-40 gap-3">
+      <div onclick="loadCategory('shortwave')" class="flex items-center gap-2 cursor-pointer shrink-0">
+        <div class="w-7 h-7 rounded-full bg-[#ff0033] flex items-center justify-center">
+          <div class="w-3.5 h-3.5 rounded-full border border-white flex items-center justify-center">
+            <i class="fa-solid fa-play text-white text-[6px] ml-0.5"></i>
+          </div>
+        </div>
+        <span class="font-bold text-[19px] tracking-tight text-white">Music</span>
+      </div>
+
+      <!-- YTM Search Box -->
+      <div class="flex items-center flex-1 max-w-md mx-2">
+        <div class="relative flex items-center w-full">
+          <i class="fa-solid fa-magnifying-glass absolute left-3.5 text-[#aaa] text-xs pointer-events-none"></i>
+          <input id="ytm-search-input" type="text" placeholder="Search songs, stations, Akashvani, Telugu..."
+            oninput="onSearchInput(this.value, 'ytm-clear-btn')"
+            onkeydown="if(event.key==='Enter'){ runOmniSearch(this.value); this.blur(); }"
+            class="w-full bg-[#212121] focus:bg-[#121212] border border-white/10 rounded-full pl-9 pr-9 py-1.5 sm:py-2 text-xs sm:text-sm text-white placeholder-[#aaa] outline-none" />
+          <button id="ytm-clear-btn" onclick="clearAllSearches()" class="hidden absolute right-3 text-[#aaa] hover:text-white">
+            <i class="fa-solid fa-xmark text-sm"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <button onclick="openDspModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-white border border-white/10">
+          <i class="fa-solid fa-sliders text-[#ff0033] mr-1"></i>EQ
+        </button>
+        <button onclick="switchAppMode('spotify')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold bg-[#212121] hover:bg-[#303030] text-[#1ed760] border border-white/10 transition">
+          <i class="fa-brands fa-spotify text-sm"></i>
+          <span class="hidden sm:inline">Spotify</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- YOUTUBE MUSIC BODY -->
+    <div class="flex-1 flex min-h-0 overflow-hidden relative">
+
+      <!-- YTM Left Navigation Rail (Desktop md+) -->
+      <aside class="hidden md:flex w-[220px] bg-[#030303] border-r border-white/10 px-3 py-3 flex-col gap-1 shrink-0">
+        <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-white/10 text-sm font-medium text-white">
+          <i class="fa-solid fa-house w-5"></i> <span>Home</span>
+        </button>
+        <button onclick="loadCategory('featured')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-white/10 text-sm font-medium text-[#aaa] hover:text-white">
+          <i class="fa-regular fa-compass w-5"></i> <span>Explore</span>
+        </button>
+        <button onclick="showLikedLibrary()" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-white/10 text-sm font-medium text-[#aaa] hover:text-white">
+          <i class="fa-solid fa-bookmark w-5"></i> <span>Library</span>
+        </button>
+
+        <div class="pt-3 mt-2 border-t border-white/10 space-y-1">
+          <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+            <i class="fa-solid fa-radio w-4"></i> <span>Shortwave & AM</span>
+          </button>
+          <button onclick="loadCategory('akashvani')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+            <i class="fa-solid fa-tower-cell w-4"></i> <span>Akashvani</span>
+          </button>
+          <button onclick="loadCategory('telugu')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+            <i class="fa-solid fa-music w-4"></i> <span>Telugu</span>
+          </button>
+          <button onclick="loadCategory('tamil')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+            <i class="fa-solid fa-drum w-4"></i> <span>Tamil</span>
+          </button>
+          <button onclick="loadCategory('podcasts')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-white/10 text-xs font-medium text-[#aaa] hover:text-white">
+            <i class="fa-solid fa-podcast w-4"></i> <span>Podcasts</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- YTM Main Content Scroll -->
+      <main class="flex-1 ytm-ambient overflow-y-auto px-4 sm:px-8 pt-4 pb-36 lg:pb-24 min-h-0">
+
+        <!-- YTM 8px-Radius Filter Chips -->
+        <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-5">
+          <button onclick="loadCategory('shortwave')" id="ytm-chip-sw" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition">Shortwave & AM</button>
+          <button onclick="loadCategory('akashvani')" id="ytm-chip-air" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Akashvani</button>
+          <button onclick="loadCategory('telugu')" id="ytm-chip-te" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Telugu</button>
+          <button onclick="loadCategory('tamil')" id="ytm-chip-ta" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Tamil</button>
+          <button onclick="loadCategory('featured')" id="ytm-chip-feat" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Global FM</button>
+          <button onclick="loadCategory('podcasts')" id="ytm-chip-pod" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition">Podcasts</button>
+        </div>
+
+        <!-- 1. YTM "Listen again" (Recently Played Carousel) -->
+        <section id="ytm-recents-section" class="mb-7">
+          <h2 class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Listen again</h2>
+          <div id="ytm-recents-carousel" class="flex gap-4 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
+        </section>
+
+        <!-- 2. YTM Signature "Quick picks" 4-Row Horizontal List -->
+        <section class="mb-8">
+          <h2 class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Quick picks</h2>
+          <div id="ytm-quick-picks" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-1"></div>
+        </section>
+
+        <!-- 3. YTM "Similar to..." (Suggested Carousel) -->
+        <section class="mb-7">
+          <h2 id="ytm-suggested-heading" class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Suggested channels</h2>
+          <div id="ytm-suggested-carousel" class="flex gap-4 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
+        </section>
+
+        <!-- 4. YTM "Most played" Carousel -->
+        <section class="mb-7">
+          <h2 class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3">Most played</h2>
+          <div id="ytm-mostplayed-carousel" class="flex gap-4 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
+        </section>
+
+        <!-- 5. YTM All Channels Shelf -->
+        <section>
+          <h2 id="ytm-grid-heading" class="text-[20px] sm:text-[22px] font-bold tracking-tight text-white mb-3.5">Featured Channels</h2>
+          <div id="ytm-cards-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"></div>
+        </section>
+      </main>
+
+      <!-- FIXED: 100% OPAQUE YOUTUBE MUSIC DESKTOP SPLIT-SCREEN PLAYER OVERLAY -->
+      <div id="ytm-queue-drawer" class="drawer-hidden ytm-solid-overlay fixed top-16 bottom-[72px] inset-x-0 z-50 hidden lg:flex p-8 gap-12 overflow-hidden">
+        <!-- Left Stage: Active Playing Album Art -->
+        <div class="flex-1 flex flex-col items-center justify-center">
+          <div class="relative w-[380px] h-[380px] rounded-xl overflow-hidden shadow-[0_24px_60px_rgba(0,0,0,0.95)] border border-white/15 bg-[#121212]">
+            <img id="ytm-stage-art" src="" class="w-full h-full object-cover transition-all duration-500" alt="" />
+          </div>
+          <div class="mt-4 text-center">
+            <h3 id="ytm-stage-title" class="text-lg font-bold text-white">Select a Station</h3>
+            <p id="ytm-stage-sub" class="text-xs text-[#aaa] mt-0.5">Live Broadcast</p>
+          </div>
+        </div>
+
+        <!-- Right Stage: UP NEXT & RELATED Queue -->
+        <div class="w-[460px] flex flex-col h-full bg-[#121212] rounded-2xl p-4 border border-white/10">
+          <div class="flex items-center justify-between border-b border-white/15 pb-3 mb-3">
+            <div class="flex gap-6 text-xs font-bold uppercase tracking-wider">
+              <button onclick="switchYtmDrawerTab('upnext')" id="ytm-dtab-upnext" class="text-white border-b-2 border-white pb-3 -mb-3.5">UP NEXT</button>
+              <button onclick="switchYtmDrawerTab('related')" id="ytm-dtab-related" class="text-[#aaa] hover:text-white pb-3 -mb-3.5">SIMILAR CHANNELS</button>
+            </div>
+            <button onclick="toggleYtmQueue()" class="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center">
+              <i class="fa-solid fa-chevron-down text-xs"></i>
+            </button>
+          </div>
+          <div id="ytm-upnext-list" class="flex-1 overflow-y-auto space-y-1 pr-1"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- YOUTUBE MUSIC DESKTOP BOTTOM BAR (72px) -->
+    <footer class="hidden lg:flex flex-col h-[72px] bg-[#212121] shrink-0 z-[55]">
+      <input id="ytm-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="ytm-scrubber w-full cursor-pointer" />
+      <div class="flex-1 px-4 flex items-center justify-between">
+        <div class="flex items-center gap-5 w-[28%]">
+          <button onclick="playPrevChannel()" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-backward-step"></i></button>
+          <button onclick="togglePlayPause()" class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition">
+            <i id="ytm-bar-play" class="fa-solid fa-play text-sm ml-0.5"></i>
+          </button>
+          <button onclick="playNextChannel()" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-forward-step"></i></button>
+          <span id="ytm-bar-time" class="text-xs text-[#aaa]">LIVE</span>
+        </div>
+
+        <div class="flex items-center justify-center gap-3.5 w-[44%] min-w-0">
+          <img onclick="toggleYtmQueue()" id="ytm-bar-art" src="" class="w-10 h-10 rounded-[4px] object-cover cursor-pointer shrink-0 transition-all duration-500" alt="" />
+          <div onclick="toggleYtmQueue()" class="min-w-0 cursor-pointer">
+            <div id="ytm-bar-title" class="text-sm font-medium text-white truncate">Select a Station</div>
+            <div id="ytm-bar-sub" class="text-xs text-[#aaa] truncate">YouTube Music</div>
+          </div>
+          <button onclick="toggleLikeCurrent()" id="ytm-bar-like" class="text-[#aaa] hover:text-white ml-2">
+            <i class="fa-regular fa-thumbs-up text-sm"></i>
+          </button>
+        </div>
+
+        <div class="flex items-center justify-end gap-3 w-[28%]">
+          <input id="ytm-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="clean-range w-24 accent-white cursor-pointer" />
+          <button onclick="toggleYtmQueue()" class="w-9 h-9 rounded-full hover:bg-white/10 flex items-center justify-center text-white">
+            <i class="fa-solid fa-caret-up"></i>
+          </button>
+        </div>
+      </div>
+    </footer>
+
+    <!-- YOUTUBE MUSIC MOBILE DOCKED MINI-PLAYER + 4-TAB BAR (< lg) -->
+    <div onclick="openMobileSheet()" class="lg:hidden fixed inset-x-0 bottom-[56px] h-[58px] bg-[#212121] z-40 flex items-center justify-between px-3 cursor-pointer">
+      <div class="absolute top-0 inset-x-0 h-[2px] bg-white/15">
+        <div id="ytm-mini-prog" class="h-full bg-[#ff0033] w-full"></div>
+      </div>
+      <div class="flex items-center gap-3 min-w-0 flex-1">
+        <img id="ytm-mini-art" src="" class="w-10 h-10 rounded-[4px] object-cover bg-[#121212] shrink-0" alt="" />
+        <div class="min-w-0 flex-1">
+          <div id="ytm-mini-title" class="text-[13px] font-medium text-white truncate">Select a Station</div>
+          <div id="ytm-mini-sub" class="text-[11px] text-[#aaa] truncate">YouTube Music</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2" onclick="event.stopPropagation()">
+        <button onclick="togglePlayPause()" class="w-9 h-9 flex items-center justify-center text-white">
+          <i id="ytm-mini-play" class="fa-solid fa-play text-base"></i>
+        </button>
+        <button onclick="playNextChannel()" class="w-9 h-9 flex items-center justify-center text-white">
+          <i class="fa-solid fa-forward-step text-base"></i>
+        </button>
+      </div>
+    </div>
+
+    <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[56px] bg-[#030303] border-t border-white/10 z-40 flex items-center justify-around px-2">
+      <button onclick="loadCategory('shortwave')" class="flex flex-col items-center justify-center gap-1 text-white w-16">
+        <i class="fa-solid fa-house text-[18px]"></i>
+        <span class="text-[10px] font-medium">Home</span>
+      </button>
+      <button onclick="loadCategory('akashvani')" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
+        <i class="fa-solid fa-bolt text-[18px]"></i>
+        <span class="text-[10px] font-medium">Samples</span>
+      </button>
+      <button onclick="loadCategory('telugu')" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
+        <i class="fa-regular fa-compass text-[18px]"></i>
+        <span class="text-[10px] font-medium">Explore</span>
+      </button>
+      <button onclick="showLikedLibrary()" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
+        <i class="fa-solid fa-bookmark text-[18px]"></i>
+        <span class="text-[10px] font-medium">Library</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- =========================================================================
+       OPAQUE MOBILE FULL-SCREEN PLAYER SHEET (ZERO TRANSPARENCY BLEED)
+       ========================================================================= -->
+  <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[70] sheet-solid-ambient flex flex-col justify-between p-5 overflow-y-auto">
+    <div class="flex items-center justify-between shrink-0">
+      <button onclick="closeMobileSheet()" class="w-9 h-9 flex items-center justify-center text-white">
+        <i class="fa-solid fa-chevron-down text-base"></i>
+      </button>
+      <span class="text-xs font-bold text-white/90">Now Playing</span>
+      <button onclick="openDspModal()" class="w-9 h-9 flex items-center justify-center text-[#1ed760]" title="Sound Quality & EQ">
+        <i class="fa-solid fa-sliders text-sm"></i>
+      </button>
+    </div>
+
+    <div class="my-auto flex flex-col items-center py-3">
+      <div class="w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.9)] mb-5 bg-[#181818]">
+        <img id="sheet-art" src="" class="w-full h-full object-cover transition-all duration-500" alt="" />
+      </div>
+
+      <div class="w-full flex items-center justify-between gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 id="sheet-title" class="text-xl font-bold text-white truncate">Select a Station</h2>
+          <p id="sheet-sub" class="text-sm text-white/75 truncate mt-0.5">Live Broadcast</p>
+        </div>
+        <button onclick="toggleLikeCurrent()" id="sheet-like" class="text-2xl text-white">
+          <i class="fa-regular fa-heart"></i>
+        </button>
+      </div>
+    </div>
+
+    <div class="w-full space-y-4">
+      <div>
+        <input id="sheet-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="clean-range w-full accent-white" />
+        <div class="flex justify-between text-[11px] text-white/60 mt-1">
+          <span id="sheet-cur">LIVE</span>
+          <span id="sheet-dur">HD AUDIO</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between px-4">
+        <button onclick="playRandomChannel()" class="text-white/70 text-lg"><i class="fa-solid fa-shuffle"></i></button>
+        <button onclick="playPrevChannel()" class="text-2xl text-white"><i class="fa-solid fa-backward-step"></i></button>
+        <button onclick="togglePlayPause()" class="w-15 h-15 p-4 rounded-full bg-white text-black flex items-center justify-center text-xl shadow-xl">
+          <i id="sheet-play" class="fa-solid fa-play ml-0.5"></i>
+        </button>
+        <button onclick="playNextChannel()" class="text-2xl text-white"><i class="fa-solid fa-forward-step"></i></button>
+        <button onclick="switchBackupServer()" class="text-white/70 text-lg" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
+      </div>
+
+      <!-- Mobile Sheet Similar Channels Strip -->
+      <div class="pt-3 border-t border-white/10">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-white/70 mb-2">Similar Channels</div>
+        <div id="sheet-similar-row" class="flex gap-2.5 overflow-x-auto no-scrollbar pb-1"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       MASTER APPLICATION ENGINE (HD STATION EMBLEMS + LIVE PLAYER ALBUM ART)
+       ========================================================================= -->
+  <script>
+    // --- 1. Hardware Gesture Gate ---
+    let userHasInteracted = false;
+    window.addEventListener('pointerdown', () => { userHasInteracted = true; }, { once: true, passive: true });
+    window.addEventListener('keydown', () => { userHasInteracted = true; }, { once: true, passive: true });
+
+    function safeHaptic(ms = 10) {
+      if (!userHasInteracted) return;
+      if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+      try { if (navigator.vibrate) navigator.vibrate(ms); } catch (_) {}
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      document.getElementById('toast-msg').textContent = msg;
+      t.classList.remove('opacity-0', '-translate-y-2');
+      t.classList.add('opacity-100', 'translate-y-0');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(() => {
+        t.classList.add('opacity-0', '-translate-y-2');
+        t.classList.remove('opacity-100', 'translate-y-0');
+      }, 2200);
+    }
+
+    function hashString(str) {
+      let h = 2166136261;
+      for (let i = 0; i < str.length; i++) {
+        h ^= str.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return Math.abs(h);
+    }
+
+    // =========================================================================
+    // 2. BESPOKE 600x600 HD STATION IDENTITY EMBLEM GENERATOR
+    //    Channel lists ALWAYS show the Station Name + Frequency Emblem.
+    //    Only the active player swaps to the live song's album art!
+    // =========================================================================
+    const EMBLEM_THEMES = [
+      { bg1: '#090d16', bg2: '#1e3a8a', accent: '#38bdf8', glow: '#0284c7' },
+      { bg1: '#06140e', bg2: '#14532d', accent: '#4ade80', glow: '#16a34a' },
+      { bg1: '#180b26', bg2: '#581c87', accent: '#c084fc', glow: '#9333ea' },
+      { bg1: '#1f0d06', bg2: '#7c2d12', accent: '#fb923c', glow: '#ea580c' },
+      { bg1: '#210714', bg2: '#831843', accent: '#f472b6', glow: '#db2777' },
+      { bg1: '#041715', bg2: '#115e59', accent: '#2dd4bf', glow: '#0d9488' },
+      { bg1: '#1a1205', bg2: '#713f12', accent: '#facc15', glow: '#ca8a04' },
+      { bg1: '#1f0707', bg2: '#7f1d1d', accent: '#f87171', glow: '#dc2626' },
+      { bg1: '#0f1026', bg2: '#312e81', accent: '#818cf8', glow: '#4f46e5' }
+    ];
+
+    const stationBadgeCache = {};
+
+    function getStationIdentityThumbnail(ch) {
+      if (ch.kind === 'podcast_show' && ch.artwork) return ch.artwork;
+      const cacheKey = ch.id || ch.title;
+      if (stationBadgeCache[cacheKey]) return stationBadgeCache[cacheKey];
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 600;
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+
+      const h = hashString(cacheKey);
+      const theme = EMBLEM_THEMES[h % EMBLEM_THEMES.length];
+
+      // 1. Deep Studio Gradient Background
+      const grad = ctx.createLinearGradient(0, 0, 600, 600);
+      grad.addColorStop(0, theme.bg1);
+      grad.addColorStop(0.55, theme.bg2);
+      grad.addColorStop(1, '#050505');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 600, 600);
+
+      // 2. Ambient Glow Orb
+      const rad = ctx.createRadialGradient(460, 140, 20, 460, 140, 280);
+      rad.addColorStop(0, theme.glow + '66');
+      rad.addColorStop(1, 'transparent');
+      ctx.fillStyle = rad;
+      ctx.fillRect(0, 0, 600, 600);
+
+      // 3. Subtle Acoustic Vinyl Rings
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 2;
+      [180, 220, 260].forEach(r => {
+        ctx.beginPath();
+        ctx.arc(300, 290, r, 0, Math.PI * 2);
+        ctx.stroke();
+      });
+
+      // 4. Top-Left Frequency Pill Badge (e.g. "9410 kHz SW" or "101.9 FM")
+      const freqText = (ch.freqLabel || (ch.freqKhz ? `${ch.freqKhz} kHz` : ch.badge || 'LIVE FM')).toUpperCase();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.beginPath();
+      ctx.roundRect(38, 38, 250, 56, 28);
+      ctx.fill();
+      ctx.strokeStyle = theme.accent;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      // Pulsing dot inside frequency pill
+      ctx.fillStyle = theme.accent;
+      ctx.beginPath();
+      ctx.arc(70, 66, 8, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 23px "JetBrains Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(freqText.slice(0, 14), 92, 74);
+
+      // 5. Center Frequency / Call-Sign Hero Readout
+      const heroFreq = ch.freqKhz ? `${ch.freqKhz}` : (ch.shortFreq || 'FM');
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.font = '900 120px "Figtree", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(heroFreq, 300, 285);
+
+      // 6. Decorative Equalizer Waveform Strip in Center
+      const bars = 24;
+      const startX = 132;
+      for (let i = 0; i < bars; i++) {
+        const barH = 18 + ((hashString(cacheKey + i) % 58));
+        ctx.fillStyle = i % 3 === 0 ? theme.accent : 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.roundRect(startX + i * 14, 330 - barH / 2, 8, barH, 4);
+        ctx.fill();
+      }
+
+      // 7. Bottom Frosted Panel with Multi-Line Channel Name & Subtitle
+      ctx.fillStyle = 'rgba(8, 8, 12, 0.78)';
+      ctx.beginPath();
+      ctx.roundRect(28, 395, 544, 175, 24);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Wrap Channel Name cleanly onto 1 or 2 lines
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 33px "Figtree", sans-serif';
+      ctx.textAlign = 'left';
+      const words = ch.title.split(' ');
+      let line1 = '';
+      let line2 = '';
+      for (const w of words) {
+        if ((line1 + ' ' + w).trim().length <= 18) {
+          line1 = (line1 + ' ' + w).trim();
+        } else {
+          line2 = (line2 + ' ' + w).trim();
+        }
+      }
+      if (!line2) {
+        ctx.fillText(line1, 54, 465);
+      } else {
+        ctx.fillText(line1, 54, 450);
+        ctx.fillText(line2.slice(0, 20), 54, 490);
+      }
+
+      // Subtitle / Frequency Band line
+      ctx.fillStyle = theme.accent;
+      ctx.font = '700 21px "Figtree", sans-serif';
+      ctx.fillText((ch.subtitle || 'Live Broadcast').slice(0, 32), 54, 538);
+
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      stationBadgeCache[cacheKey] = dataUrl;
+      return dataUrl;
+    }
+
+    // Zero-CORS JSONP Helper for iTunes Search API (Used ONLY for active player song album art)
+    function itunesJsonp(paramsObj) {
+      return new Promise((resolve) => {
+        const cbName = '__itunes_cb_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        const script = document.createElement('script');
+        let settled = false;
+
+        const timer = setTimeout(() => {
+          if (!settled) { settled = true; cleanup(); resolve({ results: [] }); }
+        }, 4500);
+
+        function cleanup() {
+          clearTimeout(timer);
+          delete window[cbName];
+          if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        window[cbName] = (data) => {
+          if (!settled) { settled = true; cleanup(); resolve(data || { results: [] }); }
+        };
+        script.onerror = () => {
+          if (!settled) { settled = true; cleanup(); resolve({ results: [] }); }
+        };
+
+        const qs = Object.entries({ ...paramsObj, callback: cbName })
+          .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+          .join('&');
+        script.src = `https://itunes.apple.com/search?${qs}`;
+        document.head.appendChild(script);
+      });
+    }
+
+    function validateImageUrl(url) {
+      return new Promise((resolve) => {
+        if (!url) return resolve(null);
+        const img = new Image();
+        const t = setTimeout(() => resolve(null), 3500);
+        img.onload = () => { clearTimeout(t); resolve(url); };
+        img.onerror = () => { clearTimeout(t); resolve(null); };
+        img.src = url;
+      });
+    }
+
+    // =========================================================================
+    // 3. MASTER CHANNELS (WITH EXPLICIT FREQUENCIES FOR STATION EMBLEMS)
+    // =========================================================================
+    const SHORTWAVE_AM_STATIONS = [
+      {
+        id: 'sw_bbc_ws',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'news', 'english', 'global', 'sw'],
+        freqKhz: 9410,
+        freqLabel: '9410 kHz SW',
+        shortFreq: '9410',
+        artQuery: 'London Symphony Orchestra Classic',
+        title: 'BBC World Service',
+        subtitle: '9410 kHz • 31m Shortwave',
+        streamUrl: 'https://stream.live.vc.bbcmedia.co.uk/bbc_world_service',
+        backupUrls: ['https://a.files.bbci.co.uk/ms6/live/3441A116-B12E-4D2F-ACA8-C1984642FA4B/audio/simulcast/hls/nonuk/pc_hd_abr_v2/ak/bbc_world_service.m3u8']
+      },
+      {
+        id: 'sw_wrmi_miami',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'americas', 'english', 'sw'],
+        freqKhz: 9955,
+        freqLabel: '9955 kHz SW',
+        shortFreq: '9955',
+        artQuery: 'Miami Latin Jazz Instrumental',
+        title: 'WRMI Radio Miami',
+        subtitle: '9955 kHz • 31m Shortwave',
+        streamUrl: 'https://streamer.radio.co/s49d29b86c/listen',
+        backupUrls: ['https://npr-ice.streamguys1.com/live.mp3']
+      },
+      {
+        id: 'sw_voa_global',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'news', 'english', 'americas', 'sw'],
+        freqKhz: 15580,
+        freqLabel: '15580 kHz SW',
+        shortFreq: '15580',
+        artQuery: 'Duke Ellington American Jazz',
+        title: 'VOA Global SW',
+        subtitle: '15580 kHz • 19m Shortwave',
+        streamUrl: 'https://voa-28.akacast.akamaistream.net/7/54/322040/v1/ibb.akacast.akamaistream.net/voa-28',
+        backupUrls: ['https://npr-ice.streamguys1.com/live.mp3']
+      },
+      {
+        id: 'sw_rnz_pacific',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'pacific', 'news', 'english', 'sw'],
+        freqKhz: 11725,
+        freqLabel: '11725 kHz SW',
+        shortFreq: '11725',
+        artQuery: 'New Zealand Acoustic Guitar',
+        title: 'RNZ Pacific SW',
+        subtitle: '11725 kHz • 25m Shortwave',
+        streamUrl: 'https://stream-ice.radionz.co.nz/rnz_international.mp3',
+        backupUrls: ['https://stream-ice.radionz.co.nz/national.mp3']
+      },
+      {
+        id: 'sw_air_external',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'india', 'akashvani', 'news', 'sw'],
+        freqKhz: 9620,
+        freqLabel: '9620 kHz SW',
+        shortFreq: '9620',
+        artQuery: 'Ravi Shankar Sitar Raga',
+        title: 'Akashvani External',
+        subtitle: '9620 kHz • World Service SW',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio002/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8']
+      },
+      {
+        id: 'am_air_urdu_mw',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['am', 'mw', 'india', 'akashvani', 'ghazal'],
+        freqKhz: 1071,
+        freqLabel: '1071 kHz AM',
+        shortFreq: '1071',
+        artQuery: 'Jagjit Singh Ghazal Album',
+        title: 'Akashvani Urdu AM',
+        subtitle: '1071 kHz • Megawatt MW',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio006/playlist.m3u8',
+        backupUrls: ['https://airurdu-lh.akamaihd.net/i/airurdu_1@507813/master.m3u8']
+      },
+      {
+        id: 'am_air_hyd_mw',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['am', 'mw', 'telugu', 'hyderabad', 'akashvani'],
+        freqKhz: 738,
+        freqLabel: '738 kHz AM',
+        shortFreq: '738',
+        artQuery: 'SP Balasubrahmanyam Telugu Evergreen',
+        title: 'AIR Hyderabad AM',
+        subtitle: '738 kHz • Mediumwave',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8',
+        backupUrls: ['https://airtelugu-lh.akamaihd.net/i/airtelugu_1@507818/master.m3u8']
+      },
+      {
+        id: 'am_air_vja_mw',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['am', 'mw', 'telugu', 'andhra', 'akashvani'],
+        freqKhz: 837,
+        freqLabel: '837 kHz AM',
+        shortFreq: '837',
+        artQuery: 'Ghantasala Telugu Golden Songs',
+        title: 'AIR Vijayawada AM',
+        subtitle: '837 kHz • Mediumwave',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio175/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'sw_radio_romania',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'europe', 'sw'],
+        freqKhz: 7375,
+        freqLabel: '7375 kHz SW',
+        shortFreq: '7375',
+        artQuery: 'George Enescu Romanian Rhapsody',
+        title: 'Radio Romania SW',
+        subtitle: '7375 kHz • 41m Shortwave',
+        streamUrl: 'https://stream2.srr.ro:8443/rri1',
+        backupUrls: ['https://stream.live.vc.bbcmedia.co.uk/bbc_world_service']
+      },
+      {
+        id: 'sw_ree_spain',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'europe', 'world', 'sw'],
+        freqKhz: 12030,
+        freqLabel: '12030 kHz SW',
+        shortFreq: '12030',
+        artQuery: 'Paco de Lucia Spanish Guitar',
+        title: 'Radio Exterior SW',
+        subtitle: '12030 kHz • Madrid SW',
+        streamUrl: 'https://rtvelivestream.akamaized.net/rtvesec/rne/rne_re_main.m3u8',
+        backupUrls: ['https://icecast.radiofrance.fr/fip-midfi.mp3']
+      },
+      {
+        id: 'sw_havana_cuba',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['shortwave', 'americas', 'world', 'sw'],
+        freqKhz: 6000,
+        freqLabel: '6000 kHz SW',
+        shortFreq: '6000',
+        artQuery: 'Buena Vista Social Club',
+        title: 'Radio Habana SW',
+        subtitle: '6000 kHz • 49m Shortwave',
+        streamUrl: 'https://icecast.teveo.cu/McW3fL7Zk',
+        backupUrls: ['https://stream.live.vc.bbcmedia.co.uk/bbc_world_service']
+      },
+      {
+        id: 'am_wnyc_820',
+        kind: 'radio',
+        category: 'shortwave',
+        tags: ['am', 'mw', 'news', 'english', 'americas'],
+        freqKhz: 820,
+        freqLabel: '820 kHz AM',
+        shortFreq: '820',
+        artQuery: 'Bill Evans Trio Jazz',
+        title: 'WNYC New York AM',
+        subtitle: '820 kHz • Clear-Channel AM',
+        streamUrl: 'https://am820.wnyc.org/wnycam',
+        backupUrls: ['https://npr-ice.streamguys1.com/live.mp3']
+      }
+    ];
+
+    const TELUGU_STATIONS = [
+      {
+        id: 'te_air_hyd_a',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'hyderabad', 'telangana', 'akashvani', 'classical'],
+        freqLabel: '738 kHz AM',
+        shortFreq: '738',
+        artQuery: 'Annamacharya Keerthanalu Telugu',
+        title: 'AIR Hyderabad A',
+        subtitle: '738 kHz • Telangana Telugu',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8',
+        backupUrls: ['https://airtelugu-lh.akamaihd.net/i/airtelugu_1@507818/master.m3u8']
+      },
+      {
+        id: 'te_air_hyd_rainbow',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'hyderabad', 'fm', 'hits', 'akashvani'],
+        freqLabel: '101.9 MHz FM',
+        shortFreq: '101.9',
+        artQuery: 'Sid Sriram Telugu Melodies',
+        title: 'FM Rainbow Hyd',
+        subtitle: '101.9 FM • Telugu Hits',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio031/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_hyd_vbs',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'hyderabad', 'retro', 'akashvani'],
+        freqLabel: '102.8 MHz FM',
+        shortFreq: '102.8',
+        artQuery: 'Ilaiyaraaja Telugu Hits',
+        title: 'Vividh Bharati Hyd',
+        subtitle: '102.8 FM • Telugu Golden',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio033/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8']
+      },
+      {
+        id: 'te_air_telugu_24x7',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'akashvani', 'classical', 'hits'],
+        freqLabel: 'DTH 24x7',
+        shortFreq: '24x7',
+        artQuery: 'Chitra Telugu Melodies',
+        title: 'Akashvani Telugu',
+        subtitle: 'DTH • 24x7 Telugu Live',
+        streamUrl: 'https://airtelugu-lh.akamaihd.net/i/airtelugu_1@507818/master.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_vijayawada',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'andhra', 'akashvani', 'classical'],
+        freqLabel: '102.2 MHz FM',
+        shortFreq: '102.2',
+        artQuery: 'Balamuralikrishna Carnatic Vocal',
+        title: 'AIR Vijayawada',
+        subtitle: '102.2 FM • Krishnaveni',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio175/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio176/playlist.m3u8']
+      },
+      {
+        id: 'te_air_visakhapatnam',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'andhra', 'akashvani', 'fm'],
+        freqLabel: '102.0 MHz FM',
+        shortFreq: '102.0',
+        artQuery: 'Karthik Telugu Songs',
+        title: 'AIR Visakhapatnam',
+        subtitle: '102.0 FM • Vizag Telugu',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio178/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_tirupati',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'devotional', 'classical', 'akashvani'],
+        freqLabel: '107.5 MHz FM',
+        shortFreq: '107.5',
+        artQuery: 'MS Subbulakshmi Balaji Suprabhatam',
+        title: 'AIR Tirupati FM',
+        subtitle: '107.5 FM • Rayalaseema',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio144/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_warangal',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'telangana', 'folk', 'akashvani'],
+        freqLabel: '101.7 MHz FM',
+        shortFreq: '101.7',
+        artQuery: 'Telangana Janapada Geethalu',
+        title: 'AIR Warangal FM',
+        subtitle: '101.7 FM • Telangana',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio154/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_adilabad',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'telangana', 'akashvani'],
+        freqLabel: '100.2 MHz FM',
+        shortFreq: '100.2',
+        artQuery: 'MM Keeravani Telugu Melodies',
+        title: 'AIR Adilabad FM',
+        subtitle: '100.2 FM • Telangana',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio218/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_nizamabad',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'telangana', 'akashvani'],
+        freqLabel: '103.2 MHz FM',
+        shortFreq: '103.2',
+        artQuery: 'Devi Sri Prasad Telugu Album',
+        title: 'AIR Nizamabad FM',
+        subtitle: '103.2 FM • Telangana',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio222/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_kothagudem',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'telangana', 'akashvani'],
+        freqLabel: '102.3 MHz FM',
+        shortFreq: '102.3',
+        artQuery: 'Mani Sharma Telugu Songs',
+        title: 'AIR Kothagudem',
+        subtitle: '102.3 FM • Telangana',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio116/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      },
+      {
+        id: 'te_air_kurnool',
+        kind: 'radio',
+        category: 'telugu',
+        tags: ['telugu', 'andhra', 'akashvani'],
+        freqLabel: '102.4 MHz FM',
+        shortFreq: '102.4',
+        artQuery: 'Mickey J Meyer Telugu',
+        title: 'AIR Kurnool FM',
+        subtitle: '102.4 FM • Rayalaseema',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio151/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+      }
+    ];
+
+    const TAMIL_STATIONS = [
+      {
+        id: 'ta_air_chennai_a',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'chennai', 'akashvani', 'classical'],
+        freqLabel: '720 kHz AM',
+        shortFreq: '720',
+        artQuery: 'Sanjay Subrahmanyan Carnatic',
+        title: 'AIR Chennai A',
+        subtitle: '720 kHz • Primary Tamil',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8',
+        backupUrls: ['https://airtamil-lh.akamaihd.net/i/airtamil_1@507817/master.m3u8']
+      },
+      {
+        id: 'ta_air_chennai_rainbow',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'chennai', 'fm', 'hits'],
+        freqLabel: '101.4 MHz FM',
+        shortFreq: '101.4',
+        artQuery: 'AR Rahman Tamil Album',
+        title: 'FM Rainbow Chennai',
+        subtitle: '101.4 FM • Kollywood Hits',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio022/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_chennai_gold',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'chennai', 'retro', 'akashvani'],
+        freqLabel: '100.1 MHz FM',
+        shortFreq: '100.1',
+        artQuery: 'Ilaiyaraaja Tamil Golden Hits',
+        title: 'FM Gold Chennai',
+        subtitle: '100.1 FM • Tamil Evergreen',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio021/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_tamil_national',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'akashvani', 'hits'],
+        freqLabel: 'DTH 24x7',
+        shortFreq: '24x7',
+        artQuery: 'Harris Jayaraj Tamil Songs',
+        title: 'Akashvani Tamil',
+        subtitle: 'DTH • 24x7 Tamil Isai',
+        streamUrl: 'https://airtamil-lh.akamaihd.net/i/airtamil_1@507817/master.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_madurai',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'akashvani', 'classical'],
+        freqLabel: '103.3 MHz FM',
+        shortFreq: '103.3',
+        artQuery: 'TM Krishna Carnatic Vocal',
+        title: 'AIR Madurai FM',
+        subtitle: '103.3 FM • Pandya Nadu',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio126/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_trichy',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'akashvani', 'fm'],
+        freqLabel: '102.1 MHz FM',
+        shortFreq: '102.1',
+        artQuery: 'Yuvan Shankar Raja Tamil',
+        title: 'AIR Trichy FM',
+        subtitle: '102.1 FM • Cauvery Delta',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio040/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_coimbatore',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'akashvani', 'fm'],
+        freqLabel: '103.0 MHz FM',
+        shortFreq: '103.0',
+        artQuery: 'Gv Prakash Kumar Tamil',
+        title: 'AIR Coimbatore FM',
+        subtitle: '103.0 FM • Kongu Nadu',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio017/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_tirunelveli',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'akashvani'],
+        freqLabel: '102.6 MHz FM',
+        shortFreq: '102.6',
+        artQuery: 'D Imman Tamil Melodies',
+        title: 'AIR Tirunelveli FM',
+        subtitle: '102.6 FM • Nellai Tamil',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio062/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      },
+      {
+        id: 'ta_air_puducherry',
+        kind: 'radio',
+        category: 'tamil',
+        tags: ['tamil', 'akashvani', 'fm'],
+        freqLabel: '102.8 MHz FM',
+        shortFreq: '102.8',
+        artQuery: 'Sean Roldan Tamil Songs',
+        title: 'AIR Puducherry FM',
+        subtitle: '102.8 FM • Coastal Tamil',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio098/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio025/playlist.m3u8']
+      }
+    ];
+
+    const AKASHVANI_NATIONAL = [
+      {
+        id: 'air_vividh_bharati',
+        kind: 'radio',
+        category: 'akashvani',
+        tags: ['akashvani', 'hindi', 'retro', 'bollywood', 'india'],
+        freqLabel: '102.8 MHz FM',
+        shortFreq: 'VBS',
+        artQuery: 'Kishore Kumar Golden Hits',
+        title: 'Vividh Bharati',
+        subtitle: '102.8 FM • National Hindi',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8',
+        backupUrls: ['https://vividhbharati-lh.akamaihd.net/i/vividhbharati_1@507811/master.m3u8']
+      },
+      {
+        id: 'air_fm_gold_delhi',
+        kind: 'radio',
+        category: 'akashvani',
+        tags: ['akashvani', 'hindi', 'retro', 'news', 'fm'],
+        freqLabel: '100.1 MHz FM',
+        shortFreq: '100.1',
+        artQuery: 'RD Burman Classic Songs',
+        title: 'Akashvani FM Gold',
+        subtitle: '100.1 FM • Retro & News',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio005/playlist.m3u8',
+        backupUrls: ['https://airfmgold-lh.akamaihd.net/i/fmgold_1@507591/master.m3u8']
+      },
+      {
+        id: 'air_fm_rainbow_delhi',
+        kind: 'radio',
+        category: 'akashvani',
+        tags: ['akashvani', 'hindi', 'hits', 'fm'],
+        freqLabel: '102.6 MHz FM',
+        shortFreq: '102.6',
+        artQuery: 'Arijit Singh Love Songs',
+        title: 'AIR FM Rainbow',
+        subtitle: '102.6 FM • New Delhi',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio004/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio005/playlist.m3u8']
+      },
+      {
+        id: 'air_news_24x7',
+        kind: 'radio',
+        category: 'akashvani',
+        tags: ['akashvani', 'news', 'india'],
+        freqLabel: 'NEWS 24x7',
+        shortFreq: '24x7',
+        artQuery: 'Hariprasad Chaurasia Bansuri Flute',
+        title: 'AIR News 24x7',
+        subtitle: 'National News Bulletins',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio002/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio005/playlist.m3u8']
+      },
+      {
+        id: 'air_raagam',
+        kind: 'radio',
+        category: 'akashvani',
+        tags: ['akashvani', 'classical', 'india'],
+        freqLabel: 'RAAGAM HD',
+        shortFreq: 'RAAG',
+        artQuery: 'Amjad Ali Khan Sarod Classical',
+        title: 'Akashvani Raagam',
+        subtitle: '24x7 Classical Raagas',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio139/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8']
+      },
+      {
+        id: 'air_amruthavarshini',
+        kind: 'radio',
+        category: 'akashvani',
+        tags: ['akashvani', 'classical', 'fm'],
+        freqLabel: '100.1 MHz FM',
+        shortFreq: '100.1',
+        artQuery: 'Zakir Hussain Tabla Classical',
+        title: 'Amruthavarshini',
+        subtitle: '100.1 FM • Classical BLR',
+        streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio029/playlist.m3u8',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio139/playlist.m3u8']
+      },
+      ...TELUGU_STATIONS.slice(0, 4),
+      ...TAMIL_STATIONS.slice(0, 4)
+    ];
+
+    const ELITE_GLOBAL_STATIONS = [
+      {
+        id: 'somafm_groovesalad',
+        somaId: 'groovesalad',
+        kind: 'radio',
+        category: 'featured',
+        tags: ['ambient', 'chill', 'electronic', 'global'],
+        freqLabel: 'CHILL HD',
+        shortFreq: 'SOMA',
+        artQuery: 'Bonobo Downtempo Electronic',
+        title: 'SomaFM Groove Salad',
+        subtitle: 'Ambient & Chill Beats',
+        streamUrl: 'https://ice2.somafm.com/groovesalad-128-mp3',
+        backupUrls: ['https://ice4.somafm.com/groovesalad-128-mp3']
+      },
+      {
+        id: 'somafm_defcon',
+        somaId: 'defcon',
+        kind: 'radio',
+        category: 'featured',
+        tags: ['electronic', 'synth', 'chill', 'global'],
+        freqLabel: 'DEFCON HD',
+        shortFreq: '2600',
+        artQuery: 'Daft Punk Tron Legacy',
+        title: 'SomaFM DEF CON',
+        subtitle: 'Hacker & Coding Electronica',
+        streamUrl: 'https://ice2.somafm.com/defcon-128-mp3',
+        backupUrls: ['https://ice4.somafm.com/defcon-128-mp3']
+      },
+      {
+        id: 'somafm_secretagent',
+        somaId: 'secretagent',
+        kind: 'radio',
+        category: 'featured',
+        tags: ['jazz', 'lounge', 'global'],
+        freqLabel: '007 FM',
+        shortFreq: '007',
+        artQuery: 'Lalo Schifrin Mission Impossible Jazz',
+        title: 'SomaFM Secret Agent',
+        subtitle: 'Vintage Lounge & Spy Jazz',
+        streamUrl: 'https://ice2.somafm.com/secretagent-128-mp3',
+        backupUrls: ['https://ice4.somafm.com/secretagent-128-mp3']
+      },
+      {
+        id: 'kexp_seattle',
+        kexpLive: true,
+        kind: 'radio',
+        category: 'featured',
+        tags: ['rock', 'indie', 'americas', 'global'],
+        freqLabel: '90.3 MHz FM',
+        shortFreq: '90.3',
+        artQuery: 'Arctic Monkeys Indie Rock',
+        title: 'KEXP Seattle FM',
+        subtitle: '90.3 FM • Indie & Alt Rock',
+        streamUrl: 'https://kexp-mp3-128.streamguys1.com/kexp128.mp3',
+        backupUrls: ['https://kexp.streamguys1.com/kexp160.aac']
+      },
+      {
+        id: 'fip_paris',
+        fipLive: true,
+        kind: 'radio',
+        category: 'featured',
+        tags: ['jazz', 'world', 'europe', 'global'],
+        freqLabel: '105.1 MHz FM',
+        shortFreq: '105.1',
+        artQuery: 'St Germain Tourist Jazz',
+        title: 'FIP Radio Paris',
+        subtitle: '105.1 FM • Eclectic Jazz',
+        streamUrl: 'https://icecast.radiofrance.fr/fip-midfi.mp3',
+        backupUrls: ['https://icecast.radiofrance.fr/fip-hifi.aac']
+      },
+      {
+        id: 'swiss_jazz',
+        kind: 'radio',
+        category: 'featured',
+        tags: ['jazz', 'europe', 'global'],
+        freqLabel: 'DAB+ JAZZ',
+        shortFreq: 'JAZZ',
+        artQuery: 'John Coltrane Blue Train',
+        title: 'Radio Swiss Jazz',
+        subtitle: 'DAB+ • Ad-Free Jazz & Soul',
+        streamUrl: 'https://stream.srg-ssr.ch/m/rsj/mp3_128',
+        backupUrls: ['https://stream.srg-ssr.ch/m/rsj/aacp_96']
+      },
+      {
+        id: 'mirchi_983',
+        kind: 'radio',
+        category: 'featured',
+        tags: ['hindi', 'bollywood', 'hits', 'india', 'fm'],
+        freqLabel: '98.3 MHz FM',
+        shortFreq: '98.3',
+        artQuery: 'Pritam Bollywood Dance Hits',
+        title: 'Radio Mirchi FM',
+        subtitle: '98.3 FM • Bollywood Hits',
+        streamUrl: 'https://peridot.streamguys1.com:7155/Mirchi',
+        backupUrls: ['https://strm112.1.fm/bombaybeats_mobile_mp3']
+      },
+      {
+        id: 'bombay_beats',
+        kind: 'radio',
+        category: 'featured',
+        tags: ['hindi', 'bollywood', 'hits', 'india'],
+        freqLabel: '104.8 MHz FM',
+        shortFreq: '104.8',
+        artQuery: 'AR Rahman Hindi Hits',
+        title: 'Bombay Beats FM',
+        subtitle: '104.8 FM • Hindi Hits',
+        streamUrl: 'https://strm112.1.fm/bombaybeats_mobile_mp3',
+        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio001/playlist.m3u8']
+      }
+    ];
+
+    const MASTER_POOL = [];
+    const seenMasterIds = new Set();
+    [...SHORTWAVE_AM_STATIONS, ...TELUGU_STATIONS, ...TAMIL_STATIONS, ...AKASHVANI_NATIONAL, ...ELITE_GLOBAL_STATIONS].forEach(ch => {
+      if (!seenMasterIds.has(ch.id)) {
+        seenMasterIds.add(ch.id);
+        MASTER_POOL.push(ch);
+      }
+    });
+
+    const RADIO_MIRRORS = [
+      'https://de1.api.radio-browser.info/json',
+      'https://fr1.api.radio-browser.info/json',
+      'https://at1.api.radio-browser.info/json'
+    ];
+
+    // =========================================================================
+    // 4. UNIFIED PERSISTENT CONFIG & TELEMETRY STORE
+    // =========================================================================
+    const DEFAULT_CONFIG = {
+      appMode: 'spotify',
+      activeCategory: 'shortwave',
+      volume: 0.85,
+      muted: false,
+      qualityProfile: 'hifi',
+      dspPreset: 'flat',
+      bass: 2,
+      mid: 1,
+      treble: 2,
+      lastStationId: 'te_air_hyd_a'
+    };
+
+    let appConfig = { ...DEFAULT_CONFIG, ...JSON.parse(localStorage.getItem('omnicast_v9_config') || '{}') };
+    let recentsList = JSON.parse(localStorage.getItem('omnicast_v9_recents') || '[]');
+    let playCounts = JSON.parse(localStorage.getItem('omnicast_v9_counts') || '{}');
+    let likedStations = JSON.parse(localStorage.getItem('omnicast_v9_liked') || '[]');
+
+    function saveAppConfig() {
+      try { localStorage.setItem('omnicast_v9_config', JSON.stringify(appConfig)); } catch (_) {}
+    }
+
+    if (recentsList.length === 0) {
+      recentsList = [
+        TELUGU_STATIONS[0],
+        SHORTWAVE_AM_STATIONS[0],
+        AKASHVANI_NATIONAL[0],
+        TELUGU_STATIONS[1],
+        TAMIL_STATIONS[1],
+        ELITE_GLOBAL_STATIONS[0]
+      ];
+      localStorage.setItem('omnicast_v9_recents', JSON.stringify(recentsList));
+    }
+    if (Object.keys(playCounts).length === 0) {
+      playCounts = {
+        te_air_hyd_a: { count: 18, station: TELUGU_STATIONS[0] },
+        air_vividh_bharati: { count: 15, station: AKASHVANI_NATIONAL[0] },
+        sw_bbc_ws: { count: 12, station: SHORTWAVE_AM_STATIONS[0] },
+        te_air_hyd_rainbow: { count: 11, station: TELUGU_STATIONS[1] },
+        ta_air_chennai_rainbow: { count: 9, station: TAMIL_STATIONS[1] },
+        somafm_groovesalad: { count: 8, station: ELITE_GLOBAL_STATIONS[0] }
+      };
+      localStorage.setItem('omnicast_v9_counts', JSON.stringify(playCounts));
+    }
+
+    function recordStationPlay(stationObj) {
+      if (!stationObj?.id) return;
+      appConfig.lastStationId = stationObj.id;
+      saveAppConfig();
+
+      recentsList = [stationObj, ...recentsList.filter(r => r.id !== stationObj.id)].slice(0, 16);
+      try { localStorage.setItem('omnicast_v9_recents', JSON.stringify(recentsList)); } catch (_) {}
+
+      const prev = playCounts[stationObj.id]?.count || 0;
+      playCounts[stationObj.id] = { count: prev + 1, station: stationObj };
+      try { localStorage.setItem('omnicast_v9_counts', JSON.stringify(playCounts)); } catch (_) {}
+
+      renderPersonalizedShelves();
+      renderSidebarList();
+    }
+
+    function getMostPlayedList() {
+      return Object.values(playCounts)
+        .sort((a, b) => b.count - a.count)
+        .map(entry => ({ ...entry.station, playCount: entry.count }))
+        .slice(0, 12);
+    }
+
+    function computeSimilarChannels(seedStation) {
+      const anchor = seedStation || activeStream || recentsList[0] || SHORTWAVE_AM_STATIONS[0];
+      const anchorTags = new Set(anchor.tags || []);
+      const anchorCat = anchor.category || '';
+
+      return MASTER_POOL
+        .filter(ch => ch.id !== anchor.id)
+        .map(ch => {
+          let score = 0;
+          if (ch.category && ch.category === anchorCat) score += 5;
+          if (ch.freqKhz && anchor.freqKhz) score += 3;
+          (ch.tags || []).forEach(t => { if (anchorTags.has(t)) score += 4; });
+          return { ch, score };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10)
+        .map(s => s.ch);
+    }
+
+    function clearRecentsHistory() {
+      recentsList = [];
+      localStorage.removeItem('omnicast_v9_recents');
+      renderPersonalizedShelves();
+      showToast('Recents cleared');
+    }
+
+    // --- 5. Runtime State ---
+    let sidebarFilter = 'recents';
+    let ytmDrawerTab = 'upnext';
+    let catalogItems = [];
+    let episodeList = [];
+    let activeIndex = -1;
+    let activeStream = null;
+    let backupCursor = 0;
+    let isPlaying = false;
+    let userPaused = true;
+    let ytmQueueOpen = false;
+    let searchTimer = null;
+    let watchdogTimer = null;
+
+    const audio = document.getElementById('audio-engine');
+    let hlsInstance = null;
+
+    // --- 6. Initialization (Restores All Saved Config) ---
+    window.addEventListener('DOMContentLoaded', () => {
+      // Restore Volume & Mute
+      audio.volume = appConfig.volume ?? 0.85;
+      audio.muted = !!appConfig.muted;
+      document.getElementById('sp-vol-slider').value = audio.volume;
+      document.getElementById('ytm-vol-slider').value = audio.volume;
+
+      // Restore DSP Sliders & Preset UI
+      document.getElementById('eq-bass').value = appConfig.bass ?? 2;
+      document.getElementById('eq-mid').value = appConfig.mid ?? 1;
+      document.getElementById('eq-treble').value = appConfig.treble ?? 2;
+      syncDspModalUI();
+
+      // Restore App Mode & Category
+      switchAppMode(appConfig.appMode || 'spotify', true);
+      loadCategory(appConfig.activeCategory || 'shortwave', true);
+      renderPersonalizedShelves();
+      renderSidebarList();
+      bindAudioEvents();
+      bindBackgroundPlayGuard();
+      bindTouchSheet();
+      startSpectrumLoop();
+
+      // Restore Last Station Preview in Player Bar (ready to 1-click play)
+      const restoredStation = MASTER_POOL.find(s => s.id === appConfig.lastStationId) || recentsList[0] || SHORTWAVE_AM_STATIONS[0];
+      activeStream = restoredStation;
+      syncPlayerUI(getStationIdentityThumbnail(restoredStation));
+
+      // Poll live song artwork ONLY for the active player every 25s
+      setInterval(() => {
+        if (isPlaying && activeStream && activeStream.kind === 'radio') {
+          updateActivePlayerSongArtwork(activeStream);
+        }
+      }, 25000);
+    });
+
+    // =========================================================================
+    // 7. PRO AUDIO DSP & SOUND QUALITY ENGINE
+    // =========================================================================
+    function openDspModal() {
+      safeHaptic(10);
+      syncDspModalUI();
+      document.getElementById('audio-dsp-modal').classList.remove('hidden');
+    }
+
+    function closeDspModal() {
+      document.getElementById('audio-dsp-modal').classList.add('hidden');
+    }
+
+    function setStreamQualityProfile(profile) {
+      appConfig.qualityProfile = profile;
+      saveAppConfig();
+      syncDspModalUI();
+      showToast(`Stream Profile: ${profile.toUpperCase()}`);
+    }
+
+    function applyDspPreset(preset) {
+      safeHaptic(10);
+      appConfig.dspPreset = preset;
+      const presets = {
+        flat: { bass: 0, mid: 0, treble: 0, label: 'Hi-Fi' },
+        bass: { bass: 6, mid: 1, treble: 2, label: 'Bass+' },
+        vocal: { bass: -2, mid: 5, treble: 3, label: 'Vocal HD' },
+        spatial: { bass: 4, mid: 2, treble: 5, label: 'Spatial' },
+        swclean: { bass: -3, mid: 6, treble: -2, label: 'SW Clean' },
+        classical: { bass: 2, mid: 3, treble: 4, label: 'Raaga HD' }
+      };
+      const p = presets[preset] || presets.flat;
+      appConfig.bass = p.bass;
+      appConfig.mid = p.mid;
+      appConfig.treble = p.treble;
+      document.getElementById('eq-bass').value = p.bass;
+      document.getElementById('eq-mid').value = p.mid;
+      document.getElementById('eq-treble').value = p.treble;
+      document.getElementById('sp-dsp-label').textContent = p.label;
+      saveAppConfig();
+      syncDspModalUI();
+      applyAcousticContourToAudio();
+      showToast(`Audio DSP: ${p.label}`);
+    }
+
+    function updateCustomEq() {
+      appConfig.bass = parseInt(document.getElementById('eq-bass').value, 10);
+      appConfig.mid = parseInt(document.getElementById('eq-mid').value, 10);
+      appConfig.treble = parseInt(document.getElementById('eq-treble').value, 10);
+      appConfig.dspPreset = 'custom';
+      saveAppConfig();
+      syncDspModalUI();
+      applyAcousticContourToAudio();
+    }
+
+    function syncDspModalUI() {
+      ['hifi', 'balanced', 'datasaver'].forEach(q => {
+        const el = document.getElementById(`qprof-${q}`);
+        if (el) el.className = (appConfig.qualityProfile === q)
+          ? 'py-2 px-2 rounded-lg text-xs font-bold bg-[#1ed760] text-black transition'
+          : 'py-2 px-2 rounded-lg text-xs font-semibold bg-[#282828] text-white transition';
+      });
+      ['flat', 'bass', 'vocal', 'spatial', 'swclean', 'classical'].forEach(p => {
+        const el = document.getElementById(`dsp-${p}`);
+        if (el) el.className = (appConfig.dspPreset === p)
+          ? 'py-2 px-2.5 rounded-lg text-xs font-bold bg-white text-black transition'
+          : 'py-2 px-2.5 rounded-lg text-xs font-semibold bg-[#282828] text-white transition';
+      });
+      const b = appConfig.bass ?? 0;
+      const m = appConfig.mid ?? 0;
+      const t = appConfig.treble ?? 0;
+      document.getElementById('eq-bass-val').textContent = `${b >= 0 ? '+' : ''}${b}dB`;
+      document.getElementById('eq-mid-val').textContent = `${m >= 0 ? '+' : ''}${m}dB`;
+      document.getElementById('eq-treble-val').textContent = `${t >= 0 ? '+' : ''}${t}dB`;
+    }
+
+    function applyAcousticContourToAudio() {
+      // Dynamic gain normalization & pitch preservation for clean analog/digital warmth without CORS mute
+      audio.preservesPitch = appConfig.dspPreset !== 'swclean';
+      const boostFactor = Math.min(1, Math.max(0.1, (appConfig.volume || 0.85) * (1 + (appConfig.bass + appConfig.mid) * 0.015)));
+      audio.volume = boostFactor;
+    }
+
+    // =========================================================================
+    // 8. RENDER PERSONALIZED SHELVES & GRIDS (CHANNEL LISTS KEEP STATION EMBLEMS)
+    // =========================================================================
+    function renderPersonalizedShelves() {
+      const anchor = activeStream || recentsList[0] || SHORTWAVE_AM_STATIONS[0];
+      const similarList = computeSimilarChannels(anchor);
+      const mostPlayedList = getMostPlayedList();
+
+      document.getElementById('sp-suggested-heading').textContent = `More like ${anchor.title}`;
+      document.getElementById('ytm-suggested-heading').textContent = `Similar to ${anchor.title}`;
+
+      // 1. Top 6 Compact Quick-Access Grid
+      const topSix = [...recentsList.slice(0, 4), ...mostPlayedList.slice(0, 4)]
+        .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i)
+        .slice(0, 6);
+
+      document.getElementById('sp-top-compact-grid').innerHTML = topSix.map(ch => {
+        const emblem = getStationIdentityThumbnail(ch);
+        return `
+          <div onclick="playStationById('${ch.id}')" class="group h-[56px] bg-[#282828]/85 hover:bg-[#3e3e3e] rounded-[6px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
+            <div class="flex items-center gap-3 min-w-0 h-full">
+              <img src="${emblem}" class="w-[56px] h-[56px] object-cover shrink-0" alt="" />
+              <div class="min-w-0">
+                <div class="font-bold text-[13px] text-white truncate">${ch.title}</div>
+                <div class="text-[10px] font-dial text-[#1ed760] truncate">${ch.freqLabel || ch.subtitle}</div>
+              </div>
+            </div>
+            <div class="w-8 h-8 rounded-full bg-[#1ed760] text-black flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition shrink-0">
+              <i class="fa-solid fa-play text-[10px] ml-0.5"></i>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      const renderCarouselCards = (list, showPlayCount = false) => list.map(ch => {
+        const emblem = getStationIdentityThumbnail(ch);
+        const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
+        return `
+          <div onclick="playStationById('${ch.id}')" class="snap-card w-[146px] sm:w-[162px] shrink-0 group bg-[#181818] hover:bg-[#282828] p-2.5 rounded-[8px] transition cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212] shadow-md">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
+              <button class="w-10 h-10 rounded-full bg-[#1ed760] text-black flex items-center justify-center shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
+                <i class="fa-solid fa-play text-xs ml-0.5"></i>
+              </button>
+            </div>
+            <div class="font-semibold text-[13px] text-white truncate">${ch.title}</div>
+            <div class="text-[11px] text-[#b3b3b3] truncate mt-0.5">${subText}</div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('sp-recents-section').classList.toggle('hidden', recentsList.length === 0);
+      document.getElementById('sp-recents-carousel').innerHTML = renderCarouselCards(recentsList);
+      document.getElementById('sp-suggested-carousel').innerHTML = renderCarouselCards(similarList);
+      document.getElementById('sp-mostplayed-carousel').innerHTML = renderCarouselCards(mostPlayedList, true);
+
+      const renderYtmCarousel = (list, showPlayCount = false) => list.map(ch => {
+        const emblem = getStationIdentityThumbnail(ch);
+        const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
+        return `
+          <div onclick="playStationById('${ch.id}')" class="snap-card w-[144px] sm:w-[160px] shrink-0 group cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2 rounded-[8px] overflow-hidden bg-[#121212] border border-white/5">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
+            </div>
+            <div class="font-medium text-[13px] text-white truncate">${ch.title}</div>
+            <div class="text-[11px] text-[#aaa] truncate mt-0.5">${subText}</div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('ytm-recents-section').classList.toggle('hidden', recentsList.length === 0);
+      document.getElementById('ytm-recents-carousel').innerHTML = renderYtmCarousel(recentsList);
+      document.getElementById('ytm-suggested-carousel').innerHTML = renderYtmCarousel(similarList);
+      document.getElementById('ytm-mostplayed-carousel').innerHTML = renderYtmCarousel(mostPlayedList, true);
+
+      // Right Rail & Mobile Sheet Similar Lists
+      const railSim = document.getElementById('sp-rail-similar');
+      if (railSim) {
+        railSim.innerHTML = similarList.slice(0, 4).map(ch => {
+          const emblem = getStationIdentityThumbnail(ch);
+          return `
+            <div onclick="playStationById('${ch.id}')" class="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-white/10 cursor-pointer">
+              <img src="${emblem}" class="w-9 h-9 rounded object-cover shrink-0" alt="" />
+              <div class="min-w-0 flex-1">
+                <div class="text-xs font-semibold text-white truncate">${ch.title}</div>
+                <div class="text-[10px] text-[#b3b3b3] truncate">${ch.subtitle}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      const sheetSim = document.getElementById('sheet-similar-row');
+      if (sheetSim) {
+        sheetSim.innerHTML = similarList.slice(0, 6).map(ch => {
+          const emblem = getStationIdentityThumbnail(ch);
+          return `
+            <div onclick="playStationById('${ch.id}')" class="w-24 shrink-0 cursor-pointer">
+              <img src="${emblem}" class="w-24 h-24 rounded-lg object-cover mb-1 border border-white/10" alt="" />
+              <div class="text-[11px] font-semibold text-white truncate">${ch.title}</div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function playStationById(id) {
+      const found = MASTER_POOL.find(s => s.id === id)
+        || catalogItems.find(s => s.id === id)
+        || recentsList.find(s => s.id === id)
+        || likedStations.find(s => s.id === id);
+      if (found) startPlayback(found);
+    }
+
+    // --- 9. App Mode Switcher & YTM Opaque Split-Screen Drawer ---
+    function switchAppMode(mode, skipSave = false) {
+      if (!skipSave) safeHaptic(10);
+      appConfig.appMode = mode;
+      if (!skipSave) saveAppConfig();
+
+      const spApp = document.getElementById('spotify-app');
+      const ytmApp = document.getElementById('ytmusic-app');
+
+      if (mode === 'spotify') {
+        document.body.className = 'mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col';
+        spApp.classList.remove('hidden'); spApp.classList.add('flex');
+        ytmApp.classList.add('hidden'); ytmApp.classList.remove('flex');
+      } else {
+        document.body.className = 'mode-ytmusic select-none overflow-hidden h-[100dvh] w-screen flex flex-col';
+        spApp.classList.add('hidden'); spApp.classList.remove('flex');
+        ytmApp.classList.remove('hidden'); ytmApp.classList.add('flex');
+      }
+    }
+
+    function toggleYtmQueue() {
+      const drawer = document.getElementById('ytm-queue-drawer');
+      ytmQueueOpen = !ytmQueueOpen;
+      drawer.classList.toggle('drawer-hidden', !ytmQueueOpen);
+      drawer.classList.toggle('drawer-visible', ytmQueueOpen);
+      if (ytmQueueOpen) renderYtmDrawerList();
+    }
+
+    function switchYtmDrawerTab(tab) {
+      ytmDrawerTab = tab;
+      document.getElementById('ytm-dtab-upnext').className = tab === 'upnext'
+        ? 'text-white border-b-2 border-white pb-3 -mb-3.5'
+        : 'text-[#aaa] hover:text-white pb-3 -mb-3.5';
+      document.getElementById('ytm-dtab-related').className = tab === 'related'
+        ? 'text-white border-b-2 border-white pb-3 -mb-3.5'
+        : 'text-[#aaa] hover:text-white pb-3 -mb-3.5';
+      renderYtmDrawerList();
+    }
+
+    function renderYtmDrawerList() {
+      const box = document.getElementById('ytm-upnext-list');
+      const list = ytmDrawerTab === 'related' ? computeSimilarChannels(activeStream) : catalogItems;
+      box.innerHTML = list.map(ch => {
+        const emblem = getStationIdentityThumbnail(ch);
+        return `
+          <div onclick="playStationById('${ch.id}')" class="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer">
+            <div class="flex items-center gap-3 min-w-0">
+              <img src="${emblem}" class="w-10 h-10 rounded-[4px] object-cover shrink-0" alt="" />
+              <div class="min-w-0">
+                <div class="text-xs font-medium text-white truncate">${ch.title}</div>
+                <div class="text-[11px] text-[#aaa] truncate">${ch.subtitle}</div>
+              </div>
+            </div>
+            <span class="text-[10px] font-dial text-[#aaa] shrink-0">${ch.freqLabel || 'LIVE'}</span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function toggleMobileSearch() {
+      const bar = document.getElementById('sp-mob-search-bar');
+      bar.classList.toggle('hidden');
+      if (!bar.classList.contains('hidden')) document.getElementById('sp-search-mobile').focus();
+    }
+
+    // --- 10. Category Loader ---
+    function loadCategory(cat, skipSave = false) {
+      if (!skipSave) safeHaptic(8);
+      appConfig.activeCategory = cat;
+      if (!skipSave) saveAppConfig();
+      closePodcastBox();
+
+      const swBar = document.getElementById('sw-tuner-bar');
+      if (swBar) swBar.classList.toggle('hidden', cat !== 'shortwave');
+
+      const chipKeys = { shortwave: 'sw', akashvani: 'air', telugu: 'te', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
+      Object.entries(chipKeys).forEach(([k, suffix]) => {
+        const spEl = document.getElementById(`sp-chip-${suffix}`);
+        if (spEl) spEl.className = (k === cat)
+          ? 'px-3.5 py-1.5 rounded-full text-xs font-bold bg-white text-black transition'
+          : 'px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition';
+
+        const spMob = document.getElementById(`sp-mchip-${suffix}`);
+        if (spMob) spMob.className = (k === cat)
+          ? 'px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition'
+          : 'px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition';
+
+        const ytmEl = document.getElementById(`ytm-chip-${suffix}`);
+        if (ytmEl) ytmEl.className = (k === cat)
+          ? 'px-3.5 py-1.5 rounded-[8px] text-xs font-bold bg-white text-black shrink-0 transition'
+          : 'px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white/10 text-white hover:bg-white/20 shrink-0 transition';
+      });
+
+      if (cat === 'shortwave') {
+        setHeadings('Shortwave & AM World Radio');
+        catalogItems = [...SHORTWAVE_AM_STATIONS];
+      } else if (cat === 'akashvani') {
+        setHeadings('Akashvani (All India Radio)');
+        catalogItems = [...AKASHVANI_NATIONAL];
+      } else if (cat === 'telugu') {
+        setHeadings('Telugu Radio Channels');
+        catalogItems = [...TELUGU_STATIONS];
+        appendLiveLanguageStations('telugu');
+      } else if (cat === 'tamil') {
+        setHeadings('Tamil Radio Channels');
+        catalogItems = [...TAMIL_STATIONS];
+        appendLiveLanguageStations('tamil');
+      } else if (cat === 'featured') {
+        setHeadings('Global FM Stations');
+        catalogItems = [...ELITE_GLOBAL_STATIONS];
+      } else if (cat === 'podcasts') {
+        setHeadings('Top Podcasts');
+        loadPodcastsViaJsonp('top podcasts');
+        return;
+      }
+
+      renderCategoryGrids();
+    }
+
+    function setHeadings(title) {
+      document.getElementById('sp-grid-heading').textContent = title;
+      document.getElementById('ytm-grid-heading').textContent = title;
+    }
+
+    async function appendLiveLanguageStations(lang) {
+      try {
+        const res = await fetch(`${RADIO_MIRRORS[0]}/stations/bylanguageexact/${encodeURIComponent(lang)}?limit=20&order=clickcount&reverse=true&hidebroken=true`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (appConfig.activeCategory !== lang) return;
+
+        const seen = new Set(catalogItems.map(c => c.streamUrl));
+        for (const s of data) {
+          if (s.url_resolved && s.url_resolved.startsWith('http') && !seen.has(s.url_resolved)) {
+            seen.add(s.url_resolved);
+            const cleanName = (s.name || `${lang} FM`).trim();
+            const freqMatch = cleanName.match(/\b(\d{2,3}\.\d|\d{3,4})\b/);
+            const newCh = {
+              id: `${lang}_${s.stationuuid}`,
+              kind: 'radio',
+              category: lang,
+              tags: [lang, 'fm', 'india'],
+              freqLabel: freqMatch ? `${freqMatch[1]} FM` : `${s.bitrate || 128}k FM`,
+              shortFreq: freqMatch ? freqMatch[1] : 'FM',
+              artQuery: `${cleanName} ${lang} songs`,
+              title: cleanName,
+              subtitle: `${s.state || 'Live FM'} • ${s.bitrate || 128}kbps`,
+              streamUrl: s.url_resolved,
+              backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+            };
+            catalogItems.push(newCh);
+            if (!seenMasterIds.has(newCh.id)) {
+              seenMasterIds.add(newCh.id);
+              MASTER_POOL.push(newCh);
+            }
+          }
+        }
+        renderCategoryGrids();
+      } catch (_) {}
+    }
+
+    async function loadPodcastsViaJsonp(term) {
+      const data = await itunesJsonp({ media: 'podcast', entity: 'podcast', term, limit: 30 });
+      catalogItems = (data.results || []).filter(p => p.feedUrl).map(p => ({
+        id: String(p.collectionId),
+        kind: 'podcast_show',
+        category: 'podcasts',
+        title: p.collectionName,
+        subtitle: p.artistName,
+        artwork: p.artworkUrl600 || p.artworkUrl100,
+        feedUrl: p.feedUrl
+      }));
+      renderCategoryGrids();
+    }
+
+    function renderCategoryGrids() {
+      const spCards = document.getElementById('sp-cards-grid');
+      const ytmQuick = document.getElementById('ytm-quick-picks');
+      const ytmCards = document.getElementById('ytm-cards-grid');
+      document.getElementById('sp-grid-count').textContent = `${catalogItems.length} channels`;
+
+      spCards.innerHTML = catalogItems.map((ch, idx) => {
+        const emblem = getStationIdentityThumbnail(ch);
+        return `
+          <div onclick="selectChannel(${idx})" class="group bg-[#181818] hover:bg-[#282828] p-3 rounded-[8px] transition cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2.5 rounded-[6px] overflow-hidden bg-[#121212] shadow-md">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
+              <button class="w-11 h-11 rounded-full bg-[#1ed760] text-black flex items-center justify-center shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
+                <i class="fa-solid fa-play text-sm ml-0.5"></i>
+              </button>
+            </div>
+            <div class="font-semibold text-[14px] text-white truncate">${ch.title}</div>
+            <div class="text-[12px] text-[#b3b3b3] truncate mt-0.5">${ch.subtitle}</div>
+          </div>
+        `;
+      }).join('');
+
+      ytmQuick.innerHTML = catalogItems.slice(0, 12).map((ch, idx) => {
+        const emblem = getStationIdentityThumbnail(ch);
+        return `
+          <div onclick="selectChannel(${idx})" class="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer group transition">
+            <div class="flex items-center gap-3 min-w-0 flex-1">
+              <img src="${emblem}" class="w-12 h-12 rounded-[4px] object-cover shrink-0" alt="" />
+              <div class="min-w-0 flex-1">
+                <div class="text-[14px] font-medium text-white truncate">${ch.title}</div>
+                <div class="text-[12px] text-[#aaa] truncate">${ch.subtitle}</div>
+              </div>
+            </div>
+            <i class="fa-solid fa-play text-xs text-white opacity-0 group-hover:opacity-100 px-2"></i>
+          </div>
+        `;
+      }).join('');
+
+      ytmCards.innerHTML = catalogItems.map((ch, idx) => {
+        const emblem = getStationIdentityThumbnail(ch);
+        return `
+          <div onclick="selectChannel(${idx})" class="group cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2 rounded-[8px] overflow-hidden bg-[#121212] border border-white/5">
+              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" alt="" />
+            </div>
+            <div class="font-medium text-[14px] text-white truncate">${ch.title}</div>
+            <div class="text-[12px] text-[#aaa] truncate mt-0.5">${ch.subtitle}</div>
+          </div>
+        `;
+      }).join('');
+
+      if (ytmQueueOpen) renderYtmDrawerList();
+    }
+
+    // --- 11. Sidebar Library Filter ---
+    function setSidebarFilter(filter) {
+      sidebarFilter = filter;
+      const map = { recents: 'recents', most: 'mostplayed', liked: 'liked', sw: 'shortwave', air: 'akashvani' };
+      Object.entries(map).forEach(([k, val]) => {
+        const el = document.getElementById(`slib-${k}`);
+        if (el) el.className = (val === filter)
+          ? 'px-3 py-1 rounded-full text-xs font-semibold bg-white text-black shrink-0'
+          : 'px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0';
+      });
+      renderSidebarList();
+    }
+
+    function renderSidebarList() {
+      const box = document.getElementById('sp-library-list');
+      let list = recentsList;
+      if (sidebarFilter === 'mostplayed') list = getMostPlayedList();
+      else if (sidebarFilter === 'liked') list = likedStations;
+      else if (sidebarFilter === 'shortwave') list = SHORTWAVE_AM_STATIONS;
+      else if (sidebarFilter === 'akashvani') list = AKASHVANI_NATIONAL;
+
+      document.getElementById('sp-lib-counter').textContent = `${list.length}`;
+
+      if (!list.length) {
+        box.innerHTML = `<div class="p-4 text-xs text-[#b3b3b3]">Nothing here yet.</div>`;
+        return;
+      }
+
+      box.innerHTML = list.map(ch => {
+        const emblem = getStationIdentityThumbnail(ch);
+        const sub = ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
+        return `
+          <div onclick="playStationById('${ch.id}')" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
+            <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
+            <div class="min-w-0 flex-1">
+              <div class="text-[13px] font-semibold text-white truncate">${ch.title}</div>
+              <div class="text-[11px] text-[#b3b3b3] truncate">${sub}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // =========================================================================
+    // 12. PLAYBACK ENGINE & PLAYER-ONLY LIVE SONG ALBUM ART UPDATER
+    // =========================================================================
+    function selectChannel(index) {
+      const item = catalogItems[index];
+      if (!item) return;
+      if (item.kind === 'podcast_show') {
+        openPodcastShow(item);
+      } else {
+        activeIndex = index;
+        backupCursor = 0;
+        if (item.freqKhz) {
+          document.getElementById('sw-freq-display').textContent = `${item.freqKhz} kHz`;
+          document.getElementById('sw-freq-slider').value = item.freqKhz;
+          document.getElementById('sw-nearest-label').textContent = `${item.title} • ${item.subtitle}`;
+        }
+        startPlayback(item);
+      }
+    }
+
+    function startPlayback(streamObj, overrideUrl = null) {
+      safeHaptic(12);
+      activeStream = streamObj;
+      userPaused = false;
+      const url = overrideUrl || streamObj.streamUrl;
+
+      if (!overrideUrl) recordStationPlay(streamObj);
+
+      clearTimeout(watchdogTimer);
+      if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+      }
+
+      audio.pause();
+      document.getElementById('sp-np-art-badge')?.classList.add('hidden');
+
+      const isHls = url.includes('.m3u8');
+      const isAppleNative = audio.canPlayType('application/vnd.apple.mpegurl');
+
+      if (isHls && isAppleNative && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)) {
+        audio.src = url;
+        audio.play().catch(() => switchBackupServer());
+      } else if (isHls && window.Hls && Hls.isSupported()) {
+        const bufferSec = appConfig.qualityProfile === 'hifi' ? 90 : appConfig.qualityProfile === 'datasaver' ? 30 : 60;
+        hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec });
+        hlsInstance.loadSource(url);
+        hlsInstance.attachMedia(audio);
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => audio.play().catch(() => {}));
+        hlsInstance.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) switchBackupServer(); });
+      } else {
+        audio.src = url;
+        audio.play().catch(() => switchBackupServer());
+      }
+
+      watchdogTimer = setTimeout(() => {
+        if (audio.paused && activeStream === streamObj && !userPaused) switchBackupServer();
+      }, 8500);
+
+      isPlaying = true;
+      applyAcousticContourToAudio();
+      updateAmbientColorFromId(streamObj.id);
+
+      // Initially show the station identity emblem in the player, then resolve live song album art
+      const stationEmblem = getStationIdentityThumbnail(streamObj);
+      syncPlayerUI(stationEmblem);
+      updateMediaSession(stationEmblem, streamObj.title, streamObj.subtitle);
+
+      if (streamObj.kind === 'radio') {
+        setTimeout(() => updateActivePlayerSongArtwork(streamObj), 900);
+      }
+    }
+
+    function switchBackupServer() {
+      if (!activeStream) return;
+      const backups = activeStream.backupUrls || [];
+      if (backupCursor < backups.length) {
+        const nextUrl = backups[backupCursor++];
+        showToast('Switched to Backup Stream');
+        startPlayback(activeStream, nextUrl);
+      }
+    }
+
+    // ONLY updates the active player thumbnails with the playing song's album art (Never overwrites channel list thumbnails)
+    async function updateActivePlayerSongArtwork(streamObj) {
+      let query = streamObj.artQuery || streamObj.title.replace(/akashvani|all india radio|\(.*?\)/gi, '').trim();
+
+      if (streamObj.somaId) {
+        try {
+          const r = await fetch(`https://somafm.com/songs/${streamObj.somaId}.json`);
+          if (r.ok) {
+            const j = await r.json();
+            if (j.songs?.[0]) query = `${j.songs[0].artist} ${j.songs[0].title}`;
+          }
+        } catch (_) {}
+      }
+
+      const data = await itunesJsonp({ term: query, media: 'music', entity: 'song', limit: 10 });
+      if (!data.results?.length) return;
+
+      const pick = data.results[Math.floor(Math.random() * Math.min(5, data.results.length))];
+      const hdUrl = pick.artworkUrl100?.replace('100x100bb', '600x600bb');
+      const validUrl = await validateImageUrl(hdUrl);
+      if (!validUrl || !activeStream || activeStream.id !== streamObj.id || !isPlaying) return;
+
+      const trackLabel = `${pick.artistName} • ${pick.trackName}`;
+
+      // Update ONLY player surfaces (Channel lists keep their Station Name + Frequency Emblem)
+      ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.src = validUrl;
+      });
+
+      document.getElementById('sp-np-art-badge')?.classList.remove('hidden');
+      ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = trackLabel;
+      });
+
+      updateMediaSession(validUrl, pick.trackName, `${pick.artistName} • ${streamObj.title}`);
+    }
+
+    function updateAmbientColorFromId(idStr) {
+      const h = hashString(idStr);
+      const rgbs = [
+        '29, 185, 84', '56, 189, 248', '168, 85, 247',
+        '251, 146, 60', '244, 114, 182', '45, 212, 191',
+        '250, 204, 21', '248, 113, 113'
+      ];
+      document.documentElement.style.setProperty('--ambient-rgb', rgbs[h % rgbs.length]);
+    }
+
+    function bindAudioEvents() {
+      audio.addEventListener('playing', () => {
+        clearTimeout(watchdogTimer);
+        isPlaying = true;
+        syncPlayerUI();
+      });
+
+      audio.addEventListener('pause', () => {
+        isPlaying = false;
+        syncPlayerUI();
+        if (document.hidden && !userPaused && activeStream) {
+          setTimeout(() => audio.play().catch(() => {}), 250);
+        }
+      });
+
+      audio.addEventListener('timeupdate', () => {
+        if (!activeStream) return;
+        const isLive = activeStream.kind === 'radio' || !isFinite(audio.duration) || audio.duration <= 0;
+        if (!isLive) {
+          const pct = (audio.currentTime / audio.duration) * 100;
+          ['sp-bar-range', 'ytm-bar-range', 'sheet-range'].forEach(id => document.getElementById(id).value = pct);
+          document.getElementById('sp-mini-prog').style.width = `${pct}%`;
+          document.getElementById('ytm-mini-prog').style.width = `${pct}%`;
+          const cur = formatSec(audio.currentTime);
+          const dur = formatSec(audio.duration);
+          document.getElementById('sp-bar-cur').textContent = cur;
+          document.getElementById('sp-bar-dur').textContent = dur;
+          document.getElementById('sheet-cur').textContent = cur;
+          document.getElementById('sheet-dur').textContent = dur;
+          document.getElementById('ytm-bar-time').textContent = `${cur} / ${dur}`;
+        }
+      });
+    }
+
+    function bindBackgroundPlayGuard() {
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden && activeStream && !userPaused && audio.paused) {
+          audio.play().catch(() => {});
+        }
+      });
+      setInterval(() => {
+        if (activeStream && !userPaused && audio.paused) {
+          audio.play().catch(() => {});
+        }
+      }, 3500);
+    }
+
+    function syncPlayerUI(overrideArt = null) {
+      if (!activeStream) return;
+      const icon = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
+
+      if (overrideArt) {
+        ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.src = overrideArt;
+        });
+      }
+
+      ['sp-np-title', 'sp-bar-title', 'sp-mini-title', 'ytm-bar-title', 'ytm-mini-title', 'ytm-stage-title', 'sheet-title'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = activeStream.title;
+      });
+
+      if (!isPlaying) {
+        ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = activeStream.subtitle;
+        });
+      }
+
+      document.getElementById('sp-bar-play').className = `${icon} text-xs`;
+      document.getElementById('sp-mini-play').className = `${icon} text-lg`;
+      document.getElementById('ytm-bar-play').className = `${icon} text-sm`;
+      document.getElementById('ytm-mini-play').className = `${icon} text-base`;
+      document.getElementById('sheet-play').className = icon;
+      document.getElementById('sp-np-eq').classList.toggle('paused', !isPlaying);
+
+      syncLikeIcons();
+    }
+
+    function updateMediaSession(artUrl, title, artist) {
+      if (!('mediaSession' in navigator)) return;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: title || 'OmniCast Live',
+        artist: artist || 'Live Broadcast',
+        album: 'OmniCast v9.0',
+        artwork: [{ src: artUrl, sizes: '512x512', type: 'image/jpeg' }]
+      });
+      navigator.mediaSession.setActionHandler('play', () => { userPaused = false; audio.play(); });
+      navigator.mediaSession.setActionHandler('pause', () => { userPaused = true; audio.pause(); });
+      navigator.mediaSession.setActionHandler('previoustrack', playPrevChannel);
+      navigator.mediaSession.setActionHandler('nexttrack', playNextChannel);
+    }
+
+    // --- 13. Search, Shortwave Dial, Podcasts & Transport ---
+    function onSearchInput(val, clearId) {
+      const btn = document.getElementById(clearId);
+      if (btn) {
+        btn.classList.toggle('hidden', !val.trim());
+        btn.classList.toggle('flex', !!val.trim());
+      }
+      clearTimeout(searchTimer);
+      if (!val.trim()) return;
+      searchTimer = setTimeout(() => runOmniSearch(val), 300);
+    }
+
+    function clearAllSearches() {
+      ['sp-search-desktop', 'sp-search-mobile', 'ytm-search-input'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+      });
+      ['sp-clear-desktop', 'sp-clear-mobile', 'ytm-clear-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+      });
+      loadCategory(appConfig.activeCategory);
+    }
+
+    async function runOmniSearch(query) {
+      const q = (query || '').trim().toLowerCase();
+      if (!q) return;
+      setHeadings(`Results for "${query.trim()}"`);
+
+      const localMatches = MASTER_POOL.filter(s =>
+        s.title.toLowerCase().includes(q) ||
+        s.subtitle.toLowerCase().includes(q) ||
+        String(s.freqKhz || '').includes(q)
+      );
+
+      try {
+        const res = await fetch(`${RADIO_MIRRORS[0]}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`);
+        const remote = res.ok ? await res.json() : [];
+        const remoteMapped = remote.filter(s => s.url_resolved && s.url_resolved.startsWith('http')).map(s => {
+          const cleanName = s.name.trim();
+          const freqMatch = cleanName.match(/\b(\d{2,3}\.\d|\d{3,4})\b/);
+          return {
+            id: s.stationuuid,
+            kind: 'radio',
+            category: 'search',
+            freqLabel: freqMatch ? `${freqMatch[1]} FM` : `${s.bitrate || 128}k FM`,
+            shortFreq: freqMatch ? freqMatch[1] : 'FM',
+            artQuery: cleanName,
+            title: cleanName,
+            subtitle: `${s.country || 'Live Radio'} • ${s.bitrate || 128}kbps`,
+            streamUrl: s.url_resolved,
+            backupUrls: []
+          };
+        });
+
+        const seen = new Set();
+        catalogItems = [...localMatches, ...remoteMapped].filter(it => {
+          if (seen.has(it.streamUrl)) return false;
+          seen.add(it.streamUrl);
+          return true;
+        });
+      } catch (_) {
+        catalogItems = localMatches;
+      }
+
+      renderCategoryGrids();
+    }
+
+    function jumpSwFreq(khz) {
+      document.getElementById('sw-freq-slider').value = khz;
+      scrubSwFreq(khz, true);
+    }
+
+    function scrubSwFreq(val, playNow = false) {
+      const khz = parseInt(val, 10);
+      document.getElementById('sw-freq-display').textContent = `${khz} kHz`;
+      let closest = SHORTWAVE_AM_STATIONS[0];
+      let minDiff = Infinity;
+      for (const s of SHORTWAVE_AM_STATIONS) {
+        const d = Math.abs((s.freqKhz || 9410) - khz);
+        if (d < minDiff) { minDiff = d; closest = s; }
+      }
+      document.getElementById('sw-nearest-label').textContent = `${closest.title} (${closest.freqKhz} kHz)`;
+      if (playNow && closest) startPlayback(closest);
+    }
+
+    async function openPodcastShow(show) {
+      const box = document.getElementById('sp-podcast-box');
+      box.classList.remove('hidden');
+      document.getElementById('sp-pod-art').src = getStationIdentityThumbnail(show);
+      document.getElementById('sp-pod-title').textContent = show.title;
+      document.getElementById('sp-pod-author').textContent = show.subtitle;
+      document.getElementById('sp-pod-episodes').innerHTML = `<div class="text-xs text-[#b3b3b3] py-2">Loading episodes...</div>`;
+
+      try {
+        const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(show.feedUrl)}`);
+        const data = await res.json();
+        if (data.status === 'ok' && data.items?.length) {
+          episodeList = data.items.map((ep, i) => ({
+            id: `ep_${show.id}_${i}`,
+            kind: 'podcast_episode',
+            title: ep.title,
+            subtitle: show.title,
+            artwork: ep.thumbnail || show.artwork,
+            streamUrl: ep.enclosure?.link || ep.link
+          })).filter(e => e.streamUrl);
+
+          document.getElementById('sp-pod-episodes').innerHTML = episodeList.map((ep, i) => `
+            <div onclick="startPlayback(episodeList[${i}])" class="flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-white/10 cursor-pointer">
+              <span class="text-xs font-medium text-white truncate">${ep.title}</span>
+              <i class="fa-solid fa-play text-xs text-[#1ed760]"></i>
+            </div>
+          `).join('');
+          if (episodeList.length) startPlayback(episodeList[0]);
+        }
+      } catch (_) {}
+    }
+
+    function closePodcastBox() {
+      document.getElementById('sp-podcast-box').classList.add('hidden');
+    }
+
+    function togglePlayPause() {
+      safeHaptic(10);
+      if (!activeStream && catalogItems.length) {
+        selectChannel(0);
+        return;
+      }
+      if (audio.paused) {
+        userPaused = false;
+        if (!audio.src) {
+          startPlayback(activeStream);
+        } else {
+          audio.play().catch(() => startPlayback(activeStream));
+        }
+      } else {
+        userPaused = true;
+        audio.pause();
+      }
+    }
+
+    function playNextChannel() {
+      if (!catalogItems.length) return;
+      activeIndex = (activeIndex + 1) % catalogItems.length;
+      selectChannel(activeIndex);
+    }
+
+    function playPrevChannel() {
+      if (!catalogItems.length) return;
+      activeIndex = (activeIndex - 1 + catalogItems.length) % catalogItems.length;
+      selectChannel(activeIndex);
+    }
+
+    function playRandomChannel() {
+      if (!catalogItems.length) return;
+      selectChannel(Math.floor(Math.random() * catalogItems.length));
+    }
+
+    function seekPercent(pct) {
+      if (activeStream && activeStream.kind !== 'radio' && isFinite(audio.duration)) {
+        audio.currentTime = (pct / 100) * audio.duration;
+      }
+    }
+
+    function setAudioVolume(v) {
+      appConfig.volume = parseFloat(v);
+      appConfig.muted = (appConfig.volume === 0);
+      audio.volume = appConfig.volume;
+      audio.muted = appConfig.muted;
+      saveAppConfig();
+    }
+
+    function toggleMute() {
+      audio.muted = !audio.muted;
+      appConfig.muted = audio.muted;
+      saveAppConfig();
+      document.getElementById('sp-mute-icon').innerHTML = audio.muted
+        ? '<i class="fa-solid fa-volume-xmark text-red-400"></i>'
+        : '<i class="fa-solid fa-volume-high"></i>';
+    }
+
+    function toggleLikeCurrent() {
+      if (!activeStream) return;
+      safeHaptic(12);
+      const idx = likedStations.findIndex(s => s.id === activeStream.id);
+      if (idx > -1) likedStations.splice(idx, 1);
+      else likedStations.unshift(activeStream);
+      localStorage.setItem('omnicast_v9_liked', JSON.stringify(likedStations));
+      syncLikeIcons();
+      if (sidebarFilter === 'liked') renderSidebarList();
+    }
+
+    function syncLikeIcons() {
+      if (!activeStream) return;
+      const liked = likedStations.some(s => s.id === activeStream.id);
+      const html = liked ? '<i class="fa-solid fa-heart text-[#1ed760]"></i>' : '<i class="fa-regular fa-heart"></i>';
+      ['sp-np-like', 'sp-bar-like', 'sp-mini-like', 'sheet-like'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = html;
+      });
+      const ytmLike = document.getElementById('ytm-bar-like');
+      if (ytmLike) ytmLike.innerHTML = liked ? '<i class="fa-solid fa-thumbs-up text-white"></i>' : '<i class="fa-regular fa-thumbs-up"></i>';
+    }
+
+    function showLikedLibrary() {
+      setSidebarFilter('liked');
+      if (likedStations.length) {
+        catalogItems = [...likedStations];
+        setHeadings('Liked Stations');
+        renderCategoryGrids();
+      } else {
+        showToast('Tap the heart icon on any station to save it');
+      }
+    }
+
+    function handleM3UImport(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const lines = ev.target.result.split('\n');
+        const parsed = [];
+        let title = 'M3U Stream';
+        for (const raw of lines) {
+          const l = raw.trim();
+          if (l.startsWith('#EXTINF:')) {
+            const p = l.split(',');
+            if (p[1]) title = p[1].trim();
+          } else if (l.startsWith('http')) {
+            parsed.push({
+              id: `m3u_${parsed.length}`,
+              kind: 'radio',
+              category: 'custom',
+              freqLabel: 'M3U LIVE',
+              shortFreq: 'M3U',
+              title,
+              subtitle: 'Custom Playlist',
+              streamUrl: l,
+              backupUrls: []
+            });
+          }
+        }
+        if (parsed.length) {
+          catalogItems = parsed;
+          setHeadings('Imported Playlist');
+          renderCategoryGrids();
+          selectChannel(0);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function openMobileSheet() {
+      const s = document.getElementById('mobile-player-sheet');
+      s.classList.remove('drawer-hidden');
+      s.classList.add('drawer-visible');
+    }
+
+    function closeMobileSheet() {
+      const s = document.getElementById('mobile-player-sheet');
+      s.classList.remove('drawer-visible');
+      s.classList.add('drawer-hidden');
+    }
+
+    function bindTouchSheet() {
+      const sheet = document.getElementById('mobile-player-sheet');
+      let startY = 0;
+      sheet.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+      sheet.addEventListener('touchend', e => {
+        if (e.changedTouches[0].clientY - startY > 85) closeMobileSheet();
+      }, { passive: true });
+    }
+
+    function startSpectrumLoop() {
+      const c = document.getElementById('sp-spectrum');
+      if (!c) return;
+      const ctx = c.getContext('2d');
+      let p = 0;
+      function loop() {
+        requestAnimationFrame(loop);
+        p += 0.08;
+        ctx.clearRect(0, 0, c.width, c.height);
+        const bars = 32;
+        for (let i = 0; i < bars; i++) {
+          const amp = (isPlaying && !audio.paused)
+            ? (Math.sin(p + i * 0.25) * 0.45 + 0.55) * (Math.cos(p * 0.7 - i * 0.3) * 0.35 + 0.65)
+            : 0.08;
+          const h = Math.max(3, amp * c.height * 0.9);
+          ctx.fillStyle = '#1ed760';
+          ctx.fillRect(i * (c.width / bars), c.height - h, (c.width / bars) - 2, h);
+        }
+      }
+      loop();
+    }
+
+    function formatSec(sec) {
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+  </script>
+</body>
+</html>

@@ -1535,6 +1535,7 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 @keyframes cdlg-panel-in{from{opacity:0;transform:scale(.95) translateY(8px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.cdlg-overlay,.cdlg-panel{animation:none!important}}
 
+<<<<<<< Updated upstream
 /* Spectrum Home, compact mobile header and reliable mobile drawer. */
 .sterling-home-button:focus-visible,.sterling-mobile-controls button:focus-visible {
   outline:2px solid var(--k-brand); outline-offset:3px;
@@ -1592,3 +1593,24 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 @media (max-width:650px) {
   .sterling-header-row > .sterling-home-button > span:last-child { display:none !important; }
 }
+=======
+/* TV owns one shared Sterling header, with the active television palette. */
+.sterling-tv-mode {--tv-header-bg:#0f0f0f;--tv-header-text:#fff;}
+.sterling-tv-mode[data-tv-theme=spotify]{--tv-header-bg:#121212;}
+.sterling-tv-mode[data-tv-theme=netflix]{--tv-header-bg:#141414;}
+.sterling-tv-mode .sterling-header,.sterling-tv-mode .sterling-header-row {background:var(--tv-header-bg)!important;color:var(--tv-header-text);border-color:#ffffff18!important;}
+.sterling-tv-mode .sterling-header-row {padding:0 12px!important;gap:8px!important;height:auto!important;min-height:52px;flex-wrap:wrap;}
+.sterling-tv-mode .sterling-header-row>span {margin-right:0!important;gap:6px!important;}
+.sterling-tv-mode .sterling-header-row>span>span {color:white!important;font-size:15px!important;letter-spacing:.08em!important;}
+.sterling-tv-header-controls {display:flex;align-items:center;gap:10px;flex:1;min-width:0;padding:7px 0;}
+.sterling-tv-theme-switch{display:flex;gap:3px;background:#ffffff0d;border-radius:20px;padding:3px;}
+.sterling-tv-theme-switch button{border:0;color:#bcbcbc;background:transparent;padding:7px 10px;border-radius:20px;font-size:11px;cursor:pointer;}
+.sterling-tv-theme-switch button[aria-pressed=true]{color:#111;background:#fff;}
+[data-tv-theme=spotify] .sterling-tv-theme-switch button[aria-pressed=true]{background:#1ed760;}
+[data-tv-theme=netflix] .sterling-tv-theme-switch button[aria-pressed=true]{color:white;background:#e50914;}
+.sterling-tv-search{display:flex;flex:1;max-width:540px;min-width:100px;margin-left:auto;background:#ffffff12;border-radius:20px;overflow:hidden;}
+.sterling-tv-search input{background:transparent;border:0;color:white;outline:none;padding:9px 12px;width:100%;min-width:0;font-size:12px;}
+.sterling-tv-search:focus-within{box-shadow:0 0 0 1px #aaa;}
+.sterling-tv-search button,.sterling-tv-more{color:#eee;background:transparent;border:0;min-width:36px;min-height:36px;cursor:pointer;font-size:22px;}
+@media(max-width:600px){.sterling-tv-mode .sterling-header-row{gap:4px!important;}.sterling-tv-header-controls{display:contents;}.sterling-tv-mode .sterling-header-row>div:empty{display:none!important;}.sterling-tv-theme-switch{margin-left:auto;}.sterling-tv-theme-switch button{padding:6px 8px;font-size:10px;}.sterling-tv-search{order:3;flex-basis:calc(100% - 44px);margin:0 0 8px;max-width:none;}.sterling-tv-more{order:4;margin-bottom:8px;}.sterling-tv-mode .sterling-header-row>span>span{font-size:13px!important;}}
+>>>>>>> Stashed changes
