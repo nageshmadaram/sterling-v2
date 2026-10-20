@@ -1,0 +1,46 @@
+{
+  "candidate_sha": "af1ff4ccfdd2c6960f4d92d64f9474f6f635b7c8",
+  "candidate_tag": "sterling-rc-20261020-recovery-final",
+  "prepared_at": "2026-10-20T00:18:34.498632+00:00",
+  "production_accepted": false,
+  "running_service_restarted": true,
+  "tests": {
+    "backend": 191,
+    "cli": 10
+  },
+  "limitations": [
+    "Physical failure drills unobserved",
+    "Real broker entry/fill/SL/trailing/exit unobserved",
+    "Phone receipt unobserved",
+    "Broker connectivity uncertain; fresh requests timed out",
+    "Family/operator/nominee ownership unverified",
+    "Source worktree includes unrelated IPTV edit; clean candidate tag preserved"
+  ],
+  "checksums": {
+    "secrets_restore_rekey.json": "98e311cb91a3b918ed94621d855cdf258fb0f90ed4ce1d39b2ffefd06303ac4c",
+    "reconciliation.log": "0a0e69605c9b51143b0cc69b23e553057409cfb7388d68a4f0924d6eebb45e31",
+    "binding-verification.json": "95713c11d13de67fec7e7c0ab08e182656069d5255bf58b92a209198ecaa5231",
+    "sterling-rc-7729c9ec-source.tar.gz": "867fb6d9231b202578ba10b9736dacfdf63152d94914514deadce275c372ed5a",
+    "sterling-recovery-final-source.tar.gz": "af31001e38aa9b571a391d376bb49459f4cf1b39efb92fd54b94de54e59afdd1",
+    "backend-tests.log": "574aa14b67f5a36ef2aa0b0ba293367d57c69d7970b410d7640cc0eb897cb97c",
+    "source-final.sha256": "4ae0f48198537986dd0110e931e29ad91bac3ae740523ea554dd064fd5f120ad",
+    "READ_FIRST.md": "86c29d44f885ddab3d9f9d33bce8297ef0df192f77459880e2f9536b3d727506",
+    "cli-tests.log": "f5277eb090ba355fcfb0d67e9df35d72a6b888317930f871887eb02ca4465fd6",
+    "source.sha256": "873beff26b2c0fc22bb22b784df445ec08c83d4392d49de6bc76ca32b0fe2d01",
+    "restore.log": "d318c2123e65751bbba5d1d7cfb9c94541597bb68474d78867b39c2a6c674eb3",
+    "telegram_delivery.json": "8f4ea0a167051feb143be844d984ede3c7e29a3e6736d9d001787a2280805592",
+    "strict-certification.log": "aed86978ee7d6c839cb56c31e62547b9d1e9fb6215038895a8da09beaf33febc",
+    "backup.log": "854d31c49327956b79c5b14a40c2151b95fe8b3753e70cd2e43f97e54fee2378"
+  },
+  "binding_verified_at": "2026-10-20T00:18:27.358011+00:00",
+  "latest_restore": {
+    "backup": "2026-10-20T002024.853856Z",
+    "rows": 626110,
+    "passed": true
+  },
+  "production_security": "PASS",
+  "latest_certified_open_exposure": 0,
+  "reconciliation": "CLEAN at 2026-10-20T00:20:06.376291+00:00",
+  "backend_liveness_http": 200,
+  "systemd_service": "active/running"
+}

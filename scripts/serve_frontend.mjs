@@ -126,6 +126,9 @@ const server = http.createServer((req,res) => {
     'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
     "default-src 'none'",
     `script-src 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net`,
+    // Nonces authorize script elements, not onclick/onchange handlers. The
+    // isolated TV UI uses those handlers for channel selection and mobile play.
+    "script-src-attr 'unsafe-inline'",
     "style-src 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com data:",
     'img-src https: data: blob:',

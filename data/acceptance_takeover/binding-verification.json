@@ -1,0 +1,16 @@
+{
+  "account_scope": "live",
+  "application_account_id": "KITE-4DDDB5FE4E",
+  "binding_id": "zerodha-aa0595-20261010",
+  "broker": "zerodha",
+  "deployment_id": "sterling-nageshmadaram-zenbook-086af48b",
+  "observed_at": "2026-10-20T00:18:27.358011+00:00",
+  "order_count": 0,
+  "orders_read": true,
+  "position_count": 0,
+  "positions_read": true,
+  "profile_client_id": "AA0595",
+  "protective_order_count": 0,
+  "protective_orders_read": true,
+  "schema_version": 1
+}
