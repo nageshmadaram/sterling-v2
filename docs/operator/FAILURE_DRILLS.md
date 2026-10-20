@@ -10,6 +10,19 @@ Record outcomes in [RECOVERY_DRILL.md](RECOVERY_DRILL.md) with the release tag
 and date they were run against. A drill passed on an old build says nothing
 about this one.
 
+The current **release certification register** is the 12-scenario inventory in
+`backend/app/core/failure_drills.py`, separate from the broader A/B/C
+handoff exercises on this page. Use
+`bash scripts/sterlingctl drills` to inspect the current commit, and
+`bash scripts/sterlingctl drills record DRILL PASS WHO "observed outcome" EVIDENCE_REF`
+only after a real, authorized rehearsal. A PASS requires the observer's name,
+the observed result, and at least one evidence reference. Older PASS records
+without evidence references are treated as UNKNOWN on read. An evidence
+reference is **not** independent verification: the operator must review the
+underlying dated receipt or restoration/failure drill log. Never interpret
+unit-test fixtures as physical live-session drills. These records are bound
+to the exact commit SHA and must be repeated for a different release.
+
 ---
 
 ## A. System drills
