@@ -21,7 +21,7 @@ export type ExperienceOptions = {
   pcrMetric: 'oi'|'volume'|'changeOi';
   pcrTimestamp: boolean;
   pcrRatio: boolean;
-  /** toggle = original Kite/Simulation + TV; separate = tabs; cycle = next workspace. */
+  /** cycle = one toggle through enabled destinations; separate = side-by-side buttons. */
   spectrumLayout: SpectrumLayout;
   spectrumVisible: SpectrumVisible;
   spectrumOrder: SpectrumProduct[];
@@ -72,8 +72,8 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
     simulation: selected.simulation !== false,
     tv: selected.tv !== false,
   };
-  // Never hide every entry into the configuration UI. A TV-only view can
-  // still navigate back to KITE through Settings in the app shell.
+  // Keep at least one selected destination. Home independently restores KITE
+  // even when its Spectrum navigation button is hidden.
   if (!SPECTRUM_ORDER.some(key => spectrumVisible[key])) spectrumVisible.kite = true;
   const order: SpectrumProduct[] = [
     ...new Set<SpectrumProduct>([

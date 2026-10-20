@@ -13,7 +13,7 @@ export function ProfileMenu(){const q=useSterlingProfile();const qc=useQueryClie
  const photoInput=useRef<HTMLInputElement>(null);const [cropFile,setCropFile]=useState<File|null>(null);
  useEffect(()=>{if(!open){initialized.current=false;setCropFile(null);return;}if(open&&q.data&&!initialized.current){initialized.current=true;setName(q.data.display_name);setPhoto(q.data.photo);setUsername(q.data.username);setCurrent('');setPassword('');setConfirm('');setMessage('');}},[open,q.data]);
  useEffect(()=>{const show=()=>setOpen(true);window.addEventListener('sterling-open-profile',show);return()=>window.removeEventListener('sterling-open-profile',show);},[]);
- const close=()=>{setCropFile(null);setOpen(false);setCurrent('');setPassword('');setConfirm('');if(trigger.current?.getBoundingClientRect().width)trigger.current.focus();else document.querySelector<HTMLElement>('.mobile-experience-bar [aria-label="Menu"]')?.focus();};
+ const close=()=>{setCropFile(null);setOpen(false);setCurrent('');setPassword('');setConfirm('');if(trigger.current?.getBoundingClientRect().width)trigger.current.focus();else document.querySelector<HTMLElement>('.sterling-mobile-menu-trigger')?.focus();};
  const run=async(action:()=>Promise<void>)=>{setBusy(true);setMessage('');try{await action();}catch(e){setMessage(e instanceof Error?e.message:'Profile update failed');}finally{setBusy(false);}};
  const upload=(file?:File)=>{
   if(!file)return;

@@ -30,3 +30,17 @@ it('removes a dismissed lower layer from the replacement overlay history',()=>{
  lower.rerender({open:false});upper.unmount();
  expect(history.state?.sterlingLayer).toBeUndefined();lower.unmount();
 });
+
+it('Home dismisses every nested mobile overlay without invoking Back',()=>{
+ vi.stubGlobal('innerWidth',390);
+ const closeLower=vi.fn(),closeUpper=vi.fn();
+ function Layer({id,onClose}:{id:string;onClose:()=>void}) {
+   useMobileBackLayer(true,onClose,id);
+   return <div role="dialog">{id}</div>;
+ }
+ const rendered=render(<><Layer id="search" onClose={closeLower}/><Layer id="order" onClose={closeUpper}/></>);
+ act(()=>window.dispatchEvent(new Event('sterling-home')));
+ expect(closeLower).toHaveBeenCalledOnce();
+ expect(closeUpper).toHaveBeenCalledOnce();
+ rendered.unmount();
+});

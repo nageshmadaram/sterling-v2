@@ -2,6 +2,11 @@ import {useEffect,useRef} from 'react';
 type Layer={id:string;close:()=>void;previous:unknown};
 const layers:Layer[]=[];
 let sequence=0;
+if(typeof window!=='undefined')window.addEventListener('sterling-home',()=>{
+ // Home dismisses every registered mobile overlay (search, order ticket, profile,
+ // drawer, chart, etc.), not only the layer that happens to be on top.
+ for(const layer of [...layers].reverse()) layer.close();
+});
 if(typeof window!=='undefined')window.addEventListener('popstate',()=>{
  const layer=layers[layers.length-1];if(!layer||history.state?.sterlingLayer===layer.id)return;
  layers.pop();layer.close();
