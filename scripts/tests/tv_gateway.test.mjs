@@ -41,8 +41,10 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
   let child;
   try {
     await mkdir(path.join(temporary, 'tv'));
+    await mkdir(path.join(temporary, 'radio'));
     await writeFile(path.join(temporary, 'index.html'), '<html><body>TRADING APP</body></html>');
     await writeFile(path.join(temporary, 'tv/index.html'), '<html><body>TV APP<script>void 0;</script></body></html>');
+    await writeFile(path.join(temporary, 'radio/index.html'), '<html><body>RADIO APP<script>void 0;</script></body></html>');
     const port = await freePort();
     const origin = 'http://127.0.0.1:' + port;
     child = spawn(process.execPath, [serverScript], {
@@ -79,6 +81,24 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.match(headCsp, /sandbox allow-scripts allow-forms/);
     assert.doesNotMatch(headCsp, /allow-same-origin/);
     assert.match(headCsp, /media-src https: http: data: blob:/);
+    for (const route of ['/radio', '/radio/']) {
+      const redirect = await fetch(origin + route, {redirect:'manual'});
+      assert.equal(redirect.status,302);
+      assert.equal(redirect.headers.get('location'),'/radio/index.html');
+    }
+    const radio = await fetch(origin + '/radio/index.html');
+    assert.equal(radio.status,200);
+    assert.match(await radio.text(), /RADIO APP<script nonce="[a-zA-Z0-9+/=]+"/);
+    assert.equal(radio.headers.get('cache-control'),'no-store');
+    const radioCsp=radio.headers.get('content-security-policy') || '';
+    assert.match(radioCsp,/sandbox allow-scripts allow-forms allow-downloads allow-presentation/);
+    assert.doesNotMatch(radioCsp,/allow-same-origin/);
+    assert.match(radioCsp,/media-src https: http: data: blob:/);
+    assert.match(radioCsp,/connect-src https: http:/);
+    assert.match(radioCsp,/style-src 'unsafe-inline' https:\/\/fonts.googleapis.com https:\/\/cdnjs.cloudflare.com/);
+    const radioHead=await fetch(origin+'/radio/index.html',{method:'HEAD'});
+    assert.equal(radioHead.status,200);
+    assert.match(radioHead.headers.get('content-security-policy') || '', /sandbox allow-scripts/);
     const trade = await fetch(origin + '/');
     assert.equal(trade.status, 200);
     assert.equal(await trade.text(), '<html><body>TRADING APP</body></html>');

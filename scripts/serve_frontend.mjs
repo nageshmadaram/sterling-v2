@@ -100,8 +100,9 @@ const server = http.createServer((req,res) => {
   if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405);res.end();return;}
   // All TV entry paths must resolve to the dedicated, opaque-origin
   // multimedia document. Never fall back to the trading SPA for /tv.
-  if (pathname === '/tv' || pathname === '/tv/') {
-    res.writeHead(302, {'Location':'/tv/index.html','Cache-Control':'no-store',
+  if (['/tv','/tv/','/radio','/radio/'].includes(pathname)) {
+    const media = pathname.startsWith('/radio') ? 'radio' : 'tv';
+    res.writeHead(302, {'Location':'/'+media+'/index.html','Cache-Control':'no-store',
       'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
     res.end(); return;
   }
@@ -117,6 +118,7 @@ const server = http.createServer((req,res) => {
   if (!fs.existsSync(file)) {res.writeHead(503);res.end('Frontend build missing');return;}
   const nonce = randomBytes(18).toString('base64');
   const isTvDocument = decoded === '/tv/index.html' && file === target;
+  const isRadioDocument = decoded === '/radio/index.html' && file === target;
   // The first-party TV document embeds M3U streams and external media scripts.
   // Give it an origin-opaque CSP sandbox even for DIRECT navigation. The
   // main trading SPA keeps its existing, stricter same-origin CSP unchanged.
@@ -138,11 +140,30 @@ const server = http.createServer((req,res) => {
     "form-action 'none'",
     "frame-ancestors 'self'",
   ].join('; ');
+  // Radio loads Tailwind, HLS, Font Awesome, remote catalogs and HTTPS streams.
+  // It must remain origin-opaque, just like TV, while the trading SPA keeps
+  // its strict first-party CSP. Never add allow-same-origin here.
+  const radioCsp = [
+    'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
+    "default-src 'none'",
+    `script-src 'nonce-${nonce}' 'unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net`,
+    "style-src 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    "font-src https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
+    'img-src https: data: blob:',
+    'media-src https: http: data: blob:',
+    'connect-src https: http:',
+    'worker-src blob:',
+    'frame-src https:',
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'self'",
+  ].join('; ');
   const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
   res.writeHead(200,{'Content-Type':mime[path.extname(file)] || 'application/octet-stream',
-    'Cache-Control':isTvDocument || file.endsWith('index.html')?'no-store':'public, max-age=3600',
+    'Cache-Control':isTvDocument || isRadioDocument || file.endsWith('index.html')?'no-store':'public, max-age=3600',
     'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
-    'Content-Security-Policy':isTvDocument ? tvCsp : tradingCsp});
+    'Content-Security-Policy':isTvDocument ? tvCsp : isRadioDocument ? radioCsp : tradingCsp});
   if (req.method==='HEAD') {res.end();return;}
   if (file.endsWith('.html')) {res.end(fs.readFileSync(file,'utf8').replace(/<script\b/g,`<script nonce="${nonce}"`));return;}
   fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);
