@@ -1575,3 +1575,20 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   body[data-mobile-style="app"] .sterling-header-row > .sterling-home-button { display:inline-flex !important; }
   body[data-mobile-style="app"] .mobile-pane-tabs { position:relative; z-index:14050; }
 }
+
+/* Both mobile presentation styles share one header row; navigation lives in the drawer. */
+@media (max-width:900px) {
+  .sterling-header-row { flex-wrap:nowrap !important; gap:2px !important; min-height:48px; }
+  .sterling-header-row > .sterling-home-button { display:inline-flex !important; margin-right:2px !important; }
+  .sterling-header-row > .mobile-view-toggle.unified-view-toggle { display:inline-flex !important; }
+  .kite-header-actions { flex:0 0 auto !important; flex-basis:auto !important; height:40px !important; }
+  .kite-header-actions .kite-topnav { display:none !important; }
+  .kite-header-actions .sterling-desktop-tools { display:none !important; }
+  .kite-header-actions > button[title="More options"] { display:none !important; }
+  .kite-header-actions > span { display:none !important; }
+  .kite-header-actions .sterling-profile > span { display:none !important; }
+  .kite-header-actions .sterling-profile { min-width:36px; max-width:40px; }
+}
+@media (max-width:650px) {
+  .sterling-header-row > .sterling-home-button > span[style] { display:none !important; }
+}
