@@ -18,7 +18,7 @@ export function SpectrumSettings() {
   const applyName = () => update({ tvLabel: nameDraft });
   const changeVisible = (key: SpectrumProduct, enabled: boolean) => {
     const next: SpectrumVisible = { ...options.spectrumVisible, [key]: enabled };
-    if (!next.kite && !next.tv) return;
+    if (!SPECTRUM_ORDER.some(product => next[product])) return;
     update({ spectrumVisible: next });
   };
   const move = (key: SpectrumProduct, step: number) => {
@@ -31,26 +31,27 @@ export function SpectrumSettings() {
   };
   return <section className="appearance-settings" aria-label="Spectrum navigation settings">
     <h3>Sterling Spectrum</h3>
-    <p>Choose how KITE, Simulation and TV appear beside the Sterling logo. These settings change navigation only, not trading permissions or execution.</p>
+    <p>Set the landing workspace, Home destination and how Spectrum navigation appears. These settings never change trading permissions or execution.</p>
+    <label style={{ display:'block', margin:'14px 0' }}>
+      Default tab and Sterling Home
+      <select aria-label="Default Spectrum home tab" value={options.spectrumHome}
+        onChange={event => update({ spectrumHome: event.target.value as SpectrumProduct })}>
+        {SPECTRUM_ORDER.map(key => <option key={key} value={key}>{labels[key]}</option>)}
+      </select>
+    </label>
     <label style={{ display:'block', margin:'14px 0' }}>
       Navigation layout
-      <select aria-label="Spectrum navigation layout"
-        value={options.spectrumLayout}
-        onChange={event => update({
-          spectrumLayout: event.target.value === 'separate' ? 'separate'
-            : event.target.value === 'cycle' ? 'cycle' : 'toggle',
-        })}>
-        <option value="toggle">KITE ⇄ Simulation toggle + TV (default)</option>
-        <option value="separate">KITE, Simulation and TV as separate tabs</option>
-        <option value="cycle">One button: KITE → Simulation → TV → KITE</option>
+      <select aria-label="Spectrum navigation layout" value={options.spectrumLayout}
+        onChange={event => update({ spectrumLayout: event.target.value === 'separate' ? 'separate' : 'cycle' })}>
+        <option value="cycle">Toggle — one button, cycle through selected destinations</option>
+        <option value="separate">Buttons — show selected destinations side by side</option>
       </select>
     </label>
     <fieldset style={{ border:'1px solid var(--k-border)', padding:12, borderRadius:8 }}>
-      <legend style={{ padding:'0 6px' }}>Visible destinations</legend>
+      <legend style={{ padding:'0 6px' }}>Destinations in toggle / buttons</legend>
       {options.spectrumOrder.map((key, index) => {
-        const lastMain = key === 'kite' && !options.spectrumVisible.tv ||
-          key === 'tv' && !options.spectrumVisible.kite;
-        const cannotHide = options.spectrumVisible[key] && lastMain;
+        const cannotHide = options.spectrumVisible[key] &&
+          options.spectrumOrder.filter(product => options.spectrumVisible[product]).length === 1;
         return <div key={key} style={{
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           padding:'6px 0', borderBottom:'1px solid var(--k-border)',
@@ -71,7 +72,7 @@ export function SpectrumSettings() {
       })}
     </fieldset>
     <p style={{ marginTop:7, fontSize:12, color:'var(--k-dim)' }}>
-      In toggle mode, KITE and Simulation share the original KITE switch. Separate mode gives each visible destination its own tab. Cycle mode uses one button to visit visible destinations in the order above. Hiding Simulation does not remove the return route from an open Simulation session. At least KITE or TV must remain visible.
+      At least one destination must be selected. Toggle follows the order above; Buttons displays all selected destinations. Home remains independently configurable even if its destination is hidden from the buttons. Simulation still requires owner authorization.
     </p>
     <label style={{ display:'block', margin:'14px 0' }}>
       TV display name
@@ -88,6 +89,7 @@ export function SpectrumSettings() {
         spectrumLayout:DEFAULT_EXPERIENCE_OPTIONS.spectrumLayout,
         spectrumVisible:{...DEFAULT_EXPERIENCE_OPTIONS.spectrumVisible},
         spectrumOrder:[...SPECTRUM_ORDER],
+        spectrumHome:'kite',
         tvLabel:'TV',
       })}>Restore Spectrum defaults</button>
     </div>

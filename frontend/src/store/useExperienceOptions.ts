@@ -9,7 +9,8 @@ export const NAV_OPTIONS = [
 ] as const;
 export type TickerContent = 'graph'|'pcr'|'both'|'badge'|'detail'|'price';
 export type SpectrumProduct = 'kite'|'simulation'|'tv';
-export type SpectrumLayout = 'toggle'|'separate'|'cycle';
+export type SpectrumLayout = 'cycle'|'separate';
+export type SpectrumHome = SpectrumProduct;
 export type SpectrumVisible = Record<SpectrumProduct, boolean>;
 export const SPECTRUM_ORDER: readonly SpectrumProduct[] = ['kite','simulation','tv'];
 export type ExperienceOptions = {
@@ -24,6 +25,8 @@ export type ExperienceOptions = {
   spectrumLayout: SpectrumLayout;
   spectrumVisible: SpectrumVisible;
   spectrumOrder: SpectrumProduct[];
+  /** Target used on startup and for either Home control. */
+  spectrumHome: SpectrumHome;
   tvLabel: string;
 };
 
@@ -31,9 +34,10 @@ export const DEFAULT_EXPERIENCE_OPTIONS: ExperienceOptions = {
   navOrder: NAV_OPTIONS.map(n => n[0]), navHidden: [],
   tickerLayout: 'classic', tickerContent: 'graph',
   pcrMetric: 'oi', pcrTimestamp: true, pcrRatio: true,
-  spectrumLayout: 'toggle',
+  spectrumLayout: 'cycle',
   spectrumVisible: { kite: true, simulation: true, tv: true },
   spectrumOrder: [...SPECTRUM_ORDER],
+  spectrumHome: 'kite',
   tvLabel: 'TV',
 };
 const has = (value: unknown, values: readonly string[]): value is string =>
@@ -70,7 +74,7 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
   };
   // Never hide every entry into the configuration UI. A TV-only view can
   // still navigate back to KITE through Settings in the app shell.
-  if (!spectrumVisible.kite && !spectrumVisible.tv) spectrumVisible.kite = true;
+  if (!SPECTRUM_ORDER.some(key => spectrumVisible[key])) spectrumVisible.kite = true;
   const order: SpectrumProduct[] = [
     ...new Set<SpectrumProduct>([
       ...(Array.isArray(raw.spectrumOrder)
@@ -88,9 +92,10 @@ export function normalizeExperienceOptions(input: unknown): ExperienceOptions {
       ? raw.pcrMetric as ExperienceOptions['pcrMetric'] : 'oi',
     pcrTimestamp: raw.pcrTimestamp !== false,
     pcrRatio: raw.pcrRatio !== false,
-    spectrumLayout: raw.spectrumLayout === 'separate' ? 'separate'
-      : raw.spectrumLayout === 'cycle' ? 'cycle' : 'toggle',
-    spectrumVisible, spectrumOrder: order, tvLabel: cleanTvLabel(raw.tvLabel),
+    spectrumLayout: raw.spectrumLayout === 'separate' ? 'separate' : 'cycle',
+    spectrumVisible, spectrumOrder: order,
+    spectrumHome: has(raw.spectrumHome, SPECTRUM_ORDER) ? raw.spectrumHome as SpectrumHome : 'kite',
+    tvLabel: cleanTvLabel(raw.tvLabel),
   };
 }
 
