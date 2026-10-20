@@ -4,11 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { SpectrumSettings } from '../SpectrumSettings';
 import {
-  EXPERIENCE_KEY,
-  DEFAULT_EXPERIENCE_OPTIONS,
-  normalizeExperienceOptions,
-  readExperienceOptions,
-  useExperienceOptions,
+  EXPERIENCE_KEY, DEFAULT_EXPERIENCE_OPTIONS,
+  normalizeExperienceOptions, readExperienceOptions, useExperienceOptions,
 } from '../../../store/useExperienceOptions';
 
 beforeEach(() => {
@@ -18,97 +15,63 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('Spectrum settings in Settings → Experience', () => {
-  it('starts with the exact KITE⇄Simulation and TV defaults', () => {
+  it('defaults to KITE Home and a single cycling toggle', () => {
     render(<SpectrumSettings />);
-    expect(screen.getByRole('combobox', { name:'Spectrum navigation layout' }))
-      .toHaveValue('toggle');
-    expect(screen.getByRole('checkbox', { name:'Show KITE' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name:'Show Simulation' })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name:'Show TV' })).toBeChecked();
-    expect(screen.getByRole('textbox', { name:'TV display name' })).toHaveValue('TV');
+    expect(screen.getByRole('combobox', { name:'Default Spectrum home tab' })).toHaveValue('kite');
+    expect(screen.getByRole('combobox', { name:'Spectrum navigation layout' })).toHaveValue('cycle');
+    expect(screen.getByRole('combobox', { name:'Spectrum navigation layout' }).querySelectorAll('option')).toHaveLength(2);
+    for (const name of ['KITE', 'Simulation', 'TV']) {
+      expect(screen.getByRole('checkbox', { name:`Show ${name}` })).toBeChecked();
+    }
   });
 
-  it('can customize the layout, TV name, visibility and order independently', () => {
+  it('persists configurable Home, buttons, selection and order', () => {
     render(<SpectrumSettings />);
-    fireEvent.change(screen.getByRole('combobox',{name:'Spectrum navigation layout'}), {
-      target:{value:'separate'},
-    });
-    fireEvent.change(screen.getByRole('textbox',{name:'TV display name'}),{
-      target:{value:'Stream Hub'},
-    });
-    fireEvent.blur(screen.getByRole('textbox',{name:'TV display name'}));
+    fireEvent.change(screen.getByRole('combobox',{name:'Default Spectrum home tab'}),{target:{value:'tv'}});
+    fireEvent.change(screen.getByRole('combobox',{name:'Spectrum navigation layout'}),{target:{value:'separate'}});
     fireEvent.click(screen.getByRole('checkbox',{name:'Show Simulation'}));
     fireEvent.click(screen.getByRole('button',{name:'Move TV left'}));
-    const value=useExperienceOptions.getState().options;
-    expect(value).toMatchObject({
-      spectrumLayout:'separate',
-      tvLabel:'Stream Hub',
+    expect(readExperienceOptions()).toMatchObject({
+      spectrumHome:'tv', spectrumLayout:'separate',
       spectrumVisible:{kite:true,simulation:false,tv:true},
       spectrumOrder:['kite','tv','simulation'],
     });
-    expect(readExperienceOptions().tvLabel).toBe('Stream Hub');
-    expect(localStorage.getItem(EXPERIENCE_KEY)).toContain('"spectrumLayout":"separate"');
+    expect(localStorage.getItem(EXPERIENCE_KEY)).toContain('"spectrumHome":"tv"');
   });
 
-  it('offers the one-button cycle in addition to the original toggle and separate tabs', () => {
-    render(<SpectrumSettings />);
-    const layout = screen.getByRole('combobox',{name:'Spectrum navigation layout'});
-    expect(layout.querySelectorAll('option')).toHaveLength(3);
-    fireEvent.change(layout,{target:{value:'cycle'}});
-    expect(useExperienceOptions.getState().options.spectrumLayout).toBe('cycle');
-    expect(readExperienceOptions().spectrumLayout).toBe('cycle');
-    fireEvent.click(screen.getByRole('button',{name:'Restore Spectrum defaults'}));
-    expect(layout).toHaveValue('toggle');
-  });
-
-  it('permits TV-only mode with a route to restore settings', () => {
+  it('allows only Simulation to be selected but never zero destinations', () => {
     render(<SpectrumSettings />);
     fireEvent.click(screen.getByRole('checkbox',{name:'Show KITE'}));
-    expect(useExperienceOptions.getState().options.spectrumVisible.kite).toBe(false);
-    expect(screen.getByRole('checkbox',{name:'Show TV'})).toBeDisabled();
-    fireEvent.click(screen.getByRole('button',{name:'Restore Spectrum defaults'}));
+    fireEvent.click(screen.getByRole('checkbox',{name:'Show TV'}));
+    expect(screen.getByRole('checkbox',{name:'Show Simulation'})).toBeDisabled();
     expect(useExperienceOptions.getState().options.spectrumVisible)
-      .toEqual({kite:true,simulation:true,tv:true});
+      .toEqual({kite:false,simulation:true,tv:false});
   });
 
-  it('keeps one navigable workspace after malformed imported preferences', () => {
-    const options=normalizeExperienceOptions({
-      spectrumLayout:'unknown',
-      spectrumVisible:{kite:false,simulation:false,tv:false},
-      spectrumOrder:['invalid','tv','tv','kite'],
-      tvLabel:' <script> \u202Ehi\u202C',
+  it('migrates old layouts and safely normalizes invalid preferences', () => {
+    expect(normalizeExperienceOptions({spectrumLayout:'toggle'}).spectrumLayout).toBe('cycle');
+    const invalid = normalizeExperienceOptions({
+      spectrumHome:'bogus', spectrumVisible:{kite:false,simulation:false,tv:false},
+      spectrumOrder:['tv','tv','unknown','kite'], tvLabel:' <script> ',
     });
-    expect(options.spectrumVisible.kite).toBe(true);
-    expect(options.spectrumVisible.tv).toBe(false);
-    expect(options.spectrumLayout).toBe('toggle');
-    expect(options.spectrumOrder).toEqual(['tv','kite','simulation']);
-    expect(options.tvLabel).not.toMatch(/[<>\u202e]/);
-    expect(normalizeExperienceOptions({}).spectrumVisible)
-      .toEqual(DEFAULT_EXPERIENCE_OPTIONS.spectrumVisible);
+    expect(invalid.spectrumHome).toBe('kite');
+    expect(invalid.spectrumVisible).toEqual({kite:true,simulation:false,tv:false});
+    expect(invalid.spectrumOrder).toEqual(['tv','kite','simulation']);
+    expect(invalid.tvLabel).toBe('script');
+    expect(normalizeExperienceOptions({}).spectrumHome).toBe(DEFAULT_EXPERIENCE_OPTIONS.spectrumHome);
   });
 
-  it('never destroys other Experience options when Spectrum defaults are restored', () => {
+  it('keeps unrelated Experience preferences after restoring Spectrum defaults', () => {
     useExperienceOptions.getState().update({
-      tickerLayout:'mobile', navHidden:['astro'],
-      spectrumLayout:'separate', tvLabel:'Live Channels',
+      navHidden:['astro'],tickerLayout:'mobile',spectrumHome:'simulation',
+      spectrumLayout:'separate', tvLabel:'Cinema',
     });
     render(<SpectrumSettings />);
     fireEvent.click(screen.getByRole('button',{name:'Restore Spectrum defaults'}));
-    const opts=useExperienceOptions.getState().options;
-    expect(opts.tvLabel).toBe('TV');
-    expect(opts.spectrumLayout).toBe('toggle');
-    expect(opts.tickerLayout).toBe('mobile');
-    expect(opts.navHidden).toEqual(['astro']);
-  });
-
-  it('rejects unsafe or empty TV names but preserves arbitrary normal names', () => {
-    render(<SpectrumSettings />);
-    const textbox=screen.getByRole('textbox',{name:'TV display name'});
-    fireEvent.change(textbox,{target:{value:'Movie Night'}});
-    fireEvent.blur(textbox);
-    expect(useExperienceOptions.getState().options.tvLabel).toBe('Movie Night');
-    fireEvent.change(textbox,{target:{value:'   '}});
-    fireEvent.blur(textbox);
-    expect(useExperienceOptions.getState().options.tvLabel).toBe('TV');
+    const options=useExperienceOptions.getState().options;
+    expect(options.spectrumHome).toBe('kite');
+    expect(options.spectrumLayout).toBe('cycle');
+    expect(options.tickerLayout).toBe('mobile');
+    expect(options.navHidden).toEqual(['astro']);
   });
 });
