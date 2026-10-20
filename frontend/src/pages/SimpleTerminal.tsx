@@ -16,6 +16,7 @@ import { SimBanner } from '../components/sim/SimBanner';
 import '../styles/terminal.css';
 import { MobileExperienceMenu } from '../components/kite/MobileExperienceMenu';
 import { useMobileExperience } from '../store/useMobileExperience';
+import { useSimStatus, isOwnerDenied } from '../hooks/useSim';
 
 function notificationDestination(value:string|null):NavItem|null{return value==='pcr'?'pcr':value==='alerts'?'positions':value==='signals'?'dashboard':null;}
 
@@ -25,16 +26,22 @@ export function SimpleTerminal() {
   useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('view')==='live'&&notificationDestination(params.get('notification')))useViewStore.getState().setView('live');},[]);
   const [showSettings, setShowSettings] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [spectrum, setSpectrum] = useState<'kite' | 'tv'>('kite');
+  const [spectrum, setSpectrum] = useState<'kite' | 'tv'>(() =>
+    useExperienceOptions.getState().options.spectrumHome === 'tv' ? 'tv' : 'kite');
   const selectedView = useViewStore(s => s.view);
   const setSelectedView = useViewStore(s => s.setView);
+  const simStatus = useSimStatus();
+  const simulationAllowed = selectedView === 'simulation' || simStatus.isSuccess ||
+    (simStatus.isError && !isOwnerDenied(simStatus.error));
   const chooseSpectrum = (next: 'kite' | 'tv', targetView?: AppView) => {
-    if (next === spectrum && (!targetView || targetView === selectedView)) return;
-    if (hasUnsavedDraft() && !window.confirm('You have unsaved settings changes. Switch workspace and discard them?')) return;
+    if (next === spectrum && (!targetView || targetView === selectedView)) return true;
+    if (targetView === 'simulation' && !simulationAllowed) return false;
+    if (hasUnsavedDraft() && !window.confirm('You have unsaved settings changes. Switch workspace and discard them?')) return false;
     setToolsOpen(false);
     setShowSettings(false);
     if (targetView && targetView !== selectedView) setSelectedView(targetView);
     setSpectrum(next);
+    return true;
   };
   const toolsRef = useRef<HTMLDivElement>(null);
   const preferredSection = useKiteSettings((s) => s.defaultSection);
@@ -42,17 +49,30 @@ export function SimpleTerminal() {
   const [kiteNav, setKiteNav] = useState<NavItem>(() => notificationDestination(new URLSearchParams(window.location.search).get('notification')) || useKiteSettings.getState().defaultSection || 'dashboard');
   const navOptions=useExperienceOptions(s=>s.options);
   useEffect(() => {
-    // Never leave the screen stuck on a workspace a new configuration hides.
-    if (spectrum === 'tv' && !navOptions.spectrumVisible.tv) setSpectrum('kite');
-    // A user may intentionally hide the KITE (live) destination while still
-    // showing Simulation separately. Keep that view reachable.
-    if (spectrum === 'kite' && !navOptions.spectrumVisible.kite
-        && navOptions.spectrumVisible.tv
-        && !(selectedView === 'simulation' && navOptions.spectrumVisible.simulation)) {
-      setSpectrum('tv');
+    if (navOptions.spectrumHome === 'simulation' && simulationAllowed) setSelectedView('simulation');
+  // Initial home preference is applied when authorized; never override an operator's later selection.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const goHome = () => {
+    // Close managed overlays before changing the underlying workspace.
+    window.dispatchEvent(new Event('sterling-home'));
+    setToolsOpen(false);
+    setShowSettings(false);
+    const home = navOptions.spectrumHome;
+    const nextView: AppView = home === 'simulation' ? 'simulation' : 'live';
+    if (home === 'simulation' && !simulationAllowed) return;
+    if (!chooseSpectrum(home === 'tv' ? 'tv' : 'kite', home === 'tv' ? undefined : nextView)) return;
+    if (home !== 'tv') {
+      userNavigatedRef.current = true;
+      const section = useKiteSettings.getState().defaultSection || 'dashboard';
+      setKiteNav(section);
+      window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: section }));
     }
-  }, [spectrum, selectedView, navOptions.spectrumVisible.kite,
-      navOptions.spectrumVisible.simulation, navOptions.spectrumVisible.tv]);
+  };
+  useEffect(() => {
+    window.addEventListener('sterling-go-home', goHome);
+    return () => window.removeEventListener('sterling-go-home', goHome);
+  });
   const {data:sterlingProfile}=useSterlingProfile();
   const navigation = orderedNavigation([
     { id: 'dashboard' as const, label: 'Dashboard' },
@@ -144,7 +164,9 @@ export function SimpleTerminal() {
           display: 'flex', alignItems: 'center', gap: 0,
           height: 44, padding: '0 20px',
         }}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none' }}>
+          <button type="button" className="sterling-home-button" aria-label="Sterling Home" title="Open configured Home workspace"
+            onClick={goHome} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none',
+              background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit', flexShrink: 0 }}>
             <SterlingLogo size={24} />
             <span style={{
               fontSize: 17, fontWeight: 800, letterSpacing: '0.18em',
@@ -152,7 +174,7 @@ export function SimpleTerminal() {
             }}>
               STERLING
             </span>
-          </span>
+          </button>
           <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} />
 
           <div style={{ flex: 1 }} />
@@ -174,7 +196,7 @@ export function SimpleTerminal() {
                 </button>
               ))}
             </div>
-            {overflow.length > 0 && <div ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
+            {overflow.length > 0 && <div className="sterling-desktop-tools" ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button type="button" aria-haspopup="menu" aria-expanded={toolsOpen}
                 onClick={() => setToolsOpen(open => !open)}
                 style={{ height: 30, border: '1px solid var(--t-border)', background: 'transparent',
@@ -214,17 +236,25 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
+          {spectrum === 'tv' && <ProfileMenu />}
           {spectrum === 'tv' && !navOptions.spectrumVisible.kite && <button type="button" aria-label="Experience settings"
             title="Experience settings" onClick={() => setShowSettings(true)}
             style={{ background:'none', border:'1px solid var(--t-border)', cursor:'pointer',
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
             ⚙
           </button>}
+          <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />
         </div>
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
-      {spectrum === 'kite' && <MobileExperienceMenu userName={sterlingProfile?.display_name || sterlingProfile?.username || undefined} activeNav={kiteNav} onNavClick={handleKiteNav} />}
+      <MobileExperienceMenu userName={sterlingProfile?.display_name || sterlingProfile?.username || undefined}
+        activeNav={kiteNav} onNavClick={handleKiteNav} tools={overflow}
+        onSearch={() => {
+          if (chooseSpectrum('kite','live')) {
+            requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('kite-open-watchlist-search')));
+          }
+        }} />
       {spectrum === 'kite' && <SimBanner />}
 
       {/* ── Content ──────────────────────────────────────────────── */}

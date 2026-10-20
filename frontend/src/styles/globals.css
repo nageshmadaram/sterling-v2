@@ -1534,3 +1534,39 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 @keyframes cdlg-in{from{opacity:0}to{opacity:1}}
 @keyframes cdlg-panel-in{from{opacity:0;transform:scale(.95) translateY(8px)}to{opacity:1;transform:none}}
 @media(prefers-reduced-motion:reduce){.cdlg-overlay,.cdlg-panel{animation:none!important}}
+
+/* Spectrum Home, compact mobile header and reliable mobile drawer. */
+.sterling-home-button:focus-visible,.sterling-mobile-controls button:focus-visible {
+  outline:2px solid var(--k-brand); outline-offset:3px;
+}
+.sterling-mobile-header-actions { display:none; }
+@media(max-width:900px) {
+  .sterling-desktop-tools { display:none !important; }
+  .sterling-mobile-header-actions { display:flex; align-items:center; flex:0 0 auto; }
+  .sterling-mobile-controls { display:flex; align-items:center; gap:2px; }
+  .sterling-mobile-controls button { display:inline-flex; align-items:center; justify-content:center;
+    width:36px; height:40px; min-width:36px; border:0; border-radius:6px;
+    background:transparent; color:var(--k-text); cursor:pointer; font-size:22px; }
+  .sterling-header-row .sk-theme-toggle { display:none !important; }
+  .mobile-sheet-actions { display:flex; align-items:center; gap:3px; flex-shrink:0; }
+  .mobile-sheet-actions .sk-theme-toggle { display:inline-flex !important; }
+  .mobile-experience-sheet .mobile-sheet-actions button { min-height:40px; width:40px; border-radius:10px; }
+  .mobile-experience-sheet nav h3 { grid-column:1/-1; margin:2px; font-size:13px; }
+  .sterling-header-row > .sterling-home-button { margin-right:4px !important; gap:3px !important; }
+  .sterling-header-row > .sterling-home-button > span[style] { font-size:12px !important; letter-spacing:.04em !important; }
+  body[data-mobile-style="app"] .sterling-header-row > .mobile-view-toggle.unified-view-toggle {
+    display:inline-flex !important; min-width:0; padding:0 4px !important; font-size:11px; white-space:nowrap;
+  }
+  body[data-mobile-style="app"] .kite-header-actions { flex-basis:auto !important; }
+  body[data-mobile-style="app"] .mobile-experience-backdrop { padding-top:0 !important; }
+  body[data-mobile-style="app"] .mobile-experience-sheet {
+    max-height:calc(var(--mobile-viewport-height,100dvh) - env(safe-area-inset-top,0px) - 8px);
+  }
+  body[data-mobile-style="app"] .sterling-header-row { flex-wrap:nowrap !important; gap:2px !important; }
+  body[data-mobile-style="app"] .sterling-header-row > .sterling-home-button { flex:0 0 auto; }
+}
+@media(max-width:490px) {
+  .sterling-header-row > .sterling-home-button > span[style] { display:none; }
+  .sterling-header-row { padding-left:6px !important; padding-right:6px !important; }
+  .sterling-header-row > .mobile-view-toggle.unified-view-toggle { font-size:10px !important; padding:0 2px !important; }
+}

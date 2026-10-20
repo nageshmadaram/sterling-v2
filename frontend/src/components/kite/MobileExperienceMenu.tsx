@@ -1,7 +1,8 @@
 import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { useExperienceOptions } from '../../store/useExperienceOptions';
 import React, {useEffect,useRef,useState} from 'react';
-import {KiteTicker} from './KiteTicker';
+import {createPortal} from 'react-dom';
+import {ThemeToggle} from './ThemeToggle';
 import type {NavItem} from './KiteLayout';
 import {useMobileExperience} from '../../store/useMobileExperience';
 import {hasUnsavedDraft} from './config/unsavedDraftGuard';
@@ -13,7 +14,7 @@ const destinations:Array<[NavItem,string,string]>=[
   ['connect','Settings & accounts','Kite, strategies & Sterling users'],['astro','Astrology','Market calendar'],
   ['pcr','PCR','Options sentiment'],['backtest','Backtest','Strategy research'],['data','Data','History & imports'],['help','Help','Guides & support'],
 ];
-export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void;userName?:string}) {
+export function MobileExperienceMenu({activeNav,onNavClick,userName,tools=[],onSearch}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void;userName?:string;tools?:Array<{id:NavItem;label:string}>;onSearch?:()=>void}) {
   const navOptions=useExperienceOptions(s=>s.options);
   const visibleDestinations=[...destinations].filter(d=>!navOptions.navHidden.includes(d[0])).sort((a,b)=>navOptions.navOrder.indexOf(a[0])-navOptions.navOrder.indexOf(b[0]));
   const [viewTitle,setViewTitle]=useState('');
@@ -53,15 +54,21 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
     finally{setBusy(false);}
   }
   useMobileBackLayer(open,()=>setOpen(false),'mobile-menu');
+  useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('sterling-home',close);return()=>window.removeEventListener('sterling-home',close);},[]);
+  const headerHost=document.getElementById('sterling-mobile-header-actions');
   return <>
-    <div className="mobile-experience-bar">
-      <div className="mobile-header-tickers mobile-ticker-summary"><KiteTicker compact /></div>
-      <button className="mobile-watchlist-search" type="button" aria-label="Search watchlist" onClick={()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search'))}><span aria-hidden="true">⌕</span></button>
-      <button ref={triggerRef} type="button" aria-label="Menu" aria-haspopup="dialog" aria-expanded={open} onClick={()=>setOpen(true)}><span aria-hidden="true">☰</span></button>
-    </div>
-    {open && <div className="mobile-experience-backdrop" onClick={event=>{if(event.target===event.currentTarget)setOpen(false);}}>
+    {headerHost && createPortal(<div className="sterling-mobile-controls">
+      <button className="sterling-mobile-search" type="button" aria-label="Search watchlist"
+        title="Search watchlist" onClick={onSearch || (()=>window.dispatchEvent(new CustomEvent('kite-open-watchlist-search')))}>
+        <span aria-hidden="true">⌕</span>
+      </button>
+      <button ref={triggerRef} className="sterling-mobile-menu-trigger" type="button"
+        aria-label="Menu" aria-haspopup="dialog" aria-expanded={open}
+        onClick={()=>setOpen(value=>!value)}><span aria-hidden="true">☰</span></button>
+    </div>,headerHost)}
+    {open && createPortal(<div className="mobile-experience-backdrop" onClick={event=>{if(event.target===event.currentTarget)setOpen(false);}}>
       <section className="mobile-experience-sheet" role="dialog" aria-modal="true" aria-label="Sterling mobile menu">
-        <header><div><h2>Your Sterling</h2><p>Everything in one place</p></div><button ref={closeRef} aria-label="Close mobile menu" onClick={()=>{setOpen(false);triggerRef.current?.focus();}}>✕</button></header>
+        <header><div><h2>Your Sterling</h2><p>Everything in one place</p></div><div className="mobile-sheet-actions"><ThemeToggle size={40} /><button ref={closeRef} aria-label="Close mobile menu" onClick={()=>{setOpen(false);triggerRef.current?.focus();}}>✕</button></div></header>
         <div className="mobile-style-switch" role="group" aria-label="Mobile layout style">
           <button aria-pressed={style==='app'} onClick={()=>chooseStyle('app')}>Mobile app style</button>
           <button aria-pressed={style==='full'} onClick={()=>chooseStyle('full')}>Full app style</button>
@@ -70,8 +77,9 @@ export function MobileExperienceMenu({activeNav,onNavClick,userName}:{activeNav:
         <p className="mobile-menu-note">{style==='app'?'One screen at a time, with navigation at your fingertips.':'All workspace docks together. Swipe horizontally to explore.'}</p>
         {!installed && <button className="mobile-install-button" disabled={busy} onClick={install}>{busy?'Opening install…':prompt?'Install Sterling':'Install / add to home screen'}</button>}
         {installNote && <p role="status" className="mobile-menu-note">{installNote}</p>}
+        {tools.length > 0 && <nav aria-label="Tools"><h3>Tools</h3>{tools.map(item => <button key={item.id} onClick={()=>{onNavClick(item.id);setOpen(false);triggerRef.current?.focus();}}>{item.label}</button>)}</nav>}
         <nav aria-label="All app pages">{visibleDestinations.map(([id,label,detail])=><button key={id} aria-current={activeNav===id?'page':undefined} onClick={()=>{onNavClick(id);setOpen(false);triggerRef.current?.focus();}}><span>{label}<small>{detail}</small></span><span aria-hidden="true">›</span></button>)}</nav>
       </section>
-    </div>}
+    </div>,document.body)}
   </>;
 }
