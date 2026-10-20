@@ -55,7 +55,13 @@ describe('Actual sandboxed media documents on mobile',()=>{
     const {w,errors}=boot('radio');
     (w.document.querySelector('#sp-mchip-te') as HTMLButtonElement).click();
     expect(w.document.querySelector('#sp-grid-heading')?.textContent).toContain('Telugu');
-    const mini=w.document.querySelector('#spotify-app [onclick="openMobileSheet()"]') as HTMLElement;mini.click();
+    // Station cards are inserted after boot; they must work without compiling
+    // inline attributes (as on a proxy with script-src-attr 'none').
+    const station=w.document.querySelector('#sp-grid [data-radio-click]') || w.document.querySelector('[data-radio-arg]');
+    expect(station).not.toBeNull();
+    (station as HTMLElement).click();
+    expect(w.document.getElementById('sheet-title')?.textContent).not.toBe('Select a Station');
+    const mini=w.document.querySelector('#spotify-app .solid-sp-miniplayer') as HTMLElement;mini.click();
     const sheet=w.document.getElementById('mobile-player-sheet')!;
     expect(sheet.classList.contains('drawer-visible')).toBe(true);
     const touch=(target:Element,type:string,y:number)=>{const event=new w.Event(type,{bubbles:true});Object.defineProperty(event,'touches',{value:[{clientX:20,clientY:y}]});Object.defineProperty(event,'changedTouches',{value:[{clientX:20,clientY:y}]});target.dispatchEvent(event);};

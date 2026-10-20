@@ -240,12 +240,12 @@
     /* Mobile hit areas, safe-area clearance and landscape player fit. */
     @media(max-width:1023px) {
       html,body {width:100%;height:100dvh;overflow:hidden;}
-      button,a,[onclick] {touch-action:manipulation;}
+      button,a,[data-radio-click] {touch-action:manipulation;}
       button.btn-circle,nav button {min-width:44px;min-height:44px;}
       header button[id^="sp-mchip"] {min-height:40px;}
       input[type="text"],input[type="search"] {font-size:16px!important;min-height:44px;}
       #spotify-app>nav,#ytmusic-app>nav {height:calc(58px + env(safe-area-inset-bottom,0px));padding-bottom:env(safe-area-inset-bottom,0px);}
-      [onclick="openMobileSheet()"] {bottom:calc(60px + env(safe-area-inset-bottom,0px))!important;}
+      [data-radio-click="0"] {bottom:calc(60px + env(safe-area-inset-bottom,0px))!important;}
       #spotify-app main,#ytmusic-app main {padding-bottom:calc(148px + env(safe-area-inset-bottom,0px));overscroll-behavior:contain;}
       #mobile-player-sheet {padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));}
       #mobile-player-sheet.drawer-hidden {visibility:hidden;}
@@ -267,7 +267,7 @@
 
   <!-- Audio Engine + M3U Import -->
   <audio id="audio-engine" playsinline webkit-playsinline preload="none"></audio>
-  <input type="file" id="m3u-file" accept=".m3u,.m3u8" class="hidden" onchange="handleM3UImport(event)" />
+  <input type="file" id="m3u-file" accept=".m3u,.m3u8" class="hidden" data-radio-change="1" />
 
   <!-- Subtle Notification Pill -->
   <div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-[180] pointer-events-none opacity-0 -translate-y-2 transition-all duration-200 bg-[#282828] border border-[#3e3e3e] px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs font-medium text-white">
@@ -276,7 +276,7 @@
   </div>
 
   <!-- Autoplay Handshake Pill (Only shown if browser blocks initial unmuted boot audio) -->
-  <div id="boot-resume-banner" onclick="triggerPendingBootPlay()" class="hidden fixed bottom-32 lg:bottom-28 left-1/2 -translate-x-1/2 z-[165] bg-white text-black font-semibold text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 cursor-pointer">
+  <div id="boot-resume-banner" data-radio-click="2" class="hidden fixed bottom-32 lg:bottom-28 left-1/2 -translate-x-1/2 z-[165] bg-white text-black font-semibold text-xs px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 cursor-pointer">
     <i class="fa-solid fa-play text-[10px]"></i>
     <span id="boot-resume-text">Resume station</span>
   </div>
@@ -288,13 +288,13 @@
     <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-[15px] text-white">Startup Playback</h3>
-        <button onclick="closeStartupModal()" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
+        <button data-radio-click="3" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
           <i class="fa-solid fa-xmark text-xs"></i>
         </button>
       </div>
 
       <div class="space-y-2 mb-4">
-        <button onclick="setBootBehavior('last')" id="boot-opt-last" class="w-full p-3 rounded-lg border border-white/20 bg-[#242424] text-left flex items-center justify-between transition">
+        <button data-radio-click="4" id="boot-opt-last" class="w-full p-3 rounded-lg border border-white/20 bg-[#242424] text-left flex items-center justify-between transition">
           <div>
             <div class="text-xs font-semibold text-white">Resume last played station</div>
             <div id="boot-last-station-name" class="text-[11px] text-[#b3b3b3] mt-0.5">Automatically plays your most recent station</div>
@@ -302,7 +302,7 @@
           <i class="fa-solid fa-check text-white text-xs"></i>
         </button>
 
-        <button onclick="setBootBehavior('custom')" id="boot-opt-custom" class="w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition">
+        <button data-radio-click="5" id="boot-opt-custom" class="w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition">
           <div>
             <div class="text-xs font-semibold text-white">Play specific startup station</div>
             <div class="text-[11px] text-[#b3b3b3] mt-0.5">Always start with the channel selected below</div>
@@ -310,7 +310,7 @@
           <i class="fa-solid fa-check text-transparent text-xs"></i>
         </button>
 
-        <button onclick="setBootBehavior('quiet')" id="boot-opt-quiet" class="w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition">
+        <button data-radio-click="6" id="boot-opt-quiet" class="w-full p-3 rounded-lg border border-transparent bg-[#202020] text-left flex items-center justify-between transition">
           <div>
             <div class="text-xs font-semibold text-white">Do not auto-play on open</div>
             <div class="text-[11px] text-[#b3b3b3] mt-0.5">Loads your last station into the player paused</div>
@@ -322,13 +322,13 @@
       <div class="mb-4 bg-[#121212] p-3 rounded-lg border border-[#282828]">
         <div class="flex items-center justify-between mb-1.5">
           <label class="text-[11px] font-medium text-[#b3b3b3]">Default startup channel</label>
-          <button onclick="pinActiveAsStartupChannel()" class="text-[11px] font-semibold text-white hover:underline">Use current</button>
+          <button data-radio-click="7" class="text-[11px] font-semibold text-white hover:underline">Use current</button>
         </div>
-        <select id="startup-channel-select" onchange="onStartupChannelChange(this.value)" class="w-full bg-[#242424] border border-[#383838] rounded-md px-2.5 py-2 text-xs text-white outline-none"></select>
+        <select id="startup-channel-select" data-radio-change="8" class="w-full bg-[#242424] border border-[#383838] rounded-md px-2.5 py-2 text-xs text-white outline-none"></select>
       </div>
 
       <div class="flex justify-end">
-        <button onclick="closeStartupModal()" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
+        <button data-radio-click="3" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
       </div>
     </div>
   </div>
@@ -340,7 +340,7 @@
     <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-semibold text-[15px] text-white">Audio Quality & Equalizer</h3>
-        <button onclick="closeDspModal()" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
+        <button data-radio-click="9" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
           <i class="fa-solid fa-xmark text-xs"></i>
         </button>
       </div>
@@ -348,44 +348,44 @@
       <div class="mb-4">
         <label class="text-[11px] font-medium text-[#b3b3b3] block mb-2">Streaming quality</label>
         <div class="grid grid-cols-3 gap-2">
-          <button onclick="setStreamQualityProfile('hifi')" id="qprof-hifi" class="py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition">Very High</button>
-          <button onclick="setStreamQualityProfile('balanced')" id="qprof-balanced" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">High</button>
-          <button onclick="setStreamQualityProfile('datasaver')" id="qprof-datasaver" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Data Saver</button>
+          <button data-radio-click="10" id="qprof-hifi" class="py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition">Very High</button>
+          <button data-radio-click="11" id="qprof-balanced" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">High</button>
+          <button data-radio-click="12" id="qprof-datasaver" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Data Saver</button>
         </div>
       </div>
 
       <div class="mb-4">
         <label class="text-[11px] font-medium text-[#b3b3b3] block mb-2">Presets</label>
         <div class="grid grid-cols-3 gap-2">
-          <button onclick="applyDspPreset('flat')" id="dsp-flat" class="py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition">Flat</button>
-          <button onclick="applyDspPreset('bass')" id="dsp-bass" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Bass Boost</button>
-          <button onclick="applyDspPreset('vocal')" id="dsp-vocal" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Spoken Word</button>
-          <button onclick="applyDspPreset('spatial')" id="dsp-spatial" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Acoustic</button>
-          <button onclick="applyDspPreset('swclean')" id="dsp-swclean" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">AM Voice</button>
-          <button onclick="applyDspPreset('classical')" id="dsp-classical" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Classical</button>
+          <button data-radio-click="13" id="dsp-flat" class="py-2 px-2 rounded-md text-xs font-semibold bg-white text-black transition">Flat</button>
+          <button data-radio-click="14" id="dsp-bass" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Bass Boost</button>
+          <button data-radio-click="15" id="dsp-vocal" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Spoken Word</button>
+          <button data-radio-click="16" id="dsp-spatial" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Acoustic</button>
+          <button data-radio-click="17" id="dsp-swclean" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">AM Voice</button>
+          <button data-radio-click="18" id="dsp-classical" class="py-2 px-2 rounded-md text-xs font-medium bg-[#242424] text-white transition">Classical</button>
         </div>
       </div>
 
       <div class="space-y-3 bg-[#121212] p-3.5 rounded-lg border border-[#282828] mb-4">
         <div class="flex items-center justify-between gap-3">
           <span class="text-xs text-[#b3b3b3] w-20">Bass</span>
-          <input id="eq-bass" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="pro-slider flex-1" />
+          <input id="eq-bass" type="range" min="-6" max="8" step="1" value="2" data-radio-input="19" class="pro-slider flex-1" />
           <span id="eq-bass-val" class="text-xs font-mono-num text-white w-10 text-right">+2dB</span>
         </div>
         <div class="flex items-center justify-between gap-3">
           <span class="text-xs text-[#b3b3b3] w-20">Midrange</span>
-          <input id="eq-mid" type="range" min="-6" max="8" step="1" value="1" oninput="updateCustomEq()" class="pro-slider flex-1" />
+          <input id="eq-mid" type="range" min="-6" max="8" step="1" value="1" data-radio-input="19" class="pro-slider flex-1" />
           <span id="eq-mid-val" class="text-xs font-mono-num text-white w-10 text-right">+1dB</span>
         </div>
         <div class="flex items-center justify-between gap-3">
           <span class="text-xs text-[#b3b3b3] w-20">Treble</span>
-          <input id="eq-treble" type="range" min="-6" max="8" step="1" value="2" oninput="updateCustomEq()" class="pro-slider flex-1" />
+          <input id="eq-treble" type="range" min="-6" max="8" step="1" value="2" data-radio-input="19" class="pro-slider flex-1" />
           <span id="eq-treble-val" class="text-xs font-mono-num text-white w-10 text-right">+2dB</span>
         </div>
       </div>
 
       <div class="flex justify-end">
-        <button onclick="closeDspModal()" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
+        <button data-radio-click="9" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
       </div>
     </div>
   </div>
@@ -398,10 +398,10 @@
     <!-- SPOTIFY DESKTOP HEADER (lg+) -->
     <header class="hidden lg:flex h-16 px-4 items-center justify-between bg-black shrink-0 z-30">
       <div class="flex items-center gap-2.5">
-        <button onclick="loadCategory('shortwave')" class="w-10 h-10 flex items-center justify-center text-white" title="Spotify">
+        <button data-radio-click="20" class="w-10 h-10 flex items-center justify-center text-white" title="Spotify">
           <i class="fa-brands fa-spotify text-[32px]"></i>
         </button>
-        <button onclick="loadCategory('shortwave')" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
+        <button data-radio-click="20" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
           <i class="fa-solid fa-house text-base"></i>
         </button>
 
@@ -409,10 +409,10 @@
         <div class="relative w-72 xl:w-[360px]">
           <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-[#b3b3b3] text-sm pointer-events-none"></i>
           <input id="sp-search-desktop" type="text" placeholder="What do you want to play?"
-            oninput="onSearchInput(this.value, 'sp-clear-desktop')"
+            data-radio-input="21"
             onkeydown="if(event.key==='Enter') runOmniSearch(this.value)"
             class="w-full bg-[#1f1f1f] hover:bg-[#2a2a2a] focus:bg-[#242424] text-[14px] text-white placeholder-[#b3b3b3] rounded-full pl-11 pr-10 py-2.5 outline-none focus:ring-1 focus:ring-white transition" />
-          <button id="sp-clear-desktop" onclick="clearAllSearches()" class="hidden absolute right-3.5 top-2.5 w-6 h-6 text-[#b3b3b3] hover:text-white items-center justify-center">
+          <button id="sp-clear-desktop" data-radio-click="22" class="hidden absolute right-3.5 top-2.5 w-6 h-6 text-[#b3b3b3] hover:text-white items-center justify-center">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -420,19 +420,19 @@
 
       <!-- Category Pills -->
       <div class="flex items-center gap-1.5">
-        <button onclick="loadCategory('shortwave')" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
-        <button onclick="loadCategory('akashvani')" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
-        <button onclick="loadCategory('telugu')" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
-        <button onclick="loadCategory('tamil')" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
-        <button onclick="loadCategory('featured')" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
-        <button onclick="loadCategory('podcasts')" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
+        <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
+        <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
+        <button data-radio-click="24" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
+        <button data-radio-click="25" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
+        <button data-radio-click="26" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
+        <button data-radio-click="27" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
       </div>
 
       <!-- Right Controls -->
       <div class="flex items-center gap-2">
-        <button onclick="openStartupModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
-        <button onclick="openDspModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
-        <button onclick="switchAppMode('ytmusic')" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
+        <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
+        <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
+        <button data-radio-click="30" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
           <span class="w-4 h-4 btn-circle bg-[#ff0033]"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
           <span>YouTube Music</span>
         </button>
@@ -443,16 +443,16 @@
     <header class="lg:hidden flex flex-col gap-2.5 px-4 pt-3 pb-2.5 bg-[#121212] shrink-0 z-30">
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">
-          <button onclick="openStartupModal()" class="w-8 h-8 btn-circle bg-[#1ed760] text-black font-bold text-xs" title="Startup Settings">N</button>
-          <button onclick="loadCategory('shortwave')" id="sp-mchip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition">SW / AM</button>
-          <button onclick="loadCategory('akashvani')" id="sp-mchip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Akashvani</button>
-          <button onclick="loadCategory('telugu')" id="sp-mchip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Telugu</button>
-          <button onclick="loadCategory('tamil')" id="sp-mchip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Tamil</button>
-          <button onclick="loadCategory('featured')" id="sp-mchip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Global FM</button>
-          <button onclick="loadCategory('podcasts')" id="sp-mchip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Podcasts</button>
+          <button data-radio-click="28" class="w-8 h-8 btn-circle bg-[#1ed760] text-black font-bold text-xs" title="Startup Settings">N</button>
+          <button data-radio-click="20" id="sp-mchip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition">SW / AM</button>
+          <button data-radio-click="23" id="sp-mchip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Akashvani</button>
+          <button data-radio-click="24" id="sp-mchip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Telugu</button>
+          <button data-radio-click="25" id="sp-mchip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Tamil</button>
+          <button data-radio-click="26" id="sp-mchip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Global FM</button>
+          <button data-radio-click="27" id="sp-mchip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Podcasts</button>
         </div>
 
-        <button onclick="switchAppMode('ytmusic')" class="w-8 h-8 btn-circle bg-[#2a2a2a]" title="Switch to YouTube Music">
+        <button data-radio-click="30" class="w-8 h-8 btn-circle bg-[#2a2a2a]" title="Switch to YouTube Music">
           <span class="w-4 h-4 btn-circle bg-[#ff0033]"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
         </button>
       </div>
@@ -461,10 +461,10 @@
       <div id="sp-mob-search-bar" class="hidden relative">
         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-2.5 text-[#121212] text-sm pointer-events-none"></i>
         <input id="sp-search-mobile" type="text" placeholder="What do you want to listen to?"
-          oninput="onSearchInput(this.value, 'sp-clear-mobile')"
+          data-radio-input="31"
           onkeydown="if(event.key==='Enter'){ runOmniSearch(this.value); this.blur(); }"
           class="w-full bg-white text-[#121212] placeholder-[#555] font-medium text-xs rounded-[6px] pl-9 pr-9 py-2.5 outline-none" />
-        <button id="sp-clear-mobile" onclick="clearAllSearches()" class="hidden absolute right-2.5 top-2 text-neutral-600">
+        <button id="sp-clear-mobile" data-radio-click="22" class="hidden absolute right-2.5 top-2 text-neutral-600">
           <i class="fa-solid fa-circle-xmark"></i>
         </button>
       </div>
@@ -484,11 +484,11 @@
         </div>
 
         <div class="flex gap-1.5 px-3 pb-2.5 overflow-x-auto no-scrollbar">
-          <button onclick="setSidebarFilter('recents')" id="slib-recents" class="px-3 py-1 rounded-full text-xs font-semibold bg-white text-black shrink-0">Recents</button>
-          <button onclick="setSidebarFilter('mostplayed')" id="slib-most" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">Most Played</button>
-          <button onclick="setSidebarFilter('liked')" id="slib-liked" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">Liked</button>
-          <button onclick="setSidebarFilter('shortwave')" id="slib-sw" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">SW/AM</button>
-          <button onclick="setSidebarFilter('akashvani')" id="slib-air" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">AIR</button>
+          <button data-radio-click="32" id="slib-recents" class="px-3 py-1 rounded-full text-xs font-semibold bg-white text-black shrink-0">Recents</button>
+          <button data-radio-click="33" id="slib-most" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">Most Played</button>
+          <button data-radio-click="34" id="slib-liked" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">Liked</button>
+          <button data-radio-click="35" id="slib-sw" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">SW/AM</button>
+          <button data-radio-click="36" id="slib-air" class="px-3 py-1 rounded-full text-xs font-medium bg-[#242424] text-white hover:bg-[#2a2a2a] shrink-0">AIR</button>
         </div>
 
         <div id="sp-library-list" class="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5"></div>
@@ -504,7 +504,7 @@
         <section id="sw-tuner-deck" class="mb-5 bg-[#181818] border border-[#282828] rounded-lg overflow-hidden transition-all">
           <!-- Always-Visible Slim Bar (48px height) -->
           <div class="h-12 px-3.5 flex items-center justify-between gap-3">
-            <div onclick="toggleSwDrawer()" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+            <div data-radio-click="37" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
               <span id="sw-freq-pill" class="font-mono-num text-xs font-semibold px-2.5 py-1 rounded bg-[#262626] text-white shrink-0">
                 9410 kHz
               </span>
@@ -517,13 +517,13 @@
 
             <!-- Quick Step & Expand Toggle -->
             <div class="flex items-center gap-1.5 shrink-0">
-              <button onclick="seekSwStation(-1)" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Previous Station">
+              <button data-radio-click="38" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Previous Station">
                 <i class="fa-solid fa-chevron-left text-[10px]"></i>
               </button>
-              <button onclick="seekSwStation(1)" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Next Station">
+              <button data-radio-click="39" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Next Station">
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
               </button>
-              <button onclick="toggleSwDrawer()" id="sw-expand-btn" class="h-8 px-3 rounded-md bg-[#242424] hover:bg-[#303030] text-xs font-medium text-white flex items-center gap-1.5 transition">
+              <button data-radio-click="37" id="sw-expand-btn" class="h-8 px-3 rounded-md bg-[#242424] hover:bg-[#303030] text-xs font-medium text-white flex items-center gap-1.5 transition">
                 <span>Tuner</span>
                 <i id="sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#b3b3b3] transition-transform duration-200"></i>
               </button>
@@ -535,18 +535,18 @@
             <!-- Band Selector Row + Fine Step Controls -->
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div class="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                <button onclick="jumpAndPlaySw(738)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 738</button>
-                <button onclick="jumpAndPlaySw(1071)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 1071</button>
-                <button onclick="jumpAndPlaySw(6000)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">49m</button>
-                <button onclick="jumpAndPlaySw(7375)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">41m</button>
-                <button onclick="jumpAndPlaySw(9410)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">31m</button>
-                <button onclick="jumpAndPlaySw(11725)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">25m</button>
-                <button onclick="jumpAndPlaySw(15580)" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">19m</button>
+                <button data-radio-click="40" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 738</button>
+                <button data-radio-click="41" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 1071</button>
+                <button data-radio-click="42" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">49m</button>
+                <button data-radio-click="43" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">41m</button>
+                <button data-radio-click="44" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">31m</button>
+                <button data-radio-click="45" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">25m</button>
+                <button data-radio-click="46" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">19m</button>
               </div>
 
               <div class="flex items-center gap-1.5">
-                <button onclick="stepSwFreq(-5)" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">-5 kHz</button>
-                <button onclick="stepSwFreq(5)" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">+5 kHz</button>
+                <button data-radio-click="47" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">-5 kHz</button>
+                <button data-radio-click="48" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">+5 kHz</button>
               </div>
             </div>
 
@@ -563,8 +563,8 @@
               </div>
               <div class="relative h-9 tuner-ruler-ticks flex items-center">
                 <input id="sw-freq-slider" type="range" min="530" max="18000" step="5" value="9410"
-                  oninput="previewSwDial(this.value)"
-                  onchange="commitSwTune(this.value)"
+                  data-radio-input="49"
+                  data-radio-change="50"
                   class="tuner-ruler-slider" />
               </div>
             </div>
@@ -586,7 +586,7 @@
                 <p id="sp-pod-author" class="text-xs text-[#b3b3b3] truncate"></p>
               </div>
             </div>
-            <button onclick="closePodcastBox()" class="w-8 h-8 btn-circle bg-[#282828] text-white">
+            <button data-radio-click="51" class="w-8 h-8 btn-circle bg-[#282828] text-white">
               <i class="fa-solid fa-xmark text-xs"></i>
             </button>
           </div>
@@ -597,7 +597,7 @@
         <section id="sp-recents-section" class="mb-7">
           <div class="flex items-center justify-between mb-2.5">
             <h2 class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Recently played</h2>
-            <button onclick="clearRecentsHistory()" class="text-xs font-medium text-[#b3b3b3] hover:text-white">Clear</button>
+            <button data-radio-click="52" class="text-xs font-medium text-[#b3b3b3] hover:text-white">Clear</button>
           </div>
           <div id="sp-recents-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
@@ -650,10 +650,10 @@
               <p id="sp-np-sub" class="text-xs text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button onclick="pinActiveAsStartupChannel()" class="text-[#b3b3b3] hover:text-white text-xs" title="Set as Startup Channel">
+              <button data-radio-click="7" class="text-[#b3b3b3] hover:text-white text-xs" title="Set as Startup Channel">
                 <i class="fa-solid fa-thumbtack"></i>
               </button>
-              <button onclick="toggleLikeCurrent()" id="sp-np-like" class="text-[#b3b3b3] hover:text-white text-base">
+              <button data-radio-click="53" id="sp-np-like" class="text-[#b3b3b3] hover:text-white text-base">
                 <i class="fa-regular fa-heart"></i>
               </button>
             </div>
@@ -679,32 +679,32 @@
           <div id="sp-bar-title" class="text-[14px] font-semibold text-white truncate">Ready to Play</div>
           <div id="sp-bar-sub" class="text-[12px] text-[#b3b3b3] truncate">Select any channel</div>
         </div>
-        <button onclick="toggleLikeCurrent()" id="sp-bar-like" class="text-[#b3b3b3] hover:text-white ml-2">
+        <button data-radio-click="53" id="sp-bar-like" class="text-[#b3b3b3] hover:text-white ml-2">
           <i class="fa-regular fa-heart"></i>
         </button>
       </div>
 
       <div class="flex flex-col items-center max-w-xl w-[40%] px-4">
         <div class="flex items-center gap-6 mb-2">
-          <button onclick="playRandomChannel()" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-shuffle"></i></button>
-          <button onclick="playPrevChannel()" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-backward-step"></i></button>
-          <button onclick="togglePlayPause()" class="w-9 h-9 btn-circle bg-white text-black hover:scale-105 transition">
+          <button data-radio-click="54" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-shuffle"></i></button>
+          <button data-radio-click="55" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-backward-step"></i></button>
+          <button data-radio-click="56" class="w-9 h-9 btn-circle bg-white text-black hover:scale-105 transition">
             <i id="sp-bar-play" class="fa-solid fa-play text-xs ml-0.5"></i>
           </button>
-          <button onclick="playNextChannel()" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-forward-step"></i></button>
-          <button onclick="switchBackupServer()" class="text-[#b3b3b3] hover:text-white text-sm" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
+          <button data-radio-click="57" class="text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-forward-step"></i></button>
+          <button data-radio-click="58" class="text-[#b3b3b3] hover:text-white text-sm" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
         </div>
         <div class="w-full flex items-center gap-2 text-[11px] text-[#b3b3b3]">
           <span id="sp-bar-cur" class="w-8 text-right font-mono-num">LIVE</span>
-          <input id="sp-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="pro-slider flex-1 cursor-pointer accent-[#1ed760]" />
+          <input id="sp-bar-range" type="range" min="0" max="100" value="100" data-radio-input="59" class="pro-slider flex-1 cursor-pointer accent-[#1ed760]" />
           <span id="sp-bar-dur" class="w-8 font-mono-num">HD</span>
         </div>
       </div>
 
       <div class="flex items-center justify-end gap-3 w-[30%] min-w-[220px]">
-        <button onclick="openDspModal()" class="text-xs font-medium text-[#b3b3b3] hover:text-white px-2 py-1 rounded">EQ</button>
-        <button onclick="toggleMute()" id="sp-mute-icon" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-volume-high"></i></button>
-        <input id="sp-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="pro-slider w-24 cursor-pointer accent-[#1ed760]" />
+        <button data-radio-click="29" class="text-xs font-medium text-[#b3b3b3] hover:text-white px-2 py-1 rounded">EQ</button>
+        <button data-radio-click="60" id="sp-mute-icon" class="text-[#b3b3b3] hover:text-white text-sm"><i class="fa-solid fa-volume-high"></i></button>
+        <input id="sp-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" data-radio-input="61" class="pro-slider w-24 cursor-pointer accent-[#1ed760]" />
       </div>
     </footer>
 
@@ -714,7 +714,7 @@
          ===================================================================== -->
     <div class="lg:hidden fixed inset-x-0 bottom-0 h-[118px] bg-black z-[75] pointer-events-none"></div>
 
-    <div onclick="openMobileSheet()" class="lg:hidden fixed left-2 right-2 bottom-[60px] h-[56px] z-[80] solid-sp-miniplayer rounded-[8px] px-2.5 flex items-center justify-between cursor-pointer">
+    <div data-radio-click="0" class="lg:hidden fixed left-2 right-2 bottom-[60px] h-[56px] z-[80] solid-sp-miniplayer rounded-[8px] px-2.5 flex items-center justify-between cursor-pointer">
       <div class="flex items-center gap-2.5 min-w-0 flex-1">
         <img id="sp-mini-art" src="" class="w-10 h-10 rounded-[5px] object-cover bg-[#181818] shrink-0" alt="" />
         <div class="min-w-0 flex-1 leading-tight">
@@ -722,11 +722,11 @@
           <div id="sp-mini-sub" class="text-[11px] text-[#b3b3b3] truncate mt-0.5">Live Radio</div>
         </div>
       </div>
-      <div class="flex items-center gap-1" onclick="event.stopPropagation()">
-        <button onclick="toggleLikeCurrent()" id="sp-mini-like" class="w-9 h-9 btn-circle text-[#b3b3b3]">
+      <div class="flex items-center gap-1" data-radio-click="62">
+        <button data-radio-click="53" id="sp-mini-like" class="w-9 h-9 btn-circle text-[#b3b3b3]">
           <i class="fa-regular fa-heart text-base"></i>
         </button>
-        <button onclick="togglePlayPause()" class="w-9 h-9 btn-circle text-white">
+        <button data-radio-click="56" class="w-9 h-9 btn-circle text-white">
           <i id="sp-mini-play" class="fa-solid fa-play text-base"></i>
         </button>
       </div>
@@ -736,19 +736,19 @@
     </div>
 
     <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[58px] solid-sp-mob-nav z-[80] flex items-center justify-around px-2">
-      <button onclick="loadCategory('shortwave')" class="flex flex-col items-center justify-center gap-1 text-white w-16">
+      <button data-radio-click="20" class="flex flex-col items-center justify-center gap-1 text-white w-16">
         <i class="fa-solid fa-house text-[18px]"></i>
         <span class="text-[10px] font-medium">Home</span>
       </button>
-      <button onclick="toggleMobileSearch()" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
+      <button data-radio-click="63" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
         <i class="fa-solid fa-magnifying-glass text-[18px]"></i>
         <span class="text-[10px] font-medium">Search</span>
       </button>
-      <button onclick="showLikedLibrary()" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
+      <button data-radio-click="64" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
         <i class="fa-solid fa-layer-group text-[18px]"></i>
         <span class="text-[10px] font-medium">Your Library</span>
       </button>
-      <button onclick="switchAppMode('ytmusic')" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
+      <button data-radio-click="30" class="flex flex-col items-center justify-center gap-1 text-[#b3b3b3] hover:text-white w-16">
         <i class="fa-solid fa-circle-play text-[18px] text-[#ff0033]"></i>
         <span class="text-[10px] font-medium">YT Music</span>
       </button>
@@ -762,7 +762,7 @@
 
     <!-- YOUTUBE MUSIC HEADER -->
     <header class="h-14 sm:h-16 px-4 sm:px-6 flex items-center justify-between bg-[#030303] border-b border-[#1f1f1f] shrink-0 z-40 gap-3">
-      <div onclick="loadCategory('shortwave')" class="flex items-center gap-2 cursor-pointer shrink-0">
+      <div data-radio-click="20" class="flex items-center gap-2 cursor-pointer shrink-0">
         <div class="w-7 h-7 btn-circle bg-[#ff0033]">
           <div class="w-3.5 h-3.5 btn-circle border border-white">
             <i class="fa-solid fa-play text-white text-[6px] ml-0.5"></i>
@@ -776,19 +776,19 @@
         <div class="relative flex items-center w-full">
           <i class="fa-solid fa-magnifying-glass absolute left-3.5 text-[#aaa] text-xs pointer-events-none"></i>
           <input id="ytm-search-input" type="text" placeholder="Search songs, stations, Akashvani, Telugu..."
-            oninput="onSearchInput(this.value, 'ytm-clear-btn')"
+            data-radio-input="65"
             onkeydown="if(event.key==='Enter'){ runOmniSearch(this.value); this.blur(); }"
             class="w-full bg-[#212121] focus:bg-[#121212] border border-[#303030] rounded-full pl-9 pr-9 py-1.5 sm:py-2 text-xs sm:text-sm text-white placeholder-[#aaa] outline-none" />
-          <button id="ytm-clear-btn" onclick="clearAllSearches()" class="hidden absolute right-3 text-[#aaa] hover:text-white">
+          <button id="ytm-clear-btn" data-radio-click="22" class="hidden absolute right-3 text-[#aaa] hover:text-white">
             <i class="fa-solid fa-xmark text-sm"></i>
           </button>
         </div>
       </div>
 
       <div class="flex items-center gap-2 shrink-0">
-        <button onclick="openStartupModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-[#aaa] hover:text-white">Startup</button>
-        <button onclick="openDspModal()" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-[#aaa] hover:text-white">EQ</button>
-        <button onclick="switchAppMode('spotify')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[#212121] hover:bg-[#303030] text-[#1ed760] transition">
+        <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-[#aaa] hover:text-white">Startup</button>
+        <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#212121] hover:bg-[#303030] text-[#aaa] hover:text-white">EQ</button>
+        <button data-radio-click="66" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-[#212121] hover:bg-[#303030] text-[#1ed760] transition">
           <i class="fa-brands fa-spotify text-sm"></i>
           <span class="hidden sm:inline">Spotify</span>
         </button>
@@ -800,30 +800,30 @@
 
       <!-- YTM Left Navigation Rail (Desktop md+) -->
       <aside class="hidden md:flex w-[220px] bg-[#030303] border-r border-[#1f1f1f] px-3 py-3 flex-col gap-1 shrink-0">
-        <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-[#212121] text-sm font-medium text-white">
+        <button data-radio-click="20" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-[#212121] text-sm font-medium text-white">
           <i class="fa-solid fa-house w-5"></i> <span>Home</span>
         </button>
-        <button onclick="loadCategory('featured')" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
+        <button data-radio-click="26" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
           <i class="fa-regular fa-compass w-5"></i> <span>Explore</span>
         </button>
-        <button onclick="showLikedLibrary()" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
+        <button data-radio-click="64" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
           <i class="fa-solid fa-bookmark w-5"></i> <span>Library</span>
         </button>
 
         <div class="pt-3 mt-2 border-t border-[#1f1f1f] space-y-1">
-          <button onclick="loadCategory('shortwave')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
+          <button data-radio-click="20" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-radio w-4"></i> <span>Shortwave & AM</span>
           </button>
-          <button onclick="loadCategory('akashvani')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
+          <button data-radio-click="23" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-tower-cell w-4"></i> <span>Akashvani</span>
           </button>
-          <button onclick="loadCategory('telugu')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
+          <button data-radio-click="24" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-music w-4"></i> <span>Telugu</span>
           </button>
-          <button onclick="loadCategory('tamil')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
+          <button data-radio-click="25" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-drum w-4"></i> <span>Tamil</span>
           </button>
-          <button onclick="loadCategory('podcasts')" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
+          <button data-radio-click="27" class="w-full flex items-center gap-3.5 px-3.5 py-2 rounded-lg hover:bg-[#181818] text-xs font-medium text-[#aaa] hover:text-white">
             <i class="fa-solid fa-podcast w-4"></i> <span>Podcasts</span>
           </button>
         </div>
@@ -834,25 +834,25 @@
 
         <!-- YTM Filter Chips -->
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-5">
-          <button onclick="loadCategory('shortwave')" id="ytm-chip-sw" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition">Shortwave & AM</button>
-          <button onclick="loadCategory('akashvani')" id="ytm-chip-air" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Akashvani</button>
-          <button onclick="loadCategory('telugu')" id="ytm-chip-te" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Telugu</button>
-          <button onclick="loadCategory('tamil')" id="ytm-chip-ta" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Tamil</button>
-          <button onclick="loadCategory('featured')" id="ytm-chip-feat" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Global FM</button>
-          <button onclick="loadCategory('podcasts')" id="ytm-chip-pod" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Podcasts</button>
+          <button data-radio-click="20" id="ytm-chip-sw" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition">Shortwave & AM</button>
+          <button data-radio-click="23" id="ytm-chip-air" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Akashvani</button>
+          <button data-radio-click="24" id="ytm-chip-te" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Telugu</button>
+          <button data-radio-click="25" id="ytm-chip-ta" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Tamil</button>
+          <button data-radio-click="26" id="ytm-chip-feat" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Global FM</button>
+          <button data-radio-click="27" id="ytm-chip-pod" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Podcasts</button>
         </div>
 
         <!-- YTM Collapsible SW / AM Tuner Bar -->
         <section id="ytm-sw-deck" class="mb-6 bg-[#141414] border border-[#262626] rounded-lg overflow-hidden">
           <div class="h-12 px-3.5 flex items-center justify-between gap-3">
-            <div onclick="toggleSwDrawer()" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
+            <div data-radio-click="37" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
               <span id="ytm-sw-freq" class="font-mono-num text-xs font-semibold px-2.5 py-1 rounded bg-[#262626] text-white shrink-0">9410 kHz</span>
               <span id="ytm-sw-title" class="text-xs font-medium text-white truncate">BBC World Service</span>
             </div>
             <div class="flex items-center gap-1.5 shrink-0">
-              <button onclick="seekSwStation(-1)" class="w-8 h-8 rounded bg-[#242424] text-[#aaa] hover:text-white flex items-center justify-center"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
-              <button onclick="seekSwStation(1)" class="w-8 h-8 rounded bg-[#242424] text-[#aaa] hover:text-white flex items-center justify-center"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
-              <button onclick="toggleSwDrawer()" class="h-8 px-3 rounded bg-[#242424] text-xs font-medium text-white flex items-center gap-1.5">
+              <button data-radio-click="38" class="w-8 h-8 rounded bg-[#242424] text-[#aaa] hover:text-white flex items-center justify-center"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
+              <button data-radio-click="39" class="w-8 h-8 rounded bg-[#242424] text-[#aaa] hover:text-white flex items-center justify-center"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
+              <button data-radio-click="37" class="h-8 px-3 rounded bg-[#242424] text-xs font-medium text-white flex items-center gap-1.5">
                 <span>Tuner</span>
                 <i id="ytm-sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#aaa] transition-transform duration-200"></i>
               </button>
@@ -861,8 +861,8 @@
           <div id="ytm-sw-drawer" class="hidden border-t border-[#262626] bg-[#101010] px-3.5 py-3">
             <div class="relative h-9 tuner-ruler-ticks flex items-center">
               <input id="ytm-sw-slider" type="range" min="530" max="18000" step="5" value="9410"
-                oninput="previewSwDial(this.value)"
-                onchange="commitSwTune(this.value)"
+                data-radio-input="49"
+                data-radio-change="50"
                 class="tuner-ruler-slider" />
             </div>
           </div>
@@ -914,10 +914,10 @@
         <div class="w-[440px] flex flex-col h-full bg-[#121212] rounded-xl p-4 border border-[#242424]">
           <div class="flex items-center justify-between border-b border-[#282828] pb-3 mb-3">
             <div class="flex gap-6 text-xs font-bold uppercase tracking-wider">
-              <button onclick="switchYtmDrawerTab('upnext')" id="ytm-dtab-upnext" class="text-white border-b-2 border-white pb-3 -mb-3.5">UP NEXT</button>
-              <button onclick="switchYtmDrawerTab('related')" id="ytm-dtab-related" class="text-[#aaa] hover:text-white pb-3 -mb-3.5">RELATED</button>
+              <button data-radio-click="67" id="ytm-dtab-upnext" class="text-white border-b-2 border-white pb-3 -mb-3.5">UP NEXT</button>
+              <button data-radio-click="68" id="ytm-dtab-related" class="text-[#aaa] hover:text-white pb-3 -mb-3.5">RELATED</button>
             </div>
-            <button onclick="toggleYtmQueue()" class="w-8 h-8 btn-circle bg-[#242424] text-white">
+            <button data-radio-click="69" class="w-8 h-8 btn-circle bg-[#242424] text-white">
               <i class="fa-solid fa-chevron-down text-xs"></i>
             </button>
           </div>
@@ -928,31 +928,31 @@
 
     <!-- YOUTUBE MUSIC DESKTOP SOLID BOTTOM BAR (72px) -->
     <footer class="hidden lg:flex flex-col h-[72px] solid-ytm-footer shrink-0 z-[80]">
-      <input id="ytm-bar-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="ytm-line-slider w-full cursor-pointer" />
+      <input id="ytm-bar-range" type="range" min="0" max="100" value="100" data-radio-input="59" class="ytm-line-slider w-full cursor-pointer" />
       <div class="flex-1 px-4 flex items-center justify-between">
         <div class="flex items-center gap-5 w-[28%]">
-          <button onclick="playPrevChannel()" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-backward-step"></i></button>
-          <button onclick="togglePlayPause()" class="w-10 h-10 btn-circle bg-white text-black hover:scale-105 transition">
+          <button data-radio-click="55" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-backward-step"></i></button>
+          <button data-radio-click="56" class="w-10 h-10 btn-circle bg-white text-black hover:scale-105 transition">
             <i id="ytm-bar-play" class="fa-solid fa-play text-sm ml-0.5"></i>
           </button>
-          <button onclick="playNextChannel()" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-forward-step"></i></button>
+          <button data-radio-click="57" class="text-white hover:text-neutral-300 text-lg"><i class="fa-solid fa-forward-step"></i></button>
           <span id="ytm-bar-time" class="text-xs text-[#aaa] font-mono-num">LIVE</span>
         </div>
 
         <div class="flex items-center justify-center gap-3.5 w-[44%] min-w-0">
-          <img onclick="toggleYtmQueue()" id="ytm-bar-art" src="" class="w-10 h-10 rounded-[4px] object-cover cursor-pointer shrink-0" alt="" />
-          <div onclick="toggleYtmQueue()" class="min-w-0 cursor-pointer">
+          <img data-radio-click="69" id="ytm-bar-art" src="" class="w-10 h-10 rounded-[4px] object-cover cursor-pointer shrink-0" alt="" />
+          <div data-radio-click="69" class="min-w-0 cursor-pointer">
             <div id="ytm-bar-title" class="text-sm font-medium text-white truncate">Select a Station</div>
             <div id="ytm-bar-sub" class="text-xs text-[#aaa] truncate">YouTube Music</div>
           </div>
-          <button onclick="toggleLikeCurrent()" id="ytm-bar-like" class="text-[#aaa] hover:text-white ml-2">
+          <button data-radio-click="53" id="ytm-bar-like" class="text-[#aaa] hover:text-white ml-2">
             <i class="fa-regular fa-thumbs-up text-sm"></i>
           </button>
         </div>
 
         <div class="flex items-center justify-end gap-3 w-[28%]">
-          <input id="ytm-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" oninput="setAudioVolume(this.value)" class="pro-slider w-24 accent-white cursor-pointer" />
-          <button onclick="toggleYtmQueue()" class="w-9 h-9 btn-circle hover:bg-white/10 text-white">
+          <input id="ytm-vol-slider" type="range" min="0" max="1" step="0.02" value="0.85" data-radio-input="61" class="pro-slider w-24 accent-white cursor-pointer" />
+          <button data-radio-click="69" class="w-9 h-9 btn-circle hover:bg-white/10 text-white">
             <i class="fa-solid fa-caret-up"></i>
           </button>
         </div>
@@ -960,7 +960,7 @@
     </footer>
 
     <!-- YOUTUBE MUSIC MOBILE SOLID DOCKED MINI-PLAYER + 4-TAB BAR (< lg) -->
-    <div onclick="openMobileSheet()" class="lg:hidden fixed inset-x-0 bottom-[56px] h-[58px] solid-ytm-footer z-[80] flex items-center justify-between px-3 cursor-pointer border-t border-[#303030]">
+    <div data-radio-click="0" class="lg:hidden fixed inset-x-0 bottom-[56px] h-[58px] solid-ytm-footer z-[80] flex items-center justify-between px-3 cursor-pointer border-t border-[#303030]">
       <div class="absolute top-0 inset-x-0 h-[2px] bg-[#383838]">
         <div id="ytm-mini-prog" class="h-full bg-[#ff0033] w-full"></div>
       </div>
@@ -971,30 +971,30 @@
           <div id="ytm-mini-sub" class="text-[11px] text-[#aaa] truncate">YouTube Music</div>
         </div>
       </div>
-      <div class="flex items-center gap-1" onclick="event.stopPropagation()">
-        <button onclick="togglePlayPause()" class="w-9 h-9 btn-circle text-white">
+      <div class="flex items-center gap-1" data-radio-click="62">
+        <button data-radio-click="56" class="w-9 h-9 btn-circle text-white">
           <i id="ytm-mini-play" class="fa-solid fa-play text-base"></i>
         </button>
-        <button onclick="playNextChannel()" class="w-9 h-9 btn-circle text-white">
+        <button data-radio-click="57" class="w-9 h-9 btn-circle text-white">
           <i class="fa-solid fa-forward-step text-base"></i>
         </button>
       </div>
     </div>
 
     <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[56px] solid-ytm-mob-nav z-[80] flex items-center justify-around px-2">
-      <button onclick="loadCategory('shortwave')" class="flex flex-col items-center justify-center gap-1 text-white w-16">
+      <button data-radio-click="20" class="flex flex-col items-center justify-center gap-1 text-white w-16">
         <i class="fa-solid fa-house text-[18px]"></i>
         <span class="text-[10px] font-medium">Home</span>
       </button>
-      <button onclick="loadCategory('akashvani')" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
+      <button data-radio-click="23" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
         <i class="fa-solid fa-bolt text-[18px]"></i>
         <span class="text-[10px] font-medium">Samples</span>
       </button>
-      <button onclick="loadCategory('telugu')" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
+      <button data-radio-click="24" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
         <i class="fa-regular fa-compass text-[18px]"></i>
         <span class="text-[10px] font-medium">Explore</span>
       </button>
-      <button onclick="showLikedLibrary()" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
+      <button data-radio-click="64" class="flex flex-col items-center justify-center gap-1 text-[#aaa] hover:text-white w-16">
         <i class="fa-solid fa-bookmark text-[18px]"></i>
         <span class="text-[10px] font-medium">Library</span>
       </button>
@@ -1006,15 +1006,15 @@
        ========================================================================= -->
   <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[90] solid-mobile-sheet flex flex-col justify-between p-5 overflow-y-auto">
     <div class="flex items-center justify-between shrink-0">
-      <button onclick="closeMobileSheet()" class="w-9 h-9 btn-circle text-white">
+      <button data-radio-click="70" class="w-9 h-9 btn-circle text-white">
         <i class="fa-solid fa-chevron-down text-base"></i>
       </button>
       <span class="text-xs font-semibold text-white/90">Now Playing</span>
       <div class="flex items-center gap-1">
-        <button onclick="pinActiveAsStartupChannel()" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Set as Startup Channel">
+        <button data-radio-click="7" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Set as Startup Channel">
           <i class="fa-solid fa-thumbtack text-sm"></i>
         </button>
-        <button onclick="openDspModal()" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Equalizer">
+        <button data-radio-click="29" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Equalizer">
           <i class="fa-solid fa-sliders text-sm"></i>
         </button>
       </div>
@@ -1030,7 +1030,7 @@
           <h2 id="sheet-title" class="text-xl font-bold text-white truncate">Select a Station</h2>
           <p id="sheet-sub" class="text-sm text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
         </div>
-        <button onclick="toggleLikeCurrent()" id="sheet-like" class="w-10 h-10 btn-circle text-white text-xl">
+        <button data-radio-click="53" id="sheet-like" class="w-10 h-10 btn-circle text-white text-xl">
           <i class="fa-regular fa-heart"></i>
         </button>
       </div>
@@ -1038,7 +1038,7 @@
 
     <div class="w-full space-y-5">
       <div>
-        <input id="sheet-range" type="range" min="0" max="100" value="100" oninput="seekPercent(this.value)" class="pro-slider w-full accent-white" />
+        <input id="sheet-range" type="range" min="0" max="100" value="100" data-radio-input="59" class="pro-slider w-full accent-white" />
         <div class="flex justify-between text-[11px] text-[#b3b3b3] font-mono-num mt-1.5">
           <span id="sheet-cur">LIVE</span>
           <span id="sheet-dur">STREAM</span>
@@ -1047,13 +1047,13 @@
 
       <!-- Strictly Circular 64px Main Play/Pause Button -->
       <div class="flex items-center justify-between px-4">
-        <button onclick="playRandomChannel()" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-shuffle"></i></button>
-        <button onclick="playPrevChannel()" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-backward-step"></i></button>
-        <button onclick="togglePlayPause()" class="w-16 h-16 btn-circle bg-white text-black text-2xl shadow-xl active:scale-95 transition">
+        <button data-radio-click="54" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-shuffle"></i></button>
+        <button data-radio-click="55" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-backward-step"></i></button>
+        <button data-radio-click="56" class="w-16 h-16 btn-circle bg-white text-black text-2xl shadow-xl active:scale-95 transition">
           <i id="sheet-play" class="fa-solid fa-play ml-0.5"></i>
         </button>
-        <button onclick="playNextChannel()" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-forward-step"></i></button>
-        <button onclick="switchBackupServer()" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
+        <button data-radio-click="57" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-forward-step"></i></button>
+        <button data-radio-click="58" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
       </div>
 
       <div class="pt-3 border-t border-white/10">
@@ -2161,6 +2161,12 @@
 
     // --- 6. Initialization ---
     let radioBooted = false;
+    let hostAcknowledged = false;
+    let readyRetry;
+    function announceRadioReady() {
+      if (window.parent !== window && !hostAcknowledged)
+        window.parent.postMessage({type:'sterling.radio.ready'}, '*');
+    }
     function bootRadioApplication() {
       if (radioBooted) return;
       radioBooted = true;
@@ -2205,8 +2211,13 @@
     // Start only after host preferences hydrate; fallback also works when the
     // application is opened standalone or a parent does not implement the bridge.
     window.addEventListener('message', event => {
-      if (event.source !== window.parent ||
-          event.data?.type !== 'sterling.radio.hydrate') return;
+      if (event.source !== window.parent) return;
+      if (event.data?.type === 'sterling.radio.ack') {
+        hostAcknowledged = true;
+        window.clearInterval(readyRetry);
+        return;
+      }
+      if (event.data?.type !== 'sterling.radio.hydrate') return;
       radioStorage.hydrate(event.data.values);
       appConfig = { ...DEFAULT_CONFIG, ...readRadioJson('omnicast_v11_config', {}) };
       recentsList = readRadioJson('omnicast_v11_recents', []);
@@ -2218,7 +2229,8 @@
       if (window.parent === window) {
         bootRadioApplication();
       } else {
-        window.parent.postMessage({type:'sterling.radio.ready'}, '*');
+        announceRadioReady();
+        readyRetry = window.setInterval(announceRadioReady, 750);
         window.setTimeout(bootRadioApplication, 4000);
       }
     });
@@ -2404,7 +2416,7 @@
       document.getElementById('sp-top-compact-grid').innerHTML = topSix.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="playStationById('${ch.id}')" class="group h-[56px] bg-[#242424] hover:bg-[#323232] rounded-[4px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
+          <div data-radio-click="71" data-radio-arg="${ch.id}" class="group h-[56px] bg-[#242424] hover:bg-[#323232] rounded-[4px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
             <div class="flex items-center gap-3 min-w-0 h-full">
               <img src="${emblem}" class="w-[56px] h-[56px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
@@ -2423,7 +2435,7 @@
         const emblem = getStationIdentityThumbnail(ch);
         const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div onclick="playStationById('${ch.id}')" class="snap-card w-[144px] sm:w-[158px] shrink-0 group bg-[#181818] hover:bg-[#242424] p-2.5 rounded-[6px] transition cursor-pointer flex flex-col">
+          <div data-radio-click="71" data-radio-arg="${ch.id}" class="snap-card w-[144px] sm:w-[158px] shrink-0 group bg-[#181818] hover:bg-[#242424] p-2.5 rounded-[6px] transition cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[4px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
               <button class="w-10 h-10 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
@@ -2445,7 +2457,7 @@
         const emblem = getStationIdentityThumbnail(ch);
         const subText = showPlayCount && ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div onclick="playStationById('${ch.id}')" class="snap-card w-[142px] sm:w-[156px] shrink-0 group cursor-pointer flex flex-col">
+          <div data-radio-click="71" data-radio-arg="${ch.id}" class="snap-card w-[142px] sm:w-[156px] shrink-0 group cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
@@ -2465,7 +2477,7 @@
         railSim.innerHTML = similarList.slice(0, 4).map(ch => {
           const emblem = getStationIdentityThumbnail(ch);
           return `
-            <div onclick="playStationById('${ch.id}')" class="flex items-center gap-2.5 p-1.5 rounded hover:bg-white/10 cursor-pointer">
+            <div data-radio-click="71" data-radio-arg="${ch.id}" class="flex items-center gap-2.5 p-1.5 rounded hover:bg-white/10 cursor-pointer">
               <img src="${emblem}" class="w-9 h-9 rounded object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
                 <div class="text-xs font-medium text-white truncate">${ch.title}</div>
@@ -2481,7 +2493,7 @@
         sheetSim.innerHTML = similarList.slice(0, 6).map(ch => {
           const emblem = getStationIdentityThumbnail(ch);
           return `
-            <div onclick="playStationById('${ch.id}')" class="w-24 shrink-0 cursor-pointer">
+            <div data-radio-click="71" data-radio-arg="${ch.id}" class="w-24 shrink-0 cursor-pointer">
               <img src="${emblem}" class="w-24 h-24 rounded-md object-cover mb-1" alt="" />
               <div class="text-[11px] font-medium text-white truncate">${ch.title}</div>
             </div>
@@ -2543,7 +2555,7 @@
       box.innerHTML = list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="playStationById('${ch.id}')" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
+          <div data-radio-click="71" data-radio-arg="${ch.id}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
             <div class="flex items-center gap-3 min-w-0">
               <img src="${emblem}" class="w-10 h-10 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
@@ -2684,7 +2696,7 @@
       spCards.innerHTML = catalogItems.map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="selectChannel(${idx})" class="group bg-[#181818] hover:bg-[#242424] p-3 rounded-[6px] transition cursor-pointer flex flex-col">
+          <div data-radio-click="72" data-radio-arg="${idx}" class="group bg-[#181818] hover:bg-[#242424] p-3 rounded-[6px] transition cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2.5 rounded-[4px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
               <button class="w-11 h-11 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
@@ -2700,7 +2712,7 @@
       ytmQuick.innerHTML = catalogItems.slice(0, 12).map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="selectChannel(${idx})" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer group transition">
+          <div data-radio-click="72" data-radio-arg="${idx}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer group transition">
             <div class="flex items-center gap-3 min-w-0 flex-1">
               <img src="${emblem}" class="w-12 h-12 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
@@ -2716,7 +2728,7 @@
       ytmCards.innerHTML = catalogItems.map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
-          <div onclick="selectChannel(${idx})" class="group cursor-pointer flex flex-col">
+          <div data-radio-click="72" data-radio-arg="${idx}" class="group cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
               <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
@@ -2761,7 +2773,7 @@
         const emblem = getStationIdentityThumbnail(ch);
         const sub = ch.playCount ? `${ch.playCount} plays • ${ch.subtitle}` : ch.subtitle;
         return `
-          <div onclick="playStationById('${ch.id}')" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
+          <div data-radio-click="71" data-radio-arg="${ch.id}" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
             <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
             <div class="min-w-0 flex-1">
               <div class="text-[13px] font-medium text-white truncate">${ch.title}</div>
@@ -3098,7 +3110,7 @@
           })).filter(e => e.streamUrl);
 
           document.getElementById('sp-pod-episodes').innerHTML = episodeList.map((ep, i) => `
-            <div onclick="startPlayback(episodeList[${i}])" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
+            <div data-radio-click="73" data-radio-arg="${i}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
               <span class="text-xs font-medium text-white truncate">${ep.title}</span>
               <i class="fa-solid fa-play text-xs text-[#1ed760]"></i>
             </div>
@@ -3298,6 +3310,96 @@
       const m = Math.floor(sec / 60);
       const s = Math.floor(sec % 60);
       return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
+
+    // Real listeners keep static controls and generated station cards actionable
+    // when a reverse proxy disallows inline event attributes. No eval is used.
+    const radioActions = {
+      "0": function(event) { openMobileSheet(); },
+      "1": function(event) { handleM3UImport(event); },
+      "2": function(event) { triggerPendingBootPlay(); },
+      "3": function(event) { closeStartupModal(); },
+      "4": function(event) { setBootBehavior('last'); },
+      "5": function(event) { setBootBehavior('custom'); },
+      "6": function(event) { setBootBehavior('quiet'); },
+      "7": function(event) { pinActiveAsStartupChannel(); },
+      "8": function(event) { onStartupChannelChange(this.value); },
+      "9": function(event) { closeDspModal(); },
+      "10": function(event) { setStreamQualityProfile('hifi'); },
+      "11": function(event) { setStreamQualityProfile('balanced'); },
+      "12": function(event) { setStreamQualityProfile('datasaver'); },
+      "13": function(event) { applyDspPreset('flat'); },
+      "14": function(event) { applyDspPreset('bass'); },
+      "15": function(event) { applyDspPreset('vocal'); },
+      "16": function(event) { applyDspPreset('spatial'); },
+      "17": function(event) { applyDspPreset('swclean'); },
+      "18": function(event) { applyDspPreset('classical'); },
+      "19": function(event) { updateCustomEq(); },
+      "20": function(event) { loadCategory('shortwave'); },
+      "21": function(event) { onSearchInput(this.value, 'sp-clear-desktop'); },
+      "22": function(event) { clearAllSearches(); },
+      "23": function(event) { loadCategory('akashvani'); },
+      "24": function(event) { loadCategory('telugu'); },
+      "25": function(event) { loadCategory('tamil'); },
+      "26": function(event) { loadCategory('featured'); },
+      "27": function(event) { loadCategory('podcasts'); },
+      "28": function(event) { openStartupModal(); },
+      "29": function(event) { openDspModal(); },
+      "30": function(event) { switchAppMode('ytmusic'); },
+      "31": function(event) { onSearchInput(this.value, 'sp-clear-mobile'); },
+      "32": function(event) { setSidebarFilter('recents'); },
+      "33": function(event) { setSidebarFilter('mostplayed'); },
+      "34": function(event) { setSidebarFilter('liked'); },
+      "35": function(event) { setSidebarFilter('shortwave'); },
+      "36": function(event) { setSidebarFilter('akashvani'); },
+      "37": function(event) { toggleSwDrawer(); },
+      "38": function(event) { seekSwStation(-1); },
+      "39": function(event) { seekSwStation(1); },
+      "40": function(event) { jumpAndPlaySw(738); },
+      "41": function(event) { jumpAndPlaySw(1071); },
+      "42": function(event) { jumpAndPlaySw(6000); },
+      "43": function(event) { jumpAndPlaySw(7375); },
+      "44": function(event) { jumpAndPlaySw(9410); },
+      "45": function(event) { jumpAndPlaySw(11725); },
+      "46": function(event) { jumpAndPlaySw(15580); },
+      "47": function(event) { stepSwFreq(-5); },
+      "48": function(event) { stepSwFreq(5); },
+      "49": function(event) { previewSwDial(this.value); },
+      "50": function(event) { commitSwTune(this.value); },
+      "51": function(event) { closePodcastBox(); },
+      "52": function(event) { clearRecentsHistory(); },
+      "53": function(event) { toggleLikeCurrent(); },
+      "54": function(event) { playRandomChannel(); },
+      "55": function(event) { playPrevChannel(); },
+      "56": function(event) { togglePlayPause(); },
+      "57": function(event) { playNextChannel(); },
+      "58": function(event) { switchBackupServer(); },
+      "59": function(event) { seekPercent(this.value); },
+      "60": function(event) { toggleMute(); },
+      "61": function(event) { setAudioVolume(this.value); },
+      "62": function(event) { event.stopPropagation(); },
+      "63": function(event) { toggleMobileSearch(); },
+      "64": function(event) { showLikedLibrary(); },
+      "65": function(event) { onSearchInput(this.value, 'ytm-clear-btn'); },
+      "66": function(event) { switchAppMode('spotify'); },
+      "67": function(event) { switchYtmDrawerTab('upnext'); },
+      "68": function(event) { switchYtmDrawerTab('related'); },
+      "69": function(event) { toggleYtmQueue(); },
+      "70": function(event) { closeMobileSheet(); },
+      "71": function(event) { playStationById(this.dataset.radioArg); },
+      "72": function(event) { selectChannel(Number(this.dataset.radioArg)); },
+      "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); }
+    };
+    for (const eventType of ['click','input','change']) {
+      document.addEventListener(eventType, event => {
+        let control = event.target instanceof Element ? event.target : null;
+        while (control) {
+          const action = control.getAttribute('data-radio-' + eventType);
+          if (action && radioActions[action]) radioActions[action].call(control, event);
+          if (event.cancelBubble) break;
+          control = control.parentElement;
+        }
+      });
     }
   </script>
 </body>

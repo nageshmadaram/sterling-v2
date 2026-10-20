@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
 vi.mock('../../components/kite/KiteTab', () => ({
@@ -121,6 +121,16 @@ describe('Sterling Spectrum navigation and Home', () => {
     expect(screen.getByTestId('spectrum-cycle-switch')).toHaveTextContent('TV');
     fireEvent.click(screen.getByRole('button',{name:'Sterling Home'}));
     expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+  });
+
+  it('leaves Kite when restored settings disable trading after mount', () => {
+    render(<SimpleTerminal />);
+    act(() => useExperienceOptions.getState().update({
+      spectrumVisible:{kite:false,simulation:false,tv:true,radio:true},
+      spectrumHome:'radio',
+    }));
+    expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
+    expect(screen.getByTestId('kite-trading-docks')).not.toBeVisible();
   });
 
   it('uses the Radio header tab and can set Radio as Home', () => {

@@ -69,6 +69,17 @@ export function SimpleTerminal() {
     initialHomePendingRef.current = false;
     setSelectedView(navOptions.spectrumHome === 'simulation' ? 'simulation' : 'live');
   }, [navOptions.spectrumHome, simulationAllowed, setSelectedView]);
+  // Settings can hydrate after this component mounts or change in Experience.
+  // Never retain a workspace that the saved selection has disabled.
+  useEffect(() => {
+    const active = spectrum === 'kite' && selectedView === 'simulation' ? 'simulation' : spectrum;
+    if (navOptions.spectrumVisible[active]) return;
+    const home = navOptions.spectrumHome;
+    setSpectrum(home === 'tv' || home === 'radio' ? home : 'kite');
+    setSelectedView(home === 'simulation' && simulationAllowed ? 'simulation' : 'live');
+    setToolsOpen(false);
+    setShowSettings(false);
+  }, [navOptions, spectrum, selectedView, simulationAllowed, setSelectedView]);
   const goHome = () => {
     initialHomePendingRef.current = false;
     // Close managed overlays before changing the underlying workspace.

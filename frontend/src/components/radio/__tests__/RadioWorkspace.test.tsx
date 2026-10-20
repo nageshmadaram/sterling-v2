@@ -42,6 +42,18 @@ describe('Radio workspace isolation', () => {
     fromFrame('sterling.radio.save',{key:'omnicast_v11_liked',value:'["FM"]'});
     expect(localStorage.getItem('sterling.radio.omnicast_v11_liked')).toBe('["FM"]');
   });
+  it('acknowledges repeated ready signals and recovers after a missed initial signal',()=>{
+    vi.useFakeTimers();
+    render(<RadioWorkspace />);
+    const frame=screen.getByTitle('Sterling Radio player') as HTMLIFrameElement;
+    const post=vi.spyOn(frame.contentWindow!,'postMessage');
+    act(()=>vi.advanceTimersByTime(15000));
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    fromFrame('sterling.radio.ready');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(post).toHaveBeenCalledWith({type:'sterling.radio.ack'},'*');
+    vi.useRealTimers();
+  });
   it('reloads from Radio header command',()=>{
     render(<RadioWorkspace />);
     const oldFrame=screen.getByTitle('Sterling Radio player');

@@ -55,6 +55,7 @@ export function RadioWorkspace() {
         setLoaded(true);
         setFailed(false);
         hydrate();
+        frame.contentWindow?.postMessage({type:'sterling.radio.ack'}, '*');
       } else if (message.type === SAVE && hydratedRef.current) {
         if (!ALLOWED_KEYS.has(message.key) ||
           (message.value !== null &&
