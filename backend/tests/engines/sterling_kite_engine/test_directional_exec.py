@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
-pytestmark = pytest.mark.usefixtures("allow_live_execution")
+pytestmark = pytest.mark.usefixtures("allow_live_execution", "execution_policy_open_session")
 
 
 from app.core import lane_registry

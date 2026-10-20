@@ -1,6 +1,28 @@
 import numpy as np
 import pytest
 
+
+@pytest.fixture
+def execution_policy_open_session(monkeypatch):
+    """Execution plumbing tests use an open calendar; policy tests use real dates.
+
+    Keep the caller's wall clock for quote freshness and elapsed-time checks.
+    Translate a real policy from a known session so its holding budget remains
+    relative to that clock, including when CI runs on weekends or holidays.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.core import mode_execution
+    original = mode_execution.freeze_policy
+    reference = datetime(2026, 10, 7, 10, 0, tzinfo=ZoneInfo("Asia/Kolkata"))
+    def policy(strategy, mode, now, **kwargs):
+        result = original(strategy, mode, reference, **kwargs)
+        delta = int(now.timestamp() * 1000) - result["entry_ms"]
+        result["entry_ms"] += delta
+        result["hard_exit_ms"] += delta
+        return result
+    monkeypatch.setattr(mode_execution, "freeze_policy", policy)
+
 from tests.conftest import reset_global_stores as _shared_reset_global_stores
 
 

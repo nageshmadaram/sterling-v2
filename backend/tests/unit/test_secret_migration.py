@@ -83,6 +83,49 @@ class TestThePlan:
 
 
 class TestTheMigration:
+    def test_system_settings_and_nested_telegram_targets_move_together(self, database, tmp_path):
+        import json
+        with sqlite3.connect(database) as conn:
+            conn.execute("CREATE TABLE system_config(key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+            conn.execute("INSERT INTO system_config VALUES (?, ?)",
+                         ("telegram_bot_token", _encrypt(OLD_KEY, "legacy-bot")))
+            targets = [{"id": "one", "bot_token_enc": _encrypt(OLD_KEY, "target-bot")},
+                       {"id": "two", "bot_token_enc": "old-plaintext-token"}]
+            conn.execute("INSERT INTO system_config VALUES (?, ?)",
+                         ("kite_tg_targets:default", json.dumps(targets)))
+            conn.execute("INSERT INTO system_config VALUES ('theme', 'dark')")
+        assert plan_migration(database).total == 11
+        new_key = generate_secret()
+        result = migrate_secrets(db_path=database, env_file=tmp_path / "prod.env",
+                                 old_secret=OLD_KEY, new_secret=new_key)
+        assert result.ok and result.migrated == result.verified == 11
+        with sqlite3.connect(database) as conn:
+            settings = dict(conn.execute("SELECT key, value FROM system_config"))
+        assert _decrypt(new_key, settings["telegram_bot_token"]) == "legacy-bot"
+        tokens = json.loads(settings["kite_tg_targets:default"])
+        assert [_decrypt(new_key, t["bot_token_enc"]) for t in tokens] == ["target-bot", "old-plaintext-token"]
+        assert settings["theme"] == "dark"
+
+    def test_push_credentials_move_with_broker_credentials(self, database, tmp_path):
+        with sqlite3.connect(database) as conn:
+            conn.execute("CREATE TABLE push_devices(id TEXT PRIMARY KEY, subscription_enc TEXT)")
+            conn.execute("CREATE TABLE push_vapid(id INTEGER PRIMARY KEY, key_enc TEXT)")
+            conn.execute("INSERT INTO push_devices VALUES (?, ?)",
+                         ("phone", _encrypt(OLD_KEY, '{"endpoint":"https://push.example"}')))
+            conn.execute("INSERT INTO push_vapid VALUES (1, ?)",
+                         (_encrypt(OLD_KEY, "private-push-key"),))
+        new_key = generate_secret()
+        result = migrate_secrets(db_path=database, env_file=tmp_path / "prod.env",
+                                 old_secret=OLD_KEY, new_secret=new_key)
+        assert result.ok and result.migrated == result.verified == 10
+        assert not plan_migration(database).unknown_columns
+        with sqlite3.connect(database) as conn:
+            assert _decrypt(new_key, conn.execute("SELECT key_enc FROM push_vapid").fetchone()[0]) == "private-push-key"
+            subscription = conn.execute("SELECT subscription_enc FROM push_devices").fetchone()[0]
+            assert _decrypt(new_key, subscription) == '{"endpoint":"https://push.example"}'
+            with pytest.raises(Exception):
+                _decrypt(OLD_KEY, subscription)
+
     def test_every_value_moves_to_the_new_key(self, database, tmp_path):
         new_key = generate_secret()
         result = migrate_secrets(db_path=database, env_file=tmp_path / "prod.env",

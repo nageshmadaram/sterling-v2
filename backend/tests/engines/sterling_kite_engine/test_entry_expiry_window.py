@@ -19,7 +19,7 @@ from app.services.kite_engine import positions as pos
 from app.services.kite_engine import service, state
 from tests.engines.sterling_kite_engine.canonical_double import CanonicalBrokerDouble
 
-pytestmark = pytest.mark.usefixtures("allow_live_execution")
+pytestmark = pytest.mark.usefixtures("allow_live_execution", "execution_policy_open_session")
 
 _IST = timezone(timedelta(hours=5, minutes=30))
 UID = "expiry-window"

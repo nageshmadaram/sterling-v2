@@ -12,6 +12,13 @@ from app.services.kite_engine import order_journal
 
 @pytest.fixture
 def live_manual(monkeypatch):
+    from datetime import datetime
+    class SessionClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 10, 7, 10, 0, tzinfo=service._IST)
+            return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+    monkeypatch.setattr(service, "datetime", SessionClock)
     # These tests exercise the live execution machinery under an explicitly
     # enabled test switch. Production keeps LIVE_EXECUTION_ENABLED=False.
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -46,8 +53,19 @@ async def test_manual_entry_has_journal_and_zero_confirmed_qty(live_manual):
     assert positions.get("u", "OPT").qty == 0
     intent = order_journal.find(uid="u", account_id="account", order_id="manual-1")
     assert intent.capital_required == 6017.5
+    assert intent.payload["mode_policy"]["mode"] == "swing"
+    assert intent.payload["mode_policy"]["hard_exit_ms"] > intent.payload["mode_policy"]["entry_ms"]
     assert client.place_order.await_args.kwargs["tag"] == intent.tag
     assert client.place_order.await_args.kwargs["limit_price"] == 120.35
+
+
+@pytest.mark.asyncio
+async def test_manual_signal_from_another_mode_cannot_execute(live_manual):
+    client, _ = live_manual
+    state.set_config("u", EngineConfigModel(horizon_mode="intraday"))
+    result = await service.place_manual_order("u", "OPT", "BUY", 50)
+    assert result == {"status": "blocked", "reason": "manual_signal_mode_or_timeframe_mismatch"}
+    client.place_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
