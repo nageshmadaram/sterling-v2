@@ -17,8 +17,9 @@ describe('Sterling TV static integration safety', () => {
   it('keeps user-configured KITE home, mobile search and ticker visible',()=>{
     const page=readFileSync(resolve(process.cwd(),'src/pages/SimpleTerminal.tsx'),'utf8');
     expect(page).toContain('className="sterling-home-button"');
-    expect(page).toContain('className="sterling-return-home"');
-    expect(page).toContain("handleKiteNav(preferredSection || 'dashboard')");
+    expect(page).toContain('aria-label="Close page and return to configured home"');
+    expect(page).toContain('onClick={goHome}');
+    expect(page).toContain("useKiteSettings.getState().defaultSection || 'dashboard'");
     expect(page).toContain('className="sterling-mobile-command-row"');
     expect(page).toContain('id="sterling-mobile-header-actions"');
     expect(spectrumSpacingCss).not.toContain('.workspace-market-strip:not([data-page="dashboard"]) { display:none; }');
@@ -55,7 +56,7 @@ describe('Sterling TV static integration safety', () => {
 
   it('guards mobile IPTV fullscreen, search dismissal, user audio choice and queue',()=>{
     expect(tvPage).toContain('lastFullscreenGestureAt');
-    expect(tvPage).toContain('if (!userHasInteractedWithAudio) video.muted = true;');
+    expect(tvPage).toContain('video.muted = preferredTvMuted;');
     expect(tvPage).not.toContain('video.muted = !userHasInteractedWithAudio');
     expect(tvPage).toContain('function clearSelectionSearch()');
     expect(tvPage).toContain('function setScrollPip(value)');

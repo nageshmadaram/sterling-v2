@@ -1,3 +1,4 @@
+import { readMediaSuggestions } from '../media/mediaSuggestions';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -85,6 +86,8 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
         pendingCommands.current.clear();
       } else if(data.type === 'sterling.tv.focus-search') {
         window.dispatchEvent(new Event('sterling-tv-focus-search'));
+      } else if(data.type === 'sterling.tv.suggestions') {
+        if(typeof data.query==='string'&&data.query.length<=200)window.dispatchEvent(new CustomEvent('sterling-tv-suggestions',{detail:{query:data.query,items:readMediaSuggestions(data.items)}}));
       } else if(data.type === 'sterling.tv.state') {
         if(['youtube','spotify','netflix'].includes(data.theme) && typeof data.query==='string' && data.query.length<=200)onState?.({theme:data.theme,query:data.query});
       } else if(data.type === 'sterling.tv.player-state') {
@@ -106,9 +109,11 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
       if (!readyRef.current) setFailed(true);
     }, 15000);
     window.addEventListener('message', onMessage);
+    const refreshPreferences=()=>{readyRef.current=false;setLoaded(false);setReloadKey(n=>n+1);};
+    window.addEventListener('sterling-preferences-hydrated',refreshPreferences);
     const command=(event:Event)=>{
       const data=(event as CustomEvent).detail;
-      if(!data||!['theme','search','more','play-search','collapse'].includes(data.action))return;
+      if(!data||!['theme','search','more','startup','suggest','select-suggestion','play-search','collapse'].includes(data.action))return;
       if(data.action==='theme'&&!['youtube','spotify','netflix'].includes(data.value))return;
       if(data.action==='search'&&(typeof data.value!=='string'||data.value.length>200))return;
       const payload={type:'sterling.tv.command',action:data.action,value:data.value};
@@ -116,7 +121,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
       ref.current?.contentWindow?.postMessage(payload,'*');
     };
     window.addEventListener('sterling-tv-command',command);
-    return () => { window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);window.removeEventListener('sterling-tv-command',command); };
+    return () => { window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);window.removeEventListener('sterling-preferences-hydrated',refreshPreferences);window.removeEventListener('sterling-tv-command',command); };
   }, [reloadKey,onState,onPlayerState]);
 
   return (

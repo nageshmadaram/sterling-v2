@@ -43,3 +43,21 @@ def test_simulation_uses_owner(client):
     c.patch('/preferences',json={'values':{'sterling_theme':'dark'}})
     app.dependency_overrides[get_current_user]=lambda:UserContext('sim:alice',view='simulation',owner_uid='alice')
     assert c.get('/preferences').json()['values']['sterling_theme']=='dark'
+
+
+def test_media_preferences_are_durable_and_owner_scoped(client):
+    c, app = client
+    values = {'sterling.tv.streamos_startup_channel_v14': '{"name":"My TV","url":"https://example.com/live.m3u8"}',
+              'sterling.radio.omnicast_v11_config': '{"bootBehavior":"custom","startupStationId":"my-radio"}'}
+    assert c.patch('/preferences', json={'values': values}).status_code == 200
+    assert c.get('/preferences').json()['values'] == values
+    app.dependency_overrides[get_current_user] = lambda: UserContext('bob')
+    assert c.get('/preferences').json()['values'] == {}
+    app.dependency_overrides[get_current_user] = lambda: UserContext('alice')
+    assert c.get('/preferences').json()['values'] == values
+    assert c.patch('/preferences', json={'values': {'sterling.radio.auth': 'secret'}}).status_code == 422
+
+
+def test_tv_playlist_size_matches_bridge(client):
+    c, _ = client
+    assert c.patch('/preferences', json={'values': {'sterling.tv.streamos_sources_v14': 'x' * 250000}}).status_code == 200

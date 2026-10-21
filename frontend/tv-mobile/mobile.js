@@ -37,12 +37,16 @@
   const activeTheme=()=>['spotify','youtube','netflix'].includes(currentTheme);
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
+  const rejectedArtwork=new Set();
   function artwork(ch) {
-    if(ch.logo?.startsWith('https://') && !ch.logo.includes('unsplash.com'))return ch.logo;
+    const remote=window.SterlingArtwork?.resolveTv(ch);
+    if(remote&&!rejectedArtwork.has(remote))return remote;
+    if(!rejectedArtwork.has(ch.logo)&&ch.logo?.startsWith('https://') && !ch.logo.includes('unsplash.com') && !/[<>"'\x00-\x20]/.test(ch.logo))return ch.logo;
     if(artworkCache.has(ch.url))return artworkCache.get(ch.url);
     const hue=[...ch.name].reduce((n,c)=>n+c.charCodeAt(0)*7,0)%360;
     const initials=ch.name.split(/\s+/).slice(0,2).map(w=>w[0]).join('');
-    const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="hsl(${hue},55%,48%)"/><stop offset="1" stop-color="hsl(${hue},60%,17%)"/></linearGradient></defs><path fill="url(#a)" d="M0 0h320v320H0z"/><g fill="none" stroke="#ffffff" opacity=".12"><circle cx="265" cy="70" r="135" stroke-width="45"/><circle cx="265" cy="70" r="190" stroke-width="2"/><path d="M0 220 320 80M0 270 320 130" stroke-width="2"/></g><text x="22" y="38" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">${escapeHtml((ch.group||'LIVE TV').toUpperCase().slice(0,24))}</text><text x="18" y="207" fill="white" font-family="Arial,sans-serif" font-size="112" font-weight="900" letter-spacing="-9">${escapeHtml(initials)}</text><rect x="22" y="248" width="36" height="5" fill="#1ed760"/><text x="22" y="284" fill="white" font-family="Arial,sans-serif" font-size="19" font-weight="700">${escapeHtml(ch.name.slice(0,24))}</text></svg>`;
+    const pattern=hue%3===0?'<circle cx="265" cy="70" r="135" stroke-width="45"/><circle cx="265" cy="70" r="190" stroke-width="2"/>':hue%3===1?'<path d="M30 90v140m44-90v140m44-160v180m44-220v190m44-100v140m44-180v150m44-100v120" stroke-width="22"/>':'<path d="m200 30 150 100-100 160-150-100z" fill="#fff" stroke-width="0"/><path d="M0 260 320 90M0 290 320 120" stroke-width="3"/>';
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="hsl(${hue},55%,48%)"/><stop offset="1" stop-color="hsl(${hue},60%,17%)"/></linearGradient></defs><path fill="url(#a)" d="M0 0h320v320H0z"/><g fill="none" stroke="#ffffff" opacity=".12">${pattern}</g><text x="22" y="38" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">${escapeHtml((ch.group||'LIVE TV').toUpperCase().slice(0,24))}</text><text x="18" y="207" fill="white" font-family="Arial,sans-serif" font-size="112" font-weight="900" letter-spacing="-9">${escapeHtml(initials)}</text><rect x="22" y="248" width="36" height="5" fill="#1ed760"/><text x="22" y="284" fill="white" font-family="Arial,sans-serif" font-size="19" font-weight="700">${escapeHtml(ch.name.slice(0,24))}</text></svg>`;
     const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);if(artworkCache.size>128)artworkCache.delete(artworkCache.keys().next().value);return uri;
   }
   function applyBackdrop() {
@@ -59,11 +63,17 @@
   function renderHome() {
     browse.innerHTML=['News','Sports','Movies','Music','Documentary','Entertainment','Kids & Anime','Devotional'].map(cat=>`<button data-tm-category="${cat}"><strong>${escapeHtml(cat)}</strong><span aria-hidden="true">${icon('screen')}</span></button>`).join('');
     const recent=[...recentHistory,...VERIFIED_STREAMS].filter((ch,i,a)=>a.findIndex(c=>c.url===ch.url)===i);
-    home.innerHTML=`<div class="tm-quick">${recent.slice(0,mobile.matches&&innerWidth>innerHeight?8:6).map(ch=>channelButton(ch,true)).join('')}</div>${shelf('Jump back in',recent,'recent')}${shelf('Made for your screen',VERIFIED_STREAMS,'verified')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="tm-shelf">${['News','Sports','Movies','Music','Documentary'].map(cat=>`<button class="tm-mix" data-tm-category="${cat}"><strong>${cat}</strong><small>Live TV collection</small></button>`).join('')}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}`;
+    const seed=activeChannel||recentHistory[0];
+    const recommendations=allChannels.filter(ch=>ch.url!==seed?.url).map(ch=>({ch,score:
+      (seed&&ch.group===seed.group?5:0)+(seed&&ch.lang===seed.lang?3:0)+
+      (favorites.some(saved=>saved.url===ch.url)?2:0)+(ch.verified?1:0)
+    })).sort((a,b)=>b.score-a.score).slice(0,10).map(item=>item.ch);
+    home.innerHTML=`<div class="tm-quick">${recent.slice(0,8).map(ch=>channelButton(ch,true)).join('')}</div>${shelf('Jump back in',recent,'recent')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="tm-shelf">${['News','Sports','Movies','Music','Documentary'].map(cat=>`<button class="tm-mix" data-tm-category="${cat}"><strong>${cat}</strong><small>Live TV collection</small></button>`).join('')}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}`;
   }
   function sync() {
     scheduled=false;
     const enabled=isMobile();
+    document.body.dataset.mediaView=view;
     document.body.classList.toggle('tm-host-header',hosted);
     applyBackdrop();
     publishPlayerState();
@@ -192,6 +202,7 @@
   });
   sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});
   sheet.addEventListener('click',e=>{if(e.target===sheet)closeSheet();});
+  document.getElementById('tm-search-input').addEventListener('focus',()=>publishSuggestions(searchInputEl.value));
   document.getElementById('tm-search-input').addEventListener('input',e=>applySearch(e.target.value));
   document.getElementById('tm-search-input').addEventListener('keydown',e=>{if(e.key==='Enter'){const hasMatch=getRankedSearchMatches(searchInputEl.value).length>0;triggerSearchNow();if(hasMatch){clearSelectionSearch();if(currentTheme==='spotify')setExpanded(true);}e.target.blur();}});
   document.addEventListener('keydown',e=>{
@@ -217,7 +228,7 @@
   function saveUi() {
     if(!hydrated)return;
     const v=document.getElementById('video-player');
-    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:v.muted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode});
+    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:preferredTvMuted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode});
     if(next===lastSaved)return;lastSaved=next;
     try{uiStorage().setItem('streamos_ui_v14',next);}catch{}
   }
@@ -232,21 +243,36 @@
       catalogScope=view==='library'?'favs':view==='history'?'recently_played':'all';
       const v=document.getElementById('video-player');
       if(typeof saved.volume==='number'&&saved.volume>=0&&saved.volume<=1)v.volume=saved.volume;
-      if(typeof saved.muted==='boolean'){v.muted=saved.muted;userHasInteractedWithAudio=!saved.muted;}
+      if(typeof saved.muted==='boolean'){preferredTvMuted=saved.muted;v.muted=saved.muted;}
       if(['fit-contain','fit-cover','fit-zoom'].includes(saved.fit)){currentFitMode=saved.fit;v.classList.remove('fit-contain','fit-cover','fit-zoom');v.classList.add(saved.fit);}
       if(saved.background==='black'||saved.background==='auto')tvBackdropMode=saved.background;
       applyBackdrop();
       renderCatalogControls();renderViewport();
     }catch{}
   }
+  function tvSuggestions(query) {
+    const pool=query.trim()?getRankedSearchMatches(query):[...recentHistory,...favorites,...VERIFIED_STREAMS];
+    return pool.filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
+  }
+  function publishSuggestions(query) {
+    const items=tvSuggestions(query);
+    if(hosted){window.parent.postMessage({type:'sterling.tv.suggestions',query,items:items.map(ch=>({id:ch.url,label:ch.name,subtitle:[ch.group,ch.lang].filter(Boolean).join(' · '),artwork:window.SterlingArtwork?.resolveTv(ch)||ch.logo||''}))},'*');return;}
+    shell.querySelector('.tm-search-suggestions')?.remove();
+    if(shell.querySelector('.tm-search').hidden)return;
+    const list=document.createElement('div');list.className='tm-search-suggestions';list.setAttribute('role','listbox');list.setAttribute('aria-label','Channel suggestions');
+    for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.name+' · '+(ch.group||'Live TV');button.addEventListener('click',()=>{playStream(ch,0);clearSelectionSearch();setExpanded(true);});list.append(button);}
+    shell.querySelector('.tm-search').append(list);
+  }
   function applySearch(query) {
     view=query?'search':'home';expanded=false;
     searchInputEl.value=query;document.getElementById('tm-search-input').value=query;
+    publishSuggestions(query);
     renderViewport();closeSearchDropdown();sync();
     document.getElementById('main-scroll').scrollTo({top:0,behavior:'instant'});
   }
   function clearSelectionSearch() {
     searchInputEl.value='';
+    shell.querySelector('.tm-search-suggestions')?.remove();
     document.getElementById('tm-search-input').value='';
     document.getElementById('clear-search-btn')?.classList.add('hidden');
     shell.querySelector('.tm-search').hidden=true;
@@ -264,6 +290,9 @@
     if(data?.type!=='sterling.tv.command'||!hosted)return;
     if(data.action==='theme'&&['youtube','spotify','netflix'].includes(data.value))run(data.value);
     if(data.action==='search'&&typeof data.value==='string'&&data.value.length<=200)applySearch(data.value);
+    if(data.action==='suggest'&&typeof data.value==='string')publishSuggestions(data.value.slice(0,200));
+    if(data.action==='select-suggestion'&&typeof data.value==='string'){const ch=allChannels.find(ch=>ch.url===data.value)||tvSuggestions('').find(ch=>ch.url===data.value);if(ch){playStream(ch,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();}}
+    if(data.action==='startup')openStartupChannelModal();
     if(data.action==='play-search'){
       const match=getRankedSearchMatches(searchInputEl.value)[0];
       if(match){playStream(match,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
@@ -346,8 +375,8 @@
   const video=document.getElementById('video-player');['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
   mobile.addEventListener('change',()=>{if(!mobile.matches){expanded=false;closeSheet();}renderHome();schedule();});
   window.addEventListener('resize',schedule);
-  home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch)img.src=artwork({...ch,logo:''});},true);
-  mini.querySelector('img').addEventListener('error',event=>{if(activeChannel)event.target.src=artwork({...activeChannel,logo:''});});
+  home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch){rejectedArtwork.add(img.src);img.src=artwork({...ch,logo:''});}},true);
+  mini.querySelector('img').addEventListener('error',event=>{if(activeChannel){rejectedArtwork.add(event.target.src);event.target.src=artwork({...activeChannel,logo:''});}});
   installPlaybackContinuity();
   function installPlayerSwipes(element,onDirection) {
     let start=null;
@@ -370,5 +399,9 @@
     if(dir==='up'&&!expanded)setExpanded(true);
   });
   if(hydrated)restoreUi();
+  window.addEventListener('sterling-artwork-update',()=>{
+    document.querySelectorAll('[data-tm-channel]').forEach(tile=>{const ch=allChannels.find(ch=>ch.url===tile.dataset.tmChannel);if(ch)tile.querySelectorAll('img').forEach(img=>img.src=artwork(ch));});
+    schedule();
+  });
   renderHome();sync();
 })();
