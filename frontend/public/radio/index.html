@@ -1143,14 +1143,55 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     const stationBadgeCache = {};
     const stationArtworkChecked = new Map();
+    const stationArtworkQueue=[];
+    const stationArtworkPending=new Set();
+    let stationArtworkInflight=0,stationArtworkPaintTimer=null;
+    function scheduleStationArtworkPaint(){
+      clearTimeout(stationArtworkPaintTimer);
+      stationArtworkPaintTimer=setTimeout(()=>{
+        if(document.hidden)return;
+        renderCategoryGrids();
+        renderPersonalizedShelves();
+      },350);
+    }
+    function pumpStationArtworkQueue(){
+      if(document.hidden)return;
+      while(stationArtworkInflight<2&&stationArtworkQueue.length){
+        const station=stationArtworkQueue.shift();
+        const key=station.id||station.title;
+        if(!catalogItems.includes(station)&&activeStream!==station) {
+          stationArtworkPending.delete(key);
+          continue;
+        }
+        stationArtworkInflight++;
+        Promise.resolve(refreshStationArtwork(station,playbackRevision)).finally(()=>{
+          stationArtworkInflight--;
+          stationArtworkPending.delete(key);
+          setTimeout(pumpStationArtworkQueue,150);
+        });
+      }
+    }
+    function enrichVisibleStationArtwork(){
+      // Defer remote station favicon lookups and bound total requests per view.
+      // The category's first cards are enriched; off-screen cards retain their
+      // generated covers until selected or viewed in a later collection.
+      for(const station of catalogItems.slice(0,16)){
+        const key=station?.id||station?.title;
+        if(!key||station.artwork||stationArtworkPending.has(key)||stationArtworkChecked.has(key))continue;
+        stationArtworkPending.add(key);
+        stationArtworkQueue.push(station);
+      }
+      if(stationArtworkQueue.length)setTimeout(pumpStationArtworkQueue,120);
+    }
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)pumpStationArtworkQueue();});
     function refreshStationArtwork(streamObj,revision) {
-      if(!streamObj || streamObj.artwork || !streamObj.title || !RADIO_MIRRORS?.length) return;
+      if(!streamObj || streamObj.artwork || !streamObj.title || !RADIO_MIRRORS?.length) return Promise.resolve(false);
       const key=streamObj.id||streamObj.title;
-      if(Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)return;
+      if(Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)return Promise.resolve(false);
       stationArtworkChecked.set(key,Date.now());
       if(stationArtworkChecked.size>96)stationArtworkChecked.delete(stationArtworkChecked.keys().next().value);
       const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
-      fetch(`${RADIO_MIRRORS[0]}/stations/bynameexact/${encodeURIComponent(streamObj.title)}?limit=8`,
+      return fetch(`${RADIO_MIRRORS[0]}/stations/bynameexact/${encodeURIComponent(streamObj.title)}?limit=8`,
         {signal:controller.signal})
         .then(res=>res.ok?res.json():[])
         .then(items=>{
@@ -1167,7 +1208,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
             updateMediaSession(cover,streamObj.title,streamObj.subtitle);
           }
           // Station covers belong to station cards; track art remains player-only.
-          renderCategoryGrids();renderPersonalizedShelves();
+          // Coalesce paints to avoid replacing grid DOM while people are tapping.
+          scheduleStationArtworkPaint();
         }).catch(()=>{}).finally(()=>clearTimeout(timeout));
     }
 
@@ -2830,6 +2872,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }).join('');
 
       if (ytmQueueOpen) renderYtmDrawerList();
+      enrichVisibleStationArtwork();
     }
 
     // --- 12. Sidebar Library Filter ---
