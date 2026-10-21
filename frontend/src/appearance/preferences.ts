@@ -70,19 +70,23 @@ async function hydrateStores() {
 export async function startPreferenceSync(uid:string) {
  stopPreferenceSync();const run=generation;install();usePreferenceSync.setState({state:'loading',error:''});
  const prior=localStorage.getItem(OWNER);
+ const mediaFits=(key:string,value:unknown)=>typeof value==='string'&&new Blob([value]).size<=(key.startsWith('sterling.tv.')?500000:200000);
  // Back up the current browser's preferences before changing ownership/restoring.
  if(prior)originalSet.call(localStorage,`sterling.preferences.backup.v1.${prior}`,JSON.stringify(snapshot()));
  let result=await api.get<Response>(URL);if(run!==generation)return;
- if(!result.initialized){const initial=(!prior||prior===uid)?{...snapshot(),sterling_ui_state:JSON.stringify(uiState())}:{};result=await api.patch<Response>(URL,{values:initial,initialize_only:true});}
+ const migratable=Object.fromEntries(Object.entries(snapshot()).filter(([key,value])=>!MEDIA_PREFERENCE_KEYS.has(key)||mediaFits(key,value)));
+ if(!result.initialized){const initial=(!prior||prior===uid)?{...migratable,sterling_ui_state:JSON.stringify(uiState())}:{};result=await api.patch<Response>(URL,{values:initial,initialize_only:true});}
  if(run!==generation)return;
  // Migrate this owner's existing media library once, including accounts that
  // already had appearance preferences before media sync was introduced.
  if(!prior||prior===uid){
-  const media=Object.fromEntries(Object.entries(snapshot()).filter(([key])=>MEDIA_PREFERENCE_KEYS.has(key)&&!(key in result.values)));
+  const media=Object.fromEntries(Object.entries(migratable).filter(([key])=>MEDIA_PREFERENCE_KEYS.has(key)&&!(key in result.values)));
+  // Unowned v13 TV keys cannot be attributed to the current account.
+  // Preserve them for explicit recovery, but never restore them automatically.
   if(Object.keys(media).length){result=await api.patch<Response>(URL,{values:media});if(run!==generation)return;}
  }
  let queued:Values={};try{queued=JSON.parse(localStorage.getItem(outbox(uid))??'{}');}catch{/* corrupt outbox */}
- queued=Object.fromEntries(Object.entries(queued).filter(([key,value])=>isPreferenceKey(key)&&(typeof value==='string'||value===null)));
+ queued=Object.fromEntries(Object.entries(queued).filter(([key,value])=>isPreferenceKey(key)&&(typeof value==='string'||value===null)&&(!MEDIA_PREFERENCE_KEYS.has(key)||value===null||mediaFits(key,value))));
  if(Object.keys(queued).length) {const r=await api.patch<Response>(URL,{values:queued});result=r;originalRemove.call(localStorage,outbox(uid));}
  if(run!==generation)return;
  hydrating=true;

@@ -11,6 +11,7 @@ describe('dynamic broadcaster artwork',()=>{
   (dom.window as any).Image=class {onload:(()=>void)|null=null;onerror:(()=>void)|null=null;set src(_value:string){queueMicrotask(()=>this.onload?.());}};
   dom.window.fetch=(async(url:string)=>{calls.push(url);return {ok:true,json:async()=>url.endsWith('channels.json')?[{id:'RedBullTV.at',name:'Red Bull TV',alt_names:[]}]:[
     {channel:'RedBullTV.at',url:'javascript:alert(1)',in_use:true},
+    {channel:'RedBullTV.at',url:'https://broadcaster.example/other-logo.png',in_use:true,tags:{}},
     {channel:'RedBullTV.at',url:'https://broadcaster.example/official-logo.png',in_use:true,tags:['square']}
   ]};}) as any;
   new Script(readFileSync(resolve(process.cwd(),'media/artwork.js'),'utf8')).runInContext(dom.getInternalVMContext());

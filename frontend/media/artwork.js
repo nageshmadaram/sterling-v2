@@ -27,7 +27,7 @@
       if(!Array.isArray(channels)||!Array.isArray(images))throw Error('Invalid artwork metadata');
       const nextNames=new Map(),nextLogos=new Map();
       for(const row of channels){if(!row||row.is_nsfw||typeof row.id!=='string'||typeof row.name!=='string')continue;for(const name of [row.name,...(Array.isArray(row.alt_names)?row.alt_names:[])]){const key=normalize(name);if(key)nextNames.set(key,nextNames.has(key)&&nextNames.get(key)!==row.id?null:row.id);}}
-      for(const row of images){if(!row||typeof row.channel!=='string'||!safe(row.url)||row.in_use===false)continue;if(!nextLogos.has(row.channel)||row.tags?.includes('square'))nextLogos.set(row.channel,row.url);}
+      for(const row of images){if(!row||typeof row.channel!=='string'||!safe(row.url)||row.in_use===false)continue;if(!nextLogos.has(row.channel)||(Array.isArray(row.tags)&&row.tags.includes('square')))nextLogos.set(row.channel,row.url);}
       names=nextNames;logos=nextLogos;window.dispatchEvent(new Event('sterling-artwork-update'));
     }).catch(()=>{controller.abort();lastFetch=Date.now()-29*60*1000;}).finally(()=>{clearTimeout(timer);pending=null;});return pending;
   }
