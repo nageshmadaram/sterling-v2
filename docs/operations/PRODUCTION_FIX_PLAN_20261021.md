@@ -185,3 +185,20 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 | R2-6 | Doctor `account_binding` fails 15 min after each verify (`MAX_BINDING_VERIFICATION_AGE`), though every live order re-verifies first (`execution_service.py:352`). | **Open — owner decision.** A doctor change was drafted and reverted: the permission system classed it as weakening a safety check. Workaround: run `sterlingctl bind verify zerodha-aa0595-20261010` right before `doctor`. |
 | R2-7 | Doctor `network_path` reads only binding freshness (same 15 min window). | **Open — same decision as R2-6.** |
 | R2-8 | `tests/tvIntegrationSecurity.test.ts` fails after `0198c269` (another session's mobile commit). | **Not this session's change.** Left for that session. |
+
+## 11. Third pass, 2026-10-21 night (live enablement)
+
+| ID | Finding | Status |
+|---|---|---|
+| R3-1 | Production setup / Shared risk held drafts with no Save bar; the section rail then refused clicks silently. | **Fixed** `c6d8175a`. |
+| R3-2 | Trading Config chips, Manual Trade, Algo Trade, Daily loss saved on click. | **Fixed** `00ea0736`: one shared draft + bar. Kill switch, MANUAL/ALGO, breaker on/off stay immediate (actions). |
+| R3-3 | Live-entry Apply disabled with no reason; binding evidence (15 min) had no UI refresh. | **Fixed** `fa6c8df5`, `32db14dd`: Re-verify button + stated blocker. |
+| R3-4 | Binding loop re-verified only after a new login, so posture said "account binding" missing all session. | **Fixed** `fa0b9410`; posture OK at 19:10:34 IST after restart. |
+| R3-5 | Web doctor showed safe_mode_state / lake_mount / restore_check UNKNOWN (service lacks sterlingctl env). | **Fixed** `1a8bb899`, `85f1ca4c`. |
+| R3-6 | Status screen said BLOCKED while service admitted entries (did not load `.env`; omitted kill switch). | **Fixed** `559fd3e1`, `6d6b80a6`, `1dfb1f6c`. |
+| R3-7 | Two backup trees: `.env` relative `backups/snapback` resolved to `backend/backups/snapback` (906 MB, never restore-checked). | **Fixed in `.env`** (absolute path, not tracked). Old `backend/backups/snapback` can be archived to the lake to free 906 MB. |
+| R3-8 | Price Rules tab shown while Price Rules off. | **Fixed** `b86401cd`. |
+| R3-9 | EMA Trend removed in pass 1. | **Restored** `b727a253` at owner request. |
+| Open | Disk 1.9 GB free (doctor needs 2 GiB). ST-5 scale-in stop re-base decision. Telegram on/off switches and Experience prefs still save instantly. |  |
+
+State at 19:10 IST: Live Execution Enabled · Safe Mode Normal · Recovery Clean · Entries Open · Posture OK. All strategies MANUAL until switched to ALGO.
