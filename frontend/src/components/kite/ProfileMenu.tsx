@@ -34,14 +34,14 @@ export function ProfileMenu(){const q=useSterlingProfile();const qc=useQueryClie
   if(root&&!wasInert)root.setAttribute('inert','');
   const previousOverflow=document.body.style.overflow;
   document.body.style.overflow='hidden';
-  const onEscape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();setCropFile(file=>{if(file)return null;setOpen(false);return null;});}};
+  const onEscape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(cropFile)setCropFile(null);else close();}};
   document.addEventListener('keydown',onEscape,true);
   return()=>{
    document.removeEventListener('keydown',onEscape,true);
    document.body.style.overflow=previousOverflow;
    if(root&&!wasInert)root.removeAttribute('inert');
   };
- },[open]);
+ },[open,cropFile]);
  return <><button ref={trigger} className="sterling-profile" aria-label="Sterling account profile" aria-expanded={open} onClick={()=>setOpen(!open)} style={{display:'flex',alignItems:'center',gap:6,border:0,background:'transparent',color:'var(--k-text)',cursor:'pointer'}}>{q.data?.photo?<img src={q.data.photo} alt="" width={28} height={28} style={{borderRadius:'50%',objectFit:'cover'}}/>:<span style={{borderRadius:'50%',padding:7,background:'var(--k-surface-2)'}}>{label.slice(0,2).toUpperCase()}</span>}<span>{label}</span></button>
  {open&&createPortal(<div className="appearance-modal sterling-profile-modal" role="dialog" aria-modal="true" aria-label={cropFile?'Crop profile picture':'Sterling profile'}
  style={{position:'fixed',inset:0,zIndex:2147483000,pointerEvents:'auto',display:'grid',placeItems:'center',background:'rgba(0,0,0,.80)',overscrollBehavior:'contain',touchAction:'auto'}}
