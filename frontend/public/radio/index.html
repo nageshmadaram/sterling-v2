@@ -2,7 +2,7 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="true" />
   <meta name="mobile-web-app-capable" content="true" />
@@ -277,6 +277,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 }
 @media(prefers-reduced-motion:reduce){#mobile-player-sheet{transition:none!important;}}
 </style>
+  <link rel="stylesheet" href="/media/experience.css">
 </head>
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
@@ -300,7 +301,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
   <!-- =========================================================================
        MODAL 1: STARTUP CHANNEL & BOOT SETTINGS
        ========================================================================= -->
-  <div id="startup-modal" class="hidden fixed inset-0 z-[170] bg-black/80 flex items-center justify-center p-4">
+  <div id="startup-modal" role="dialog" aria-modal="true" aria-label="Radio startup settings" class="hidden fixed inset-0 z-[170] bg-black/80 flex items-center justify-center p-4">
     <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-[15px] text-white">Startup Playback</h3>
@@ -418,7 +419,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <button data-radio-click="20" class="w-10 h-10 flex items-center justify-center text-white" title="Spotify">
           <i class="fa-brands fa-spotify text-[32px]"></i>
         </button>
-        <button data-radio-click="20" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
+        <button data-radio-click="80" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
           <i class="fa-solid fa-house text-base"></i>
         </button>
 
@@ -437,6 +438,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- Category Pills -->
       <div class="flex items-center gap-1.5">
+        <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
         <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
         <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
         <button data-radio-click="24" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
@@ -461,7 +463,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar">
           <button data-radio-click="28" class="w-8 h-8 btn-circle bg-[#1ed760] text-black font-bold text-xs" title="Startup Settings">N</button>
-          <button data-radio-click="20" id="sp-mchip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition">SW / AM</button>
+          <button data-radio-click="80" id="sp-mchip-all" class="radio-all-chip">All</button>
+        <button data-radio-click="20" id="sp-mchip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1ed760] text-black shrink-0 transition">SW / AM</button>
           <button data-radio-click="23" id="sp-mchip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Akashvani</button>
           <button data-radio-click="24" id="sp-mchip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Telugu</button>
           <button data-radio-click="25" id="sp-mchip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#2a2a2a] text-white shrink-0 transition">Tamil</button>
@@ -590,7 +593,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         </section>
 
         <!-- 1. SPOTIFY 2-COLUMN (MOBILE) / 3-COLUMN (DESKTOP) 56px QUICK-ACCESS GRID -->
-        <section class="mb-6">
+        <section id="radio-home-quick" class="mb-6">
           <div id="sp-top-compact-grid" class="grid grid-cols-2 lg:grid-cols-3 gap-2"></div>
         </section>
 
@@ -751,7 +754,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     </div>
 
     <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[58px] solid-sp-mob-nav z-[80] flex items-center justify-around px-2">
-      <button data-radio-click="20" class="flex flex-col items-center justify-center gap-1 text-white w-16">
+      <button data-radio-click="80" class="flex flex-col items-center justify-center gap-1 text-white w-16">
         <i class="fa-solid fa-house text-[18px]"></i>
         <span class="text-[10px] font-medium">Home</span>
       </button>
@@ -815,7 +818,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- YTM Left Navigation Rail (Desktop md+) -->
       <aside class="hidden md:flex w-[220px] bg-[#030303] border-r border-[#1f1f1f] px-3 py-3 flex-col gap-1 shrink-0">
-        <button data-radio-click="20" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-[#212121] text-sm font-medium text-white">
+        <button data-radio-click="80" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg bg-[#212121] text-sm font-medium text-white">
           <i class="fa-solid fa-house w-5"></i> <span>Home</span>
         </button>
         <button data-radio-click="26" class="w-full flex items-center gap-4 px-3.5 py-2.5 rounded-lg hover:bg-[#181818] text-sm font-medium text-[#aaa] hover:text-white">
@@ -849,7 +852,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
         <!-- YTM Filter Chips -->
         <div class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-5">
-          <button data-radio-click="20" id="ytm-chip-sw" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition">Shortwave & AM</button>
+          <button data-radio-click="80" id="ytm-chip-all" class="radio-all-chip">All</button>
+        <button data-radio-click="20" id="ytm-chip-sw" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-white text-black shrink-0 transition">Shortwave & AM</button>
           <button data-radio-click="23" id="ytm-chip-air" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Akashvani</button>
           <button data-radio-click="24" id="ytm-chip-te" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Telugu</button>
           <button data-radio-click="25" id="ytm-chip-ta" class="px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition">Tamil</button>
@@ -997,7 +1001,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     </div>
 
     <nav class="lg:hidden fixed bottom-0 inset-x-0 h-[56px] solid-ytm-mob-nav z-[80] flex items-center justify-around px-2">
-      <button data-radio-click="20" class="flex flex-col items-center justify-center gap-1 text-white w-16">
+      <button data-radio-click="80" class="flex flex-col items-center justify-center gap-1 text-white w-16">
         <i class="fa-solid fa-house text-[18px]"></i>
         <span class="text-[10px] font-medium">Home</span>
       </button>
@@ -1024,7 +1028,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       <button data-radio-click="70" class="w-9 h-9 btn-circle text-white">
         <i class="fa-solid fa-chevron-down text-base"></i>
       </button>
-      <span class="text-xs font-semibold text-white/90">Now Playing</span>
+      <span class="radio-playing-context"><small>PLAYING FROM LIVE RADIO</small><strong id="sheet-context">Your station</strong></span>
       <div class="flex items-center gap-1">
         <button data-radio-click="29" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" title="Audio settings">
           <i class="fa-solid fa-sliders text-sm"></i>
@@ -1150,8 +1154,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       clearTimeout(stationArtworkPaintTimer);
       stationArtworkPaintTimer=setTimeout(()=>{
         if(document.hidden)return;
-        renderCategoryGrids();
-        renderPersonalizedShelves();
+        document.querySelectorAll('img[data-radio-station]').forEach(img=>{
+          const station=findStationById(img.dataset.radioStation);if(!station)return;
+          const cover=getStationIdentityThumbnail(station);if(img.src!==cover){delete img.dataset.radioFallbackApplied;img.src=cover;}
+        });
       },350);
     }
     function pumpStationArtworkQueue(){
@@ -1159,7 +1165,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       while(stationArtworkInflight<2&&stationArtworkQueue.length){
         const station=stationArtworkQueue.shift();
         const key=station.id||station.title;
-        if(!catalogItems.includes(station)&&activeStream!==station) {
+        if(!catalogItems.includes(station)&&activeStream!==station&&appConfig.activeCategory!=='all') {
           stationArtworkPending.delete(key);
           continue;
         }
@@ -1175,9 +1181,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       // Defer remote station favicon lookups and bound total requests per view.
       // The category's first cards are enriched; off-screen cards retain their
       // generated covers until selected or viewed in a later collection.
-      for(const station of catalogItems.slice(0,16)){
+      const visible=appConfig.activeCategory==='all'?[...recentsList,...starterStations,...catalogItems.slice(0,16)]:catalogItems.slice(0,16);
+      for(const station of visible){
         const key=station?.id||station?.title;
-        if(!key||station.artwork||stationArtworkPending.has(key)||stationArtworkChecked.has(key))continue;
+        if(!key||stationArtworkPending.has(key)||Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)continue;
         stationArtworkPending.add(key);
         stationArtworkQueue.push(station);
       }
@@ -1185,27 +1192,29 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)pumpStationArtworkQueue();});
     function refreshStationArtwork(streamObj,revision) {
-      if(!streamObj || streamObj.artwork || !streamObj.title || !RADIO_MIRRORS?.length) return Promise.resolve(false);
+      if(!streamObj || !streamObj.title || !RADIO_MIRRORS?.length) return Promise.resolve(false);
       const key=streamObj.id||streamObj.title;
       if(Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)return Promise.resolve(false);
       stationArtworkChecked.set(key,Date.now());
       if(stationArtworkChecked.size>96)stationArtworkChecked.delete(stationArtworkChecked.keys().next().value);
       const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
-      return fetch(`${RADIO_MIRRORS[0]}/stations/bynameexact/${encodeURIComponent(streamObj.title)}?limit=8`,
+      return fetch(`${RADIO_MIRRORS[0]}/stations/byname/${encodeURIComponent(streamObj.title)}?limit=12&hidebroken=true`,
         {signal:controller.signal})
         .then(res=>res.ok?res.json():[])
-        .then(items=>{
+        .then(async items=>{
           if(!Array.isArray(items))return;
-          const title=streamObj.title.trim().toLowerCase();
-          const row=items.find(item=>item?.name?.trim().toLowerCase()===title &&
+          const norm=value=>String(value||'').toLowerCase().replace(/[^\p{L}\p{N}]/gu,'');
+          const title=norm(streamObj.title);
+          const row=items.find(item=>norm(item?.name)===title &&
             typeof item.favicon==='string' && /^https:\/\//i.test(item.favicon));
           if(!row)return;
           const cover=getStationIdentityThumbnail({...streamObj,artwork:row.favicon});
-          if(!cover.startsWith('https://'))return;
+          if(!cover.startsWith('https://')||!await validateImageUrl(cover))return;
           streamObj.artwork=cover;
+          for(const station of [...MASTER_POOL,...catalogItems,...recentsList,...likedStations])if(station.id===streamObj.id)station.artwork=cover;
           if(revision===playbackRevision&&activeStream===streamObj){
-            syncPlayerUI(cover);
-            updateMediaSession(cover,streamObj.title,streamObj.subtitle);
+            syncPlayerUI(activeTrackArtwork||cover);
+            if(!activeTrackArtwork)updateMediaSession(cover,streamObj.title,streamObj.subtitle);
           }
           // Station covers belong to station cards; track art remains player-only.
           // Coalesce paints to avoid replacing grid DOM while people are tapping.
@@ -1242,15 +1251,22 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       ctx.fillRect(0, 0, 600, 600);
       ctx.globalAlpha=0.14;ctx.fillStyle=theme.accent;ctx.fillRect(0,0,600,600);ctx.globalAlpha=1;
 
+      // Deterministic visual families keep offline covers distinct without inventing album art.
+      ctx.save();ctx.globalAlpha=.28;ctx.strokeStyle=theme.accent;ctx.lineWidth=8;
+      const style=h%3;
+      if(style===0){for(let i=0;i<5;i++){ctx.beginPath();ctx.arc(460,125,65+i*38,0,Math.PI*2);ctx.stroke();}}
+      else if(style===1){for(let i=0;i<9;i++){ctx.fillStyle=theme.accent;ctx.fillRect(38+i*65,80+(i%3)*35,32,160+(i%4)*24);}}
+      else {ctx.translate(380,190);ctx.rotate(-.4);ctx.fillStyle=theme.accent;ctx.fillRect(-95,-95,230,230);}
+      ctx.restore();
       // Frequency is printed once (large), not repeated above it.
       // Minimal Horizontal Hairline Rule
       ctx.fillStyle = 'rgba(255,255,255,0.10)';
       ctx.fillRect(44, 92, 512, 1.5);
 
       // Large Clean Frequency / Call-Sign Watermark
-      const heroFreq = ch.freqKhz ? `${ch.freqKhz}` : (ch.shortFreq || 'FM');
-      ctx.fillStyle = 'rgba(255,255,255,0.22)';
-      ctx.font = '800 136px "Inter", sans-serif';
+      const heroFreq = ch.freqKhz ? `${ch.freqKhz}` : ch.title.split(/\s+/).filter(Boolean).slice(0,2).map(word=>word[0]).join('').toUpperCase();
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.font = '800 124px "Inter", sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText(heroFreq, 40, 290);
 
@@ -1348,7 +1364,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Vijayawada AM',
         subtitle: '837 kHz • Mediumwave',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio175/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'am_air_urdu_mw',
@@ -1503,7 +1519,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'FM Rainbow Hyd',
         subtitle: '101.9 FM • Telugu Hits',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio031/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_hyd_vbs',
@@ -1529,7 +1545,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'Akashvani Telugu',
         subtitle: 'DTH • 24x7 Telugu Live',
         streamUrl: 'https://airtelugu-lh.akamaihd.net/i/airtelugu_1@507818/master.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_vijayawada',
@@ -1555,7 +1571,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Visakhapatnam',
         subtitle: '102.0 FM • Vizag Telugu',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio178/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_tirupati',
@@ -1568,7 +1584,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Tirupati FM',
         subtitle: '107.5 FM • Rayalaseema',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio144/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_warangal',
@@ -1581,7 +1597,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Warangal FM',
         subtitle: '101.7 FM • Telangana',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio154/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_adilabad',
@@ -1594,7 +1610,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Adilabad FM',
         subtitle: '100.2 FM • Telangana',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio218/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_nizamabad',
@@ -1607,7 +1623,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Nizamabad FM',
         subtitle: '103.2 FM • Telangana',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio222/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_kothagudem',
@@ -1620,7 +1636,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Kothagudem',
         subtitle: '102.3 FM • Telangana',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio116/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       },
       {
         id: 'te_air_kurnool',
@@ -1633,7 +1649,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         title: 'AIR Kurnool FM',
         subtitle: '102.4 FM • Rayalaseema',
         streamUrl: 'https://air.pc.cdn.bitgravity.com/air/live/pbaudio151/playlist.m3u8',
-        backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+        backupUrls: []
       }
     ];
 
@@ -2026,7 +2042,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     const DEFAULT_CONFIG = {
       appMode: 'spotify',
-      activeCategory: 'shortwave',
+      activeCategory: 'all',
       swDrawerExpanded: false,
       volume: 0.85,
       muted: false,
@@ -2143,8 +2159,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function populateStartupSelectDropdown() {
       const sel = document.getElementById('startup-channel-select');
-      const allChoices = [...MASTER_POOL, ...recentsList, ...likedStations]
-        .filter((v, i, a) => v && v.id && a.findIndex(t => t.id === v.id) === i);
+      const allChoices = [...MASTER_POOL, ...recentsList, ...likedStations, appConfig.startupStationSnapshot]
+        .filter((v, i, a) => v && v.id && a.findIndex(t => t?.id === v.id) === i);
 
       sel.innerHTML = allChoices.map(ch => `
         <option value="${escapeRadioText(ch.id)}" ${ch.id === appConfig.startupStationId ? 'selected' : ''}>
@@ -2162,6 +2178,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function onStartupChannelChange(stationId) {
       appConfig.startupStationId = stationId;
+      appConfig.startupStationSnapshot = findStationById(stationId);
       appConfig.bootBehavior = 'custom';
       saveAppConfig();
       syncStartupModalUI();
@@ -2171,6 +2188,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (!activeStream) return showToast('Play any station first');
       safeHaptic(12);
       appConfig.startupStationId = activeStream.id;
+      appConfig.startupStationSnapshot = activeStream;
       appConfig.lastStationSnapshot = activeStream;
       appConfig.bootBehavior = 'custom';
       saveAppConfig();
@@ -2196,7 +2214,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function findStationById(id) {
-      return MASTER_POOL.find(s => s.id === id)
+      return (appConfig.startupStationSnapshot?.id === id ? appConfig.startupStationSnapshot : null)
+        || MASTER_POOL.find(s => s.id === id)
         || catalogItems.find(s => s.id === id)
         || recentsList.find(s => s.id === id)
         || likedStations.find(s => s.id === id)
@@ -2221,6 +2240,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let pendingPlayRecord = null;
     let playbackRevision = 0;
     let artworkLookupInFlight = false;
+    let activeTrackArtwork='';
     let lastArtworkTrackKey = '', lastArtworkTrackCheck = 0;
     let nextBackgroundRetryAt = 0;
 
@@ -2255,7 +2275,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       syncSwDrawerUI();
 
       switchAppMode(appConfig.appMode || 'spotify', true);
-      loadCategory(appConfig.activeCategory || 'shortwave', true);
+      loadCategory(appConfig.activeCategory || 'all', true);
       renderPersonalizedShelves();
       renderSidebarList();
       bindAudioEvents();
@@ -2294,7 +2314,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         const {action,value} = event.data;
         if (action === 'theme' && ['spotify','youtube','netflix'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : value === 'netflix' ? 'netflix' : 'ytmusic');
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
-        if (action === 'more') openStartupModal();
+        if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200));
+        if(action==='select-suggestion'&&typeof value==='string'){const ch=findStationById(value);if(ch){startPlayback(ch);clearAllSearches();}}
+        if (action === 'more' || action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
         return;
       }
@@ -2317,7 +2339,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           if(slider)slider.value=appConfig.volume ?? 0.85;
         });
         switchAppMode(appConfig.appMode||'spotify',true);
-        loadCategory(appConfig.activeCategory||'shortwave',true);
+        loadCategory(appConfig.activeCategory||'all',true);
         renderPersonalizedShelves();
         renderSidebarList();
         if(!isPlaying&&!pendingBootStation) {
@@ -2408,7 +2430,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function seekSwStation(dir) {
       safeHaptic(10);
-      const curKhz = parseInt(document.getElementById('sw-freq-slider').value, 10);
+      const curKhz = activeStream?.freqKhz || parseInt(document.getElementById('sw-freq-slider').value, 10);
       const sorted = [...SHORTWAVE_AM_STATIONS].sort((a, b) => a.freqKhz - b.freqKhz);
 
       let target = sorted[0];
@@ -2520,16 +2542,16 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.querySelector('#sp-recents-section h2').textContent=recentsList.length ? 'Recently played' : 'Start listening';
       document.getElementById('ytm-recents-section').querySelector('h2').textContent=recentsList.length ? 'Listen again' : 'Start listening';
       document.getElementById('sp-mostplayed-section').classList.toggle('hidden',!mostPlayedList.length);
-      const topSix = [...recentsList.slice(0, 4), ...mostPlayedList.slice(0, 4), ...starterStations]
-        .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i)
-        .slice(0, 6);
+      const topSix = [...recentsList.slice(0, 4), ...mostPlayedList.slice(0, 4), ...starterStations, ...MASTER_POOL]
+        .filter((v, i, a) => a.findIndex(t => t?.id === v.id) === i)
+        .slice(0, 8);
 
       document.getElementById('sp-top-compact-grid').innerHTML = topSix.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
           <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="group h-[56px] bg-[#242424] hover:bg-[#323232] rounded-[4px] overflow-hidden flex items-center justify-between pr-2.5 cursor-pointer transition">
             <div class="flex items-center gap-3 min-w-0 h-full">
-              <img src="${emblem}" class="w-[56px] h-[56px] object-cover shrink-0" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" class="w-[56px] h-[56px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
                 <div class="font-semibold text-[13px] text-white truncate">${escapeRadioText(ch.title)}</div>
                 <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(ch.freqLabel || ch.subtitle)}</div>
@@ -2548,7 +2570,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         return `
           <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="snap-card w-[144px] sm:w-[158px] shrink-0 group bg-[#181818] hover:bg-[#242424] p-2.5 rounded-[6px] transition cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[4px] overflow-hidden bg-[#121212]">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
               <button class="w-10 h-10 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-1 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
                 <i class="fa-solid fa-play text-xs ml-0.5"></i>
               </button>
@@ -2564,13 +2586,16 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sp-suggested-carousel').innerHTML = renderCarouselCards(similarList);
       document.getElementById('sp-mostplayed-carousel').innerHTML = renderCarouselCards(mostPlayedList, true);
 
+      let collections=document.getElementById('sp-collections');
+      if(!collections){collections=document.createElement('div');collections.id='sp-collections';document.getElementById('sp-mostplayed-section').after(collections);collections.addEventListener('click',event=>{const cat=event.target.closest('[data-radio-category]')?.dataset.radioCategory;if(cat)loadCategory(cat);});}
+      collections.innerHTML=[['shortwave','Shortwave & AM',SHORTWAVE_AM_STATIONS],['akashvani','Akashvani',AKASHVANI_NATIONAL],['telugu','Telugu favourites',TELUGU_STATIONS]].map(([cat,label,pool])=>`<section class="radio-collection-shelf"><header><h2>${label}</h2><button type="button" data-radio-category="${cat}">Show all</button></header><div class="radio-collection-cards">${renderCarouselCards(pool.slice(0,8))}</div></section>`).join('');
       const renderYtmCarousel = (list, showPlayCount = false) => list.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         const subText = showPlayCount && ch.playCount ? `${ch.playCount} ${ch.playCount === 1 ? 'play' : 'plays'} • ${ch.subtitle}` : ch.subtitle;
         return `
           <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="snap-card w-[142px] sm:w-[156px] shrink-0 group cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
             <div class="font-medium text-[13px] text-white truncate">${escapeRadioText(ch.title)}</div>
             <div class="text-[11px] text-[#aaa] truncate mt-0.5">${escapeRadioText(subText)}</div>
@@ -2589,7 +2614,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           const emblem = getStationIdentityThumbnail(ch);
           return `
             <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center gap-2.5 p-1.5 rounded hover:bg-white/10 cursor-pointer">
-              <img src="${emblem}" class="w-9 h-9 rounded object-cover shrink-0" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" class="w-9 h-9 rounded object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
                 <div class="text-xs font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
                 <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(ch.subtitle)}</div>
@@ -2605,7 +2630,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           const emblem = getStationIdentityThumbnail(ch);
           return `
             <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="w-24 shrink-0 cursor-pointer">
-              <img src="${emblem}" class="w-24 h-24 rounded-md object-cover mb-1" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" class="w-24 h-24 rounded-md object-cover mb-1" alt="" />
               <div class="text-[11px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
             </div>
           `;
@@ -2673,7 +2698,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         return `
           <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
             <div class="flex items-center gap-3 min-w-0">
-              <img src="${emblem}" class="w-10 h-10 rounded-[4px] object-cover shrink-0" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" class="w-10 h-10 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0">
                 <div class="text-xs font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
                 <div class="text-[11px] text-[#aaa] truncate">${escapeRadioText(ch.subtitle)}</div>
@@ -2702,6 +2727,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       publishRadioState();
       if (!skipSave) safeHaptic(8);
       appConfig.activeCategory = cat;
+      document.documentElement.dataset.radioCategory=cat;
+      document.documentElement.dataset.radioView=cat==='all'?'home':'collection';
+      document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
+      clearTimeout(searchTimer);
+      ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{const input=document.getElementById(id);if(input)input.value='';});
       if (!skipSave) saveAppConfig();
       closePodcastBox();
 
@@ -2710,7 +2740,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (swDeck) swDeck.classList.toggle('hidden', cat !== 'shortwave');
       if (ytmSwDeck) ytmSwDeck.classList.toggle('hidden', cat !== 'shortwave');
 
-      const chipKeys = { shortwave: 'sw', akashvani: 'air', telugu: 'te', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
+      const chipKeys = { all:'all', shortwave: 'sw', akashvani: 'air', telugu: 'te', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
       Object.entries(chipKeys).forEach(([k, suffix]) => {
         const spEl = document.getElementById(`sp-chip-${suffix}`);
         if (spEl) spEl.className = (k === cat)
@@ -2728,7 +2758,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           : 'px-3.5 py-1.5 rounded-[8px] text-xs font-medium bg-[#212121] text-white hover:bg-[#303030] shrink-0 transition';
       });
 
-      if (cat === 'shortwave') {
+      if (cat === 'all') {
+        setHeadings('Explore all stations');
+        catalogItems = [...MASTER_POOL];
+      } else if (cat === 'shortwave') {
         setHeadings('Shortwave & AM World Radio');
         catalogItems = [...SHORTWAVE_AM_STATIONS];
       } else if (cat === 'akashvani') {
@@ -2747,6 +2780,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         catalogItems = [...ELITE_GLOBAL_STATIONS];
       } else if (cat === 'podcasts') {
         setHeadings('Top Podcasts');
+        catalogItems=[];renderCategoryGrids();
         loadPodcastsViaJsonp('top podcasts');
         return;
       }
@@ -2768,9 +2802,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
         const seen = new Set(catalogItems.map(c => c.streamUrl));
         for (const s of data) {
-          if (s.url_resolved && s.url_resolved.startsWith('http') && !seen.has(s.url_resolved)) {
+          if (typeof s.url_resolved==='string' && s.url_resolved.startsWith('https://') && !seen.has(s.url_resolved)) {
             seen.add(s.url_resolved);
-            const cleanName = (s.name || `${lang} FM`).trim();
+            const cleanName = String(s.name || `${lang} FM`).trim().slice(0,200);
             const freqMatch = cleanName.match(/\b(\d{2,3}\.\d|\d{3,4})\b/);
             const newCh = {
               id: `${lang}_${s.stationuuid}`,
@@ -2780,10 +2814,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
               freqLabel: freqMatch ? `${freqMatch[1]} FM` : `${s.bitrate || 128}k FM`,
               shortFreq: freqMatch ? freqMatch[1] : 'FM',
               artQuery: `${cleanName} ${lang} songs`,
+              artwork:typeof s.favicon==='string'?s.favicon:null,
               title: cleanName,
               subtitle: `${s.state || 'Live FM'} • ${s.bitrate || 128}kbps`,
               streamUrl: s.url_resolved,
-              backupUrls: ['https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8']
+              backupUrls: []
             };
             catalogItems.push(newCh);
             if (!seenMasterIds.has(newCh.id)) {
@@ -2821,7 +2856,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         grid.parentElement.querySelector('.radio-empty-state')?.remove();
         if(!catalogItems.length) {
           const empty=document.createElement('p');empty.className='radio-empty-state';empty.setAttribute('role','status');
-          empty.textContent=radioSearchQuery ? 'No stations found. Try a station name, language, or frequency.' : 'No channels available in this collection.';
+          empty.textContent=document.documentElement.dataset.radioView==='library' ? 'Your library is empty. Save a station using the heart in Now Playing.' : radioSearchQuery ? 'No stations found. Try a station name, language, or frequency.' : 'No channels available in this collection.';
           grid.after(empty);
         }
       });
@@ -2831,7 +2866,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         return `
           <div data-radio-click="72" data-radio-arg="${idx}" class="group bg-[#181818] hover:bg-[#242424] p-3 rounded-[6px] transition cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2.5 rounded-[4px] overflow-hidden bg-[#121212]">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
               <button class="w-11 h-11 btn-circle bg-[#1ed760] text-black shadow-xl absolute bottom-2 right-2 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition duration-200">
                 <i class="fa-solid fa-play text-sm ml-0.5"></i>
               </button>
@@ -2847,7 +2882,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         return `
           <div data-radio-click="72" data-radio-arg="${idx}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer group transition">
             <div class="flex items-center gap-3 min-w-0 flex-1">
-              <img src="${emblem}" class="w-12 h-12 rounded-[4px] object-cover shrink-0" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" class="w-12 h-12 rounded-[4px] object-cover shrink-0" alt="" />
               <div class="min-w-0 flex-1">
                 <div class="text-[14px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
                 <div class="text-[12px] text-[#aaa] truncate">${escapeRadioText(ch.subtitle)}</div>
@@ -2863,7 +2898,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         return `
           <div data-radio-click="72" data-radio-arg="${idx}" class="group cursor-pointer flex flex-col">
             <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
-              <img src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
             </div>
             <div class="font-medium text-[14px] text-white truncate">${escapeRadioText(ch.title)}</div>
             <div class="text-[12px] text-[#aaa] truncate mt-0.5">${escapeRadioText(ch.subtitle)}</div>
@@ -2908,7 +2943,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         const sub = ch.playCount ? `${ch.playCount} ${ch.playCount === 1 ? 'play' : 'plays'} • ${ch.subtitle}` : ch.subtitle;
         return `
           <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center gap-3 p-2 rounded-md hover:bg-[#1f1f1f] cursor-pointer">
-            <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
+            <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
             <div class="min-w-0 flex-1">
               <div class="text-[13px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
               <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(sub)}</div>
@@ -2946,6 +2981,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
       if (!isBootAttempt) safeHaptic(10);
       activeStream = streamObj;
+      if(!overrideUrl)activeTrackArtwork='';
       userPaused = false;
       const revision=++playbackRevision;
       const url = overrideUrl || streamObj.streamUrl;
@@ -3104,6 +3140,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const validUrl=await validateImageUrl(hdUrl);
       if(!validUrl||generation!==playbackRevision||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
 
+      activeTrackArtwork=validUrl;
       // Update only active player surfaces; keep channel cards station-specific
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
         const el = document.getElementById(id);
@@ -3209,7 +3246,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sheet-play').className = icon;
       document.getElementById('sp-np-eq').classList.toggle('paused', !isPlaying);
 
+      const context=document.getElementById('sheet-context');if(context)context.textContent=activeStream.category==='telugu'?'Telugu radio':activeStream.category==='akashvani'?'Akashvani':activeStream.category==='tamil'?'Tamil radio':'Your stations';
       syncLikeIcons();
+      syncSwPlayer();
     }
 
     function updateMediaSession(artUrl, title, artist) {
@@ -3227,9 +3266,39 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     // --- 14. Search, Podcasts & Transport ---
+    function radioSuggestionItems(query) {
+      const norm=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const terms=norm(query).trim().split(/\s+/).filter(Boolean);
+      const pool=terms.length?[...MASTER_POOL,...catalogItems]:[...recentsList,...starterStations];
+      return pool.filter((item,i,all)=>all.findIndex(other=>other.id===item.id)===i && terms.every(term=>norm([item.title,item.subtitle,item.category,item.freqKhz].join(' ')).includes(term)))
+        .sort((a,b)=>Number(norm(b.title).startsWith(norm(query)))-Number(norm(a.title).startsWith(norm(query))))
+        .slice(0,8);
+    }
+    function publishRadioSuggestions(query) {
+      const items=radioSuggestionItems(query);
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.suggestions',query,items:items.map(ch=>({id:ch.id,label:ch.title,subtitle:ch.subtitle,artwork:ch.artwork||''}))},'*');
+      document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
+      if(!query.trim()){
+        document.documentElement.dataset.radioView='search';
+        let browse=document.getElementById('radio-browse-search');
+        if(!browse){browse=document.createElement('section');browse.id='radio-browse-search';browse.innerHTML='<h2>Browse all</h2><div class="radio-browse-tiles"></div>';document.getElementById('radio-home-quick').before(browse);
+          const categories=[['shortwave','Shortwave & AM',SHORTWAVE_AM_STATIONS[0]],['akashvani','Akashvani',AKASHVANI_NATIONAL[0]],['telugu','Telugu',TELUGU_STATIONS[0]],['tamil','Tamil',TAMIL_STATIONS[0]],['featured','Global radio',ELITE_GLOBAL_STATIONS[0]],['podcasts','Podcasts',null]];
+          for(const [cat,label,station] of categories){const button=document.createElement('button');button.type='button';const title=document.createElement('strong');title.textContent=label;button.append(title);if(station){const image=document.createElement('img');image.src=getStationIdentityThumbnail(station);image.alt='';image.dataset.radioStation=station.id;button.append(image);}button.addEventListener('click',()=>loadCategory(cat));browse.querySelector('.radio-browse-tiles').append(button);}
+        }
+      }
+      if(radioHosted)return;
+      for(const id of ['sp-search-desktop','sp-search-mobile','ytm-search-input']){
+        const input=document.getElementById(id);if(document.activeElement!==input)continue;
+        const list=document.createElement('div');list.className='radio-search-suggestions';list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
+        for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.title+' · '+ch.subtitle;button.addEventListener('click',()=>{startPlayback(ch);clearAllSearches();});list.append(button);}
+        list.addEventListener('keydown',event=>{const buttons=[...list.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}if(event.key==='Escape'){list.remove();input.focus();}});
+        input.parentElement.append(list);
+      }
+    }
     function onSearchInput(val, clearId) {
       const query=String(val??'').slice(0,200);
       radioSearchQuery=query;publishRadioState();
+      publishRadioSuggestions(query);
       // Synchronize embedded desktop and mobile inputs, and host search.
       ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{
         const el=document.getElementById(id);if(el&&el.value!==query)el.value=query;
@@ -3240,7 +3309,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       });
       clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
       document.documentElement.classList.toggle('radio-searching',Boolean(query.trim()));
-      if(!query.trim()){clearAllSearches();return;}
+      if(!query.trim()){clearAllSearches();publishRadioSuggestions('');return;}
       searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }
 
@@ -3249,7 +3318,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       // Invalidate asynchronous remote results before restoring the browse grid.
       searchRevision++;searchAbort?.abort();searchAbort=null;
       document.documentElement.classList.remove('radio-searching');
+      document.querySelectorAll('#sp-cards-grid,#ytm-cards-grid').forEach(el=>el.setAttribute('aria-busy','false'));
       radioSearchQuery='';publishRadioState();
+      document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
       ['sp-search-desktop', 'sp-search-mobile', 'ytm-search-input'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
@@ -3266,6 +3337,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (!q) {clearAllSearches();return;}
       radioSearchQuery=query;
       const revision=++searchRevision;
+      document.querySelectorAll('#sp-cards-grid,#ytm-cards-grid').forEach(el=>el.setAttribute('aria-busy','true'));
       searchAbort?.abort();
       searchAbort=new AbortController();
       const abort=searchAbort;
@@ -3274,11 +3346,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.querySelectorAll('main').forEach(main=>main.scrollTo({top:0,behavior:'instant'}));
       setHeadings(`Results for "${query.trim()}"`);
 
-      const localMatches = MASTER_POOL.filter(s =>
-        s.title.toLowerCase().includes(q) ||
-        s.subtitle.toLowerCase().includes(q) ||
-        String(s.freqKhz || '').includes(q)
-      );
+      const normalize = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+      const terms=normalize(q).split(/\s+/).filter(Boolean);
+      const localMatches = MASTER_POOL.filter(s => {
+        const hay=normalize([s.title,s.subtitle,s.category,s.freqKhz].join(' '));
+        return terms.every(term=>hay.includes(term));
+      }).sort((a,b)=>Number(normalize(b.title).startsWith(normalize(q)))-Number(normalize(a.title).startsWith(normalize(q))));
 
       catalogItems=localMatches;
       renderCategoryGrids();
@@ -3327,9 +3400,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       } catch (_) {
         if(revision !== searchRevision) return;
         catalogItems = localMatches;
-      } finally {clearTimeout(timeout);}
+      } finally {clearTimeout(timeout);if(revision===searchRevision)document.querySelectorAll('#sp-cards-grid,#ytm-cards-grid').forEach(el=>el.setAttribute('aria-busy','false'));}
       if(revision !== searchRevision) return;
       renderCategoryGrids();
+      publishRadioSuggestions(query);
     }
 
     async function openPodcastShow(show) {
@@ -3433,6 +3507,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       radioStorage.setItem('omnicast_v11_liked', JSON.stringify(likedStations));
       syncLikeIcons();
       if (sidebarFilter === 'liked') renderSidebarList();
+      if(document.documentElement.dataset.radioView==='library'){catalogItems=[...likedStations];renderCategoryGrids();}
     }
 
     function syncLikeIcons() {
@@ -3448,7 +3523,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function showLikedLibrary() {
-      searchRevision++;searchAbort?.abort();radioSearchQuery='';publishRadioState();
+      document.documentElement.dataset.radioView='library';
+      document.documentElement.dataset.radioCategory='library';
+      searchRevision++;searchAbort?.abort();document.querySelectorAll('#sp-cards-grid,#ytm-cards-grid').forEach(el=>el.setAttribute('aria-busy','false'));
+      radioSearchQuery='';publishRadioState();
+      document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
       document.documentElement.classList.add('radio-searching');
       setSidebarFilter('liked');
       catalogItems = [...likedStations];
@@ -3494,8 +3573,14 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       reader.readAsText(file);
     }
 
+    document.querySelectorAll('#sp-search-desktop,#sp-search-mobile,#ytm-search-input').forEach(input=>{
+      input.addEventListener('focus',()=>publishRadioSuggestions(input.value));
+      input.addEventListener('keydown',event=>{if(event.key==='Escape')document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());if(event.key==='ArrowDown'){event.preventDefault();input.parentElement.querySelector('.radio-search-suggestions button')?.focus();}});
+    });
     let radioSheetReturnFocus=null;
     function openMobileSheet() {
+      if(activeStream?.freqKhz){openMobileTuner();return;}
+      renderPersonalizedShelves();
       radioSheetReturnFocus=document.activeElement;
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-hidden');
@@ -3506,6 +3591,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function closeMobileSheet() {
+      closeSwPlayer();
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-visible');
       s.classList.add('drawer-hidden');
@@ -3513,12 +3599,40 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:false},'*');
       radioSheetReturnFocus?.focus();
     }
+    function syncSwPlayer() {
+      const panel=document.getElementById('sw-player-window');if(!panel)return;
+      const station=activeStream?.freqKhz?activeStream:findStationById(panel.dataset.stationId)||SHORTWAVE_AM_STATIONS[6];
+      panel.dataset.stationId=station.id;
+      const playing=isPlaying&&activeStream?.id===station.id;
+      panel.querySelector('.sw-player-title').textContent=station.title;
+      panel.querySelector('.sw-player-sub').textContent=station.subtitle;
+      panel.querySelector('.sw-player-frequency').textContent=(station.freqKhz||9410)+' kHz';
+      panel.querySelector('input[type=range]').value=station.freqKhz||9410;
+      panel.querySelector('.sw-player-art').src=getStationIdentityThumbnail(station);
+      panel.querySelector('.sw-main-play').setAttribute('aria-label',playing?'Pause radio':'Play radio');
+      panel.querySelector('.sw-main-play').innerHTML='<i class="fa-solid fa-'+(playing?'pause':'play')+'"></i>';
+    }
     function openMobileTuner() {
-      closeMobileSheet();
-      switchAppMode('spotify');
-      loadCategory('shortwave');
-      toggleSwDrawer(true);
-      requestAnimationFrame(()=>document.getElementById('sw-tuner-deck')?.scrollIntoView({block:'start',behavior:'smooth'}));
+      const music=document.getElementById('mobile-player-sheet');music.classList.remove('drawer-visible');music.classList.add('drawer-hidden');music.removeAttribute('aria-modal');
+      radioSheetReturnFocus=document.activeElement;
+      let panel=document.getElementById('sw-player-window');
+      if(!panel){
+        panel=document.createElement('section');panel.id='sw-player-window';panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','Shortwave and AM player');
+        panel.innerHTML=`<header><button type="button" data-radio-click="81" aria-label="Close shortwave player"><i class="fa-solid fa-chevron-down"></i></button><div><small>WORLD BAND RECEIVER</small><strong>Shortwave & AM</strong></div><button type="button" data-radio-click="29" aria-label="Radio audio settings"><i class="fa-solid fa-sliders"></i></button></header><img class="sw-player-art" alt="Station artwork"/><div class="sw-receiver"><span>ON AIR · LIVE BROADCAST</span><div class="sw-player-frequency"></div><div class="sw-dial-marks" aria-hidden="true"></div><label>Tune frequency<input type="range" min="530" max="26000" step="1" aria-label="Shortwave frequency in kilohertz"/></label></div><h2 class="sw-player-title"></h2><p class="sw-player-sub"></p><div class="sw-player-controls"><button type="button" data-radio-click="38" aria-label="Previous shortwave station"><i class="fa-solid fa-backward-step"></i></button><button type="button" class="sw-main-play" aria-label="Play radio"></button><button type="button" data-radio-click="39" aria-label="Next shortwave station"><i class="fa-solid fa-forward-step"></i></button></div><h3>World band presets</h3><div class="sw-player-presets"></div>`;
+        panel.querySelector('.sw-main-play').addEventListener('click',()=>{const station=findStationById(panel.dataset.stationId);if(station&&activeStream?.id!==station.id)startPlayback(station);else togglePlayPause();});
+        const slider=panel.querySelector('input');slider.addEventListener('input',()=>{panel.querySelector('.sw-player-frequency').textContent=slider.value+' kHz';previewSwDial(slider.value);});slider.addEventListener('change',()=>commitSwTune(slider.value));
+        for(const station of SHORTWAVE_AM_STATIONS){const button=document.createElement('button');button.type='button';button.textContent=station.title+' · '+station.freqKhz+' kHz';button.addEventListener('click',()=>startPlayback(station));panel.querySelector('.sw-player-presets').append(button);}
+        panel.addEventListener('keydown',event=>{if(event.key==='Escape'){closeSwPlayer();return;}if(event.key==='Tab'){const items=[...panel.querySelectorAll('button,input')],first=items[0],last=items[items.length-1];if(event.shiftKey&&document.activeElement===first){last.focus();event.preventDefault();}else if(!event.shiftKey&&document.activeElement===last){first.focus();event.preventDefault();}}});
+        document.body.append(panel);
+      }
+      panel.classList.remove('hidden');document.querySelectorAll('#spotify-app,#ytmusic-app').forEach(app=>app.inert=true);syncSwPlayer();panel.querySelector('button').focus();
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
+    }
+    function closeSwPlayer() {
+      document.getElementById('sw-player-window')?.classList.add('hidden');
+      document.querySelectorAll('#spotify-app,#ytmusic-app').forEach(app=>app.inert=false);
+      radioSheetReturnFocus?.focus();
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:false},'*');
     }
 
     function bindTouchSheet() {
@@ -3607,10 +3721,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     document.addEventListener('error',event=>{
       const img=event.target;
       if(!(img instanceof HTMLImageElement)||img.dataset.radioFallbackApplied==='1')return;
-      const stationId=img.closest('[data-radio-arg]')?.getAttribute('data-radio-arg');
+      const stationId=img.dataset.radioStation||img.closest('[data-radio-arg]')?.getAttribute('data-radio-arg');
       const station=(stationId && (catalogItems.find(ch=>ch.id===stationId)||findStationById(stationId)))||activeStream;
       if(!station)return;
       img.dataset.radioFallbackApplied='1';
+      if(station.artwork===img.src)delete station.artwork;
       img.src=getStationIdentityThumbnail({...station,artwork:null});
     },true);
     // Real listeners keep static controls and generated station cards actionable
@@ -3619,8 +3734,13 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const controls=[...(root.matches?.('[data-radio-click]')?[root]:[]),...root.querySelectorAll('[data-radio-click]')];
       controls.forEach(control=>{if(control.dataset.radioClick !== '62' && !control.matches('button,input,a,select')){control.tabIndex=0;control.setAttribute('role','button');}});
     };
+    const artworkObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
+      for(const entry of entries){if(!entry.isIntersecting)continue;const image=entry.target;artworkObserver.unobserve(image);const station=findStationById(image.dataset.radioStation);const key=station?.id;if(!key||stationArtworkPending.has(key)||Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)continue;stationArtworkPending.add(key);stationArtworkQueue.push(station);}pumpStationArtworkQueue();
+    },{rootMargin:'100px'}):null;
+    const observeArtwork=root=>root.querySelectorAll?.('img[data-radio-station]').forEach(img=>artworkObserver?.observe(img));
+    observeArtwork(document);
     enhanceRadioControls(document);
-    new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)enhanceRadioControls(node);}))).observe(document.body,{childList:true,subtree:true});
+    new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1){enhanceRadioControls(node);observeArtwork(node);}}))).observe(document.body,{childList:true,subtree:true});
     document.addEventListener('keydown',event=>{
       const sheet=document.getElementById('mobile-player-sheet');
       if(event.key==='Escape' && !document.getElementById('audio-dsp-modal').classList.contains('hidden')){event.preventDefault();closeDspModal();return;}
@@ -3658,6 +3778,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       "17": function(event) { applyDspPreset('swclean'); },
       "18": function(event) { applyDspPreset('classical'); },
       "19": function(event) { updateCustomEq(); },
+      "80": function(event) { loadCategory('all'); },
+      "81": function(event) { closeSwPlayer(); },
       "20": function(event) { loadCategory('shortwave'); },
       "21": function(event) { onSearchInput(this.value, 'sp-clear-desktop'); },
       "22": function(event) { clearAllSearches(); },

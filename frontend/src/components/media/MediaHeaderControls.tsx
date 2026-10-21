@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useId } from 'react';
+import { readMediaSuggestions, type MediaSuggestion } from './mediaSuggestions';
 
 export type MediaTheme = 'spotify' | 'youtube' | 'netflix';
 
@@ -15,6 +16,17 @@ type Props = {
 /** Same compact, touch-accessible controls for video and audio workspaces. */
 export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEnter, onFeatures }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [suggestions,setSuggestions]=useState<MediaSuggestion[]>([]);
+  const [activeSuggestion,setActiveSuggestion]=useState(-1);
+  const suggestionId=useId();
+  const queryRef=useRef(query);queryRef.current=query;
+  const selectSuggestion=(item:MediaSuggestion)=>{window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`,{detail:{action:'select-suggestion',value:item.id}}));setSearchOpen(false);setSuggestions([]);};
+  useEffect(()=>{
+    const receive=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail?.query!==queryRef.current)return;setSuggestions(readMediaSuggestions(detail.items));setActiveSuggestion(-1);};
+    window.addEventListener(`sterling-${kind}-suggestions`,receive);
+    return()=>window.removeEventListener(`sterling-${kind}-suggestions`,receive);
+  },[kind]);
+  useEffect(()=>{if(!searchOpen)return;setSuggestions([]);setActiveSuggestion(-1);window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`,{detail:{action:'suggest',value:query}}));},[query,searchOpen,kind]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -90,14 +102,20 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
             <span aria-hidden="true">{theme === option.id ? '✓' : ''}</span>
           </button>
         ))}
+        <div className="sterling-media-popover-divider" />
+        <button type="button" role="menuitem" onClick={() => {
+          setSettingsOpen(false);
+          window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`,{detail:{action:'startup'}}));
+        }}>Default {kind === 'tv' ? 'channel' : 'station'} <span aria-hidden="true">›</span></button>
         {onFeatures && <><div className="sterling-media-popover-divider" /><button type="button" role="menuitem" onClick={() => { setSettingsOpen(false); onFeatures(); }}>Player tools and preferences <span aria-hidden="true">›</span></button></>}
       </div>}
-      {searchOpen && <form className="sterling-media-expanded-search" role="search" onSubmit={event => { event.preventDefault(); onEnter?.(); }}>
+      {searchOpen && <form className="sterling-media-expanded-search" role="search" onSubmit={event => { event.preventDefault(); if(activeSuggestion>=0&&suggestions[activeSuggestion])selectSuggestion(suggestions[activeSuggestion]);else onEnter?.(); }}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
-        <input ref={searchInput} type="search" maxLength={200} value={query} onChange={event => onQuery(event.currentTarget.value)}
+        <input role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestionId} aria-activedescendant={activeSuggestion>=0?`${suggestionId}-${activeSuggestion}`:undefined} onKeyDown={event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setActiveSuggestion(index=>suggestions.length?(index<0?(event.key==='ArrowDown'?0:suggestions.length-1):(index+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length):-1);}if(event.key==='Escape'){setSearchOpen(false);onQuery('');}}} ref={searchInput} type="search" maxLength={200} value={query} onChange={event => onQuery(event.currentTarget.value)}
           aria-label={kind === 'tv' ? 'Search TV channels' : 'Search radio stations'}
-          placeholder={kind === 'tv' ? 'Search channels and shows' : 'Search stations, artists and languages'} />
+          placeholder={kind === 'tv' ? 'What do you want to watch?' : 'What do you want to listen to?'} />
         {query && <button type="button" aria-label="Clear search" onClick={() => { onQuery(''); searchInput.current?.focus(); }}>×</button>}
+        <div className="sterling-media-suggestions"><p>{query.trim()?'Suggestions':'Recently played & picks'}</p><div role="listbox" id={suggestionId} aria-label="Search suggestions">{suggestions.map((item,index)=><button type="button" role="option" aria-selected={activeSuggestion===index} id={`${suggestionId}-${index}`} key={item.id} onMouseDown={event=>event.preventDefault()} onClick={()=>selectSuggestion(item)}>{item.artwork?<img src={item.artwork} alt="" onError={event=>{event.currentTarget.style.visibility='hidden';}}/>:<span className="sterling-suggestion-art" aria-hidden="true">{item.label.slice(0,1)}</span>}<span><strong>{item.label}</strong><small>{item.subtitle}</small></span><span aria-hidden="true">↗</span></button>)}</div>{!suggestions.length&&<small role="status">{query?'No matches yet. Try a name, language or category.':'Choose a station or channel to get started.'}</small>}</div>
         {kind === 'tv' && <button type="submit" aria-label="Play first matching TV channel">Play</button>}
       </form>}
     </div>

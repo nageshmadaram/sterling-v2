@@ -1,7 +1,7 @@
 import { useExperienceOptions, readExperienceOptions } from '../store/useExperienceOptions';
 import { create } from 'zustand';
 import { api } from '../utils/api';
-import { isPreferenceKey } from './preferenceKeys';
+import { isPreferenceKey, MEDIA_PREFERENCE_KEYS } from './preferenceKeys';
 import { useStore } from '../store/useStore';
 import { useKiteSettings } from '../store/useKiteSettings';
 import { useTickerPins } from '../store/useTickerPins';
@@ -75,6 +75,12 @@ export async function startPreferenceSync(uid:string) {
  let result=await api.get<Response>(URL);if(run!==generation)return;
  if(!result.initialized){const initial=(!prior||prior===uid)?{...snapshot(),sterling_ui_state:JSON.stringify(uiState())}:{};result=await api.patch<Response>(URL,{values:initial,initialize_only:true});}
  if(run!==generation)return;
+ // Migrate this owner's existing media library once, including accounts that
+ // already had appearance preferences before media sync was introduced.
+ if(!prior||prior===uid){
+  const media=Object.fromEntries(Object.entries(snapshot()).filter(([key])=>MEDIA_PREFERENCE_KEYS.has(key)&&!(key in result.values)));
+  if(Object.keys(media).length){result=await api.patch<Response>(URL,{values:media});if(run!==generation)return;}
+ }
  let queued:Values={};try{queued=JSON.parse(localStorage.getItem(outbox(uid))??'{}');}catch{/* corrupt outbox */}
  queued=Object.fromEntries(Object.entries(queued).filter(([key,value])=>isPreferenceKey(key)&&(typeof value==='string'||value===null)));
  if(Object.keys(queued).length) {const r=await api.patch<Response>(URL,{values:queued});result=r;originalRemove.call(localStorage,outbox(uid));}
@@ -86,7 +92,7 @@ export async function startPreferenceSync(uid:string) {
   await hydrateStores();originalSet.call(localStorage,OWNER,uid);
  }finally{hydrating=false;}
  if(run!==generation)return;
- owner=uid;pending={};usePreferenceSync.setState({state:'saved',error:''});retry=setInterval(()=>void flushPreferences(),5000);
+ owner=uid;pending={};window.dispatchEvent(new Event('sterling-preferences-hydrated'));usePreferenceSync.setState({state:'saved',error:''});retry=setInterval(()=>void flushPreferences(),5000);
  // Persist validated defaults/migrations generated during hydration as well.
  const after=snapshot();for(const [key,value] of Object.entries(after))if(result.values[key]!==value)queue(key,value);
 }

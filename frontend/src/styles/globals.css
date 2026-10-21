@@ -1808,3 +1808,21 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
   }
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-quick-actions {gap:0;}
 }
+/* A single shared, keyboard-accessible Spotify-style suggestion list. */
+.sterling-media-suggestions {position:absolute;top:calc(100% + 6px);left:0;right:0;background:#181818;border:1px solid #ffffff18;border-radius:12px;padding:12px;box-shadow:0 20px 48px #000b;max-height:min(520px,65dvh);overflow:auto;}
+.sterling-media-suggestions>p {margin:0 4px 10px;font-size:16px;font-weight:700;color:white;}
+.sterling-media-suggestions>small {display:block;padding:12px 4px;color:#aaa;font-size:13px;line-height:1.5;}
+.sterling-media-suggestions [role=option] {display:flex;align-items:center;gap:12px;width:100%;background:transparent;min-height:68px;padding:8px!important;text-align:left;}
+.sterling-media-suggestions [role=option]:hover,.sterling-media-suggestions [role=option][aria-selected=true] {background:#ffffff10;}
+.sterling-media-suggestions img,.sterling-suggestion-art {width:48px;height:48px;flex-shrink:0;border-radius:4px;object-fit:cover;background:#293b33;}
+.sterling-suggestion-art {display:grid;place-items:center;font-size:24px;color:#a4e6b8;}
+.sterling-media-suggestions [role=option]>span:nth-child(2) {flex:1;min-width:0;}
+.sterling-media-suggestions strong,.sterling-media-suggestions small {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sterling-media-suggestions strong {font-size:14px;color:white;font-weight:600;}
+.sterling-media-suggestions small {font-size:12px;color:#aaa;margin-top:4px;}
+@media(max-width:767px){
+ .sterling-media-expanded-search {border:0;border-radius:28px;background:#2a2a2a;}
+ .sterling-media-suggestions {background:#121212;border:0;border-radius:12px;max-height:calc(100dvh - 170px);padding:16px 10px;}
+ .sterling-media-suggestions [role=option] {min-height:76px;}
+ .sterling-media-suggestions img,.sterling-suggestion-art {width:56px;height:56px;}
+}

@@ -26,4 +26,24 @@ describe('Database preferences',()=>{
  localStorage.setItem('sterling.preferences.owner.v1','alice');localStorage.setItem('sterling_theme','dark');get.mockResolvedValue({values:{},initialized:false});
  await startPreferenceSync('bob');expect(patch.mock.calls[0][1]).toEqual({values:{},initialize_only:true});expect(localStorage.getItem('sterling_theme')).toBe('light');
  });
+ it('saves media changes and clears them when another user signs in',async()=>{
+ const key='sterling.radio.omnicast_v11_config';
+ get.mockResolvedValue({values:{[key]:'{"startupStationId":"alice-fm"}'},initialized:true});
+ await startPreferenceSync('alice');await flushPreferences();patch.mockClear();
+ localStorage.setItem(key,'{"startupStationId":"new-fm"}');await flushPreferences();
+ expect(patch).toHaveBeenLastCalledWith('/api/v1/auth/preferences',{values:{[key]:'{"startupStationId":"new-fm"}'}});
+ get.mockResolvedValue({values:{},initialized:true});await startPreferenceSync('bob');
+ expect(localStorage.getItem(key)).toBeNull();
+ });
+
+ it('migrates existing media settings when an account already has server preferences',async()=>{
+ const key='sterling.tv.streamos_startup_channel_v14';
+ localStorage.setItem('sterling.preferences.owner.v1','alice');localStorage.setItem(key,'{"name":"My TV"}');
+ get.mockResolvedValue({values:{sterling_theme:'dark'},initialized:true});
+ patch.mockImplementation(async(_url,body)=>({values:{sterling_theme:'dark',...body.values},initialized:true}));
+ await startPreferenceSync('alice');
+ expect(patch).toHaveBeenCalledWith('/api/v1/auth/preferences',{values:{[key]:'{"name":"My TV"}'}});
+ expect(localStorage.getItem(key)).toBe('{"name":"My TV"}');
+ });
+
 });
