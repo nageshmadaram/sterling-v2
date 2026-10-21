@@ -57,12 +57,12 @@ Fix all of these before the first live order. Most are operator actions, not cod
 
 | ID | Finding | Fix | Who |
 |---|---|---|---|
-| P0-1 | Root disk 99% full (1.8 GB free). Doctor minimum is 2 GiB. SQLite with WAL on a full disk can fail a write in the middle of an entry or exit. | Free ≥10 GB. Candidates: `data/sterling_paper.db` (809 MB, last written Oct 9 — the live DB is `backend/sterling_paper.db`; confirm before moving), old `.runtime/stack/releases/*`, `node_modules/.vite`, pip/npm caches. Move, do not delete, databases and backups — copy to the lake drive first. | Operator, with Claude listing candidates |
+| P0-1 | **Worsened, then partly fixed 2026-10-21:** hit 0 bytes free at ~16:45 IST; tool caches (codex-runtimes, ms-playwright, uv, pip) removed → 2.7 GB free. Still below the 10 GB target. Root disk 99% full (1.8 GB free). Doctor minimum is 2 GiB. SQLite with WAL on a full disk can fail a write in the middle of an entry or exit. | Free ≥10 GB. Candidates: `data/sterling_paper.db` (809 MB, last written Oct 9 — the live DB is `backend/sterling_paper.db`; confirm before moving), old `.runtime/stack/releases/*`, `node_modules/.vite`, pip/npm caches. Move, do not delete, databases and backups — copy to the lake drive first. | Operator, with Claude listing candidates |
 | P0-2 | `STERLING_ALLOCATION_CAPITAL_INR` not set. | Set it in `backend/.env` to the real capital you will risk. | Operator |
 | P0-3 | `STERLING_RISK_LIMITS` not set — the four-level risk hierarchy is **not enforced**. Only capacity arithmetic applies. | Set global + per-lane caps (max lots, max premium at risk per trade, daily loss). Doctor already checks the format. | Operator, Claude drafts values |
 | P0-4 | `account_binding`: "no usable broker account binding". | Run the binding flow after today's Kite login; confirm `sterlingctl bindings` shows ACTIVE. | Operator |
 | P0-5 | `network_path` COULD NOT CHECK. | Refresh binding (P0-4) or record broker reachability. | Operator |
-| P0-6 | Safe mode was released with reason "test". Live execution flag is already `true`. | Engage safe mode now. Release it only after P0-1…P0-5 pass, with a real reason. | Operator |
+| P0-6 | **Done 2026-10-21 16:53 IST:** safe mode ON (reason: disk full + failing checks). Safe mode was released with reason "test". Live execution flag is already `true`. | Engage safe mode now. Release it only after P0-1…P0-5 pass, with a real reason. | Operator |
 | P0-7 | Static egress: doctor says the IP matches, but the matched IP **changed** from an IPv6 address. Zerodha requires a whitelisted static IP for order APIs. | Confirm in the Kite developer console that the current IPv4 is the registered one. A home/mobile IP that changes will reject orders mid-day. | Operator |
 | P0-8 | **Cause found 2026-10-21:** EADDRINUSE on 5180 — a manually started `sterling_stack.py run --all` already owned the gateway, so the systemd unit crash-looped. Launcher now logs the reason to `manager.log`. Operator: run the stack under ONE owner (systemd *or* manual). Original: `sterling-web.service` failed under systemd. If the gateway dies, the UI and the Telegram desk go dark while trades stay open. | Read `.runtime/stack/*.log` for the `RuntimeError`; fix the launch; `systemctl --user reset-failed` and restart. | Claude |
 | P0-9 | Cloudflare quick-tunnel URL changes on every restart (`trycloudflare.com`). The Kite redirect URL and the Telegram desk link break each time. | Use a named Cloudflare tunnel with a fixed hostname, or update the Kite console redirect every restart. | Operator + Claude |
@@ -133,8 +133,8 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 
 | ID | Finding | Fix |
 |---|---|---|
-| UI-1 | Shared row spec exists (`signalRowSpec.ts`): columns Exc., Leg (Δ), Entry (Δpts), SL, TSL, Exit, Target, Chg., Chg. %, LTP, Time, Trade, Chart. All three boards import `SignalBoard`. | Verify each adapter fills SL, TSL, Exit, Target the same way; blank cell = "—", never `₹0.00`. |
-| UI-2 | Status words differ: Snapback/SuperTrend use `entry_ok`; Gamma uses tiers (`4/4 ENTRY`, watchlist). | Map all to one chip set: Watch · Ready · Open · Exited · Blocked. |
+| UI-1 | **Checked, consistent:** all three adapters map ≤0/NaN prices to null (rendered —). Shared row spec exists (`signalRowSpec.ts`): columns Exc., Leg (Δ), Entry (Δpts), SL, TSL, Exit, Target, Chg., Chg. %, LTP, Time, Trade, Chart. All three boards import `SignalBoard`. | Verify each adapter fills SL, TSL, Exit, Target the same way; blank cell = "—", never `₹0.00`. |
+| UI-2 | **Checked, already unified:** one `BoardStatus` set (Armed/Running/Weakening/Ended/Watching/Error) in `boardTypes.ts`. Status words differ: Snapback/SuperTrend use `entry_ok`; Gamma uses tiers (`4/4 ENTRY`, watchlist). | Map all to one chip set: Watch · Ready · Open · Exited · Blocked. |
 | UI-3 | Long copy on boards and status (e.g. "Watch contracts are selected at the reference 09:20/13:15 builds. E1 is the breakout event; only 4/4 ENTRY is executable."). | Cut to one short line; move detail into a tooltip. |
 | UI-4 | **Fixed with PM-3.** Navigation still showed strategies outside scope (EMA Trend, others in `TradingModePanel`). | Show only SuperTrend, Snapback, Gamma Unwind. |
 
@@ -144,7 +144,7 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 
 | ID | Finding | Fix |
 |---|---|---|
-| PERF-1 | Read-only `sqlite3` on the live DB returned `database is locked (5)` once without a busy timeout. | Check for long write transactions in scanners; confirm all app connections set `busy_timeout`. |
+| PERF-1 | **Withdrawn:** Python `sqlite3.connect` waits 5 s by default; the lock came from the `sqlite3` CLI (0 s wait). Read-only `sqlite3` on the live DB returned `database is locked (5)` once without a busy timeout. | Check for long write transactions in scanners; confirm all app connections set `busy_timeout`. |
 | PERF-2 | **Already fixed:** `useKitePositions` defaults to 5 s. Positions hook polled every 1 s (carried from issue register UI-01). | Confirm current interval; use WebSocket push, poll ≥5 s as fallback. |
 | PERF-3 | Full backend suite: ~3% in 10 minutes on this host. A full regression run before each release is not practical. | Find slow tests (`--durations=30`); add `pytest-xdist`; mark slow tests. |
 | SEC-1 | `.env` holds broker and Telegram secrets on a 99%-full single disk. | Back up encrypted to the lake drive (P0-1). |
