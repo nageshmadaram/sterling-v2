@@ -1142,7 +1142,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     const stationBadgeCache = {};
 
     function getStationIdentityThumbnail(ch) {
-      if (ch.kind === 'podcast_show' && ch.artwork) return ch.artwork;
+      if (typeof ch.artwork==='string' && /^https:\/\//i.test(ch.artwork)) return ch.artwork;
       const cacheKey = ch.id || ch.title;
       if (stationBadgeCache[cacheKey]) return stationBadgeCache[cacheKey];
 
@@ -3110,8 +3110,19 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       catalogItems=localMatches;
       renderCategoryGrids();
       try {
-        const res = await fetch(`${RADIO_MIRRORS[0]}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`,{signal:abort.signal});
-        const remote = res.ok ? await res.json() : [];
+        let remote=[];
+        for(const host of RADIO_MIRRORS){
+          if(abort.signal.aborted)break;
+          const attempt=new AbortController();
+          const cancel=()=>attempt.abort();
+          const timer=setTimeout(cancel,2000);
+          abort.signal.addEventListener('abort',cancel,{once:true});
+          try{
+            const res=await fetch(`${host}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`,{signal:attempt.signal});
+            if(res.ok){remote=await res.json();break;}
+          }catch{/* try next Radio Browser mirror */}
+          finally{clearTimeout(timer);abort.signal.removeEventListener('abort',cancel);}
+        }
         if (revision !== searchRevision) return;
         const remoteMapped = remote.filter(s => s.url_resolved && s.url_resolved.startsWith('http')).map(s => {
           const cleanName = s.name.trim();
@@ -3123,6 +3134,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
             freqLabel: freqMatch ? `${freqMatch[1]} FM` : `${s.bitrate || 128}k FM`,
             shortFreq: freqMatch ? freqMatch[1] : 'FM',
             artQuery: cleanName,
+            artwork: typeof s.favicon==='string' && /^https:\/\//i.test(s.favicon) ? s.favicon : null,
             title: cleanName,
             subtitle: `${s.country || 'Live Radio'} • ${s.bitrate || 128}kbps`,
             streamUrl: s.url_resolved,
@@ -3333,6 +3345,19 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function bindTouchSheet() {
       const sheet = document.getElementById('mobile-player-sheet');
       const handle = sheet.firstElementChild;
+      let sheetGesture=null;
+      sheet.addEventListener('touchstart',e=>{
+        sheetGesture=null;
+        if(e.touches.length!==1||sheet.scrollTop>0||e.target.closest('button,input,select,a'))return;
+        sheetGesture={x:e.touches[0].clientX,y:e.touches[0].clientY};
+      },{passive:true});
+      sheet.addEventListener('touchend',e=>{
+        if(!sheetGesture||!e.changedTouches.length)return;
+        const dx=e.changedTouches[0].clientX-sheetGesture.x,dy=e.changedTouches[0].clientY-sheetGesture.y;
+        sheetGesture=null;
+        if(dy>90&&Math.abs(dx)<dy/2&&sheet.scrollTop===0)closeMobileSheet();
+      },{passive:true});
+      sheet.addEventListener('touchcancel',()=>{sheetGesture=null;},{passive:true});
       // Compact player swipes reopen Now Playing, without intercepting playback buttons.
       document.querySelectorAll('[data-radio-click="0"]').forEach(mini=>{
         let gesture=null;
@@ -3375,7 +3400,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       function loop(time) {
         requestAnimationFrame(loop);
         // Do not paint 60 times/second when the visualizer is not visible.
-        if (document.hidden || !c.getClientRects().length || time-lastFrame<90) return;
+        if (document.hidden || time-lastFrame<90 || !c.getClientRects().length) return;
         lastFrame=time;p+=0.18;
         ctx.clearRect(0,0,c.width,c.height);
         for (let i=0;i<32;i++) {
