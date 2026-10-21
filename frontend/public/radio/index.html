@@ -540,6 +540,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
               <button data-radio-click="39" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Next Station">
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
               </button>
+              <button data-radio-click="74" aria-label="Open radio tuner" title="Open SW / AM tuner" class="h-8 px-3 rounded-md bg-[#242424] text-white text-xs font-semibold">Tuner</button>
               <button data-radio-click="37" id="sw-expand-btn" class="h-8 px-3 rounded-md bg-[#242424] hover:bg-[#303030] text-xs font-medium text-white flex items-center gap-1.5 transition">
                 <span>Tuner</span>
                 <i id="sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#b3b3b3] transition-transform duration-200"></i>
@@ -1025,9 +1026,6 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       </button>
       <span class="text-xs font-semibold text-white/90">Now Playing</span>
       <div class="flex items-center gap-1">
-        <button data-radio-click="74" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" aria-label="Open radio tuner" title="Tuner">
-          <i class="fa-solid fa-wave-square text-sm"></i>
-        </button>
         <button data-radio-click="29" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" title="Audio settings">
           <i class="fa-solid fa-sliders text-sm"></i>
         </button>
@@ -1037,7 +1035,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     <div class="my-auto flex flex-col items-center py-4">
       <div class="radio-mobile-art relative w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
         <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
-        <button type="button" data-radio-click="75" aria-label="Refresh now-playing artwork" title="Refresh artwork"
+        <button type="button" data-radio-click="75" aria-label="Check current song and album artwork" title="Check what is playing"
           class="absolute top-2 right-2 w-11 h-11 btn-circle bg-black/65 text-white flex items-center justify-center">
           <i class="fa-solid fa-rotate text-sm"></i>
         </button>
@@ -1144,6 +1142,76 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     ];
 
     const stationBadgeCache = {};
+    const stationArtworkChecked = new Map();
+    const stationArtworkQueue=[];
+    const stationArtworkPending=new Set();
+    let stationArtworkInflight=0,stationArtworkPaintTimer=null;
+    function scheduleStationArtworkPaint(){
+      clearTimeout(stationArtworkPaintTimer);
+      stationArtworkPaintTimer=setTimeout(()=>{
+        if(document.hidden)return;
+        renderCategoryGrids();
+        renderPersonalizedShelves();
+      },350);
+    }
+    function pumpStationArtworkQueue(){
+      if(document.hidden)return;
+      while(stationArtworkInflight<2&&stationArtworkQueue.length){
+        const station=stationArtworkQueue.shift();
+        const key=station.id||station.title;
+        if(!catalogItems.includes(station)&&activeStream!==station) {
+          stationArtworkPending.delete(key);
+          continue;
+        }
+        stationArtworkInflight++;
+        Promise.resolve(refreshStationArtwork(station,playbackRevision)).finally(()=>{
+          stationArtworkInflight--;
+          stationArtworkPending.delete(key);
+          setTimeout(pumpStationArtworkQueue,150);
+        });
+      }
+    }
+    function enrichVisibleStationArtwork(){
+      // Defer remote station favicon lookups and bound total requests per view.
+      // The category's first cards are enriched; off-screen cards retain their
+      // generated covers until selected or viewed in a later collection.
+      for(const station of catalogItems.slice(0,16)){
+        const key=station?.id||station?.title;
+        if(!key||station.artwork||stationArtworkPending.has(key)||stationArtworkChecked.has(key))continue;
+        stationArtworkPending.add(key);
+        stationArtworkQueue.push(station);
+      }
+      if(stationArtworkQueue.length)setTimeout(pumpStationArtworkQueue,120);
+    }
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)pumpStationArtworkQueue();});
+    function refreshStationArtwork(streamObj,revision) {
+      if(!streamObj || streamObj.artwork || !streamObj.title || !RADIO_MIRRORS?.length) return Promise.resolve(false);
+      const key=streamObj.id||streamObj.title;
+      if(Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)return Promise.resolve(false);
+      stationArtworkChecked.set(key,Date.now());
+      if(stationArtworkChecked.size>96)stationArtworkChecked.delete(stationArtworkChecked.keys().next().value);
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
+      return fetch(`${RADIO_MIRRORS[0]}/stations/bynameexact/${encodeURIComponent(streamObj.title)}?limit=8`,
+        {signal:controller.signal})
+        .then(res=>res.ok?res.json():[])
+        .then(items=>{
+          if(!Array.isArray(items))return;
+          const title=streamObj.title.trim().toLowerCase();
+          const row=items.find(item=>item?.name?.trim().toLowerCase()===title &&
+            typeof item.favicon==='string' && /^https:\/\//i.test(item.favicon));
+          if(!row)return;
+          const cover=getStationIdentityThumbnail({...streamObj,artwork:row.favicon});
+          if(!cover.startsWith('https://'))return;
+          streamObj.artwork=cover;
+          if(revision===playbackRevision&&activeStream===streamObj){
+            syncPlayerUI(cover);
+            updateMediaSession(cover,streamObj.title,streamObj.subtitle);
+          }
+          // Station covers belong to station cards; track art remains player-only.
+          // Coalesce paints to avoid replacing grid DOM while people are tapping.
+          scheduleStationArtworkPaint();
+        }).catch(()=>{}).finally(()=>clearTimeout(timeout));
+    }
 
     function getStationIdentityThumbnail(ch) {
       // Remote artwork is interpolated into HTML attributes; reject markup and non-HTTPS URLs.
@@ -2163,7 +2231,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let radioHosted = false;
     let radioSearchQuery = '';
     function publishRadioState() {
-      if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : 'youtube',query:radioSearchQuery}, '*');
+      if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : appConfig.appMode === 'netflix' ? 'netflix' : 'youtube',query:radioSearchQuery}, '*');
     }
     let radioBooted = false;
     let hostAcknowledged = false;
@@ -2224,7 +2292,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
       if (event.data?.type === 'sterling.radio.command' && radioHosted) {
         const {action,value} = event.data;
-        if (action === 'theme' && ['spotify','youtube'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : 'ytmusic');
+        if (action === 'theme' && ['spotify','youtube','netflix'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : value === 'netflix' ? 'netflix' : 'ytmusic');
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
         if (action === 'more') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
@@ -2571,7 +2639,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         spApp.classList.remove('hidden'); spApp.classList.add('flex');
         ytmApp.classList.add('hidden'); ytmApp.classList.remove('flex');
       } else {
-        document.body.className = 'mode-ytmusic select-none overflow-hidden h-[100dvh] w-screen flex flex-col';
+        document.body.className = (mode === 'netflix' ? 'mode-netflix' : 'mode-ytmusic') + ' select-none overflow-hidden h-[100dvh] w-screen flex flex-col';
         spApp.classList.add('hidden'); spApp.classList.remove('flex');
         ytmApp.classList.remove('hidden'); ytmApp.classList.add('flex');
       }
@@ -2804,6 +2872,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }).join('');
 
       if (ytmQueueOpen) renderYtmDrawerList();
+      enrichVisibleStationArtwork();
     }
 
     // --- 12. Sidebar Library Filter ---
@@ -2945,7 +3014,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       updateAmbientColorFromId(streamObj.id);
 
       const stationEmblem = getStationIdentityThumbnail(streamObj);
-      syncPlayerUI(stationEmblem);
+      // Reset the previous channel's song label when selecting a new stream.
+      syncPlayerUI(stationEmblem,!overrideUrl);
+      refreshStationArtwork(streamObj,revision);
       updateMediaSession(stationEmblem, streamObj.title, streamObj.subtitle);
 
       if (streamObj.kind === 'radio') {
@@ -2979,10 +3050,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(activeStream.somaId){
         Promise.resolve(updateActivePlayerSongArtwork(activeStream)).catch(()=>{});
         showToast('Checking current-track artwork');
-      }else showToast('Station artwork refreshed; track artwork unavailable');
+      }else showToast('No song metadata from this station. Audio recognition needs a connected fingerprint service.');
     }
     async function updateActivePlayerSongArtwork(streamObj) {
       if (!streamObj.somaId || artworkLookupInFlight) return;
+      const generation=playbackRevision;
       artworkLookupInFlight=true;
       try {
       let broadcastTrack=null;
@@ -3005,38 +3077,53 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const trackKey=streamObj.id+'|'+broadcastTrack.artist+'|'+broadcastTrack.title;
       if(trackKey===lastArtworkTrackKey&&Date.now()-lastArtworkTrackCheck<90000)return;
       lastArtworkTrackKey=trackKey;lastArtworkTrackCheck=Date.now();
-      const data = await itunesJsonp({ term: query, media: 'music', entity: 'song', limit: 10 });
-      if (!data.results?.length) return;
+      if(generation!==playbackRevision||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
+      const trackLabel=`${broadcastTrack.artist} • ${broadcastTrack.title}`;
+      updateAmbientColorFromId(streamObj.id+'|'+trackLabel);
+      // Station-provided song metadata is authoritative. Show it immediately,
+      // even when an album-art service has no reliable match.
+      ['sp-np-sub','sp-bar-sub','sp-mini-sub','ytm-bar-sub','ytm-mini-sub','ytm-stage-sub','sheet-sub'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el)el.textContent=trackLabel;
+      });
+      updateMediaSession(getStationIdentityThumbnail(streamObj),broadcastTrack.title,trackLabel);
 
-      const pick = data.results[0];
-      const hdUrl = pick.artworkUrl100?.replace('100x100bb', '600x600bb');
-      const validUrl = await validateImageUrl(hdUrl);
-      if (!validUrl || !activeStream || activeStream.id !== streamObj.id || !isPlaying) return;
+      const data=await itunesJsonp({term:query,media:'music',entity:'song',limit:12});
+      if(!data.results?.length)return;
+      const norm=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+      const wantedTitle=norm(broadcastTrack.title),wantedArtist=norm(broadcastTrack.artist);
+      const pick=data.results.find(item=>{
+        const artist=norm(item.artistName);
+        return wantedTitle && norm(item.trackName)===wantedTitle &&
+          wantedArtist && artist && (artist===wantedArtist ||
+            artist.includes(wantedArtist) || wantedArtist.includes(artist));
+      });
+      // Never attach an unrelated song's album art to this broadcast.
+      if(!pick)return;
+      const hdUrl=pick.artworkUrl100?.replace('100x100bb','600x600bb');
+      const validUrl=await validateImageUrl(hdUrl);
+      if(!validUrl||generation!==playbackRevision||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
 
-      const trackLabel = `${broadcastTrack.artist} • ${broadcastTrack.title}`;
-
-      // Updates ONLY active player surfaces; channel grids keep their clean station covers
+      // Update only active player surfaces; keep channel cards station-specific
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
         const el = document.getElementById(id);
         if (el) { delete el.dataset.radioFallbackApplied; el.src = validUrl; }
       });
 
-      ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = trackLabel;
-      });
-
-      updateMediaSession(validUrl, broadcastTrack.title, `${broadcastTrack.artist} • ${streamObj.title}`);
+      updateMediaSession(validUrl,broadcastTrack.title,`${broadcastTrack.artist} • ${streamObj.title}`);
       } finally { artworkLookupInFlight=false; }
     }
 
     function updateAmbientColorFromId(idStr) {
-      const h = hashString(idStr);
-      const rgbs = [
-        '28, 90, 56', '30, 64, 110', '68, 42, 96',
-        '96, 52, 32', '92, 36, 58', '24, 82, 78'
-      ];
-      document.documentElement.style.setProperty('--ambient-rgb', rgbs[h % rgbs.length]);
+      // The color changes with every selected station and every reported song.
+      // Deterministic HSL->RGB allows hundreds of hues instead of six static backgrounds.
+      const h=hashString(String(idStr||'radio'))%360/360,s=.42,l=.28;
+      const hue=n=>{
+        const k=(n+h*12)%12;
+        const a=s*Math.min(l,1-l);
+        return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1))));
+      };
+      document.documentElement.style.setProperty('--ambient-rgb',[hue(0),hue(8),hue(4)].join(','));
     }
 
     function bindAudioEvents() {
@@ -3092,7 +3179,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       setInterval(tryResumeBackgroundAudio,3500);
     }
 
-    function syncPlayerUI(overrideArt = null) {
+    function syncPlayerUI(overrideArt = null, resetStationMetadata = false) {
       if (!activeStream) return;
       const icon = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
 
@@ -3108,7 +3195,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if (el) el.textContent = activeStream.title;
       });
 
-      if (!isPlaying) {
+      if (resetStationMetadata || !isPlaying) {
         ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.textContent = activeStream.subtitle;
@@ -3152,6 +3239,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(btn){btn.classList.toggle('hidden',!query.trim());btn.classList.toggle('flex',!!query.trim());}
       });
       clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
+      document.documentElement.classList.toggle('radio-searching',Boolean(query.trim()));
       if(!query.trim()){clearAllSearches();return;}
       searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }

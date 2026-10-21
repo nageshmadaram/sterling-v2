@@ -25,8 +25,29 @@ export function ProfileMenu(){const q=useSterlingProfile();const qc=useQueryClie
  const removePhoto=()=>{setCropFile(null);setPhoto('');setMessage('Picture removed from preview. Save profile to apply.');};
  const label=q.data?.display_name||q.data?.username||'Sterling account';
  useMobileBackLayer(open,()=>cropFile?setCropFile(null):close(),'profile');
+ // Media iframes can otherwise receive taps behind an open profile overlay.
+ // The dialog is portalled to document.body, outside this inert application.
+ useEffect(()=>{
+  if(!open)return;
+  const root=document.querySelector<HTMLElement>('.term-root');
+  const wasInert=root?.hasAttribute('inert')??false;
+  if(root&&!wasInert)root.setAttribute('inert','');
+  const previousOverflow=document.body.style.overflow;
+  document.body.style.overflow='hidden';
+  const onEscape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(cropFile)setCropFile(null);else close();}};
+  document.addEventListener('keydown',onEscape,true);
+  return()=>{
+   document.removeEventListener('keydown',onEscape,true);
+   document.body.style.overflow=previousOverflow;
+   if(root&&!wasInert)root.removeAttribute('inert');
+  };
+ },[open,cropFile]);
  return <><button ref={trigger} className="sterling-profile" aria-label="Sterling account profile" aria-expanded={open} onClick={()=>setOpen(!open)} style={{display:'flex',alignItems:'center',gap:6,border:0,background:'transparent',color:'var(--k-text)',cursor:'pointer'}}>{q.data?.photo?<img src={q.data.photo} alt="" width={28} height={28} style={{borderRadius:'50%',objectFit:'cover'}}/>:<span style={{borderRadius:'50%',padding:7,background:'var(--k-surface-2)'}}>{label.slice(0,2).toUpperCase()}</span>}<span>{label}</span></button>
- {open&&createPortal(<div className="appearance-modal sterling-profile-modal" role="dialog" aria-modal="true" aria-label={cropFile?'Crop profile picture':'Sterling profile'} onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();cropFile?setCropFile(null):close();}if(e.key==='Tab'){const controls=e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type="file"]),select');const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="profile-panel" style={{background:'var(--k-bg)',color:'var(--k-text)'}}>{cropFile?<ProfilePhotoCropper key={cropFile.name+cropFile.size+cropFile.lastModified} file={cropFile} onCancel={()=>setCropFile(null)} onApply={value=>{setPhoto(value);setCropFile(null);setMessage('Picture cropped. Save profile to apply.');}}/>:<><button autoFocus onClick={close} aria-label="Close profile">×</button><h2>Your Sterling account</h2><p>{q.data?.username} · {q.data?.role}. Broker login is managed separately in Connect.</p>{q.isError&&<p role="alert">Profile unavailable. <button type="button" className="sterling-retry-button" onClick={()=>void q.refetch()}>Retry</button></p>}
+ {open&&createPortal(<div className="appearance-modal sterling-profile-modal" role="dialog" aria-modal="true" aria-label={cropFile?'Crop profile picture':'Sterling profile'}
+ style={{position:'fixed',inset:0,zIndex:2147483000,pointerEvents:'auto',display:'grid',placeItems:'center',background:'rgba(0,0,0,.80)',overscrollBehavior:'contain',touchAction:'auto'}}
+ onPointerDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}
+ onClick={e=>{e.stopPropagation();if(e.target===e.currentTarget){cropFile?setCropFile(null):close();}}}
+ onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();cropFile?setCropFile(null):close();}if(e.key==='Tab'){const controls=e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type="file"]),select');const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="profile-panel" style={{background:'var(--k-bg)',color:'var(--k-text)'}}>{cropFile?<ProfilePhotoCropper key={cropFile.name+cropFile.size+cropFile.lastModified} file={cropFile} onCancel={()=>setCropFile(null)} onApply={value=>{setPhoto(value);setCropFile(null);setMessage('Picture cropped. Save profile to apply.');}}/>:<><button autoFocus onClick={close} aria-label="Close profile">×</button><h2>Your Sterling account</h2><p>{q.data?.username} · {q.data?.role}. Broker login is managed separately in Connect.</p>{q.isError&&<p role="alert">Profile unavailable. <button type="button" className="sterling-retry-button" onClick={()=>void q.refetch()}>Retry</button></p>}
  <div className="sterling-profile-photo-editor" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',padding:'12px 0'}}>
   {photo?<img src={photo} alt="Profile picture preview" width={72} height={72} style={{width:72,height:72,borderRadius:'50%',objectFit:'cover'}}/>:
    <span role="img" aria-label="No profile picture" style={{width:72,height:72,borderRadius:'50%',background:'var(--k-surface-2)',display:'grid',placeItems:'center',fontWeight:700}}>{(name||username||'?').slice(0,2).toUpperCase()}</span>}

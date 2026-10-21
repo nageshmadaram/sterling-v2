@@ -34,7 +34,7 @@
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
-  const activeTheme=()=>currentTheme==='spotify'||currentTheme==='youtube';
+  const activeTheme=()=>['spotify','youtube','netflix'].includes(currentTheme);
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
   function artwork(ch) {
@@ -75,6 +75,7 @@
     if(lastLandscape!==(innerWidth>innerHeight)){lastLandscape=innerWidth>innerHeight;renderHome();}
     document.body.classList.toggle('tm-catalog-view',enabled&&view!=='home'&&view!=='watch');
     document.body.classList.toggle('tm-browse-search',enabled&&currentTheme==='spotify'&&view==='search'&&!searchInputEl.value.trim());
+    document.body.classList.toggle('tm-search-active',Boolean(searchInputEl.value.trim()));
     document.body.classList.toggle('tm-watch-view',enabled&&view==='watch');
     document.body.classList.toggle('tm-now-open',enabled&&expanded&&currentTheme==='spotify');
     now.hidden=!(enabled&&expanded&&currentTheme==='spotify');

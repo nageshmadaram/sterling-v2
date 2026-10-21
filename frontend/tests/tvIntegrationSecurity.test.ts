@@ -42,6 +42,14 @@ describe('Sterling TV static integration safety', () => {
     expect(radio).toContain("typeof s.url_resolved==='string'");
     expect(radio).toContain('artworkLookupInFlight');
     expect(radio).toContain('playbackRevision===revision');
+    expect(radio).toContain('const generation=playbackRevision;');
+    expect(radio).toContain('if(generation!==playbackRevision||!activeStream');
+    expect(radio).toContain('syncPlayerUI(stationEmblem,!overrideUrl)');
+    expect(radio).toContain('if (resetStationMetadata || !isPlaying)');
+    expect(radio).toContain('stationArtworkInflight<2');
+    expect(radio).toContain('catalogItems.slice(0,16)');
+    expect(radio).toContain('scheduleStationArtworkPaint()');
+    expect(radio).toContain('const artist=norm(item.artistName)');
     expect(radio).toContain('if (radioBooted) {');
   });
 

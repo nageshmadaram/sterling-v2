@@ -122,9 +122,14 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(w.document.documentElement.classList.contains('radio-modal-open')).toBe(false);
     w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'minimize'}}));
     expect(sheet.classList.contains('drawer-hidden')).toBe(true);
-    (w.document.querySelector('#spotify-app .solid-sp-miniplayer') as HTMLElement).click();
-    (w.document.querySelector('#mobile-player-sheet [data-radio-click="74"]') as HTMLElement).click();
+    // Tuning belongs in Home, not the full-screen now-playing sheet.
+    // A tap on the Home tuner must open the drawer without reopening playback.
+    expect(sheet.querySelector('[data-radio-click="74"]')).toBeNull();
+    const homeTuner=w.document.querySelector('#sw-tuner-deck [data-radio-click="74"]') as HTMLElement | null;
+    expect(homeTuner).not.toBeNull();
+    homeTuner!.click();
     expect(w.document.getElementById('sw-tuner-drawer')?.classList.contains('hidden')).toBe(false);
+    expect(sheet.classList.contains('drawer-hidden')).toBe(true);
     expect(errors).toEqual([]);
   });
 
