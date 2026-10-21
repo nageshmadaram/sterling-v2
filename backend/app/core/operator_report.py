@@ -172,8 +172,15 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
     def _focus():
         from app.core.focus import focus_policy
 
+        from app.core.release_scope import RELEASE_ORIGINATORS
+
         policy = focus_policy()
-        return True, f"originators: {', '.join(sorted(policy.originators)) or 'none'}"
+        # Focus governs the Snapback/SuperTrend lanes only. Gamma-Unwind is gated
+        # by the release scope, so list that too or the operator reads Gamma as off.
+        return True, (
+            f"lane originators: {', '.join(sorted(policy.originators)) or 'none'}; "
+            f"release scope: {', '.join(sorted(RELEASE_ORIGINATORS.values()))}"
+        )
 
     def _release_tag():
         tag = (os.environ.get("STERLING_RELEASE_TAG") or "").strip()

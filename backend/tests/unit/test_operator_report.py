@@ -494,3 +494,12 @@ def test_the_doctor_fails_if_the_supertrend_core_drifts(monkeypatch):
     drifted = _by_name(lane_doctor_checks())["supertrend_core_frozen"]
     assert drifted.passed is False
     assert "fast" in drifted.detail
+
+
+def test_focus_check_names_gamma_unwind_from_the_release_scope():
+    """Focus covers Snapback/SuperTrend lanes only; Gamma must not read as off."""
+    from app.core.operator_report import lane_doctor_checks
+
+    detail = _by_name(lane_doctor_checks())["focus_policy"].detail
+    assert "Gamma-Unwind" in detail
+    assert "lane originators:" in detail
