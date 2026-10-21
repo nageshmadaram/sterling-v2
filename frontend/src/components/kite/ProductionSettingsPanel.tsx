@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
-import { AdvancedSection, ConfigNote, PanelCard } from './config/ConfigPrimitives';
+import { AdvancedSection, ConfigNote, PanelCard, SettingsDraftBar } from './config/ConfigPrimitives';
 import { BORDER, Field, MUTED, Section, TEXT, inputStyle } from './kiteSettingsPrimitives';
 import { useUnsavedDraftGuard } from './config/unsavedDraftGuard';
 
@@ -175,11 +175,11 @@ export function ProductionSettingsPanel() {
     </AdvancedSection>
 
     {save.isError && <p role="alert" style={alertStyle}>{save.error.message}</p>}
-    <div style={row}>
-      <button type="button" style={button(true, dirty && valid && !save.isPending)} disabled={!dirty || !valid || save.isPending} onClick={() => save.mutate(cfg)}>{save.isPending ? 'Saving…' : 'Save production settings'}</button>
-      <button type="button" style={button(false, dirty && !save.isPending)} disabled={!dirty || save.isPending} onClick={() => { setDraft(null); setLimitsDraft(null); setConfirm(''); }}>Discard production changes</button>
-      {saved && <span role="status" style={okStyle}>Production settings saved. Restart the backend to apply them; then recheck readiness.</span>}
-    </div>
+    {saved && !dirty && <p role="status" style={okStyle}>Production settings saved. Restart the backend to apply them; then recheck readiness.</p>}
+    <SettingsDraftBar dirty={dirty} saving={save.isPending} applyDisabled={!valid}
+      applyTitle={valid ? undefined : (limitsError || 'Complete the required fields first')}
+      onApply={() => save.mutate(cfg)}
+      onDiscard={() => { setDraft(null); setLimitsDraft(null); setConfirm(''); }} />
 
     <div style={subHead}>Broker connection</div>
     <Field label="Outbound IP" hint={data.posture.egress.reason}>

@@ -22,7 +22,7 @@ describe('production settings', () => {
   it('saves capital with entries disabled and explains activation', async () => {
     show();
     fireEvent.change(await screen.findByLabelText('Approved live capital (₹)'), { target: { value: '50000' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save production settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
     await waitFor(() => expect(put).toHaveBeenCalledWith('/api/v1/ops/production-settings', expect.objectContaining({ settings: expect.objectContaining({ allocation_capital_inr: 50000, live_execution: false }) })));
     expect(await screen.findByText(/Production settings saved/)).toHaveTextContent('Restart the backend');
   });
@@ -30,7 +30,7 @@ describe('production settings', () => {
   it('does not offer to save live activation while posture is blocked', async () => {
     show();
     fireEvent.click(await screen.findByLabelText('Request live entries after restart'));
-    expect(screen.getByRole('button', { name: 'Save production settings' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     expect(screen.getByText(/Live setup requires/)).toHaveTextContent('static IP not verified');
     expect(put).not.toHaveBeenCalled();
   });
@@ -56,7 +56,7 @@ describe('production settings', () => {
     for (const [label, value] of [['Total limit (₹)', '100000'], ['Per strategy (₹)', '50000'], ['Per mode (₹)', '20000'], ['Per trade (₹)', '5000']]) {
       fireEvent.change(await screen.findByLabelText(label), { target: { value } });
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Save production settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
     await waitFor(() => expect(put).toHaveBeenCalled());
     const sent = JSON.parse(put.mock.calls[0][1].settings.risk_limits);
     expect(sent).toEqual({
@@ -71,12 +71,12 @@ describe('production settings', () => {
     show();
     fireEvent.change(await screen.findByLabelText('Total limit (₹)'), { target: { value: '1000' } });
     expect(screen.getByText('Fill all four limits.')).toHaveAttribute('role', 'alert');
-    expect(screen.getByRole('button', { name: 'Save production settings' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Per strategy (₹)'), { target: { value: '5000' } });
     fireEvent.change(screen.getByLabelText('Per mode (₹)'), { target: { value: '500' } });
     fireEvent.change(screen.getByLabelText('Per trade (₹)'), { target: { value: '100' } });
     expect(screen.getByText(/at most the one above it/)).toHaveAttribute('role', 'alert');
-    expect(screen.getByRole('button', { name: 'Save production settings' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   });
 
   it('round-trips saved limits into the four fields', () => {

@@ -327,7 +327,7 @@ export function TradingModeControls() {
       <div style={{ marginTop: 16 }}>
         <div style={S.modeLabel}>STRATEGY MODE</div>
         <div style={{ ...S.modeDesc, marginBottom: 4 }}>
-          For each strategy choose MANUAL (off), SIMULATION (virtual money, no real orders) or ALGO (real money).
+          Per strategy: MANUAL (you place orders) or ALGO (Sterling places real-money orders).
         </div>
         <StrategyModeSelector />
       </div>

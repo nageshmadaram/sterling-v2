@@ -199,7 +199,8 @@ export function SettingsDraftBar({
   saving?: boolean;
   onApply: () => void;
   onDiscard: () => void;
-  onReset: () => void;
+  /** Omit when the panel has no defaults to restore; the reset control is then hidden. */
+  onReset?: () => void;
   resetConfirm?: boolean;
   applyDisabled?: boolean;
   applyTitle?: string;
@@ -358,6 +359,7 @@ export function SettingsDraftBar({
             </button>
           </>
         )}
+        {onReset && <>
         <div style={{ width: 1, height: 20, background: BORDER, margin: '0 4px' }} />
         <button
           type="button"
@@ -378,6 +380,7 @@ export function SettingsDraftBar({
         >
           {resetConfirm ? 'Click again to confirm reset' : 'Reset to defaults'}
         </button>
+        </>}
       </div>
     </div>
   , document.body);

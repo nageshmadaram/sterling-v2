@@ -20,7 +20,7 @@ import {
 } from '../../hooks/useKite';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
-import { hasUnsavedDraft } from './config/unsavedDraftGuard';
+import { hasUnsavedDraft, resetDraftGuard } from './config/unsavedDraftGuard';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
 import { ButtonLoader } from './KiteLoader';
@@ -1124,9 +1124,16 @@ export function ConnectPane() {
     // every control wrote through immediately, but these pages are draft-and-Apply
     // now, so a click on the rail can discard a page of edits the user believes
     // are still pending.
-    if (next !== section && hasUnsavedDraft()) {
+    const draftBarEl = next !== section && hasUnsavedDraft()
+      ? document.getElementById('settings-draft-bar') : null;
+    // A panel can report a draft without any bar on screen (it scrolled away or
+    // never rendered one). Refusing the click then looks like a dead rail, so
+    // ask instead.
+    if (next !== section && hasUnsavedDraft() && !draftBarEl
+        && window.confirm('Discard unsaved settings changes and switch section?')) {
+      resetDraftGuard();
+    } else if (next !== section && hasUnsavedDraft()) {
       window.dispatchEvent(new CustomEvent('sterling-highlight-draft-bar'));
-      const draftBarEl = document.getElementById('settings-draft-bar');
       if (draftBarEl) {
         if (typeof draftBarEl.scrollIntoView === 'function') {
           try {

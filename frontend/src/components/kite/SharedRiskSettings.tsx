@@ -1,7 +1,7 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
-import { ConfigNote, PanelCard } from './config/ConfigPrimitives';
+import { ConfigNote, PanelCard, SettingsDraftBar } from './config/ConfigPrimitives';
 import { useUnsavedDraftGuard } from './config/unsavedDraftGuard';
 import { Field, Section, Switch, inputStyle, MUTED, TEXT } from './kiteSettingsPrimitives';
 
@@ -41,6 +41,9 @@ export function SharedRiskSettings() {
     <ConfigNote>Filled values override the selected strategies’ own settings, or apply a new limit where none exists. Blank values keep strategy settings. Unselected strategies are unchanged. Allocation and daily loss measure the account as a whole. Account-wide halts, exits and broker protection still apply.</ConfigNote>
     {!valid && <p role="alert">Choose a strategy and at least one positive limit. Per-trade risk cannot exceed allocation.</p>}
     {save.isError && <p role="alert">{save.error instanceof Error ? save.error.message : 'Risk settings could not be saved.'}</p>}
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '12px 0' }}><button disabled={!dirty || !valid || save.isPending} onClick={() => save.mutate(cfg)}>{save.isPending ? 'Saving…' : 'Save shared risk settings'}</button><button disabled={!draft || save.isPending} onClick={() => setDraft(null)}>Discard changes</button>{save.isSuccess && !draft && <span role="status">Shared risk settings saved</span>}</div>
+    {save.isSuccess && !draft && <p role="status" style={{ color: 'var(--k-green)', fontSize: 11.5 }}>Shared risk settings saved</p>}
+    <SettingsDraftBar dirty={dirty} saving={save.isPending} applyDisabled={!valid}
+      applyTitle={valid ? undefined : 'Choose a strategy and at least one positive limit'}
+      onApply={() => save.mutate(cfg)} onDiscard={() => setDraft(null)} />
   </Section></PanelCard>;
 }
