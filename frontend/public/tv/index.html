@@ -503,6 +503,20 @@
 </style>
 <!-- TV MOBILE STYLE END -->
 <link rel="stylesheet" href="/tv/appearance.css">
+
+<style id="sterling-tv-dynamic-background">
+body[data-tv-backdrop="black"] #player-stage,
+body[data-tv-backdrop="black"] #tv-now-playing {background:#000!important;}
+body[data-tv-backdrop="auto"] #player-stage,
+body[data-tv-backdrop="auto"] #tv-now-playing {
+  background:linear-gradient(165deg,hsl(var(--tv-channel-hue,155) 34% 19%),#080808 72%)!important;
+}
+@media(max-width:767px) {
+  #video-surface-card{width:100%!important;}
+  #left-watch-column{width:100%!important;max-width:100%!important;}
+}
+@media(prefers-reduced-motion:reduce){#video-surface-card,#custom-video-hud{transition:none!important;}}
+</style>
 </head>
 
 <body class="theme-youtube flex flex-col overflow-hidden">
@@ -4195,7 +4209,7 @@
   now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
-  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false;
+  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto';
   const activeTheme=()=>currentTheme==='spotify'||currentTheme==='youtube';
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
@@ -4205,7 +4219,13 @@
     const hue=[...ch.name].reduce((n,c)=>n+c.charCodeAt(0)*7,0)%360;
     const initials=ch.name.split(/\s+/).slice(0,2).map(w=>w[0]).join('');
     const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="hsl(${hue},55%,48%)"/><stop offset="1" stop-color="hsl(${hue},60%,17%)"/></linearGradient></defs><path fill="url(#a)" d="M0 0h320v320H0z"/><g fill="none" stroke="#ffffff" opacity=".12"><circle cx="265" cy="70" r="135" stroke-width="45"/><circle cx="265" cy="70" r="190" stroke-width="2"/><path d="M0 220 320 80M0 270 320 130" stroke-width="2"/></g><text x="22" y="38" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">${escapeHtml((ch.group||'LIVE TV').toUpperCase().slice(0,24))}</text><text x="18" y="207" fill="white" font-family="Arial,sans-serif" font-size="112" font-weight="900" letter-spacing="-9">${escapeHtml(initials)}</text><rect x="22" y="248" width="36" height="5" fill="#1ed760"/><text x="22" y="284" fill="white" font-family="Arial,sans-serif" font-size="19" font-weight="700">${escapeHtml(ch.name.slice(0,24))}</text></svg>`;
-    const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);return uri;
+    const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);if(artworkCache.size>128)artworkCache.delete(artworkCache.keys().next().value);return uri;
+  }
+  function applyBackdrop() {
+    document.body.dataset.tvBackdrop=tvBackdropMode;
+    const name=activeChannel?.name||'Sterling';
+    const hue=[...name].reduce((n,ch)=>n+ch.charCodeAt(0)*7,0)%360;
+    document.body.style.setProperty('--tv-channel-hue',String(hue));
   }
   const channelButton=(ch,quick=false)=>`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
   function shelf(title,pool,filter) {
@@ -4221,6 +4241,7 @@
     scheduled=false;
     const enabled=isMobile();
     document.body.classList.toggle('tm-host-header',hosted);
+    applyBackdrop();
     publishState();
     saveUi();
     const stage=document.getElementById('player-stage');
@@ -4263,7 +4284,7 @@
   function showSheet(kind='more') {
     returnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
@@ -4310,6 +4331,11 @@
       case 'previous': playPrevChannel();schedule();break;
       case 'mute': toggleMuteAudio();break;
       case 'fullscreen': toggleFullscreenPlayer();break;
+      case 'backdrop':
+        tvBackdropMode=tvBackdropMode==='auto'?'black':'auto';
+        applyBackdrop();saveUi();
+        showToast(tvBackdropMode==='auto'?'Dynamic channel background':'Black player background');
+        closeSheet();break;
       case 'share': copyStreamShareLink();break;
       case 'more': showSheet();break;
       case 'queue': showSheet('queue');break;
@@ -4357,7 +4383,7 @@
   function saveUi() {
     if(!hydrated)return;
     const v=document.getElementById('video-player');
-    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:v.muted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode});
+    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:v.muted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode});
     if(next===lastSaved)return;lastSaved=next;
     try{uiStorage().setItem('streamos_ui_v14',next);}catch{}
   }
@@ -4374,6 +4400,8 @@
       if(typeof saved.volume==='number'&&saved.volume>=0&&saved.volume<=1)v.volume=saved.volume;
       if(typeof saved.muted==='boolean'){v.muted=saved.muted;userHasInteractedWithAudio=!saved.muted;}
       if(['fit-contain','fit-cover','fit-zoom'].includes(saved.fit)){currentFitMode=saved.fit;v.classList.remove('fit-contain','fit-cover','fit-zoom');v.classList.add(saved.fit);}
+      if(saved.background==='black'||saved.background==='auto')tvBackdropMode=saved.background;
+      applyBackdrop();
       renderCatalogControls();renderViewport();
     }catch{}
   }
@@ -4412,8 +4440,10 @@
     const surface=document.getElementById('video-surface-card');
     const wrap=document.getElementById('mobile-sticky-player-wrap');
     if(!surface||!wrap)return;
-    if(value&&!document.body.classList.contains('tm-scroll-pip'))wrap.style.minHeight=surface.offsetHeight+'px';
-    document.body.classList.toggle('tm-scroll-pip',value);
+    const wasFloating=document.body.classList.contains('tm-scroll-pip');
+    if(Boolean(value)===wasFloating)return;
+    if(value)wrap.style.minHeight=surface.offsetHeight+'px';
+    document.body.classList.toggle('tm-scroll-pip',Boolean(value));
     if(!value)wrap.style.minHeight='';
   }
   function installPlaybackContinuity() {
@@ -4447,7 +4477,7 @@
     video.addEventListener('volumechange',schedule);
   }
   const originalTheme=switchTheme;switchTheme=function(...args){originalTheme(...args);schedule();};
-  const originalPlay=playStream;playStream=function(...args){pipDismissed=false;originalPlay(...args);if(isMobile()&&(!args[1]))renderHome();schedule();};
+  const originalPlay=playStream;playStream=function(...args){pipDismissed=false;originalPlay(...args);applyBackdrop();if(isMobile()&&(!args[1]))renderHome();schedule();};
   const originalBatch=renderNextBatch;renderNextBatch=function(...args){originalBatch(...args);document.querySelectorAll('#yt-studio-grid>.channel-grid-card').forEach((card,i)=>{if(filteredChannels[i]){card.dataset.tmChannel=filteredChannels[i].url;card.onclick=null;}});if(isMobile()&&currentTheme==='spotify'){[...document.querySelectorAll('#yt-studio-grid>.channel-grid-card')].forEach((card,i)=>{const ch=filteredChannels[i];if(ch)card.querySelectorAll('img').forEach(img=>{img.src=artwork(ch);img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};});});}};
   const originalRender=renderViewport;renderViewport=function(...args){originalRender(...args);if(isMobile())renderHome();schedule();};
   const originalRebuild=rebuildCombinedChannelCatalog;rebuildCombinedChannelCatalog=function(...args){originalRebuild(...args);if(searchInputEl.value.trim())renderViewport();};
