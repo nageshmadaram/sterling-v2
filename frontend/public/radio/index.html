@@ -2211,6 +2211,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if (action === 'theme' && ['spotify','youtube'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : 'ytmusic');
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
         if (action === 'more') openStartupModal();
+        if (action === 'minimize') closeMobileSheet();
         return;
       }
       if (event.data?.type !== 'sterling.radio.hydrate') return;
@@ -3325,6 +3326,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       s.classList.remove('drawer-hidden');
       s.classList.add('drawer-visible');
       s.setAttribute('role','dialog');s.setAttribute('aria-modal','true');s.setAttribute('aria-label','Now Playing');
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
       s.querySelector('button')?.focus();
     }
 
@@ -3332,7 +3334,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-visible');
       s.classList.add('drawer-hidden');
-      s.removeAttribute('aria-modal');s.removeAttribute('role');radioSheetReturnFocus?.focus();
+      s.removeAttribute('aria-modal');s.removeAttribute('role');
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:false},'*');
+      radioSheetReturnFocus?.focus();
     }
     function openMobileTuner() {
       closeMobileSheet();
