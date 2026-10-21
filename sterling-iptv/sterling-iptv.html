@@ -3153,7 +3153,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       const video = document.getElementById('video-player');
       const button = document.getElementById('tv-mobile-play');
       if (!video || !activeChannel) return;
-      if (video.readyState === 0 && !video.src && !hls) {
+      if (video.error || (video.readyState === 0 && !video.src && !hls)) {
         playStream(activeChannel, 0);
         return;
       }
@@ -3260,6 +3260,14 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
           hls.attachMedia(video);
           hls.on(Hls.Events.MANIFEST_PARSED, () => {
             if(playbackGeneration===generation)safeAutoplayVideo(video);
+          });
+          hls.on(Hls.Events.ERROR,(_,data)=>{
+            if(playbackGeneration!==generation||!data.fatal)return;
+            showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+            try{hls?.destroy();}catch(_){}
+            hls=null;
+            video.removeAttribute('src');
+            video.load();
           });
         } else if (hasNativeHls(video)) {
           video.onloadedmetadata = () => {
