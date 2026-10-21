@@ -185,3 +185,61 @@ describe('Actual sandboxed media documents on mobile',()=>{
   });
 
 });
+
+describe('Media audit regressions',()=>{
+ it('Radio next and previous follow the active direct selection instead of an old index',()=>{
+  const {w,errors}=boot('radio');
+  w.eval(`catalogItems=[0,1,2].map(i=>({id:'audit'+i,title:'Audit '+i,subtitle:'Radio',kind:'radio',streamUrl:'https://fixture.test/'+i+'.mp3',backupUrls:[]}));activeIndex=0;startPlayback(catalogItems[1]);playNextChannel();`);
+  expect(w.eval('activeStream.id')).toBe('audit2');w.eval('playPrevChannel()');expect(w.eval('activeStream.id')).toBe('audit1');
+  expect(errors).toEqual([]);
+ });
+ it('Radio does not restart from a late manifest after the sleep timer pauses it',()=>{
+  const {w}=boot('radio');let attempts=0;
+  w.HTMLMediaElement.prototype.play=()=>{attempts++;return Promise.resolve();};
+  w.eval(`window.Hls=class {static Events={MANIFEST_PARSED:'manifest',ERROR:'error'};static isSupported(){return true;}constructor(){window.auditHls=this;this.handlers={};}on(name,callback){this.handlers[name]=callback;}loadSource(){}attachMedia(){}destroy(){}};startPlayback({id:'audit',title:'Audit',kind:'radio',streamUrl:'https://fixture.test/live.m3u8',backupUrls:[]});`);
+  w.dispatchEvent(new w.Event('sterling-media-sleep'));w.eval(`auditHls.handlers.manifest()`);
+  expect(attempts).toBe(0);expect(w.eval('userPaused')).toBe(true);
+ });
+ it('TV does not retry muted autoplay after a paused pending play promise fails',async()=>{
+  const {w}=boot('tv');let attempts=0,rejectPlay:(reason:Error)=>void=()=>{};
+  w.HTMLMediaElement.prototype.play=()=>{attempts++;return new Promise<void>((_resolve,reject)=>{rejectPlay=reject;});};
+  w.eval(`safeAutoplayVideo(document.getElementById('video-player'))`);
+  w.dispatchEvent(new w.Event('sterling-media-sleep'));rejectPlay(new Error('aborted'));
+  await Promise.resolve();await Promise.resolve();
+  expect(attempts).toBe(1);expect(w.eval('tvUserPaused')).toBe(true);
+ });
+ it('Radio tolerates malformed station lists and counters from saved preferences',()=>{
+  const {w,errors}=boot('radio');
+  w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.hydrate',values:{omnicast_v11_recents:'[null,5,{}]',omnicast_v11_liked:'[null,"bad"]',omnicast_v11_counts:'{"bad":null}',omnicast_v11_config:'{"volume":"bad","muted":[],"activeCategory":null}'}}}));
+  expect(w.eval('recentsList.length+likedStations.length')).toBe(0);expect(w.eval('appConfig.volume')).toBe(0.85);expect(errors).toEqual([]);
+ });
+});
+
+it('Radio discards stale podcast responses and exposes a retry on feed failure',async()=>{
+ const {w,errors}=boot('radio');const pending:Array<(data:any)=>void>=[];
+ w.fetch=(()=>new Promise(resolve=>pending.push(data=>resolve({ok:true,json:async()=>data})))) as any;
+ const first=(w as any).openPodcastShow({id:'a',title:'First',feedUrl:'https://fixture.test/a.xml'});
+ const second=(w as any).openPodcastShow({id:'b',title:'Second',feedUrl:'https://fixture.test/b.xml'});
+ pending[1]({status:'ok',items:[{title:'Second episode',enclosure:{link:'https://fixture.test/b.mp3'}}]});await second;
+ pending[0]({status:'ok',items:[{title:'Stale episode',enclosure:{link:'https://fixture.test/a.mp3'}}]});await first;
+ expect(w.eval('episodeList[0].title')).toBe('Second episode');
+ w.eval(`episodeList.push({id:'next',title:'Next episode',kind:'podcast_episode',streamUrl:'https://fixture.test/next.mp3'});playNextChannel();`);
+ expect(w.eval('activeStream.id')).toBe('next');
+ w.fetch=(async()=>{throw Error('offline');}) as any;
+ await (w as any).openPodcastShow({id:'c',title:'Failed',feedUrl:'https://fixture.test/c.xml'});
+ expect(w.document.getElementById('sp-pod-episodes')?.textContent).toContain('Retry episodes');expect(errors).toEqual([]);
+});
+it('TV reports clipboard failure instead of claiming a successful share',async()=>{
+ const {w}=boot('tv');Object.defineProperty(w.navigator,'clipboard',{value:{writeText:()=>Promise.reject(Error('denied'))},configurable:true});
+ await (w as any).copyStreamShareLink();expect(w.document.getElementById('toast')?.textContent).toContain('Clipboard unavailable');
+});
+
+it('TV sleep also stops an embedded fallback and explicit resume restores it',()=>{
+ const {w,flush}=boot('tv');
+ w.eval(`activeChannel={name:'Embedded audit',url:'https://fixture.test/live.m3u8',ytEmbed:'https://www.youtube.com/embed/audit'};document.getElementById('video-player').classList.add('hidden');const frame=document.getElementById('embed-fallback');frame.classList.remove('hidden');frame.src=activeChannel.ytEmbed;`);
+ w.dispatchEvent(new w.Event('sterling-media-sleep'));flush();
+ expect(w.document.getElementById('embed-fallback')?.getAttribute('src')).toBeNull();
+ expect(w.document.querySelector('#tv-now-playing [data-tm-action=play]')?.getAttribute('aria-label')).toBe('Play live TV');
+ w.eval('resumeTvPlayback()');flush();expect(w.document.getElementById('embed-fallback')?.getAttribute('src')).toContain('/embed/audit');
+ expect(w.document.querySelector('#tv-now-playing [data-tm-action=play]')?.getAttribute('aria-label')).toBe('Pause live TV');
+});
