@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
-import { PanelCard } from './config/ConfigPrimitives';
+import { AdvancedSection, ConfigNote, PanelCard } from './config/ConfigPrimitives';
+import { BORDER, Field, MUTED, Section, TEXT, inputStyle } from './kiteSettingsPrimitives';
 import { useUnsavedDraftGuard } from './config/unsavedDraftGuard';
 
 interface Settings {
@@ -27,7 +28,6 @@ interface Snapshot {
 }
 const PATH = '/api/v1/ops/production-settings';
 const KEY = ['production-settings'];
-const inputStyle: React.CSSProperties = { display: 'block', width: '100%', maxWidth: 650, padding: 8, marginTop: 5, background: 'var(--k-bg)', color: 'var(--k-text)', border: '1px solid var(--k-border)', borderRadius: 5 };
 
 
 /** The four plain limits the form edits. Each is ₹ of exposure. */
@@ -81,6 +81,23 @@ export function limitsProblem(limits: SimpleLimits): string | null {
   return null;
 }
 
+const wideInput: React.CSSProperties = { ...inputStyle, width: 140, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
+const textInput: React.CSSProperties = { ...inputStyle, width: 260 };
+const button = (primary: boolean, enabled: boolean): React.CSSProperties => ({
+  padding: '6px 14px', fontSize: 11.5, fontWeight: primary ? 700 : 600, fontFamily: 'inherit', borderRadius: 6,
+  border: `1px solid ${primary && enabled ? 'var(--k-brand)' : BORDER}`, background: 'transparent',
+  color: primary && enabled ? 'var(--k-brand)' : MUTED, cursor: enabled ? 'pointer' : 'default',
+});
+const chip = (tone: 'ok' | 'warn' | 'err'): React.CSSProperties => ({
+  display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+  border: `1px solid ${tone === 'ok' ? 'var(--k-green)' : tone === 'warn' ? 'var(--k-amber)' : 'var(--k-red)'}`,
+  color: tone === 'ok' ? 'var(--k-green)' : tone === 'warn' ? 'var(--k-amber)' : 'var(--k-red)',
+});
+const alertStyle: React.CSSProperties = { color: 'var(--k-red)', fontSize: 11.5, margin: '6px 0' };
+const okStyle: React.CSSProperties = { color: 'var(--k-green)', fontSize: 11.5 };
+const row: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 0', borderTop: `1px solid ${BORDER}`, marginTop: 4 };
+const subHead: React.CSSProperties = { color: TEXT, fontSize: 12, fontWeight: 700, margin: '14px 0 4px' };
+
 export function ProductionSettingsPanel() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: KEY, queryFn: () => api.get<Snapshot>(PATH), retry: false });
@@ -100,8 +117,8 @@ export function ProductionSettingsPanel() {
   const cfg = draft ?? query.data?.settings;
   const dirty = draft !== null;
   useUnsavedDraftGuard('production-settings', dirty);
-  if (query.isError) return <PanelCard><h3>Production setup</h3><p role="alert">Production setup is unavailable. Administrator access is required.</p><button onClick={() => void query.refetch()}>Retry production setup</button></PanelCard>;
-  if (!cfg || !query.data) return <PanelCard><p>Loading production setup…</p></PanelCard>;
+  if (query.isError) return <PanelCard><Section title="Production setup" description="Capital, risk limits and the live entry switch." summary="Unavailable" defaultOpen persistKey="production-setup"><p role="alert" style={alertStyle}>Production setup is unavailable. Administrator access is required.</p><div style={row}><button type="button" style={button(true, true)} onClick={() => void query.refetch()}>Retry production setup</button></div></Section></PanelCard>;
+  if (!cfg || !query.data) return <PanelCard><p style={{ color: MUTED, fontSize: 12, padding: 12 }}>Loading production setup…</p></PanelCard>;
   const data = query.data;
   const update = (change: Partial<Settings>) => { setDraft({ ...cfg, ...change }); setSaved(false); };
   const scopes = data.risk_scopes ?? { strategies: [], lanes: [] };
@@ -114,50 +131,81 @@ export function ProductionSettingsPanel() {
   };
   const valid = !limitsError && (cfg.allocation_capital_inr === null || (Number.isFinite(cfg.allocation_capital_inr) && cfg.allocation_capital_inr > 0))
     && (!cfg.live_execution || (confirm === 'ENABLE LIVE ENTRIES' && data.posture.ready && data.safe_mode.state === 'NORMAL' && !!cfg.allocation_capital_inr && !!cfg.risk_limits.trim()));
-  return <PanelCard>
-    <h3>Production setup</h3>
-    <p role="status">Running entry switch: {data.runtime.enabled ? 'enabled' : 'disabled'}. Safe mode: {data.safe_mode.state === 'NORMAL' ? 'off' : 'on'}.</p>
-    <p>These settings take effect after a backend restart. Saving does not enable strategy automation or bypass order checks.</p>
-    {data.posture.missing.length > 0 && <p role="alert">Live setup requires: {data.posture.missing.join(', ')}.</p>}
-    <div style={{ display: 'grid', gap: 16 }}>
-      <label>Approved live capital (₹)<input aria-label="Approved live capital (₹)" style={inputStyle} type="number" min="0.01" step="0.01" value={cfg.allocation_capital_inr ?? ''} onChange={e => update({ allocation_capital_inr: e.target.value === '' ? null : Number(e.target.value) })} /></label>
-      <fieldset style={{ border: '1px solid var(--k-border)', borderRadius: 6, padding: 12 }}>
-        <legend>Risk limits</legend>
-        <p style={{ marginTop: 0 }}>Maximum exposure in ₹, largest first.</p>
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
-          {LIMIT_FIELDS.map(f => <label key={f.key}>{f.label}
-            <input aria-label={f.label} style={inputStyle} type="number" min="1" step="1" value={limits[f.key] ?? ''} onChange={e => setLimit(f.key, e.target.value)} />
-            <span style={{ fontSize: 11, color: 'var(--k-dim)' }}>{f.hint}</span>
-          </label>)}
-        </div>
-        {limitsError && <p role="alert">{limitsError}</p>}
-        <p style={{ marginBottom: 0, fontSize: 12 }}>Daily loss: Shared risk settings below. Lots per trade: each strategy's own settings.</p>
-      </fieldset>
-      <details>
-        <summary>Advanced</summary>
-        <div style={{ display: 'grid', gap: 12, marginTop: 10 }}>
-          <label>Risk limits (JSON)<textarea style={inputStyle} rows={6} value={cfg.risk_limits} onChange={e => { setLimitsDraft(null); update({ risk_limits: e.target.value }); }} /></label>
-          <label>Experiment ID<input style={inputStyle} value={cfg.experiment_id} onChange={e => update({ experiment_id: e.target.value })} /></label>
-          <label>Dataset start with timezone<input style={inputStyle} placeholder="YYYY-MM-DDT00:00:00+05:30" value={cfg.dataset_start} onChange={e => update({ dataset_start: e.target.value })} /></label>
-        </div>
-      </details>
-      <label><input type="checkbox" checked={cfg.live_execution} onChange={e => update({ live_execution: e.target.checked })} /> Request live entries after restart</label>
-      {cfg.live_execution && <label>Type ENABLE LIVE ENTRIES<input style={inputStyle} value={confirm} onChange={e => setConfirm(e.target.value)} /></label>}
+  const blocking = (data.checks ?? []).filter(check => check.passed !== true && !check.advisory);
+  const advisory = (data.checks ?? []).filter(check => check.passed !== true && check.advisory);
+  const liveOn = data.runtime.enabled;
+  const safeOn = data.safe_mode.state !== 'NORMAL';
+  return <PanelCard><Section title="Production setup" description="Capital, risk limits and the live entry switch. Applied after a backend restart."
+    summary={`${liveOn ? 'Live on' : 'Live off'} · ${safeOn ? 'Safe mode on' : 'Safe mode off'}`} defaultOpen persistKey="production-setup">
+    <div role="status" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '8px 0' }}>
+      <span style={chip(liveOn ? 'ok' : 'warn')}>Running entry switch: {liveOn ? 'enabled' : 'disabled'}</span>
+      <span style={chip(safeOn ? 'err' : 'ok')}>Safe mode: {safeOn ? 'on' : 'off'}</span>
+      <span style={chip(blocking.length ? 'err' : 'ok')}>{blocking.length ? `${blocking.length} blocking check${blocking.length > 1 ? 's' : ''}` : 'Checks clear'}</span>
     </div>
-    {save.isError && <p role="alert">{save.error.message}</p>}
-    <p><button disabled={!dirty || !valid || save.isPending} onClick={() => save.mutate(cfg)}>{save.isPending ? 'Saving…' : 'Save production settings'}</button> <button disabled={!dirty || save.isPending} onClick={() => { setDraft(null); setLimitsDraft(null); setConfirm(''); }}>Discard production changes</button></p>
-    {saved && <p role="status">Production settings saved. Restart the backend to apply them; then recheck readiness.</p>}
-    <h4>Broker connection requirements</h4>
-    <p>Registered outbound IP: {data.posture.egress.registered_ip ?? 'unknown'}. Observed IP: {data.posture.egress.observed_ip ?? 'unknown'}.</p>
-    <p>{data.posture.egress.reason}</p>
-    <label><input type="checkbox" checked={whitelisted} onChange={e => setWhitelisted(e.target.checked)} /> I have added the observed IP to my Zerodha API whitelist.</label>
-    <p><button disabled={!whitelisted || !data.posture.egress.observed_ip || acceptIp.isPending} onClick={() => acceptIp.mutate(data.posture.egress.observed_ip!)}>Verify and accept observed IP</button></p>
-    {acceptIp.isError && <p role="alert">{acceptIp.error.message}</p>}
-    <p>Account binding: {data.posture.binding.binding_id ?? 'none'}. {data.posture.binding.detail}</p>
-    <h4>Readiness checks</h4>
-    {!data.checks ? <p>Readiness checks unavailable.</p> : <ul>{data.checks.filter(check => check.passed !== true).map(check => <li key={check.name}>
-      <strong>{check.name.replace(/_/g, ' ')}</strong> ({check.advisory ? 'advisory' : check.passed === null ? 'unknown' : 'blocked'}): {check.detail}
-    </li>)}</ul>}
-    <button onClick={() => void query.refetch()}>Refresh production status</button>
-  </PanelCard>;
+    {data.posture.missing.length > 0 && <p role="alert" style={alertStyle}>Live setup requires: {data.posture.missing.join(', ')}.</p>}
+
+    <Field label="Approved live capital (₹)" hint="Total capital Sterling may use.">
+      <input aria-label="Approved live capital (₹)" style={wideInput} type="number" min="0.01" step="0.01" value={cfg.allocation_capital_inr ?? ''} onChange={e => update({ allocation_capital_inr: e.target.value === '' ? null : Number(e.target.value) })} />
+    </Field>
+    <div style={subHead}>Risk limits</div>
+    <div style={{ color: MUTED, fontSize: 10.5, marginBottom: 2 }}>Maximum exposure in ₹, largest first.</div>
+    {LIMIT_FIELDS.map(f => <Field key={f.key} label={f.label} hint={f.hint}>
+      <input aria-label={f.label} style={wideInput} type="number" min="1" step="1" value={limits[f.key] ?? ''} onChange={e => setLimit(f.key, e.target.value)} />
+    </Field>)}
+    {limitsError && <p role="alert" style={alertStyle}>{limitsError}</p>}
+    <ConfigNote>Daily loss: Shared risk settings below. Lots per trade: each strategy's own settings.</ConfigNote>
+
+    <Field label="Request live entries after restart" hint="Real money. Needs safe mode off and every blocking check clear.">
+      <input aria-label="Request live entries after restart" type="checkbox" checked={cfg.live_execution} onChange={e => update({ live_execution: e.target.checked })} />
+    </Field>
+    {cfg.live_execution && <Field label="Type ENABLE LIVE ENTRIES" hint="Confirms you intend to trade real money.">
+      <input aria-label="Type ENABLE LIVE ENTRIES" style={textInput} value={confirm} onChange={e => setConfirm(e.target.value)} />
+    </Field>}
+
+    <AdvancedSection count={3}>
+      <Field label="Risk limits (JSON)" hint="Edited by the four fields above." wide>
+        <textarea aria-label="Risk limits (JSON)" style={{ ...inputStyle, width: '100%', height: 'auto', padding: 8, fontFamily: 'ui-monospace, monospace', fontSize: 11 }} rows={5} value={cfg.risk_limits} onChange={e => { setLimitsDraft(null); update({ risk_limits: e.target.value }); }} />
+      </Field>
+      <Field label="Experiment ID" hint="Snapback research recorder only.">
+        <input aria-label="Experiment ID" style={textInput} value={cfg.experiment_id} onChange={e => update({ experiment_id: e.target.value })} />
+      </Field>
+      <Field label="Dataset start with timezone" hint="Snapback research recorder only.">
+        <input aria-label="Dataset start with timezone" style={textInput} placeholder="YYYY-MM-DDT00:00:00+05:30" value={cfg.dataset_start} onChange={e => update({ dataset_start: e.target.value })} />
+      </Field>
+    </AdvancedSection>
+
+    {save.isError && <p role="alert" style={alertStyle}>{save.error.message}</p>}
+    <div style={row}>
+      <button type="button" style={button(true, dirty && valid && !save.isPending)} disabled={!dirty || !valid || save.isPending} onClick={() => save.mutate(cfg)}>{save.isPending ? 'Saving…' : 'Save production settings'}</button>
+      <button type="button" style={button(false, dirty && !save.isPending)} disabled={!dirty || save.isPending} onClick={() => { setDraft(null); setLimitsDraft(null); setConfirm(''); }}>Discard production changes</button>
+      {saved && <span role="status" style={okStyle}>Production settings saved. Restart the backend to apply them; then recheck readiness.</span>}
+    </div>
+
+    <div style={subHead}>Broker connection</div>
+    <Field label="Outbound IP" hint={data.posture.egress.reason}>
+      <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{data.posture.egress.observed_ip ?? 'unknown'}{data.posture.egress.registered_ip && data.posture.egress.registered_ip !== data.posture.egress.observed_ip ? ` (registered ${data.posture.egress.registered_ip})` : ''}</span>
+    </Field>
+    <Field label="Account binding" hint={data.posture.binding.detail}>
+      <span style={{ fontSize: 12 }}>{data.posture.binding.binding_id ?? 'none'}</span>
+    </Field>
+    <div style={row}>
+      <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 11.5, color: TEXT }}><input type="checkbox" checked={whitelisted} onChange={e => setWhitelisted(e.target.checked)} /> I have added the observed IP to my Zerodha API whitelist.</label>
+      <button type="button" style={button(true, whitelisted && !!data.posture.egress.observed_ip && !acceptIp.isPending)} disabled={!whitelisted || !data.posture.egress.observed_ip || acceptIp.isPending} onClick={() => acceptIp.mutate(data.posture.egress.observed_ip!)}>Verify and accept observed IP</button>
+    </div>
+    {acceptIp.isError && <p role="alert" style={alertStyle}>{acceptIp.error.message}</p>}
+
+    <div style={subHead}>Readiness checks</div>
+    {!data.checks ? <p style={{ color: MUTED, fontSize: 11.5 }}>Readiness checks unavailable.</p> : <>
+      {blocking.length === 0 ? <p style={okStyle}>No blocking checks.</p> :
+        <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 11.5, color: TEXT }}>{blocking.map(check => <li key={check.name} style={{ margin: '3px 0' }}>
+          <strong>{check.name.replace(/_/g, ' ')}</strong> <span style={{ color: check.passed === null ? 'var(--k-amber)' : 'var(--k-red)' }}>({check.passed === null ? 'unknown' : 'blocked'})</span>: {check.detail}
+        </li>)}</ul>}
+      {advisory.length > 0 && <AdvancedSection count={advisory.length}>
+        <ul style={{ margin: '4px 0', paddingLeft: 18, fontSize: 11, color: MUTED }}>{advisory.map(check => <li key={check.name} style={{ margin: '3px 0' }}>
+          <strong>{check.name.replace(/_/g, ' ')}</strong> (advisory): {check.detail}
+        </li>)}</ul>
+      </AdvancedSection>}
+    </>}
+    <div style={row}><button type="button" style={button(false, true)} onClick={() => void query.refetch()}>Refresh production status</button></div>
+  </Section></PanelCard>;
 }
