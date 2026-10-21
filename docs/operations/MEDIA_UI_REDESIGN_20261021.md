@@ -12,7 +12,8 @@ Restructure embedded Spectrum IPTV and Radio across mobile and desktop around a 
 - IPTV Netflix mobile mode reuses the established single video element and native HLS transport, with a separate cinematic collection skin and red navigation accents.
 - Radio includes Spotify-style and YouTube Music-style presentation plus a separate Netflix-inspired cinematic audio skin. The SW/AM tuner button moved to Home, not the full-screen player.
 - Radio full player surfaces (desktop and mobile) have explicitly opaque, station-hued backgrounds rather than translucent fixed palettes. Colors also change when the station reports a new track.
-- Radio looks up station cover art from Radio Browser using an exact station-name match, HTTPS image validation, bounded caches, and a fallback graphic. Lookup errors do not block playback.
+- Radio looks up station cover art from Radio Browser using an exact station-name match, HTTPS image validation, bounded caches, and a fallback graphic. Lookup errors do not block playback. The first 16 stations in each visible collection can also be enriched asynchronously with at most two simultaneous lookups and a coalesced grid refresh, so collection thumbnails gradually improve without a request storm.
+- On selecting a different station, clear the old track subtitle immediately. Artwork fetches are rejected if the playback generation changed, even when the same station was reselected; artist metadata must not be empty for album-art matching.
 - On-air song information from an authoritative station feed (currently SomaFM) is displayed immediately. An album-art lookup is only accepted for an exact title/artist match. Missing track data is not guessed.
 
 ## Important Shazam-like recognition limitation
