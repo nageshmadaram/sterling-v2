@@ -26,6 +26,7 @@ import { SafetyAdmissionCard } from './ops/SafetyAdmissionCard';
 import { mono } from './ops/Card';
 import { useIsSimulation } from '../../store/useViewStore';
 import { SimDeniedNote } from '../sim/SimDeniedNote';
+import { EmaTrendOperations } from './board/EmaTrendOperations';
 import { useSimNowMs } from '../../hooks/useReplayStore';
 
 export function LiveOperationsPanel() {
@@ -118,6 +119,12 @@ export function LiveOperationsPanel() {
             )}
           </div>
 
+          {payload.paper_strategies?.ema_trend && <div style={{ marginTop: 10 }}>
+            <EmaTrendOperations campaigns={payload.paper_strategies.ema_trend.campaigns || []}
+              supervision={unreachable ? undefined : payload.paper_strategies.ema_trend.supervision || undefined}
+              unavailable={unreachable || payload.paper_strategies.ema_trend.status !== 'AVAILABLE'}
+              paused={payload.paper_strategies.ema_trend.paused} showPause readOnly={historical} />
+          </div>}
           <div style={{ marginTop: 10, opacity: unreachable ? 0.5 : 1 }}>
             <BrokerExposureCard broker={payload.broker} />
           </div>

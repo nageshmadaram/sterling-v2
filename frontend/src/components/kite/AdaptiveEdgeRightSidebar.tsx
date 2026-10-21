@@ -6,6 +6,8 @@ import { useEffectiveNowMs } from '../../hooks/useReplayStore';
 const SterlingKiteEngineWithExpiry = lazy(() => import('./SterlingKiteEngineWithExpiry').then(m => ({ default: m.SterlingKiteEngineWithExpiry })));
 const GammaMoveBoard = lazy(() => import('./board/GammaMoveBoard').then(m => ({ default: m.GammaMoveBoard })));
 const EmaTrendBoard = lazy(() => import('./board/EmaTrendBoard').then(m => ({ default: m.EmaTrendBoard })));
+import { useEmaTrendSnapshot } from '../../hooks/useEmaTrend';
+import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './board/emaTrendAdapter';
 const SnapbackBoard = lazy(() => import('./board/SnapbackBoard').then(m => ({ default: m.SnapbackBoard })));
 import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
@@ -77,6 +79,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const engineSignals = useEngineSignals();
   const gmSnapshot = useGammaMoveSnapshot();
   const sbSnapshot = useSnapbackSnapshot();
+  const emaSnapshot = useEmaTrendSnapshot();
 
 
   const sig = engineSignals.data;
@@ -90,7 +93,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * now or in twenty seconds.
    */
   const scanOrder = useMemo<ScannableEngine[]>(() => {
-    const all: ScannableEngine[] = ['supertrend', 'gamma_move', 'snapback'];
+    const all: ScannableEngine[] = ['supertrend', 'gamma_move', 'snapback', 'ema_trend'];
     const first = all.filter((e) => e === engine);
     return [...first, ...all.filter((e) => e !== engine)];
   }, [engine]);
@@ -142,15 +145,17 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     const st = supertrendToBoard(engineSignals.data?.rows ?? []);
     const gm = gammaMoveToBoard(gmSnapshot.data);
     const sb = snapbackRowsToBoard(sbSnapshot.data?.rows ?? []);
+    const ema = [...emaTrendSetupsToBoard(emaSnapshot.data?.rows || []), ...emaTrendCampaignsToBoard(emaSnapshot.data?.campaigns || [])];
     const live = (list: typeof st) => list.filter((s) => ACTIONABLE.includes(s.status)).length;
     const all: EngineTabState[] = [
       { id: 'supertrend', running: engineOn.supertrend, live: live(st), scanned: st.length },
       { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
+      { id: 'ema_trend', running: engineOn.ema_trend, live: live(ema), scanned: ema.length },
       { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
     ];
     // A disabled scanner keeps its board available for history and controls.
     return orderEngines(all, engineOrder);
-  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, engineOn, engineOrder]);
+  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, emaSnapshot.data, engineOn, engineOrder]);
 
   /**
    * Land on the operator's chosen board, and stop as soon as they pick one.

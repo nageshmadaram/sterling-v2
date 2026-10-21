@@ -362,17 +362,44 @@ describe('LiveOperationsPanel', () => {
   });
 });
 
-// The release runs SuperTrend, Snapback and Gamma Unwind only. EMA Trend is a
-// paper research engine; its virtual inventory must not appear in Operations.
-describe('Operations shows no paper strategy', () => {
-  it('ignores an EMA Trend paper payload', async () => {
+// Explicit virtual section: these actions must never invoke the real-family stop.
+describe('EMA paper inventory in Operations', () => {
+  it('renders owned virtual shares and pauses only EMA paper entries', async () => {
     const { emaCampaign } = await import('../../../test/emaTrendFixtures');
     get.mockResolvedValue(payload({ paper_strategies: { ema_trend: { status: 'AVAILABLE', execution_mode: 'PAPER',
       live_eligible: false, campaigns: [{ ...emaCampaign(), qty: 103 }], paused: false,
       supervision: { status: 'RUNNING', age_ms: 2000, errors: [] } } } }));
+    post.mockResolvedValue({ paused: true });
     renderPanel();
-    expect(await screen.findByText(/LIVE — TRADING ENABLED/)).toBeTruthy();
-    expect(screen.queryByRole('region', { name: 'EMA Trend paper operations' })).toBeNull();
-    expect(screen.queryByText(/paper/i)).toBeNull();
+    const section = await screen.findByRole('region', { name: 'EMA Trend paper operations' });
+    expect(section).toHaveTextContent('103 confirmed shares');
+    fireEvent.click(within(section).getByRole('button', { name: 'Pause EMA paper entries' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/v1/ema-trend/operations/pause', {}));
+    expect(post.mock.calls.every(call => String(call[0]).startsWith('/api/v1/ema-trend/'))).toBe(true);
+    expect(await within(section).findByText('EMA paper entries paused; held campaigns continue to be managed.')).toBeInTheDocument();
+  });
+  it('does not render unreadable paper inventory as zero exposure', async () => {
+    get.mockResolvedValue(payload({ paper_strategies: { ema_trend: { status: 'UNAVAILABLE', execution_mode: 'PAPER',
+      live_eligible: false, campaigns: null, supervision: null } } }));
+    renderPanel();
+    const section = await screen.findByRole('region', { name: 'EMA Trend paper operations' });
+    expect(section).toHaveTextContent('Exposure could not be verified');
+    expect(section).not.toHaveTextContent('0 confirmed shares');
+    expect(within(section).getByRole('button', { name: 'Close all EMA paper campaigns' })).toBeDisabled();
+  });
+  it('demotes cached paper supervision and disables operations when the backend is unreachable', async () => {
+    const { emaCampaign } = await import('../../../test/emaTrendFixtures');
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(['family-operations-v2'], payload({ paper_strategies: { ema_trend: { status: 'AVAILABLE', execution_mode: 'PAPER',
+      live_eligible: false, campaigns: [emaCampaign()], paused: false,
+      supervision: { status: 'RUNNING', age_ms: 2000, errors: [] } } } }));
+    get.mockRejectedValue(new Error('network down'));
+    render(<QueryClientProvider client={client}><LiveOperationsPanel /></QueryClientProvider>);
+    await screen.findByTestId('ops-unreachable');
+    const section = screen.getByRole('region', { name: 'EMA Trend paper operations' });
+    expect(section).toHaveTextContent('Supervision: UNAVAILABLE');
+    expect(section).not.toHaveTextContent('Supervision: RUNNING');
+    expect(within(section).getByRole('button', { name: 'Pause EMA paper entries' })).toBeDisabled();
+    expect(within(section).getByRole('button', { name: 'Close all EMA paper campaigns' })).toBeDisabled();
   });
 });
