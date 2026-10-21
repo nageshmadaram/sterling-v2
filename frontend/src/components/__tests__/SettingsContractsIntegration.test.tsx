@@ -59,7 +59,7 @@ describe('Gamma Unwind settings over the real API payload', () => {
     mount();
     await settled();
     const text = document.body.textContent ?? '';
-    expect(text).toContain('effective HOI-1');
+    expect(text).toContain('Fixed at 1 in this version');
     expect(text).toContain('1m base');
     expect(text).toContain('5m signal');
     expect(text).toContain('15m display');

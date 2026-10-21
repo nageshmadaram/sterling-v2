@@ -1,3 +1,5 @@
+import { ModeAvailability } from './kite/config/ModeAvailability';
+import type { TradeMode } from './kite/board/boardTypes';
 import React from 'react';
 import { useEmaTrendConfig, useUpdateEmaTrend, useEmaTrendLiveReadiness } from '../hooks/useEmaTrend';
 import { EMA_TREND_MODE_LABEL, type EmaTrendConfig, type EmaTrendMode } from '../types/emaTrend';
@@ -129,6 +131,7 @@ export function EmaTrendSettings() {
       </details>
       <ConfigNote>Selections are staged until Apply changes. Spot indices are read-only. No broker order is submitted.</ConfigNote>
       <Field label="Enabled profiles" hint="At least one profile. A shared instrument owner prevents simultaneous mode positions.">
+        <ModeAvailability available={modes.map(m => m as TradeMode)} active={cfg.modes.map(m => m as TradeMode)} note="Tick the modes to scan below. Overnight is not built yet." />
         <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
           <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
             onChange={() => patch({ modes: cfg.modes.includes(mode) ? cfg.modes.filter(m => m !== mode) : [...cfg.modes, mode] })} />{EMA_TREND_MODE_LABEL[mode]}

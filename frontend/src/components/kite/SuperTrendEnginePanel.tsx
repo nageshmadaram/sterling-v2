@@ -125,7 +125,7 @@ export function SuperTrendEnginePanel() {
         <Section title="Trading horizon" summary={cfg.horizon_mode ?? 'swing'} description="Candle size and hold time. Close open trades before changing." defaultOpen persistKey="st-horizon">
           <Field label="Mode" hint="Intraday exits by 15:20. Overnight holds up to 3 days, never over weekends.">
             <ChoiceRow value={cfg.horizon_mode ?? 'swing'} options={[
-              { value: 'ultra_scalping', label: 'Ultra scalping' }, { value: 'scalping', label: 'Scalping' },
+              { value: 'ultra_scalping', label: 'Ultra scalp' }, { value: 'scalping', label: 'Scalp' },
               { value: 'intraday', label: 'Intraday' }, { value: 'overnight', label: 'Overnight' }, { value: 'swing', label: 'Swing' },
             ]} onChange={value => patch({ horizon_mode: value as EngineConfigModel['horizon_mode'], signal_timeframe_minutes: null })} />
           </Field>

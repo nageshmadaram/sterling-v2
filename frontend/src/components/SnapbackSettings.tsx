@@ -117,11 +117,11 @@ function CaptionedSwitch({ checked, label, onChange }: {
   );
 }
 const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: string }> = [
-  { value: 'ultra_scalping', label: 'Ultra scalping', hint: '1-minute reversal; hard holding limit 20 minutes; no overnight carry.' },
-  { value: 'swing', label: 'Swing', hint: 'Daily signals and session-based holding periods.' },
-  { value: 'scalp', label: 'Scalp', hint: 'Research preset: 1-minute bars, 20-bar initial hold, 60-bar runner limit.' },
-  { value: 'intraday', label: 'Intraday', hint: '15-minute reversal; session square-off and finite holding budget.' },
-  { value: 'overnight', label: 'Overnight', hint: 'Hourly reversal. Up to 3 days. Stop at Zerodha. Never held over weekends or holidays.' },
+  { value: 'ultra_scalping', label: 'Ultra scalp', hint: '1-minute candles. Out within 20 minutes. Never held overnight.' },
+  { value: 'scalp', label: 'Scalp', hint: '1-minute candles. Short hold; a strong move can run a little longer.' },
+  { value: 'intraday', label: 'Intraday', hint: '15-minute candles. Out by day end.' },
+  { value: 'overnight', label: 'Overnight', hint: 'Hourly candles. Up to 3 days. Stop at Zerodha. Never held over weekends or holidays.' },
+  { value: 'swing', label: 'Swing', hint: 'Daily candles. Held for days.' },
 ];
 
 export function SnapbackSettings() {
