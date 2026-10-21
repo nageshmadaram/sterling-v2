@@ -540,6 +540,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
               <button data-radio-click="39" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Next Station">
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
               </button>
+              <button data-radio-click="74" aria-label="Open radio tuner" title="Open SW / AM tuner" class="h-8 px-3 rounded-md bg-[#242424] text-white text-xs font-semibold">Tuner</button>
               <button data-radio-click="37" id="sw-expand-btn" class="h-8 px-3 rounded-md bg-[#242424] hover:bg-[#303030] text-xs font-medium text-white flex items-center gap-1.5 transition">
                 <span>Tuner</span>
                 <i id="sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#b3b3b3] transition-transform duration-200"></i>
@@ -1025,9 +1026,6 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       </button>
       <span class="text-xs font-semibold text-white/90">Now Playing</span>
       <div class="flex items-center gap-1">
-        <button data-radio-click="74" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" aria-label="Open radio tuner" title="Tuner">
-          <i class="fa-solid fa-wave-square text-sm"></i>
-        </button>
         <button data-radio-click="29" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" title="Audio settings">
           <i class="fa-solid fa-sliders text-sm"></i>
         </button>
@@ -2163,7 +2161,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let radioHosted = false;
     let radioSearchQuery = '';
     function publishRadioState() {
-      if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : 'youtube',query:radioSearchQuery}, '*');
+      if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : appConfig.appMode === 'netflix' ? 'netflix' : 'youtube',query:radioSearchQuery}, '*');
     }
     let radioBooted = false;
     let hostAcknowledged = false;
@@ -2224,7 +2222,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
       if (event.data?.type === 'sterling.radio.command' && radioHosted) {
         const {action,value} = event.data;
-        if (action === 'theme' && ['spotify','youtube'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : 'ytmusic');
+        if (action === 'theme' && ['spotify','youtube','netflix'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : value === 'netflix' ? 'netflix' : 'ytmusic');
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
         if (action === 'more') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
@@ -2571,7 +2569,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         spApp.classList.remove('hidden'); spApp.classList.add('flex');
         ytmApp.classList.add('hidden'); ytmApp.classList.remove('flex');
       } else {
-        document.body.className = 'mode-ytmusic select-none overflow-hidden h-[100dvh] w-screen flex flex-col';
+        document.body.className = (mode === 'netflix' ? 'mode-netflix' : 'mode-ytmusic') + ' select-none overflow-hidden h-[100dvh] w-screen flex flex-col';
         spApp.classList.add('hidden'); spApp.classList.remove('flex');
         ytmApp.classList.remove('hidden'); ytmApp.classList.add('flex');
       }
