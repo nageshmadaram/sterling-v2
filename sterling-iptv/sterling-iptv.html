@@ -38,36 +38,36 @@
     try{const parsed=new URL(url);return !parsed.username&&!parsed.password;}catch{return false;}
   };
   const normalize=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\b(live|hd|full hd|global|us|india)\b/g,'').replace(/[^\p{L}\p{N}]/gu,'');
-  let names=new Map(),logos=new Map(),pending=null,lastFetch=0;
-  const ready=new Set(),checked=new Map(),queue=[];let inflight=0,paintTimer;
+  let names=new Map(),logos=new Map(),pending=null,nextFetch=0,failures=0;
+  const ready=new Set(),loading=new Set(),checked=new Map(),queue=[];let inflight=0,paintTimer;
   const announce=()=>{clearTimeout(paintTimer);paintTimer=setTimeout(()=>window.dispatchEvent(new Event('sterling-artwork-update')),100);};
   function pump(){
     while(inflight<2&&queue.length){const url=queue.shift();inflight++;const image=new Image();
       const timer=setTimeout(()=>finish(false),7000);let complete=false;
-      const finish=ok=>{if(complete)return;complete=true;clearTimeout(timer);image.onload=image.onerror=null;if(ok){ready.add(url);if(ready.size>256)ready.delete(ready.values().next().value);announce();}inflight--;pump();};
+      const finish=ok=>{if(complete)return;complete=true;clearTimeout(timer);image.onload=image.onerror=null;if(ok){ready.add(url);if(ready.size>256)ready.delete(ready.values().next().value);announce();}loading.delete(url);inflight--;pump();};
       image.onload=()=>finish(true);image.onerror=()=>finish(false);image.src=url;
     }
   }
   function usable(url){
     if(!url)return '';if(ready.has(url))return url;
-    if(Date.now()-(checked.get(url)||0)>5*60*1000&&queue.length<64){checked.set(url,Date.now());if(checked.size>256)checked.delete(checked.keys().next().value);queue.push(url);pump();}
+    if(!loading.has(url)&&Date.now()-(checked.get(url)||0)>5*60*1000&&queue.length<64){checked.set(url,Date.now());if(checked.size>256)checked.delete(checked.keys().next().value);loading.add(url);queue.push(url);pump();}
     return '';
   }
   async function load(){
-    if(pending)return pending;if(Date.now()-lastFetch<30*60*1000)return;
-    lastFetch=Date.now();const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
+    if(pending)return pending;if(Date.now()<nextFetch)return;
+    nextFetch=Date.now()+30*60*1000;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
     pending=Promise.all(['channels','logos'].map(async kind=>{const res=await fetch(`https://iptv-org.github.io/api/${kind}.json`,{signal:controller.signal,cache:'default'});if(!res.ok)throw Error('Artwork metadata unavailable');return res.json();})).then(([channels,images])=>{
       if(!Array.isArray(channels)||!Array.isArray(images))throw Error('Invalid artwork metadata');
       const nextNames=new Map(),nextLogos=new Map();
       for(const row of channels){if(!row||row.is_nsfw||typeof row.id!=='string'||typeof row.name!=='string')continue;for(const name of [row.name,...(Array.isArray(row.alt_names)?row.alt_names:[])]){const key=normalize(name);if(key)nextNames.set(key,nextNames.has(key)&&nextNames.get(key)!==row.id?null:row.id);}}
       for(const row of images){if(!row||typeof row.channel!=='string'||!safe(row.url)||row.in_use===false)continue;if(!nextLogos.has(row.channel)||(Array.isArray(row.tags)&&row.tags.includes('square')))nextLogos.set(row.channel,row.url);}
-      names=nextNames;logos=nextLogos;window.dispatchEvent(new Event('sterling-artwork-update'));
-    }).catch(()=>{controller.abort();lastFetch=Date.now()-29*60*1000;}).finally(()=>{clearTimeout(timer);pending=null;});return pending;
+      names=nextNames;logos=nextLogos;failures=0;window.dispatchEvent(new Event('sterling-artwork-update'));
+    }).catch(()=>{controller.abort();failures=Math.min(failures+1,5);nextFetch=Date.now()+Math.min(5*60*1000,30000*2**(failures-1));}).finally(()=>{clearTimeout(timer);pending=null;});return pending;
   }
   window.SterlingArtwork=Object.freeze({resolveTv(channel){void load();const aliases={'redbulltvglobalsports':'Red Bull TV','bbcearthus':'BBC Earth','aajtak': 'Aaj Tak','tv9telugu':'TV9 Telugu'};
     const alias=aliases[String(channel.name||'').toLowerCase().replace(/[^a-z0-9]/g,'')];
     const id=channel.channelId?.split('@')[0]||names.get(normalize(alias||channel.name));return usable(logos.get(id));},refresh:load});
-  window.addEventListener('online',()=>{if(!names.size){lastFetch=0;void load();}});
+  window.addEventListener('online',()=>{checked.clear();announce();if(!names.size){nextFetch=0;void load();}});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden&&names.size)void load();});
 })();
 
@@ -1004,13 +1004,19 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 .media-timer-trigger.media-timer-active {font-size:11px;}
 .tm-now-footer {flex-wrap:wrap;gap:8px;}
 
+/* Connectivity notices stay dismissible without blocking the player. */
+.media-connection {pointer-events:auto;display:flex;align-items:center;gap:12px;touch-action:pan-y;}
+.media-connection[hidden] {display:none;}
+.media-connection button {flex:0 0 44px;width:44px;height:44px;border:0;border-radius:50%;color:inherit;background:#ffffff12;font-size:18px;}
+.media-connection button:focus-visible {outline:2px solid currentColor;outline-offset:2px;}
+
 </style>
   <script>
 /* Shared, session-only listening comfort. Never changes saved sound settings. */
 (() => {
   function mount() {
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-    let deadline = 0, interval = null, returnFocus = null;
+    let deadline = 0, timer = null, returnFocus = null;
     const triggers = new Set();
     const announcement = document.createElement('div');
     announcement.className = 'media-announcement';
@@ -1018,6 +1024,16 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     const connection = document.createElement('div');
     connection.className = 'media-connection';
     connection.setAttribute('role', 'status');
+    connection.innerHTML = '<span>You’re offline · Your saved channels are still here</span><button type="button" aria-label="Dismiss offline notice">✕</button>';
+    connection.querySelector('button').addEventListener('click',()=>{connection.hidden=true;});
+    let connectionDrag = null;
+    connection.addEventListener('pointerdown',event=>{if(event.target.closest('button'))return;connectionDrag={id:event.pointerId,x:event.clientX,y:event.clientY};connection.setPointerCapture(event.pointerId);});
+    connection.addEventListener('pointerup',event=>{
+      if(connectionDrag?.id!==event.pointerId)return;
+      if(Math.abs(event.clientX-connectionDrag.x)>64||connectionDrag.y-event.clientY>48)connection.hidden=true;
+      connectionDrag=null;
+    });
+    connection.addEventListener('pointercancel',()=>{connectionDrag=null;});
     const dialog = document.createElement('dialog');
     dialog.className = 'media-comfort';
     dialog.setAttribute('aria-labelledby', 'media-comfort-title');
@@ -1032,7 +1048,6 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     }
     function connectionChanged() {
       connection.hidden = navigator.onLine !== false;
-      connection.textContent = 'You’re offline · Your saved channels are still here';
     }
     connectionChanged();
     window.addEventListener('offline', connectionChanged);
@@ -1040,19 +1055,24 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     function refresh() {
       if (deadline && Date.now() >= deadline) {
         deadline = 0;
-        clearInterval(interval); interval = null;
+        clearTimeout(timer); timer = null;
         // The Radio owner sets its explicit pause guard before pausing audio.
         window.dispatchEvent(new Event('sterling-media-sleep'));
         document.querySelectorAll('audio,video').forEach(media=>media.pause());
         announce('Sleep timer finished · Playback paused');
       }
       const minutes = deadline ? Math.max(1,Math.ceil((deadline-Date.now())/60000)) : 0;
+      clearTimeout(timer); timer=null;
+      if(deadline)timer=setTimeout(refresh,Math.max(1,(deadline-Date.now())-(minutes-1)*60000));
       for (const button of triggers) {
+        if(!button.isConnected){triggers.delete(button);continue;}
         const label=minutes ? `◷ ${minutes}m` : '◷';if(button.textContent!==label)button.textContent=label;
         button.setAttribute('aria-label',minutes?`Sleep timer: ${minutes} minutes remaining`:'Set sleep timer');
         button.classList.toggle('media-timer-active',Boolean(deadline));
       }
-      dialog.querySelector('.media-timer-status').textContent = minutes ? `Pausing in ${minutes} minute${minutes===1?'':'s'}` : 'No timer set';
+      const status=dialog.querySelector('.media-timer-status');
+      const label=minutes ? `Pausing in ${minutes} minute${minutes===1?'':'s'}` : 'No timer set';
+      if(status.textContent!==label)status.textContent=label;
       dialog.querySelector('.media-timer-cancel').hidden = !deadline;
     }
     function close() { dialog.style.transform = ''; dialog.close(); if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true}); }
@@ -1060,10 +1080,10 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       const choice = event.target.closest('[data-minutes]');
       if (choice) {
         deadline = Date.now()+Number(choice.dataset.minutes)*60000;
-        clearInterval(interval); interval = setInterval(refresh,1000);
+        clearTimeout(timer);
         refresh(); close(); announce(`Sleep timer set · ${choice.dataset.minutes} minutes`);
       } else if(event.target.closest('.media-timer-cancel')) {
-        deadline = 0; clearInterval(interval); interval = null;
+        deadline = 0; clearTimeout(timer); timer = null;
         refresh(); close(); announce('Sleep timer cancelled');
       } else if(event.target.closest('[data-close]') || (event.target===dialog && (()=>{const r=dialog.getBoundingClientRect();return event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom;})())) close();
     });
@@ -1098,7 +1118,12 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     attach(document.querySelector('#mobile-player-sheet>div:first-child>div'));
     attach(document.querySelector('.tm-now-footer>div'));
     // SW/AM is constructed lazily. Observe only direct body additions.
-    new MutationObserver(()=>attach(document.querySelector('#sw-player-window header'))).observe(document.body,{childList:true});
+    const receiverObserver=new MutationObserver(()=>attach(document.querySelector('#sw-player-window header')));
+    receiverObserver.observe(document.body,{childList:true});
+    window.addEventListener('pagehide',event=>{
+      if(event.persisted)return; // Preserve timers when the browser caches the page.
+      receiverObserver.disconnect();clearTimeout(timer);clearTimeout(announcementTimeout);
+    });
     document.addEventListener('visibilitychange',refresh);
     window.addEventListener('pageshow',refresh);
     document.addEventListener('pointerdown',event=>{

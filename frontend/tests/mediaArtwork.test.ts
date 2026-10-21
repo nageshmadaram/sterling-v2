@@ -36,4 +36,34 @@ describe('dynamic broadcaster artwork',()=>{
   dom.window.close();
  });
 
+ it('backs off failed metadata requests instead of retrying on every render',async()=>{
+  const dom=new JSDOM('',{runScripts:'outside-only',url:'https://sterling.example'});
+  let now=100000,calls=0;
+  (dom.window as any).Date={now:()=>now};
+  dom.window.fetch=(async()=>{calls++;throw Error('provider unavailable');}) as any;
+  new Script(readFileSync(resolve(process.cwd(),'media/artwork.js'),'utf8')).runInContext(dom.getInternalVMContext());
+  const service=(dom.window as any).SterlingArtwork;
+  await service.refresh();expect(calls).toBe(2);
+  now+=29999;await service.refresh();expect(calls).toBe(2);
+  now++;await service.refresh();expect(calls).toBe(4);
+  now+=30000;await service.refresh();expect(calls).toBe(4);
+  now+=30000;await service.refresh();expect(calls).toBe(6);
+  dom.window.close();
+ });
+
+ it('retries failed images immediately after connectivity returns',async()=>{
+  const dom=new JSDOM('',{runScripts:'outside-only',url:'https://sterling.example'});
+  let online=false,attempts=0;
+  (dom.window as any).Image=class {onload:(()=>void)|null=null;onerror:(()=>void)|null=null;set src(_value:string){attempts++;queueMicrotask(()=>online?this.onload?.():this.onerror?.());}};
+  dom.window.fetch=(async(url:string)=>({ok:true,json:async()=>url.endsWith('channels.json')?[{id:'news',name:'News'}]:[{channel:'news',url:'https://broadcaster.example/logo.png'}]})) as any;
+  new Script(readFileSync(resolve(process.cwd(),'media/artwork.js'),'utf8')).runInContext(dom.getInternalVMContext());
+  const service=(dom.window as any).SterlingArtwork;
+  await service.refresh();service.resolveTv({name:'News'});await Promise.resolve();expect(attempts).toBe(1);
+  service.resolveTv({name:'News'});expect(attempts).toBe(1);
+  online=true;dom.window.dispatchEvent(new dom.window.Event('online'));
+  service.resolveTv({name:'News'});await Promise.resolve();expect(attempts).toBe(2);
+  expect(service.resolveTv({name:'News'})).toBe('https://broadcaster.example/logo.png');
+  dom.window.close();
+ });
+
 });

@@ -2,7 +2,7 @@
 (() => {
   function mount() {
     const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-    let deadline = 0, interval = null, returnFocus = null;
+    let deadline = 0, timer = null, returnFocus = null;
     const triggers = new Set();
     const announcement = document.createElement('div');
     announcement.className = 'media-announcement';
@@ -10,6 +10,16 @@
     const connection = document.createElement('div');
     connection.className = 'media-connection';
     connection.setAttribute('role', 'status');
+    connection.innerHTML = '<span>You’re offline · Your saved channels are still here</span><button type="button" aria-label="Dismiss offline notice">✕</button>';
+    connection.querySelector('button').addEventListener('click',()=>{connection.hidden=true;});
+    let connectionDrag = null;
+    connection.addEventListener('pointerdown',event=>{if(event.target.closest('button'))return;connectionDrag={id:event.pointerId,x:event.clientX,y:event.clientY};connection.setPointerCapture(event.pointerId);});
+    connection.addEventListener('pointerup',event=>{
+      if(connectionDrag?.id!==event.pointerId)return;
+      if(Math.abs(event.clientX-connectionDrag.x)>64||connectionDrag.y-event.clientY>48)connection.hidden=true;
+      connectionDrag=null;
+    });
+    connection.addEventListener('pointercancel',()=>{connectionDrag=null;});
     const dialog = document.createElement('dialog');
     dialog.className = 'media-comfort';
     dialog.setAttribute('aria-labelledby', 'media-comfort-title');
@@ -24,7 +34,6 @@
     }
     function connectionChanged() {
       connection.hidden = navigator.onLine !== false;
-      connection.textContent = 'You’re offline · Your saved channels are still here';
     }
     connectionChanged();
     window.addEventListener('offline', connectionChanged);
@@ -32,19 +41,24 @@
     function refresh() {
       if (deadline && Date.now() >= deadline) {
         deadline = 0;
-        clearInterval(interval); interval = null;
+        clearTimeout(timer); timer = null;
         // The Radio owner sets its explicit pause guard before pausing audio.
         window.dispatchEvent(new Event('sterling-media-sleep'));
         document.querySelectorAll('audio,video').forEach(media=>media.pause());
         announce('Sleep timer finished · Playback paused');
       }
       const minutes = deadline ? Math.max(1,Math.ceil((deadline-Date.now())/60000)) : 0;
+      clearTimeout(timer); timer=null;
+      if(deadline)timer=setTimeout(refresh,Math.max(1,(deadline-Date.now())-(minutes-1)*60000));
       for (const button of triggers) {
+        if(!button.isConnected){triggers.delete(button);continue;}
         const label=minutes ? `◷ ${minutes}m` : '◷';if(button.textContent!==label)button.textContent=label;
         button.setAttribute('aria-label',minutes?`Sleep timer: ${minutes} minutes remaining`:'Set sleep timer');
         button.classList.toggle('media-timer-active',Boolean(deadline));
       }
-      dialog.querySelector('.media-timer-status').textContent = minutes ? `Pausing in ${minutes} minute${minutes===1?'':'s'}` : 'No timer set';
+      const status=dialog.querySelector('.media-timer-status');
+      const label=minutes ? `Pausing in ${minutes} minute${minutes===1?'':'s'}` : 'No timer set';
+      if(status.textContent!==label)status.textContent=label;
       dialog.querySelector('.media-timer-cancel').hidden = !deadline;
     }
     function close() { dialog.style.transform = ''; dialog.close(); if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true}); }
@@ -52,10 +66,10 @@
       const choice = event.target.closest('[data-minutes]');
       if (choice) {
         deadline = Date.now()+Number(choice.dataset.minutes)*60000;
-        clearInterval(interval); interval = setInterval(refresh,1000);
+        clearTimeout(timer);
         refresh(); close(); announce(`Sleep timer set · ${choice.dataset.minutes} minutes`);
       } else if(event.target.closest('.media-timer-cancel')) {
-        deadline = 0; clearInterval(interval); interval = null;
+        deadline = 0; clearTimeout(timer); timer = null;
         refresh(); close(); announce('Sleep timer cancelled');
       } else if(event.target.closest('[data-close]') || (event.target===dialog && (()=>{const r=dialog.getBoundingClientRect();return event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom;})())) close();
     });
@@ -90,7 +104,12 @@
     attach(document.querySelector('#mobile-player-sheet>div:first-child>div'));
     attach(document.querySelector('.tm-now-footer>div'));
     // SW/AM is constructed lazily. Observe only direct body additions.
-    new MutationObserver(()=>attach(document.querySelector('#sw-player-window header'))).observe(document.body,{childList:true});
+    const receiverObserver=new MutationObserver(()=>attach(document.querySelector('#sw-player-window header')));
+    receiverObserver.observe(document.body,{childList:true});
+    window.addEventListener('pagehide',event=>{
+      if(event.persisted)return; // Preserve timers when the browser caches the page.
+      receiverObserver.disconnect();clearTimeout(timer);clearTimeout(announcementTimeout);
+    });
     document.addEventListener('visibilitychange',refresh);
     window.addEventListener('pageshow',refresh);
     document.addEventListener('pointerdown',event=>{
