@@ -114,6 +114,10 @@ export function ProductionSettingsPanel() {
     mutationFn: (ip: string) => api.post('/api/v1/ops/live-posture/egress/accept', { ip, confirm: 'ACCEPT IP' }),
     onSuccess: () => { setWhitelisted(false); void qc.invalidateQueries({ queryKey: KEY }); void qc.invalidateQueries({ queryKey: ['ops-live-status'] }); },
   });
+  const reverify = useMutation({
+    mutationFn: () => api.post('/api/v1/ops/live-posture/binding/verify', {}),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: KEY }); void qc.invalidateQueries({ queryKey: ['ops-live-status'] }); },
+  });
   const cfg = draft ?? query.data?.settings;
   const dirty = draft !== null;
   useUnsavedDraftGuard('production-settings', dirty);
@@ -129,6 +133,14 @@ export function ProductionSettingsPanel() {
     setLimitsDraft(next);
     update({ risk_limits: buildRiskLimits(next, scopes) });
   };
+  // Why Apply is disabled, in the order the operator can fix it.
+  const liveBlocker = !cfg.live_execution ? null
+    : confirm !== 'ENABLE LIVE ENTRIES' ? 'Type ENABLE LIVE ENTRIES exactly'
+    : data.safe_mode.state !== 'NORMAL' ? 'Turn safe mode off first'
+    : !cfg.allocation_capital_inr ? 'Set approved live capital'
+    : !cfg.risk_limits.trim() ? 'Set the four risk limits'
+    : !data.posture.ready ? `Live setup requires: ${data.posture.missing.join(', ')}${data.posture.missing.includes('account binding') ? ' (press Re-verify broker account)' : ''}`
+    : null;
   const valid = !limitsError && (cfg.allocation_capital_inr === null || (Number.isFinite(cfg.allocation_capital_inr) && cfg.allocation_capital_inr > 0))
     && (!cfg.live_execution || (confirm === 'ENABLE LIVE ENTRIES' && data.posture.ready && data.safe_mode.state === 'NORMAL' && !!cfg.allocation_capital_inr && !!cfg.risk_limits.trim()));
   const blocking = (data.checks ?? []).filter(check => check.passed !== true && !check.advisory);
@@ -158,6 +170,7 @@ export function ProductionSettingsPanel() {
     <Field label="Request live entries after restart" hint="Real money. Needs safe mode off and every blocking check clear.">
       <input aria-label="Request live entries after restart" type="checkbox" checked={cfg.live_execution} onChange={e => update({ live_execution: e.target.checked })} />
     </Field>
+    {liveBlocker && cfg.live_execution && <p role="alert" style={alertStyle}>Apply is disabled: {liveBlocker}.</p>}
     {cfg.live_execution && <Field label="Type ENABLE LIVE ENTRIES" hint="Confirms you intend to trade real money.">
       <input aria-label="Type ENABLE LIVE ENTRIES" style={textInput} value={confirm} onChange={e => setConfirm(e.target.value)} />
     </Field>}
@@ -177,7 +190,7 @@ export function ProductionSettingsPanel() {
     {save.isError && <p role="alert" style={alertStyle}>{save.error.message}</p>}
     {saved && !dirty && <p role="status" style={okStyle}>Production settings saved. Restart the backend to apply them; then recheck readiness.</p>}
     <SettingsDraftBar dirty={dirty} saving={save.isPending} applyDisabled={!valid}
-      applyTitle={valid ? undefined : (limitsError || 'Complete the required fields first')}
+      applyTitle={valid ? undefined : (limitsError || liveBlocker || 'Complete the required fields first')}
       onApply={() => save.mutate(cfg)}
       onDiscard={() => { setDraft(null); setLimitsDraft(null); setConfirm(''); }} />
 
@@ -186,8 +199,14 @@ export function ProductionSettingsPanel() {
       <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{data.posture.egress.observed_ip ?? 'unknown'}{data.posture.egress.registered_ip && data.posture.egress.registered_ip !== data.posture.egress.observed_ip ? ` (registered ${data.posture.egress.registered_ip})` : ''}</span>
     </Field>
     <Field label="Account binding" hint={data.posture.binding.detail}>
-      <span style={{ fontSize: 12 }}>{data.posture.binding.binding_id ?? 'none'}</span>
+      <span style={{ display: 'inline-flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
+        {data.posture.binding.binding_id ?? 'none'}
+        <button type="button" style={button(true, !reverify.isPending)} disabled={reverify.isPending}
+          onClick={() => reverify.mutate()}>{reverify.isPending ? 'Verifying…' : 'Re-verify broker account'}</button>
+      </span>
     </Field>
+    {reverify.isError && <p role="alert" style={alertStyle}>{reverify.error.message}</p>}
+    {reverify.isSuccess && <p role="status" style={okStyle}>Broker account verified. Valid for 15 minutes.</p>}
     <div style={row}>
       <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 11.5, color: TEXT }}><input type="checkbox" checked={whitelisted} onChange={e => setWhitelisted(e.target.checked)} /> I have added the observed IP to my Zerodha API whitelist.</label>
       <button type="button" style={button(true, whitelisted && !!data.posture.egress.observed_ip && !acceptIp.isPending)} disabled={!whitelisted || !data.posture.egress.observed_ip || acceptIp.isPending} onClick={() => acceptIp.mutate(data.posture.egress.observed_ip!)}>Verify and accept observed IP</button>

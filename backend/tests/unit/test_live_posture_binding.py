@@ -389,3 +389,34 @@ class TestDeploymentId:
         with pytest.raises(RuntimeError, match="usable deployment id"):
             lp.ensure_deployment_id()
         assert path.read_text() == "   \n"
+
+
+def test_reverify_endpoint_refuses_without_an_active_binding(monkeypatch):
+    import asyncio
+    import pytest
+    from fastapi import HTTPException
+    from app.api.v1.endpoints import live_posture as endpoint
+    from app.services import account_binding_service as bindings
+
+    monkeypatch.setattr(bindings.AccountBindingStore, 'active', lambda self: None)
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(endpoint.reverify_account_binding(_user=None))
+    assert err.value.status_code == 409
+
+
+def test_reverify_endpoint_returns_fresh_posture(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from app.api.v1.endpoints import live_posture as endpoint
+    from app.services import account_binding_service as bindings, live_posture
+    from app.services import broker_binding_verification as verification
+
+    monkeypatch.setattr(bindings.AccountBindingStore, 'active', lambda self: SimpleNamespace(binding_id='b1'))
+
+    async def fake_verify(binding_id, **_kw):
+        return SimpleNamespace(binding_id=binding_id, verified_at='2026-10-21T13:00:00+00:00')
+
+    monkeypatch.setattr(verification, 'verify_current_kite_binding', fake_verify)
+    monkeypatch.setattr(live_posture, 'posture_status', lambda refresh=False: {'ready': True, 'missing': []})
+    out = asyncio.run(endpoint.reverify_account_binding(_user=None))
+    assert out == {'binding_id': 'b1', 'verified_at': '2026-10-21T13:00:00+00:00', 'ready': True, 'missing': []}

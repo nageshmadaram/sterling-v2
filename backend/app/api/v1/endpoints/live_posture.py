@@ -56,3 +56,29 @@ async def accept_egress_ip(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     live_posture.posture_status(refresh=True)
     return result
+
+
+@router.post("/live-posture/binding/verify")
+async def reverify_account_binding(_user: UserContext = Depends(require_admin)) -> dict:
+    """Re-read the broker profile and inventory for the ACTIVE binding (read-only).
+
+    The same check as ``sterlingctl bind verify``. Binding evidence expires after
+    15 minutes and nothing refreshes it between logins except a live order, so
+    the operator needs a way to refresh it from the screen that asks for it. It
+    reads the broker; it places, modifies and cancels nothing.
+    """
+    from app.core.broker_account_binding import BindingError
+    from app.services import live_posture
+    from app.services.account_binding_service import AccountBindingStore
+    from app.services.broker_binding_verification import verify_current_kite_binding
+
+    active = AccountBindingStore().active()
+    if active is None:
+        raise HTTPException(409, "No ACTIVE broker account binding is declared")
+    try:
+        binding = await verify_current_kite_binding(active.binding_id)
+    except BindingError as exc:
+        raise HTTPException(409, f"Broker verification failed: {exc}") from exc
+    posture = live_posture.posture_status(refresh=True)
+    return {"binding_id": binding.binding_id, "verified_at": binding.verified_at,
+            "ready": posture.get("ready"), "missing": posture.get("missing", [])}

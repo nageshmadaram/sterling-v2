@@ -85,3 +85,14 @@ describe('production settings', () => {
     expect(buildRiskLimits({ total: 9, strategy: null, lane: 5, trade: 3 }, { strategies: ['snapback'], lanes: ['snapback:swing'] })).toBe('');
   });
 });
+
+describe('live entry blocker', () => {
+  it('says why Apply is disabled and offers a broker re-verify', async () => {
+    show();
+    fireEvent.click(await screen.findByLabelText('Request live entries after restart'));
+    fireEvent.change(screen.getByLabelText('Type ENABLE LIVE ENTRIES'), { target: { value: 'ENABLE LIVE ENTRIES' } });
+    expect(screen.getByText(/Apply is disabled:/)).toHaveTextContent('Set approved live capital');
+    fireEvent.click(screen.getByRole('button', { name: 'Re-verify broker account' }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/api/v1/ops/live-posture/binding/verify', {}));
+  });
+});
