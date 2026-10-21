@@ -233,6 +233,14 @@ export function SimpleTerminal() {
                 </button>
               ))}
             </div>
+            {kiteNav !== preferredSection && (
+              <button type="button" className="sterling-return-home"
+                aria-label={`Close ${navigation.find(item => item.id === kiteNav)?.label ?? kiteNav} and return to ${navigation.find(item => item.id === preferredSection)?.label ?? 'Home'}`}
+                title={`Return to ${navigation.find(item => item.id === preferredSection)?.label ?? 'Home'}`}
+                onClick={() => handleKiteNav(preferredSection || 'dashboard')}>
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
             {overflow.length > 0 && <div className="sterling-desktop-tools" ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button type="button" aria-haspopup="menu" aria-expanded={toolsOpen}
                 onClick={() => setToolsOpen(open => !open)}
@@ -286,8 +294,13 @@ export function SimpleTerminal() {
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
             ⚙
           </button>}
-          <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />
         </div>
+        {spectrum === 'kite' && (
+          <div className="sterling-mobile-command-row" aria-label="Mobile navigation and search">
+            <span className="sterling-mobile-current-section">{navigation.find(item => item.id === kiteNav)?.label ?? kiteNav}</span>
+            <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />
+          </div>
+        )}
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
