@@ -3183,6 +3183,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(btn){btn.classList.toggle('hidden',!query.trim());btn.classList.toggle('flex',!!query.trim());}
       });
       clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
+      document.documentElement.classList.toggle('radio-searching',Boolean(query.trim()));
       if(!query.trim()){clearAllSearches();return;}
       searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }
