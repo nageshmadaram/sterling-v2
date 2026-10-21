@@ -1,4 +1,4 @@
-import { readMediaSuggestions } from '../media/mediaSuggestions';
+import { readMediaCommand, readMediaSuggestionResponse, type MediaCommand } from '../media/mediaBridge';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const RADIO_KEYS = [
@@ -35,7 +35,7 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   stateRef.current = onState;
   const playerStateRef=useRef(onPlayerState);
   playerStateRef.current=onPlayerState;
-  const commandsRef = useRef<Array<{action:string;value?:string}>>([]);
+  const commandsRef = useRef<MediaCommand[]>([]);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const hydratedRef = useRef(false);
   const readyRef = useRef(false);
@@ -64,7 +64,8 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
         frame.contentWindow?.postMessage({type:'sterling.radio.ack'}, '*');
         commandsRef.current.splice(0).forEach(command => frame.contentWindow?.postMessage({type:'sterling.radio.command',...command},'*'));
       } else if (message.type === 'sterling.radio.suggestions') {
-        if(typeof message.query==='string'&&message.query.length<=200)window.dispatchEvent(new CustomEvent('sterling-radio-suggestions',{detail:{query:message.query,items:readMediaSuggestions(message.items)}}));
+        const response=readMediaSuggestionResponse(message);
+        if(response)window.dispatchEvent(new CustomEvent('sterling-radio-suggestions',{detail:response}));
       } else if (message.type === 'sterling.radio.state') {
         if ((message.theme === 'spotify' || message.theme === 'youtube' || message.theme === 'netflix') && typeof message.query === 'string' && message.query.length <= 200)
           stateRef.current?.({theme:message.theme,query:message.query});
@@ -94,9 +95,8 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   useEffect(() => {
     const reload=() => {hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);};
     const command=(event:Event) => {
-      const detail=(event as CustomEvent).detail;
-      if(!detail || !['theme','search','more','startup','suggest','select-suggestion','minimize'].includes(detail.action)) return;
-      const message={action:detail.action,value:detail.value};
+      const message=readMediaCommand('radio',(event as CustomEvent).detail);
+      if(!message)return;
       if(readyRef.current)frameRef.current?.contentWindow?.postMessage({type:'sterling.radio.command',...message},'*');
       else {commandsRef.current=commandsRef.current.filter(item=>item.action!==message.action);commandsRef.current.push(message);}
     };

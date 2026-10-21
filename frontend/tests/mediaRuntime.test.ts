@@ -80,8 +80,9 @@ describe('Actual sandboxed media documents on mobile',()=>{
   it.each(['radio','tv'] as const)('publishes and selects real %s search suggestions',kind=>{
     const {w,errors,flush}=boot(kind);
     const received:any[]=[];w.parent.postMessage=(message:any)=>received.push(message);
-    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'suggest',value:kind==='tv'?'Red Bull':'BBC'}}));
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'suggest',requestId:'audit-request-1',value:kind==='tv'?'Red Bull':'BBC'}}));
     const payload=received.find(message=>message.type===`sterling.${kind}.suggestions`);
+    expect(payload.requestId).toBe('audit-request-1');
     expect(payload.items.length).toBeGreaterThan(0);
     w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'select-suggestion',value:payload.items[0].id}}));flush();
     expect(w.document.getElementById(kind==='tv'?'active-title':'sheet-title')?.textContent).toContain(kind==='tv'?'Red Bull':'BBC');
