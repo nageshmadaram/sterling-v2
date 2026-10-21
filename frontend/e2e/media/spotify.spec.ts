@@ -40,7 +40,11 @@ test('Radio standalone suggestions select a station and restore its collection',
   await frame.locator('#spotify-app nav [data-radio-click="63"]').click();
   const input=frame.locator('#sp-search-mobile');await input.fill('BBC');
   const suggestion=frame.getByRole('option',{name:/BBC World Service/});await expect(suggestion).toBeVisible();
-  await input.press('ArrowDown');await page.keyboard.press('Enter');
+  await input.press('ArrowDown');
+  await expect(suggestion).toBeFocused();
+  await page.waitForTimeout(450); // Cross the debounced results refresh without losing keyboard selection.
+  await expect(suggestion).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(frame.locator('#sheet-title')).toHaveText('BBC World Service');
   await expect(frame.locator('.radio-search-suggestions')).toHaveCount(0);
 });
@@ -76,4 +80,122 @@ test('Radio plays a controlled audio stream and preserves user pause',async({pag
   await expect.poll(()=>frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>el.paused)).toBe(true);
   await page.waitForTimeout(3800); // Cross the background-resume guard interval.
   expect(await frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>el.paused)).toBe(true);
+  await frame.locator('#spotify-app .solid-sp-miniplayer [data-radio-click="56"]').click();
+  await expect.poll(()=>frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>!el.paused)).toBe(true);
+  await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  await page.clock.install();
+  await frame.getByRole('button',{name:'Set sleep timer',exact:true}).first().click();
+  await frame.getByRole('dialog',{name:'Wind down'}).getByRole('button',{name:'15 minutes',exact:true}).click();
+  await page.clock.fastForward(15*60*1000+1000);
+  await expect.poll(()=>frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>el.paused)).toBe(true);
+  await page.clock.fastForward(4000);
+  expect(await frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>el.paused)).toBe(true);
+});
+
+for(const kind of ['radio','tv'] as const){
+ test(`${kind} sleep timer is accessible, cancellable and pauses on expiry`,async({page},testInfo)=>{
+  const frame=await openPlayer(page,kind);
+  if(kind==='radio')await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  else {
+   await frame.locator('.tm-quick button').first().click();
+  }
+  const trigger=frame.locator('.media-timer-trigger:visible').first();
+  await trigger.click();
+  const timer=frame.getByRole('dialog',{name:'Wind down'});
+  await expect(timer).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath('sleep-timer.png')});
+  await timer.getByRole('button',{name:'30 minutes',exact:true}).click();
+  await expect(timer).toBeHidden();
+  await expect(trigger).toHaveAccessibleName('Sleep timer: 30 minutes remaining');
+  await trigger.click();await timer.getByRole('button',{name:'Cancel timer',exact:true}).click();
+  await expect(trigger).toHaveAccessibleName('Set sleep timer');
+  await trigger.click();await timer.press('Escape');await expect(timer).toBeHidden();
+  // Install a virtual clock only after initial player hydration.
+  await page.clock.install();
+  await trigger.click();await timer.getByRole('button',{name:'15 minutes',exact:true}).click();
+  await page.clock.fastForward(15*60*1000+1000);
+  await expect(frame.locator('.media-announcement')).toHaveText('Sleep timer finished · Playback paused');
+  await expect(trigger).toHaveAccessibleName('Set sleep timer');
+  expect(await frame.locator(kind==='radio'?'#audio-engine':'#video-player').evaluate((el:HTMLMediaElement)=>el.paused)).toBe(true);
+ });
+}
+
+async function seededTv(page:Page){
+ const frame=await openPlayer(page,'tv');
+ await frame.locator('body').evaluate(()=>{(window as any).eval(`
+  rebuildCombinedChannelCatalog=()=>{};
+  allChannels=Array.from({length:84},(_,i)=>({name:'Channel '+String(i+1).padStart(2,'0'),url:'https://fixture.test/'+i+'.m3u8',group:i%2?'Movies':'News',lang:i%3?'English':'Telugu',isIndian:i%3===0,verified:i<4}));
+  catalogScope='all';catalogLanguage='All';catalogCategory='All';renderCatalogControls();renderViewport();
+ `);});
+ await frame.locator('.tm-tabs [data-tm-action="live"]').click();
+ return frame;
+}
+
+test('TV queue order matches next, previous and explicit queued selection',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('#yt-studio-grid .channel-grid-card').nth(1).click();
+ await expect(frame.locator('#tm-now-title')).toHaveText('Channel 02');
+ await frame.locator('#tv-now-playing [data-tm-action="queue"]').click();
+ await expect(frame.locator('.tm-queue-current strong')).toHaveText('Channel 02');
+ await expect(frame.locator('#tm-queue-items button').first()).toContainText('Channel 03');
+ await frame.getByRole('button',{name:'Close queue',exact:true}).click();
+ await frame.locator('#tv-now-playing [data-tm-action="next"]').click();
+ await expect(frame.locator('#tm-now-title')).toHaveText('Channel 03');
+ await frame.locator('#tv-now-playing [data-tm-action="previous"]').click();
+ await expect(frame.locator('#tm-now-title')).toHaveText('Channel 02');
+ await frame.locator('#tv-now-playing [data-tm-action="queue"]').click();
+ await frame.locator('#tm-queue-items button').nth(1).click();
+ await expect(frame.locator('#tm-now-title')).toHaveText('Channel 04');
+ await frame.locator('#tv-now-playing [data-tm-action="next"]').click();
+ await expect(frame.locator('#tm-now-title')).toHaveText('Channel 05');
+});
+
+test('TV Live and Indian badge counts agree with all loadable channels',async({page})=>{
+ const frame=await seededTv(page);
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (84)');
+ // Verify every page remains reachable, including channels after the first batch.
+ await frame.locator('body').evaluate(()=>{(window as any).eval('for(let page=0;page<4&&renderedItems<filteredChannels.length;page++)renderNextBatch()');});
+ await expect(frame.locator('#yt-studio-grid .channel-grid-card')).toHaveCount(84);
+ await expect(frame.locator('#catalog-showing-count')).toHaveText('Showing 84 of 84 channels');
+ await frame.locator('#tv-mobile-shell .tm-avatar').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=filters]').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-filter=category]').selectOption('News');
+ await expect(frame.locator('#catalog-showing-count')).toContainText('of 42 channels');
+ await frame.locator('#tv-mobile-shell .tm-avatar').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=indian]').click();
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (28)');
+ await expect(frame.locator('#catalog-showing-count')).toContainText('of 28 channels');
+});
+
+test('TV menu resizes and player exposes honest programme info and instant PiP',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await frame.locator('#tv-now-playing [data-tm-action="more"]').click();
+ const menu=frame.locator('#tv-mobile-sheet');
+ const height=menu.getByRole('slider',{name:'Menu height'});
+ await expect(height).toHaveAttribute('aria-valuenow','72');
+ await menu.getByRole('button',{name:'Expand menu',exact:true}).click();
+ await expect(height).toHaveAttribute('aria-valuenow','95');
+ await height.focus();await height.press('ArrowDown');
+ await expect(height).toHaveAttribute('aria-valuenow','85');
+ await menu.getByRole('button',{name:'Close TV features',exact:true}).click();
+ await frame.locator('#tv-now-playing [data-tm-action="epg"]').click();
+ await expect(menu).toContainText('Programme schedule not supplied by this broadcaster');
+ await menu.getByRole('button',{name:'Close TV features',exact:true}).click();
+ await expect(frame.locator('#tv-now-playing [data-tm-action="fullscreen"]')).toHaveCount(0);
+ await expect(frame.locator('#tv-now-playing [data-tm-action="pip"]')).toBeVisible();
+ await frame.locator('body').evaluate(()=>{
+  const video=document.getElementById('video-player') as any;
+  Object.defineProperty(video,'readyState',{configurable:true,get:()=>2});
+  video.requestPictureInPicture=()=>{document.body.dataset.testPip='requested';return Promise.resolve();};
+ });
+ await frame.locator('#tv-now-playing [data-tm-action="pip"]').click();
+ await expect(frame.locator('body')).toHaveAttribute('data-test-pip','requested');
+ await page.clock.install();
+ await frame.locator('#video-surface-card').dispatchEvent('pointermove');
+ await expect(frame.locator('#custom-video-hud')).not.toHaveClass(/mobile-hud-hidden/);
+ await page.clock.fastForward(2700);
+ await expect(frame.locator('#custom-video-hud')).toHaveClass(/mobile-hud-hidden/);
+ await frame.locator('#video-surface-card').dispatchEvent('pointerdown');
+ await expect(frame.locator('#custom-video-hud')).not.toHaveClass(/mobile-hud-hidden/);
 });

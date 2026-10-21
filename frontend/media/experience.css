@@ -163,3 +163,44 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 .radio-playing-context {display:flex;flex-direction:column;align-items:center;gap:4px;}
 .radio-playing-context small {font-size:9px;font-weight:500;letter-spacing:1px;opacity:.8;}
 .radio-playing-context strong {font-size:12px;font-weight:650;}
+
+/* A quiet, shared comfort sheet; native dialog supplies focus containment. */
+.media-comfort {color:#f7f7f7;background:linear-gradient(155deg,#25332e,#181b1a 55%);border:1px solid #ffffff18;border-radius:24px;padding:24px;width:min(440px,calc(100vw - 32px));max-height:85dvh;overflow:auto;margin:auto;box-shadow:0 28px 100px #0008;font-family:Inter,system-ui,sans-serif;}
+.media-comfort::backdrop {background:#0009;backdrop-filter:blur(8px);}
+.media-comfort[open] {animation:media-sheet-in .24s cubic-bezier(.2,.8,.2,1);}
+.media-comfort header {display:flex;align-items:center;justify-content:space-between;background:transparent!important;gap:12px;}
+.media-comfort header small {color:#a8c6b8;font-size:9px;letter-spacing:1.5px;}
+.media-comfort h2 {font-size:28px;font-weight:750;letter-spacing:-1px;margin:6px 0 0;}
+.media-comfort header button {width:44px;height:44px;border-radius:50%;background:#ffffff0d;}
+.media-comfort p {font-size:14px;color:#bbc6c0;line-height:1.65;margin:20px 0;}
+.media-timer-options {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;}
+.media-timer-options button {background:#ffffff0c;border:1px solid #ffffff0b;border-radius:14px;min-height:78px;font-size:23px;font-weight:650;transition:background .16s,border-color .16s;}
+.media-timer-options small {display:block;font-size:11px;font-weight:400;color:#acbcb2;margin-top:4px;}
+.media-timer-options button:hover,.media-timer-options button:focus-visible {background:#1ed76020;border-color:#1ed760;}
+.media-timer-cancel {width:100%;min-height:48px;border:1px solid #ffffff24;border-radius:24px;font-size:14px;font-weight:600;margin-bottom:16px;}
+.media-comfort-note {display:block;color:#93a398;font-size:11px;text-align:center;}
+.media-timer-trigger {font:500 11px Inter,system-ui,sans-serif;color:#c3d2ca!important;white-space:nowrap;min-height:44px;padding:6px 8px;border-radius:22px;background:transparent;border:0;}
+.media-timer-trigger.media-timer-active {color:#1ed760!important;background:#1ed76012;}
+.media-announcement,.media-connection {position:fixed;left:50%;transform:translateX(-50%);z-index:20000;width:max-content;max-width:calc(100vw - 32px);background:#e8f3ec;color:#14251b;border-radius:16px;padding:12px 18px;font:500 12px/1.5 Inter,system-ui,sans-serif;box-shadow:0 8px 28px #0004;text-align:center;pointer-events:none;}
+.media-announcement {bottom:calc(140px + env(safe-area-inset-bottom,0px));opacity:0;transition:opacity .2s;}
+.media-announcement-visible {opacity:1;}
+.media-connection {top:calc(12px + env(safe-area-inset-top,0px));background:#3b3020;color:#fce4b6;}
+.media-comfort-handle {display:none;}
+@media(max-width:767px){
+ .media-comfort {width:100%;max-width:100%;margin:auto 0 0;border-radius:26px 26px 0 0;padding:12px 24px calc(28px + env(safe-area-inset-bottom,0px));}
+ .media-comfort-handle {display:block;width:34px;height:4px;border-radius:4px;background:#ffffff30;margin:0 auto 20px;}
+ .media-comfort .media-timer-options button {min-height:84px;}
+ .tm-now-head,.radio-playing-context {user-select:none;}
+}
+@media(prefers-reduced-motion:no-preference){
+ .tm-quick button,.tm-album,.radio-browse-tiles button {transition:filter .18s,opacity .18s;}
+ .tm-quick button:hover,.tm-album:hover,.radio-browse-tiles button:hover {filter:brightness(1.12);}
+ #tv-now-playing:not([hidden]) .tm-now-copy {animation:media-sheet-in .28s ease-out;}
+ .drawer-visible .radio-mobile-art {animation:media-sheet-in .3s ease-out;}
+}
+
+.media-comfort header,.media-comfort-handle {touch-action:none;}
+
+.media-timer-trigger {min-width:44px;font-size:20px;}
+.media-timer-trigger.media-timer-active {font-size:11px;}
+.tm-now-footer {flex-wrap:wrap;gap:8px;}

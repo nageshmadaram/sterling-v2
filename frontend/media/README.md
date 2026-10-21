@@ -9,6 +9,7 @@ remain network resources; interface initialization does not wait for a CDN.
 - `tv-mobile/mobile.js` and `mobile.css`: shared TV adapter sources.
 - `src/pages/SimpleTerminal.tsx`: shared host header and search controls.
 - `media/artwork.js`: bounded metadata and image loading with offline recovery.
+- `media/comfort.js`: session-only sleep timer, connectivity status and touch feedback.
 - `media/experience.css`: shared mobile rhythm, touch targets, search feedback and reduced motion.
 - `scripts/build-media-styles.mjs`: deterministic Tailwind and embedded-font assets.
 
