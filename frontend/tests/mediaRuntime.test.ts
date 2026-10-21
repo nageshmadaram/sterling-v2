@@ -94,4 +94,36 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(errors).toEqual([]);
   });
 
+  it('closes TV full-player on host Back without ending playback',()=>{
+    const {w,errors,flush}=boot('tv');
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.tv.command',action:'theme',value:'spotify'}}));flush();
+    const channel=w.document.querySelector('.tm-quick [data-tm-channel]') as HTMLButtonElement;
+    channel.click();flush();
+    expect(w.document.body.classList.contains('tm-now-open')).toBe(true);
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.tv.command',action:'collapse'}}));flush();
+    expect(w.document.body.classList.contains('tm-now-open')).toBe(false);
+    expect(w.document.getElementById('video-player')).toBeTruthy();
+    expect(w.document.body.classList.contains('tm-catalog-view')).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
+  it('keeps Radio mobile settings interactive and minimizes on host Back',()=>{
+    const {w,errors}=boot('radio');
+    (w.document.querySelector('#spotify-app .solid-sp-miniplayer') as HTMLElement).click();
+    const sheet=w.document.getElementById('mobile-player-sheet')!;
+    expect(sheet.classList.contains('drawer-visible')).toBe(true);
+    (sheet.querySelector('[data-radio-click="29"]') as HTMLElement).click();
+    expect(w.document.getElementById('audio-dsp-modal')?.classList.contains('hidden')).toBe(false);
+    expect(w.document.documentElement.classList.contains('radio-modal-open')).toBe(true);
+    (w.document.querySelector('#dsp-flat') as HTMLElement).click();
+    (w.document.querySelector('#audio-dsp-modal [data-radio-click="9"]') as HTMLElement).click();
+    expect(w.document.documentElement.classList.contains('radio-modal-open')).toBe(false);
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'minimize'}}));
+    expect(sheet.classList.contains('drawer-hidden')).toBe(true);
+    (w.document.querySelector('#spotify-app .solid-sp-miniplayer') as HTMLElement).click();
+    (w.document.querySelector('#mobile-player-sheet [data-radio-click="74"]') as HTMLElement).click();
+    expect(w.document.getElementById('sw-tuner-drawer')?.classList.contains('hidden')).toBe(false);
+    expect(errors).toEqual([]);
+  });
+
 });
