@@ -144,14 +144,14 @@ describe('Snapback board', () => {
 
   it('says the rows change once a session, so quiet does not read as broken', () => {
     renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Snapback help ↗' })).toBeNull();
   });
 
   it('explains an empty board rather than showing nothing', () => {
     snap = { data: snapshot({ rows: [], armed: 0 }), isLoading: false, error: null };
     renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
     expect(screen.getByText(/No signals in the recent completed sessions/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Snapback help ↗' })).toBeNull();
   });
 
   it('surfaces a failed scan instead of an empty-board explanation', () => {
@@ -291,7 +291,7 @@ describe('Snapback board', () => {
     };
     snap = { data: snapshot({ rows: [], armed: 0 }), isLoading: false, error: null };
     renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Snapback help ↗' })).toBeNull();
     // The empty-state text must NOT appear when history filled the board.
     expect(screen.queryByText(/deliberately rare/)).toBeNull();
   });
@@ -335,7 +335,7 @@ describe('Snapback board', () => {
     expect(screen.getByText(/1-minute bars · scalp/)).toBeInTheDocument();
     expect(screen.getByText('ALGO AVAILABLE')).toBeInTheDocument();
     expect(screen.getByText(/1 armed — open a row to buy it/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Snapback help ↗' })).toBeNull();
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeEnabled();
     expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
@@ -362,7 +362,7 @@ describe('Snapback board', () => {
     expect(screen.getByText(/5-minute bars · intraday/)).toBeInTheDocument();
     expect(screen.queryByText('RESEARCH ONLY')).toBeNull();
     expect(screen.getByText('ALGO AVAILABLE')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Snapback help ↗' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Snapback help ↗' })).toBeNull();
     expect(screen.getByText(/open a row to buy it/i)).toBeInTheDocument();
     act(() => { screen.getAllByText(/NIFTY/)[0].click(); });
     expect(screen.getByRole('button', { name: 'Execute Snapback' })).toBeEnabled();

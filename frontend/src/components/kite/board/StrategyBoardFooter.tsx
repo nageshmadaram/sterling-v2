@@ -17,7 +17,15 @@ export function StrategyBoardFooter({name,children,onReset}:{name:string;childre
  // Scans run from the dock's re-scan control; modes use the shared Modes filter.
  // Status and safety text stays, as one quiet line, because it explains what
  // the board can and cannot do right now.
- const notes=secondary.filter(c=>!(React.isValidElement<{className?:string}>(c)&&/scan-modes/.test(c.props.className??'')));
+ // Anything interactive (help links, settings, day pickers, dropdowns) is a control,
+ // not status; only plain status text is kept.
+ const interactive=(c:React.ReactNode):boolean=>{
+  if(!React.isValidElement<{className?:string;children?:React.ReactNode;onClick?:unknown}>(c))return false;
+  if(typeof c.type==='string'&&['button','a','select','input','label','details','summary'].includes(c.type))return true;
+  if(c.props.onClick||/help|scan-modes/.test(c.props.className??''))return true;
+  return React.Children.toArray(c.props.children).some(interactive);
+ };
+ const notes=secondary.filter(c=>!interactive(c));
  // Blockers, errors and warnings (plain <p> lines or role=alert/status) stay
  // visible; history ledgers, timelines and help panels do not.
  const heavy=(c:React.ReactNode)=>{
@@ -26,7 +34,7 @@ export function StrategyBoardFooter({name,children,onReset}:{name:string;childre
   const typeName=typeof t==='string'?t:(t.displayName||t.name||'');
   return /History|Timeline|Ledger|ScanCost/.test(typeName)||(typeName==='details'&&/strategy-help/.test(c.props.className??''));
  };
- const messages=items.slice(1).filter(c=>!heavy(c));
+ const messages=items.slice(1).filter(c=>!heavy(c)&&!interactive(c));
  notes.push(...messages);
  return notes.length?<section className="sb-strategy-footer sb-strategy-notes" aria-label={`${name} status`} style={{display:'flex',flexWrap:'wrap',gap:'2px 10px',alignItems:'center',padding:'4px 12px',fontSize:11,color:'var(--k-dim)'}}>{notes}</section>:null;
  return <section className="sb-strategy-footer" aria-label={`${name} controls and information`}>

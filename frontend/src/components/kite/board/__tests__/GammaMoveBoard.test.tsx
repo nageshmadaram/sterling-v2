@@ -202,55 +202,6 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     ]);
   });
 
-  it('shows recent session cards with E1 and watch counts', () => {
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(screen.getAllByText(/2026-10-02/).length).toBeGreaterThan(0);
-    expect(document.body.textContent).toContain('2 E1 · 4 watch');
-  });
-
-  it('switches to a recorded day and stops live polling', () => {
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    fireEvent.change(screen.getByLabelText('Gamma trading day'), {
-      target: { value: '2026-10-02' },
-    });
-
-    expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
-    // A past day is read-only: the live scan control is not offered at all.
-    expect(screen.queryByRole('button', { name: /scan now/i })).toBeNull();
-  });
-
-  it('immediately hides stale live entries while the selected historical session loads', () => {
-    snap.data = data({ candidates: [signal()] });
-    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
-    fireEvent.change(screen.getByLabelText('Gamma trading day'), { target: { value: '2026-10-02' } });
-    expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-02');
-    expect(screen.getByText('Historical signals for 2026-10-02 are still loading.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Arm Gamma/ })).toBeNull();
-    expect(armState.mutate).not.toHaveBeenCalled();
-    expect(screen.queryByText('RELIANCE OCT 3000 CE')).toBeNull();
-  });
-
-  it('lets replay own the date and rows after a live history selection', () => {
-    snap.data = data({ candidates: [signal()] });
-    const { rerender } = renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
-    fireEvent.change(screen.getByLabelText('Gamma trading day'), { target: { value: '2026-10-02' } });
-    replayClock.now = MORNING;
-    snap.data = data({ day: '2026-10-05', historical: true, candidates: [signal({ at_ms: MORNING - 60_000 })] });
-    rerender(<GammaMoveBoard nowMs={MORNING} />);
-    expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-05');
-    expect(screen.getByRole('button', { name: 'RELIANCE CE Ready' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Execute Gamma Unwind RELIANCE26OCT3000CE' })).toBeDisabled();
-    expect(screen.getByLabelText('Gamma trading day')).toBeDisabled();
-    expect(screen.getByLabelText('Gamma history date')).toBeDisabled();
-    expect(screen.getByLabelText('Gamma history date')).toHaveValue('2026-10-05');
-    expect(screen.queryByRole('button', { name: /2026-10-02.*E1/ })).toBeNull();
-    expect(snapshotArgs[2]).toBeUndefined();
-    expect(armState.mutate).not.toHaveBeenCalled();
-    expect(scanState.mutate).not.toHaveBeenCalled();
-  });
-
   it('moves a closed-market Today view to the latest trading session', () => {
     snap.data = data({
       day: '2026-10-04',
