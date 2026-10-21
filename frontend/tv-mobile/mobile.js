@@ -58,14 +58,15 @@
   }
   const channelButton=(ch,quick=false)=>`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
   function shelf(title,pool,filter) {
+    pool=pool.filter(isChannelVisible);
     if(!pool.length)return '';
     return `<section><div class="tm-section-title"><h2>${title}</h2><button data-tm-category="${filter}">Show all</button></div><div class="tm-shelf">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
   }
   function renderHome() {
     browse.innerHTML=['News','Sports','Movies','Music','Documentary','Entertainment','Kids & Anime','Devotional'].map(cat=>`<button data-tm-category="${cat}"><strong>${escapeHtml(cat)}</strong><span aria-hidden="true">${icon('screen')}</span></button>`).join('');
-    const recent=[...recentHistory,...VERIFIED_STREAMS].filter((ch,i,a)=>a.findIndex(c=>c.url===ch.url)===i);
+    const recent=[...recentHistory,...VERIFIED_STREAMS].filter(isChannelVisible).filter((ch,i,a)=>a.findIndex(c=>c.url===ch.url)===i);
     const seed=activeChannel||recentHistory[0];
-    const recommendations=allChannels.filter(ch=>ch.url!==seed?.url).map(ch=>({ch,score:
+    const recommendations=allChannels.filter(ch=>isChannelVisible(ch)&&ch.url!==seed?.url).map(ch=>({ch,score:
       (seed&&ch.group===seed.group?5:0)+(seed&&ch.lang===seed.lang?3:0)+
       (favorites.some(saved=>saved.url===ch.url)?2:0)+(ch.verified?1:0)
     })).sort((a,b)=>b.score-a.score).slice(0,10).map(item=>item.ch);
@@ -121,11 +122,11 @@
   function showSheet(kind='more') {
     returnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
-      if(kind==='filters') content=`<label class="tm-filter-label">Language<select data-tm-filter="language">${document.getElementById('catalog-lang-select').innerHTML}</select></label><label class="tm-filter-label">Category<select data-tm-filter="category">${document.getElementById('catalog-genre-select').innerHTML}</select></label>`;
+      if(kind==='filters') content=`<label class="tm-filter-label">Channel availability<select data-tm-filter="availability"><option value="all" ${!hideUnavailableChannels?'selected':''}>All channels, including unavailable</option><option value="available" ${hideUnavailableChannels?'selected':''}>Hide unavailable channels</option></select></label><p class="tm-feature-note">Hides channels that failed playback on this account for 24 hours. Untested channels remain visible. Show all to retry them.</p><label class="tm-filter-label">Language<select data-tm-filter="language">${document.getElementById('catalog-lang-select').innerHTML}</select></label><label class="tm-filter-label">Category<select data-tm-filter="category">${document.getElementById('catalog-genre-select').innerHTML}</select></label>`;
       if(kind==='equalizer') content=Object.entries(EQ_PRESETS).map(([key,preset])=>`<button data-tm-eq="${key}">${icon('settings')}<span>${escapeHtml(preset.label)}</span></button>`).join('');
       if(kind==='quality') content=`${action('fit','Change video fit','screen','tm-feature').replace('</button>','<span>Fit / Fill / Zoom</span></button>')}<button data-tm-quality="-1">${icon('check')}<span>Automatic quality</span></button>${(hls?.levels||[]).map((level,i)=>`<button data-tm-quality="${i}">${icon('screen')}<span>${level.height||'Auto'}p · ${Math.round((level.bitrate||0)/1000)} kbps</span></button>`).join('')}<p class="tm-feature-note">${hasNativeHls(document.getElementById('video-player'))&&!hls?'Your browser manages stream quality automatically.':'Quality options depend on the current broadcast.'}</p>`;
       if(kind==='epg') content=activeChannel?`<div class="tm-queue-current"><strong>${escapeHtml(activeChannel.name)}</strong><small>${escapeHtml(activeChannel.group||'Television')} · ${escapeHtml(activeChannel.lang||'Global')}</small></div><p class="tm-feature-note">Live channel information. Programme listings appear only when supplied by the broadcaster.</p>${getChannelEpgSchedule(activeChannel).map(item=>`<div class="tm-guide-row"><strong>${escapeHtml(item.title||'Live broadcast')}</strong><small>${escapeHtml(item.time||item.start||'Live TV')}</small></div>`).join('')}`:'<p>Select a channel to view its guide.</p>';
@@ -219,7 +220,7 @@
     if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')catalog('live','verified');else if(cat==='all')catalog('live','all');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
-  sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});
+  sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='availability'){hideUnavailableChannels=e.target.value==='available';window.dispatchEvent(new Event('sterling-tv-availability'));closeSheet();}else if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});
   sheet.addEventListener('click',e=>{if(e.target===sheet)closeSheet();});
   document.getElementById('tm-search-input').addEventListener('focus',()=>publishSuggestions(searchInputEl.value));
   document.getElementById('tm-search-input').addEventListener('input',e=>applySearch(e.target.value));
@@ -247,7 +248,7 @@
   function saveUi() {
     if(!hydrated)return;
     const v=document.getElementById('video-player');
-    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:preferredTvMuted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode});
+    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:preferredTvMuted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode,hideUnavailable:hideUnavailableChannels,failedChannels:[...unavailableChannels].filter(([,time])=>Date.now()-time<CHANNEL_FAILURE_TTL)});
     if(next===lastSaved)return;lastSaved=next;
     try{uiStorage().setItem('streamos_ui_v14',next);}catch{}
   }
@@ -264,6 +265,8 @@
       if(typeof saved.volume==='number'&&saved.volume>=0&&saved.volume<=1)v.volume=saved.volume;
       if(typeof saved.muted==='boolean'){preferredTvMuted=saved.muted;v.muted=saved.muted;}
       if(['fit-contain','fit-cover','fit-zoom'].includes(saved.fit)){currentFitMode=saved.fit;v.classList.remove('fit-contain','fit-cover','fit-zoom');v.classList.add(saved.fit);}
+      hideUnavailableChannels=saved.hideUnavailable===true;
+      if(Array.isArray(saved.failedChannels))for(const entry of saved.failedChannels.slice(-80)){if(Array.isArray(entry)&&typeof entry[0]==='string'&&entry[0].length<=2048&&typeof entry[1]==='number'&&entry[1]<=Date.now()&&Date.now()-entry[1]<CHANNEL_FAILURE_TTL)unavailableChannels.set(entry[0],entry[1]);}
       if(saved.background==='black'||saved.background==='auto')tvBackdropMode=saved.background;
       applyBackdrop();
       renderCatalogControls();renderViewport();
@@ -271,7 +274,7 @@
   }
   function tvSuggestions(query) {
     const pool=query.trim()?getRankedSearchMatches(query):[...recentHistory,...favorites,...VERIFIED_STREAMS];
-    return pool.filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
+    return pool.filter(isChannelVisible).filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
   }
   function publishSuggestions(query) {
     const items=tvSuggestions(query);
@@ -406,7 +409,10 @@
   };
   const originalRebuild=rebuildCombinedChannelCatalog;rebuildCombinedChannelCatalog=function(...args){originalRebuild(...args);if(searchInputEl.value.trim())renderViewport();};
   const originalDock=dockVideoToTopLeftMini;dockVideoToTopLeftMini=function(value){if(isMobile())return;originalDock(value);};
-  const video=document.getElementById('video-player');['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
+  window.addEventListener('sterling-tv-availability',()=>{
+    renderCatalogControls();renderViewport();renderHome();renderUpNextQueue(true);saveUi();schedule();
+  });
+  const video=document.getElementById('video-player');video.addEventListener('playing',()=>{if(activeChannel&&unavailableChannels.delete(activeChannel.url))window.dispatchEvent(new Event('sterling-tv-availability'));});['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
   mobile.addEventListener('change',()=>{if(!mobile.matches){expanded=false;closeSheet();}renderHome();schedule();});
   window.addEventListener('resize',schedule);
   home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch){rejectedArtwork.add(img.src);img.src=artwork({...ch,logo:''});}},true);
