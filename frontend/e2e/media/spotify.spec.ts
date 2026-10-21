@@ -331,3 +331,21 @@ test('standalone TV boots without a host, persists settings and tolerates damage
  await page.reload();await expect(page.locator('#catalog-availability-select')).toHaveValue('available');
  expect(errors).toEqual([]);
 });
+
+for(const kind of ['tv','radio'] as const)test(`${kind} offline notices support touch dismissal and reconnect`,async({page})=>{
+ const frame=await openPlayer(page,kind);
+ await frame.locator('body').evaluate(()=>{
+  Object.defineProperty(navigator,'onLine',{value:false,configurable:true});window.dispatchEvent(new Event('offline'));
+ });
+ const notice=frame.locator('.media-connection');await expect(notice).toBeVisible();
+ await notice.getByRole('button',{name:'Dismiss offline notice'}).click();await expect(notice).toBeHidden();
+ await frame.locator('body').evaluate(()=>{
+  Object.defineProperty(navigator,'onLine',{value:true,configurable:true});window.dispatchEvent(new Event('online'));
+  Object.defineProperty(navigator,'onLine',{value:false,configurable:true});window.dispatchEvent(new Event('offline'));
+ });
+ await expect(notice).toBeVisible();
+ const bounds=await notice.boundingBox();if(!bounds)throw Error('Missing offline notice');
+ await page.mouse.move(bounds.x+12,bounds.y+bounds.height/2);await page.mouse.down();
+ await page.mouse.move(bounds.x+100,bounds.y+bounds.height/2);await page.mouse.up();
+ await expect(notice).toBeHidden();
+});

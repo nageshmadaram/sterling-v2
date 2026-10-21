@@ -1,24 +1,24 @@
 import {useState} from 'react';
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {cleanup,fireEvent,render,screen} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen} from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import {MediaHeaderControls,type MediaTheme} from '../MediaHeaderControls';
 
-afterEach(()=>{cleanup();vi.restoreAllMocks();});
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.useRealTimers();});
 
 describe('shared IPTV/Radio mobile and desktop media header',()=>{
   function mount(kind:'tv'|'radio'='tv'){
-    const selected=vi.fn(),searched=vi.fn(),tools=vi.fn();
+    const selected=vi.fn(),searched=vi.fn(),tools=vi.fn(),entered=vi.fn();
     function Harness(){
       const [theme,setTheme]=useState<MediaTheme>('spotify');
       const [query,setQuery]=useState('');
       return <MediaHeaderControls kind={kind} theme={theme} query={query}
         onTheme={next=>{setTheme(next);selected(next);}}
         onQuery={next=>{setQuery(next);searched(next);}}
-        onEnter={vi.fn()} onFeatures={tools}/>;
+        onEnter={entered} onFeatures={tools}/>;
     }
     render(<Harness/>);
-    return {selected,searched,tools};
+    return {selected,searched,tools,entered};
   }
 
   it.each(['tv','radio'] as const)('opens default settings directly for %s',kind=>{
@@ -63,7 +63,8 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     expect(field).toHaveValue('Telugu');
     expect(searched).toHaveBeenCalledWith('Telugu');
     fireEvent.click(screen.getByRole('button',{name:'Clear search'}));
-    expect(screen.queryByRole('combobox',{name:'Search radio stations'})).not.toBeInTheDocument();
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    expect(screen.getByRole('combobox')).toHaveFocus();
   });
 
   it('restores browse results after closing search with a query',()=>{
@@ -94,5 +95,82 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     fireEvent.click(settings);
     fireEvent.pointerDown(document.body);
     expect(settings).toHaveAttribute('aria-expanded','false');
+  });
+
+  it('coalesces rapid suggestions and bounds the waiting state',()=>{
+    vi.useFakeTimers();mount('radio');
+    const command=vi.fn();window.addEventListener('sterling-radio-command',command);
+    fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
+    const input=screen.getByRole('combobox');
+    for(const value of ['B','BB','BBC'])fireEvent.change(input,{target:{value}});
+    expect(screen.getByRole('listbox')).toHaveAttribute('aria-busy','true');
+    act(()=>vi.advanceTimersByTime(120));
+    expect(command).toHaveBeenCalledTimes(1);
+    expect(command.mock.calls[0][0].detail).toEqual({action:'suggest',value:'BBC'});
+    act(()=>vi.advanceTimersByTime(4000));
+    expect(screen.getByRole('status')).toHaveTextContent('taking longer');
+    expect(screen.getByRole('listbox')).toHaveAttribute('aria-busy','false');
+    window.removeEventListener('sterling-radio-command',command);
+  });
+
+  it('waits for Telugu composition instead of filtering partial input',()=>{
+    vi.useFakeTimers();const {searched,entered}=mount('tv');
+    fireEvent.click(screen.getByRole('button',{name:'Search TV channels'}));
+    const input=screen.getByRole('combobox');
+    fireEvent.compositionStart(input);
+    fireEvent.change(input,{target:{value:'తెలు'}});
+    fireEvent.keyDown(input,{key:'Enter',isComposing:true});
+    fireEvent.submit(screen.getByRole('search'));
+    expect(entered).not.toHaveBeenCalled();
+    expect(searched).not.toHaveBeenCalled();
+    expect(input).toHaveValue('తెలు');
+    fireEvent.compositionEnd(input,{target:{value:'తెలుగు'}});
+    expect(searched).toHaveBeenLastCalledWith('తెలుగు');
+  });
+
+  it('supports menu arrows, Home/End, and restores focus on Escape',()=>{
+    mount('radio');
+    const toggle=screen.getByRole('button',{name:'Radio display settings'});
+    fireEvent.click(toggle);
+    expect(screen.getByRole('menuitemradio',{name:/Spotify/})).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!,{key:'ArrowDown'});
+    expect(screen.getByRole('menuitemradio',{name:/YouTube Music/})).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!,{key:'End'});
+    expect(screen.getByRole('menuitem',{name:/Player tools/})).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!,{key:'Home'});
+    expect(screen.getByRole('menuitemradio',{name:/Spotify/})).toHaveFocus();
+    fireEvent.keyDown(document.activeElement!,{key:'Escape'});
+    expect(toggle).toHaveFocus();
+  });
+
+  it('cancels queued suggestions when search closes',()=>{
+    vi.useFakeTimers();mount('tv');
+    const command=vi.fn();window.addEventListener('sterling-tv-command',command);
+    fireEvent.click(screen.getByRole('button',{name:'Search TV channels'}));
+    fireEvent.change(screen.getByRole('combobox'),{target:{value:'News'}});
+    fireEvent.keyDown(screen.getByRole('combobox'),{key:'Escape'});
+    act(()=>vi.advanceTimersByTime(5000));
+    expect(command).not.toHaveBeenCalled();
+    expect(screen.getByRole('button',{name:'Search TV channels'})).toHaveFocus();
+    window.removeEventListener('sterling-tv-command',command);
+  });
+
+  it('does not retain an interrupted composition after reopening search',()=>{
+    const {searched}=mount('radio');
+    fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
+    fireEvent.compositionStart(screen.getByRole('combobox'));
+    fireEvent.change(screen.getByRole('combobox'),{target:{value:'తెలు'}});
+    fireEvent.click(screen.getByRole('button',{name:'Close search'}));
+    fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
+    expect(screen.getByRole('combobox')).toHaveValue('');
+    fireEvent.change(screen.getByRole('combobox'),{target:{value:'BBC'}});
+    expect(searched).toHaveBeenLastCalledWith('BBC');
+  });
+
+  it('dismisses the appearance menu when keyboard focus leaves the header',()=>{
+    mount('tv');
+    fireEvent.click(screen.getByRole('button',{name:'TV display settings'}));
+    fireEvent.blur(screen.getByRole('menuitemradio',{name:/Spotify/}),{relatedTarget:document.body});
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
