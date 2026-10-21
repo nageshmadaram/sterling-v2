@@ -295,3 +295,5 @@
 .tm-album.tm-yt .tm-cover img { width:100%;height:100%;object-fit:cover; }
 .tm-album.tm-yt strong { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;line-height:1.3; }
 .tm-yt-block .tm-section-title h2 { display:flex;flex-direction:column; }
+.tm-shelf-actions { display:flex;align-items:center;gap:10px; }
+.tm-shelf-actions [data-tm-action="yt-shuffle"] { font-size:11px;font-weight:700;color:#fff;border:1px solid #ffffff40;border-radius:14px;padding:4px 10px;min-height:28px;white-space:nowrap; }

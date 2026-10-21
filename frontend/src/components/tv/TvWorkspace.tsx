@@ -86,6 +86,9 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
         if(response)window.dispatchEvent(new CustomEvent('sterling-tv-suggestions',{detail:response}));
       } else if(data.type === 'sterling.tv.state') {
         if(['youtube','spotify','netflix'].includes(data.theme) && typeof data.query==='string' && data.query.length<=200)stateCallback.current?.({theme:data.theme,query:data.query});
+      } else if(data.type === 'sterling.tv.nav') {
+        // How many in-app steps Back can undo (media/nav-stack.js); the page owns the steps.
+        if(Number.isInteger(data.depth)&&data.depth>=0&&data.depth<=50)window.dispatchEvent(new CustomEvent('sterling-tv-nav',{detail:data.depth}));
       } else if(data.type === 'sterling.tv.player-state') {
         if(typeof data.expanded==='boolean')playerCallback.current?.(data.expanded);
       } else if (data.type === MESSAGE_SAVE) {

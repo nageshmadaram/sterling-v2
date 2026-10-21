@@ -40,6 +40,7 @@ class Channel:
 
 # Library rows, in display order. Every channel is the official account of the rights holder.
 LIBRARY: dict[str, tuple[str, list[Channel]]] = {
+    # English only, by request.
     "documentaries": ("Documentaries", [
         Channel("UCW39zufHfsuGgpLviKh297Q", "DW Documentary", "English", "DE"),
         Channel("UCijcd0GR0fkxCAZwkiuWqtQ", "Free Documentary", "English", "DE"),
@@ -49,24 +50,14 @@ LIBRARY: dict[str, tuple[str, list[Channel]]] = {
         Channel("UCwmZiChSryoWQCZMIQezgTg", "BBC Earth", "English", "GB"),
         Channel("UCWqPRUsJlZaDp-PVbqEch9g", "Smithsonian Channel", "English", "US"),
         Channel("UCn8zNIfYAQNdrFRrr8oibKw", "VICE", "English", "US"),
-        Channel("UC56-aeQA38z72h9pQGj-MOg", "Animal Planet India", "Hindi"),
         Channel("UC6n8I1UDTKP1IWjQMg6_TwA", "The B1M", "English", "GB"),
     ]),
-    "movies": ("Full movies", [
-        Channel("UCyoXW-Dse7fURq30EWl_CUA", "Goldmines", "Hindi"),
-        Channel("UCBOmfqgTZi7yDp4-3Lr_3lA", "Shemaroo Movies", "Hindi"),
-        Channel("UCEKWXRsfUHkan-D_ljU8Asw", "Rajshri", "Hindi"),
-        Channel("UCYauDsl-rswjQGpA0_-Z9Pw", "Ultra Movie Parlour", "Hindi"),
-        Channel("UC3ar28GS6o1p0m_wabfk2zw", "Pen Movies", "Hindi"),
-        Channel("UCObyBrdrtQ20BU9PxHQDY9w", "Pen Multiplex", "Hindi"),
+    # Telugu only, by request.
+    "movies": ("Telugu movies", [
         Channel("UCAr27NDctKdLpIzzVvJlhFg", "Sri Balaji Video", "Telugu"),
-        Channel("UCX_uPA_dGf7wXjuMEaSKLJA", "Aditya Movies", "Telugu"),
         Channel("UCoy3dQzEdq1y2zMnT4pdj3Q", "Sri Balaji Movies", "Telugu"),
+        Channel("UCX_uPA_dGf7wXjuMEaSKLJA", "Aditya Movies", "Telugu"),
         Channel("UCintIUOJEktQBfhEI9XXpuw", "Telugu Filmnagar", "Telugu"),
-        Channel("UC26UNezdPZfGkRnxX3fVWGA", "Sun NXT Malayalam", "Malayalam"),
-        Channel("UCXokGzAS1tSy5NJUpAigu_w", "SVF Movies", "Bengali"),
-        Channel("UC8IHAQMuiJdY6ALuhG7iU8Q", "FilmRise Movies", "English", "US"),
-        Channel("UCVFYikepF-avelvuIaQ_lHA", "Popcornflix", "English", "US"),
     ]),
     "web_series": ("Web series", [
         Channel("UCNJcSUSzUeFm8W9P7UUlSeQ", "The Viral Fever", "Hindi"),
@@ -112,27 +103,20 @@ LIBRARY: dict[str, tuple[str, list[Channel]]] = {
         Channel("UCBnZ16ahKA2DZ_T5W0FPUXg", "ChuChu TV", "English"),
         Channel("UCAOtE1V7Ots4DjM8JLlrYgg", "Peppa Pig", "English", "GB"),
     ]),
+    # English only, by request.
     "podcasts": ("Podcasts", [
-        Channel("UCPxMZIFE856tbTfdkdjzTSQ", "The Ranveer Show (BeerBiceps)", "Hindi"),
-        Channel("UCzwCEE_PchiBULMnAJqhGVg", "Figuring Out with Raj Shamani", "Hindi"),
-        Channel("UC47GlIglvmEUVpXSMHH51vw", "FiguringOut", "Hindi"),
-        Channel("UCYalWwW79BdxmMTKUyBFj5g", "Shubhankar Mishra", "Hindi"),
         Channel("UCFPg96eW9CVNW-dkGNS0ulA", "People by WTF (Nikhil Kamath)", "English"),
-        Channel("UCu7af8z6YlAOAIGAS6XE3Rw", "TRS Clips", "Hindi"),
         Channel("UCSHZKyawb77ixDdsGog4iWA", "Lex Fridman", "English", "US"),
         Channel("UC2D2CMWXMOVWx7giW1n3LIg", "Huberman Lab", "English", "US"),
         Channel("UCGq-a57w-aPwyi3pW7XLiHw", "The Diary Of A CEO", "English", "GB"),
     ]),
+    # Music in Hindi, Telugu, Tamil and English only, by request.
     "music_hindi": ("Music · Hindi", [
         Channel("UCq-Fj5jknLsUf-MWSy4_brA", "T-Series", "Hindi"),
         Channel("UCFFbwnve3yF62-tVXkTyHqg", "Zee Music Company", "Hindi"),
         Channel("UC56gTxNs4f9xZ7Pa2i5xNzg", "Sony Music India", "Hindi"),
         Channel("UCJrDMFOdv1I2k8n9oK_V21w", "Tips Official", "Hindi"),
         Channel("UC5XiydmXHj2IIN0oIjyoYAw", "Music India", "Hindi"),
-    ]),
-    "music_punjabi": ("Music · Punjabi", [
-        Channel("UCOsyDsO5tIt-VZ1iwjdQmew", "Speed Records", "Punjabi"),
-        Channel("UCxQRUQmsAHA5GMAI4nddx_w", "White Hill Music", "Punjabi"),
     ]),
     "music_telugu": ("Music · Telugu", [
         Channel("UCNApqoVYJbYSrni4YsbXzyQ", "Aditya Music", "Telugu"),
@@ -145,21 +129,10 @@ LIBRARY: dict[str, tuple[str, list[Channel]]] = {
         Channel("UCAEv0ANkT221wXsTnxFnBsQ", "T-Series Tamil", "Tamil"),
         Channel("UCLsSLka8jODBozvi5VTQeaQ", "Zee Music South", "Tamil"),
     ]),
-    "music_regional": ("Music · Kannada, Bengali, Marathi, Gujarati", [
-        Channel("UCLtCejNl8eAg4PO_9lf2TIg", "Anand Audio", "Kannada"),
-        Channel("UCCPPUrQOQ12l9Xr-B7A351Q", "SVF Music", "Bengali"),
-        Channel("UCe6txxh-HwjtdOlmXL1md_Q", "Amara Muzik Bengali", "Bengali"),
-        Channel("UCe7UKRSJM6ITMfXX-CbET0w", "Everest Marathi", "Marathi"),
-        Channel("UCf40kH47yvowumzzK9LVKKg", "Zee Music Marathi", "Marathi"),
-        Channel("UCCo_LMj-m3iGSSuytYq9n6Q", "T-Series Marathi", "Marathi"),
-        Channel("UCev6abkwjdHj_dB3rquFfbQ", "T-Series Gujarati", "Gujarati"),
-    ]),
-    "music_international": ("Music · International & K-pop", [
+    "music_english": ("Music · English", [
         Channel("UC2pmfLm7iq6Ov1UwYrWYkZA", "Vevo", "English", "US"),
         Channel("UCe4LM_eKc9ywRmVuBm5pjQg", "Atlantic Records", "English", "US"),
         Channel("UCDj64sior23IP_7xLe8R7sg", "Warner Records", "English", "US"),
-        Channel("UCweOkPb1wVVH0Q0Tlj4a5Pw", "1theK", "Korean", "KR"),
-        Channel("UC3IZKseVpdzPSBaWxBxundA", "HYBE LABELS", "Korean", "KR"),
     ]),
     "comedy": ("Comedy & stand-up", [
         Channel("UCkS7Vxu4PjM99w0Is6idjcg", "Zakir Khan", "Hindi"),
@@ -314,10 +287,13 @@ def _load_archive() -> dict[str, list[dict]]:
         return {}
 
 
-def merge_archive(archive: dict[str, list[dict]], key: str, fresh: list[dict]) -> list[dict]:
+def merge_archive(archive: dict[str, list[dict]], key: str, fresh: list[dict],
+                  channels: set[str] | None = None) -> list[dict]:
     """Every video ever seen for a category, newest first. Feeds only list 15 uploads per channel,
-    so this is how the collection reaches back in time: it grows on every refresh."""
-    by_id = {v["id"]: v for v in archive.get(key, []) if isinstance(v, dict) and _VIDEO_ID.match(str(v.get("id", "")))}
+    so this is how the collection reaches back in time: it grows on every refresh. Videos from a
+    channel no longer listed for the category are dropped."""
+    by_id = {v["id"]: v for v in archive.get(key, []) if isinstance(v, dict) and _VIDEO_ID.match(str(v.get("id", "")))
+             and (channels is None or v.get("channelId") in channels)}
     for video in fresh:
         by_id[video["id"]] = {**by_id.get(video["id"], {}), **video}
     rows = sorted(by_id.values(), key=lambda v: str(v.get("published", "")), reverse=True)[:ARCHIVE_PER_CATEGORY]
@@ -433,9 +409,12 @@ async def library() -> dict:
             results = await _gather(_feed(client, channel, key) for key, channel in jobs)
         archive = await asyncio.to_thread(_load_archive)
         rows = []
-        for key, (label, _) in LIBRARY.items():
+        for key in list(archive):
+            if key not in LIBRARY:
+                del archive[key]
+        for key, (label, channels) in LIBRARY.items():
             fresh = [v for (k, _), batch in zip(jobs, results) if k == key for v in batch]
-            videos = merge_archive(archive, key, fresh)
+            videos = merge_archive(archive, key, fresh, {c.id for c in channels})
             if videos:
                 rows.append({"id": key, "label": label, "videos": videos})
         await asyncio.to_thread(_save_archive, archive)

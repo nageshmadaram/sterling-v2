@@ -66,3 +66,22 @@ def test_archive_path_override(monkeypatch, tmp_path):
     monkeypatch.setenv("STERLING_YOUTUBE_ARCHIVE", str(tmp_path / "a.json"))
     yl._save_archive({"x": [{"id": "AAAAAAAAAAA"}]})
     assert yl._load_archive() == {"x": [{"id": "AAAAAAAAAAA"}]}
+
+
+def test_archive_drops_videos_from_channels_no_longer_listed():
+    archive = {"movies": [{"id": "HINDIHINDI1", "channelId": "UCold", "published": "2026-01-01"},
+                          {"id": "TELUGUTELU1", "channelId": "UCkeep", "published": "2026-01-02"}]}
+    rows = yl.merge_archive(archive, "movies", [], {"UCkeep"})
+    assert [r["id"] for r in rows] == ["TELUGUTELU1"]
+
+
+def test_documentaries_are_english_and_movies_are_telugu():
+    assert {c.lang for c in yl.LIBRARY["documentaries"][1]} == {"English"}
+    assert {c.lang for c in yl.LIBRARY["movies"][1]} == {"Telugu"}
+
+
+def test_music_and_podcast_languages_follow_the_request():
+    music = {key: {c.lang for c in channels} for key, (_, channels) in yl.LIBRARY.items() if key.startswith("music")}
+    assert set(music) == {"music_hindi", "music_telugu", "music_tamil", "music_english"}
+    assert set().union(*music.values()) == {"Hindi", "Telugu", "Tamil", "English"}
+    assert {c.lang for c in yl.LIBRARY["podcasts"][1]} == {"English"}

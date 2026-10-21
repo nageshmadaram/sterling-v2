@@ -70,6 +70,9 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
       } else if (message.type === 'sterling.radio.state') {
         if ((message.theme === 'spotify' || message.theme === 'youtube' || message.theme === 'netflix') && typeof message.query === 'string' && message.query.length <= 200)
           stateRef.current?.({theme:message.theme,query:message.query});
+      } else if(message.type === 'sterling.radio.nav') {
+        // How many in-app steps Back can undo (media/nav-stack.js); the page owns the steps.
+        if(Number.isInteger(message.depth)&&message.depth>=0&&message.depth<=50)window.dispatchEvent(new CustomEvent('sterling-radio-nav',{detail:message.depth}));
       } else if(message.type === 'sterling.radio.player-state') {
         if(typeof message.expanded==='boolean')playerStateRef.current?.(message.expanded);
       } else if (message.type === 'sterling.radio.focus-search') {

@@ -41,6 +41,18 @@ export function SimpleTerminal() {
   const radioCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-radio-command',{detail:{action,value}}));
   const onTvState=useCallback((state:{theme:'youtube'|'spotify'|'netflix';query:string})=>setTvState(state),[]);
   const tvCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action,value}}));
+  // In-app steps inside TV and Radio (a category, Search, a sheet): one phone Back undoes one step.
+  // The layer name carries the depth, so each step registers its own history entry.
+  const [tvNavDepth,setTvNavDepth]=useState(0);
+  const [radioNavDepth,setRadioNavDepth]=useState(0);
+  useEffect(()=>{
+    const tv=(event:Event)=>setTvNavDepth((event as CustomEvent<number>).detail);
+    const radio=(event:Event)=>setRadioNavDepth((event as CustomEvent<number>).detail);
+    window.addEventListener('sterling-tv-nav',tv);window.addEventListener('sterling-radio-nav',radio);
+    return()=>{window.removeEventListener('sterling-tv-nav',tv);window.removeEventListener('sterling-radio-nav',radio);};
+  },[]);
+  useMobileBackLayer(spectrum==='tv'&&tvNavDepth>0,()=>tvCommand('back'),`tv-nav-${tvNavDepth}`);
+  useMobileBackLayer(spectrum==='radio'&&radioNavDepth>0,()=>radioCommand('back'),`radio-nav-${radioNavDepth}`);
   useMobileBackLayer(spectrum==='tv'&&tvPlayerExpanded,()=>{
     setTvPlayerExpanded(false);tvCommand('collapse');
   },'tv-player');

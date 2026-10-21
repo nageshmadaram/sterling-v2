@@ -17,6 +17,7 @@
   <script src="/media/radio-directory.js"></script>
   <script src="/media/spotify-shell.js"></script>
   <script src="/media/extras.js"></script>
+  <script src="/media/nav-stack.js"></script>
   <link rel="stylesheet" href="/media/icons.css" />
 
   <style>
@@ -2281,7 +2282,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let hlsInstance = null;
 
     const CURATED_RADIO_POOL=[...MASTER_POOL];
-    let radioCatalog=null,radioDirectoryUi=null,radioDirectorySnapshot=null;
+    let radioCatalog=null,radioDirectoryUi=null,radioDirectorySnapshot=null,radioRefreshTimer=0,radioRefreshAt=0;
     const radioDirectoryIndexed=new WeakSet();
     function radioDirectoryBase(cat=appConfig.activeCategory) {
       if(cat==='shortwave')return MASTER_POOL.filter(station=>station.category==='shortwave');
@@ -2338,11 +2339,20 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       upgradeRadioSources();
       if(radioCatalog){void radioCatalog.reload(appConfig.catalogSources);return;}
       radioCatalog=window.SterlingRadioCatalog.create({seeds:CURATED_RADIO_POOL,sources:appConfig.catalogSources,onUpdate:snapshot=>{
-        MASTER_POOL.length=0;for(const station of snapshot.stations){MASTER_POOL.push(station);if(!radioDirectoryIndexed.has(station)){radioSearchFields(station);radioDirectoryIndexed.add(station);}}refreshRadioDirectory(snapshot);
+        MASTER_POOL.length=0;for(const station of snapshot.stations){MASTER_POOL.push(station);if(!radioDirectoryIndexed.has(station)){radioSearchFields(station);radioDirectoryIndexed.add(station);}}
+        // While the directory streams in (one batch per second or so), redraw at most every 2.5 s;
+        // the last batch and every user action still redraw at once.
+        radioDirectorySnapshot=snapshot;clearTimeout(radioRefreshTimer);
+        const now=performance.now();
+        const active=Boolean(radioSearchQuery.trim())||Object.values(appConfig.catalogFilters||{}).some(Boolean);
+        if(!snapshot.loading||!radioDirectoryUi){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
+        else if(!active){radioDirectoryUi.progress(snapshot);if(now-radioRefreshAt>2500){radioRefreshAt=now;updateRadioDirectoryCounts();}}
+        else if(now-radioRefreshAt>2500){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
+        else radioRefreshTimer=setTimeout(()=>{radioRefreshAt=performance.now();refreshRadioDirectory(radioDirectorySnapshot);},2500-(now-radioRefreshAt));
       }});
       radioDirectoryUi=window.SterlingRadioDirectory.mount({catalog:radioCatalog,getConfig:()=>appConfig,artwork:getStationIdentityThumbnail,onPlay:playStationById,
         onSources:sources=>{appConfig.catalogSources=sources;appConfig.catalogSourcesVersion=window.SterlingRadioPresets?.version||1;saveAppConfig();void radioCatalog.reload(sources);},
-        onFilter:(filters,fromHome)=>{if(fromHome)loadCategory('all');appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
+        onFilter:(filters,fromHome)=>{rememberRadioPlace();if(fromHome)loadCategory('all',true);appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
       });
       window.addEventListener('pagehide',event=>{if(!event.persisted)radioCatalog.pause();});
       void radioCatalog.load();
@@ -2354,18 +2364,22 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     const SHELL_LANGS=[['telugu','Telugu'],['tamil','Tamil'],['hindi','Hindi'],['malayalam','Malayalam'],['kannada','Kannada'],['marathi','Marathi'],['bengali','Bengali'],['punjabi','Punjabi'],['urdu','Urdu'],['gujarati','Gujarati'],['odia','Odia'],['english','English']];
     function shellItem(s){return {id:s.id,title:s.title,subtitle:s.subtitle,art:getStationIdentityThumbnail(s),type:'Station'};}
     function shellCategories(){
-      if(shellCategoryCache.size===MASTER_POOL.length)return shellCategoryCache.list;
-      const counts=new Map(),art=new Map(),mosaic=new Map();
-      const bump=(key,s)=>{counts.set(key,(counts.get(key)||0)+1);if(!art.has(key))art.set(key,getStationIdentityThumbnail(s));const m=mosaic.get(key)||[];if(m.length<4){m.push(getStationIdentityThumbnail(s));mosaic.set(key,m);}};
+      // Reused for 30 s while the directory is still growing, so opening Library stays instant.
+      if(shellCategoryCache.size===MASTER_POOL.length||(shellCategoryCache.size>0&&performance.now()-(shellCategoryCache.at||0)<30000))return shellCategoryCache.list;
+      // Count every key, but keep only up to four sample stations per key; artwork is drawn later for the
+      // few dozen categories actually listed. Drawing it for every tag took about 9 s on 12,000 stations.
+      const counts=new Map(),samples=new Map();
+      const bump=(key,s)=>{counts.set(key,(counts.get(key)||0)+1);const m=samples.get(key);if(!m)samples.set(key,[s]);else if(m.length<4)m.push(s);};
       const regions=new Set();
       for(const s of MASTER_POOL){for(const l of s.languages||[])bump('lang:'+l,s);for(const t of new Set(s.tags||[]))bump('tag:'+t,s);for(const g of s.groups||[])bump('group:'+g,s);if(s.category==='akashvani'&&s.region){bump('region:'+s.region,s);regions.add(s.region);}}
       const groupRows=(window.SterlingRadioPresets?.groups||[]).filter(g=>g.id!=='world').map(g=>({key:'group:'+g.id,label:g.label,chip:'playlists'}));
       const regionRows=[...regions].sort().map(r=>({key:'region:'+r,label:`Akashvani · ${r.toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase())}`,chip:'playlists'}));
       const list=[...groupRows,...SHELL_LANGS.map(([k,label])=>({key:'lang:'+k,label,chip:'languages'})),...SHELL_TAGS.map(([k,label])=>({key:'tag:'+k,label,chip:'genres'})),...regionRows]
-        .map(c=>({...c,count:counts.get(c.key)||0,art:art.get(c.key),mosaic:mosaic.get(c.key)||[]})).filter(c=>c.count>0);
-      shellCategoryCache={size:MASTER_POOL.length,list};return list;
+        .filter(c=>counts.get(c.key)>0).map(c=>{const picks=samples.get(c.key)||[],mosaic=picks.map(getStationIdentityThumbnail);return {...c,count:counts.get(c.key),art:mosaic[0],mosaic};});
+      shellCategoryCache={size:MASTER_POOL.length,list,at:performance.now()};return list;
     }
     function shellOpenCategory(key){
+      rememberRadioPlace();
       const [kind,value]=key.split(':');
       if(kind==='lang'&&['telugu','tamil'].includes(value)){appConfig.catalogFilters={};saveAppConfig();loadCategory(value);return;}
       const rest=key.slice(kind.length+1);
@@ -2518,8 +2532,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         nav.addEventListener('click',e=>{
           const b=e.target.closest('[data-radio-click]');if(!b||!shellActive())return;
           const code=b.dataset.radioClick;
-          if(code==='63'){e.preventDefault();e.stopImmediatePropagation();spotifyShell.show('search');}
-          else if(code==='64'){e.preventDefault();e.stopImmediatePropagation();spotifyShell.show('library');}
+          if(code==='63'){e.preventDefault();e.stopImmediatePropagation();if(spotifyShell.state().page!=='search')rememberRadioPlace();spotifyShell.show('search');}
+          else if(code==='64'){e.preventDefault();e.stopImmediatePropagation();if(spotifyShell.state().page!=='library')rememberRadioPlace();spotifyShell.show('library');}
           else if(code==='30'){e.preventDefault();e.stopImmediatePropagation();openRadioSources();}
           else spotifyShell.hide();
         },true);
@@ -2564,6 +2578,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       initRadioDirectory();
       initSpotifyShell();
       initRadioExtras();
+      radioNav=window.SterlingNav?.create({kind:'radio',hosted:()=>radioHosted});
       mountRadioYoutubeSetting();setTimeout(loadRadioYoutube,1500);
       bindAudioEvents();
       bindBackgroundPlayGuard();
@@ -2606,6 +2621,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(action==='sources')openRadioSources();
         if (action === 'more' || action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
+        if (action === 'back') radioNav?.back();
         return;
       }
       if (event.data?.type !== 'sterling.radio.hydrate') return;
@@ -3010,7 +3026,19 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     // --- 11. Category Loader ---
+    // Back (media/nav-stack.js): user-opened categories, filters and pages record how to return.
+    let radioNav=null;
+    function radioPlace(){return {cat:appConfig.activeCategory,filters:{...(appConfig.catalogFilters||{})},view:document.documentElement.dataset.radioView,shell:spotifyShell?.state().page||null,scroll:document.querySelector('main.sp-canvas-bg')?.scrollTop||0};}
+    function rememberRadioPlace(){
+      if(!radioNav||radioNav.isRestoring())return;const place=radioPlace();
+      radioNav.push(()=>{
+        appConfig.catalogFilters=place.filters;loadCategory(place.cat,true);document.documentElement.dataset.radioView=place.view;
+        if(place.shell)spotifyShell?.show(place.shell);else spotifyShell?.hide();
+        refreshRadioDirectory();requestAnimationFrame(()=>document.querySelector('main.sp-canvas-bg')?.scrollTo({top:place.scroll,behavior:'instant'}));
+      });
+    }
     function loadCategory(cat, skipSave = false) {
+      if(!skipSave&&cat!==appConfig.activeCategory)rememberRadioPlace();
       searchRevision++;
       searchAbort?.abort();
       radioSearchQuery = '';

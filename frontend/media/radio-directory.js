@@ -100,11 +100,15 @@
   function update(snapshot,basePool){
    lastSnapshot=snapshot;const filters=getConfig().catalogFilters||{},counts={language:new Map(),country:new Map(),tag:new Map(),region:new Map()},samples=new Map(),picks=new Map();
    const add=(map,key)=>{if(key)map.set(key,(map.get(key)||0)+1);};
+   // One pass over the whole catalog (tens of thousands of stations): filter objects are built once,
+   // not per station, and the "all genres" count is collected here instead of in a second pass.
+   const noLanguage={...filters,language:'',tag:''},noCountry={...filters,country:'',tag:''},noRegion={...filters,region:'',tag:''},noTag={...filters,tag:''};
+   let allGenres=0;
    for(const station of basePool){
-    if(match(station,{...filters,language:'',tag:''}))for(const language of station.languages||[])add(counts.language,language);
-    if(match(station,{...filters,country:'',tag:''}))add(counts.country,station.country);
-    if(station.region&&match(station,{...filters,region:'',tag:''}))add(counts.region,station.region);
-    if(match(station,{...filters,tag:''}))for(const tag of new Set(station.tags||[])){add(counts.tag,tag);if(!samples.has(tag))samples.set(tag,station);if(!picks.has(tag))picks.set(tag,[]);if(picks.get(tag).length<8)picks.get(tag).push(station);}
+    if(match(station,noLanguage))for(const language of station.languages||[])add(counts.language,language);
+    if(match(station,noCountry))add(counts.country,station.country);
+    if(station.region&&match(station,noRegion))add(counts.region,station.region);
+    if(match(station,noTag)){allGenres++;const tags=station.tags||[];for(let i=0;i<tags.length;i++){const tag=tags[i];if(tags.indexOf(tag)!==i)continue;add(counts.tag,tag);if(!samples.has(tag))samples.set(tag,station);let pick=picks.get(tag);if(!pick)picks.set(tag,pick=[]);if(pick.length<8)pick.push(station);}}
    }
    const filtered=basePool.filter(station=>match(station,filters)),anyFilter=Boolean(filters.language||filters.country||filters.tag||filters.group||filters.region||filters.secure);
    doc.documentElement.dataset.radioDirectoryFiltered=String(anyFilter);
@@ -124,7 +128,7 @@
      const signature=JSON.stringify(options);if(select.dataset.options!==signature){select.replaceChildren(...options.map(([value,label])=>new Option(label,value)));select.dataset.options=signature;}select.value=filters[field]||'';
     }
     block.querySelector('[data-filter="secure"]').checked=Boolean(filters.secure);
-    for(const button of block.querySelectorAll('[data-genre]')){const tag=button.dataset.genre,count=tag?(counts.tag.get(tag)||0):basePool.filter(station=>match(station,{...filters,tag:''})).length;button.textContent=`${tag?labels[tag]:'All genres'} ${count.toLocaleString()}`;button.setAttribute('aria-pressed',String((filters.tag||'')===tag));button.hidden=Boolean(tag)&&count===0&&filters.tag!==tag;}
+    for(const button of block.querySelectorAll('[data-genre]')){const tag=button.dataset.genre,count=tag?(counts.tag.get(tag)||0):allGenres;button.textContent=`${tag?labels[tag]:'All genres'} ${count.toLocaleString()}`;button.setAttribute('aria-pressed',String((filters.tag||'')===tag));button.hidden=Boolean(tag)&&count===0&&filters.tag!==tag;}
    }
    const groupCounts=new Map(),groupSamples=new Map();for(const station of basePool)for(const group of station.groups||[]){groupCounts.set(group,(groupCounts.get(group)||0)+1);if(!groupSamples.has(group))groupSamples.set(group,station);}
    for(const button of groupTiles){const count=groupCounts.get(button.dataset.group)||0;button.hidden=count===0;button.querySelector('small').textContent=stationCount(count);const image=button.querySelector('img'),sample=groupSamples.get(button.dataset.group);image.hidden=!sample;if(sample){const src=artwork(sample);if(image.getAttribute('src')!==src)image.src=src;}}
@@ -137,7 +141,17 @@
    if(dialog.open){for(const status of dialog.querySelectorAll('[data-source-status]')){const state=snapshot.sources.find(item=>item.id===status.dataset.sourceStatus);if(state)status.textContent=statusText(state,state);}updateTotal();}
    return filtered;
   }
-  return {update,openSources:open};
+  // Cheap progress update for the batches that arrive while loading: status line, pause button and
+  // source rows only. The full facet recount (update) runs when loading ends or the user acts.
+  function progress(snapshot){
+   lastSnapshot=snapshot;
+   for(const block of controls){
+    block.querySelector('[role=status]').textContent=`${stationCount(snapshot.stations.length)} loaded${snapshot.loading?' · Loading full directory…':snapshot.complete?' · Sources up to date':' · Loading paused or source needs attention'}${snapshot.reportedTotal?' · Provider: '+snapshot.reportedTotal.toLocaleString()+' entries (includes unavailable)':''}`;
+    const pause=block.querySelector('[data-pause]');pause.textContent=snapshot.loading?'Pause loading':'Resume / retry';pause.hidden=snapshot.complete;
+   }
+   if(dialog.open){for(const status of dialog.querySelectorAll('[data-source-status]')){const state=snapshot.sources.find(item=>item.id===status.dataset.sourceStatus);if(state)status.textContent=statusText(state,state);}updateTotal();}
+  }
+  return {update,progress,openSources:open};
  }
  window.SterlingRadioDirectory=Object.freeze({mount,match});
 })();

@@ -15,7 +15,7 @@ def export():
     html = re.sub(r'<link rel="stylesheet" href="(/(?:media|radio)/[^\"]+\.css)"\s*/?>', inline, html)
     hls = (PUBLIC / 'media/hls.min.js').read_text().replace('</script', '<\\/script')
     html = html.replace('<script src="/media/hls.min.js"></script>', '<script>\n' + hls + '\n</script>')
-    for name in ['radio-sources.js', 'radio-catalog.js', 'radio-directory.js', 'spotify-shell.js', 'extras.js']:
+    for name in ['radio-sources.js', 'radio-catalog.js', 'radio-directory.js', 'spotify-shell.js', 'extras.js', 'nav-stack.js']:
         source = (PUBLIC / 'media' / name).read_text().replace('</script', '<\\/script')
         html = html.replace('<script src="/media/' + name + '"></script>', '<script>\n' + source + '\n</script>')
     comfort = (PUBLIC / 'media/comfort.js').read_text().replace('</script', '<\\/script')
