@@ -56,8 +56,14 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
 
   const toggleSearch = () => {
     setSettingsOpen(false);
-    if(!searchOpen)requestAnimationFrame(()=>searchInput.current?.focus());
-    setSearchOpen(!searchOpen);
+    if (searchOpen) {
+      // A hidden query must not keep search filters/category rows suppressed.
+      if (query) onQuery('');
+      setSearchOpen(false);
+      return;
+    }
+    setSearchOpen(true);
+    requestAnimationFrame(() => searchInput.current?.focus());
   };
   const themes: { id: MediaTheme; label: string; note: string }[] = [
     { id: 'spotify', label: 'Spotify', note: 'Library and music-style player' },
@@ -72,7 +78,7 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
           : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>}
       </button>
       <button type="button" className="sterling-media-icon-button" aria-label={kind === 'tv' ? 'TV display settings' : 'Radio display settings'} aria-haspopup="menu" aria-expanded={settingsOpen}
-        onClick={() => { setSearchOpen(false); setSettingsOpen(o => !o); }}>
+        onClick={() => { if (searchOpen && query) onQuery(''); setSearchOpen(false); setSettingsOpen(o => !o); }}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.75v2.1m0 14.3v2.1M4.4 4.4l1.5 1.5m12.2 12.2 1.5 1.5M2.75 12h2.1m14.3 0h2.1M4.4 19.6l1.5-1.5M18.1 5.9l1.5-1.5"/><circle cx="12" cy="12" r="4"/></svg>
       </button>
       {settingsOpen && <div className="sterling-media-settings-popover" role="menu" aria-label={kind === 'tv' ? 'TV appearance' : 'Radio appearance'}>
