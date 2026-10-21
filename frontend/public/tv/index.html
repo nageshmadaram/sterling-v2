@@ -4295,7 +4295,9 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${content}</div>`;
     } else if(kind==='queue') {
       title='Up next';
-      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${computeRightRailPool().slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')}${action('epg','Programme guide','queue')}</div>`;
+      const preferred=computeRightRailPool();
+      const pool=preferred.length?preferred:allChannels.filter(ch=>ch.url!==activeChannel?.url);
+      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${pool.slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')||'<p>Channel queue is empty.</p>'}${action('epg','Programme guide','queue')}</div>`;
     } else {
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${items.map(([name,label,glyph])=>action(name,label,glyph,'tm-feature').replace('</button>',`<span>${label}</span></button>`)).join('')}</div>`;
     }
@@ -4488,6 +4490,26 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch)img.src=artwork({...ch,logo:''});},true);
   mini.querySelector('img').addEventListener('error',event=>{if(activeChannel)event.target.src=artwork({...activeChannel,logo:''});});
   installPlaybackContinuity();
+  function installPlayerSwipes(element,onDirection) {
+    let start=null;
+    element.addEventListener('touchstart',e=>{
+      if(e.touches.length!==1||e.target.closest('button,input,select,a'))return;
+      start={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    },{passive:true});
+    element.addEventListener('touchend',e=>{
+      if(!start||!e.changedTouches.length)return;
+      const dx=e.changedTouches[0].clientX-start.x,dy=e.changedTouches[0].clientY-start.y;
+      start=null;
+      if(Math.abs(dy)>85&&Math.abs(dx)<Math.abs(dy)/2)onDirection(dy>0?'down':'up');
+    },{passive:true});
+    element.addEventListener('touchcancel',()=>{start=null;},{passive:true});
+  }
+  installPlayerSwipes(now,dir=>{
+    if(dir==='down'&&expanded){setExpanded(false);view='home';schedule();}
+  });
+  installPlayerSwipes(mini,dir=>{
+    if(dir==='up'&&!expanded)setExpanded(true);
+  });
   if(hydrated)restoreUi();
   renderHome();sync();
 })();
