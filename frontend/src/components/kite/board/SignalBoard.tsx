@@ -805,6 +805,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
           )}
         </span>
 
+        {signal.mode && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
         {/* Right-aligned and tabular so the decimal points line up down the
             column, the same rule the leg cells follow. */}
         <span style={{

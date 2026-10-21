@@ -155,7 +155,7 @@ export interface GammaEntryGate {
   /** Operator-facing reason, empty when eligible. */
   reason: string;
   hold: 'intraday' | 'swing';
-  /** Trading mode the position was opened in (empty on older rows). */
+  /** Trading mode the entry would use. */
   mode?: string;
 }
 

@@ -718,7 +718,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(document.body.textContent).toContain('RELIANCE');
     expect(document.body.textContent).toContain('OCT3000CE');
     fireEvent.click(screen.getAllByText(/RELIANCE/)[0]);
-    expect(document.body.textContent).toContain('SWING');
+    expect(document.body.textContent).toContain('Swing');
   });
 
   it('surfaces a refused entry and network error', () => {

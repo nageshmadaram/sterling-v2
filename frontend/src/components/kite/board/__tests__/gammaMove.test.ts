@@ -256,7 +256,7 @@ describe('gammaMoveToBoard / canonical levels and entry gate', () => {
       candidates: [intraday({ entry_gate: { eligible: true, code: '', reason: '', hold: 'intraday' } })],
     }));
     expect(row.executionEligible).toBe(true);
-    expect(row.flags?.some((f) => f.label === 'INTRADAY')).toBe(true);
+    expect(row.mode).toBe('intraday');
   });
 
   it('separates SL (hard stop at entry) from TSL (stop after T1) on a held position', () => {

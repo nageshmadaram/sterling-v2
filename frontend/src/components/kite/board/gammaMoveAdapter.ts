@@ -56,14 +56,8 @@ const GATE_FLAG: Record<string, { label: string; tone: BoardOrigin['tone'] }> = 
 /** Why an ENTRY cannot be taken now, or the hold it will use when it can. */
 function gateFlags(gate?: GammaEntryGate): BoardOrigin[] {
   if (!gate) return [];
-  if (gate.eligible) {
-    return [{
-      label: gate.hold.toUpperCase(), tone: 'dim',
-      hint: gate.hold === 'intraday'
-        ? 'Expiry tomorrow or today: stop at base low, exit by 15:20.'
-        : 'Swing: stop on a daily close past the zone, exit on day 5.',
-    }];
-  }
+  // The mode pill on the row already says how an eligible entry is held.
+  if (gate.eligible) return [];
   const known = GATE_FLAG[gate.code];
   return known ? [{ label: known.label, tone: known.tone, hint: gate.reason }] : [];
 }
@@ -158,15 +152,8 @@ function warnings(row: GammaSignalRow): BoardOrigin[] {
 
 function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
   if (!pos) return [];
-  const out: BoardOrigin[] = [
-    {
-      label: pos.hold.toUpperCase(),
-      tone: pos.hold === 'intraday' ? 'blue' : 'purple',
-      hint: pos.hold === 'intraday'
-        ? 'DTE≤1: base-low premium SL and 15:20 exit.'
-        : 'Swing: stop on a daily close past the zone. Held at most the set days.',
-    },
-  ];
+  // The hold is shown by the row's mode pill, so no separate HOLD mark.
+  const out: BoardOrigin[] = [];
   if (pos.trade_state === 'T1_TRAIL') {
     out.push({
       label: 'T1 HIT', tone: 'green',
@@ -339,7 +326,7 @@ function toSignal(
     id: row.id,
     engine: 'gamma_move',
     held: Boolean(pos),
-    mode: normalizeMode(pos?.mode || pos?.hold || ((row as { hold?: string }).hold ?? (row.watch?.dte != null && row.watch.dte <= 1 ? 'intraday' : 'swing'))),
+    mode: normalizeMode(pos?.mode || pos?.hold || row.entry_gate?.mode || ((row as { hold?: string }).hold ?? (row.watch?.dte != null && row.watch.dte <= 1 ? 'intraday' : 'swing'))),
     historical,
     underlying: row.underlying,
     instrument: instrument(row),

@@ -425,11 +425,7 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     origin: origin(row),
     flags: row.metrics?.missing_setup_metrics
       ? [
-          {
-            label: (row.trading_mode || 'swing').toUpperCase(),
-            tone: (row.trading_mode || 'swing').toLowerCase() === 'scalp' ? 'amber' : (row.trading_mode || 'swing').toLowerCase() === 'intraday' ? 'purple' : 'blue',
-            hint: `${(row.trading_mode || 'swing').toUpperCase()} mode setup`,
-          },
+          // Mode is the row's mode pill; only the data caveat stays here.
           { label: 'modelled', tone: 'amber', hint: 'Historical model; setup metric snapshots unavailable' },
         ]
       : flags(row),
