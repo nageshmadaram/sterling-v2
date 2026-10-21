@@ -33,7 +33,7 @@
   now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
-  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto';
+  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
   const activeTheme=()=>currentTheme==='spotify'||currentTheme==='youtube';
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
@@ -66,6 +66,7 @@
     const enabled=isMobile();
     document.body.classList.toggle('tm-host-header',hosted);
     applyBackdrop();
+    publishPlayerState();
     publishState();
     saveUi();
     const stage=document.getElementById('player-stage');
@@ -199,6 +200,12 @@
       if(!scope)return;const focusable=[...scope.querySelectorAll('button,input')].filter(el=>el.getClientRects().length);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}
     }
   });
+  function publishPlayerState() {
+    const open=Boolean(isMobile()&&activeChannel&&(expanded||view==='watch'));
+    if(!hosted||open===lastPublishedPlayerState)return;
+    lastPublishedPlayerState=open;
+    window.parent.postMessage({type:'sterling.tv.player-state',expanded:open},'*');
+  }
   function publishState() {
     if(!hosted)return;
     const next=JSON.stringify({theme:currentTheme,query:searchInputEl.value.slice(0,200)});
@@ -259,6 +266,11 @@
     if(data.action==='play-search'){
       const match=getRankedSearchMatches(searchInputEl.value)[0];
       if(match){playStream(match,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
+    }
+    if(data.action==='collapse'){
+      if(sheet.classList.contains('tm-sheet-open'))closeSheet();
+      if(expanded)setExpanded(false);
+      view='home';renderHome();schedule();
     }
     if(data.action==='more'){if(mobile.matches)showSheet();else toggleSidebarDrawer(true);}
   });
