@@ -183,9 +183,43 @@ export function SimpleTerminal() {
 
   useEffect(()=>{if(!('serviceWorker' in navigator))return;const receive=(event:MessageEvent)=>{if(event.data?.type!=='sterling-notification')return;try{const url=new URL(event.data.url,window.location.origin);if(url.origin!==window.location.origin)return;const next=notificationDestination(url.searchParams.get('notification'));if(next){if(hasUnsavedDraft()&&!window.confirm('Open this live-account notification and discard unapplied settings?'))return;useViewStore.getState().setView('live');window.location.assign(url.href);}}catch{/* malformed notification */}};navigator.serviceWorker.addEventListener('message',receive);return()=>navigator.serviceWorker.removeEventListener('message',receive);},[kiteNav]);
 
+
+  const configuredHome = navOptions.spectrumHome;
+  const isConfiguredHome =
+    configuredHome === 'tv'
+      ? spectrum === 'tv'
+      : configuredHome === 'radio'
+        ? spectrum === 'radio'
+        : configuredHome === 'simulation'
+          ? spectrum === 'kite' &&
+            selectedView === 'simulation' &&
+            kiteNav === preferredSection
+          : spectrum === 'kite' &&
+            selectedView !== 'simulation' &&
+            kiteNav === preferredSection;
+
   return (
     <div className={`term-root ${spectrum==='tv'?'sterling-tv-mode':spectrum==='radio'?'sterling-radio-mode':''}`} data-tv-theme={tvState.theme} data-radio-theme={radioState.theme}>
       <style>{`
+
+        .sterling-mobile-close-page { display: none; }
+        @media (max-width: 768px) {
+          .sterling-mobile-close-page {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            width: 34px;
+            height: 34px;
+            margin-left: 8px;
+            border: 1px solid var(--t-border);
+            border-radius: 8px;
+            color: var(--t-bright);
+            background: var(--k-bg);
+            cursor: pointer;
+            touch-action: manipulation;
+          }
+        }
         .kite-header-actions > * { flex-shrink: 0; }
         .kite-topnav {
           display: flex; align-items: center; gap: 6px; height: 100%;
@@ -239,14 +273,6 @@ export function SimpleTerminal() {
                 </button>
               ))}
             </div>
-            {kiteNav !== preferredSection && (
-              <button type="button" className="sterling-return-home"
-                aria-label={`Close ${navigation.find(item => item.id === kiteNav)?.label ?? kiteNav} and return to ${navigation.find(item => item.id === preferredSection)?.label ?? 'Home'}`}
-                title={`Return to ${navigation.find(item => item.id === preferredSection)?.label ?? 'Home'}`}
-                onClick={() => handleKiteNav(preferredSection || 'dashboard')}>
-                <span aria-hidden="true">×</span>
-              </button>
-            )}
             {overflow.length > 0 && <div className="sterling-desktop-tools" ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button type="button" aria-haspopup="menu" aria-expanded={toolsOpen}
                 onClick={() => setToolsOpen(open => !open)}
@@ -307,6 +333,17 @@ export function SimpleTerminal() {
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
             ⚙
           </button>}
+          {!isConfiguredHome && (
+            <button
+              type="button"
+              className="sterling-mobile-close-page"
+              aria-label="Close page and return to configured home"
+              title="Return Home"
+              onClick={goHome}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
         </div>
         {spectrum === 'kite' && (
           <div className="sterling-mobile-command-row" aria-label="Mobile navigation and search">
