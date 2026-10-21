@@ -143,21 +143,14 @@ function flags(row: SnapbackRow): BoardOrigin[] {
       label: `runs above \u20b9${row.runner_premium.toFixed(0)}`,
       hint: intraday
         ? 'Continuation threshold. The entry and exit manager checks completed option candles, targets and broker stop updates before treating a runner as active.'
-        : 'Above this premium the position is held PAST the horizon, under a '
-        + 'give-back ratchet, instead of being closed on the session count. '
-        + 'The edge here is a right tail — the top 1% of trades carry 148% of '
-        + 'the P&L — so a fixed horizon closes the few trades that pay for the '
-        + 'rest. Out of sample this moved the book from +3.46% to +4.03% per '
-        + 'entry day on the same 409 entry days.',
+        : 'Above this premium the position is held PAST the horizon, under a give-back ratchet, instead of being closed on the session count. The edge here is a right tail — the top 1% of trades carry 148% of the P&L — so a fixed horizon closes the few trades that pay for the rest. Out of sample this moved the book from +3.46% to +4.03% per entry day on the same 409 entry days.',
       tone: 'blue',
     });
   }
   if (row.contract?.delta != null) {
     out.push({
       label: `Δ ${Math.abs(row.contract.delta).toFixed(2)}`,
-      hint: 'Delta is the leverage. This engine picks the strike BY delta '
-        + 'rather than by a moneyness rung, because a rung is a different '
-        + 'amount of leverage at every vol level and tenor.',
+      hint: 'Delta is the leverage. This engine picks the strike BY delta rather than by a moneyness rung, because a rung is a different amount of leverage at every vol level and tenor.',
       tone: 'dim',
     });
   }
@@ -174,20 +167,14 @@ function flags(row: SnapbackRow): BoardOrigin[] {
   if (o?.beta != null) {
     out.push({
       label: `β ${o.beta.toFixed(2)} hedged`,
-      hint: 'The market was hedged out with an index future, sized by this '
-        + 'beta. The signal\u2019s edge is RELATIVE — a bought put is a large '
-        + 'SHORT position in the market, and over nine rising years that cost '
-        + 'more than the edge earned. A future rather than a bought index call: '
-        + 'a call is convex and would quietly become a second long-market bet.',
+      hint: 'The market was hedged out with an index future, sized by this beta. The signal\u2019s edge is RELATIVE — a bought put is a large SHORT position in the market, and over nine rising years that cost more than the edge earned. A future rather than a bought index call: a call is convex and would quietly become a second long-market bet.',
       tone: 'blue',
     });
   }
   if (o?.open) {
     out.push({
       label: `${o.sessions_left}d left`,
-      hint: 'Sessions remaining in the holding period. The measured edge is a '
-        + 'MEAN over the whole horizon, so an early exit collects a different '
-        + 'distribution.',
+      hint: 'Sessions remaining in the holding period. The measured edge is a MEAN over the whole horizon, so an early exit collects a different distribution.',
       tone: 'dim',
     });
   }
@@ -196,10 +183,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     // nobody traded it.
     out.push({
       label: 'replay',
-      hint: 'Replayed from stored daily bars — the same rule on the same '
-        + 'sessions, but this was not traded. The live scan only looks at the '
-        + 'last few closed sessions, so without this the board is blank almost '
-        + 'always.',
+      hint: 'Replayed from stored daily bars — the same rule on the same sessions, but this was not traded. The live scan only looks at the last few closed sessions, so without this the board is blank almost always.',
       tone: 'dim',
     });
   }
@@ -209,17 +193,14 @@ function flags(row: SnapbackRow): BoardOrigin[] {
     // per lot, and no percentage budget on a small account reaches it.
     out.push({
       label: `${fmtMoney(row.min_outlay_inr, 0)}/lot`,
-      hint: 'Premium for ONE lot — the minimum this trade can be taken in. '
-        + 'A bought option cannot be sized below one lot, so this is the real '
-        + 'capital requirement.',
+      hint: 'Premium for ONE lot — the minimum this trade can be taken in. A bought option cannot be sized below one lot, so this is the real capital requirement.',
       tone: 'dim',
     });
   }
   if (row.contract?.dte != null) {
     out.push({
       label: `${row.contract.dte}d`,
-      hint: 'Days to expiry. Theta per rupee of premium runs at about 1/(2T), '
-        + 'so a shorter contract spends the edge on decay.',
+      hint: 'Days to expiry. Theta per rupee of premium runs at about 1/(2T), so a shorter contract spends the edge on decay.',
       tone: 'dim',
     });
   }
@@ -233,8 +214,7 @@ function flags(row: SnapbackRow): BoardOrigin[] {
   } else {
     out.push({
       label: `hold ${row.hold_days}d`,
-      hint: 'Sessions held. The measured edge is a MEAN over this horizon, so an '
-        + 'early exit collects a different distribution from the one measured.',
+      hint: 'Sessions held. The measured edge is a MEAN over this horizon, so an early exit collects a different distribution from the one measured.',
       tone: 'dim',
     });
   }
@@ -267,9 +247,7 @@ function sections(row: SnapbackRow): BoardSection[] {
     layout: 'tiles',
     summary: intraday
       ? 'Premium plans require observed option quotes. The intraday realised-vol proxy is not quoted implied volatility; daily swing measurements do not validate this plan.'
-      : 'The exit is valued at the ENTRY’s vol in every measurement '
-      + 'behind this engine, so the vega a successful fade would earn is '
-      + 'credited at exactly zero.',
+      : 'The exit is valued at the ENTRY’s vol in every measurement behind this engine, so the vega a successful fade would earn is credited at exactly zero.',
     stats: [
       ...(intraday
         ? [{ label: 'Intraday vol proxy', value: `${n(row.realized_vol_pct, 1)}%` }]
@@ -343,9 +321,7 @@ function sections(row: SnapbackRow): BoardSection[] {
       out.push({
         title: 'The hedge',
         layout: 'tiles',
-        summary: 'Shown apart from the result on purpose: a single hedged '
-          + 'figure hides whether the money came from the edge or from the '
-          + 'hedge being on the right side of the tape.',
+        summary: 'Shown apart from the result on purpose: a single hedged figure hides whether the money came from the edge or from the hedge being on the right side of the tape.',
         stats: [
           { label: 'Beta', value: n(o2.beta) },
           {

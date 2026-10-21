@@ -41,82 +41,50 @@ import { SnapbackScalpSettings } from './SnapbackScalpSettings';
  */
 const EXIT_OPTIONS: Array<{ value: ExitMode; label: string; hint: string }> = [
   { value: 'horizon', label: 'Hold the horizon',
-    hint: 'Close after the holding period, whatever the price is doing. The '
-      + 'measured edge is a MEAN over that horizon, so this is the only exit '
-      + 'that collects the distribution that was actually measured.' },
+    hint: 'Exit after the set number of days, whatever the price. This is how the strategy was tested.' },
   { value: 'mean_touch', label: 'On the mean',
-    hint: 'Close when the instrument returns to its own 20-session mean — the '
-      + 'thesis completing. Not measured: it cuts the horizon short, which '
-      + 'collects a different distribution.' },
+    hint: 'Exit when price returns to its 20-day average. Not tested.' },
   { value: 'either', label: 'Whichever comes first',
     hint: 'The mean, or the horizon. Also not measured.' },
 ];
 
 const SIZING_OPTIONS: Array<{ value: SizingMode; label: string; hint: string }> = [
   { value: 'PREMIUM_PCT', label: 'Premium budget',
-    hint: 'A bought option’s maximum loss IS its premium, so the honest '
-      + 'budget is stated in premium rather than in distance to a stop. A '
-      + 'signal whose single lot breaks the budget is SKIPPED, not squeezed in.' },
+    hint: 'Spend at most this share of capital on premium. A trade that needs more is skipped.' },
   { value: 'LOTS', label: 'Fixed lots',
-    hint: 'The same number of lots every time. Worth knowing: at 2% of a 1 lakh '
-      + 'account the premium budget cannot buy one NIFTY lot at all, so a small '
-      + 'account on the budget mode will only ever trade single stocks.' },
+    hint: 'Same lots every trade. Note: 2% of ₹1 lakh cannot buy one NIFTY lot.' },
 ];
 
 const STOP_MODE_OPTIONS: Array<{ value: StopMode; label: string; hint: string }> = [
   { value: 'both', label: 'Broker + monitor',
-    hint: 'Preferred: a stop resting at the broker, plus Sterling’s own monitor for '
-      + 'intrabar exits.' },
+    hint: 'Best: stop at Zerodha plus Sterling\'s own watch.' },
   { value: 'broker', label: 'Broker only',
-    hint: 'A resting broker stop and nothing else. Survives a crash; no intrabar exit.' },
+    hint: 'Stop at Zerodha only. Works even if Sterling stops.' },
   { value: 'monitor', label: 'Monitor only',
-    hint: 'Sterling’s monitor and nothing at the broker. If this process stops while '
-      + 'a position is held, it has no stop.' },
+    hint: 'Sterling watches only. If Sterling stops, there is no stop.' },
 ];
 
 const UNIVERSE_OPTIONS = [
   { value: 'fno' as const, label: 'Whole F&O list',
-    hint: 'Every underlying with a published lot size and strike step, from the '
-      + 'live instrument dump. Liquidity is then enforced on the CONTRACT — its '
-      + 'quoted spread, premium and open interest — rather than by a list of '
-      + 'names. Measured between July and September 2026 this rule fired 90 '
-      + 'times across the F&O list and ZERO times among the fourteen curated '
-      + 'names, so the list was the binding constraint, not the rule.' },
+    hint: 'Every F&O stock and index. Each option must still pass spread, price and OI checks.' },
   { value: 'curated' as const, label: 'Curated fourteen',
-    hint: 'The shared high-liquidity registry plus the indices — what every '
-      + 'other engine here scans. Safer spreads, and almost no signals.' },
+    hint: '14 liquid names plus indices. Tighter spreads, very few signals.' },
 ];
 
 const MARKET_OPTIONS = [
   { value: 'bearish' as const, label: 'Only in a weak market',
-    hint: 'Fade only while the index sits BELOW its own 50-session mean. This '
-      + 'is the setting that decides whether the strategy makes money: measured '
-      + 'on 202 underlyings over nine years the ungated book returns -1.28% per '
-      + 'entry day and the gated one +2.13%. The gate is on the put’s BETA, not '
-      + 'on the signal — a bought put is a large short position in the market, '
-      + 'and the signal’s own edge is about 1.5 points, nowhere near enough to '
-      + 'pay for being short a bull market.' },
+    hint: 'Trade only when the index is below its 50-day average. Most important setting: tested -1.28% per day without it, +2.13% with it.' },
   { value: 'off' as const, label: 'Any market',
     hint: 'Take every signal. Measured at -1.28% per entry day.' },
   { value: 'bullish' as const, label: 'Only in a strong market',
-    hint: 'The inverse, here so the claim can be checked rather than taken on '
-      + 'trust. Measured excess +0.6pp against +3.1pp for the shipped setting.' },
+    hint: 'Opposite of the above, for comparison. Tested worse.' },
 ];
 
 const HEDGE_OPTIONS = [
   { value: 'index_futures' as const, label: 'Hedge the market out',
-    hint: 'Shorts the put’s own market delta, beta-weighted, with an index '
-      + 'future. The signal’s edge is RELATIVE — about +1.5pp against a '
-      + 'day-matched baseline — while a bought put is a large SHORT position '
-      + 'in the market, and over nine rising years the second cost more than '
-      + 'the first earned. A FUTURE and not a bought index call: a call is '
-      + 'convex, and measured it beat an exact hedge by almost a point, which '
-      + 'means it had stopped hedging and become a second long-market bet. '
-      + 'NOTE a future needs MARGIN, which the premium budget below does not '
-      + 'cover.' },
+    hint: 'Sell index futures to cancel market risk. Tested +0.52% per day vs -0.62% without. Futures need margin.' },
   { value: 'none' as const, label: 'Directional put',
-    hint: 'No hedge. Measured at -0.62% per entry day against +0.52% hedged, '
-      + 'on the same trades.' },
+    hint: 'No hedge. Tested -0.62% per day.' },
 ];
 
 const CHECK_LABEL: Record<string, string> = {
@@ -153,7 +121,7 @@ const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: st
   { value: 'swing', label: 'Swing', hint: 'Daily signals and session-based holding periods.' },
   { value: 'scalp', label: 'Scalp', hint: 'Research preset: 1-minute bars, 20-bar initial hold, 60-bar runner limit.' },
   { value: 'intraday', label: 'Intraday', hint: '15-minute reversal; session square-off and finite holding budget.' },
-  { value: 'overnight', label: 'Overnight', hint: 'Hourly reversal; at most three trading sessions; broker stop; no weekend or holiday-gap carry.' },
+  { value: 'overnight', label: 'Overnight', hint: 'Hourly reversal. Up to 3 days. Stop at Zerodha. Never held over weekends or holidays.' },
 ];
 
 export function SnapbackSettings() {
@@ -237,14 +205,14 @@ export function SnapbackSettings() {
         busy={setCfg.isPending}
         onToggle={() => patch({ enabled: !cfg.enabled })}
         runningNote={shortHorizon
-          ? 'Scanning completed option candles. Live entries require automatic entry and all broker safety checks.'
+          ? 'Scanning finished option candles. Live trades need ALGO on and all safety checks.'
           : 'Scanning daily bars for instruments stretched past a 20-session extreme.'}
         offNote="Off. Nothing is scanned and no orders can be placed."
       />
 
-      <Section title="Trading mode" description="Choose the signal horizon. Changing mode loads its candle and holding presets."
+      <Section title="Trading mode" description="Pick a style. Each loads its own candle and hold settings."
         summary={TRADING_MODES.find((mode) => mode.value === (cfg.trading_mode ?? 'swing'))?.label ?? 'Daily swing'} defaultOpen persistKey="snapback-mode">
-        <Field label="Mode" hint="Scalp and intraday use separate rules and require their own validation. Saving a mode does not enable execution.">
+        <Field label="Mode" hint="Scalp and intraday have their own rules. Saving does not start trading.">
           <ChoiceRow value={cfg.trading_mode ?? 'swing'} options={TRADING_MODES} onChange={(mode) => patch({
             trading_mode: mode,
             ...(mode === 'scalp' ? { scalp_timeframe_minutes: 1, scalp_max_hold_bars: 20, scalp_runner_max_bars: 60 } : {}),
@@ -293,12 +261,10 @@ export function SnapbackSettings() {
       ) : null}
       {!shortHorizon && <ConfigNote>
         <span>
-          The premium behind every measurement is <strong>modelled</strong>, not
-          quoted — no store here holds option price history. So the number that
-          decides whether this is real is the <strong>break-even vol multiple</strong>:
-          how dear the option can be before the trade stops paying.{' '}
-          {validation?.breakeven_vrp ?? '—'}x against a market that charges{' '}
-          {(data.vrp_band ?? [1.15, 1.3]).join('–')}x of realised vol.
+          Test results use <strong>estimated</strong> option prices, not real ones.
+          The trade still pays while options cost up to{' '}
+          <strong>{validation?.breakeven_vrp ?? '—'}x</strong> realised volatility. The
+          market usually charges {(data.vrp_band ?? [1.15, 1.3]).join('–')}x.
         </span>
       </ConfigNote>}
       {!shortHorizon && <ConfigNote><span>{strategy.provenance}</span></ConfigNote>}
@@ -318,7 +284,7 @@ export function SnapbackSettings() {
           <ChoiceRow
             value={cfg.universe_mode}
             options={shortHorizon ? [
-              { value: 'fno', label: 'Whole F&O list', hint: 'Scan the eligible derivatives universe; each contract still needs usable quotes and affordable costs.' },
+              { value: 'fno', label: 'Whole F&O list', hint: 'Scan all F&O names. Each option still needs a good quote and low cost.' },
               { value: 'curated', label: 'Curated fourteen', hint: 'Use the shared registry and indices.' },
             ] : UNIVERSE_OPTIONS}
             onChange={(v) => patch({ universe_mode: v })}
@@ -326,7 +292,7 @@ export function SnapbackSettings() {
         </Field>
         <NumberField
           label="Universe cap"
-          hint="How many instruments one F&O scan covers. Candle and contract requests trade scan time against coverage. Only read in F&O mode."
+          hint="Names per scan. More names = slower scans."
           value={cfg.max_universe}
           defaultValue={defaults.max_universe}
           onChange={(v) => patch({ max_universe: v })}
@@ -354,7 +320,7 @@ export function SnapbackSettings() {
       {shortHorizon ? <SnapbackScalpSettings cfg={cfg} defaults={defaults} patch={patch} /> : <>
       <Section
         title="What makes it fire"
-        description="A close through a 20-session extreme, far enough from its own mean to be worth fading — and only while the market itself is weak."
+        description="Price breaks a 20-day high, far from its average, while the market is weak."
         summary="Breakout, stretch and the market gate"
         defaultOpen
         persistKey="snapback-trigger"
@@ -362,10 +328,7 @@ export function SnapbackSettings() {
         <Field
           label="Market exposure"
           hint={tag('hedge_mode',
-            'Whether the trade keeps its market exposure or hedges it out. '
-            + 'This and the market gate address the same problem — the put’s '
-            + 'beta — from opposite ends: the gate avoids the exposure, the '
-            + 'hedge removes it.')}
+            'Keep market risk, or hedge it away with futures.')}
         >
           <ChoiceRow
             value={cfg.hedge_mode}
@@ -376,8 +339,7 @@ export function SnapbackSettings() {
         <Field
           label="Market gate"
           hint={tag('market_filter',
-            'The single setting that decides whether this strategy makes '
-            + 'money. It gates on the PUT’S BETA, not on the signal.')}
+            'Most important setting. Decides when trades are allowed.')}
         >
           <ChoiceRow
             value={cfg.market_filter}
@@ -398,8 +360,7 @@ export function SnapbackSettings() {
         <NumberField
           label="Breakout lookback"
           hint={tag('lookback_days',
-            'Sessions the close must exceed the high of. 20 and 60 both work; '
-            + '20 gives roughly twice the sample.')}
+            'Close must break the high of this many days. 20 or 60 both work.')}
           value={cfg.lookback_days}
           defaultValue={defaults.lookback_days}
           onChange={(v) => patch({ lookback_days: v })}
@@ -408,9 +369,7 @@ export function SnapbackSettings() {
         <NumberField
           label="Minimum stretch"
           hint={tag('min_stretch_atr',
-            'How far past its own 20-session mean, in ATR(14). The single '
-            + 'largest lever: at 0 the breakout alone is materially weaker, and '
-            + 'at 3.0 the effect is larger on a sample too thin to lean on.')}
+            'How far above the 20-day average (in ATR). Biggest effect on results.')}
           value={cfg.min_stretch_atr}
           defaultValue={defaults.min_stretch_atr}
           onChange={(v) => patch({ min_stretch_atr: v })}
@@ -419,12 +378,7 @@ export function SnapbackSettings() {
         <Field
           label="Fade weakness too"
           hint={tag('allow_fade_down',
-            'Buy calls into a stretched 20-session LOW as well as puts into a '
-            + 'high. Off, and for a pricing reason rather than a performance '
-            + 'one: realised vol RISES to 1.25x after a downside break, so the '
-            + 'real call costs more than this engine models it at and every '
-            + 'result on that side is overstated by an unknown amount. After an '
-            + 'upside break the same ratio is 0.86–0.92.')}
+            'Also buy calls after a 20-day low. Off: call prices are likely understated here.')}
         >
           <Switch
             checked={cfg.allow_fade_down}
@@ -434,7 +388,7 @@ export function SnapbackSettings() {
         </Field>
         <NumberField
           label="Cooldown"
-          hint={tag('cooldown_days', 'Sessions an instrument waits before firing again. Without it a market grinding to new highs fires on every session of the grind, which turns one event into twenty observations.')}
+          hint={tag('cooldown_days', 'Days to wait before the same name can signal again.')}
           value={cfg.cooldown_days}
           defaultValue={defaults.cooldown_days}
           onChange={(v) => patch({ cooldown_days: v })}
@@ -444,19 +398,14 @@ export function SnapbackSettings() {
 
       <Section
         title="Which contract"
-        description="Picked by DELTA, not by a moneyness rung — a rung is a different amount of leverage at every vol level."
+        description="Option is picked by delta."
         summary="Delta, tenor and liquidity"
         persistKey="snapback-contract"
       >
         <NumberField
           label="Target delta"
           hint={tag('target_delta',
-            '0.70 is an IN-the-money option, and that is the arithmetic rather '
-            + 'than a preference: the edge is a directional drift, so the '
-            + 'contract that monetises it best carries the most delta per rupee '
-            + 'of theta and vega. A cheap out-of-the-money put shows a higher '
-            + 'mean return because it is cheap, and a lower break-even because '
-            + 'nearly all of what you paid was time value.')}
+            'Option delta. 0.70 = in the money, which suits this strategy best.')}
           value={cfg.target_delta}
           defaultValue={defaults.target_delta}
           onChange={(v) => patch({ target_delta: v })}
@@ -464,7 +413,7 @@ export function SnapbackSettings() {
         />
         <Field
           label="Index expiry cycles"
-          hint="Choose which listed index option cycles the live selector may use. The measured setup uses monthly contracts."
+          hint="Which index expiries to trade. Tested on monthly."
           wide
         >
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
@@ -487,15 +436,12 @@ export function SnapbackSettings() {
           </div>
         </Field>
         <ConfigNote>
-          Single-stock option expiry is monthly only. The exchange does not list weekly single-stock options.
+          Stock options are monthly only.
         </ConfigNote>
         <NumberField
           label="Minimum days to expiry"
           hint={tag('min_dte',
-            'Theta per rupee of premium runs at about 1/(2T), so a short '
-            + 'contract spends the edge on decay. A 14-day contract shows a '
-            + 'HIGHER mean return and a LOWER break-even — mean return is the '
-            + 'flattering metric here.')}
+            'Shortest expiry allowed. Very short options lose value fast.')}
           value={cfg.min_dte}
           defaultValue={defaults.min_dte}
           onChange={(v) => patch({ min_dte: v })}
@@ -503,7 +449,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Maximum days to expiry"
-          hint={tag('max_dte', 'The far end of the window. Past about 45 days the break-even curve flattens and a longer contract only ties up more premium for the same ten-session horizon.')}
+          hint={tag('max_dte', 'Longest expiry allowed. Beyond 45 days adds cost, not benefit.')}
           value={cfg.max_dte}
           defaultValue={defaults.max_dte}
           onChange={(v) => patch({ max_dte: v })}
@@ -511,7 +457,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Minimum premium"
-          hint={tag('min_option_premium', 'Refuse a contract cheap enough that the 0.05 tick is a large share of its price — there, a percentage move measures rounding rather than the market.')}
+          hint={tag('min_option_premium', 'Skip options so cheap that one tick is a big share of the price.')}
           value={cfg.min_option_premium}
           defaultValue={defaults.min_option_premium}
           onChange={(v) => patch({ min_option_premium: v })}
@@ -519,7 +465,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Maximum spread"
-          hint={tag('max_spread_pct', 'Half of this is paid on each leg. The measured break-even holds at 1% and 2% slippage; past that the margin over what the market charges for the option disappears.')}
+          hint={tag('max_spread_pct', 'Expected slippage, split across buy and sell. Works up to 2%.')}
           value={cfg.max_spread_pct}
           defaultValue={defaults.max_spread_pct}
           onChange={(v) => patch({ max_spread_pct: v })}
@@ -547,10 +493,7 @@ export function SnapbackSettings() {
         <NumberField
           label="Holding period"
           hint={tag('hold_days',
-            'Sessions held. The pooled mean rises from 1 to 10 sessions and '
-            + 'falls at 15. Must be shorter than the minimum days to expiry — '
-            + 'a trade that outlives its contract is priced at intrinsic and '
-            + 'called an exit.')}
+            'Days to hold. Best tested at 10. Must be shorter than days to expiry.')}
           value={cfg.hold_days}
           defaultValue={defaults.hold_days}
           onChange={(v) => patch({ hold_days: v })}
@@ -558,7 +501,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Premium stop"
-          hint={tag('premium_stop_pct', 'Give back at most this much of what was paid. A stop on the PREMIUM and not on spot, because the premium is the thing that can go to zero while the spot thesis is technically intact.')}
+          hint={tag('premium_stop_pct', 'Exit if the option loses this share of what you paid.')}
           value={cfg.premium_stop_pct}
           defaultValue={defaults.premium_stop_pct}
           onChange={(v) => patch({ premium_stop_pct: v })}
@@ -581,7 +524,7 @@ export function SnapbackSettings() {
         </Field>
         <NumberField
           label="Premium per position"
-          hint={tag('premium_pct_of_capital', 'Share of capital deployed on one signal (Capital). A bought option cannot lose more than its premium; with the premium stop honoured the planned Risk is the stop percentage of it. The measured drawdown of -10.4% was at 2%.')}
+          hint={tag('premium_pct_of_capital', 'Share of capital per trade. Most you can lose is the premium.')}
           value={cfg.premium_pct_of_capital}
           defaultValue={defaults.premium_pct_of_capital}
           onChange={(v) => patch({ premium_pct_of_capital: v })}
@@ -606,13 +549,13 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Maximum open positions"
-          hint={tag('max_open_positions', 'These entries cluster: a broad market push stretches many names on the same session, and fifteen of those is one bet with fifteen tickets.')}
+          hint={tag('max_open_positions', 'Most open trades at once. Signals bunch on the same day.')}
           value={cfg.max_open_positions}
           defaultValue={defaults.max_open_positions}
           onChange={(v) => patch({ max_open_positions: v })}
           min={1} max={50}
         />
-        <Field label="Stop lives at" hint="Recorded preference. A Snapback entry is placed only with a confirmed protective stop; this choice does not change that requirement.">
+        <Field label="Stop lives at" hint="Snapback only enters with a confirmed stop at Zerodha.">
           <ChoiceRow
             value={cfg.stop_mode}
             options={STOP_MODE_OPTIONS}
@@ -624,7 +567,7 @@ export function SnapbackSettings() {
       <AdvancedSection count={ADVANCED_SETTING_COUNT}>
         <NumberField
           label="Assumed vol premium"
-          hint={tag('assumed_vrp', 'What the engine assumes it pays for an option when no live quote is available, as a multiple of the instrument’s own realised vol. India VIX has run 1.15–1.30x. It is shown beside every modelled premium so the assumption is never invisible.')}
+          hint={tag('assumed_vrp', 'Assumed option price when no live quote exists (× realised volatility).')}
           value={cfg.assumed_vrp}
           defaultValue={defaults.assumed_vrp}
           onChange={(v) => patch({ assumed_vrp: v })}
@@ -633,12 +576,7 @@ export function SnapbackSettings() {
         <NumberField
           label="Put skew"
           hint={tag('smile_slope',
-            'How much steeper the vol gets per unit of log-moneyness BELOW '
-            + 'spot. Pricing every strike at one ATM vol is the flat-vol trap: '
-            + 'a 0.20-delta put measured +8.31% per entry day flat and -5.97% '
-            + 'at a realistic skew, so every low-delta setting was an artefact. '
-            + '0 restores the flat model, and the gap between the two is the '
-            + 'honest error bar on any strike away from the money.')}
+            'Price adjustment for options below spot. 0 = simple model.')}
           value={cfg.smile_slope}
           defaultValue={defaults.smile_slope}
           onChange={(v) => patch({ smile_slope: v })}
@@ -647,12 +585,7 @@ export function SnapbackSettings() {
         <NumberField
           label="Skew above spot"
           hint={tag('smile_itm_slope',
-            'The steepness on the IN-the-money side. Real equity skew is '
-            + 'asymmetric — steep below spot, much flatter above — and this '
-            + 'engine buys in-the-money puts, so using one slope both ways '
-            + 'hands it a discount the market does not give. Measured at 0.70 '
-            + 'delta: symmetric reads +4.70% per entry day, realistic +2.01%. '
-            + 'That gap is the size of the assumption, not of the edge.')}
+            'Price adjustment for in-the-money options.')}
           value={cfg.smile_itm_slope}
           defaultValue={defaults.smile_itm_slope}
           onChange={(v) => patch({ smile_itm_slope: v })}
@@ -661,11 +594,7 @@ export function SnapbackSettings() {
         <NumberField
           label="Sold leg delta"
           hint={tag('short_leg_delta',
-            'Sell a further out-of-the-money option against the one bought, '
-            + 'turning the outright into a vertical spread. 0 = outright, and '
-            + 'that is the measured answer: every spread tested LOST, because '
-            + 'the edge is a right tail — the top 1% of trades carry 148% of '
-            + 'the book\u2019s P&L — and a spread caps exactly that.')}
+            'Also sell a cheaper option to make a spread. 0 = off (tested best).')}
           value={cfg.short_leg_delta}
           defaultValue={defaults.short_leg_delta}
           onChange={(v) => patch({ short_leg_delta: v })}
@@ -673,7 +602,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Maximum realised-vol percentile"
-          hint={tag('max_rv_pct', 'Refuse entries when realised volatility is above this percentile of its own trailing-year distribution. 70 is the measured default; it avoids buying options when volatility is unusually expensive. 100 disables the filter.')}
+          hint={tag('max_rv_pct', 'Skip trades when volatility is unusually high. 70 = tested. 100 = off.')}
           value={cfg.max_rv_pct}
           defaultValue={defaults.max_rv_pct}
           onChange={(v) => patch({ max_rv_pct: v })}
@@ -689,7 +618,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Mean window"
-          hint={tag('mean_touch_ema', 'The EMA the stretch is measured from, and the level the thesis completes at.')}
+          hint={tag('mean_touch_ema', 'Average used to measure the stretch.')}
           value={cfg.mean_touch_ema}
           defaultValue={defaults.mean_touch_ema}
           onChange={(v) => patch({ mean_touch_ema: v })}
@@ -697,7 +626,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Exit after regime flip"
-          hint={tag('exit_on_regime_flip', 'Consecutive sessions the entry market-gate may remain invalid before the position exits. 0 is off and is the measured default; positive values collect a different exit distribution.')}
+          hint={tag('exit_on_regime_flip', 'Exit after the market filter fails this many days. 0 = off (tested).')}
           value={cfg.exit_on_regime_flip}
           defaultValue={defaults.exit_on_regime_flip}
           onChange={(v) => patch({ exit_on_regime_flip: v })}
@@ -705,7 +634,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Premium trail"
-          hint={tag('premium_trail_pct', 'Give back at most this much of the best premium seen. 0 is off, and off is the measured setting — a ratchet cuts the horizon the edge was measured over.')}
+          hint={tag('premium_trail_pct', 'Trailing stop on the best price. 0 = off (tested).')}
           value={cfg.premium_trail_pct}
           defaultValue={defaults.premium_trail_pct}
           onChange={(v) => patch({ premium_trail_pct: v })}
@@ -713,7 +642,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Let winners run"
-          hint={tag('runner_mult', 'Hold past the horizon while the trade is already worth this multiple of what it cost. 0 is off. The edge here is a right tail — the top 1% of trades carry 148% of the P&L — so a fixed horizon closes the few trades that pay for the rest.')}
+          hint={tag('runner_mult', 'Keep holding past the end date while worth this many times the cost. 0 = off.')}
           value={cfg.runner_mult}
           defaultValue={defaults.runner_mult}
           onChange={(v) => patch({ runner_mult: v })}
@@ -721,7 +650,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Runner give-back"
-          hint={tag('runner_trail_pct', 'Once running, close when the premium gives back this much of its best. Only read when the runner is on.')}
+          hint={tag('runner_trail_pct', 'When held longer, exit if price drops this much from its best.')}
           value={cfg.runner_trail_pct}
           defaultValue={defaults.runner_trail_pct}
           onChange={(v) => patch({ runner_trail_pct: v })}
@@ -729,7 +658,7 @@ export function SnapbackSettings() {
         />
         <NumberField
           label="Minimum ATR"
-          hint={tag('min_atr_bp', 'Refuse an instrument too quiet for the trade to clear its own costs, in basis points of price. 0 is off.')}
+          hint={tag('min_atr_bp', 'Skip names that move too little to cover costs. 0 = off.')}
           value={cfg.min_atr_bp}
           defaultValue={defaults.min_atr_bp}
           onChange={(v) => patch({ min_atr_bp: v })}

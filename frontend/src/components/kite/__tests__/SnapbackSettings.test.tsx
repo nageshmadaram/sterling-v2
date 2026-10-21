@@ -91,9 +91,8 @@ describe('Snapback settings', () => {
 
   it('puts the break-even multiple beside what the market charges', () => {
     render(<SnapbackSettings />);
-    expect(screen.getByText(/2.243x against a market that charges/))
-      .toBeInTheDocument();
-    expect(screen.getByText(/1.15–1.3x/)).toBeInTheDocument();
+    expect(screen.getByText('2.243x')).toBeInTheDocument();
+    expect(screen.getByText(/market usually charges 1.15–1.3x/)).toBeInTheDocument();
   });
 
   it('marks which defaults were measured and which were not', () => {
