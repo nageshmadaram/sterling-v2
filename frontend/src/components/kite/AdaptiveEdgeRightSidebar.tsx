@@ -16,7 +16,7 @@ import { ACTIONABLE, type BoardSignal, type EngineId } from './board/boardTypes'
 import { useReleaseEngineEnabled } from '../../hooks/useEngineToggles';
 import { usePriceRulesSwitch } from '../../hooks/usePriceRulesSwitch';
 import { useIsSimulation } from '../../store/useViewStore';
-import { useEngineSignals } from '../../hooks/useSterlingKiteEngine';
+import { useEngineConfig, useEngineSignals } from '../../hooks/useSterlingKiteEngine';
 import { useSnapbackSnapshot } from '../../hooks/useSnapback';
 import { snapbackRowsToBoard } from './board/snapbackAdapter';
 import { useGammaMoveSnapshot } from '../../hooks/useGammaMove';
@@ -82,6 +82,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const gmSnapshot = useGammaMoveSnapshot();
   const sbSnapshot = useSnapbackSnapshot();
   const emaSnapshot = useEmaTrendSnapshot();
+  const stCfg = useEngineConfig();
 
 
   const sig = engineSignals.data;
@@ -144,7 +145,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   })();
 
   const tabs: EngineTabState[] = useMemo(() => {
-    const st = supertrendToBoard(engineSignals.data?.rows ?? []);
+    const st = supertrendToBoard(engineSignals.data?.rows ?? [], { mode: stCfg.data?.horizon_mode });
     const gm = gammaMoveToBoard(gmSnapshot.data);
     const sb = snapbackRowsToBoard(sbSnapshot.data?.rows ?? []);
     const ema = [...emaTrendSetupsToBoard(emaSnapshot.data?.rows || []), ...emaTrendCampaignsToBoard(emaSnapshot.data?.campaigns || [])];
@@ -157,7 +158,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     ];
     // A disabled scanner keeps its board available for history and controls.
     return orderEngines(all, engineOrder);
-  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, emaSnapshot.data, engineOn, engineOrder]);
+  }, [engineSignals.data, gmSnapshot.data, sbSnapshot.data, emaSnapshot.data, engineOn, engineOrder, stCfg.data?.horizon_mode]);
 
   /**
    * Land on the operator's chosen board, and stop as soon as they pick one.

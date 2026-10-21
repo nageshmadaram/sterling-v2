@@ -21,6 +21,7 @@ import {
   shiftSessionDay, stamp, trailBreached,
 } from './boardTypes';
 import type { BoardDayMove, BoardOrigin, BoardSignal, BoardStatus, EngineId } from './boardTypes';
+import { MODE_LABEL } from './boardTypes';
 import { StatCard, StatCardGrid } from './StatCard';
 import {
   DAY_HEAD_METRICS, EDGE_METRICS, HEAD_METRICS, LEG_BG, LEG_INDENT, PARENT_METRICS, ROW_METRICS,
@@ -31,7 +32,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 import { fitColumns } from './columnFit';
 import { Tip } from '../InfoTooltip';
 import { InstrumentLabel, parseInstrument } from '../InstrumentLabel';
-import { fmtMoney, fmtPx } from '../../../lib/format';
+import { fmtMoney, fmtPnl, fmtPx } from '../../../lib/format';
 import { EMA_TREND_MODE_LABEL } from '../../../types/emaTrend';
 
 /**
@@ -65,7 +66,7 @@ export function isWeeklySignal(signal: BoardSignal): boolean {
 export type ColumnId =
   | 'instrument' | 'engine' | 'status' | 'exchange' | 'leg'
   | 'ltp' | 'entry' | 'stop' | 'trail' | 'target' | 'exit'
-  | 'qty' | 'risk' | 'score' | 'time'
+  | 'qty' | 'risk' | 'score' | 'time' | 'pnl'
   // Today's move. SuperTrend has shown these three since long before this board
   // existed; they were the columns a swap onto it would silently have deleted.
   | 'chg' | 'chgPct' | 'dir'
@@ -130,6 +131,7 @@ const COLUMNS: readonly ColumnDef[] = [
   // questions and sharing one column made SuperTrend's counter vanish behind a
   // realised price it does not have.
   { id: 'exitState', label: SIGNAL_LEFT_COLUMNS.exit.label, width: SIGNAL_LEFT_COLUMNS.exit.width, align: 'right', hint: 'Progress toward the rule that closes the position' },
+  { id: 'pnl', label: 'P&L', width: 70, align: 'right', hint: 'Profit or loss in rupees: open trades at the live price, closed trades at the exit' },
   { id: 'qty', label: 'Qty', width: 52, align: 'right', hint: 'Units, not lots' },
   { id: 'risk', label: 'Risk', width: 70, align: 'right', hint: 'Rupees lost if the stop is honoured' },
   { id: 'score', label: 'Score', width: 44, align: 'right', hint: 'Engine conviction. Not comparable across engines' },
@@ -172,6 +174,7 @@ function sortKey(signal: BoardSignal, column: ColumnId): string | number | null 
     case 'exit': return signal.levels.exit;
     // Sorted as text: "0/3 red" has no numeric order worth inventing.
     case 'exitState': return signal.exitProgress ?? null;
+    case 'pnl': return signalPnl(signal);
     case 'qty': return signal.sizing.quantity;
     case 'risk': return signal.sizing.atRiskInr;
     case 'score': return signal.score;
@@ -279,6 +282,20 @@ const num = (v: number | null | undefined, dp = 2) => fmtPx(v, dp);
 
 /** Rupees, to the paisa, the way every board, pane and alert prints them. */
 export const inr = (v: number | null | undefined) => fmtMoney(v);
+
+/**
+ * Rupee P&L of a row: open at the live price, closed at the exit. Null for a
+ * setup that was never entered, or when quantity or a price is unknown.
+ */
+export function signalPnl(signal: BoardSignal): number | null {
+  const { entry, ltp, exit } = signal.levels;
+  const qty = signal.sizing.quantity;
+  const open = signal.status === 'running' || signal.status === 'weakening';
+  const mark = signal.status === 'ended' ? exit : open ? ltp : null;
+  if (entry == null || mark == null || qty == null || qty <= 0) return null;
+  const per = signal.direction === 'short' ? entry - mark : mark - entry;
+  return Math.round(per * qty * 100) / 100;
+}
 
 /** Older than this and a quote is not describing the market any more. */
 const STALE_AFTER_S = 15;
@@ -443,6 +460,7 @@ function cellContent(
             {!detailsOnly && <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
             </Pill>}
+            {signal.mode && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
             {detailsOnly && signal.engine === 'ema_trend' && signal.origin && <span className="sb-origin" title={signal.origin.hint}>{signal.origin.label}</span>}
             {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
@@ -531,6 +549,10 @@ function cellContent(
     // nothing left to say when something is actually wrong. The column heading
     // already names which level it is.
     case 'ltp': return { node: num(signal.levels.ltp), color: dayTone(signal.dayMove, showDayColour) };
+    case 'pnl': {
+      const v = signalPnl(signal);
+      return { node: v == null ? '—' : fmtPnl(v), color: v == null ? k.dim : v >= 0 ? k.green : k.red };
+    }
     case 'entry': {
       // The bracket is the whole point of showing entry next to LTP: what the
       // position has actually done since it was taken.
@@ -644,7 +666,7 @@ export const isMixedEngine = (signals: readonly BoardSignal[]) =>
  */
 export const BOARD_COLUMNS: readonly ColumnId[] = [
   'instrument', 'engine', 'status', 'exchange', 'leg',
-  'ltp', 'entry', 'stop', 'trail', 'target', 'exit',
+  'ltp', 'entry', 'stop', 'trail', 'target', 'exit', 'pnl',
   'qty', 'risk', 'score', 'time',
   // Buy/Sell and the chart, on every board rather than only the one whose
   // bespoke table happened to have them. `useBoardRowActions` builds both from a
@@ -679,7 +701,12 @@ export const BOARD_COLUMNS_WITH_DAY_MOVE: readonly ColumnId[] = [
  * exchange, leg, LTP, entry, SL, TSL, exit, time, status — and keeps the rest
  * one click away in the column picker rather than making the sidebar scroll.
  */
-export const DEFAULT_HIDDEN_COLUMNS: readonly ColumnId[] = ['engine', 'qty', 'risk', 'score'];
+// Collapsed row = what a trader acts on: contract, status, entry, SL, TSL,
+// exit progress, LTP, P&L, time and the order buttons. Target, exit price, leg
+// and the rest are in the expanded row and one click away in the column picker.
+export const DEFAULT_HIDDEN_COLUMNS: readonly ColumnId[] = [
+  'engine', 'qty', 'risk', 'score', 'exchange', 'leg', 'target', 'exit', 'chart',
+];
 
 /**
  * Which columns to render.

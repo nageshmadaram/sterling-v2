@@ -147,7 +147,7 @@ describe('how much colour a row spends', () => {
 describe('SignalBoard expansion', () => {
   it('keeps detail closed until asked, and says so to assistive tech', () => {
     show([sig()]);
-    expect(screen.getByRole('button', { name: /NIFTY CE Armed/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /NIFTY CE Ready/ })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Opening range & VWAP')).not.toBeInTheDocument();
   });
 
@@ -165,7 +165,7 @@ describe('SignalBoard expansion', () => {
   it('opens from the keyboard, both Enter and Space', () => {
     const onToggle = vi.fn();
     show([sig()], { onToggle });
-    const row = screen.getByRole('button', { name: /NIFTY CE Armed/ });
+    const row = screen.getByRole('button', { name: /NIFTY CE Ready/ });
     fireEvent.keyDown(row, { key: 'Enter' });
     fireEvent.keyDown(row, { key: ' ' });
     expect(onToggle).toHaveBeenCalledTimes(2);

@@ -296,7 +296,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     snap.data = data({ day: '2026-10-05', historical: true, candidates: [signal({ at_ms: MORNING - 60_000 })] });
     rerender(<GammaMoveBoard nowMs={MORNING} />);
     expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-05');
-    expect(screen.getByRole('button', { name: 'RELIANCE CE Armed' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'RELIANCE CE Ready' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Execute Gamma Unwind RELIANCE26OCT3000CE' })).toBeDisabled();
     expect(screen.getByLabelText('Gamma trading day')).toBeDisabled();
     expect(screen.getByLabelText('Gamma history date')).toBeDisabled();

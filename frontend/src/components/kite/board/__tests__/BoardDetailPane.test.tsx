@@ -44,7 +44,7 @@ describe('BoardDetailPane', () => {
     expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('TCS');
     expect(screen.getByText('TCS AUG 3200 CE · NFO')).toBeInTheDocument();
     expect(screen.getByText('CE · LONG')).toBeInTheDocument();
-    expect(screen.getByText('Running')).toBeInTheDocument();
+    expect(screen.getAllByText('Open').length).toBeGreaterThan(0);
   });
 
   it('lays out the whole price ladder, keeping stop and trail apart', () => {

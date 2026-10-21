@@ -64,18 +64,43 @@ export type BoardStatus =
   | 'error';     // could not be evaluated — never silently dropped
 
 export const STATUS_LABEL: Record<BoardStatus, string> = {
-  armed: 'Armed',
-  running: 'Running',
-  weakening: 'Weakening',
-  ended: 'Ended',
+  armed: 'Ready',
+  running: 'Open',
+  weakening: 'Exiting',
+  ended: 'Exited',
   watching: 'Watching',
-  error: 'Error',
+  error: 'Blocked',
 };
 
 /** Statuses that represent a tradable or live position, as opposed to noise. */
 export const ACTIONABLE: readonly BoardStatus[] = ['armed', 'running', 'weakening'];
 
 export type Direction = 'long' | 'short';
+
+/** The five trading modes, in order of holding time. Shared by every strategy. */
+export type TradeMode = 'ultra_scalping' | 'scalping' | 'intraday' | 'overnight' | 'swing';
+export const TRADE_MODES: readonly TradeMode[] = ['ultra_scalping', 'scalping', 'intraday', 'overnight', 'swing'];
+export const MODE_LABEL: Record<TradeMode, string> = {
+  ultra_scalping: 'Ultra scalp', scalping: 'Scalp', intraday: 'Intraday', overnight: 'Overnight', swing: 'Swing',
+};
+/** Stamp a mode on a signal and every leg under it. */
+export function withMode<T extends { mode?: TradeMode | null; children?: readonly unknown[] }>(signal: T, mode: TradeMode | null): T {
+  if (!mode) return signal;
+  const children = (signal.children as T[] | undefined)?.map((c) => withMode(c, mode));
+  return { ...signal, mode: signal.mode ?? mode, ...(children ? { children } : {}) };
+}
+
+/** Read any engine's mode spelling ('scalp', 'ultra', 'day', ...) as a TradeMode. */
+export function normalizeMode(raw: string | null | undefined): TradeMode | null {
+  const v = String(raw ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!v) return null;
+  if (v === 'ultra' || v === 'ultra_scalp' || v === 'ultra_scalping' || v === 'ultrascalping') return 'ultra_scalping';
+  if (v === 'scalp' || v === 'scalping') return 'scalping';
+  if (v === 'intraday' || v === 'day') return 'intraday';
+  if (v === 'overnight') return 'overnight';
+  if (v === 'swing' || v === 'swing_daily' || v === 'daily') return 'swing';
+  return null;
+}
 
 /**
  * Where a signal came from, in its own engine's vocabulary.
@@ -174,6 +199,8 @@ export interface BoardSignal {
   historical?: boolean;
   id: string;
   engine: EngineId;
+  /** Trading mode this signal belongs to, when the engine knows it. */
+  mode?: TradeMode | null;
   /** The underlying the thesis is about, e.g. NIFTY — not the contract. */
   underlying: string;
   instrument: BoardInstrument;

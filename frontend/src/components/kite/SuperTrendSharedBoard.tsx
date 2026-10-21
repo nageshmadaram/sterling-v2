@@ -31,7 +31,7 @@ import type { EngineSignalRow } from '../../types/kiteEngine';
  * by moving and nobody had to decide for them which ones to drop.
  */
 export function SuperTrendSharedBoard({
-  rows, quotes, originalEntryMs, onSelectSignal, onOpenChart, nowMs, signalMode, isHistoricalSim,
+  rows, quotes, originalEntryMs, onSelectSignal, onOpenChart, nowMs, signalMode, isHistoricalSim, mode,
 }: {
   rows: readonly EngineSignalRow[];
   quotes?: Record<string, any>;
@@ -44,6 +44,8 @@ export function SuperTrendSharedBoard({
   /** The lens, so the adapter can suppress a Navigator badge under 'supertrend'. */
   signalMode?: 'supertrend' | 'navigator' | 'combined' | 'common';
   isHistoricalSim?: boolean;
+  /** SuperTrend's configured trading mode, shown on every row. */
+  mode?: string | null;
 }) {
   const s = useKiteSettings();
   const commonColumns = useSignalColumns();
@@ -77,6 +79,7 @@ export function SuperTrendSharedBoard({
     [quotes],
   );
 
+  const stMode = mode ?? null;
   const signals = React.useMemo<BoardSignal[]>(
     () => supertrendToBoard(isHistoricalSim ? rows.map(row => ({ ...row, is_replay: true })) : rows, {
       quotes: isHistoricalSim ? undefined : quotes,
@@ -86,8 +89,9 @@ export function SuperTrendSharedBoard({
       chgBasis: s.chgType,
       signalMode,
       nowMs,
+      mode: stMode,
     }),
-    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs, isHistoricalSim],
+    [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs, isHistoricalSim, stMode],
   );
 
   const publishMarkers = useSignalMarkers(state => state.publish);

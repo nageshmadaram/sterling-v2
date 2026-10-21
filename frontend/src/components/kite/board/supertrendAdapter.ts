@@ -22,7 +22,7 @@ import type { AlignmentChip, EngineSignalRow, OptionLeg } from '../../../types/k
 import { computeGreeksFromLeg } from '../../../utils/computeGreeks';
 import { k } from '../../../styles/kiteUI';
 import type { BoardDayMove, BoardOrigin, BoardSection, BoardSignal, BoardStatus, EngineId } from './boardTypes';
-import { barCloseMs, parseTimestampMs, sessionDayKey } from './boardTypes';
+import { barCloseMs, parseTimestampMs, sessionDayKey, normalizeMode, withMode } from './boardTypes';
 
 /**
  * A tradable price, or nothing.
@@ -425,6 +425,8 @@ function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterO
 
 /** What the adapter needs beyond the rows themselves. */
 export interface SuperTrendAdapterOptions {
+  /** SuperTrend's configured mode (one per account), shown on every row. */
+  mode?: string | null;
   /** Live quotes by `EXCHANGE:SYMBOL`, for the per-leg delta. */
   quotes?: Record<string, Record<string, unknown> | undefined>;
   /** First still-running entry per `underlying|direction|source`. */
@@ -499,6 +501,6 @@ export function supertrendToBoard(
 ): BoardSignal[] {
   return rows.map((row, i) => {
     const legs = (row.legs ?? []).map((leg, j) => supertrendLegToBoard(row, leg, j, opts));
-    return supertrendSignalToBoard(row, legs, i, opts);
+    return withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(opts.mode));
   });
 }

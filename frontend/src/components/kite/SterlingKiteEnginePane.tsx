@@ -2783,6 +2783,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
           </div>
         ) : (
           <SuperTrendSharedBoard
+            mode={cfg?.horizon_mode}
             rows={filteredRows}
             quotes={quotes}
             originalEntryMs={originalEntryMs}

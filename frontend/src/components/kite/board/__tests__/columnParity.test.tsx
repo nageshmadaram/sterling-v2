@@ -199,18 +199,15 @@ describe('column parity across engines', () => {
   it('opens on SuperTrend’s own column names, in its order', () => {
     // Labels and widths come from signalRowSpec, the table SuperTrend's rows
     // use, so a cell sits in the same place whichever board you are on.
+    // The standard collapsed row: what a trader acts on. The rest is in the
+    // expanded row and the column picker.
     expect(headersOf(boards.supertrend, DEFAULTS)).toEqual([
-      'Instrument', 'Status', 'Exc.', 'Leg (Δ)', 'LTP', 'Entry (Δpts)', 'SL', 'TSL', 'Target', 'Exited', 'Time',
-      // Trade and Chart are columns now, on every board rather than only the one
-      // whose bespoke table happened to have them. They are hideable like any
-      // other, which is the point: a board is read far more often than it is
-      // traded from.
-      'Trade', 'Chart',
+      'Instrument', 'Status', 'LTP', 'Entry (Δpts)', 'SL', 'TSL', 'P&L', 'Time', 'Trade',
     ]);
   });
 
   it('keeps a column an engine cannot fill, rather than differing', () => {
-    expect(headersOf(boards.supertrend, DEFAULTS)).toContain('TSL');
+    expect(headersOf(boards.supertrend, new Set<ColumnId>())).toContain('TSL');
   });
 
   it('offers the same extras to every board', () => {

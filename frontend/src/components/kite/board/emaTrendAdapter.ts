@@ -1,4 +1,5 @@
 import type { BoardSignal, BoardSection, BoardInstrument } from './boardTypes';
+import { normalizeMode } from './boardTypes';
 import { EMA_TREND_MODE_LABEL, type DecimalValue, type EmaTrendCampaign, type EmaTrendSetup } from '../../../types/emaTrend';
 import { fmtMoney, fmtPx } from '../../../lib/format';
 
@@ -28,7 +29,7 @@ export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical
       { label: 'Context close', value: f.context_close_ms ? new Date(f.context_close_ms).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'Unavailable' },
       { label: 'Feature readiness', value: f.ready ? 'Ready' : 'Warming up' }, { label: 'Config revision', value: row.config_revision },
     ] }];
-    return { id: row.id, engine: 'ema_trend', underlying: row.symbol.split(':').pop()!, instrument: instrument(row.symbol,row.contract,spotWatch),
+    return { id: row.id, engine: 'ema_trend', mode: normalizeMode(row.mode), underlying: row.symbol.split(':').pop()!, instrument: instrument(row.symbol,row.contract,spotWatch),
       direction: 'long', status: row.status === 'expired' ? 'ended' : row.status, atMs: row.close_ms,
       levels: { ltp: number(f.bar.close), entry: number(row.ceiling), stop: number(row.stop), trail: null, target: null, exit: null },
       sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null }, score: null, reason: row.reason,
@@ -44,7 +45,7 @@ export function emaTrendCampaignsToBoard(campaigns: readonly EmaTrendCampaign[])
     const qty = c.qty ?? c.lots.reduce((sum, lot) => sum + lot.qty, 0);
     const current = number(c.last_mark), initial = number(c.p0), r = number(c.r_price), stop = number(c.stop);
     const unsettled = Boolean(c.pending || c.pending_close);
-    return { id: `campaign:${c.id}`, engine: 'ema_trend', underlying: c.symbol.split(':').pop()!, instrument: instrument(c.symbol,c),
+    return { id: `campaign:${c.id}`, engine: 'ema_trend', mode: normalizeMode(c.mode), underlying: c.symbol.split(':').pop()!, instrument: instrument(c.symbol,c),
       direction: 'long', status: (c.state === 'RECOVERY_REQUIRED' || (c.state === 'CLOSED' && unsettled)) ? 'error' : c.state === 'CLOSED' ? 'ended' : c.below10 || c.below21 ? 'weakening' : 'running',
       atMs: c.last_close_ms || null, historical: c.tenant_kind === 'REPLAY', executionEligible: false,
       levels: { ltp: current, entry: initial && initial > 0 ? initial : null, stop: number(c.initial_stop), trail: stop, target: null, exit: null },

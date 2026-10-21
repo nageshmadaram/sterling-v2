@@ -2,6 +2,7 @@
 import type {
   BoardInstrument, BoardOrigin, BoardSection, BoardSignal, BoardStatus,
 } from './boardTypes';
+import { normalizeMode } from './boardTypes';
 import { LABELS, fmtMoney, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
 import type {
   GammaEntryGate, GammaGateContext, GammaMoveSnapshot, GammaPositionRow,
@@ -337,6 +338,7 @@ function toSignal(
   return {
     id: row.id,
     engine: 'gamma_move',
+    mode: normalizeMode(pos?.hold ?? (row as { hold?: string }).hold ?? (row.watch?.dte != null && row.watch.dte <= 1 ? 'intraday' : 'swing')),
     historical,
     underlying: row.underlying,
     instrument: instrument(row),
@@ -394,6 +396,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
     out.push({
       id: pos.signal_id,
       engine: 'gamma_move',
+      mode: normalizeMode(pos.hold),
       historical: snapshot.historical === true,
       underlying: pos.underlying || pos.symbol,
       instrument: {
