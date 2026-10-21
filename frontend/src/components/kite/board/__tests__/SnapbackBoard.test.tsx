@@ -483,7 +483,7 @@ it('displays visible trading mode badges on snapback rows', () => {
     error: null,
   };
   renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
-  expect(screen.getAllByText('SWING')[0]).toBeInTheDocument();
+  expect(screen.getAllByText('Swing')[0]).toBeInTheDocument();
 });
 
 it('keeps manual execution and Buy action available during session pause', () => {

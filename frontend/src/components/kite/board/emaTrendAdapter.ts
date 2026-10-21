@@ -34,7 +34,7 @@ export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical
       levels: { ltp: number(f.bar.close), entry: number(row.ceiling), stop: number(row.stop), trail: null, target: null, exit: null },
       sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null }, score: null, reason: row.reason,
       historical, executionEligible: !historical && !spotWatch && row.status === 'armed' && row.activation_eligible === true && row.entry_window_open !== false, planPriced: true,
-      origin: { label: EMA_TREND_MODE_LABEL[row.mode], hint: spotWatch ? 'Index signal, watch only.' : 'From your selected names, finished candles only.', tone: 'blue' },
+      origin: { label: spotWatch ? 'WATCH ONLY' : 'SELECTED', hint: spotWatch ? 'Index signal, watch only.' : 'From your selected names, finished candles only.', tone: 'blue' },
       flags: [{ label: spotWatch ? 'INDEX WATCH' : row.runtime_blockers?.includes('ENTRY_EXPIRED') ? 'EXPIRED' : historical ? 'RECORDED' : 'BROKER DATA', hint: row.runtime_blockers?.join(' · ') || 'Data source, not trade mode.', tone: row.entry_window_open === false ? 'amber' : 'blue' }, { label: f.st_direction, hint: 'Signal-timeframe Supertrend direction.', tone: f.st_direction === 'UP' ? 'green' : 'dim' }],
       sections, emaTrend: { signalId: row.id, mode: row.mode, configRevision: row.config_revision },
     };
@@ -52,7 +52,7 @@ export function emaTrendCampaignsToBoard(campaigns: readonly EmaTrendCampaign[])
       sizing: { lots: c.instrument_type && c.instrument_type!=='EQ' ? qty/(c.lot_size || 1) : null, quantity: qty, atRiskInr: current != null && stop != null ? Math.max(0, current - stop) * qty : null,
         deployedInr: number(c.vwap) == null ? null : Number(c.vwap) * qty },
       score: null, reason: c.reason, exitProgress: `${c.below10}/2 · ${c.below21}/2`,
-      origin: { label: EMA_TREND_MODE_LABEL[c.mode], hint: `${c.product} · ${c.state}`, tone: 'blue' },
+      origin: { label: c.product, hint: `${c.product} · ${c.state}`, tone: 'blue' },
       flags: [{ label: `${qty}/${c.q0} ${c.instrument_type && c.instrument_type!=='EQ' ? 'units' : 'shares'}`, hint: 'Held now / bought at start.', tone: 'green' },
         { label: c.pending_close ? 'Emergency close pending' : c.flatten_requested ? 'Close requested' : c.pending ? `${c.pending.kind} pending` : 'PAPER', hint: c.protection, tone: 'amber' }],
       sections: [{ title: 'Campaign and risk', stats: [

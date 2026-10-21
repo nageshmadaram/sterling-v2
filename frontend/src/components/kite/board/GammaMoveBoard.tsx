@@ -470,7 +470,8 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         padding: '8px 12px', borderBottom: `1px solid ${k.border}`,
       }}>
-        <button type="button" className="sb-help-link" onClick={() => window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: 'help' }))}>Help</button>
+        {/* In the info panel, as on the other strategies; the toolbar keeps only scan actions. */}
+        <span><button type="button" className="sb-help-link" onClick={() => window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: 'help' }))}>Help</button></span>
         {!selectedDay && (
           <button
             type="button"

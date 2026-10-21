@@ -381,8 +381,8 @@ describe('snapback board adapter', () => {
   it('labels ultra scalping and overnight as their own modes, not swing', () => {
     const ultra = snapbackRowToBoard({ ...base, trading_mode: 'ultra_scalping', timeframe_minutes: 1, max_hold_bars: 20 });
     const overnight = snapbackRowToBoard({ ...base, trading_mode: 'overnight', timeframe_minutes: 60, max_hold_bars: 18 });
-    expect(ultra.flags?.some((flag) => flag.label === 'ULTRA')).toBe(true);
-    expect(overnight.flags?.some((flag) => flag.label === 'OVERNIGHT')).toBe(true);
+    expect(ultra.mode).toBe('ultra_scalping');
+    expect(overnight.mode).toBe('overnight');
     expect(overnight.flags?.some((flag) => flag.label.startsWith('hold 10d'))).toBe(false);
   });
 });

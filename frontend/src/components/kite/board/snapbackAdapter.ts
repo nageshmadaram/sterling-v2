@@ -123,12 +123,9 @@ function flags(row: SnapbackRow): BoardOrigin[] {
           + 'ATR(14). This is the size of the move being faded.',
       tone: Math.abs(row.stretch) >= 3 ? 'green' : 'dim',
     },
-    {
-      label: modeLabel,
-      hint: modeHint,
-      tone: modeTone,
-    },
+    // The mode is the row's shared mode pill; no second SWING/SCALP tag.
   ];
+  void modeLabel; void modeHint; void modeTone;
   if (row.premium_is_modelled) {
     out.push({
       label: 'modelled',
