@@ -244,3 +244,61 @@ it('TV sleep also stops an embedded fallback and explicit resume restores it',()
  w.eval('resumeTvPlayback()');flush();expect(w.document.getElementById('embed-fallback')?.getAttribute('src')).toContain('/embed/audit');
  expect(w.document.querySelector('#tv-now-playing [data-tm-action=play]')?.getAttribute('aria-label')).toBe('Pause live TV');
 });
+
+it('Radio keeps stable prefix ranking, accent matching and eight unique suggestions',()=>{
+ const {w}=boot('radio');
+ const rows:Array<{id:string;title:string;subtitle:string;category:string;freqKhz?:number}>=[{id:'late',title:'Other station',subtitle:'news café',category:'global'},
+  ...Array.from({length:1200},(_,i)=>({id:`station-${i}`,title:i%3?`Network ${i}`:`Café News ${i}`,subtitle:'news café',category:'global',freqKhz:738})),
+  {id:'late',title:'Café News duplicate',subtitle:'news café',category:'global'}];
+ w.eval(`MASTER_POOL.splice(0,MASTER_POOL.length,...${JSON.stringify(rows)});catalogItems=[];`);
+ const norm=(value:unknown)=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ for(const query of ['cafe','news cafe','738','Network','missing']){
+  const terms=norm(query).trim().split(/\s+/);
+  const reference=rows.filter((item,i,all)=>all.findIndex(other=>other.id===item.id)===i&&terms.every(term=>norm([item.title,item.subtitle,item.category,item.freqKhz].join(' ')).includes(term)))
+   .sort((a,b)=>Number(norm(b.title).startsWith(norm(query)))-Number(norm(a.title).startsWith(norm(query)))).slice(0,8);
+  expect(Array.from(w.eval(`radioSuggestionItems(${JSON.stringify(query)})`),(item:any)=>item.id)).toEqual(reference.map(item=>item.id));
+ }
+});
+
+it('Radio reuses normalized catalog text and refreshes mutated station metadata',()=>{
+ const {w}=boot('radio');
+ const rows=Array.from({length:2000},(_,i)=>({id:`station-${i}`,title:`Station ${i}`,subtitle:'News',category:'global',freqKhz:738}));
+ w.eval(`MASTER_POOL.splice(0,MASTER_POOL.length,...${JSON.stringify(rows)});catalogItems=[];window.auditNormalizations=0;window.auditNormalize=String.prototype.normalize;String.prototype.normalize=function(...args){window.auditNormalizations++;return window.auditNormalize.apply(this,args);};`);
+ expect(w.eval('getRadioSearchMatches(MASTER_POOL,"news").length')).toBe(2000);
+ const cold=w.eval('auditNormalizations');expect(cold).toBeGreaterThan(2000);
+ w.eval('auditNormalizations=0');expect(w.eval('getRadioSearchMatches(MASTER_POOL,"news").length')).toBe(2000);
+ expect(w.eval('auditNormalizations')).toBe(1);
+ w.eval('MASTER_POOL[0].title="Updated Telugu";MASTER_POOL[0].subtitle="Sports";MASTER_POOL[0].category="telugu";MASTER_POOL[0].freqKhz=820;');
+ expect(w.eval('getRadioSearchMatches(MASTER_POOL,"updated sports telugu 820")[0].id')).toBe('station-0');
+ expect(w.eval('getRadioSearchMatches(MASTER_POOL,"news").length')).toBe(1999);
+});
+
+it('TV bounded suggestions match full stable ranking, including duplicate aliases and metadata changes',()=>{
+ const {w}=boot('tv');
+ const rows=Array.from({length:3000},(_,i)=>({name:i%5?`Network ${i}`:`News ${i}`,url:`https://fixture.test/${i%1500}.m3u8`,group:i%2?'News':'Sports',lang:i%3?'Telugu':'English',verified:i%7===0}));
+ rows.push({name:'News',url:'https://fixture.test/0.m3u8',group:'News',lang:'Telugu',verified:true});
+ w.eval(`allChannels=${JSON.stringify(rows)};`);
+ for(const query of ['news','sports','telugu','news telugu','network','English','missing']){
+  const full=Array.from(w.eval(`getRankedSearchMatches(${JSON.stringify(query)})`)) as any[];
+  const seen=new Set();const expected=full.filter(row=>{if(seen.has(row.url))return false;seen.add(row.url);return true;}).slice(0,8);
+  expect(Array.from(w.eval(`getRankedSearchMatches(${JSON.stringify(query)},8)`),(row:any)=>({name:row.name,url:row.url}))).toEqual(expected.map(row=>({name:row.name,url:row.url})));
+ }
+ expect(w.eval('getRankedSearchMatches("news").length')).toBeGreaterThan(1000);
+ w.eval('allChannels=[allChannels[0]];getRankedSearchMatches("news");allChannels[0].name="Updated channel";allChannels[0].group="Documentary";allChannels[0].lang="Tamil";');
+ expect(w.eval('getRankedSearchMatches("updated documentary tamil",8).length')).toBe(1);
+ expect(w.eval('getRankedSearchMatches("news",8).length')).toBe(0);
+});
+
+it('Radio refreshes remote suggestions using the latest request ID for the same query',async()=>{
+ const {w}=boot('radio');const received:any[]=[];w.parent.postMessage=(message:any)=>received.push(message);
+ let resolveRemote!:(value:unknown)=>void;
+ w.fetch=(()=>new Promise(resolve=>{resolveRemote=resolve;})) as any;
+ const search=w.eval('runOmniSearch("Unique remote fixture")');
+ const request=(requestId:string)=>w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'suggest',value:'Unique remote fixture',requestId}}));
+ request('remote-old');request('remote-current');
+ resolveRemote({ok:true,json:async()=>[{stationuuid:'remote-fixture',name:'Unique remote fixture',url_resolved:'https://fixture.test/remote.mp3',country:'Test',bitrate:128}]});
+ await search;
+ const updates=received.filter(message=>message.type==='sterling.radio.suggestions');
+ expect(updates.at(-1).requestId).toBe('remote-current');
+ expect(updates.at(-1).items[0]).toMatchObject({id:'remote-fixture',label:'Unique remote fixture'});
+});
