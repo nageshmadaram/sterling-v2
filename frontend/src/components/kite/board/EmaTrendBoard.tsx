@@ -132,8 +132,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const safetyBlockers = (config.data?.blockers || [])
     .filter((reason, index, all) => all.indexOf(reason) === index);
   const status = historical ? 'Historical view — trading disabled' : scanning ? 'Scanning completed bars…' :
-    !hasSymbols ? 'No instruments configured — choose a starter scan or open Settings' :
-    selectedEnabled.length === 0 ? 'Enable a selected profile in EMA Settings to scan it' :
+    !hasSymbols ? 'No names picked. Start with a sample scan, or open Settings' :
+    selectedEnabled.length === 0 ? 'Turn on a mode in EMA settings to scan it' :
     !scannerEnabled ? 'Scanner off — enable EMA in Settings' :
     lastScan?.status === 'FAILED' ? 'Scan failed — review details' :
     `${signals.length} saved records`;
@@ -143,7 +143,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       <BoardFilters hideSearch view={{ ...view,
         offers: { ...view.offers, best: false } }} columns={BOARD_COLUMNS}>
         <ColumnsMenu buttonText="EMA TREND" menuLabel="EMA Trend visible profiles"
-          buttonTitle="Filter EMA Trend signals by timeframe; this does not change scanning or orders"
+          buttonTitle="Filter by mode. Does not change scanning or orders"
           showAllText="Select all profiles"
           items={MODES.map(mode => ({
             id: mode, label: EMA_TREND_MODE_LABEL[mode],
@@ -168,16 +168,16 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         {signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended') &&
           <button type="button" className="sb-tool" disabled={historical || operation.isPending}
             onClick={() => {
-              if (window.confirm('Request closure of all EMA simulated campaigns? This will not close real Kite positions. Verify pending fills and reconciliation.')) operation.mutate('flatten');
+              if (window.confirm('Close all EMA practice trades? Real Kite positions are not affected.')) operation.mutate('flatten');
             }}>Close simulated campaigns</button>}
         <details style={{ fontSize: 11, maxWidth: '100%' }}>
           <summary style={{ cursor: 'pointer' }}>
             Live trading blocked · {safetyBlockers.length} safety checks
           </summary>
           <div style={{ padding: '8px 10px', lineHeight: 1.5, maxWidth: 440 }}>
-            <strong>Execution: simulation only. Broker orders are unavailable.</strong>
+            <strong>Practice trades only. No real orders.</strong>
             {safetyBlockers.map(reason => <div key={reason}>{reason.replace(/_/g, ' ')}</div>)}
-            <p>EMA10/21 · DEMA50 · Supertrend (10,3). The strategy uses completed candles and is not live-certified.</p>
+            <p>EMA 10/21 · DEMA 50 · SuperTrend (10,3). Finished candles only. Not approved for real money.</p>
           </div>
         </details>
       </BoardFilters>
@@ -189,9 +189,9 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
           supervision={snapshot.data?.supervision}
           unavailable={snapshot.isLoading || snapshot.isError}
           readOnly={historical} />}
-      {historical && <p role="status" style={{ padding: 12 }}>Historical view is read-only. Return to the current session to see refreshed EMA signals.</p>}
+      {historical && <p role="status" style={{ padding: 12 }}>Past day, view only. Go back to today for live signals.</p>}
       {operation.isSuccess && operation.variables === 'flatten' &&
-        <p role="status" style={{ padding: 12 }}>EMA simulation close requested. Check outstanding orders and confirmed shares; this does not close real Kite positions.</p>}
+        <p role="status" style={{ padding: 12 }}>Close requested for practice trades. Real Kite positions are not affected.</p>}
       {[snapshot.error, config.error, scan.error, cancel.error, operation.error, quickstart.error].filter(Boolean).map((error, index) =>
         <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
       {(currentScan?.status === 'FAILED' || scanError.length > 0) && scanError.length > 0 &&
@@ -204,9 +204,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
       {!historical && !snapshot.isLoading && !hasSymbols && !config.isLoading && !config.isError &&
         <div role="region" aria-label="Set up EMA Trend signals" style={{ padding: 14, display: 'grid', gap: 8,
           border: '1px solid var(--k-border)', borderRadius: 8, margin: 10 }}>
-          <strong>No scan universe selected for EMA Trend.</strong>
-          <span>Choose exact stocks or listed contracts in Settings, or start with five NSE stocks across all four profiles.
-            This enables read-only scans, not automatic paper entries or real orders.</span>
+          <strong>No names picked for EMA Trend.</strong>
+          <span>Pick names in Settings, or start with 5 NSE stocks in all modes. Scans only; no trades.</span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="sb-tool" type="button" onClick={startReadOnlyScanner}
               disabled={quickstart.isPending || !config.data}>
@@ -219,14 +218,14 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         </div>}
       {!historical && !snapshot.isLoading && !signals.length && !snapshot.error && hasSymbols &&
         <p role="status" style={{ padding: 12 }}>
-          {selectedEnabled.length === 0 ? 'None of the selected profiles is enabled for scanning. Enable a profile in EMA Trend settings.' :
-            !scannerEnabled ? 'EMA scanner is off. Enable it in Settings to refresh signals.' :
-            scanning ? 'Analyzing completed bars for the configured instruments…' :
-            currentScan?.status === 'FAILED' ? 'Latest scan failed. Check the scan errors above; no valid signals have been recorded.' :
-            currentScan?.status === 'IDLE' || !currentScan?.id ? 'No completed scan is recorded. Run Refresh signals or keep the automatic scanner enabled.' :
+          {selectedEnabled.length === 0 ? 'No mode is on. Turn one on in EMA Trend settings.' :
+            !scannerEnabled ? 'Scanning is off. Turn it on in Settings.' :
+            scanning ? 'Scanning your names…' :
+            currentScan?.status === 'FAILED' ? 'Last scan failed. See the errors above.' :
+            currentScan?.status === 'IDLE' || !currentScan?.id ? 'No scan yet. Press Refresh signals or leave scanning on.' :
             scanResults.length > 0
               ? `Last scan processed ${processedPairs} symbol/profile pairs and ${providerBars} source candles, but no setup records are available for these profiles. Review scanner errors or data gaps.`
-              : 'No saved setup evidence yet. The scanner monitors completed candles; no signals have been fabricated.'}
+              : 'No signals yet. Checked on each finished candle.'}
         </p>}
       {snapshot.data?.truncatedModes?.length ? <p role="status" style={{ padding: 12 }}>
         Showing the newest ${fetchLimit} rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
@@ -246,7 +245,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
           disabled={historical || signal.historical} aria-label={`Chart ${signal.instrument.symbol}`}
           onClick={event => { event.stopPropagation(); onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal); }}>↗</button>}
         renderDetail={signal => <EmaTrendTicket signal={signal} readOnly={historical} />}
-      /> : signals.length > 0 ? <p role="status" style={{ padding: 12 }}>No rows match the current filters. Reset the EMA view to show all recorded signals.</p> : null}
+      /> : signals.length > 0 ? <p role="status" style={{ padding: 12 }}>Nothing matches these filters. Reset the view to see all.</p> : null}
       {signals.length > 0 && (hasMoreRendered || hasOlderServerRows) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '8px 12px' }}>
           <span role="status" style={{ fontSize: 11, opacity: 0.8 }}>

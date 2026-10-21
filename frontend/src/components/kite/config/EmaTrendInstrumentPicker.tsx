@@ -57,7 +57,7 @@ export function EmaTrendInstrumentPicker({
     : [...symbols, symbol]);
 
   return <>
-    <Field label="Indices" hint="Signals on spot index candles only. No futures/options are selected or ordered." wide>
+    <Field label="Indices" hint="Index chart signals only. No orders." wide>
       <div role="group" aria-label="EMA index watches" className="sk-config-check-grid"
         style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '6px 12px' }}>
         {INDEX_OPTIONS.map(option => <CheckOption key={option.value} compact
@@ -67,18 +67,16 @@ export function EmaTrendInstrumentPicker({
             : [...indices, option.value])} />)}
       </div>
     </Field>
-    <ConfigNote>Indices are watch-only. To simulate a trade on NIFTY or SENSEX,
-      choose the actual dated futures or long CE/PE contract under Add more;
-      the contract's own historical prices drive its separate signals.</ConfigNote>
+    <ConfigNote>Indices are watch only. To practise on NIFTY or SENSEX, add a real futures or option contract under Add more.</ConfigNote>
 
     <Field label="Single-stock underlyings"
-      hint="Turn off to exclude stocks from scans without losing the selected list. Indices are unaffected.">
+      hint="Off: skip stocks but keep your list. Indices still scan.">
       <Switch label="EMA scan single-stock underlyings" checked={stockScanEnabled}
         onChange={() => onStockScanEnabledChange(!stockScanEnabled)} />
     </Field>
 
     {stockScanEnabled && <>
-      <Field label="F&O stocks" hint="Use the eligible curated universe, or select specific stocks.">
+      <Field label="F&O stocks" hint="Use the standard list, or pick stocks.">
         <Switch label="EMA scan all eligible F&O stocks"
           checked={allCurated}
           onChange={() => setSymbols(allCurated
@@ -89,7 +87,7 @@ export function EmaTrendInstrumentPicker({
       {!allCurated && <Field label="Selected F&O stocks"
         hint={`${selectedCurated.length} selected from the shared Sterling eligible stock list.`} wide>
         {registry.isLoading && <p role="status">Loading eligible stocks…</p>}
-        {registry.isError && <p role="alert">Eligible stock list unavailable. Retry when the shared registry is online.</p>}
+        {registry.isError && <p role="alert">Stock list not available. Try again shortly.</p>}
         {groups.map(group => <div key={group.liquidity} style={{ marginBottom: 10 }}>
           <strong style={{ fontSize: 11 }}>{group.liquidity}</strong>
           <div className="sk-config-check-grid" style={{
@@ -112,7 +110,7 @@ export function EmaTrendInstrumentPicker({
         {custom.length ? ` · ${custom.length} selected` : ''}
       </summary>
       <div style={{ display: 'grid', gap: 10, marginTop: 10 }}>
-        <Field label="Search broker instruments" hint="Look up stocks outside the F&O list, or actual listed futures and option contracts." wide>
+        <Field label="Search broker instruments" hint="Find other stocks, or exact futures and option contracts." wide>
           <input aria-label="EMA Trend instrument search" value={text}
             onChange={event => setText(event.target.value)}
             placeholder="RELIANCE, NIFTY, SENSEX, other stocks…" style={{ width: '100%' }} />
@@ -131,11 +129,11 @@ export function EmaTrendInstrumentPicker({
               .map(([value,label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </Field>
-        {query.length < 2 && <ConfigNote>Enter at least two characters to search the broker instrument master.</ConfigNote>}
+        {query.length < 2 && <ConfigNote>Type at least 2 letters to search.</ConfigNote>}
         {search.isFetching && <p role="status">Searching broker instruments…</p>}
         {search.error && <p role="alert">Broker search unavailable: {(search.error as Error).message}</p>}
         {query.length >= 2 && search.data && !results.length &&
-          <ConfigNote>No supported contracts matched these filters.</ConfigNote>}
+          <ConfigNote>No contracts match.</ConfigNote>}
         <div role="group" aria-label="EMA additional broker instruments"
           style={{ display: 'grid', gap: 6, maxHeight: 260, overflow: 'auto' }}>
           {results.map(item => <div key={item.symbol} style={{ padding: 7, border: '1px solid var(--k-border)' }}>
@@ -159,9 +157,8 @@ export function EmaTrendInstrumentPicker({
           aria-label={`Remove ${symbol}`} onClick={() => toggleSymbol(symbol)}>
           {symbol} ×
         </button>)}
-      </div> : <ConfigNote>Choose indices, F&O stocks, or add other instruments. Review and Apply changes to save.</ConfigNote>}
+      </div> : <ConfigNote>Pick indices, F&O stocks or other names, then Apply changes.</ConfigNote>}
     </Field>
-    <ConfigNote>The saved list is explicit and limited to 30 instruments per owner to control historical-data scan load.
-      Eligibility and historical coverage are verified by the backend. The F&O stock names do not imply automatic option selection.</ConfigNote>
+    <ConfigNote>Up to 30 names. Each is checked before scanning.</ConfigNote>
   </>;
 }

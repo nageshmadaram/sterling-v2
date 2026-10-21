@@ -87,7 +87,7 @@ it('keeps spot index setups visible but never eligible for trading', () => {
   }]);
   expect(row.instrument.quoteKey).toBe('NSE:NIFTY BANK');
   expect(row.instrument.kind).toBe('index');
-  expect(row.origin?.hint).toContain('Read-only spot index');
+  expect(row.origin?.hint).toContain('watch only');
   expect(row.flags?.[0].label).toBe('INDEX WATCH');
   expect(row.executionEligible).toBe(false);
 });

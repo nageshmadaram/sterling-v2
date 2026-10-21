@@ -17,7 +17,7 @@ export function EmaTrendReadiness({ symbols, modes, revision }: { symbols: strin
   const selectedMode = modes.includes(mode as EmaTrendMode) ? mode : modes[0] || '';
   React.useEffect(() => { setReport(null); setError(''); }, [revision, selectedSymbol, selectedMode]);
   return <div style={{ fontSize: 12 }}>
-    <p>Check the selected account against one saved instrument and profile. This reads broker data and saves an audit report; it places no orders and does not enable live trading.</p>
+    <p>Test one name and mode against your account. Reads data only; places no orders.</p>
     <label>Acceptance instrument <select aria-label="Acceptance instrument" value={selectedSymbol} disabled={busy} onChange={event => setSymbol(event.target.value)}>
       {symbols.map(value => <option key={value}>{value}</option>)}
     </select></label>{' '}
