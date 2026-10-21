@@ -3126,8 +3126,13 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         embed.src = channel.ytEmbed;
         embed.classList.remove('hidden');
       } else {
+        const fallbackUrl = channel.backupUrl;
+        if (!fallbackUrl) {
+          badge.textContent='Unavailable';
+          showTvPlaybackPrompt('Channel unavailable. Select another channel');
+          return;
+        }
         badge.textContent = 'Backup HD';
-        const fallbackUrl = channel.backupUrl || VERIFIED_STREAMS[0].url;
         if (hasHlsJs() && !preferNativeHls(video)) {
           hls = new Hls({ enableWorker: false });
           hls.loadSource(fallbackUrl);
