@@ -155,9 +155,15 @@ head("BOTTOM LINE")
 try:
     from app.services.live_runtime import live_status
 
-    admission = live_status()["admission"]
+    status = live_status()
+    admission = status["admission"]
     blockers = sorted({b for a in admission["accounts"] for b in a["blockers"]})
-    if admission["may_open_new_exposure"]:
+    # The supervisor's admission does not include the STERLING_LIVE_EXECUTION
+    # kill switch; execution_service enforces it on every entry order.
+    execution = status.get("live_execution") or {}
+    if not execution.get("enabled"):
+        blockers.append("live_execution_off (STERLING_LIVE_EXECUTION)")
+    if admission["may_open_new_exposure"] and execution.get("enabled"):
         line("New entries", "OPEN", "real money; exits always allowed")
     else:
         line("New entries", "BLOCKED", ", ".join(blockers) or "reason unknown")
