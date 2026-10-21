@@ -153,7 +153,12 @@ except Exception as exc:
 head("BOTTOM LINE")
 # The real admission answer, the same one every new order is checked against.
 try:
+    from app.core.runtime_env import load_sterling_env
     from app.services.live_runtime import live_status
+
+    # Read the same backend/.env the service loads; without it the kill
+    # switch reads as unset here and the line contradicts the running service.
+    load_sterling_env()
 
     status = live_status()
     admission = status["admission"]
