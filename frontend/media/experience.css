@@ -204,3 +204,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 .media-timer-trigger {min-width:44px;font-size:20px;}
 .media-timer-trigger.media-timer-active {font-size:11px;}
 .tm-now-footer {flex-wrap:wrap;gap:8px;}
+
+/* Connectivity notices stay dismissible without blocking the player. */
+.media-connection {pointer-events:auto;display:flex;align-items:center;gap:12px;touch-action:pan-y;}
+.media-connection[hidden] {display:none;}
+.media-connection button {flex:0 0 44px;width:44px;height:44px;border:0;border-radius:50%;color:inherit;background:#ffffff12;font-size:18px;}
+.media-connection button:focus-visible {outline:2px solid currentColor;outline-offset:2px;}
