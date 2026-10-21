@@ -102,7 +102,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
     expect(TV_STORAGE_KEYS).toHaveLength(8);
   });
 
-  it('migrates saved v13 subscriptions into the v14 player without exposing app secrets', () => {
+  it('does not revive unowned v13 subscriptions when mounting a player', () => {
     localStorage.setItem(storagePrefix + 'streamos_favs_v13', '["older favorite"]');
     localStorage.setItem('sterling.auth.token', 'secret-not-shared');
     render(<TvWorkspace />);
@@ -113,9 +113,9 @@ describe('Sterling Spectrum IPTV isolation', () => {
       type: string;
       values: Record<string, string>;
     };
-    expect(payload.values.streamos_favs_v14).toBe('["older favorite"]');
+    expect(payload.values.streamos_favs_v14).toBeUndefined();
     expect(localStorage.getItem(storagePrefix + 'streamos_favs_v14'))
-      .toBe('["older favorite"]');
+      .toBeNull();
     expect(JSON.stringify(payload)).not.toContain('secret-not-shared');
     expect(payload.values.streamos_favs_v13).toBeUndefined();
   });
@@ -172,4 +172,10 @@ describe('Sterling Spectrum IPTV isolation', () => {
     expect(screen.queryByText('Place Order')).not.toBeInTheDocument();
     expect(screen.queryByText('Order Window')).not.toBeInTheDocument();
   });
+});
+
+it('enforces the server byte budget for Unicode TV preferences',()=>{
+ render(<TvWorkspace />);sendFromFrame('sterling.tv.ready');
+ sendFromFrame('sterling.tv.save',{key:'streamos_favs_v14',value:'త'.repeat(170000)});
+ expect(localStorage.getItem(storagePrefix+'streamos_favs_v14')).toBeNull();
 });

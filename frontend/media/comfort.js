@@ -40,7 +40,7 @@
       }
       const minutes = deadline ? Math.max(1,Math.ceil((deadline-Date.now())/60000)) : 0;
       for (const button of triggers) {
-        button.textContent = minutes ? `◷ ${minutes}m` : '◷';
+        const label=minutes ? `◷ ${minutes}m` : '◷';if(button.textContent!==label)button.textContent=label;
         button.setAttribute('aria-label',minutes?`Sleep timer: ${minutes} minutes remaining`:'Set sleep timer');
         button.classList.toggle('media-timer-active',Boolean(deadline));
       }
@@ -57,7 +57,7 @@
       } else if(event.target.closest('.media-timer-cancel')) {
         deadline = 0; clearInterval(interval); interval = null;
         refresh(); close(); announce('Sleep timer cancelled');
-      } else if(event.target.closest('[data-close]') || event.target===dialog) close();
+      } else if(event.target.closest('[data-close]') || (event.target===dialog && (()=>{const r=dialog.getBoundingClientRect();return event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom;})())) close();
     });
     dialog.addEventListener('keydown',event=>event.stopPropagation());
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});

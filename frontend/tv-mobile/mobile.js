@@ -118,21 +118,23 @@
     }
     nav.querySelector('[data-tm-action="library"] span').textContent=currentTheme==='youtube'?'Subscriptions':'Your Library';
     nav.querySelector('[data-tm-action="more"] span').textContent=currentTheme==='youtube'?'You':'More';
-    const paused=document.getElementById('video-player').paused;
+    const player=document.getElementById('video-player');
+    const paused=player.classList.contains('hidden')?tvUserPaused:player.paused;
     const mute=now.querySelector('[data-tm-action="mute"]');
     const muted=document.getElementById('video-player').muted;
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
     [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');});
   }
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
-  function closeSheet() { sheet.classList.remove('tm-sheet-open');returnFocus?.focus(); }
+  let sheetReturnFocus=null;
+  function closeSheet() { sheet.classList.remove('tm-sheet-open');sheetReturnFocus?.focus(); }
   function setExpanded(value) {
     expanded=value;sync();
     if(value){returnFocus=document.activeElement;now.querySelector('button').focus();}
     else mini.querySelector('button').focus();
   }
   function showSheet(kind='more') {
-    returnFocus=document.activeElement;
+    if(!sheet.classList.contains('tm-sheet-open'))sheetReturnFocus=document.activeElement;
     let title='Your TV, your way';
     let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
@@ -194,7 +196,7 @@
       case 'close-search': shell.querySelector('.tm-search').hidden=true;run('home');break;
       case 'expand': setExpanded(true);break;
       case 'collapse': setExpanded(false);break;
-      case 'play': { const video=document.getElementById('video-player'); if(video.paused && video.readyState===0)resumeTvPlayback();else togglePlayPause();schedule();break; }
+      case 'play': { const video=document.getElementById('video-player'); if(video.classList.contains('hidden'))togglePlayPause();else if(video.paused && video.readyState===0)resumeTvPlayback();else togglePlayPause();schedule();break; }
       case 'save': toggleSubscribeAndFavorite();renderHome();sync();break;
       case 'next': playNextChannel();schedule();break;
       case 'previous': playPrevChannel();schedule();break;
@@ -381,7 +383,7 @@
     main.addEventListener('touchcancel',reset);
     const enterPip=async()=>{if(video.paused||video.readyState<2||document.pictureInPictureElement)return;try{if(video.requestPictureInPicture)await video.requestPictureInPicture();else if(video.webkitSupportsPresentationMode?.('picture-in-picture'))video.webkitSetPresentationMode('picture-in-picture');}catch{/* Browser/OS permission or gesture policy owns background PiP. */}};
     video.setAttribute('autopictureinpicture','');
-    try{if(navigator.mediaSession){navigator.mediaSession.setActionHandler('enterpictureinpicture',enterPip);navigator.mediaSession.setActionHandler('play',()=>video.play());navigator.mediaSession.setActionHandler('pause',()=>video.pause());}}catch{}
+    try{if(navigator.mediaSession){navigator.mediaSession.setActionHandler('enterpictureinpicture',enterPip);navigator.mediaSession.setActionHandler('play',resumeTvPlayback);navigator.mediaSession.setActionHandler('pause',pauseTvPlayback);}}catch{}
     document.addEventListener('visibilitychange',()=>{saveUi();if(document.visibilityState==='hidden')enterPip();});
     window.addEventListener('pagehide',saveUi);
     video.addEventListener('volumechange',schedule);
@@ -428,14 +430,14 @@
   const video=document.getElementById('video-player');video.addEventListener('playing',()=>{if(activeChannel&&unavailableChannels.delete(activeChannel.url))window.dispatchEvent(new Event('sterling-tv-availability'));});['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
   mobile.addEventListener('change',()=>{if(!mobile.matches){expanded=false;closeSheet();}renderHome();schedule();});
   window.addEventListener('resize',schedule);
+  window.addEventListener('sterling-tv-playback-intent',schedule);
   home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch){rejectedArtwork.add(img.src);img.src=artwork({...ch,logo:''});}},true);
   mini.querySelector('img').addEventListener('error',event=>{if(activeChannel){rejectedArtwork.add(event.target.src);event.target.src=artwork({...activeChannel,logo:''});}});
   const catalogMore=document.getElementById('load-more-wrap');
   if(catalogMore && 'IntersectionObserver' in window)new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)&&renderedItems<filteredChannels.length)renderNextBatch();},{root:document.getElementById('main-scroll'),rootMargin:'300px'}).observe(catalogMore);
   installPlaybackContinuity();
   const surface=document.getElementById('video-surface-card'),hud=document.getElementById('custom-video-hud');
-  let controlsTimer;
-  function revealControls(){hud.classList.remove('mobile-hud-hidden');clearTimeout(controlsTimer);controlsTimer=setTimeout(()=>{if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');},2500);}
+  function revealControls(){hud.classList.remove('mobile-hud-hidden');clearTimeout(mobileHudFadeTimer);mobileHudFadeTimer=setTimeout(()=>{if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');},2500);}
   surface.addEventListener('pointermove',revealControls,{passive:true});
   surface.addEventListener('pointerdown',revealControls,{passive:true});
   surface.addEventListener('focusin',revealControls);
