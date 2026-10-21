@@ -122,3 +122,16 @@ Portrait video hides its overlaid HUD while retaining the separate player
 controls; fullscreen/landscape controls remain available. Live-feed market status
 can be dismissed horizontally or with a close button without changing feed
 health; a new outage after recovery reappears.
+
+## Rendering cost and manual availability reset
+
+Failure tracking now expires after three hours, including restored records from
+the previous 24-hour policy. A low-frequency expiry check and tab-resume check
+restore expired channels. Retry unavailable channels now clears failure records
+immediately without changing the user's filter; channels are retried on selection.
+Unchanged grids retain loaded pages and card nodes; unchanged home shelves are
+memoized. Recommendations keep a bounded top-ten candidate list and a saved-URL
+set rather than sorting the entire catalogue and repeatedly scanning favourites.
+Player synchronization avoids rewriting unchanged images, icons and labels.
+Images decode asynchronously; menu/tile motion uses short opacity/transform
+transitions and respects reduced motion. No FPS or network-speed claim is made.
