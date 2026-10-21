@@ -74,3 +74,14 @@ describe('Radio workspace isolation', () => {
     expect(screen.getByTitle('Sterling Radio player')).not.toBe(oldFrame);
   });
 });
+
+it('persists source URLs inside the allowlisted config and hydrates them on remount',()=>{
+ const config=JSON.stringify({catalogSources:[{id:'personal',name:'Personal stations',url:'https://example.com/radio.m3u',kind:'m3u',enabled:true}],catalogFilters:{language:'telugu'}});
+ render(<RadioWorkspace/>);fireEvent.load(screen.getByTitle('Sterling Radio player'));
+ fromFrame('sterling.radio.save',{key:'omnicast_v11_config',value:config});
+ expect(localStorage.getItem('sterling.radio.omnicast_v11_config')).toBe(config);
+ cleanup();render(<RadioWorkspace/>);
+ const frame=screen.getByTitle('Sterling Radio player') as HTMLIFrameElement,post=vi.spyOn(frame.contentWindow!,'postMessage');
+ fireEvent.load(frame);
+ expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',hostHeader:true,values:{omnicast_v11_config:config}},'*');
+});

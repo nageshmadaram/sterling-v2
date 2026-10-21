@@ -61,3 +61,20 @@ def test_media_preferences_are_durable_and_owner_scoped(client):
 def test_tv_playlist_size_matches_bridge(client):
     c, _ = client
     assert c.patch('/preferences', json={'values': {'sterling.tv.streamos_sources_v14': 'x' * 250000}}).status_code == 200
+
+
+def test_radio_source_urls_and_filters_persist_for_the_logged_in_owner(client):
+    import json
+    c, app = client
+    key = 'sterling.radio.omnicast_v11_config'
+    settings = json.dumps({'catalogSources': [{'id': 'my-radio', 'name': 'My radio list',
+        'url': 'https://example.com/radio.m3u', 'kind': 'm3u', 'enabled': True}],
+        'catalogFilters': {'language': 'telugu', 'tag': 'news'}})
+    assert c.patch('/preferences', json={'values': {key: settings}}).status_code == 200
+    assert c.get('/preferences').json()['values'][key] == settings
+    app.dependency_overrides[get_current_user] = lambda: UserContext('bob')
+    assert key not in c.get('/preferences').json()['values']
+    app.dependency_overrides[get_current_user] = lambda: UserContext('alice')
+    assert c.get('/preferences').json()['values'][key] == settings
+    assert c.patch('/preferences', json={'values': {key: '{"catalogSources":[]}'}}).status_code == 200
+    assert c.get('/preferences').json()['values'][key] == '{"catalogSources":[]}'

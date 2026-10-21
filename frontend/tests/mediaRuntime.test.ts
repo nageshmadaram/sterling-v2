@@ -17,11 +17,13 @@ function boot(kind:'tv'|'radio') {
   w.matchMedia=(()=>({matches:true,addEventListener(){},removeEventListener(){}})) as any;
   w.requestAnimationFrame=callback=>{pending.push(callback);return pending.length;};
   w.HTMLElement.prototype.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};
+  w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};w.HTMLDialogElement.prototype.close=function(){this.open=false;};
   w.HTMLMediaElement.prototype.load=()=>{};w.HTMLMediaElement.prototype.pause=()=>{};w.HTMLMediaElement.prototype.play=()=>Promise.resolve();
   w.HTMLCanvasElement.prototype.getContext=(()=>new Proxy({createLinearGradient:()=>({addColorStop(){}}),measureText:()=>({width:30})},{get:(target,key)=>key in target?(target as any)[key]:()=>{}})) as any;
   w.HTMLCanvasElement.prototype.toDataURL=()=> 'data:image/png;base64,iVBORw0KGgo=';
   w.fetch=(async()=>({ok:true,text:async()=> '#EXTM3U',json:async()=>[]})) as any;
   w.addEventListener('error',event=>errors.push(event.message));
+  if(kind==='radio')for(const file of ['radio-catalog.js','radio-directory.js'])new Script(readFileSync(resolve(process.cwd(),'media',file),'utf8')).runInContext(dom.getInternalVMContext());
   for(const script of [...w.document.querySelectorAll('script:not([src])')]) {
     // Direct-navigation redirect is deliberately excluded from an embedded-frame boot.
     if(script.textContent?.includes('window.top === window.self'))continue;
@@ -30,7 +32,7 @@ function boot(kind:'tv'|'radio') {
   for(const element of [...w.document.querySelectorAll('*')]){for(const attribute of [...element.attributes]){if(/^on[a-z]+$/.test(attribute.name))(element as any)[attribute.name]=new w.Function('event',attribute.value);}}
   Object.defineProperty(w.document,'readyState',{value:'complete',configurable:true});
   w.dispatchEvent(new w.Event('DOMContentLoaded'));
-  w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.hydrate`,hostHeader:true,values:{}}}));
+  w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.hydrate`,hostHeader:true,values:kind==='radio'?{omnicast_v11_config:JSON.stringify({catalogSources:[],bootBehavior:'quiet'})}:{}}}));
   const flush=()=>{pending.splice(0).forEach(callback=>callback(0));};flush();
   return {w,errors,flush};
 }
@@ -301,4 +303,13 @@ it('Radio refreshes remote suggestions using the latest request ID for the same 
  const updates=received.filter(message=>message.type==='sterling.radio.suggestions');
  expect(updates.at(-1).requestId).toBe('remote-current');
  expect(updates.at(-1).items[0]).toMatchObject({id:'remote-fixture',label:'Unique remote fixture'});
+});
+
+
+it.each(['radio','tv'] as const)('opens the %s URL source manager through its host command',kind=>{
+ const {w,errors}=boot(kind);
+ w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'sources'}}));
+ if(kind==='radio')expect((w.document.querySelector('.radio-source-dialog') as HTMLDialogElement).open).toBe(true);
+ else expect(w.document.getElementById('source-manager-modal')?.classList.contains('hidden')).toBe(false);
+ expect(errors).toEqual([]);
 });

@@ -10,7 +10,7 @@ async function openPlayer(page:Page,kind:'radio'|'tv'){
   });
   await page.route('**/__media_test_host__',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}iframe{border:0;width:100vw;height:100dvh}</style><iframe id="player" src="/${kind}/index.html" sandbox="allow-scripts allow-forms" allow="autoplay"></iframe><script>
     const frame=document.getElementById('player');
-    addEventListener('message',event=>{if(event.source!==frame.contentWindow||event.origin!=='null')return;if(event.data?.type==='sterling.${kind}.ready'){frame.contentWindow.postMessage({type:'sterling.${kind}.hydrate',hostHeader:false,values:${JSON.stringify(kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all'})}:{streamos_theme_v14:'spotify'})}},'*');frame.contentWindow.postMessage({type:'sterling.${kind}.ack'},'*');}});
+    addEventListener('message',event=>{if(event.source!==frame.contentWindow||event.origin!=='null')return;if(event.data?.type==='sterling.${kind}.ready'){frame.contentWindow.postMessage({type:'sterling.${kind}.hydrate',hostHeader:false,values:${JSON.stringify(kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all',catalogSources:[]})}:{streamos_theme_v14:'spotify'})}},'*');frame.contentWindow.postMessage({type:'sterling.${kind}.ack'},'*');}});
   </script>`}));
   await page.goto('/__media_test_host__');
   const frame=page.frameLocator('#player');
@@ -54,7 +54,7 @@ test('Radio standalone suggestions select a station and restore its collection',
 test('Spotify TV categories and mobile widths keep the home experience separate',async({page})=>{
   const frame=await openPlayer(page,'tv');
   await expect(frame.locator('.tm-quick button')).toHaveCount(8);
-  await frame.locator('.tm-mix[data-tm-category="News"]').click();
+  await frame.locator('#tv-mobile-home .media-browse-grid [data-tm-category="News"]').click();
   await expect(frame.locator('#tv-mobile-home')).toBeHidden();
   await expect(frame.locator('.tm-feed-heading')).toHaveText('News');
   await frame.locator('#tv-mobile-nav [data-tm-action="home"]').click();
@@ -363,4 +363,102 @@ for(const kind of ['tv','radio'] as const)test(`${kind} echoes bounded search re
  },kind);
  await expect.poll(()=>page.evaluate(()=>(window as any).__suggestionReplies.map((reply:any)=>reply.requestId))).toEqual(['first-request','retry-request']);
  expect(await page.evaluate(()=>(window as any).__suggestionReplies.every((reply:any)=>reply.items.length>0&&reply.items.length<=8))).toBe(true);
+});
+
+async function loadRadioDirectoryFixture(page:Page){
+ const frame=await openPlayer(page,'radio');
+ const baseline=await frame.locator('body').evaluate(()=>eval('MASTER_POOL.length'));
+ await page.route('https://radio-directory.fixture/**',route=>{
+  const url=new URL(route.request().url());
+  if(url.pathname==='/custom.m3u')return route.fulfill({contentType:'text/plain',headers:{'access-control-allow-origin':'*'},body:'#EXTM3U\n#EXTINF:-1 group-title="Jazz" tvg-language="Telugu",My jazz station\nhttps://station.fixture/my-jazz.mp3'});
+  const offset=Number(url.searchParams.get('offset')||0),length=offset?50:1000;
+  return route.fulfill({contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify(Array.from({length},(_,i)=>({stationuuid:`fixture-${offset+i}`,name:`World fixture ${offset+i}`,url_resolved:`https://station.fixture/${offset+i}.mp3`,country:i%2?'India':'France',language:i%2?'telugu':'french',tags:i%2?'news,talk':'jazz',favicon:''})))});
+ });
+ await frame.locator('body').evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:window.parent,data:{type:'sterling.radio.hydrate',hostHeader:false,values:{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all',catalogSources:[{id:'fixture',name:'World fixture directory',url:'https://radio-directory.fixture/stations',kind:'directory',enabled:true}]})}}})));
+ await expect.poll(()=>frame.locator('body').evaluate(()=>eval('radioCatalog.snapshot().complete'))).toBe(true);
+ return {frame,baseline};
+}
+
+test('Radio exposes all loaded stations, matching category counts and append-only pagination',async({page})=>{
+ const {frame,baseline}=await loadRadioDirectoryFixture(page);
+ await expect(frame.locator('#sp-grid-count')).toHaveText(`${(baseline+1050).toLocaleString()} channels`);
+ await expect(frame.locator('#sp-mchip-all')).toHaveText(`All ${(baseline+1050).toLocaleString()}`);
+ await page.screenshot({path:'/tmp/sterling-radio-spotify-home.png'});
+ expect(await frame.locator('#sp-cards-grid>[data-radio-click]').count()).toBeLessThanOrEqual(60);
+ await frame.locator('#sp-cards-grid>[data-radio-click]').first().evaluate(element=>element.setAttribute('data-preserved','yes'));
+ await frame.locator('#sp-cards-grid').locator('..').getByRole('button',{name:/Show more stations/}).click();
+ expect(await frame.locator('#sp-cards-grid>[data-radio-click]').count()).toBeGreaterThan(60);
+ await expect(frame.locator('#sp-cards-grid>[data-radio-click]').first()).toHaveAttribute('data-preserved','yes');
+ const expected=await frame.locator('body').evaluate(()=>eval('radioDirectoryBase("telugu").length'));
+ await frame.locator('#sp-mchip-te').click();
+ await expect(frame.locator('#sp-grid-count')).toHaveText(`${expected.toLocaleString()} channels`);
+ await expect(frame.locator('#radio-directory-browse')).toBeHidden();await expect(frame.locator('#sp-recents-section')).toBeHidden();
+ expect(await frame.locator('body').evaluate(()=>eval('catalogItems.every(station=>station.category==="telugu"||(station.languages||[]).includes("telugu"))'))).toBe(true);
+ await frame.locator('#sp-mchip-all').click();
+ await frame.locator('#spotify-app .radio-directory-filters summary').click();
+ await frame.getByRole('combobox',{name:'Radio country',exact:true}).selectOption('France');
+ await expect(frame.locator('#sp-grid-count')).toHaveText('525 channels');
+ await frame.getByRole('combobox',{name:'Radio genre',exact:true}).selectOption('jazz');
+ await expect(frame.locator('#sp-grid-count')).toHaveText('525 channels');
+ await expect(frame.locator('#sp-mchip-all')).toHaveText('All 525');
+ await page.screenshot({path:'/tmp/sterling-radio-directory-filtered.png'});
+});
+
+test('Radio source manager adds, edits, disables and deletes URL feeds without changing playback',async({page})=>{
+ const {frame,baseline}=await loadRadioDirectoryFixture(page);
+ await frame.locator('#spotify-app').getByRole('button',{name:'Manage sources',exact:true}).click();
+ const dialog=frame.getByRole('dialog',{name:'Radio sources'});
+ await dialog.getByLabel('Source name',{exact:true}).fill('My jazz');
+ await dialog.getByLabel('Source URL',{exact:true}).fill('https://radio-directory.fixture/custom.m3u');
+ await dialog.getByRole('button',{name:'Save source',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:'Edit My jazz',exact:true})).toBeVisible();
+ await expect.poll(()=>frame.locator('body').evaluate(()=>eval('MASTER_POOL.some(station=>station.title==="My jazz station")'))).toBe(true);
+ await dialog.getByRole('button',{name:'Edit My jazz',exact:true}).click();
+ await dialog.getByLabel('Source name',{exact:true}).fill('My edited jazz');
+ await dialog.getByRole('button',{name:'Save source',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:'Disable My edited jazz',exact:true})).toBeVisible();
+ await dialog.getByRole('button',{name:'Disable My edited jazz',exact:true}).click();
+ await expect.poll(()=>frame.locator('body').evaluate(()=>eval('MASTER_POOL.some(station=>station.title==="My jazz station")'))).toBe(false);
+ await dialog.getByRole('button',{name:'Delete My edited jazz',exact:true}).click();
+ expect(await frame.locator('body').evaluate(()=>eval('appConfig.catalogSources.length'))).toBe(1);
+ expect(await frame.locator('body').evaluate(()=>eval('isPlaying'))).toBe(false);
+ await dialog.getByRole('button',{name:'Close radio sources'}).click();
+ await expect(dialog).toBeHidden();
+ await expect.poll(()=>frame.locator('body').evaluate(()=>eval('MASTER_POOL.length'))).toBe(baseline+1050);
+});
+
+test('Spotify TV browse tiles use channel artwork and exact category counts',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('#tv-mobile-nav [data-tm-action="home"]').click();
+ const tile=frame.locator('#tv-mobile-home .media-browse-grid [data-tm-category="News"]');
+ const expected=await frame.locator('body').evaluate(()=>eval('allChannels.filter(channel=>channel.group==="News"&&isChannelVisible(channel)).length'));
+ await expect(tile.locator('small')).toHaveText(`${expected.toLocaleString()} channels`);
+ await expect(tile.locator('img')).toHaveCount(expected?1:0);
+ await page.screenshot({path:'/tmp/sterling-tv-spotify-browse.png'});
+ await tile.click();await expect(frame.locator('#tv-mobile-home')).toBeHidden();
+ await expect(frame.locator('.tm-feed-heading')).toHaveText('News');
+ await frame.locator('#tv-mobile-nav [data-tm-action="home"]').click();
+ const verified=await frame.locator('body').evaluate(()=>eval('allChannels.filter(channel=>channel.verified&&isChannelVisible(channel)).length'));
+ const shelf=frame.locator('#tv-mobile-home section').filter({has:frame.locator('[data-tm-category="verified"]')});
+ await expect(shelf.locator('.media-shelf-count')).toHaveText(`${verified} channels`);
+ await shelf.getByRole('button',{name:'Show all',exact:true}).click();
+ expect(await frame.locator('body').evaluate(()=>eval('getFilteredChannelPool().length'))).toBe(verified);
+});
+
+test('standalone Radio keeps edited source URLs across a reload',async({page})=>{
+ await page.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+ const html=readFileSync(resolve(process.cwd(),'../sterling-radio/sterling-radio.html'),'utf8');
+ await page.route('**/__standalone_radio__',route=>route.fulfill({contentType:'text/html',body:html}));
+ await page.addInitScript(()=>{if(!localStorage.getItem('omnicast_v11_config'))localStorage.setItem('omnicast_v11_config',JSON.stringify({bootBehavior:'quiet',appMode:'spotify',catalogSources:[]}));});
+ await page.goto('/__standalone_radio__');
+ await page.locator('#spotify-app').getByRole('button',{name:'Manage sources',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'Radio sources'});
+ await dialog.getByLabel('Source name',{exact:true}).fill('My direct station');
+ await dialog.getByLabel('Source URL',{exact:true}).fill('https://fixture.test/personal.mp3');
+ await dialog.getByLabel('Format',{exact:true}).selectOption('stream');
+ await dialog.getByRole('button',{name:'Save source',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:'Edit My direct station',exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('omnicast_v11_config')||'{}').catalogSources[0].kind)).toBe('stream');
+ await page.reload();await page.locator('#spotify-app').getByRole('button',{name:'Manage sources',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:'Edit My direct station',exact:true})).toBeVisible();
 });

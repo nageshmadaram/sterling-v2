@@ -141,8 +141,8 @@
 }
 
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  .theme-spotify #tv-mobile-nav { grid-template-columns:repeat(3,1fr); }
-  .theme-spotify #tv-mobile-nav>button:last-child { display:none; }
+  /* Spotify layout: Home · Search · Your Library · Create (the last opens playlist sources). */
+  .theme-spotify #tv-mobile-nav { grid-template-columns:repeat(4,1fr); }
   .tm-filter-label { display:flex;flex-direction:column;gap:9px;margin:20px 0;font-size:13px;color:#bbb; }
   .tm-filter-label select { width:100%;padding:13px;border-radius:8px;border:1px solid #555;background:#333;color:white; }
   .tm-feature-note { color:#aaa;font-size:12px;line-height:1.5;margin:16px 0; }

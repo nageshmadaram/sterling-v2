@@ -137,6 +137,10 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
           setSettingsOpen(false);
           window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`,{detail:{action:'startup'}}));
         }}>Default {kind === 'tv' ? 'channel' : 'station'} <span aria-hidden="true">›</span></button>
+        <button type="button" role="menuitem" onClick={() => {
+          setSettingsOpen(false);
+          window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`,{detail:{action:'sources'}}));
+        }}>{kind==='radio'?'Station sources':'Channel sources'} <span aria-hidden="true">›</span></button>
         {onFeatures && <><div className="sterling-media-popover-divider" /><button type="button" role="menuitem" onClick={() => { setSettingsOpen(false); onFeatures(); }}>Player tools and preferences <span aria-hidden="true">›</span></button></>}
       </div>}
       {searchOpen && <form className="sterling-media-expanded-search" role="search" onSubmit={event => { event.preventDefault(); if(composingRef.current)return; if(activeSuggestion>=0&&suggestions[activeSuggestion])selectSuggestion(suggestions[activeSuggestion]);else onEnter?.(); }}>

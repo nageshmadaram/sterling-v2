@@ -196,3 +196,13 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
   });
 
 });
+
+it.each(['radio','tv'] as const)('opens the %s source manager from the shared header',kind=>{
+ const command=vi.fn();window.addEventListener(`sterling-${kind}-command`,command);
+ try{
+  render(<MediaHeaderControls kind={kind} theme="spotify" query="" onTheme={()=>{}} onQuery={()=>{}}/>);
+  fireEvent.click(screen.getByRole('button',{name:kind==='tv'?'TV display settings':'Radio display settings'}));
+  fireEvent.click(screen.getByRole('menuitem',{name:kind==='tv'?/Channel sources/:/Station sources/}));
+  expect(command.mock.calls[0][0].detail).toEqual({action:'sources'});
+ }finally{window.removeEventListener(`sterling-${kind}-command`,command);}
+});

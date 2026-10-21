@@ -1,0 +1,57 @@
+import {readFileSync} from 'node:fs';
+import {Script} from 'node:vm';
+import {JSDOM} from 'jsdom';
+import {afterEach,expect,it} from 'vitest';
+const opened:JSDOM[]=[];
+afterEach(()=>opened.splice(0).forEach(dom=>dom.window.close()));
+function api(){const dom=new JSDOM('',{runScripts:'outside-only'});opened.push(dom);(dom.window as any).TextEncoder=TextEncoder;new Script(readFileSync('media/radio-catalog.js','utf8')).runInContext(dom.getInternalVMContext());return (dom.window as any).SterlingRadioCatalog;}
+const source={id:'fixture',name:'Fixture directory',url:'https://directory.fixture/stations',kind:'directory',enabled:true};
+const row=(id:number)=>({stationuuid:String(id),name:`Station ${id}`,url_resolved:`https://stream.fixture/${id}.mp3`,language:id%2?'telugu':'english',country:'India',tags:id%2?'news,talk':'rock',favicon:'https://stream.fixture/logo.png'});
+const response=(data:unknown)=>({ok:true,headers:{get:()=>null},text:async()=>JSON.stringify(data)});
+it('loads every directory page, deduplicates stream URLs and reports actual imported counts',async()=>{
+ const serviceApi=api(),offsets:number[]=[];
+ const service=serviceApi.create({sources:[source],fetcher:async(address:string)=>{const offset=Number(new URL(address).searchParams.get('offset'));offsets.push(offset);return response(Array.from({length:offset?23:1000},(_,i)=>row(offset+i)));}});
+ await service.load();const state=service.snapshot();
+ expect(offsets).toEqual([0,1000]);expect(state.stations).toHaveLength(1023);expect(state.complete).toBe(true);expect(state.sources[0].count).toBe(1023);
+ expect(state.stations[1]).toMatchObject({languages:['telugu'],tags:['news','talk'],country:'India'});
+});
+it('source edits, disable and delete remove their stations while retaining built-ins',async()=>{
+ const serviceApi=api();const seed={id:'seed',title:'Seed',streamUrl:'https://seed.fixture/live',category:'telugu'};
+ const service=serviceApi.create({seeds:[seed],sources:[{...source,kind:'json'}],fetcher:async(address:string)=>response([row(address.includes('updated')?2:1)])});
+ await service.load();expect(service.snapshot().stations).toHaveLength(2);
+ await service.reload([{...source,kind:'json',url:'https://directory.fixture/updated'}]);expect(service.snapshot().stations[1].title).toBe('Station 2');
+ await service.reload([{...source,enabled:false}]);expect(service.snapshot().stations).toHaveLength(1);
+ await service.reload([]);expect(service.snapshot().stations[0].id).toBe('seed');expect(service.snapshot().complete).toBe(true);
+});
+it('pauses after a page and resumes at the next offset without losing loaded rows',async()=>{
+ const serviceApi=api(),offsets:number[]=[];let paused=false;let service:any;
+ service=serviceApi.create({sources:[source],onUpdate:(state:any)=>{if(!paused&&state.loading&&state.stations.length===1000){paused=true;service.pause();}},fetcher:async(address:string)=>{const offset=Number(new URL(address).searchParams.get('offset'));offsets.push(offset);return response(offset?[]:Array.from({length:1000},(_,i)=>row(i)));}});
+ await service.load();expect(service.snapshot().stations).toHaveLength(1000);expect(service.snapshot().loading).toBe(false);
+ await service.resume();expect(offsets).toEqual([0,1000]);expect(service.snapshot().complete).toBe(true);
+});
+it('ignores a late page from a deleted or replaced source',async()=>{
+ const serviceApi=api();let resolveOld!:(value:unknown)=>void;
+ const service=serviceApi.create({sources:[{...source,kind:'json'}],fetcher:(address:string)=>address.includes('new')?Promise.resolve(response([row(2)])):new Promise(resolve=>{resolveOld=resolve;})});
+ const old=service.load();await service.reload([{...source,kind:'json',url:'https://directory.fixture/new'}]);resolveOld(response([row(1)]));await old;
+ expect(service.snapshot().stations.map((station:any)=>station.title)).toEqual(['Station 2']);
+});
+it('parses M3U metadata safely and keeps an HLS manifest as one station',()=>{
+ const serviceApi=api();const parsed=serviceApi.parsePlaylist('#EXTM3U\n#EXTINF:-1 group-title="News,Talk" tvg-language="Telugu" tvg-logo="javascript:bad",Test <station>\n/live.mp3\n#EXTINF:-1,Bad\njavascript:alert(1)',source);
+ expect(parsed).toHaveLength(1);expect(parsed[0]).toMatchObject({title:'Test <station>',tags:['news','talk'],languages:['telugu'],artwork:'',streamUrl:'https://directory.fixture/live.mp3'});
+ const hls=serviceApi.parsePlaylist('#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10,\nsegment.ts',source);expect(hls).toHaveLength(1);expect(hls[0].streamUrl).toBe(source.url);
+ expect(serviceApi.normalizeSources([{...source,url:'https://user:secret@directory.fixture/stations'},{...source,url:'javascript:bad'}])).toHaveLength(0);
+});
+it('detects an API that ignores offset instead of endlessly duplicating pages',async()=>{
+ const serviceApi=api();let calls=0;const rows=Array.from({length:1000},(_,i)=>row(i));
+ const service=serviceApi.create({sources:[source],fetcher:async()=>{calls++;return response(rows);}});await service.load();
+ expect(calls).toBe(2);expect(service.snapshot().stations).toHaveLength(1000);expect(service.snapshot().sources[0].error).toContain('ignored pagination');
+});
+it('supports a manually configured direct stream without downloading audio as a playlist',async()=>{
+ const serviceApi=api();let calls=0;const service=serviceApi.create({sources:[{...source,kind:'stream',url:'https://stream.fixture/live.mp3'}],fetcher:async()=>{calls++;throw Error('must not fetch audio');}});await service.load();
+ expect(calls).toBe(0);expect(service.snapshot().stations).toHaveLength(1);expect(service.snapshot().stations[0].title).toBe(source.name);
+});
+it('loads a 50,000-station directory completely while rejecting duplicate source IDs',async()=>{
+ const serviceApi=api();const service=serviceApi.create({sources:[source],fetcher:async(address:string)=>{const offset=Number(new URL(address).searchParams.get('offset'));return response(offset>=50000?[]:Array.from({length:1000},(_,i)=>row(offset+i)));}});
+ await service.load();expect(service.snapshot().stations).toHaveLength(50000);expect(service.snapshot().complete).toBe(true);
+ const list=serviceApi.normalizeSources([source,{...source,url:'https://other.fixture/stations'}]);expect(new Set(list.map((item:any)=>item.id)).size).toBe(2);
+},30000);

@@ -30,6 +30,343 @@
 //# sourceMappingURL=hls.min.js.map
 
 </script>
+  <script>
+/* Public radio metadata only. Catalogs stay in memory; source settings belong
+   to the host's existing owner-scoped Radio configuration. */
+(()=>{
+ const PAGE=1000,MAX_BYTES=16*1024*1024;
+ const defaults=[{id:'radio-browser',name:'Radio Browser · World directory',url:'https://de1.api.radio-browser.info/json/stations',kind:'directory',enabled:true}];
+ function url(value,stream=false){
+  if(typeof value!=='string'||value.length>4096||/[\x00-\x20<>"']/.test(value))return '';
+  try{const u=new URL(value);return (u.protocol==='https:'||(stream&&u.protocol==='http:'))&&!u.username&&!u.password?u.href:'';}catch{return '';}
+ }
+ function sources(value){
+  if(!Array.isArray(value))return defaults.map(row=>({...row}));
+  const seen=new Set(),ids=new Set();return value.slice(0,12).flatMap((row,index)=>{
+   if(!row||typeof row!=='object')return [];const address=url(row.url);
+   if(!address||address.length>2048||seen.has(address))return [];seen.add(address);
+   let id=typeof row.id==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(row.id)?row.id:`source-${index}`;let suffix=0;while(ids.has(id))id=`source-${index}-${++suffix}`;ids.add(id);
+   return [{id,name:String(row.name||'Radio source').slice(0,80),url:address,kind:['directory','m3u','json','stream'].includes(row.kind)?row.kind:'m3u',enabled:row.enabled!==false}];
+  });
+ }
+ const words=value=>(Array.isArray(value)?value:typeof value==='string'?value.split(','):[]).filter(v=>typeof v==='string').map(v=>v.trim().toLowerCase()).filter(Boolean).slice(0,30);
+ function station(row,source,index){
+  if(!row||typeof row!=='object')return null;
+  const stream=url(row.url_resolved||row.streamUrl||row.url,true),name=String(row.name||row.title||'').trim().slice(0,200);
+  if(!stream||!name)return null;
+  const languages=words(row.language||row.languages),tags=words(row.tags||row.group),country=String(row.country||row.countrycode||'').trim().slice(0,100);
+  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',category:languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory',title:name,
+   subtitle:[country,languages.slice(0,2).join(', '),row.codec||'Live radio',stream.startsWith('http:')?'HTTP stream':''].filter(Boolean).join(' · '),
+   streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:'LIVE',freqLabel:'Live radio'};
+ }
+ function playlist(text,source){
+  if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/.test(text)){const item=station({name:source.name,url:source.url},source,0);return item?[item]:[];}
+  const rows=[];let meta={};
+  for(const raw of text.split(/\r?\n/)){
+   const line=raw.trim();if(!line)continue;
+   if(line.startsWith('#EXTINF:')){
+    const attrs={};for(const match of line.matchAll(/([\w-]+)="([^"]*)"/g))attrs[match[1]]=match[2];
+    const comma=line.search(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);meta={name:comma>=0?line.slice(comma+1):'',favicon:attrs['tvg-logo'],group:attrs['group-title'],language:attrs['tvg-language'],country:attrs['tvg-country']};
+   }else if(!line.startsWith('#')){
+    try{const stream=new URL(line,source.url).href;const item=station({...meta,name:meta.name||new URL(stream).hostname,url:stream},source,rows.length);if(item)rows.push(item);}catch{}meta={};
+   }
+  }
+  return rows;
+ }
+ async function read(response){
+  if(!response.ok)throw Error('Source unavailable');
+  if(Number(response.headers?.get('content-length'))>MAX_BYTES)throw Error('Source exceeds 16 MB. Use a paged directory URL.');
+  if(!response.body?.getReader){const text=await response.text();if(new TextEncoder().encode(text).length>MAX_BYTES)throw Error('Source exceeds 16 MB');return text;}
+  const reader=response.body.getReader(),chunks=[];let size=0;
+  try{while(true){const {value,done}=await reader.read();if(done)break;size+=value.byteLength;if(size>MAX_BYTES)throw Error('Source exceeds 16 MB. Use a paged directory URL.');chunks.push(value);}}
+  catch(error){await reader.cancel().catch(()=>{});throw error;}
+  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}return new TextDecoder().decode(bytes);
+ }
+ function create({seeds=[],sources:initial,onUpdate=()=>{},fetcher=(...args)=>fetch(...args)}={}){
+  let configured=sources(initial),revision=0,controller=null,loading=false,reportedTotal=0,records=new Map(),states=[];
+  const seedRows=seeds.map(row=>({...row,languages:row.languages||(['telugu','tamil'].includes(row.category)?[row.category]:[]),tags:words(row.tags),country:row.country||(['telugu','tamil','akashvani'].includes(row.category)?'India':'')}));
+  function reset(){records=new Map(seedRows.map(row=>[row.streamUrl,row]));states=configured.map(source=>({...source,status:source.enabled?'waiting':'disabled',offset:0,count:0,done:!source.enabled,error:'',fingerprint:''}));reportedTotal=0;}
+  function snapshot(){return {stations:[...records.values()],sources:states.map(row=>({...row})),loading,reportedTotal,complete:states.every(row=>row.done)};}
+  const emit=()=>onUpdate(snapshot());
+  async function request(address,signal){
+   const attempt=new AbortController(),cancel=()=>attempt.abort();signal.addEventListener('abort',cancel,{once:true});if(signal.aborted)cancel();
+   const timer=setTimeout(cancel,15000);
+   try{return await read(await fetcher(address,{signal:attempt.signal,credentials:'omit',referrerPolicy:'no-referrer',cache:'default'}));}
+   finally{clearTimeout(timer);signal.removeEventListener('abort',cancel);}
+  }
+  function pause(){revision++;controller?.abort();loading=false;for(const state of states)if(state.status==='loading')state.status='paused';emit();}
+  async function run(){
+   if(loading)return;const generation=++revision;controller=new AbortController();const signal=controller.signal;loading=true;emit();
+   for(const state of states){
+    if(generation!==revision)return;if(state.done||!state.enabled)continue;state.status='loading';state.error='';emit();
+    if(state.kind==='stream'){const item=station({name:state.name,url:state.url},state,0);if(item&&!records.has(item.streamUrl)){records.set(item.streamUrl,item);state.count=1;}state.done=true;state.status='ready';emit();continue;}
+    if(state.kind==='directory'&&state.url===defaults[0].url&&!reportedTotal){
+     void request('https://de1.api.radio-browser.info/json/stats',signal).then(text=>{const stats=JSON.parse(text);if(generation===revision&&Number.isFinite(stats.stations)&&stats.stations<=1000000){reportedTotal=stats.stations;emit();}}).catch(()=>{});
+    }
+    try{
+     let pages=0;
+     while(generation===revision&&!signal.aborted){
+      const address=new URL(state.url);
+      if(state.kind==='directory'){address.searchParams.set('limit',String(PAGE));address.searchParams.set('offset',String(state.offset));address.searchParams.set('order','name');address.searchParams.set('reverse','false');address.searchParams.set('hidebroken','true');}
+      const mirrors=state.url===defaults[0].url?['de1.api.radio-browser.info','fr1.api.radio-browser.info','at1.api.radio-browser.info']:[address.hostname];
+      let text,lastError;
+      for(const host of mirrors){if(signal.aborted)break;try{address.hostname=host;text=await request(address.href,signal);break;}catch(error){lastError=error;}}
+      if(text===undefined)throw lastError||Error('Source unavailable');if(generation!==revision)return;
+      let rows,rawCount;
+      if(state.kind==='m3u'){rows=playlist(text,state);rawCount=rows.length;if(!rows.length&&/^\s*[\[{]/.test(text))throw Error('This looks like JSON. Change the source format to JSON or paged API.');}
+      else{const data=JSON.parse(text),list=Array.isArray(data)?data:Array.isArray(data.stations)?data.stations:null;if(!list)throw Error('Expected a JSON array of stations');rawCount=list.length;rows=list.map((row,index)=>station(row,state,index)).filter(Boolean);}
+      const fingerprint=`${rawCount}:${rows[0]?.streamUrl}:${rows.at(-1)?.streamUrl}`;
+      if(state.kind==='directory'&&state.offset&&rawCount&&fingerprint===state.fingerprint)throw Error('This API ignored pagination. Edit the URL or use JSON list mode.');
+      state.fingerprint=fingerprint;state.offset+=rawCount;
+      for(const row of rows){if(!records.has(row.streamUrl)){records.set(row.streamUrl,row);state.count++;}}
+      state.done=state.kind!=='directory'||rawCount<PAGE;state.status=state.done?'ready':'loading';emit();
+      if(state.done)break;if(++pages>=250)throw Error('Large source paused at 250 pages. Resume to continue.');
+     }
+    }catch(error){if(generation!==revision)return;state.status='error';state.error=error?.message?.slice(0,180)||'Source unavailable. Check browser access and retry.';}
+   }
+   if(generation===revision){loading=false;emit();}
+  }
+  function reload(next=configured){pause();configured=sources(next);reset();return run();}
+  reset();return Object.freeze({snapshot,load:run,resume:run,pause,reload});
+ }
+ window.SterlingRadioCatalog=Object.freeze({create,normalizeSources:sources,defaults:()=>sources(undefined),parsePlaylist:playlist,normalizeStation:station,safeUrl:url});
+})();
+
+</script>
+  <script>
+/* Shared source editor and browse facets for hosted and standalone Radio. */
+(()=>{
+ const genres=['news','pop','rock','jazz','classical','talk','dance','devotional'];
+ const labels={news:'News & talk',pop:'Pop',rock:'Rock',jazz:'Jazz',classical:'Classical',talk:'Talk',dance:'Dance',devotional:'Devotional'};
+ const match=(station,filters={})=>(!filters.language||(station.languages||[]).includes(filters.language))&&(!filters.country||station.country===filters.country)&&(!filters.tag||(station.tags||[]).includes(filters.tag))&&(!filters.secure||station.streamUrl?.startsWith('https:'));
+ function mount({getConfig,onFilter,onSources,catalog,artwork,onPlay}){
+  const doc=document,controls=[],dialog=doc.createElement('dialog');dialog.className='radio-source-dialog';dialog.setAttribute('aria-label','Radio sources');
+  dialog.innerHTML='<header><div><small>YOUR RADIO, YOUR WAY</small><h2>Station sources</h2></div><button type="button" data-close aria-label="Close radio sources">✕</button></header><p>Add a paged directory, M3U playlist or JSON station list. Settings sync with your Sterling account. Public feeds must allow browser access.</p><div class="radio-source-list"></div><form><label>Source name<input name="name" maxlength="80" required placeholder="My stations"></label><label>Source URL<input name="url" type="url" maxlength="2048" required placeholder="https://example.com/radio.m3u"></label><label>Format<select name="kind"><option value="m3u">M3U / M3U8 playlist</option><option value="json">JSON station list</option><option value="directory">Paged Radio Browser API</option><option value="stream">Single station stream</option></select></label><div class="radio-source-actions"><button type="submit">Save source</button><button type="button" data-cancel-edit hidden>Cancel edit</button></div></form><p class="radio-source-notice" role="status"></p><footer><button type="button" data-reload>Reload sources</button><button type="button" data-defaults>Restore default directory</button></footer>';
+  doc.body.append(dialog);let returnFocus=null,editing=null,lastSnapshot=null;
+  const close=()=>{dialog.close();if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});};
+  function open(){returnFocus=doc.activeElement;renderSources();if(!dialog.open)dialog.showModal();}
+  const configured=()=>window.SterlingRadioCatalog.normalizeSources(getConfig().catalogSources);
+  function clearForm(){editing=null;dialog.querySelector('form').reset();dialog.querySelector('[data-cancel-edit]').hidden=true;}
+  function save(next){onSources(next);renderSources();}
+  function renderSources(){
+   const list=dialog.querySelector('.radio-source-list');list.replaceChildren();
+   for(const source of configured()){
+    const row=doc.createElement('article'),heading=doc.createElement('strong'),address=doc.createElement('small'),status=doc.createElement('p'),actions=doc.createElement('div');
+    heading.textContent=source.name;address.textContent=source.url;const state=lastSnapshot?.sources.find(item=>item.id===source.id);
+    status.textContent=state?`${state.status} · ${state.count.toLocaleString()} added${state.error?' · '+state.error:''}`:source.enabled?'Ready to load':'Disabled';status.dataset.sourceStatus=source.id;
+    for(const [action,label] of [['toggle',source.enabled?'Disable':'Enable'],['edit','Edit'],['delete','Delete']]){const button=doc.createElement('button');button.type='button';button.textContent=label;button.dataset.sourceAction=action;button.dataset.sourceId=source.id;button.setAttribute('aria-label',`${label} ${source.name}`);actions.append(button);}
+    row.append(heading,address,status,actions);list.append(row);
+   }
+   if(!list.children.length)list.textContent='No feeds configured. Your built-in stations are still available.';
+  }
+  dialog.addEventListener('click',event=>{
+   if(event.target.closest('[data-close]'))close();
+   const button=event.target.closest('[data-source-action]');
+   if(button){const next=configured(),index=next.findIndex(item=>item.id===button.dataset.sourceId);if(index<0)return;
+    if(button.dataset.sourceAction==='delete'){next.splice(index,1);clearForm();save(next);}
+    else if(button.dataset.sourceAction==='toggle'){next[index].enabled=!next[index].enabled;save(next);}
+    else{editing=next[index].id;const form=dialog.querySelector('form');for(const field of ['name','url','kind'])form.elements.namedItem(field).value=next[index][field];dialog.querySelector('[data-cancel-edit]').hidden=false;form.elements.namedItem('name').focus();}
+   }
+   if(event.target.closest('[data-cancel-edit]'))clearForm();
+   if(event.target.closest('[data-reload]'))onSources(configured());
+   if(event.target.closest('[data-defaults]')){clearForm();save(window.SterlingRadioCatalog.defaults());}
+  });
+  dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('keydown',event=>event.stopPropagation());
+  dialog.querySelector('input[name=url]').addEventListener('change',event=>{if(editing)return;const value=event.target.value;const kind=/\/json\/stations(?:[?\/]|$)/i.test(value)?'directory':/\.json(?:[?]|$)/i.test(value)?'json':/\.m3u8?(?:[?]|$)/i.test(value)?'m3u':null;if(kind)dialog.querySelector('select[name=kind]').value=kind;});
+  dialog.addEventListener('submit',event=>{
+   event.preventDefault();const form=dialog.querySelector('form'),raw=Object.fromEntries(new FormData(form));
+   const next=configured(),source=window.SterlingRadioCatalog.normalizeSources([{...raw,id:editing||`source-${Date.now().toString(36)}`,enabled:editing?next.find(item=>item.id===editing)?.enabled!==false:true}])[0];
+   const notice=dialog.querySelector('.radio-source-notice');
+   if(!source){notice.textContent='Use a valid HTTPS feed URL without embedded credentials.';return;}
+   if(next.some(item=>item.url===source.url&&item.id!==editing)){notice.textContent='This source URL is already in your list.';return;}
+   if(!editing&&next.length>=12){notice.textContent='You can configure up to 12 sources.';return;}
+   const index=next.findIndex(item=>item.id===editing);if(index>=0)next[index]=source;else next.push(source);
+   clearForm();notice.textContent='Source settings saved. Loading stations…';save(next);
+  });
+  for(const id of ['sp-cards-grid','ytm-cards-grid']){
+   const grid=doc.getElementById(id);if(!grid)continue;
+   const block=doc.createElement('div');block.className='radio-directory-tools';
+   block.innerHTML='<div class="radio-directory-summary"><span role="status"></span><button type="button" data-sources>Manage sources</button><button type="button" data-clear-filters hidden>Clear filters</button><button type="button" data-pause>Pause loading</button></div><details class="radio-directory-filters"><summary>Filter stations</summary><div class="radio-directory-selects"><label>Language<select data-filter="language" aria-label="Radio language"></select></label><label>Country<select data-filter="country" aria-label="Radio country"></select></label><label>Genre<select data-filter="tag" aria-label="Radio genre"></select></label><label class="radio-secure-filter"><input type="checkbox" data-filter="secure">HTTPS only</label></div></details><div class="radio-genre-chips" aria-label="Radio genres"></div>';
+   const chips=block.querySelector('.radio-genre-chips');
+   for(const tag of ['',...genres]){const button=doc.createElement('button');button.type='button';button.dataset.genre=tag;chips.append(button);}
+   block.addEventListener('click',event=>{if(event.target.closest('[data-sources]'))open();if(event.target.closest('[data-clear-filters]'))onFilter({});if(event.target.closest('[data-pause]')){if(catalog.snapshot().loading)catalog.pause();else void catalog.resume();}const genre=event.target.closest('[data-genre]');if(genre)onFilter({...getConfig().catalogFilters,tag:genre.dataset.genre});});
+   block.addEventListener('change',event=>{const control=event.target.closest('[data-filter]');if(control)onFilter({...getConfig().catalogFilters,[control.dataset.filter]:control.type==='checkbox'?control.checked:control.value});});
+   grid.before(block);controls.push(block);
+  }
+  const browse=doc.createElement('section');browse.id='radio-directory-browse';browse.innerHTML='<h2>Find your next favourite</h2><div class="media-browse-grid"></div>';
+  doc.getElementById('sp-recents-section')?.after(browse);
+  const world=doc.createElement('div');world.id='radio-world-shelves';browse.after(world);
+  const worldRows=[];for(const tag of ['news','jazz','pop']){const section=doc.createElement('section');section.className='radio-world-shelf';section.innerHTML='<header><h2></h2><button type="button">Show all</button></header><div></div>';section.querySelector('button').addEventListener('click',()=>onFilter({language:'',country:'',tag,secure:false},true));world.append(section);worldRows.push({tag,section,key:''});}
+  const tiles=[];for(const tag of genres){const button=doc.createElement('button');button.type='button';button.dataset.genre=tag;button.innerHTML='<strong></strong><small></small><img alt="" loading="lazy" decoding="async">';button.querySelector('strong').textContent=labels[tag];button.addEventListener('click',()=>onFilter({language:'',country:'',tag,secure:false},true));button.querySelector('img').addEventListener('error',event=>{event.currentTarget.dataset.failedSrc=event.currentTarget.getAttribute('src');event.currentTarget.hidden=true;});browse.lastElementChild.append(button);tiles.push(button);}
+  function update(snapshot,basePool){
+   lastSnapshot=snapshot;const filters=getConfig().catalogFilters||{},counts={language:new Map(),country:new Map(),tag:new Map()},samples=new Map(),picks=new Map();
+   const add=(map,key)=>{if(key)map.set(key,(map.get(key)||0)+1);};
+   for(const station of basePool){
+    if(match(station,{...filters,language:'',tag:''}))for(const language of station.languages||[])add(counts.language,language);
+    if(match(station,{...filters,country:'',tag:''}))add(counts.country,station.country);
+    if(match(station,{...filters,tag:''}))for(const tag of new Set(station.tags||[])){add(counts.tag,tag);if(!samples.has(tag))samples.set(tag,station);if(!picks.has(tag))picks.set(tag,[]);if(picks.get(tag).length<8)picks.get(tag).push(station);}
+   }
+   const filtered=basePool.filter(station=>match(station,filters)),anyFilter=Boolean(filters.language||filters.country||filters.tag||filters.secure);
+   doc.documentElement.dataset.radioDirectoryFiltered=String(anyFilter);
+   browse.hidden=getConfig().activeCategory!=='all'||anyFilter||doc.documentElement.dataset.radioView!=='home';world.hidden=browse.hidden;
+   for(const block of controls){
+    block.hidden=getConfig().activeCategory==='podcasts'||doc.documentElement.dataset.radioView==='library';
+    block.querySelector('[data-clear-filters]').hidden=!anyFilter;
+    block.querySelector('summary').textContent=anyFilter?`Filters · ${[filters.language,filters.country,filters.tag,filters.secure?'HTTPS':''].filter(Boolean).join(' · ')} · ${filtered.length.toLocaleString()} stations`:'Filter stations';
+    const status=block.querySelector('[role=status]');
+    status.textContent=`${snapshot.stations.length.toLocaleString()} stations loaded${snapshot.loading?' · Loading full directory…':snapshot.complete?' · Sources up to date':' · Loading paused or source needs attention'}${snapshot.reportedTotal?' · Provider: '+snapshot.reportedTotal.toLocaleString()+' entries (includes unavailable)':''}`;
+    const pause=block.querySelector('[data-pause]');pause.textContent=snapshot.loading?'Pause loading':'Resume / retry';pause.hidden=snapshot.complete;
+    for(const field of ['language','country','tag']){
+     const select=block.querySelector(`[data-filter="${field}"]`);if(doc.activeElement===select)continue;
+     const options=[['',`All ${field==='tag'?'genres':field==='country'?'countries':'languages'}`],...[...counts[field]].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,count])=>[key,`${key} (${count.toLocaleString()})`])];
+     if(filters[field]&&!options.some(([key])=>key===filters[field]))options.push([filters[field],`${filters[field]} (0)`]);
+     const signature=JSON.stringify(options);if(select.dataset.options!==signature){select.replaceChildren(...options.map(([value,label])=>new Option(label,value)));select.dataset.options=signature;}select.value=filters[field]||'';
+    }
+    block.querySelector('[data-filter="secure"]').checked=Boolean(filters.secure);
+    for(const button of block.querySelectorAll('[data-genre]')){const tag=button.dataset.genre,count=tag?(counts.tag.get(tag)||0):basePool.filter(station=>match(station,{...filters,tag:''})).length;button.textContent=`${tag?labels[tag]:'All genres'} ${count.toLocaleString()}`;button.setAttribute('aria-pressed',String((filters.tag||'')===tag));}
+   }
+   for(const button of tiles){const tag=button.dataset.genre,count=counts.tag.get(tag)||0;button.hidden=count===0;button.querySelector('small').textContent=`${count.toLocaleString()} stations`;const image=button.querySelector('img'),sample=samples.get(tag);image.hidden=!sample;if(sample){const src=artwork(sample);image.hidden=image.dataset.failedSrc===src;if(image.getAttribute('src')!==src)image.src=src;}}
+   for(const row of worldRows){
+    const stations=picks.get(row.tag)||[],count=counts.tag.get(row.tag)||0;row.section.hidden=count===0;row.section.querySelector('h2').textContent=`${labels[row.tag]} · ${count.toLocaleString()} stations`;
+    const key=stations.map(station=>station.id).join('|');if(row.key===key)continue;row.key=key;const strip=row.section.lastElementChild;strip.replaceChildren();
+    for(const station of stations){const button=doc.createElement('button');button.type='button';button.className='media-station-album';button.setAttribute('aria-label',`Listen to ${station.title}`);const image=doc.createElement('img');image.alt='';image.loading='lazy';image.decoding='async';image.src=artwork(station);image.addEventListener('error',()=>{image.style.visibility='hidden';});const title=doc.createElement('strong'),subtitle=doc.createElement('small');title.textContent=station.title;subtitle.textContent=station.country||station.subtitle;button.append(image,title,subtitle);button.addEventListener('click',()=>onPlay?.(station.id));strip.append(button);}
+   }
+   if(dialog.open){for(const status of dialog.querySelectorAll('[data-source-status]')){const state=snapshot.sources.find(item=>item.id===status.dataset.sourceStatus);if(state)status.textContent=`${state.status} · ${state.count.toLocaleString()} added${state.error?' · '+state.error:''}`;}}
+   return filtered;
+  }
+  return {update,openSources:open};
+ }
+ window.SterlingRadioDirectory=Object.freeze({mount,match});
+})();
+
+</script>
+  <script>
+/* Spotify-style Search, Recents and Your Library pages shared by Radio and TV.
+   Each app passes an adapter; the shell owns layout only and never touches
+   playback, storage or the network itself. */
+(()=>{
+ const ICON={
+  search:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 1 0 4.7 13.35l4.72 4.72 1.41-1.41-4.72-4.72A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z"/></svg>',
+  back:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4Z"/></svg>',
+  add:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm-1 3v4H7v2h4v4h2v-4h4v-2h-4V7h-2Z"/></svg>',
+  added:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#1ed760"/><path d="m10.4 15.6-3.5-3.5 1.4-1.4 2.1 2.1 5-5 1.4 1.4-6.4 6.4Z" fill="#000"/></svg>',
+  close:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4 6.4 5Z"/></svg>',
+  sort:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 4 4 4H9v8H7V8H4l4-4Zm8 16-4-4h3V8h2v8h3l-4 4Z"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/></svg>',
+  list:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v2H4V5Zm0 6h16v2H4v-2Zm0 6h16v2H4v-2Z"/></svg>',
+  pin:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3 21 8l-2 1-3 3 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 3-3 1-2Z" fill="#1ed760"/></svg>',
+  heart:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3.1 4.5 6.9 4.5c2 0 3.6 1.1 5.1 2.9 1.5-1.8 3.1-2.9 5.1-2.9 3.8 0 6 3.9 4.5 7.3C19.5 16.4 12 21 12 21Z" fill="#fff"/></svg>',
+  clock:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 5v5.4l4 2.4-1 1.7-5-3V7h2Z" fill="#fff"/></svg>',
+ };
+ const PALETTE=['#e13300','#1e3264','#8400e7','#148a08','#dc148c','#e8115b','#477d95','#7358ff','#ba5d07','#509bf5','#af2896','#27856a','#e91429','#8d67ab','#0d73ec','#d84000'];
+ function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!=null)node.textContent=text;return node;}
+ function iconButton(name,label,cls='sps-icon'){const b=el('button',cls);b.type='button';b.innerHTML=ICON[name];b.setAttribute('aria-label',label);b.title=label;return b;}
+ function art(src,cls='sps-art'){const img=el('img',cls);img.alt='';img.loading='lazy';img.decoding='async';if(src)img.src=src;img.addEventListener('error',()=>{img.style.visibility='hidden';},{once:true});return img;}
+
+ function mount(adapter){
+  const a={noun:'stations',placeholder:'What do you want to listen to?',libraryChips:[],...adapter};
+  const root=el('div','sps-root');root.hidden=true;root.dataset.kind=a.kind||'media';document.body.append(root);
+  let page=null,focus=false,query='',chip='',sort='recents',grid=false,drill=null,timer=0;
+  const state=()=>({page,focus,query});
+
+  function header(title){
+   const bar=el('header','sps-header');const avatar=el('button','sps-avatar',a.avatar?.()||'S');avatar.type='button';avatar.setAttribute('aria-label','Profile and settings');
+   avatar.addEventListener('click',()=>a.openSettings?.());
+   bar.append(avatar,el('h1','',title));return bar;
+  }
+  function row(item,{actions=true,removable=false}={}){
+   const r=el('div','sps-row');r.setAttribute('role','button');r.tabIndex=0;r.dataset.id=item.id;
+   const body=el('div','sps-row-body');body.append(el('strong','',item.title),el('small','',[item.type||a.itemType||'Station',item.subtitle].filter(Boolean).join(' • ')));
+   r.append(art(item.art),body);
+   if(actions){const fav=a.isFavorite?.(item.id);const add=iconButton(fav?'added':'add',fav?`Remove ${item.title} from your library`:`Add ${item.title} to your library`,'sps-row-action');
+    add.addEventListener('click',e=>{e.stopPropagation();a.toggleFavorite?.(item.id);render();});r.append(add);}
+   if(removable){const x=iconButton('close',`Remove ${item.title} from recents`,'sps-row-action');x.addEventListener('click',e=>{e.stopPropagation();a.removeRecent?.(item.id);render();});r.append(x);}
+   const play=()=>{a.play(item.id);};r.addEventListener('click',play);r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();play();}});
+   return r;
+  }
+
+  function renderSearch(){
+   if(focus){
+    const top=el('div','sps-search-top');const back=iconButton('back','Back to search');back.addEventListener('click',()=>{focus=false;query='';render();});
+    const input=el('input','sps-search-field');input.type='search';input.placeholder=a.placeholder;input.value=query;input.setAttribute('aria-label',a.placeholder);
+    input.addEventListener('input',()=>{query=input.value;clearTimeout(timer);timer=setTimeout(()=>renderResults(list),120);});
+    input.addEventListener('keydown',e=>{if(e.key==='Escape'){focus=false;query='';render();}if(e.key==='Enter'){const first=list.querySelector('.sps-row');first?.click();}});
+    top.append(back,input);const list=el('div','sps-list');root.append(top,list);renderResults(list);
+    requestAnimationFrame(()=>input.focus({preventScroll:true}));return;
+   }
+   root.append(header('Search'));
+   const box=el('button','sps-search-box');box.type='button';box.innerHTML=ICON.search;box.append(el('span','',a.placeholder));box.addEventListener('click',()=>{focus=true;render();});root.append(box);
+   const tiles=el('div','sps-tiles');
+   (a.categories?.()||[]).forEach((cat,i)=>{const t=el('button','sps-tile');t.type='button';t.style.background=cat.color||PALETTE[i%PALETTE.length];
+    t.append(el('strong','',cat.label),el('small','',`${Number(cat.count||0).toLocaleString()} ${a.noun}`));if(cat.art)t.append(art(cat.art,'sps-tile-art'));
+    t.addEventListener('click',()=>{hide();a.openCategory?.(cat.key);});tiles.append(t);});
+   root.append(tiles);
+   const feature=a.featured?.()||[];
+   if(feature.length){root.append(el('h2','sps-section',a.featuredTitle||'Discover something new'));const strip=el('div','sps-tall');
+    for(const item of feature.slice(0,10)){const card=el('button','sps-tall-card');card.type='button';card.append(art(item.art),el('strong','',item.title));card.addEventListener('click',()=>a.play(item.id));strip.append(card);}root.append(strip);}
+  }
+  function renderResults(list){
+   list.replaceChildren();
+   if(!query.trim()){const recents=a.recents?.()||[];list.append(el('h2','sps-section',recents.length?'Recents':'No recent searches'));for(const item of recents.slice(0,30))list.append(row(item,{removable:true}));return;}
+   const q=query.trim().toLowerCase(),out=[];
+   for(const item of a.items()){const hay=`${item.title} ${item.subtitle||''}`.toLowerCase();if(hay.includes(q)){out.push(item);if(out.length>=60)break;}}
+   if(!out.length){list.append(el('p','sps-empty',`No ${a.noun} found for “${query.trim()}”.`));return;}
+   for(const item of out)list.append(row(item));
+  }
+
+  function libraryEntries(){
+   const favs=a.favorites?.()||[],recents=a.recents?.()||[];
+   const pinned=[{id:'__liked',title:a.likedTitle||'Liked',subtitle:`Playlist • ${favs.length.toLocaleString()} ${a.noun}`,tile:'liked',pinned:true,items:favs},
+    {id:'__recent',title:'Recently played',subtitle:`Updated ${recents.length?'today':'when you play'}`,tile:'recent',pinned:true,items:recents}];
+   const groups=(a.categories?.()||[]).filter(c=>c.count>0).map(c=>({id:'cat:'+c.key,title:c.label,subtitle:`Playlist • ${Number(c.count).toLocaleString()} ${a.noun}`,mosaic:c.mosaic||[c.art].filter(Boolean),category:c.key,chip:c.chip||'playlists'}));
+   let entries=[...pinned,...groups.map(g=>({...g})),...favs.map(f=>({...f,subtitle:[f.type||a.itemType||'Station',f.subtitle].filter(Boolean).join(' • '),chip:'saved'}))];
+   if(chip)entries=entries.filter(e=>e.pinned?chip==='playlists':e.chip===chip);
+   if(sort==='alpha')entries=[...entries.filter(e=>e.pinned),...entries.filter(e=>!e.pinned).sort((x,y)=>x.title.localeCompare(y.title))];
+   return entries;
+  }
+  function tile(entry){
+   if(entry.tile==='liked'){const t=el('span','sps-art sps-art-liked');t.innerHTML=ICON.heart;return t;}
+   if(entry.tile==='recent'){const t=el('span','sps-art sps-art-recent');t.innerHTML=ICON.clock;return t;}
+   if(entry.mosaic&&entry.mosaic.length>1){const m=el('span','sps-art sps-mosaic');for(const src of entry.mosaic.slice(0,4))m.append(art(src,''));return m;}
+   return art(entry.mosaic?.[0]||entry.art);
+  }
+  function renderLibrary(){
+   if(drill){
+    const top=el('div','sps-search-top');const back=iconButton('back','Back to your library');back.addEventListener('click',()=>{drill=null;render();});
+    top.append(back,el('h1','sps-drill-title',drill.title));root.append(top);const list=el('div','sps-list');
+    const items=drill.items||[];if(!items.length)list.append(el('p','sps-empty',drill.id==='__liked'?`Tap ⊕ on any ${a.itemType?.toLowerCase()||'station'} to save it here.`:'Nothing played yet.'));
+    for(const item of items)list.append(row(item,{removable:drill.id==='__recent'}));root.append(list);return;
+   }
+   const head=header('Your Library');const tools=el('div','sps-header-tools');const find=iconButton('search','Search your library');find.addEventListener('click',()=>{page='search';focus=true;render();});
+   const plus=iconButton('plus',a.createLabel||'Add a source');plus.addEventListener('click',()=>a.create?.());tools.append(find,plus);head.append(tools);root.append(head);
+   const chips=el('div','sps-chips');for(const c of a.libraryChips){const b=el('button','sps-chip',c.label);b.type='button';b.setAttribute('aria-pressed',String(chip===c.key));b.addEventListener('click',()=>{chip=chip===c.key?'':c.key;render();});chips.append(b);}root.append(chips);
+   const bar=el('div','sps-sortbar');const s=el('button','sps-sort');s.type='button';s.innerHTML=ICON.sort;s.append(el('span','',sort==='recents'?'Recents':'Alphabetical'));s.addEventListener('click',()=>{sort=sort==='recents'?'alpha':'recents';render();});
+   const g=iconButton(grid?'list':'grid',grid?'Show as list':'Show as grid');g.addEventListener('click',()=>{grid=!grid;render();});bar.append(s,g);root.append(bar);
+   const list=el('div',grid?'sps-grid':'sps-list');
+   for(const entry of libraryEntries()){
+    const r=el('div','sps-row sps-lib-row');r.setAttribute('role','button');r.tabIndex=0;const body=el('div','sps-row-body');const title=el('strong',entry.id==='__liked'?'sps-green':'',entry.title);const sub=el('small','');
+    if(entry.pinned){const p=el('span','sps-pin');p.innerHTML=ICON.pin;sub.append(p);}sub.append(document.createTextNode(entry.subtitle||''));body.append(title,sub);r.append(tile(entry),body);
+    const open=()=>{if(entry.items){drill=entry;render();}else if(entry.category){hide();a.openCategory?.(entry.category);}else a.play(entry.id);};
+    r.addEventListener('click',open);r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();}});list.append(r);
+   }
+   root.append(list);
+  }
+  function render(){
+   root.replaceChildren();root.scrollTop=0;
+   if(!page){root.hidden=true;document.documentElement.classList.remove('sps-open');return;}
+   root.hidden=false;document.documentElement.classList.add('sps-open');root.dataset.page=page;
+   if(page==='search')renderSearch();else renderLibrary();
+  }
+  function show(next,opts={}){page=next;focus=Boolean(opts.focus);if(next!=='library')drill=null;render();a.onShow?.(next);}
+  function hide(){if(!page)return;page=null;focus=false;query='';drill=null;render();a.onShow?.(null);}
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&page&&!focus)hide();});
+  return Object.freeze({show,hide,refresh:()=>{if(page&&!(page==='search'&&focus))render();},state});
+ }
+ window.SterlingSpotifyShell=Object.freeze({mount,palette:PALETTE});
+})();
+
+</script>
   <style>
 /*!
  * Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com
@@ -687,6 +1024,102 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 .media-connection[hidden] {display:none;}
 .media-connection button {flex:0 0 44px;width:44px;height:44px;border:0;border-radius:50%;color:inherit;background:#ffffff12;font-size:18px;}
 .media-connection button:focus-visible {outline:2px solid currentColor;outline-offset:2px;}
+/* Spotify browse tiles use broadcaster artwork, quiet surfaces, and clear counts. */
+.media-browse-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.media-browse-grid>button {position:relative;isolation:isolate;min-width:0;height:112px;overflow:hidden;border:0;border-radius:9px;padding:16px;text-align:left;color:#fff;background:#126a55;}
+.media-browse-grid>button:nth-child(8n+2) {background:#a71972;}.media-browse-grid>button:nth-child(8n+3) {background:#8b20d5;}.media-browse-grid>button:nth-child(8n+4) {background:#244580;}.media-browse-grid>button:nth-child(8n+5) {background:#855fa1;}.media-browse-grid>button:nth-child(8n+6) {background:#a54f20;}.media-browse-grid>button:nth-child(8n+7) {background:#206c89;}.media-browse-grid>button:nth-child(8n) {background:#976813;}
+.media-browse-grid strong {display:block;position:relative;z-index:2;font-size:19px;font-weight:750;line-height:1.15;max-width:74%;letter-spacing:-.5px;}
+.media-browse-grid small {position:relative;z-index:2;display:block;font-size:11px;font-weight:600;margin-top:7px;opacity:.9;}
+.media-browse-grid img {position:absolute;width:78px;height:78px;object-fit:cover;right:-13px;bottom:-10px;border-radius:6px;transform:rotate(24deg);box-shadow:0 5px 16px #0007;z-index:1;}
+.media-browse-grid img[hidden] {display:none;}
+#radio-directory-browse {margin:28px 0;}#radio-directory-browse>h2 {font-size:22px;font-weight:750;margin-bottom:16px;letter-spacing:-.5px;}
+html:not([data-radio-category=all]) #radio-directory-browse,html[data-radio-view=search] #radio-directory-browse,html[data-radio-view=library] #radio-directory-browse,#radio-directory-browse[hidden] {display:none;}
+html[data-radio-directory-filtered=true] :is(#radio-home-quick,#sp-collections,#sp-recents-section,#sp-suggested-section,#sp-mostplayed-section,#ytm-recents-section) {display:none!important;}
+.radio-directory-tools {margin:8px 0 20px;}.radio-directory-tools[hidden] {display:none;}
+.radio-directory-summary {display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}.radio-directory-summary>span {flex:1 1 180px;color:#aaa;font-size:11px;line-height:1.6;}
+.radio-directory-summary button,.radio-load-more {border:1px solid #ffffff30;border-radius:24px;background:transparent;color:#f5f5f5;padding:10px 16px;min-height:44px;font-size:12px;font-weight:650;}
+.radio-directory-summary button[hidden],.radio-load-more[hidden] {display:none;}.radio-load-more {display:block;margin:24px auto;width:100%;max-width:380px;}
+.radio-directory-selects {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:end;}
+.radio-directory-selects label {font-size:10px;color:#aaa;min-width:0;}.radio-directory-selects select {display:block;width:100%;height:44px;margin-top:4px;border-radius:8px;background:#242424;color:#fff;border:1px solid #ffffff18;padding:0 10px;font-size:12px!important;}
+.radio-directory-selects .radio-secure-filter {grid-column:1/-1;display:flex;align-items:center;gap:8px;min-height:36px;font-size:12px;}.radio-secure-filter input {accent-color:#1ed760;width:18px;height:18px;}
+.radio-genre-chips {display:flex;gap:8px;overflow:auto;scrollbar-width:none;padding:4px 0;}.radio-genre-chips button {white-space:nowrap;border:0;border-radius:24px;padding:9px 14px;min-height:40px;background:#282828;color:#eee;font-size:12px;font-weight:600;}.radio-genre-chips button[aria-pressed=true] {background:#1ed760;color:#071a0d;}
+.radio-source-dialog {margin:auto;background:#181818;color:#fff;border:1px solid #ffffff20;border-radius:20px;padding:24px;width:min(600px,calc(100vw - 24px));max-height:88dvh;overflow:auto;overscroll-behavior:contain;font-family:Inter,system-ui,sans-serif;}
+.radio-source-dialog::backdrop {background:#000b;}.radio-source-dialog header {display:flex;align-items:center;justify-content:space-between;gap:16px;background:transparent!important;}.radio-source-dialog header small {font-size:9px;letter-spacing:1.5px;color:#a7bcaf;}.radio-source-dialog h2 {font-size:26px;font-weight:750;margin:5px 0;letter-spacing:-.8px;}.radio-source-dialog p {font-size:12px;color:#aaa;line-height:1.6;margin:14px 0;}
+.radio-source-dialog button {min-height:44px;border:1px solid #ffffff30;border-radius:22px;padding:9px 14px;color:#fff;background:transparent;font-size:12px;}.radio-source-dialog header button {width:44px;padding:0;flex:none;}.radio-source-dialog article {padding:16px 0;border-bottom:1px solid #ffffff12;}.radio-source-dialog article strong {display:block;font-size:14px;}.radio-source-dialog article small {display:block;overflow-wrap:anywhere;font-size:11px;color:#a9a9a9;margin-top:8px;}.radio-source-dialog article div,.radio-source-dialog footer,.radio-source-actions {display:flex;gap:8px;flex-wrap:wrap;}.radio-source-dialog form {display:grid;gap:14px;margin:22px 0;}.radio-source-dialog label {font-size:12px;color:#bbb;}.radio-source-dialog input,.radio-source-dialog select,#radio-default-search {display:block;width:100%;min-height:46px;border-radius:8px;border:1px solid #ffffff30;background:#292929;color:#fff;padding:10px 12px;margin-top:7px;font-size:16px;}.radio-source-dialog button[type=submit] {background:#1ed760;color:#061a0c;border-color:transparent;font-weight:750;}.radio-source-dialog [hidden] {display:none;}
+@media(max-width:600px){.radio-source-dialog {width:100%;max-width:100%;margin:auto 0 0;border-radius:24px 24px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom));}.radio-directory-selects {grid-template-columns:1fr 1fr;}.radio-directory-selects label:nth-child(3) {grid-column:1/-1;}.media-browse-grid>button {height:105px;padding:14px;}.media-browse-grid strong {font-size:18px;}}
+@media(min-width:900px){.media-browse-grid {grid-template-columns:repeat(4,minmax(0,1fr));}}
+
+.media-shelf-count {display:block;color:#999;font-size:11px;font-weight:500;letter-spacing:0;margin-top:5px;}
+.theme-spotify .media-browse-grid>button strong {color:#fff;}
+
+.radio-directory-filters {margin-bottom:10px;}.radio-directory-filters summary {min-height:44px;display:flex;align-items:center;gap:8px;color:#c3c3c3;font-size:12px;cursor:pointer;list-style:none;}.radio-directory-filters summary::after {content:'⌄';}.radio-directory-filters[open] summary::after {content:'⌃';}.media-browse-grid>button[hidden] {display:none;}
+#radio-world-shelves[hidden],html:not([data-radio-category=all]) #radio-world-shelves,html[data-radio-view=search] #radio-world-shelves,html[data-radio-view=library] #radio-world-shelves,html[data-radio-directory-filtered=true] #radio-world-shelves {display:none;}
+.radio-world-shelf {margin:28px 0;}.radio-world-shelf[hidden] {display:none;}.radio-world-shelf header {display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px;background:transparent!important;}.radio-world-shelf h2 {font-size:20px;line-height:1.3;letter-spacing:-.5px;font-weight:750;}.radio-world-shelf header button {white-space:nowrap;background:transparent;border:0;color:#aaa;min-height:44px;font-size:11px;}.radio-world-shelf>div {display:flex;gap:14px;overflow:auto;scroll-snap-type:x proximity;scrollbar-width:none;}
+.media-station-album {flex:0 0 142px;min-width:0;text-align:left;scroll-snap-align:start;background:transparent;border:0;padding:0;}.media-station-album img {width:142px;height:142px;object-fit:cover;border-radius:5px;background:#242424;}.media-station-album strong,.media-station-album small {display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;line-height:1.4;margin-top:9px;}.media-station-album small {font-size:11px;color:#a7a7a7;margin-top:3px;}
+@media(max-width:767px){.mode-spotify #sp-top-compact-grid .btn-circle {display:none!important;}.mode-spotify #sp-top-compact-grid>div>div:first-child {flex:1;min-width:0;gap:10px;}.mode-spotify #sp-top-compact-grid [data-radio-station]+div {min-width:0;flex:1;}.mode-spotify #sp-top-compact-grid [data-radio-station]+div>div:first-child {white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:11px;line-height:1.35;}.mode-spotify #sp-top-compact-grid [data-radio-station]+div>div:last-child {display:none;}}
+html[data-radio-view=library] .radio-directory-tools,html[data-radio-category=podcasts] .radio-directory-tools {display:none;}
+
+body.theme-spotify[data-tv-backdrop=auto]:not(.tm-now-open) #main-scroll {background:#121212!important;}
+body.theme-spotify #tv-mobile-shell {background:#121212;}
+
+/* ── Spotify-style Search / Recents / Your Library (spotify-shell.js) ───────── */
+.sps-root{position:fixed;inset:0;z-index:70;padding-bottom:calc(var(--sps-bottom,130px) + 16px)!important;overflow-y:auto;overscroll-behavior:contain;background:#121212;color:#fff;
+ font-family:'Circular','Inter',system-ui,sans-serif;padding:12px 16px 24px;-webkit-overflow-scrolling:touch}
+.sps-root[hidden]{display:none}
+.sps-root svg{width:24px;height:24px;fill:currentColor}
+.sps-header{display:flex;align-items:center;gap:12px;padding:6px 0 14px}
+.sps-header h1{font-size:24px;font-weight:700;margin:0;flex:1;letter-spacing:-.01em}
+.sps-header-tools{display:flex;gap:6px}
+.sps-avatar{width:34px;height:34px;border-radius:50%;border:0;background:#1ed760;color:#000;font-weight:700;font-size:14px;flex:none;cursor:pointer}
+.sps-icon{width:40px;height:40px;border:0;border-radius:50%;background:transparent;color:#fff;display:grid;place-items:center;cursor:pointer}
+.sps-icon:active{background:rgba(255,255,255,.08)}
+.sps-search-box{width:100%;display:flex;align-items:center;gap:10px;height:48px;padding:0 14px;border:0;border-radius:6px;background:#fff;color:#121212;font-size:16px;font-weight:600;cursor:text;text-align:left}
+.sps-search-box svg{width:26px;height:26px;fill:#121212;flex:none}
+.sps-search-box span{color:#535353;font-weight:600}
+.sps-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px 0 8px}
+.sps-tile{position:relative;overflow:hidden;height:98px;border:0;border-radius:6px;padding:12px;text-align:left;color:#fff;cursor:pointer;display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.sps-tile strong{font-size:16px;font-weight:700;line-height:1.15;max-width:62%;z-index:1}
+.sps-tile small{font-size:11px;opacity:.85;z-index:1}
+.sps-tile-art{position:absolute;right:-14px;bottom:-6px;width:66px;height:66px;object-fit:cover;border-radius:4px;transform:rotate(25deg);box-shadow:0 2px 8px rgba(0,0,0,.35)}
+.sps-section{font-size:20px;font-weight:700;margin:22px 0 12px}
+.sps-tall{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:6px}
+.sps-tall-card{position:relative;flex:0 0 150px;height:250px;border:0;border-radius:8px;overflow:hidden;padding:0;background:#282828;color:#fff;scroll-snap-align:start;cursor:pointer}
+.sps-tall-card img{width:100%;height:100%;object-fit:cover}
+.sps-tall-card strong{position:absolute;left:10px;right:10px;bottom:10px;font-size:13px;font-weight:700;text-align:left;text-shadow:0 1px 6px rgba(0,0,0,.8)}
+.sps-search-top{display:flex;align-items:center;gap:8px;margin:2px -4px 8px}
+.sps-search-field{flex:1;height:44px;border:0;border-radius:22px;background:#2a2a2a;color:#fff;padding:0 18px;font-size:16px;outline:none}
+.sps-search-field::placeholder{color:#a7a7a7}
+.sps-drill-title{font-size:20px;font-weight:700;margin:0}
+.sps-list{display:flex;flex-direction:column}
+.sps-row{display:flex;align-items:center;gap:12px;padding:8px 0;cursor:pointer;min-height:64px}
+.sps-row:active{opacity:.7}
+.sps-art{width:56px;height:56px;border-radius:4px;object-fit:cover;flex:none;background:#282828}
+.sps-lib-row .sps-art{width:64px;height:64px}
+.sps-art-liked{display:grid;place-items:center;background:linear-gradient(135deg,#450af5,#c4efd9)}
+.sps-art-recent{display:grid;place-items:center;background:#5b3a99}
+.sps-art-liked svg,.sps-art-recent svg{width:26px;height:26px}
+.sps-mosaic{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;overflow:hidden}
+.sps-mosaic img{width:100%;height:100%;object-fit:cover}
+.sps-row-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.sps-row-body strong{font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sps-row-body small{font-size:13px;color:#a7a7a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.sps-green{color:#1ed760!important}
+.sps-pin svg{width:15px;height:15px}
+.sps-row-action{width:40px;height:40px;flex:none;border:0;background:transparent;color:#b3b3b3;display:grid;place-items:center;cursor:pointer}
+.sps-row-action svg{width:24px;height:24px}
+.sps-chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0 14px;margin:0 -16px;padding-left:16px;padding-right:16px}
+.sps-chip{flex:none;height:34px;padding:0 16px;border-radius:17px;border:0;background:#2a2a2a;color:#fff;font-size:14px;cursor:pointer}
+.sps-chip[aria-pressed=true]{background:#1ed760;color:#000}
+.sps-sortbar{display:flex;align-items:center;justify-content:space-between;padding:4px 0 6px}
+.sps-sort{display:flex;align-items:center;gap:8px;border:0;background:transparent;color:#fff;font-size:14px;font-weight:600;cursor:pointer;padding:6px 0}
+.sps-sort svg{width:18px;height:18px}
+.sps-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.sps-grid .sps-row{flex-direction:column;align-items:flex-start;min-height:0}
+.sps-grid .sps-art{width:100%;height:auto;aspect-ratio:1}
+.sps-empty{color:#a7a7a7;font-size:14px;padding:24px 0;text-align:center}
+@media (min-width:1024px){.sps-root{left:auto;width:min(480px,40vw);border-left:1px solid #282828}}
+.solid-sp-mob-nav [data-sps-create]{display:flex!important}
+.sps-chips::-webkit-scrollbar,.sps-tall::-webkit-scrollbar{display:none}.sps-tall{scrollbar-width:none}
 
 </style>
   <script>
@@ -2577,6 +3010,8 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         if (Array.isArray(fallback)) return Array.isArray(value) ? value.filter(station).map(entry=>({...entry,tags:Array.isArray(entry.tags)?entry.tags.filter(tag=>typeof tag==='string'):[],backupUrls:Array.isArray(entry.backupUrls)?entry.backupUrls.filter(url=>typeof url==='string'):[]})).slice(0,200) : fallback;
         if(key==='omnicast_v11_config'&&value&&typeof value==='object'&&!Array.isArray(value)){
           const clean={...value};
+          if('catalogSources' in clean)clean.catalogSources=window.SterlingRadioCatalog?.normalizeSources(clean.catalogSources);
+          const filters=clean.catalogFilters;clean.catalogFilters=filters&&typeof filters==='object'?{language:typeof filters.language==='string'?filters.language.slice(0,100):'',country:typeof filters.country==='string'?filters.country.slice(0,100):'',tag:typeof filters.tag==='string'?filters.tag.slice(0,100):'',secure:filters.secure===true}:{};
           for(const field of ['volume','bass','mid','treble'])if(!Number.isFinite(clean[field]))delete clean[field];
           if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
           if(typeof clean.muted!=='boolean')delete clean.muted;
@@ -2648,18 +3083,15 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       const anchorTags = new Set(anchor.tags || []);
       const anchorCat = anchor.category || '';
 
-      return MASTER_POOL
-        .filter(ch => ch.id !== anchor.id)
-        .map(ch => {
-          let score = 0;
-          if (ch.category && ch.category === anchorCat) score += 5;
-          if (ch.freqKhz && anchor.freqKhz) score += 3;
-          (ch.tags || []).forEach(t => { if (anchorTags.has(t)) score += 4; });
-          return { ch, score };
-        })
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10)
-        .map(s => s.ch);
+      const ranked=[];
+      for(const ch of MASTER_POOL){
+        if(ch.id===anchor.id)continue;
+        let score=(ch.category&&ch.category===anchorCat?5:0)+(ch.freqKhz&&anchor.freqKhz?3:0);
+        for(const tag of ch.tags||[])if(anchorTags.has(tag))score+=4;
+        let index=0;while(index<ranked.length&&ranked[index].score>=score)index++;
+        if(index<10){ranked.splice(index,0,{ch,score});if(ranked.length>10)ranked.pop();}
+      }
+      return ranked.map(item=>item.ch);
     }
 
     function clearRecentsHistory() {
@@ -2710,8 +3142,11 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 
     function populateStartupSelectDropdown() {
       const sel = document.getElementById('startup-channel-select');
-      const allChoices = [...MASTER_POOL, ...recentsList, ...likedStations, appConfig.startupStationSnapshot]
-        .filter((v, i, a) => v && v.id && a.findIndex(t => t?.id === v.id) === i);
+      let input=document.getElementById('radio-default-search');
+      if(!input){input=document.createElement('input');input.id='radio-default-search';input.type='search';input.placeholder='Find a default station…';input.setAttribute('aria-label','Find default radio station');input.addEventListener('input',populateStartupSelectDropdown);sel.before(input);}
+      const query=input.value.trim(),pool=query?getRadioSearchMatches(MASTER_POOL,query,100):MASTER_POOL.slice(0,80);
+      const seen=new Set(),allChoices=[];
+      for(const station of [appConfig.startupStationSnapshot,activeStream,...recentsList,...likedStations,...pool]){if(!station||seen.has(station.id))continue;seen.add(station.id);allChoices.push(station);if(allChoices.length===120)break;}
 
       sel.innerHTML = allChoices.map(ch => `
         <option value="${escapeRadioText(ch.id)}" ${ch.id === appConfig.startupStationId ? 'selected' : ''}>
@@ -2799,6 +3234,107 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     const audio = document.getElementById('audio-engine');
     let hlsInstance = null;
 
+    const CURATED_RADIO_POOL=[...MASTER_POOL];
+    let radioCatalog=null,radioDirectoryUi=null,radioDirectorySnapshot=null;
+    const radioDirectoryIndexed=new WeakSet();
+    function radioDirectoryBase(cat=appConfig.activeCategory) {
+      if(cat==='shortwave')return MASTER_POOL.filter(station=>station.category==='shortwave');
+      if(cat==='akashvani')return MASTER_POOL.filter(station=>station.category==='akashvani'||/akashvani|all india radio/i.test(station.title));
+      if(cat==='telugu'||cat==='tamil')return MASTER_POOL.filter(station=>station.category===cat||(station.languages||[]).includes(cat));
+      if(cat==='featured')return MASTER_POOL.filter(station=>station.category!=='shortwave');
+      return MASTER_POOL;
+    }
+    function radioDirectoryFiltered(pool){return window.SterlingRadioDirectory?pool.filter(station=>window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{})):pool;}
+    function updateRadioDirectoryCounts(){
+      const keys={all:['all','All'],shortwave:['sw','SW / AM'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],tamil:['ta','Tamil'],featured:['feat','World FM']};
+      for(const [cat,[suffix,label]] of Object.entries(keys))for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
+        const button=document.getElementById(prefix+suffix);if(!button)continue;
+        const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
+      }
+    }
+    function refreshRadioDirectory(snapshot=radioDirectorySnapshot){
+      if(!snapshot)return;radioDirectorySnapshot=snapshot;
+      updateRadioDirectoryCounts();const base=radioDirectoryBase();
+      const filtered=radioDirectoryUi?.update(snapshot,base)||radioDirectoryFiltered(base);
+      if(appConfig.activeCategory==='podcasts'||document.documentElement.dataset.radioView==='library')return;
+      if(radioSearchQuery.trim()){
+        const seen=new Set(),pool=[...filtered,...catalogItems].filter(station=>{if(seen.has(station.streamUrl))return false;seen.add(station.streamUrl);return window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{});});
+        catalogItems=getRadioSearchMatches(pool,radioSearchQuery);
+      }else catalogItems=filtered;
+      renderCategoryGrids();if(radioSearchQuery.trim())publishRadioSuggestions(radioSearchQuery);
+    }
+    function initRadioDirectory(){
+      if(!window.SterlingRadioCatalog||!window.SterlingRadioDirectory)return;
+      if(radioCatalog){void radioCatalog.reload(appConfig.catalogSources);return;}
+      radioCatalog=window.SterlingRadioCatalog.create({seeds:CURATED_RADIO_POOL,sources:appConfig.catalogSources,onUpdate:snapshot=>{
+        MASTER_POOL.length=0;for(const station of snapshot.stations){MASTER_POOL.push(station);if(!radioDirectoryIndexed.has(station)){radioSearchFields(station);radioDirectoryIndexed.add(station);}}refreshRadioDirectory(snapshot);
+      }});
+      radioDirectoryUi=window.SterlingRadioDirectory.mount({catalog:radioCatalog,getConfig:()=>appConfig,artwork:getStationIdentityThumbnail,onPlay:playStationById,
+        onSources:sources=>{appConfig.catalogSources=sources;saveAppConfig();void radioCatalog.reload(sources);},
+        onFilter:(filters,fromHome)=>{if(fromHome)loadCategory('all');appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
+      });
+      window.addEventListener('pagehide',event=>{if(!event.persisted)radioCatalog.pause();});
+      void radioCatalog.load();
+    }
+    function openRadioSources(){radioDirectoryUi?.openSources();}
+    /* Spotify-style Search / Recents / Your Library, shared with TV (media/spotify-shell.js). */
+    let spotifyShell=null,shellCategoryCache={size:-1,list:[]};
+    const SHELL_TAGS=[['news','News & talk'],['pop','Pop'],['rock','Rock'],['jazz','Jazz'],['classical','Classical'],['dance','Dance'],['talk','Talk'],['devotional','Devotional']];
+    const SHELL_LANGS=[['telugu','Telugu'],['tamil','Tamil'],['hindi','Hindi'],['english','English']];
+    function shellItem(s){return {id:s.id,title:s.title,subtitle:s.subtitle,art:getStationIdentityThumbnail(s),type:'Station'};}
+    function shellCategories(){
+      if(shellCategoryCache.size===MASTER_POOL.length)return shellCategoryCache.list;
+      const counts=new Map(),art=new Map(),mosaic=new Map();
+      const bump=(key,s)=>{counts.set(key,(counts.get(key)||0)+1);if(!art.has(key))art.set(key,getStationIdentityThumbnail(s));const m=mosaic.get(key)||[];if(m.length<4){m.push(getStationIdentityThumbnail(s));mosaic.set(key,m);}};
+      for(const s of MASTER_POOL){for(const l of s.languages||[])bump('lang:'+l,s);for(const t of new Set(s.tags||[]))bump('tag:'+t,s);}
+      const list=[...SHELL_LANGS.map(([k,label])=>({key:'lang:'+k,label,chip:'languages'})),...SHELL_TAGS.map(([k,label])=>({key:'tag:'+k,label,chip:'genres'}))]
+        .map(c=>({...c,count:counts.get(c.key)||0,art:art.get(c.key),mosaic:mosaic.get(c.key)||[]})).filter(c=>c.count>0);
+      shellCategoryCache={size:MASTER_POOL.length,list};return list;
+    }
+    function shellOpenCategory(key){
+      const [kind,value]=key.split(':');
+      if(kind==='lang'&&['telugu','tamil'].includes(value)){appConfig.catalogFilters={};saveAppConfig();loadCategory(value);return;}
+      appConfig.catalogFilters=kind==='lang'?{language:value}:{tag:value};saveAppConfig();loadCategory('all');refreshRadioDirectory();
+      document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});
+    }
+    function shellActive(){return document.body.classList.contains('mode-spotify')&&window.innerWidth<1024;}
+    function initSpotifyShell(){
+      if(spotifyShell||!window.SterlingSpotifyShell)return;
+      spotifyShell=window.SterlingSpotifyShell.mount({kind:'radio',noun:'stations',itemType:'Station',likedTitle:'Liked Stations',placeholder:'What do you want to listen to?',
+        avatar:()=>(document.querySelector('[data-radio-avatar],#sp-avatar')?.textContent||'N').trim().slice(0,1)||'N',
+        items:()=>MASTER_POOL.map(shellItem),
+        recents:()=>recentsList.map(shellItem),
+        removeRecent:id=>{recentsList=recentsList.filter(s=>s.id!==id);try{radioStorage.setItem('omnicast_v11_recents',JSON.stringify(recentsList));}catch(_){};renderPersonalizedShelves?.();},
+        favorites:()=>likedStations.map(shellItem),
+        isFavorite:id=>likedStations.some(s=>s.id===id),
+        toggleFavorite:id=>{const st=findStationById(id);if(!st)return;if(likedStations.some(s=>s.id===id))likedStations=likedStations.filter(s=>s.id!==id);else likedStations.unshift(st);
+          try{radioStorage.setItem('omnicast_v11_liked',JSON.stringify(likedStations));}catch(_){};syncLikeIcons();},
+        play:id=>{playStationById(id);},
+        categories:shellCategories,openCategory:shellOpenCategory,
+        featured:()=>(recentsList.length?recentsList:CURATED_RADIO_POOL).slice(0,10).map(shellItem),featuredTitle:'Stations to discover',
+        libraryChips:[{key:'playlists',label:'Playlists'},{key:'genres',label:'Genres'},{key:'languages',label:'Languages'},{key:'saved',label:'Saved'}],
+        create:openRadioSources,createLabel:'Add a radio source',
+        onShow:page=>{document.documentElement.dataset.spsPage=page||'';markShellNav(page);}
+      });
+      const nav=document.querySelector('nav.solid-sp-mob-nav');
+      if(nav){
+        const create=nav.querySelector('[data-radio-click="30"]');
+        if(create){create.dataset.spsCreate='1';create.querySelector('i').className='fa-solid fa-plus text-[18px]';create.querySelector('span').textContent='Create';}
+        nav.addEventListener('click',e=>{
+          const b=e.target.closest('[data-radio-click]');if(!b||!shellActive())return;
+          const code=b.dataset.radioClick;
+          if(code==='63'){e.preventDefault();e.stopImmediatePropagation();spotifyShell.show('search');}
+          else if(code==='64'){e.preventDefault();e.stopImmediatePropagation();spotifyShell.show('library');}
+          else if(code==='30'){e.preventDefault();e.stopImmediatePropagation();openRadioSources();}
+          else spotifyShell.hide();
+        },true);
+      }
+    }
+    function markShellNav(page){
+      document.querySelectorAll('nav.solid-sp-mob-nav [data-radio-click]').forEach(b=>{const code=b.dataset.radioClick;const on=page?(page==='search'?code==='63':code==='64'):code==='80';b.classList.toggle('text-white',on);b.classList.toggle('text-[#b3b3b3]',!on);});
+    }
+
+
     // --- 6. Initialization ---
     let radioHosted = false;
     let radioSearchQuery = '';
@@ -2830,6 +3366,8 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       loadCategory(appConfig.activeCategory || 'all', true);
       renderPersonalizedShelves();
       renderSidebarList();
+      initRadioDirectory();
+      initSpotifyShell();
       bindAudioEvents();
       bindBackgroundPlayGuard();
       bindTouchSheet();
@@ -2868,6 +3406,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
         if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200),event.data.requestId);
         if(action==='select-suggestion'&&typeof value==='string'){const ch=findStationById(value);if(ch){startPlayback(ch);clearAllSearches();}}
+        if(action==='sources')openRadioSources();
         if (action === 'more' || action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
         return;
@@ -2881,6 +3420,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       playCounts = readRadioJson('omnicast_v11_counts', {});
       likedStations = readRadioJson('omnicast_v11_liked', []);
       if (radioBooted) {
+        initRadioDirectory();
         // A slow parent hydration may arrive after the standalone fallback
         // started. Apply stored preferences without installing duplicate loops
         // or restarting an already-playing station.
@@ -3094,9 +3634,8 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       document.querySelector('#sp-recents-section h2').textContent=recentsList.length ? 'Recently played' : 'Start listening';
       document.getElementById('ytm-recents-section').querySelector('h2').textContent=recentsList.length ? 'Listen again' : 'Start listening';
       document.getElementById('sp-mostplayed-section').classList.toggle('hidden',!mostPlayedList.length);
-      const topSix = [...recentsList.slice(0, 4), ...mostPlayedList.slice(0, 4), ...starterStations, ...MASTER_POOL]
-        .filter((v, i, a) => a.findIndex(t => t?.id === v.id) === i)
-        .slice(0, 8);
+      const topSix=[],quickSeen=new Set();
+      for(const station of [...recentsList.slice(0,4),...mostPlayedList.slice(0,4),...starterStations,...CURATED_RADIO_POOL]){if(!station||quickSeen.has(station.id))continue;quickSeen.add(station.id);topSix.push(station);if(topSix.length===8)break;}
 
       document.getElementById('sp-top-compact-grid').innerHTML = topSix.map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
@@ -3242,10 +3781,12 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       renderYtmDrawerList();
     }
 
+    let radioQueueCount=100;
     function renderYtmDrawerList() {
       const box = document.getElementById('ytm-upnext-list');
       const list = ytmDrawerTab === 'related' ? computeSimilarChannels(activeStream) : catalogItems;
-      box.innerHTML = list.map(ch => {
+      const start=ytmDrawerTab==='related'?0:Math.max(0,list.findIndex(station=>station.id===activeStream?.id)-5);
+      box.innerHTML = list.slice(start,start+radioQueueCount).map(ch => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
           <div data-radio-click="71" data-radio-arg="${escapeRadioText(ch.id)}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
@@ -3260,6 +3801,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
           </div>
         `;
       }).join('');
+      if(start+radioQueueCount<list.length){const more=document.createElement('button');more.type='button';more.className='radio-load-more';more.textContent=`Show more in queue · ${Math.min(radioQueueCount,list.length-start)} of ${list.length-start}`;more.onclick=()=>{radioQueueCount+=100;renderYtmDrawerList();};box.append(more);}
     }
 
     function toggleMobileSearch() {
@@ -3322,11 +3864,11 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       } else if (cat === 'telugu') {
         setHeadings('Telugu Radio Channels');
         catalogItems = [...TELUGU_STATIONS];
-        appendLiveLanguageStations('telugu');
+        if(!window.SterlingRadioCatalog)appendLiveLanguageStations('telugu');
       } else if (cat === 'tamil') {
         setHeadings('Tamil Radio Channels');
         catalogItems = [...TAMIL_STATIONS];
-        appendLiveLanguageStations('tamil');
+        if(!window.SterlingRadioCatalog)appendLiveLanguageStations('tamil');
       } else if (cat === 'featured') {
         setHeadings('Global FM Stations');
         catalogItems = [...ELITE_GLOBAL_STATIONS];
@@ -3337,7 +3879,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         return;
       }
 
-      renderCategoryGrids();
+      if(radioCatalog)refreshRadioDirectory();else renderCategoryGrids();
     }
 
     function setHeadings(title) {
@@ -3398,22 +3940,28 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       renderCategoryGrids();
     }
 
-    function renderCategoryGrids() {
-      const spCards = document.getElementById('sp-cards-grid');
-      const ytmQuick = document.getElementById('ytm-quick-picks');
-      const ytmCards = document.getElementById('ytm-cards-grid');
-      document.getElementById('sp-grid-count').textContent = `${catalogItems.length} channels`;
-      ['sp-cards-grid','ytm-cards-grid'].forEach(id => {
-        const grid=document.getElementById(id);
-        grid.parentElement.querySelector('.radio-empty-state')?.remove();
-        if(!catalogItems.length) {
-          const empty=document.createElement('p');empty.className='radio-empty-state';empty.setAttribute('role','status');
-          empty.textContent=document.documentElement.dataset.radioView==='library' ? 'Your library is empty. Save a station using the heart in Now Playing.' : radioSearchQuery ? 'No stations found. Try a station name, language, or frequency.' : 'No channels available in this collection.';
-          grid.after(empty);
-        }
-      });
+    let radioGridRendered=0,radioGridRows=[],radioGridView='',radioAppendPending=false,radioAutoLoadArmed=false;
+    for(const type of ['wheel','touchmove'])document.addEventListener(type,()=>{radioAutoLoadArmed=true;},{passive:true});
+    document.addEventListener('keydown',event=>{if(['PageDown','End','ArrowDown',' '].includes(event.key))radioAutoLoadArmed=true;});
+    const radioCatalogObserver=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{if(!radioAutoLoadArmed||radioAppendPending||!entries.some(entry=>entry.isIntersecting&&!entry.target.hidden&&document.activeElement!==entry.target))return;radioAppendPending=true;radioAutoLoadArmed=false;const view=radioGridView;requestAnimationFrame(()=>{radioAppendPending=false;if(view===radioGridView)appendRadioCatalogBatch();});},{rootMargin:'120px'}):null;
+    function syncRadioLoadMore(){
+      for(const id of ['sp-cards-grid','ytm-cards-grid']){
+        const grid=document.getElementById(id);let button=grid.parentElement.querySelector('.radio-load-more');
+        if(!button){button=document.createElement('button');button.type='button';button.className='radio-load-more';button.addEventListener('click',appendRadioCatalogBatch);grid.after(button);radioCatalogObserver?.observe(button);}
+        button.hidden=radioGridRendered>=catalogItems.length;button.textContent=`Show more stations · ${radioGridRendered.toLocaleString()} of ${catalogItems.length.toLocaleString()}`;
+      }
+    }
+    function appendRadioCatalogBatch(){
+      if(radioGridRendered>=catalogItems.length)return;
+      const offset=radioGridRendered,next=catalogItems.slice(offset,offset+60);
+      document.getElementById('sp-cards-grid').insertAdjacentHTML('beforeend',radioGridMarkup(next,offset,true));
+      document.getElementById('ytm-cards-grid').insertAdjacentHTML('beforeend',radioGridMarkup(next,offset,false));
+      radioGridRows.push(...next);radioGridRendered+=next.length;syncRadioLoadMore();
+    }
 
-      spCards.innerHTML = catalogItems.map((ch, idx) => {
+    function radioGridMarkup(items,offset,spotify){
+      if(spotify){return items.map((ch, localIndex) => {
+        const idx=offset+localIndex;
         const emblem = getStationIdentityThumbnail(ch);
         return `
           <div data-radio-click="72" data-radio-arg="${idx}" class="group bg-[#181818] hover:bg-[#242424] p-3 rounded-[6px] transition cursor-pointer flex flex-col">
@@ -3427,9 +3975,46 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
             <div class="text-[12px] text-[#b3b3b3] truncate mt-0.5">${escapeRadioText(ch.subtitle)}</div>
           </div>
         `;
+      }).join('');}
+      return items.map((ch, localIndex) => {
+        const idx=offset+localIndex;
+        const emblem = getStationIdentityThumbnail(ch);
+        return `
+          <div data-radio-click="72" data-radio-arg="${idx}" class="group cursor-pointer flex flex-col">
+            <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
+              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
+            </div>
+            <div class="font-medium text-[14px] text-white truncate">${escapeRadioText(ch.title)}</div>
+            <div class="text-[12px] text-[#aaa] truncate mt-0.5">${escapeRadioText(ch.subtitle)}</div>
+          </div>
+        `;
       }).join('');
+    }
 
-      ytmQuick.innerHTML = catalogItems.slice(0, 12).map((ch, idx) => {
+    function renderCategoryGrids() {
+      const spCards = document.getElementById('sp-cards-grid');
+      const ytmQuick = document.getElementById('ytm-quick-picks');
+      const ytmCards = document.getElementById('ytm-cards-grid');
+      document.getElementById('sp-grid-count').textContent = `${catalogItems.length.toLocaleString()} channels`;
+      if(appConfig.activeCategory==='podcasts')for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const button=document.getElementById(prefix+'pod');if(button)button.textContent=`Podcasts ${catalogItems.length.toLocaleString()}`;}
+      const viewKey=[appConfig.activeCategory,radioSearchQuery,document.documentElement.dataset.radioView,JSON.stringify(appConfig.catalogFilters||{})].join('|');
+      const preserveGrid=radioGridView===viewKey&&radioGridRows.length>0&&radioGridRows.every((station,index)=>station===catalogItems[index]);
+      radioGridView=viewKey;
+      if(!preserveGrid){radioGridRendered=Math.min(60,catalogItems.length);radioGridRows=catalogItems.slice(0,radioGridRendered);}
+      const visible=radioGridRows;
+      ['sp-cards-grid','ytm-cards-grid'].forEach(id => {
+        const grid=document.getElementById(id);
+        grid.parentElement.querySelector('.radio-empty-state')?.remove();
+        if(!catalogItems.length) {
+          const empty=document.createElement('p');empty.className='radio-empty-state';empty.setAttribute('role','status');
+          empty.textContent=document.documentElement.dataset.radioView==='library' ? 'Your library is empty. Save a station using the heart in Now Playing.' : radioSearchQuery ? 'No stations found. Try a station name, language, or frequency.' : 'No channels available in this collection.';
+          grid.after(empty);
+        }
+      });
+
+      if(!preserveGrid)spCards.innerHTML=radioGridMarkup(visible,0,true);
+
+      if(!preserveGrid)ytmQuick.innerHTML = catalogItems.slice(0, 12).map((ch, idx) => {
         const emblem = getStationIdentityThumbnail(ch);
         return `
           <div data-radio-click="72" data-radio-arg="${idx}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer group transition">
@@ -3445,18 +4030,8 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         `;
       }).join('');
 
-      ytmCards.innerHTML = catalogItems.map((ch, idx) => {
-        const emblem = getStationIdentityThumbnail(ch);
-        return `
-          <div data-radio-click="72" data-radio-arg="${idx}" class="group cursor-pointer flex flex-col">
-            <div class="relative aspect-square w-full mb-2 rounded-[6px] overflow-hidden bg-[#121212]">
-              <img data-radio-station="${escapeRadioText(ch.id)}" src="${emblem}" loading="lazy" class="w-full h-full object-cover" alt="" />
-            </div>
-            <div class="font-medium text-[14px] text-white truncate">${escapeRadioText(ch.title)}</div>
-            <div class="text-[12px] text-[#aaa] truncate mt-0.5">${escapeRadioText(ch.subtitle)}</div>
-          </div>
-        `;
-      }).join('');
+      if(!preserveGrid)ytmCards.innerHTML=radioGridMarkup(visible,0,false);
+      syncRadioLoadMore();
 
       if (ytmQueueOpen) renderYtmDrawerList();
       enrichVisibleStationArtwork();
@@ -3927,7 +4502,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       document.querySelectorAll('main').forEach(main=>main.scrollTo({top:0,behavior:'instant'}));
       setHeadings(`Results for "${query.trim()}"`);
 
-      const localMatches = getRadioSearchMatches(MASTER_POOL, q);
+      const localMatches = getRadioSearchMatches(radioDirectoryFiltered(radioDirectoryBase()), q);
 
       catalogItems=localMatches;
       renderCategoryGrids();
@@ -3963,9 +4538,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
             title: cleanName,
             subtitle: `${String(s.country || 'Live Radio').slice(0,80)} • ${Number.isFinite(s.bitrate)?s.bitrate:128}kbps`,
             streamUrl: s.url_resolved,
-            backupUrls: []
+            backupUrls: [],languages:typeof s.language==='string'?s.language.toLowerCase().split(',').map(value=>value.trim()):[],tags:typeof s.tags==='string'?s.tags.toLowerCase().split(',').map(value=>value.trim()):[],country:String(s.country||'')
           };
-        });
+        }).filter(station=>!window.SterlingRadioDirectory||window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{}));
 
         const seen = new Set();
         catalogItems = [...localMatches, ...remoteMapped].filter(it => {
@@ -4098,7 +4673,8 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     function syncLikeIcons() {
       if (!activeStream) return;
       const liked = likedStations.some(s => s.id === activeStream.id);
-      const html = liked ? '<i class="fa-solid fa-heart text-[#1ed760]"></i>' : '<i class="fa-regular fa-heart"></i>';
+      // Spotify's saved state: green check when saved, outlined plus when not.
+      const html = liked ? '<i class="fa-solid fa-circle-check text-[#1ed760]"></i>' : '<i class="fa-solid fa-circle-plus" style="opacity:.85"></i>';
       ['sp-np-like', 'sp-bar-like', 'sp-mini-like', 'sheet-like'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerHTML = html;

@@ -20,8 +20,9 @@ def export():
     html = re.sub(r'<link rel="stylesheet" href="(/(?:media|tv)/[^\"]+\.css)">', inline, html)
     hls=(PUBLIC / 'media/hls.min.js').read_text().replace('</script', '<\\/script')
     html=html.replace('<script src="/media/hls.min.js"></script>', '<script>\n'+hls+'\n</script>')
-    artwork=(PUBLIC / 'media/artwork.js').read_text().replace('</script','<\\/script')
-    html=html.replace('<script src="/media/artwork.js"></script>','<script>\n'+artwork+'\n</script>')
+    for name in ['artwork.js', 'spotify-shell.js']:
+        source=(PUBLIC / 'media' / name).read_text().replace('</script','<\\/script')
+        html=html.replace('<script src="/media/'+name+'"></script>','<script>\n'+source+'\n</script>')
     comfort = (PUBLIC / 'media/comfort.js').read_text().replace('</script', '<\\/script')
     html = html.replace('<script defer src="/media/comfort.js"></script>', '<script>\n' + comfort + '\n</script>')
     # Only the standalone artifact may use browser persistence directly. The

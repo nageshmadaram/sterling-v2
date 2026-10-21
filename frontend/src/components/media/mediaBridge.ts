@@ -2,12 +2,12 @@ import {readMediaSuggestions, type MediaSuggestion} from './mediaSuggestions';
 
 export type MediaKind = 'tv' | 'radio';
 export type MediaCommand = {
-  action: 'theme' | 'search' | 'more' | 'startup' | 'suggest' | 'select-suggestion' | 'play-search' | 'collapse' | 'minimize';
+  action: 'theme' | 'search' | 'more' | 'startup' | 'suggest' | 'select-suggestion' | 'play-search' | 'collapse' | 'minimize' | 'sources';
   value?: string;
   requestId?: string;
 };
 export type MediaSuggestionResponse = {query: string; items: MediaSuggestion[]; requestId?: string};
-const common = new Set(['theme','search','more','startup','suggest','select-suggestion']);
+const common = new Set(['theme','search','more','startup','sources','suggest','select-suggestion']);
 const validRequestId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(value);
 
 /** Copy only bounded display/player fields across the opaque iframe boundary. */
