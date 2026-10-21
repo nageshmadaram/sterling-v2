@@ -32,7 +32,7 @@ def production_settings(_user: UserContext = Depends(require_admin)) -> dict:
         'settings': read_settings().model_dump(),
         'runtime': live_runtime.live_execution_state(),
         'safe_mode': live_runtime._safe_mode_service().read().as_dict(),
-        'posture': live_posture.posture_status(),
+        'posture': live_posture.posture_status(refresh=True),
         'checks': [
             {'name': check.name, 'passed': check.passed, 'detail': check.detail,
              'advisory': is_advisory_doctor_check(check.name)}
