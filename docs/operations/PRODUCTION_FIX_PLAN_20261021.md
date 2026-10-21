@@ -1,7 +1,7 @@
 # Sterling production fix plan — 2026-10-21
 
 Scope: SuperTrend, Snapback and Gamma Unwind only. Signals, entry, SL, TSL,
-exit, alerts, signal tables, UI copy, paper-mode removal, speed, security,
+exit, alerts, signal tables, UI copy, simulated-trading removal, speed, security,
 Telegram, sync. This document lists what to fix and in which order. **Nothing in
 it has been fixed yet.** Every finding below was measured on this host today on
 checkout `fa0221ab` (branch `dev`), unless it is marked as carried from an
@@ -115,7 +115,7 @@ Fix all of these before the first live order. Most are operator actions, not cod
 
 ---
 
-## 5. Paper mode removal
+## 5. Simulated-trading removal
 
 Backend already treats every new account as live (`accounts.py:13`, `:518`). What is left:
 
