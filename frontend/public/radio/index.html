@@ -2971,7 +2971,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       updateAmbientColorFromId(streamObj.id);
 
       const stationEmblem = getStationIdentityThumbnail(streamObj);
-      syncPlayerUI(stationEmblem);
+      // Reset the previous channel's song label when selecting a new stream.
+      syncPlayerUI(stationEmblem,!overrideUrl);
       refreshStationArtwork(streamObj,revision);
       updateMediaSession(stationEmblem, streamObj.title, streamObj.subtitle);
 
@@ -3010,6 +3011,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     async function updateActivePlayerSongArtwork(streamObj) {
       if (!streamObj.somaId || artworkLookupInFlight) return;
+      const generation=playbackRevision;
       artworkLookupInFlight=true;
       try {
       let broadcastTrack=null;
@@ -3032,7 +3034,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const trackKey=streamObj.id+'|'+broadcastTrack.artist+'|'+broadcastTrack.title;
       if(trackKey===lastArtworkTrackKey&&Date.now()-lastArtworkTrackCheck<90000)return;
       lastArtworkTrackKey=trackKey;lastArtworkTrackCheck=Date.now();
-      if(!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
+      if(generation!==playbackRevision||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
       const trackLabel=`${broadcastTrack.artist} • ${broadcastTrack.title}`;
       updateAmbientColorFromId(streamObj.id+'|'+trackLabel);
       // Station-provided song metadata is authoritative. Show it immediately,
@@ -3056,7 +3058,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(!pick)return;
       const hdUrl=pick.artworkUrl100?.replace('100x100bb','600x600bb');
       const validUrl=await validateImageUrl(hdUrl);
-      if(!validUrl||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
+      if(!validUrl||generation!==playbackRevision||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
 
       // Update only active player surfaces; keep channel cards station-specific
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
@@ -3133,7 +3135,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       setInterval(tryResumeBackgroundAudio,3500);
     }
 
-    function syncPlayerUI(overrideArt = null) {
+    function syncPlayerUI(overrideArt = null, resetStationMetadata = false) {
       if (!activeStream) return;
       const icon = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
 
@@ -3149,7 +3151,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if (el) el.textContent = activeStream.title;
       });
 
-      if (!isPlaying) {
+      if (resetStationMetadata || !isPlaying) {
         ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.textContent = activeStream.subtitle;
