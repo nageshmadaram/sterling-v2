@@ -130,3 +130,20 @@ html.radio-hosted.radio-searching #ytmusic-app>header:nth-child(2) {display:none
   #mobile-player-sheet {padding:16px 22px calc(18px + env(safe-area-inset-bottom,0px))!important;}
   #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(80vw,320px)!important;max-height:min(45dvh,320px)!important;margin-inline:auto;}
 }
+
+/* Never let translucent desktop players show underlying scrollable cards. */
+body.mode-spotify #spotify-app>div.flex-1>aside:last-child {
+  background:linear-gradient(170deg,rgba(var(--ambient-rgb,28,90,56),.85),#141414 56%,#111 100%)!important;
+  opacity:1!important;backdrop-filter:none!important;
+}
+body.mode-spotify .solid-sp-footer,
+body.mode-ytmusic .solid-ytm-footer,
+body.mode-netflix .solid-ytm-footer {background:#121212!important;backdrop-filter:none!important;border-top:1px solid #ffffff1c;}
+body.mode-ytmusic #ytm-queue-drawer,
+body.mode-netflix #ytm-queue-drawer {
+  background:linear-gradient(145deg,rgba(var(--ambient-rgb,28,90,56),.92),#171717 52%,#0a0a0a)!important;
+  opacity:1!important;backdrop-filter:none!important;
+}
+body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix #ytm-stage-art {
+  background:#101010!important;object-fit:cover;
+}
