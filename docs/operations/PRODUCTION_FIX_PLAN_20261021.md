@@ -170,3 +170,18 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 - Safe mode blocks new entries, never exits.
 - Do not delete databases, journals, backups or encryption keys while freeing disk.
 - See `docs/operations/WHAT_NOT_TO_CHANGE.md`.
+
+---
+
+## 10. Second pass, 2026-10-21 evening
+
+| ID | Finding | Status |
+|---|---|---|
+| R2-1 | Risk limits were raw JSON naming 10 lane keys. | **Fixed:** four ₹ fields in Connect → Trading Config → Production setup (`b03806ea`). |
+| R2-2 | `sterling-status` printed "Ready RECOVERY_REQUIRED"; that endpoint is the Snapback research recorder. | **Fixed:** relabelled (`7e4d82d4`). `config_hash_mismatch` halts only the recorder, not live Snapback entries. |
+| R2-3 | Status bottom line always printed "Live trading BLOCKED". | **Fixed:** reads real admission (`b4e82494`). |
+| R2-4 | EMA Trend still polled `/ema-trend/config` and kept a Connect section. | **Fixed** (`4469b748`). |
+| R2-5 | Strategy mode switch offered virtual-money SIMULATION. | **Fixed:** MANUAL / ALGO only (`cc013dc0`, `a463d941`). The header Spectrum "Simulation" destination is the TV/Spectrum session's area; hide it in Settings → Experience → Spectrum. |
+| R2-6 | Doctor `account_binding` fails 15 min after each verify (`MAX_BINDING_VERIFICATION_AGE`), though every live order re-verifies first (`execution_service.py:352`). | **Open — owner decision.** A doctor change was drafted and reverted: the permission system classed it as weakening a safety check. Workaround: run `sterlingctl bind verify zerodha-aa0595-20261010` right before `doctor`. |
+| R2-7 | Doctor `network_path` reads only binding freshness (same 15 min window). | **Open — same decision as R2-6.** |
+| R2-8 | `tests/tvIntegrationSecurity.test.ts` fails after `0198c269` (another session's mobile commit). | **Not this session's change.** Left for that session. |
