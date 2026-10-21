@@ -2151,6 +2151,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let searchAbort = null;
     let watchdogTimer = null;
     let pendingPlayRecord = null;
+    let playbackRevision = 0;
+    let artworkLookupInFlight = false;
 
     const audio = document.getElementById('audio-engine');
     let hlsInstance = null;
@@ -2855,6 +2857,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (!isBootAttempt) safeHaptic(10);
       activeStream = streamObj;
       userPaused = false;
+      const revision=++playbackRevision;
       const url = overrideUrl || streamObj.streamUrl;
 
       if (!overrideUrl) pendingPlayRecord = streamObj;
@@ -2873,9 +2876,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const handlePlayPromise = (p) => {
         if (!p) return;
         p.then(() => {
+          if(playbackRevision!==revision)return;
           pendingBootStation = null;
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
+          if(playbackRevision!==revision)return;
           if (isBootAttempt && err.name === 'NotAllowedError') {
             const banner = document.getElementById('boot-resume-banner');
             document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
@@ -2894,15 +2899,19 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
-        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => handlePlayPromise(audio.play()));
-        hlsInstance.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) switchBackupServer(); });
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          if(playbackRevision===revision)handlePlayPromise(audio.play());
+        });
+        hlsInstance.on(Hls.Events.ERROR, (_, d) => {
+          if(playbackRevision===revision&&d.fatal)switchBackupServer();
+        });
       } else {
         audio.src = url;
         handlePlayPromise(audio.play());
       }
 
       watchdogTimer = setTimeout(() => {
-        if (audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
+        if (playbackRevision===revision && audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
           switchBackupServer();
         }
       }, 8500);
@@ -2915,7 +2924,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       updateMediaSession(stationEmblem, streamObj.title, streamObj.subtitle);
 
       if (streamObj.kind === 'radio') {
-        setTimeout(() => updateActivePlayerSongArtwork(streamObj), 900);
+        setTimeout(() => {
+          if(playbackRevision===revision)updateActivePlayerSongArtwork(streamObj);
+        }, 900);
       }
     }
 
@@ -2938,7 +2949,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }else showToast('Station artwork refreshed; track artwork unavailable');
     }
     async function updateActivePlayerSongArtwork(streamObj) {
-      if (!streamObj.somaId) return;
+      if (!streamObj.somaId || artworkLookupInFlight) return;
+      artworkLookupInFlight=true;
+      try {
       let broadcastTrack=null;
       let query = streamObj.artQuery || streamObj.title.replace(/akashvani|all india radio|\(.*?\)/gi, '').trim();
 
@@ -2976,6 +2989,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       });
 
       updateMediaSession(validUrl, broadcastTrack.title, `${broadcastTrack.artist} • ${streamObj.title}`);
+      } finally { artworkLookupInFlight=false; }
     }
 
     function updateAmbientColorFromId(idStr) {
@@ -3434,8 +3448,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (!ctx) return;
       let p = 0, lastFrame = 0;
       function loop(time) {
-        requestAnimationFrame(loop);
-        // Do not paint 60 times/second when the visualizer is not visible.
+        // Keep the visualizer near 10fps rather than occupying the main thread
+        // with a frame callback on every screen refresh.
+        setTimeout(()=>requestAnimationFrame(loop),90);
+        // Do not paint when the visualizer is off-screen or the tab is hidden.
         if (document.hidden || time-lastFrame<90 || !c.getClientRects().length) return;
         lastFrame=time;p+=0.18;
         ctx.clearRect(0,0,c.width,c.height);
