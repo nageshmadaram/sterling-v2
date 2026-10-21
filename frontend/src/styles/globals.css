@@ -787,7 +787,6 @@ body[data-mobile-style="app"] .st-leg-row [data-mobile-label]::before, body[data
 }
 
 @media(max-width:900px) {
-  body[data-mobile-style="app"] .workspace-market-strip:not([data-page="dashboard"]) { display:none; }
   body[data-mobile-style="app"] .kite-settings-hub:has(.mobile-settings-picker) { padding:0 !important; }
   body[data-mobile-style="app"] .kite-settings-layout { gap:0 !important; }
 }
@@ -942,7 +941,6 @@ body[data-mobile-style="app"] .st-leg-row [data-mobile-label]::before, body[data
  .mobile-header-tickers .tk-unpin { display:none !important; }
  .mobile-header-tickers .ticker-pcr-line { box-sizing:border-box; width:100%; max-width:100%; }
  .mobile-experience-bar:has(.mobile-header-tickers) { padding:6px 8px; }
- body[data-mobile-style="app"] .mobile-pane-host .kite-ticker-strip { display:none; }
 }
 
 @media(max-width:900px) {
@@ -1677,4 +1675,42 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button>span:last-child {font-size:11px!important;}
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-theme-select {max-width:88px;font-size:10px;}
   .sterling-media-destinations {max-width:76px;}
+}
+
+/* KITE home control, page close-to-home, and the restored mobile search/menu row. */
+.sterling-return-home {
+  display:inline-flex; align-items:center; justify-content:center;
+  flex:0 0 auto; width:32px; height:32px; padding:0;
+  border:1px solid var(--t-border); border-radius:8px;
+  background:transparent; color:var(--k-text); cursor:pointer;
+  font:500 22px/1 system-ui,sans-serif;
+}
+.sterling-return-home:hover { background:var(--k-surface-2); }
+.sterling-return-home:focus-visible { outline:2px solid var(--k-brand); outline-offset:2px; }
+.sterling-mobile-command-row { display:none; }
+@media (max-width:900px) {
+  .term-root:not(.sterling-tv-mode):not(.sterling-radio-mode)
+  .sterling-header-row > .sterling-home-button > span:last-child {
+    display:inline !important; font-size:12px !important;
+    letter-spacing:.035em !important;
+  }
+  .term-root:not(.sterling-tv-mode):not(.sterling-radio-mode) .sterling-mobile-command-row {
+    display:flex; flex:0 0 auto; align-items:center;
+    justify-content:space-between; gap:8px;
+    min-height:44px; padding:2px 12px 6px;
+    background:var(--k-bg); border-top:1px solid var(--t-border);
+  }
+  .sterling-mobile-current-section {
+    min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    color:var(--k-text); font-size:12px; font-weight:600;
+  }
+  .sterling-mobile-command-row .sterling-mobile-controls {
+    display:flex; align-items:center; gap:8px;
+  }
+  .sterling-mobile-command-row .sterling-mobile-controls button {
+    min-height:40px; min-width:40px;
+  }
+  .sterling-return-home { min-width:36px; min-height:36px; }
+  /* Avoid continuous blurred full-screen repainting on constrained GPUs. */
+  .term-root::before { animation:none !important; filter:none !important; opacity:.18; }
 }
