@@ -234,12 +234,37 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         # live entry, not after.
         return status.verified, status.reason
 
+    def _binding_only_aged() -> bool:
+        """True when the ACTIVE binding passes every check except evidence age."""
+        from app.services.account_binding_service import (
+            AccountBindingStore, _parsed_utc, verification_is_current,
+        )
+
+        try:
+            binding = AccountBindingStore().active()
+        except Exception:  # noqa: BLE001 - unreadable is handled by the caller
+            return False
+        if binding is None or not binding.usable:
+            return False
+        stamp = _parsed_utc(binding.verified_at)
+        return stamp is not None and verification_is_current(binding, now=stamp)
+
     def _account_binding():
         from app.services.account_binding_service import binding_health
 
         health = binding_health()
         if not health.get("account_binding_readable"):
             return None, str(health.get("error") or "binding store unreadable")
+        if not health.get("account_binding_ready") and _binding_only_aged():
+            # Owner-approved 2026-10-21. Evidence expires after 15 minutes by
+            # design, and every live order re-verifies it against the broker
+            # first (execution_service). An intact binding that is merely old
+            # is not a blocker. Any other defect still fails.
+            return True, (
+                f"{health.get('account_binding_id')} "
+                f"({health.get('legal_account_holder')}, scope={health.get('account_scope')}); "
+                f"last verified {health.get('account_binding_verified_at')}, re-verified before every order"
+            )
         if not health.get("account_binding_ready"):
             return False, str(health.get("detail") or "no usable broker account binding")
         return True, (

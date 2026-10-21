@@ -503,3 +503,27 @@ def test_focus_check_names_gamma_unwind_from_the_release_scope():
     detail = _by_name(lane_doctor_checks())["focus_policy"].detail
     assert "Gamma-Unwind" in detail
     assert "lane originators:" in detail
+
+
+@pytest.mark.parametrize('intact_when_new,usable,expected', [
+    (True, True, True),     # only old: every order re-verifies, so not a blocker
+    (False, True, False),   # wrong client / deployment / tampered evidence: still fails
+    (True, False, False),   # binding not usable: still fails
+])
+def test_account_binding_ignores_age_only(monkeypatch, intact_when_new, usable, expected):
+    from types import SimpleNamespace
+    from app.core.operator_report import lane_doctor_checks
+    from app.services import account_binding_service as bindings
+    old = '2026-10-21T00:00:00+00:00'
+    binding = SimpleNamespace(usable=usable, verified_at=old)
+    monkeypatch.setattr(bindings, 'binding_health', lambda: {
+        'account_binding_readable': True, 'account_binding_ready': False,
+        'account_binding_id': 'b1', 'legal_account_holder': 'Owner', 'account_scope': 'live',
+        'account_binding_verified_at': old, 'detail': 'verification not current'})
+    monkeypatch.setattr(bindings.AccountBindingStore, 'active', lambda self: binding)
+    monkeypatch.setattr(bindings, 'verification_is_current',
+                        lambda value, now=None: intact_when_new and now is not None)
+    check = _by_name(lane_doctor_checks())['account_binding']
+    assert check.passed is expected
+    if expected:
+        assert 're-verified before every order' in check.detail
