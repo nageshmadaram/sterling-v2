@@ -46,7 +46,7 @@ describe('EMA table row evidence', () => {
         rowScroll openId={null} onToggle={() => {}} nowMs={row.atMs!} />);
       const strip = within(v.container).getByTestId('ema-signal-readout');
       expect(strip).toHaveTextContent(['INDEX · WATCH ONLY', 'FUTURE', 'CALL · CE', 'PUT · PE'][i]);
-      expect(strip).toHaveTextContent('Ultrascalp');
+      expect(strip).toHaveTextContent('Ultra scalp');
       v.unmount();
     });
     expect(rows[0].executionEligible).toBe(false);

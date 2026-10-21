@@ -339,7 +339,7 @@ function toSignal(
     id: row.id,
     engine: 'gamma_move',
     held: Boolean(pos),
-    mode: normalizeMode(pos?.hold ?? (row as { hold?: string }).hold ?? (row.watch?.dte != null && row.watch.dte <= 1 ? 'intraday' : 'swing')),
+    mode: normalizeMode(pos?.mode || pos?.hold || ((row as { hold?: string }).hold ?? (row.watch?.dte != null && row.watch.dte <= 1 ? 'intraday' : 'swing'))),
     historical,
     underlying: row.underlying,
     instrument: instrument(row),
@@ -398,7 +398,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       id: pos.signal_id,
       engine: 'gamma_move',
       held: true,
-      mode: normalizeMode(pos.hold),
+      mode: normalizeMode(pos.mode || pos.hold),
       historical: snapshot.historical === true,
       underlying: pos.underlying || pos.symbol,
       instrument: {

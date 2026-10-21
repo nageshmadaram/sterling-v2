@@ -3,7 +3,7 @@ import { useRunUnifiedBacktest } from '../../hooks/useUnifiedBacktest';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../types/emaTrend';
 import { EmaTrendReport } from './EmaTrendReport';
 
-const TF: Record<EmaTrendMode, string> = { swing: 'day', intraday: '15m', scalping: '3m', ultra_scalping: '1m' };
+const TF: Record<EmaTrendMode, string> = { swing: 'day', overnight: '60m', intraday: '15m', scalping: '3m', ultra_scalping: '1m' };
 export function EmaTrendBacktestPanel({ onBack }: { onBack: () => void }) {
   const run = useRunUnifiedBacktest();
   const [symbol, setSymbol] = React.useState('NSE:RELIANCE');

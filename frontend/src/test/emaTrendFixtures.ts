@@ -20,7 +20,7 @@ export function emaConfig(): EmaTrendConfigResponse {
     entry_start: '09:30', entry_end: '14:45', force_close: mode === 'swing' ? null : '15:15',
     require_green: mode !== 'swing', chop_filter: mode !== 'swing',
   });
-  const profiles = { swing: profile('swing', 1440, 10080), intraday: profile('intraday', 15, 60),
+  const profiles = { swing: profile('swing', 1440, 10080), overnight: profile('overnight', 60, 1440), intraday: profile('intraday', 15, 60),
     scalping: profile('scalping', 3, 15), ultra_scalping: profile('ultra_scalping', 1, 5) };
   const defaults = { enabled: false, auto_execute: false, execution_mode: 'PAPER' as const, modes: ['swing' as const], symbols: [],
     allocation_inr: '0', risk_fraction: '0.0025', strategy_risk_fraction: '0.0075', daily_loss_fraction: '0.01', drawdown_fraction: '0.05',
