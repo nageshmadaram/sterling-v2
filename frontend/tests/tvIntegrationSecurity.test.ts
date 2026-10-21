@@ -27,10 +27,14 @@ describe('Sterling TV static integration safety', () => {
 
   it('guards mobile IPTV fullscreen, search dismissal, user audio choice and queue',()=>{
     expect(tvPage).toContain('lastFullscreenGestureAt');
-    expect(tvPage).toContain('video.muted = !userHasInteractedWithAudio');
+    expect(tvPage).toContain('if (!userHasInteractedWithAudio) video.muted = true;');
+    expect(tvPage).not.toContain('video.muted = !userHasInteractedWithAudio');
     expect(tvPage).toContain('function clearSelectionSearch()');
     expect(tvPage).toContain('function setScrollPip(value)');
     expect(tvPage).toContain('if(Boolean(value)===wasFloating)return;');
+    expect(tvPage).toContain("document.getElementById('mobile-sticky-player-wrap')");
+    expect(tvPage).toContain("view==='home')renderHome()");
+    expect(tvPage).toContain("if(searchInputEl.value.trim())clearSelectionSearch()");
     expect(tvPage).toContain("'backdrop','Player background: black / auto'");
     expect(tvPage).toContain("installPlayerSwipes(now,dir=>");
     expect(tvPage).toContain("installPlayerSwipes(mini,dir=>");
