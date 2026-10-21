@@ -1035,7 +1035,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     <div class="my-auto flex flex-col items-center py-4">
       <div class="radio-mobile-art relative w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
         <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
-        <button type="button" data-radio-click="75" aria-label="Refresh now-playing artwork" title="Refresh artwork"
+        <button type="button" data-radio-click="75" aria-label="Check current song and album artwork" title="Check what is playing"
           class="absolute top-2 right-2 w-11 h-11 btn-circle bg-black/65 text-white flex items-center justify-center">
           <i class="fa-solid fa-rotate text-sm"></i>
         </button>
@@ -3006,7 +3006,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(activeStream.somaId){
         Promise.resolve(updateActivePlayerSongArtwork(activeStream)).catch(()=>{});
         showToast('Checking current-track artwork');
-      }else showToast('Station artwork refreshed; track artwork unavailable');
+      }else showToast('No song metadata from this station. Audio recognition needs a connected fingerprint service.');
     }
     async function updateActivePlayerSongArtwork(streamObj) {
       if (!streamObj.somaId || artworkLookupInFlight) return;
