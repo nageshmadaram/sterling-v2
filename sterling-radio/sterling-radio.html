@@ -3819,17 +3819,42 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     }
 
     // --- 14. Search, Podcasts & Transport ---
-    function radioSuggestionItems(query) {
-      const norm=value=>String(value||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-      const terms=norm(query).trim().split(/\s+/).filter(Boolean);
-      const pool=terms.length?[...MASTER_POOL,...catalogItems]:[...recentsList,...starterStations];
-      return pool.filter((item,i,all)=>all.findIndex(other=>other.id===item.id)===i && terms.every(term=>norm([item.title,item.subtitle,item.category,item.freqKhz].join(' ')).includes(term)))
-        .sort((a,b)=>Number(norm(b.title).startsWith(norm(query)))-Number(norm(a.title).startsWith(norm(query))))
-        .slice(0,8);
+    const radioSearchTextCache = new WeakMap();
+    const normalizeRadioSearch = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+    function radioSearchFields(station) {
+      const source=[station.title,station.subtitle,station.category,station.freqKhz];
+      let cached=radioSearchTextCache.get(station);
+      if(!cached || source.some((value,index)=>value!==cached.source[index])) {
+        cached={source,title:normalizeRadioSearch(station.title),hay:normalizeRadioSearch(source.join(' '))};
+        radioSearchTextCache.set(station,cached);
+      }
+      return cached;
     }
+    // Stable prefix-first ranking without sorting or quadratic ID scans.
+    function getRadioSearchMatches(pool, query, limit=Infinity) {
+      const q=normalizeRadioSearch(query),terms=q.trim().split(/\s+/).filter(Boolean);
+      const seen=new Set(),prefix=[],other=[];
+      for(const station of pool) {
+        if(!station || typeof station!=='object' || seen.has(station.id))continue;
+        seen.add(station.id);
+        const fields=radioSearchFields(station);
+        if(!terms.every(term=>fields.hay.includes(term)))continue;
+        const matches=fields.title.startsWith(q)?prefix:other;
+        if(matches.length<limit)matches.push(station);
+        if(prefix.length>=limit)break;
+      }
+      return prefix.concat(other).slice(0,limit);
+    }
+    function radioSuggestionItems(query) {
+      const hasTerms=normalizeRadioSearch(query).trim().length>0;
+      return getRadioSearchMatches(hasTerms?[...MASTER_POOL,...catalogItems]:[...recentsList,...starterStations],query,8);
+    }
+    let radioSuggestionRequest = null;
     function publishRadioSuggestions(query, requestId) {
+      if(typeof requestId==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(requestId))radioSuggestionRequest={query,requestId};
+      const currentRequest=radioSuggestionRequest?.query===query?radioSuggestionRequest.requestId:undefined;
       const items=radioSuggestionItems(query);
-      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.suggestions',query,...(typeof requestId==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(requestId)?{requestId}:{}),items:items.map(ch=>({id:ch.id,label:ch.title,subtitle:ch.subtitle,artwork:ch.artwork||''}))},'*');
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.suggestions',query,...(currentRequest?{requestId:currentRequest}:{}),items:items.map(ch=>({id:ch.id,label:ch.title,subtitle:ch.subtitle,artwork:ch.artwork||''}))},'*');
       // Async results must not remove the suggestion currently used by the keyboard.
       const focusedSuggestions=document.activeElement?.closest('.radio-search-suggestions');
       if(focusedSuggestions?.dataset.query===query)return;
@@ -3902,12 +3927,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       document.querySelectorAll('main').forEach(main=>main.scrollTo({top:0,behavior:'instant'}));
       setHeadings(`Results for "${query.trim()}"`);
 
-      const normalize = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-      const terms=normalize(q).split(/\s+/).filter(Boolean);
-      const localMatches = MASTER_POOL.filter(s => {
-        const hay=normalize([s.title,s.subtitle,s.category,s.freqKhz].join(' '));
-        return terms.every(term=>hay.includes(term));
-      }).sort((a,b)=>Number(normalize(b.title).startsWith(normalize(q)))-Number(normalize(a.title).startsWith(normalize(q))));
+      const localMatches = getRadioSearchMatches(MASTER_POOL, q);
 
       catalogItems=localMatches;
       renderCategoryGrids();
