@@ -66,3 +66,37 @@ Final browser verification: both TV and Radio fit 320/390/430 px widths without 
 Continuation acceptance: **71 frontend tests passed** across eight suites, including all 16 static integration checks and the previously failing Home check. **4 isolated Chrome browser tests passed**. The production build passed with the existing bundle-size warning. Embedded and standalone artifacts were regenerated from the canonical sources.
 
 The real Node gateway isolation/CSP regression test also passed. The dedicated browser suite starts and stops its own static server; no authenticated user settings, broker fixtures, or external broadcasts are needed.
+
+## Listening comfort follow-up
+
+- Shared session-only sleep timer for expanded Radio, SW/AM and Spotify TV:
+  15/30/45/60/90-minute presets, remaining time, cancellation, native modal focus,
+  Escape and touch swipe dismissal. Expiry uses the explicit Radio pause guard.
+- Deadline checks on visibility/page restoration handle suspended tabs; a closed
+  tab does not retain the timer. No saved volume/default preferences are changed.
+- Shared offline status, reconnect confirmation, touch feedback and restrained
+  player entrance motion. Reduced-motion preferences disable decorative motion.
+- Preserve focused Radio suggestions while asynchronous search results refresh.
+- Standalone exports embed the same comfort implementation as hosted players.
+
+Validation: 71 focused frontend tests, 6 Chrome browser flows (including
+active audio sleep expiry and keyboard selection across asynchronous refresh),
+and manual review of mobile comfort-sheet screenshots.
+
+## IPTV queue and catalogue correction
+
+- One stable playback queue backs Next, Previous, mobile Up next, and the default
+  desktop rail; selecting a queued channel preserves that order.
+- Live includes the whole loaded catalogue. Scope/language/category counts use
+  the same pool as the grid; Recent contains only watched channels. Full lists
+  load in batches with a visible Load more action and scroll sentinel.
+- Feature-sheet grip supports touch drag and keyboard resizing; expand toggles
+  between standard and near-full height. Programme information is accessible
+  from the player info icon. Broadcasters without schedules explicitly show
+  that listings are unavailable; illustrative schedules were removed.
+- Instant native PiP replaces the fullscreen button. HUD control dimensions stay
+  consistent and controls hide after 2.5 seconds, returning on interaction.
+- All adds grouped genre collections. Group Show all routes to the full category.
+- Regression checks: 71 frontend tests; Chrome flows cover queue traversal and
+  selection, 84-channel pagination, 28-channel Indian subset, menu resize, guide
+  status, native PiP dispatch, and timed HUD visibility.
