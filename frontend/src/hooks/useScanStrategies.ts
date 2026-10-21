@@ -1,4 +1,3 @@
-import { useRunEmaTrendScan, waitForEmaTrendScan } from './useEmaTrend';
 import { useRef, useState } from 'react';
 import { useScanActivity } from '../store/useScanActivity';
 import { useRunScan } from './useSterlingKiteEngine';
@@ -32,13 +31,13 @@ export function useScanStrategies() {
   const supertrend = useRunScan();
   const gammaMove = useGammaMoveScan();
   const snapback = useRunSnapbackScan();
-  const ema = useRunEmaTrendScan();
 
   const runners: Record<ScannableEngine, () => Promise<unknown>> = {
     supertrend: () => supertrend.mutateAsync(),
     gamma_move: () => gammaMove.mutateAsync(),
     snapback: () => snapback.mutateAsync(undefined),
-    ema_trend: async () => waitForEmaTrendScan(await ema.mutateAsync(undefined), () => cancelRequested.current),
+    // EMA Trend is outside the release; no caller lists it, and it never scans from here.
+    ema_trend: async () => { throw new Error('EMA Trend is not part of this release.'); },
   };
 
   const scanAll = async (order: readonly ScannableEngine[]): Promise<EngineScanResult[]> => {
@@ -78,7 +77,7 @@ export function useScanStrategies() {
   return {
     scanAll,
     cancelAll,
-    isPending: sweepPending || supertrend.isPending || gammaMove.isPending || snapback.isPending || ema.isPending,
+    isPending: sweepPending || supertrend.isPending || gammaMove.isPending || snapback.isPending,
   };
 }
 

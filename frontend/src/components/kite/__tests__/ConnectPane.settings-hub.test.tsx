@@ -130,12 +130,12 @@ describe('ConnectPane settings hub', () => {
       .forEach((group) => expect(screen.getByText(group)).toBeInTheDocument());
   });
 
-  it('exposes the release signal engines and EMA Trend paper settings', () => {
+  it('exposes only the three release signal engines', () => {
     render(<ConnectPane />);
     expect(screen.getByRole('button', { name: /SuperTrend/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Gamma Unwind/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Snapback/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /EMA Trend/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /EMA Trend/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Value-Flow Navigator')).not.toBeInTheDocument();
     expect(screen.queryByText('Adaptive Edge')).not.toBeInTheDocument();
     expect(screen.queryByText('Intraday Pack')).not.toBeInTheDocument();
