@@ -143,7 +143,7 @@
   const languages=words(row.language||row.languages),tags=words(row.tags||row.group);
   const country=countryName(row.country||row.countrycode||(source.category==='akashvani'?'India':'')).slice(0,100),region=typeof row.state==='string'?row.state.replace(/\s+/g,' ').trim().toUpperCase().slice(0,60):'';
   return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
-   subtitle:[country,languages.slice(0,2).join(', '),row.codec||'Live radio',stream.startsWith('http:')?'HTTP stream':''].filter(Boolean).join(' · '),
+   subtitle:[country,languages.slice(0,2).map(word=>word.replace(/\b\w/g,c=>c.toUpperCase())).join(', ')].filter(Boolean).join(' · ')||'Live radio',
    streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:'LIVE',freqLabel:'Live radio'};
  }
  function playlist(text,source){
@@ -240,6 +240,8 @@
  const genres=['news','talk','pop','bollywood','rock','jazz','classical','dance','devotional','oldies','hits','folk','sports'];
  const labels={news:'News & talk',pop:'Pop',bollywood:'Bollywood',rock:'Rock',jazz:'Jazz',classical:'Classical',talk:'Talk',dance:'Dance',devotional:'Devotional',oldies:'Oldies',hits:'Hits',folk:'Folk',sports:'Sports'};
  const match=(station,filters={})=>(!filters.language||(station.languages||[]).includes(filters.language))&&(!filters.country||station.country===filters.country)&&(!filters.tag||(station.tags||[]).includes(filters.tag))&&(!filters.group||(station.groups||[]).includes(filters.group))&&(!filters.region||station.region===filters.region)&&(!filters.secure||station.streamUrl?.startsWith('https:'));
+ const title=text=>String(text).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
+ const stationCount=n=>{n=Number(n)||0;return `${n.toLocaleString()} ${n===1?'station':'stations'}`;};
  function mount({getConfig,onFilter,onSources,catalog,artwork,onPlay}){
   const doc=document,controls=[],dialog=doc.createElement('dialog');dialog.className='radio-source-dialog';dialog.setAttribute('aria-label','Radio sources');
   dialog.innerHTML='<header><div><small>YOUR RADIO, YOUR WAY</small><h2>Station sources</h2></div><button type="button" data-close aria-label="Close radio sources">✕</button></header><p>Turn any source on or off. Edit or delete it. Deleted built-in sources stay in the library below. Settings sync with your Sterling account.</p><p class="radio-source-total" role="status"></p><div class="radio-source-list"></div><details class="radio-source-library"><summary>Add from library</summary><div></div></details><form><h3>Add your own source</h3><label>Source name<input name="name" maxlength="80" required placeholder="My stations"></label><label>Source URL<input name="url" type="url" maxlength="2048" required placeholder="https://example.com/radio.m3u"></label><label>Format<select name="kind"><option value="m3u">M3U / M3U8 playlist</option><option value="json">JSON station list</option><option value="directory">Paged Radio Browser API</option><option value="stream">Single station stream</option></select></label><label>Group<input name="group" maxlength="40" list="radio-source-groups" placeholder="My sources"></label><datalist id="radio-source-groups"></datalist><div class="radio-source-actions"><button type="submit">Save source</button><button type="button" data-cancel-edit hidden>Cancel edit</button></div></form><p class="radio-source-notice" role="status"></p><footer><button type="button" data-reload>Reload all</button><button type="button" data-defaults>Restore defaults</button></footer>';
@@ -252,7 +254,7 @@
   const configured=()=>window.SterlingRadioCatalog.normalizeSources(getConfig().catalogSources);
   function clearForm(){editing=null;const form=dialog.querySelector('form');form.reset();form.querySelector('h3').textContent='Add your own source';dialog.querySelector('[data-cancel-edit]').hidden=true;}
   function save(next){onSources(next);renderSources();}
-  const statusText=(source,state)=>state?`${state.status==='ready'?'Ready':state.status==='loading'?'Loading':state.status==='error'?'Needs attention':state.status==='disabled'?'Off':state.status==='paused'?'Paused':'Waiting'} · ${state.count.toLocaleString()} stations${state.error?' · '+state.error:''}`:source.enabled?'Ready to load':'Off';
+  const statusText=(source,state)=>state?`${state.status==='ready'?'Ready':state.status==='loading'?'Loading':state.status==='error'?'Needs attention':state.status==='disabled'?'Off':state.status==='paused'?'Paused':'Waiting'} · ${stationCount(state.count)}${state.error?' · '+state.error:''}`:source.enabled?'Ready to load':'Off';
   function renderSources(){
    const list=dialog.querySelector('.radio-source-list'),sources=configured(),notes=new Map(presets().map(row=>[row.id,row.note]));list.replaceChildren();
    const order=(window.SterlingRadioPresets?.groups||[]).map(row=>row.id),groups=new Map();
@@ -281,7 +283,7 @@
    const datalist=dialog.querySelector('#radio-source-groups');datalist.replaceChildren(...[...new Set([...(window.SterlingRadioPresets?.groups||[]).map(row=>row.label),'My sources'])].map(label=>new Option(label)));
    updateTotal();
   }
-  function updateTotal(){const sources=configured(),on=sources.filter(row=>row.enabled).length;dialog.querySelector('.radio-source-total').textContent=`${on} of ${sources.length} sources on${lastSnapshot?` · ${lastSnapshot.stations.length.toLocaleString()} stations loaded`:''}`;}
+  function updateTotal(){const sources=configured(),on=sources.filter(row=>row.enabled).length;dialog.querySelector('.radio-source-total').textContent=`${on} of ${sources.length} sources on${lastSnapshot?` · ${stationCount(lastSnapshot.stations.length)} loaded`:''}`;}
   dialog.addEventListener('click',event=>{
    if(event.target.closest('[data-close]'))close();
    const button=event.target.closest('[data-source-action]');
@@ -317,7 +319,7 @@
   for(const id of ['sp-cards-grid','ytm-cards-grid']){
    const grid=doc.getElementById(id);if(!grid)continue;
    const block=doc.createElement('div');block.className='radio-directory-tools';
-   block.innerHTML='<div class="radio-directory-summary"><span role="status"></span><button type="button" data-sources>Manage sources</button><button type="button" data-clear-filters hidden>Clear filters</button><button type="button" data-pause>Pause loading</button></div><details class="radio-directory-filters"><summary>Filter stations</summary><div class="radio-directory-selects"><label>Language<select data-filter="language" aria-label="Radio language"></select></label><label>Country<select data-filter="country" aria-label="Radio country"></select></label><label>Genre<select data-filter="tag" aria-label="Radio genre"></select></label><label class="radio-secure-filter"><input type="checkbox" data-filter="secure">HTTPS only</label></div></details><div class="radio-genre-chips" aria-label="Radio genres"></div>';
+   block.innerHTML='<div class="radio-directory-summary"><span role="status"></span><button type="button" data-sources>Manage sources</button><button type="button" data-clear-filters hidden>Clear filters</button><button type="button" data-pause>Pause loading</button></div><details class="radio-directory-filters"><summary>Filter stations</summary><div class="radio-directory-selects"><label>Language<select data-filter="language" aria-label="Radio language"></select></label><label>Country<select data-filter="country" aria-label="Radio country"></select></label><label>Genre<select data-filter="tag" aria-label="Radio genre"></select></label><label>Akashvani state<select data-filter="region" aria-label="Akashvani state"></select></label><label class="radio-secure-filter"><input type="checkbox" data-filter="secure">HTTPS only</label></div></details><div class="radio-genre-chips" aria-label="Radio genres"></div>';
    const chips=block.querySelector('.radio-genre-chips');
    for(const tag of ['',...genres]){const button=doc.createElement('button');button.type='button';button.dataset.genre=tag;chips.append(button);}
    block.addEventListener('click',event=>{if(event.target.closest('[data-sources]'))open();if(event.target.closest('[data-clear-filters]'))onFilter({});if(event.target.closest('[data-pause]')){if(catalog.snapshot().loading)catalog.pause();else void catalog.resume();}const genre=event.target.closest('[data-genre]');if(genre)onFilter({...getConfig().catalogFilters,tag:genre.dataset.genre});});
@@ -329,12 +331,16 @@
   const world=doc.createElement('div');world.id='radio-world-shelves';browse.after(world);
   const worldRows=[];for(const tag of ['news','jazz','pop']){const section=doc.createElement('section');section.className='radio-world-shelf';section.innerHTML='<header><h2></h2><button type="button">Show all</button></header><div></div>';section.querySelector('button').addEventListener('click',()=>onFilter({language:'',country:'',tag,secure:false},true));world.append(section);worldRows.push({tag,section,key:''});}
   const tiles=[];for(const tag of genres){const button=doc.createElement('button');button.type='button';button.dataset.genre=tag;button.innerHTML='<strong></strong><small></small><img alt="" loading="lazy" decoding="async">';button.querySelector('strong').textContent=labels[tag];button.addEventListener('click',()=>onFilter({language:'',country:'',tag,secure:false},true));button.querySelector('img').addEventListener('error',event=>{event.currentTarget.dataset.failedSrc=event.currentTarget.getAttribute('src');event.currentTarget.hidden=true;});browse.lastElementChild.append(button);tiles.push(button);}
+  // Source groups (Akashvani, India, shortwave bands, top lists) as browse tiles beside the genres.
+  const groupTiles=[];for(const group of (window.SterlingRadioPresets?.groups||[]).filter(row=>row.id!=='world')){const button=doc.createElement('button');button.type='button';button.dataset.group=group.id;button.className='radio-group-tile';button.innerHTML='<strong></strong><small></small><img alt="" loading="lazy" decoding="async">';button.querySelector('strong').textContent=group.label;button.addEventListener('click',()=>onFilter({language:'',country:'',tag:'',group:group.id,secure:false},true));button.querySelector('img').addEventListener('error',event=>{event.currentTarget.hidden=true;});groupTiles.push(button);}
+  browse.lastElementChild.prepend(...groupTiles);
   function update(snapshot,basePool){
-   lastSnapshot=snapshot;const filters=getConfig().catalogFilters||{},counts={language:new Map(),country:new Map(),tag:new Map()},samples=new Map(),picks=new Map();
+   lastSnapshot=snapshot;const filters=getConfig().catalogFilters||{},counts={language:new Map(),country:new Map(),tag:new Map(),region:new Map()},samples=new Map(),picks=new Map();
    const add=(map,key)=>{if(key)map.set(key,(map.get(key)||0)+1);};
    for(const station of basePool){
     if(match(station,{...filters,language:'',tag:''}))for(const language of station.languages||[])add(counts.language,language);
     if(match(station,{...filters,country:'',tag:''}))add(counts.country,station.country);
+    if(station.region&&match(station,{...filters,region:'',tag:''}))add(counts.region,station.region);
     if(match(station,{...filters,tag:''}))for(const tag of new Set(station.tags||[])){add(counts.tag,tag);if(!samples.has(tag))samples.set(tag,station);if(!picks.has(tag))picks.set(tag,[]);if(picks.get(tag).length<8)picks.get(tag).push(station);}
    }
    const filtered=basePool.filter(station=>match(station,filters)),anyFilter=Boolean(filters.language||filters.country||filters.tag||filters.group||filters.region||filters.secure);
@@ -343,22 +349,25 @@
    for(const block of controls){
     block.hidden=getConfig().activeCategory==='podcasts'||doc.documentElement.dataset.radioView==='library';
     block.querySelector('[data-clear-filters]').hidden=!anyFilter;
-    block.querySelector('summary').textContent=anyFilter?`Filters · ${[filters.group&&(window.SterlingRadioPresets?.groupLabel?.(filters.group)||filters.group),filters.region,filters.language,filters.country,filters.tag,filters.secure?'HTTPS':''].filter(Boolean).join(' · ')} · ${filtered.length.toLocaleString()} stations`:'Filter stations';
+    block.querySelector('summary').textContent=anyFilter?`Filters · ${[filters.group&&(window.SterlingRadioPresets?.groupLabel?.(filters.group)||filters.group),filters.region&&title(filters.region),filters.language,filters.country,filters.tag,filters.secure?'HTTPS':''].filter(Boolean).join(' · ')} · ${stationCount(filtered.length)}`:'Filter stations';
     const status=block.querySelector('[role=status]');
-    status.textContent=`${snapshot.stations.length.toLocaleString()} stations loaded${snapshot.loading?' · Loading full directory…':snapshot.complete?' · Sources up to date':' · Loading paused or source needs attention'}${snapshot.reportedTotal?' · Provider: '+snapshot.reportedTotal.toLocaleString()+' entries (includes unavailable)':''}`;
+    status.textContent=`${stationCount(snapshot.stations.length)} loaded${snapshot.loading?' · Loading full directory…':snapshot.complete?' · Sources up to date':' · Loading paused or source needs attention'}${snapshot.reportedTotal?' · Provider: '+snapshot.reportedTotal.toLocaleString()+' entries (includes unavailable)':''}`;
     const pause=block.querySelector('[data-pause]');pause.textContent=snapshot.loading?'Pause loading':'Resume / retry';pause.hidden=snapshot.complete;
-    for(const field of ['language','country','tag']){
+    for(const field of ['language','country','tag','region']){
      const select=block.querySelector(`[data-filter="${field}"]`);if(doc.activeElement===select)continue;
-     const options=[['',`All ${field==='tag'?'genres':field==='country'?'countries':'languages'}`],...[...counts[field]].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,count])=>[key,`${key} (${count.toLocaleString()})`])];
+     const options=[['',`All ${field==='tag'?'genres':field==='country'?'countries':field==='region'?'states':'languages'}`],...[...counts[field]].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,count])=>[key,`${field==='region'?title(key):key} (${count.toLocaleString()})`])];
+     select.closest('label').hidden=field==='region'&&!counts.region.size&&!filters.region;
      if(filters[field]&&!options.some(([key])=>key===filters[field]))options.push([filters[field],`${filters[field]} (0)`]);
      const signature=JSON.stringify(options);if(select.dataset.options!==signature){select.replaceChildren(...options.map(([value,label])=>new Option(label,value)));select.dataset.options=signature;}select.value=filters[field]||'';
     }
     block.querySelector('[data-filter="secure"]').checked=Boolean(filters.secure);
-    for(const button of block.querySelectorAll('[data-genre]')){const tag=button.dataset.genre,count=tag?(counts.tag.get(tag)||0):basePool.filter(station=>match(station,{...filters,tag:''})).length;button.textContent=`${tag?labels[tag]:'All genres'} ${count.toLocaleString()}`;button.setAttribute('aria-pressed',String((filters.tag||'')===tag));}
+    for(const button of block.querySelectorAll('[data-genre]')){const tag=button.dataset.genre,count=tag?(counts.tag.get(tag)||0):basePool.filter(station=>match(station,{...filters,tag:''})).length;button.textContent=`${tag?labels[tag]:'All genres'} ${count.toLocaleString()}`;button.setAttribute('aria-pressed',String((filters.tag||'')===tag));button.hidden=Boolean(tag)&&count===0&&filters.tag!==tag;}
    }
-   for(const button of tiles){const tag=button.dataset.genre,count=counts.tag.get(tag)||0;button.hidden=count===0;button.querySelector('small').textContent=`${count.toLocaleString()} stations`;const image=button.querySelector('img'),sample=samples.get(tag);image.hidden=!sample;if(sample){const src=artwork(sample);image.hidden=image.dataset.failedSrc===src;if(image.getAttribute('src')!==src)image.src=src;}}
+   const groupCounts=new Map(),groupSamples=new Map();for(const station of basePool)for(const group of station.groups||[]){groupCounts.set(group,(groupCounts.get(group)||0)+1);if(!groupSamples.has(group))groupSamples.set(group,station);}
+   for(const button of groupTiles){const count=groupCounts.get(button.dataset.group)||0;button.hidden=count===0;button.querySelector('small').textContent=stationCount(count);const image=button.querySelector('img'),sample=groupSamples.get(button.dataset.group);image.hidden=!sample;if(sample){const src=artwork(sample);if(image.getAttribute('src')!==src)image.src=src;}}
+   for(const button of tiles){const tag=button.dataset.genre,count=counts.tag.get(tag)||0;button.hidden=count===0;button.querySelector('small').textContent=`${stationCount(count)}`;const image=button.querySelector('img'),sample=samples.get(tag);image.hidden=!sample;if(sample){const src=artwork(sample);image.hidden=image.dataset.failedSrc===src;if(image.getAttribute('src')!==src)image.src=src;}}
    for(const row of worldRows){
-    const stations=picks.get(row.tag)||[],count=counts.tag.get(row.tag)||0;row.section.hidden=count===0;row.section.querySelector('h2').textContent=`${labels[row.tag]} · ${count.toLocaleString()} stations`;
+    const stations=picks.get(row.tag)||[],count=counts.tag.get(row.tag)||0;row.section.hidden=count===0;row.section.querySelector('h2').textContent=`${labels[row.tag]} · ${stationCount(count)}`;
     const key=stations.map(station=>station.id).join('|');if(row.key===key)continue;row.key=key;const strip=row.section.lastElementChild;strip.replaceChildren();
     for(const station of stations){const button=doc.createElement('button');button.type='button';button.className='media-station-album';button.setAttribute('aria-label',`Listen to ${station.title}`);const image=doc.createElement('img');image.alt='';image.loading='lazy';image.decoding='async';image.src=artwork(station);image.addEventListener('error',()=>{image.style.visibility='hidden';});const title=doc.createElement('strong'),subtitle=doc.createElement('small');title.textContent=station.title;subtitle.textContent=station.country||station.subtitle;button.append(image,title,subtitle);button.addEventListener('click',()=>onPlay?.(station.id));strip.append(button);}
    }
@@ -393,12 +402,16 @@
  const PALETTE=['#e13300','#1e3264','#8400e7','#148a08','#dc148c','#e8115b','#477d95','#7358ff','#ba5d07','#509bf5','#af2896','#27856a','#e91429','#8d67ab','#0d73ec','#d84000'];
  function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!=null)node.textContent=text;return node;}
  function iconButton(name,label,cls='sps-icon'){const b=el('button',cls);b.type='button';b.innerHTML=ICON[name];b.setAttribute('aria-label',label);b.title=label;return b;}
- function art(src,cls='sps-art'){const img=el('img',cls);img.alt='';img.loading='lazy';img.decoding='async';if(src)img.src=src;img.addEventListener('error',()=>{img.style.visibility='hidden';},{once:true});return img;}
+ function art(src,cls='sps-art',fallback){const img=el('img',cls);img.alt='';img.loading='lazy';img.decoding='async';if(src)img.src=src;else if(fallback)img.src=fallback()||'';
+  // A broken logo falls back to the generated station badge instead of leaving a hole.
+  img.addEventListener('error',()=>{const next=fallback?.();if(next&&next!==img.src){img.src=next;fallback=null;}else img.style.visibility='hidden';});return img;}
 
  function mount(adapter){
   const a={noun:'stations',placeholder:'What do you want to listen to?',libraryChips:[],...adapter};
+  const count=n=>{n=Number(n)||0;return `${n.toLocaleString()} ${n===1?a.noun.replace(/s$/,''):a.noun}`;};
   const root=el('div','sps-root');root.hidden=true;root.dataset.kind=a.kind||'media';document.body.append(root);
-  let page=null,focus=false,query='',chip='',sort='recents',grid=false,drill=null,timer=0;
+  let page=null,focus=false,query='',chip='',sort='recents',grid=false,drill=null,timer=0,lastResults='';
+  const rowCache=new Map();
   const state=()=>({page,focus,query});
 
   function header(title){
@@ -409,10 +422,12 @@
   function row(item,{actions=true,removable=false}={}){
    const r=el('div','sps-row');r.setAttribute('role','button');r.tabIndex=0;r.dataset.id=item.id;
    const body=el('div','sps-row-body');body.append(el('strong','',item.title),el('small','',[item.type||a.itemType||'Station',item.subtitle].filter(Boolean).join(' • ')));
-   r.append(art(item.art),body);
-   if(actions){const fav=a.isFavorite?.(item.id);const add=iconButton(fav?'added':'add',fav?`Remove ${item.title} from your library`:`Add ${item.title} to your library`,'sps-row-action');
-    add.addEventListener('click',e=>{e.stopPropagation();a.toggleFavorite?.(item.id);render();});r.append(add);}
-   if(removable){const x=iconButton('close',`Remove ${item.title} from recents`,'sps-row-action');x.addEventListener('click',e=>{e.stopPropagation();a.removeRecent?.(item.id);render();});r.append(x);}
+   r.append(art(item.art,'sps-art',a.fallbackArt?()=>a.fallbackArt(item.id):null),body);
+   if(actions){const add=iconButton('add','','sps-row-action');
+    // Update the icon in place: a full render would rebuild the list (and the search box) and flicker.
+    const paint=()=>{const fav=Boolean(a.isFavorite?.(item.id));add.innerHTML=ICON[fav?'added':'add'];const label=fav?`Remove ${item.title} from your library`:`Add ${item.title} to your library`;add.setAttribute('aria-label',label);add.title=label;};
+    r._paint=paint;paint();add.addEventListener('click',e=>{e.stopPropagation();a.toggleFavorite?.(item.id);paint();if(!(page==='search'&&focus))render();});r.append(add);}
+   if(removable){const x=iconButton('close',`Remove ${item.title} from recents`,'sps-row-action');x.addEventListener('click',e=>{e.stopPropagation();a.removeRecent?.(item.id);if(page==='search'&&focus){r.remove();rowCache.delete('r:'+item.id);lastResults='';}else render();});r.append(x);}
    const play=()=>{a.play(item.id);};r.addEventListener('click',play);r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();play();}});
    return r;
   }
@@ -421,36 +436,49 @@
    if(focus){
     const top=el('div','sps-search-top');const back=iconButton('back','Back to search');back.addEventListener('click',()=>{focus=false;query='';render();});
     const input=el('input','sps-search-field');input.type='search';input.placeholder=a.placeholder;input.value=query;input.setAttribute('aria-label',a.placeholder);
-    input.addEventListener('input',()=>{query=input.value;clearTimeout(timer);timer=setTimeout(()=>renderResults(list),120);});
+    input.addEventListener('input',()=>{query=input.value;clearTimeout(timer);if(!query.trim())renderResults(list);else timer=setTimeout(()=>renderResults(list),70);});
     input.addEventListener('keydown',e=>{if(e.key==='Escape'){focus=false;query='';render();}if(e.key==='Enter'){const first=list.querySelector('.sps-row');first?.click();}});
-    top.append(back,input);const list=el('div','sps-list');root.append(top,list);renderResults(list);
+    top.append(back,input);const list=el('div','sps-list');root.append(top,list);lastResults='';renderResults(list);
     requestAnimationFrame(()=>input.focus({preventScroll:true}));return;
    }
    root.append(header('Search'));
    const box=el('button','sps-search-box');box.type='button';box.innerHTML=ICON.search;box.append(el('span','',a.placeholder));box.addEventListener('click',()=>{focus=true;render();});root.append(box);
    const tiles=el('div','sps-tiles');
    (a.categories?.()||[]).forEach((cat,i)=>{const t=el('button','sps-tile');t.type='button';t.style.background=cat.color||PALETTE[i%PALETTE.length];
-    t.append(el('strong','',cat.label),el('small','',`${Number(cat.count||0).toLocaleString()} ${a.noun}`));if(cat.art)t.append(art(cat.art,'sps-tile-art'));
+    t.append(el('strong','',cat.label),el('small','',count(cat.count)));if(cat.art)t.append(art(cat.art,'sps-tile-art'));
     t.addEventListener('click',()=>{hide();a.openCategory?.(cat.key);});tiles.append(t);});
    root.append(tiles);
    const feature=a.featured?.()||[];
    if(feature.length){root.append(el('h2','sps-section',a.featuredTitle||'Discover something new'));const strip=el('div','sps-tall');
     for(const item of feature.slice(0,10)){const card=el('button','sps-tall-card');card.type='button';card.append(art(item.art),el('strong','',item.title));card.addEventListener('click',()=>a.play(item.id));strip.append(card);}root.append(strip);}
   }
+  // Rows are reused by id, so typing only adds or removes rows; loaded artwork never reloads.
+  function cachedRow(item,removable){
+   const key=`${removable?'r':'s'}:${item.id}`;let node=rowCache.get(key);
+   if(!node){node=row(item,{removable});rowCache.set(key,node);if(rowCache.size>400)rowCache.delete(rowCache.keys().next().value);}else node._paint?.();
+   return node;
+  }
+  function find(q,limit){
+   if(a.search)return a.search(q,limit);
+   const out=[];for(const item of a.items()){if(`${item.title} ${item.subtitle||''}`.toLowerCase().includes(q)){out.push(item);if(out.length>=limit)break;}}return out;
+  }
   function renderResults(list){
-   list.replaceChildren();
-   if(!query.trim()){const recents=a.recents?.()||[];list.append(el('h2','sps-section',recents.length?'Recents':'No recent searches'));for(const item of recents.slice(0,30))list.append(row(item,{removable:true}));return;}
-   const q=query.trim().toLowerCase(),out=[];
-   for(const item of a.items()){const hay=`${item.title} ${item.subtitle||''}`.toLowerCase();if(hay.includes(q)){out.push(item);if(out.length>=60)break;}}
-   if(!out.length){list.append(el('p','sps-empty',`No ${a.noun} found for “${query.trim()}”.`));return;}
-   for(const item of out)list.append(row(item));
+   if(!query.trim()){
+    const recents=(a.recents?.()||[]).slice(0,30),signature='recents|'+recents.map(item=>item.id).join('|');
+    if(signature===lastResults&&list.childElementCount)return;lastResults=signature;
+    list.replaceChildren(el('h2','sps-section',recents.length?'Recents':'No recent searches'),...recents.map(item=>cachedRow(item,true)));root.scrollTop=0;return;
+   }
+   const q=query.trim().toLowerCase(),out=find(q,60),signature='q|'+out.map(item=>item.id).join('|');
+   if(signature===lastResults&&list.childElementCount)return;lastResults=signature;
+   if(!out.length){list.replaceChildren(el('p','sps-empty',`No ${a.noun} found for “${query.trim()}”.`));return;}
+   list.replaceChildren(...out.map(item=>cachedRow(item,false)));root.scrollTop=0;
   }
 
   function libraryEntries(){
    const favs=a.favorites?.()||[],recents=a.recents?.()||[];
-   const pinned=[{id:'__liked',title:a.likedTitle||'Liked',subtitle:`Playlist • ${favs.length.toLocaleString()} ${a.noun}`,tile:'liked',pinned:true,items:favs},
+   const pinned=[{id:'__liked',title:a.likedTitle||'Liked',subtitle:`Playlist • ${count(favs.length)}`,tile:'liked',pinned:true,items:favs},
     {id:'__recent',title:'Recently played',subtitle:`Updated ${recents.length?'today':'when you play'}`,tile:'recent',pinned:true,items:recents}];
-   const groups=(a.categories?.()||[]).filter(c=>c.count>0).map(c=>({id:'cat:'+c.key,title:c.label,subtitle:`Playlist • ${Number(c.count).toLocaleString()} ${a.noun}`,mosaic:c.mosaic||[c.art].filter(Boolean),category:c.key,chip:c.chip||'playlists'}));
+   const groups=(a.categories?.()||[]).filter(c=>c.count>0).map(c=>({id:'cat:'+c.key,title:c.label,subtitle:`Playlist • ${count(c.count)}`,mosaic:c.mosaic||[c.art].filter(Boolean),category:c.key,chip:c.chip||'playlists'}));
    let entries=[...pinned,...groups.map(g=>({...g})),...favs.map(f=>({...f,subtitle:[f.type||a.itemType||'Station',f.subtitle].filter(Boolean).join(' • '),chip:'saved'}))];
    if(chip)entries=entries.filter(e=>e.pinned?chip==='playlists':e.chip===chip);
    if(sort==='alpha')entries=[...entries.filter(e=>e.pinned),...entries.filter(e=>!e.pinned).sort((x,y)=>x.title.localeCompare(y.title))];
@@ -1187,7 +1215,7 @@ html[data-radio-directory-filtered=true] :is(#radio-home-quick,#sp-collections,#
 .radio-directory-summary {display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}.radio-directory-summary>span {flex:1 1 180px;color:#aaa;font-size:11px;line-height:1.6;}
 .radio-directory-summary button,.radio-load-more {border:1px solid #ffffff30;border-radius:24px;background:transparent;color:#f5f5f5;padding:10px 16px;min-height:44px;font-size:12px;font-weight:650;}
 .radio-directory-summary button[hidden],.radio-load-more[hidden] {display:none;}.radio-load-more {display:block;margin:24px auto;width:100%;max-width:380px;}
-.radio-directory-selects {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:end;}
+.radio-directory-selects {display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end;}
 .radio-directory-selects label {font-size:10px;color:#aaa;min-width:0;}.radio-directory-selects select {display:block;width:100%;height:44px;margin-top:4px;border-radius:8px;background:#242424;color:#fff;border:1px solid #ffffff18;padding:0 10px;font-size:12px!important;}
 .radio-directory-selects .radio-secure-filter {grid-column:1/-1;display:flex;align-items:center;gap:8px;min-height:36px;font-size:12px;}.radio-secure-filter input {accent-color:#1ed760;width:18px;height:18px;}
 .radio-genre-chips {display:flex;gap:8px;overflow:auto;scrollbar-width:none;padding:4px 0;}.radio-genre-chips button {white-space:nowrap;border:0;border-radius:24px;padding:9px 14px;min-height:40px;background:#282828;color:#eee;font-size:12px;font-weight:600;}.radio-genre-chips button[aria-pressed=true] {background:#1ed760;color:#071a0d;}
@@ -1284,6 +1312,9 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 .radio-source-library>div {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}.radio-source-library>div button {min-height:34px;padding:6px 12px;}
 .radio-source-dialog form h3 {font-size:15px;margin:0;}
 @media(max-width:600px){.radio-source-dialog article {flex-wrap:wrap;}.radio-source-dialog article>div:last-child {width:100%;justify-content:flex-end;}}
+/* Radio desktop header: category pills stay on one line and scroll instead of wrapping. */
+.radio-header-chips {flex:0 1 auto;scrollbar-width:none;}.radio-header-chips::-webkit-scrollbar {display:none;}
+.radio-header-chips>button {white-space:nowrap;flex:none;}
 
 </style>
   <script>
@@ -1572,7 +1603,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       </div>
 
       <!-- Category Pills -->
-      <div class="flex items-center gap-1.5">
+      <div class="radio-header-chips flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
         <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
         <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
         <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
@@ -3425,15 +3456,28 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
       }
     }
+    // The "All" grid is titled after its filter: a source group, Akashvani state, language or genre.
+    function radioFilterTitle(){
+      const f=appConfig.catalogFilters||{},cap=t=>String(t).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
+      if(f.group)return window.SterlingRadioPresets?.groupLabel?.(f.group)||cap(f.group);
+      if(f.region)return `Akashvani · ${cap(f.region)}`;
+      const parts=[f.tag&&cap(f.tag),f.language&&cap(f.language),f.country].filter(Boolean);
+      return parts.length?`${parts.join(' · ')} stations`:'Explore all stations';
+    }
     function refreshRadioDirectory(snapshot=radioDirectorySnapshot){
       if(!snapshot)return;radioDirectorySnapshot=snapshot;
       updateRadioDirectoryCounts();const base=radioDirectoryBase();
+      if(appConfig.activeCategory==='all'&&!radioSearchQuery.trim())setHeadings(radioFilterTitle());
       const filtered=radioDirectoryUi?.update(snapshot,base)||radioDirectoryFiltered(base);
       if(appConfig.activeCategory==='podcasts'||document.documentElement.dataset.radioView==='library')return;
       if(radioSearchQuery.trim()){
         const seen=new Set(),pool=[...filtered,...catalogItems].filter(station=>{if(seen.has(station.streamUrl))return false;seen.add(station.streamUrl);return window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{});});
-        catalogItems=getRadioSearchMatches(pool,radioSearchQuery);
-      }else catalogItems=filtered;
+        // Background loading only appends new matches, so the visible results never reshuffle or flash.
+        const matches=getRadioSearchMatches(pool,radioSearchQuery);
+        if(radioSearchShown===radioSearchQuery){const now=new Set(matches.map(station=>station.streamUrl)),kept=catalogItems.filter(station=>now.has(station.streamUrl)),have=new Set(kept.map(station=>station.streamUrl));catalogItems=[...kept,...matches.filter(station=>!have.has(station.streamUrl))];}
+        else catalogItems=matches;
+        radioSearchShown=radioSearchQuery;
+      }else{catalogItems=filtered;radioSearchShown='';}
       renderCategoryGrids();if(radioSearchQuery.trim())publishRadioSuggestions(radioSearchQuery);
     }
     // New built-in sources reach saved lists once; anything the user deleted later stays deleted.
@@ -3501,6 +3545,8 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       spotifyShell=window.SterlingSpotifyShell.mount({kind:'radio',noun:'stations',itemType:'Station',likedTitle:'Liked Stations',placeholder:'What do you want to listen to?',
         avatar:()=>(document.querySelector('[data-radio-avatar],#sp-avatar')?.textContent||'N').trim().slice(0,1)||'N',
         items:()=>MASTER_POOL.map(shellItem),
+        search:(q,limit)=>getRadioSearchMatches(MASTER_POOL,q,limit).map(shellItem),
+        fallbackArt:id=>{const s=findStationById(id);return s?getStationIdentityThumbnail({...s,artwork:null}):'';},
         recents:()=>recentsList.map(shellItem),
         removeRecent:id=>{recentsList=recentsList.filter(s=>s.id!==id);try{radioStorage.setItem('omnicast_v11_recents',JSON.stringify(recentsList));}catch(_){};renderPersonalizedShelves?.();},
         favorites:()=>likedStations.map(shellItem),
@@ -3535,7 +3581,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 
     // --- 6. Initialization ---
     let radioHosted = false;
-    let radioSearchQuery = '';
+    let radioSearchQuery = '',radioSearchShown='';
     function publishRadioState() {
       if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : appConfig.appMode === 'netflix' ? 'netflix' : 'youtube',query:radioSearchQuery}, '*');
     }
@@ -4193,7 +4239,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       const spCards = document.getElementById('sp-cards-grid');
       const ytmQuick = document.getElementById('ytm-quick-picks');
       const ytmCards = document.getElementById('ytm-cards-grid');
-      document.getElementById('sp-grid-count').textContent = `${catalogItems.length.toLocaleString()} channels`;
+      document.getElementById('sp-grid-count').textContent = `${catalogItems.length.toLocaleString()} ${catalogItems.length===1?'station':'stations'}`;
       if(appConfig.activeCategory==='podcasts')for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const button=document.getElementById(prefix+'pod');if(button)button.textContent=`Podcasts ${catalogItems.length.toLocaleString()}`;}
       const viewKey=[appConfig.activeCategory,radioSearchQuery,document.documentElement.dataset.radioView,JSON.stringify(appConfig.catalogFilters||{})].join('|');
       const preserveGrid=radioGridView===viewKey&&radioGridRows.length>0&&radioGridRows.every((station,index)=>station===catalogItems[index]);
@@ -4229,6 +4275,8 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       }).join('');
 
       if(!preserveGrid)ytmCards.innerHTML=radioGridMarkup(visible,0,false);
+      // A short result list that grows (remote or background matches) fills in by appending, not by redrawing.
+      else if(radioGridRendered<Math.min(60,catalogItems.length)){const offset=radioGridRendered,next=catalogItems.slice(offset,60);spCards.insertAdjacentHTML('beforeend',radioGridMarkup(next,offset,true));ytmCards.insertAdjacentHTML('beforeend',radioGridMarkup(next,offset,false));radioGridRows.push(...next);radioGridRendered+=next.length;}
       syncRadioLoadMore();
 
       if (ytmQueueOpen) renderYtmDrawerList();
@@ -4623,7 +4671,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       return getRadioSearchMatches(hasTerms?[...MASTER_POOL,...catalogItems]:[...recentsList,...starterStations],query,8);
     }
     let radioSuggestionRequest = null;
-    function publishRadioSuggestions(query, requestId) {
+    function publishRadioSuggestions(query, requestId, showBrowse=true) {
       if(typeof requestId==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(requestId))radioSuggestionRequest={query,requestId};
       const currentRequest=radioSuggestionRequest?.query===query?radioSuggestionRequest.requestId:undefined;
       const items=radioSuggestionItems(query);
@@ -4631,8 +4679,9 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       // Async results must not remove the suggestion currently used by the keyboard.
       const focusedSuggestions=document.activeElement?.closest('.radio-search-suggestions');
       if(focusedSuggestions?.dataset.query===query)return;
-      document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
-      if(!query.trim()){
+      // Lists stay in place while typing; only a changed result set rewrites their buttons.
+      document.querySelectorAll('.radio-search-suggestions').forEach(el=>{const input=el.parentElement?.querySelector('input');if(radioHosted||document.activeElement!==input)el.remove();});
+      if(!query.trim()&&showBrowse){
         document.documentElement.dataset.radioView='search';
         let browse=document.getElementById('radio-browse-search');
         if(!browse){browse=document.createElement('section');browse.id='radio-browse-search';browse.innerHTML='<h2>Browse all</h2><div class="radio-browse-tiles"></div>';document.getElementById('radio-home-quick').before(browse);
@@ -4643,7 +4692,10 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       if(radioHosted)return;
       for(const id of ['sp-search-desktop','sp-search-mobile','ytm-search-input']){
         const input=document.getElementById(id);if(document.activeElement!==input)continue;
-        const list=document.createElement('div');list.className='radio-search-suggestions';list.dataset.query=query;list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
+        const signature=items.map(ch=>ch.id).join('|');let list=input.parentElement.querySelector(':scope > .radio-search-suggestions');
+        if(list){list.dataset.query=query;list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');if(list.dataset.signature===signature)continue;list.replaceChildren();list.dataset.signature=signature;list.hidden=!items.length;
+          for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.title+' · '+ch.subtitle;button.addEventListener('click',()=>{startPlayback(ch);clearAllSearches();});list.append(button);}continue;}
+        list=document.createElement('div');list.className='radio-search-suggestions';list.dataset.query=query;list.dataset.signature=signature;list.hidden=!items.length;list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
         for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.title+' · '+ch.subtitle;button.addEventListener('click',()=>{startPlayback(ch);clearAllSearches();});list.append(button);}
         list.addEventListener('keydown',event=>{const buttons=[...list.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}if(event.key==='Escape'){list.remove();input.focus();}});
         input.parentElement.append(list);
@@ -4652,7 +4704,8 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
     function onSearchInput(val, clearId) {
       const query=String(val??'').slice(0,200);
       radioSearchQuery=query;publishRadioState();
-      publishRadioSuggestions(query);
+      // Clearing the text returns to where you were; only opening Search shows the Browse page.
+      publishRadioSuggestions(query,undefined,false);
       // Synchronize embedded desktop and mobile inputs, and host search.
       ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{
         const el=document.getElementById(id);if(el&&el.value!==query)el.value=query;
@@ -4663,7 +4716,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       });
       clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
       document.documentElement.classList.toggle('radio-searching',Boolean(query.trim()));
-      if(!query.trim()){clearAllSearches();publishRadioSuggestions('');return;}
+      if(!query.trim()){clearAllSearches();publishRadioSuggestions('',undefined,false);return;}
       searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }
 
@@ -4702,7 +4755,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 
       const localMatches = getRadioSearchMatches(radioDirectoryFiltered(radioDirectoryBase()), q);
 
-      catalogItems=localMatches;
+      catalogItems=localMatches;radioSearchShown=query;
       renderCategoryGrids();
       try {
         let remote=[];

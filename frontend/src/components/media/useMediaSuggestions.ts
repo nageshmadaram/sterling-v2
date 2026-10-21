@@ -15,7 +15,8 @@ export function useMediaSuggestions(kind: MediaKind, query: string, enabled: boo
     if (!enabled) {setState(idle); return;}
     const requestId = `${kind}-${++requestSequence}`;
     let active = true;
-    setState({items: [], status: 'loading'});
+    // Keep the previous rows on screen while the next answer arrives, so typing does not flash an empty list.
+    setState(previous => ({items: previous.items, status: 'loading'}));
     const receive = (event: Event) => {
       const response = readMediaSuggestionResponse((event as CustomEvent).detail);
       if (!active || response?.requestId !== requestId || response.query !== query) return;

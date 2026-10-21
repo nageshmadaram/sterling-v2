@@ -442,7 +442,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       </div>
 
       <!-- Category Pills -->
-      <div class="flex items-center gap-1.5">
+      <div class="radio-header-chips flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
         <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
         <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
         <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
@@ -2295,15 +2295,28 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
       }
     }
+    // The "All" grid is titled after its filter: a source group, Akashvani state, language or genre.
+    function radioFilterTitle(){
+      const f=appConfig.catalogFilters||{},cap=t=>String(t).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
+      if(f.group)return window.SterlingRadioPresets?.groupLabel?.(f.group)||cap(f.group);
+      if(f.region)return `Akashvani · ${cap(f.region)}`;
+      const parts=[f.tag&&cap(f.tag),f.language&&cap(f.language),f.country].filter(Boolean);
+      return parts.length?`${parts.join(' · ')} stations`:'Explore all stations';
+    }
     function refreshRadioDirectory(snapshot=radioDirectorySnapshot){
       if(!snapshot)return;radioDirectorySnapshot=snapshot;
       updateRadioDirectoryCounts();const base=radioDirectoryBase();
+      if(appConfig.activeCategory==='all'&&!radioSearchQuery.trim())setHeadings(radioFilterTitle());
       const filtered=radioDirectoryUi?.update(snapshot,base)||radioDirectoryFiltered(base);
       if(appConfig.activeCategory==='podcasts'||document.documentElement.dataset.radioView==='library')return;
       if(radioSearchQuery.trim()){
         const seen=new Set(),pool=[...filtered,...catalogItems].filter(station=>{if(seen.has(station.streamUrl))return false;seen.add(station.streamUrl);return window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{});});
-        catalogItems=getRadioSearchMatches(pool,radioSearchQuery);
-      }else catalogItems=filtered;
+        // Background loading only appends new matches, so the visible results never reshuffle or flash.
+        const matches=getRadioSearchMatches(pool,radioSearchQuery);
+        if(radioSearchShown===radioSearchQuery){const now=new Set(matches.map(station=>station.streamUrl)),kept=catalogItems.filter(station=>now.has(station.streamUrl)),have=new Set(kept.map(station=>station.streamUrl));catalogItems=[...kept,...matches.filter(station=>!have.has(station.streamUrl))];}
+        else catalogItems=matches;
+        radioSearchShown=radioSearchQuery;
+      }else{catalogItems=filtered;radioSearchShown='';}
       renderCategoryGrids();if(radioSearchQuery.trim())publishRadioSuggestions(radioSearchQuery);
     }
     // New built-in sources reach saved lists once; anything the user deleted later stays deleted.
@@ -2371,6 +2384,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       spotifyShell=window.SterlingSpotifyShell.mount({kind:'radio',noun:'stations',itemType:'Station',likedTitle:'Liked Stations',placeholder:'What do you want to listen to?',
         avatar:()=>(document.querySelector('[data-radio-avatar],#sp-avatar')?.textContent||'N').trim().slice(0,1)||'N',
         items:()=>MASTER_POOL.map(shellItem),
+        search:(q,limit)=>getRadioSearchMatches(MASTER_POOL,q,limit).map(shellItem),
+        fallbackArt:id=>{const s=findStationById(id);return s?getStationIdentityThumbnail({...s,artwork:null}):'';},
         recents:()=>recentsList.map(shellItem),
         removeRecent:id=>{recentsList=recentsList.filter(s=>s.id!==id);try{radioStorage.setItem('omnicast_v11_recents',JSON.stringify(recentsList));}catch(_){};renderPersonalizedShelves?.();},
         favorites:()=>likedStations.map(shellItem),
@@ -2405,7 +2420,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     // --- 6. Initialization ---
     let radioHosted = false;
-    let radioSearchQuery = '';
+    let radioSearchQuery = '',radioSearchShown='';
     function publishRadioState() {
       if (window.parent !== window) window.parent.postMessage({type:'sterling.radio.state',theme:appConfig.appMode === 'spotify' ? 'spotify' : appConfig.appMode === 'netflix' ? 'netflix' : 'youtube',query:radioSearchQuery}, '*');
     }
@@ -3063,7 +3078,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const spCards = document.getElementById('sp-cards-grid');
       const ytmQuick = document.getElementById('ytm-quick-picks');
       const ytmCards = document.getElementById('ytm-cards-grid');
-      document.getElementById('sp-grid-count').textContent = `${catalogItems.length.toLocaleString()} channels`;
+      document.getElementById('sp-grid-count').textContent = `${catalogItems.length.toLocaleString()} ${catalogItems.length===1?'station':'stations'}`;
       if(appConfig.activeCategory==='podcasts')for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const button=document.getElementById(prefix+'pod');if(button)button.textContent=`Podcasts ${catalogItems.length.toLocaleString()}`;}
       const viewKey=[appConfig.activeCategory,radioSearchQuery,document.documentElement.dataset.radioView,JSON.stringify(appConfig.catalogFilters||{})].join('|');
       const preserveGrid=radioGridView===viewKey&&radioGridRows.length>0&&radioGridRows.every((station,index)=>station===catalogItems[index]);
@@ -3099,6 +3114,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }).join('');
 
       if(!preserveGrid)ytmCards.innerHTML=radioGridMarkup(visible,0,false);
+      // A short result list that grows (remote or background matches) fills in by appending, not by redrawing.
+      else if(radioGridRendered<Math.min(60,catalogItems.length)){const offset=radioGridRendered,next=catalogItems.slice(offset,60);spCards.insertAdjacentHTML('beforeend',radioGridMarkup(next,offset,true));ytmCards.insertAdjacentHTML('beforeend',radioGridMarkup(next,offset,false));radioGridRows.push(...next);radioGridRendered+=next.length;}
       syncRadioLoadMore();
 
       if (ytmQueueOpen) renderYtmDrawerList();
@@ -3493,7 +3510,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       return getRadioSearchMatches(hasTerms?[...MASTER_POOL,...catalogItems]:[...recentsList,...starterStations],query,8);
     }
     let radioSuggestionRequest = null;
-    function publishRadioSuggestions(query, requestId) {
+    function publishRadioSuggestions(query, requestId, showBrowse=true) {
       if(typeof requestId==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(requestId))radioSuggestionRequest={query,requestId};
       const currentRequest=radioSuggestionRequest?.query===query?radioSuggestionRequest.requestId:undefined;
       const items=radioSuggestionItems(query);
@@ -3501,8 +3518,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       // Async results must not remove the suggestion currently used by the keyboard.
       const focusedSuggestions=document.activeElement?.closest('.radio-search-suggestions');
       if(focusedSuggestions?.dataset.query===query)return;
-      document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
-      if(!query.trim()){
+      // Lists stay in place while typing; only a changed result set rewrites their buttons.
+      document.querySelectorAll('.radio-search-suggestions').forEach(el=>{const input=el.parentElement?.querySelector('input');if(radioHosted||document.activeElement!==input)el.remove();});
+      if(!query.trim()&&showBrowse){
         document.documentElement.dataset.radioView='search';
         let browse=document.getElementById('radio-browse-search');
         if(!browse){browse=document.createElement('section');browse.id='radio-browse-search';browse.innerHTML='<h2>Browse all</h2><div class="radio-browse-tiles"></div>';document.getElementById('radio-home-quick').before(browse);
@@ -3513,7 +3531,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(radioHosted)return;
       for(const id of ['sp-search-desktop','sp-search-mobile','ytm-search-input']){
         const input=document.getElementById(id);if(document.activeElement!==input)continue;
-        const list=document.createElement('div');list.className='radio-search-suggestions';list.dataset.query=query;list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
+        const signature=items.map(ch=>ch.id).join('|');let list=input.parentElement.querySelector(':scope > .radio-search-suggestions');
+        if(list){list.dataset.query=query;list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');if(list.dataset.signature===signature)continue;list.replaceChildren();list.dataset.signature=signature;list.hidden=!items.length;
+          for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.title+' · '+ch.subtitle;button.addEventListener('click',()=>{startPlayback(ch);clearAllSearches();});list.append(button);}continue;}
+        list=document.createElement('div');list.className='radio-search-suggestions';list.dataset.query=query;list.dataset.signature=signature;list.hidden=!items.length;list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
         for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.title+' · '+ch.subtitle;button.addEventListener('click',()=>{startPlayback(ch);clearAllSearches();});list.append(button);}
         list.addEventListener('keydown',event=>{const buttons=[...list.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}if(event.key==='Escape'){list.remove();input.focus();}});
         input.parentElement.append(list);
@@ -3522,7 +3543,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function onSearchInput(val, clearId) {
       const query=String(val??'').slice(0,200);
       radioSearchQuery=query;publishRadioState();
-      publishRadioSuggestions(query);
+      // Clearing the text returns to where you were; only opening Search shows the Browse page.
+      publishRadioSuggestions(query,undefined,false);
       // Synchronize embedded desktop and mobile inputs, and host search.
       ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{
         const el=document.getElementById(id);if(el&&el.value!==query)el.value=query;
@@ -3533,7 +3555,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       });
       clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
       document.documentElement.classList.toggle('radio-searching',Boolean(query.trim()));
-      if(!query.trim()){clearAllSearches();publishRadioSuggestions('');return;}
+      if(!query.trim()){clearAllSearches();publishRadioSuggestions('',undefined,false);return;}
       searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }
 
@@ -3572,7 +3594,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       const localMatches = getRadioSearchMatches(radioDirectoryFiltered(radioDirectoryBase()), q);
 
-      catalogItems=localMatches;
+      catalogItems=localMatches;radioSearchShown=query;
       renderCategoryGrids();
       try {
         let remote=[];

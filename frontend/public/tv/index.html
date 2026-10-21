@@ -323,6 +323,8 @@
 
 <!-- TV MOBILE STYLE START -->
 <style>
+/* The old embedded-tools toggle has no effect and covered the header's Sources button. */
+#tv-tools-reveal {display:none!important;}
 /* Mobile broadcast experiences. One video element, two distinct interfaces. */
 #tv-mobile-shell, #tv-mobile-home, #tv-now-playing, #tv-mobile-mini, #tv-mobile-nav, #tv-mobile-sheet { display:none; }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
@@ -419,6 +421,20 @@
   .tm-now-head { display:flex;align-items:center;justify-content:space-between;min-height:62px; }
   .tm-now-head>div { text-align:center;display:flex;flex-direction:column;gap:4px; }.tm-now-head small { font-size:9px;letter-spacing:1.5px;font-weight:600; }.tm-now-head strong { font-size:11px; }
   .tm-now-spacer { flex:1;min-height:calc(20dvh + (100vw - 32px)*.5625 - 62px); }
+  /* Now Playing scrolls like Spotify: the first screen is the player, then Up next and More like this. */
+  .theme-spotify.tm-now-open #tv-now-playing { display:block; }
+  .tm-now-main { min-height:calc(100dvh - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column; }
+  .theme-spotify.tm-now-open #player-stage { transform:translateY(calc(-1 * var(--tm-now-scroll,0px))); }
+  .tm-now-more { margin:22px -8px 0;padding:16px 8px 6px;border-radius:12px;background:#0000002e; }
+  .tm-now-more-head { display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 4px 8px; }
+  .tm-now-more h3 { font-size:16px;font-weight:700;margin:0; }.tm-now-more-head button { font-size:12px;color:#d6d6d6;border:1px solid #ffffff40;border-radius:16px;padding:5px 12px; }
+  .tm-now-more [data-tm-channel] { display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:6px 4px;text-align:left; }
+  .tm-now-more [data-tm-channel] img { width:48px;height:48px;border-radius:4px;object-fit:cover;flex:none;background:#ffffff14; }
+  .tm-now-more [data-tm-channel] span { min-width:0;display:flex;flex-direction:column;gap:3px; }
+  .tm-now-more [data-tm-channel] strong { font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .tm-now-more [data-tm-channel] small { font-size:12px;color:#b3b3b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .tm-now-show-more { display:block;margin:10px auto 6px;font-size:13px;font-weight:600;border:1px solid #ffffff50;border-radius:18px;padding:8px 18px; }
+  .tm-now-show-more[hidden] { display:none; }
   .tm-now-copy { display:flex;align-items:center;gap:15px; }.tm-now-copy>div { flex:1;min-width:0; }
   .tm-now-copy h2 { font-size:25px;font-weight:800;letter-spacing:-.9px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }.tm-now-copy p { font-size:13px;color:#c3d1c9;margin-top:7px; }
   .tm-timeline { margin-top:22px; }.tm-timeline-track { height:4px;border-radius:8px;background:#ffffff40;position:relative; }.tm-timeline-track:after { content:'';width:9px;height:9px;background:white;border-radius:50%;position:absolute;right:0;top:-2.5px; }
@@ -1184,13 +1200,16 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
           <!-- Top Row: Primary Scope Tabs (Global All, Indian Section, Verified, Subscribed, Recent) + Dropdowns -->
           <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
             <div class="flex items-center space-x-2 overflow-x-auto no-scrollbar">
-              <label class="text-xs text-zinc-300">Channels<select id="catalog-availability-select" aria-label="Channel availability" onchange="setChannelAvailabilityFilter(this.value)" class="bg-[#17171f] text-white rounded-lg p-2"><option value="all">All, including unavailable</option><option value="available">Hide unavailable</option></select></label><button type="button" onclick="retryUnavailableChannelsNow()" class="text-xs text-white p-2 rounded-lg bg-[#17171f]">Retry unavailable channels now</button>
               <div id="category-chips" class="inline-flex items-center bg-[#131318] p-1 rounded-xl border border-white/[0.08] space-x-1"></div>
               <span id="catalog-showing-count" class="text-xs text-zinc-400 font-mono-code whitespace-nowrap pl-1"></span>
             </div>
 
             <!-- Global & Indian Dynamic Dropdowns: Language Dropdown + Category Dropdown Next to Each Other -->
             <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <label class="flex items-center bg-[#15151c] border border-white/[0.1] rounded-xl px-2.5 h-9 whitespace-nowrap">
+                <span class="text-[11px] text-zinc-400 mr-1.5 font-medium">Show:</span>
+                <select id="catalog-availability-select" aria-label="Channel availability" onchange="setChannelAvailabilityFilter(this.value)" class="bg-transparent text-xs font-semibold text-white outline-none cursor-pointer pr-1"><option value="all">All channels</option><option value="available">Working only</option></select>
+              </label>
               <div class="flex items-center bg-[#15151c] border border-white/[0.1] rounded-xl px-2.5 h-9">
                 <span class="text-[11px] text-zinc-400 mr-1.5 font-medium">Language:</span>
                 <select
@@ -1212,6 +1231,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
                   <option value="All">All Categories</option>
                 </select>
               </div>
+              <button type="button" onclick="retryUnavailableChannelsNow()" aria-label="Retry unavailable channels now" title="Check unavailable channels again now" class="h-9 px-3 rounded-xl bg-[#15151c] border border-white/[0.1] text-xs font-semibold text-white whitespace-nowrap hover:bg-white/10">Retry offline</button>
             </div>
           </div>
 
@@ -1433,6 +1453,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       if (langId === 'Indian' && (INDIAN_LANG_IDS.includes(ch.lang) || ch.isIndian)) {
         return true;
       }
+      // Keywords only place channels whose language is unknown; a Malayalam "Asianet" or "NTV" is not Telugu.
+      if (ch.lang && !/^(unknown|multi|mixed|other|undefined|none)$/i.test(ch.lang)) return false;
       const hay = `${ch.name} ${ch.group} ${ch.sourceName || ''}`.toLowerCase();
       const langObj = LANGUAGE_CATALOGS.find(l => l.id === langId);
       return langObj && langObj.keywords ? langObj.keywords.some(kw => hay.includes(kw)) : false;
@@ -3706,11 +3728,15 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       return scored.map(s => s.ch);
     }
 
+    // Typing updates the dropdown after a short pause and the channel grid after a longer one,
+    // so each keystroke stays responsive and the grid does not redraw letter by letter.
+    let searchDropdownTimer=0,searchGridTimer=0;
     searchInputEl.addEventListener('input', () => {
       const q = searchInputEl.value.trim();
       document.getElementById('clear-search-btn').classList.toggle('hidden', !q);
-      renderSmartSearchDropdown(q);
-      renderViewport();
+      clearTimeout(searchDropdownTimer);clearTimeout(searchGridTimer);
+      searchDropdownTimer=setTimeout(()=>renderSmartSearchDropdown(searchInputEl.value.trim()),80);
+      searchGridTimer=setTimeout(renderViewport,280);
     });
 
     searchInputEl.addEventListener('focus', () => {
@@ -3720,6 +3746,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     searchInputEl.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
         e.preventDefault();
+        clearTimeout(searchDropdownTimer);clearTimeout(searchGridTimer);
         closeSearchDropdown();
         renderViewport();
         const catSec = document.getElementById('catalog-section');
@@ -3737,7 +3764,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         statusEl.textContent = 'Quick Filters & Instant Tuning';
         countEl.textContent = `${allChannels.length.toLocaleString()} total`;
         const suggestedTerms = ['BBC Earth US', 'Telugu', 'Hindi', 'Tamil', 'News', 'Movies', 'Sports', 'Music', 'Devotional'];
-        searchDropdownListEl.innerHTML = `
+        searchDropdownListEl.dataset.signature = ""; searchDropdownListEl.innerHTML = `
           <div class="p-2 flex flex-wrap gap-1.5">
             ${suggestedTerms.map(term => `
               <button onclick="applySearchSuggestion(${escapeJsAttr(term)})" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-[var(--accent)] text-xs text-zinc-200 hover:text-white font-medium transition">
@@ -3752,7 +3779,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       if (query.startsWith('http://') || query.startsWith('https://')) {
         statusEl.textContent = 'Direct Stream URL Detected';
         countEl.textContent = 'HLS / M3U8';
-        searchDropdownListEl.innerHTML = `
+        searchDropdownListEl.dataset.signature = ""; searchDropdownListEl.innerHTML = `
           <div onclick="playStream({name:'Direct Stream',group:'Custom',logo:'',url:${escapeJsAttr(query)},viewers:'LIVE'},0); closeSearchDropdown()" class="p-3.5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
             <span class="text-xs font-semibold text-white">▶ Play Direct Stream URL Now</span>
             <span class="text-[10px] font-mono-code text-emerald-400">LIVE</span>
@@ -3761,16 +3788,20 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         return;
       }
 
-      currentSearchMatches = getRankedSearchMatches(query);
+      const matches = getRankedSearchMatches(query);
+      statusEl.textContent = `Results for "${query}"`;
+      countEl.textContent = `${matches.length.toLocaleString()} ${matches.length===1?'match':'matches'}`;
+      // Same top rows as now: keep the rendered list, so it does not flash.
+      const signature = matches.slice(0, SEARCH_BATCH_SIZE).map(ch => ch.url).join('|');
+      if (searchDropdownListEl.dataset.signature === signature && searchDropdownRendered > 0) { currentSearchMatches = matches; return; }
+      searchDropdownListEl.dataset.signature = signature;
+      currentSearchMatches = matches;
       searchDropdownRendered = 0;
       searchDropdownListEl.innerHTML = '';
       searchDropdownListEl.scrollTop = 0;
 
-      statusEl.textContent = `Global Search Results for "${query}"`;
-      countEl.textContent = `${currentSearchMatches.length.toLocaleString()} matches (Scroll for more)`;
-
       if (currentSearchMatches.length === 0) {
-        searchDropdownListEl.innerHTML = `<div class="p-5 text-xs text-zinc-400 text-center">No matching channels found across ${allChannels.length.toLocaleString()} loaded streams.</div>`;
+        searchDropdownListEl.dataset.signature = ""; searchDropdownListEl.innerHTML = `<div class="p-5 text-xs text-zinc-400 text-center">No matching channels found across ${allChannels.length.toLocaleString()} loaded streams.</div>`;
         return;
       }
 
@@ -3848,6 +3879,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     }
 
     function clearSearch() {
+      clearTimeout(searchDropdownTimer);clearTimeout(searchGridTimer);
       searchInputEl.value = '';
       document.getElementById('clear-search-btn').classList.add('hidden');
       closeSearchDropdown();
@@ -4447,7 +4479,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   const mini=document.createElement('div');mini.id='tv-mobile-mini';mini.setAttribute('aria-label','Now playing');
   mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live television</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
   const now=document.createElement('section');now.id='tv-now-playing';now.setAttribute('aria-label','Now Playing');now.setAttribute('role','dialog');now.setAttribute('aria-modal','true');now.hidden=true;
-  now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div>`;
+  now.innerHTML=`<div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
@@ -4476,7 +4508,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   function shelf(title,pool,filter) {
     pool=pool.filter(isChannelVisible);
     if(!pool.length)return '';
-    return `<section><div class="tm-section-title"><h2>${title}<small class="media-shelf-count">${pool.length.toLocaleString()} ${filter==='all'?'picks':'channels'}</small></h2><button data-tm-category="${filter}">${filter==='all'?'Browse all':'Show all'}</button></div><div class="tm-shelf">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
+    return `<section><div class="tm-section-title"><h2>${title}<small class="media-shelf-count">${pool.length.toLocaleString()} ${filter==='all'?(pool.length===1?'pick':'picks'):(pool.length===1?'channel':'channels')}</small></h2><button data-tm-category="${filter}">${filter==='all'?'Browse all':'Show all'}</button></div><div class="tm-shelf">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
   }
   let lastHomeCatalog=null,lastHomeKey='';
   function renderHome() {
@@ -4486,7 +4518,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
 
     const categories=['News','Sports','Movies','Music','Documentary','Entertainment','Kids & Anime','Devotional'];
     const groups=new Map(categories.map(category=>[category,allChannels.filter(channel=>channel.group===category&&isChannelVisible(channel))]));
-    const categoryTiles=categories.map(category=>{const pool=groups.get(category),sample=pool[0];return `<button type="button" data-tm-category="${escapeAttr(category)}"><strong>${escapeHtml(category)}</strong><small>${pool.length.toLocaleString()} channels</small>${sample?`<img src="${escapeAttr(artwork(sample))}" alt="" loading="lazy" decoding="async">`:''}</button>`;}).join('');
+    const categoryTiles=categories.map(category=>{const pool=groups.get(category),sample=pool[0];return `<button type="button" data-tm-category="${escapeAttr(category)}"><strong>${escapeHtml(category)}</strong><small>${pool.length.toLocaleString()} ${pool.length===1?'channel':'channels'}</small>${sample?`<img src="${escapeAttr(artwork(sample))}" alt="" loading="lazy" decoding="async">`:''}</button>`;}).join('');
     browse.classList.add('media-browse-grid');browse.innerHTML=categoryTiles;
     const verifiedPool=allChannels.filter(channel=>channel.verified&&isChannelVisible(channel));
     const recent=(recentHistory.length?recentHistory:verifiedPool.length?verifiedPool:allChannels).filter(isChannelVisible);
@@ -4534,6 +4566,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       setPlayerText(document.getElementById('tm-now-title'),activeChannel.name);
       setPlayerText(document.getElementById('tm-now-subtitle'),`${activeChannel.group||'Live television'} · ${activeChannel.lang||'Global'}`);
       setPlayerText(document.getElementById('tm-now-group'),activeChannel.group||'Your live channels');
+      if(expanded&&!now.hidden)renderNowMore();
       const saved=favorites.some(c=>c.url===activeChannel.url);
       [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="save"]');setPlayerGlyph(b,saved?'check':'plus');b.setAttribute('aria-label',saved?'Remove channel from your library':'Save channel to your library');b.setAttribute('aria-pressed',String(saved));});
     }
@@ -4547,10 +4580,32 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
     [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');});
   }
+  // Below the player, like Spotify: the next few queued channels, then every channel in the same category
+  // (same language first). Picking one plays that category in order, so Next keeps following it.
+  let relatedFor='',relatedPool=[],relatedShown=0,nextKey='';
+  const relatedRow=(ch,attr)=>`<button data-tm-channel="${escapeAttr(ch.url)}" ${attr}><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy" decoding="async"><span><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group||'Live TV')} · ${escapeHtml(ch.lang||'Global')}</small></span></button>`;
+  function renderNowMore(){
+    if(!activeChannel||now.hidden||typeof getUpcomingPlaybackQueue!=='function')return;
+    const upcoming=getUpcomingPlaybackQueue().slice(0,5),key=activeChannel.url+'|'+upcoming.map(c=>c.url).join('|');
+    if(key!==nextKey){nextKey=key;document.getElementById('tm-now-next').innerHTML=upcoming.map(ch=>relatedRow(ch,'data-tm-queued="true"')).join('');}
+    if(relatedFor===activeChannel.url)return;relatedFor=activeChannel.url;
+    const group=(activeChannel.group||'').toLowerCase(),lang=activeChannel.lang;
+    const same=allChannels.filter(c=>c.url!==activeChannel.url&&isChannelVisible(c)&&(c.group||'').toLowerCase()===group);
+    relatedPool=[...same.filter(c=>c.lang===lang),...same.filter(c=>c.lang!==lang)];relatedShown=0;
+    document.getElementById('tm-now-related-title').textContent=`More ${activeChannel.group||'live TV'} · ${relatedPool.length.toLocaleString()} ${relatedPool.length===1?'channel':'channels'}`;
+    document.getElementById('tm-now-related').innerHTML='';appendRelated();
+  }
+  function appendRelated(){
+    const batch=relatedPool.slice(relatedShown,relatedShown+30);relatedShown+=batch.length;
+    document.getElementById('tm-now-related').insertAdjacentHTML('beforeend',batch.map(ch=>relatedRow(ch,'data-tm-related="true"')).join(''));
+    now.querySelector('[data-tm-action="related-more"]').hidden=relatedShown>=relatedPool.length;
+  }
+  now.addEventListener('scroll',()=>{document.body.style.setProperty('--tm-now-scroll',`${now.scrollTop}px`);if(now.scrollTop+now.clientHeight>now.scrollHeight-200&&relatedShown<relatedPool.length)appendRelated();},{passive:true});
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
   let sheetReturnFocus=null;
   function closeSheet() { sheet.classList.remove('tm-sheet-open');sheetReturnFocus?.focus(); }
   function setExpanded(value) {
+    if(!value){now.scrollTop=0;document.body.style.setProperty('--tm-now-scroll','0px');}
     expanded=value;sync();
     if(value){returnFocus=document.activeElement;now.querySelector('button').focus();}
     else mini.querySelector('button').focus();
@@ -4632,6 +4687,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       case 'share': copyStreamShareLink();break;
       case 'more': showSheet();break;
       case 'queue': showSheet('queue');break;
+      case 'related-more': appendRelated();break;
       case 'retry-unavailable': retryUnavailableChannelsNow();closeSheet();break;
       case 'resize-sheet': { const handle=sheet.querySelector('.tm-sheet-handle');const height=Number(handle.getAttribute('aria-valuenow'))>=90?72:95;sheet.style.setProperty('--tm-sheet-height',height+'dvh');handle.setAttribute('aria-valuenow',String(height));const button=sheet.querySelector('[data-tm-action=resize-sheet]');button.setAttribute('aria-label',height===95?'Reduce menu':'Expand menu');break; }
       case 'close-sheet': closeSheet();break;
@@ -4657,6 +4713,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   const tvShell=window.SterlingSpotifyShell?.mount({kind:'tv',noun:'channels',itemType:'Channel',likedTitle:'Subscribed Channels',placeholder:'What do you want to watch?',
     avatar:()=>'S',openSettings:()=>showSheet('more'),
     items:()=>allChannels.filter(isChannelVisible).map(shellItem),
+    fallbackArt:url=>{const ch=findChannel(url);if(!ch)return '';for(let i=0;i<2;i++){const src=artwork(ch);if(src.startsWith('data:'))return src;rejectedArtwork.add(src);}return artwork(ch);},
+    search:(q,limit)=>(typeof getRankedSearchMatches==='function'?getRankedSearchMatches(q,limit):allChannels.filter(c=>isChannelVisible(c)&&`${c.name} ${c.group||''}`.toLowerCase().includes(q)).slice(0,limit)).map(shellItem),
     recents:()=>recentHistory.filter(isChannelVisible).slice(0,40).map(shellItem),
     removeRecent:url=>{recentHistory=recentHistory.filter(c=>c.url!==url);try{tvStorage.setItem('streamos_history_v14',JSON.stringify(recentHistory));}catch(_){}},
     favorites:()=>favorites.map(shellItem),
@@ -4685,7 +4743,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){if(button.dataset.tmRelated){playbackQueue=[...relatedPool];playQueuedChannel(ch);}else if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);if(button.closest('#tv-now-playing'))now.scrollTo({top:0,behavior:'smooth'});clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')catalog('live','verified');else if(cat==='all')catalog('live','all');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
@@ -4759,7 +4817,14 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.name+' · '+(ch.group||'Live TV');button.addEventListener('click',()=>{playStream(ch,0);clearSelectionSearch();setExpanded(true);});list.append(button);}
     shell.querySelector('.tm-search').append(list);
   }
+  // Search arrives per keystroke. The first one applies at once; a fast burst redraws once, 220 ms after
+  // the last key, so the grid does not flash letter by letter. Clearing is always instant.
+  let applySearchTimer=0,lastApplySearch=0;
   function applySearch(query) {
+    clearTimeout(applySearchTimer);const now=Date.now(),burst=now-lastApplySearch<220;lastApplySearch=now;
+    if(query.trim()&&burst){publishSuggestions(query);applySearchTimer=setTimeout(()=>{lastApplySearch=0;applySearchNow(query);},220);}else applySearchNow(query);
+  }
+  function applySearchNow(query) {
     view=query?'search':'home';expanded=false;
     searchInputEl.value=query;document.getElementById('tm-search-input').value=query;
     publishSuggestions(query);

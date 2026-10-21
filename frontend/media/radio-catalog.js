@@ -39,7 +39,7 @@
   const languages=words(row.language||row.languages),tags=words(row.tags||row.group);
   const country=countryName(row.country||row.countrycode||(source.category==='akashvani'?'India':'')).slice(0,100),region=typeof row.state==='string'?row.state.replace(/\s+/g,' ').trim().toUpperCase().slice(0,60):'';
   return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
-   subtitle:[country,languages.slice(0,2).join(', '),row.codec||'Live radio',stream.startsWith('http:')?'HTTP stream':''].filter(Boolean).join(' · '),
+   subtitle:[country,languages.slice(0,2).map(word=>word.replace(/\b\w/g,c=>c.toUpperCase())).join(', ')].filter(Boolean).join(' · ')||'Live radio',
    streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:'LIVE',freqLabel:'Live radio'};
  }
  function playlist(text,source){

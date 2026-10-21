@@ -1,3 +1,5 @@
+/* The old embedded-tools toggle has no effect and covered the header's Sources button. */
+#tv-tools-reveal {display:none!important;}
 /* Mobile broadcast experiences. One video element, two distinct interfaces. */
 #tv-mobile-shell, #tv-mobile-home, #tv-now-playing, #tv-mobile-mini, #tv-mobile-nav, #tv-mobile-sheet { display:none; }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
@@ -94,6 +96,20 @@
   .tm-now-head { display:flex;align-items:center;justify-content:space-between;min-height:62px; }
   .tm-now-head>div { text-align:center;display:flex;flex-direction:column;gap:4px; }.tm-now-head small { font-size:9px;letter-spacing:1.5px;font-weight:600; }.tm-now-head strong { font-size:11px; }
   .tm-now-spacer { flex:1;min-height:calc(20dvh + (100vw - 32px)*.5625 - 62px); }
+  /* Now Playing scrolls like Spotify: the first screen is the player, then Up next and More like this. */
+  .theme-spotify.tm-now-open #tv-now-playing { display:block; }
+  .tm-now-main { min-height:calc(100dvh - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column; }
+  .theme-spotify.tm-now-open #player-stage { transform:translateY(calc(-1 * var(--tm-now-scroll,0px))); }
+  .tm-now-more { margin:22px -8px 0;padding:16px 8px 6px;border-radius:12px;background:#0000002e; }
+  .tm-now-more-head { display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 4px 8px; }
+  .tm-now-more h3 { font-size:16px;font-weight:700;margin:0; }.tm-now-more-head button { font-size:12px;color:#d6d6d6;border:1px solid #ffffff40;border-radius:16px;padding:5px 12px; }
+  .tm-now-more [data-tm-channel] { display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:6px 4px;text-align:left; }
+  .tm-now-more [data-tm-channel] img { width:48px;height:48px;border-radius:4px;object-fit:cover;flex:none;background:#ffffff14; }
+  .tm-now-more [data-tm-channel] span { min-width:0;display:flex;flex-direction:column;gap:3px; }
+  .tm-now-more [data-tm-channel] strong { font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .tm-now-more [data-tm-channel] small { font-size:12px;color:#b3b3b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .tm-now-show-more { display:block;margin:10px auto 6px;font-size:13px;font-weight:600;border:1px solid #ffffff50;border-radius:18px;padding:8px 18px; }
+  .tm-now-show-more[hidden] { display:none; }
   .tm-now-copy { display:flex;align-items:center;gap:15px; }.tm-now-copy>div { flex:1;min-width:0; }
   .tm-now-copy h2 { font-size:25px;font-weight:800;letter-spacing:-.9px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }.tm-now-copy p { font-size:13px;color:#c3d1c9;margin-top:7px; }
   .tm-timeline { margin-top:22px; }.tm-timeline-track { height:4px;border-radius:8px;background:#ffffff40;position:relative; }.tm-timeline-track:after { content:'';width:9px;height:9px;background:white;border-radius:50%;position:absolute;right:0;top:-2.5px; }

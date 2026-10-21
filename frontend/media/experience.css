@@ -225,7 +225,7 @@ html[data-radio-directory-filtered=true] :is(#radio-home-quick,#sp-collections,#
 .radio-directory-summary {display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;}.radio-directory-summary>span {flex:1 1 180px;color:#aaa;font-size:11px;line-height:1.6;}
 .radio-directory-summary button,.radio-load-more {border:1px solid #ffffff30;border-radius:24px;background:transparent;color:#f5f5f5;padding:10px 16px;min-height:44px;font-size:12px;font-weight:650;}
 .radio-directory-summary button[hidden],.radio-load-more[hidden] {display:none;}.radio-load-more {display:block;margin:24px auto;width:100%;max-width:380px;}
-.radio-directory-selects {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:end;}
+.radio-directory-selects {display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;align-items:end;}
 .radio-directory-selects label {font-size:10px;color:#aaa;min-width:0;}.radio-directory-selects select {display:block;width:100%;height:44px;margin-top:4px;border-radius:8px;background:#242424;color:#fff;border:1px solid #ffffff18;padding:0 10px;font-size:12px!important;}
 .radio-directory-selects .radio-secure-filter {grid-column:1/-1;display:flex;align-items:center;gap:8px;min-height:36px;font-size:12px;}.radio-secure-filter input {accent-color:#1ed760;width:18px;height:18px;}
 .radio-genre-chips {display:flex;gap:8px;overflow:auto;scrollbar-width:none;padding:4px 0;}.radio-genre-chips button {white-space:nowrap;border:0;border-radius:24px;padding:9px 14px;min-height:40px;background:#282828;color:#eee;font-size:12px;font-weight:600;}.radio-genre-chips button[aria-pressed=true] {background:#1ed760;color:#071a0d;}
@@ -322,3 +322,6 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 .radio-source-library>div {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}.radio-source-library>div button {min-height:34px;padding:6px 12px;}
 .radio-source-dialog form h3 {font-size:15px;margin:0;}
 @media(max-width:600px){.radio-source-dialog article {flex-wrap:wrap;}.radio-source-dialog article>div:last-child {width:100%;justify-content:flex-end;}}
+/* Radio desktop header: category pills stay on one line and scroll instead of wrapping. */
+.radio-header-chips {flex:0 1 auto;scrollbar-width:none;}.radio-header-chips::-webkit-scrollbar {display:none;}
+.radio-header-chips>button {white-space:nowrap;flex:none;}
