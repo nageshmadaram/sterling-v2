@@ -533,10 +533,12 @@ def test_safe_mode_check_uses_the_service_path_when_env_is_unset(monkeypatch, tm
     """The service does not export STERLING_SAFE_MODE_FILE; it must not read as 'no home'."""
     from app.core.operator_report import lane_doctor_checks
     from app.services import safety_supervisor
-    from app.services.safe_mode import SafeModeService
+    from app.services.safe_mode import SafeModeService, SafeModeTrigger
 
     path = tmp_path / 'safe_mode.json'
-    SafeModeService(path)  # fresh file reads NORMAL
+    service = SafeModeService(path)
+    service.engage(trigger=SafeModeTrigger.OPERATOR, reason="setup")
+    service.release(operator_ack=True, note="ready")
     monkeypatch.delenv('STERLING_SAFE_MODE_FILE', raising=False)
     monkeypatch.setattr(safety_supervisor, 'safe_mode_path', lambda: path)
     check = _by_name(lane_doctor_checks())['safe_mode_state']
