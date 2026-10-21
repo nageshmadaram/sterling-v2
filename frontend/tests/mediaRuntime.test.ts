@@ -52,6 +52,8 @@ describe('Actual sandboxed media documents on mobile',()=>{
     w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.tv.command',action:'theme',value:'youtube'}}));flush();
     (w.document.querySelector('#yt-studio-grid .channel-grid-card h4') as HTMLElement).click();flush();
     expect(w.document.getElementById('active-title')?.textContent).toBe('Red Bull TV Global Sports');
+    expect((w.document.getElementById('search-input') as HTMLInputElement)?.value).toBe('');
+    expect((w.document.getElementById('tm-search-input') as HTMLInputElement)?.value).toBe('');
     expect(w.document.body.classList.contains('tm-watch-view')).toBe(true);
     expect(errors).toEqual([]);
   });
