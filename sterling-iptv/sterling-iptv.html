@@ -284,6 +284,7 @@
 
 
 
+
 <!-- TV MOBILE STYLE START -->
 <style>
 /* Mobile broadcast experiences. One video element, two distinct interfaces. */
@@ -602,6 +603,13 @@ button {touch-action:manipulation;}
   .theme-spotify .channel-grid-card:hover {background:#ffffff0a;}
   .theme-spotify .channel-grid-card .preview-thumb-box {aspect-ratio:1!important;border-radius:6px!important;}
   .theme-spotify .channel-grid-card h4 {font-size:15px;font-weight:600;}
+}
+/* Keep mobile tap targets stable while cards enter the viewport. Deferred
+   painting plus smooth container scrolling can move a card between pointer
+   down and up, routing the click to the grid instead of the channel. */
+@media(max-width:767px),(max-width:1024px) and (max-height:600px) {
+  .channel-grid-card {content-visibility:visible;contain-intrinsic-size:none;}
+  #main-scroll {scroll-behavior:auto!important;}
 }
 
 </style>
@@ -2960,7 +2968,7 @@ button {touch-action:manipulation;}
       const epgList = getChannelEpgSchedule(channel);
 
       document.getElementById('active-title').textContent = channel.name;
-      document.getElementById('active-subtitle').textContent = `${channel.group || 'Broadcast'} • ${channel.lang || 'Global'} • Guide preview · ${epgList[0].title} • ${channel.viewers || '24.7K'} watching`;
+      document.getElementById('active-subtitle').textContent = `${channel.group || 'Broadcast'} • ${channel.lang || 'Global'} • Live broadcast`;
 
       const pipTitle = document.getElementById('pip-title-label');
       if (pipTitle) pipTitle.textContent = channel.name;
@@ -3534,7 +3542,7 @@ button {touch-action:manipulation;}
             <div class="min-w-0 flex-1">
               <h4 class="text-[13px] font-semibold text-zinc-100 truncate group-hover:text-white">${escapeHtml(ch.name)}</h4>
               <p class="text-[11px] text-[var(--accent)] font-medium truncate mt-0.5">${escapeHtml(ch.group)}</p>
-              <span class="text-[10px] text-zinc-400 block mt-0.5">${ch.viewers || '24K'} watching</span>
+              <span class="text-[10px] text-zinc-400 block mt-0.5">Live broadcast</span>
             </div>
           `;
         }
@@ -4226,6 +4234,7 @@ button {touch-action:manipulation;}
     }
     announceReady();
   </script>
+
 
 
 

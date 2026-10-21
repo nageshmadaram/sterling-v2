@@ -49,6 +49,10 @@ describe('Actual sandboxed media documents on mobile',()=>{
     w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.tv.command',action:'search',value:'Red Bull'}}));flush();
     expect(w.document.body.classList.contains('tm-catalog-view')).toBe(true);
     expect(w.document.querySelector('#yt-studio-grid')?.textContent).toContain('Red Bull');
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.tv.command',action:'theme',value:'youtube'}}));flush();
+    (w.document.querySelector('#yt-studio-grid .channel-grid-card h4') as HTMLElement).click();flush();
+    expect(w.document.getElementById('active-title')?.textContent).toBe('Red Bull TV Global Sports');
+    expect(w.document.body.classList.contains('tm-watch-view')).toBe(true);
     expect(errors).toEqual([]);
   });
   it('boots Radio and responds to category and player-sheet taps',()=>{

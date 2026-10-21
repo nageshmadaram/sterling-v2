@@ -267,6 +267,7 @@
 
 
 
+
 <!-- TV MOBILE STYLE START -->
 <style>
 /* Mobile broadcast experiences. One video element, two distinct interfaces. */
@@ -2840,7 +2841,7 @@
       const epgList = getChannelEpgSchedule(channel);
 
       document.getElementById('active-title').textContent = channel.name;
-      document.getElementById('active-subtitle').textContent = `${channel.group || 'Broadcast'} • ${channel.lang || 'Global'} • Guide preview · ${epgList[0].title} • ${channel.viewers || '24.7K'} watching`;
+      document.getElementById('active-subtitle').textContent = `${channel.group || 'Broadcast'} • ${channel.lang || 'Global'} • Live broadcast`;
 
       const pipTitle = document.getElementById('pip-title-label');
       if (pipTitle) pipTitle.textContent = channel.name;
@@ -3414,7 +3415,7 @@
             <div class="min-w-0 flex-1">
               <h4 class="text-[13px] font-semibold text-zinc-100 truncate group-hover:text-white">${escapeHtml(ch.name)}</h4>
               <p class="text-[11px] text-[var(--accent)] font-medium truncate mt-0.5">${escapeHtml(ch.group)}</p>
-              <span class="text-[10px] text-zinc-400 block mt-0.5">${ch.viewers || '24K'} watching</span>
+              <span class="text-[10px] text-zinc-400 block mt-0.5">Live broadcast</span>
             </div>
           `;
         }
@@ -4106,6 +4107,7 @@
     }
     announceReady();
   </script>
+
 
 
 
