@@ -1035,8 +1035,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     </div>
 
     <div class="my-auto flex flex-col items-center py-4">
-      <div class="radio-mobile-art w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
-        <img id="sheet-art" src="" class="w-full h-full object-cover" alt="" />
+      <div class="radio-mobile-art relative w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
+        <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
+        <button type="button" data-radio-click="75" aria-label="Refresh now-playing artwork" title="Refresh artwork"
+          class="absolute top-2 right-2 w-11 h-11 btn-circle bg-black/65 text-white flex items-center justify-center">
+          <i class="fa-solid fa-rotate text-sm"></i>
+        </button>
       </div>
 
       <div class="w-full flex items-center justify-between gap-3">
@@ -1147,9 +1151,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (stationBadgeCache[cacheKey]) return stationBadgeCache[cacheKey];
 
       const canvas = document.createElement('canvas');
-      canvas.width = 600;
-      canvas.height = 600;
+      // 384 square is sufficient for mobile covers; scaling legacy drawing
+      // coordinates reduces repeated rasterization, memory and JPEG size.
+      canvas.width = 384;
+      canvas.height = 384;
       const ctx = canvas.getContext('2d');
+      ctx.scale(384/600,384/600);
 
       const h = hashString(cacheKey);
       const theme = STUDIO_THEMES[h % STUDIO_THEMES.length];
@@ -2912,6 +2919,14 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
     }
 
+    function refreshNowPlayingArtwork() {
+      if(!activeStream)return showToast('Play a station first');
+      syncPlayerUI(getStationIdentityThumbnail(activeStream));
+      if(activeStream.somaId){
+        Promise.resolve(updateActivePlayerSongArtwork(activeStream)).catch(()=>{});
+        showToast('Checking current-track artwork');
+      }else showToast('Station artwork refreshed; track artwork unavailable');
+    }
     async function updateActivePlayerSongArtwork(streamObj) {
       if (!streamObj.somaId) return;
       let broadcastTrack=null;
@@ -3524,7 +3539,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       "71": function(event) { playStationById(this.dataset.radioArg); },
       "72": function(event) { selectChannel(Number(this.dataset.radioArg)); },
       "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); },
-      "74": function(event) { openMobileTuner(); }
+      "74": function(event) { openMobileTuner(); },
+      "75": function(event) { refreshNowPlayingArtwork(); }
     };
     for (const eventType of ['click','input','change']) {
       document.addEventListener(eventType, event => {
