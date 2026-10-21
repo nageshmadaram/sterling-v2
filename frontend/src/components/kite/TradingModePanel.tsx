@@ -353,7 +353,7 @@ export function TradingModePanel() {
       <PanelCard>
         <PanelSectionHeading
           title="What is running"
-          description="Control each strategy's new entries. Price Rules plans are armed separately. Existing positions and safety services remain managed while off."
+          description="Turn each strategy's new trades on or off. Open trades stay managed."
         />
         <div style={{ padding: '2px 18px 16px' }}>
           {toggles.map((engine) => (
@@ -374,7 +374,7 @@ export function TradingModePanel() {
           <RunningRow label="Price Rules" on={priceRules.enabled}
             description={priceRules.enabled
               ? "On. Individually armed plans can trigger when safety checks pass."
-              : "Off. New entries are blocked; owned positions and protection remain managed."}>
+              : "Off. No new trades. Open trades keep their stops."}>
             <Switch checked={priceRules.enabled} label="Price Rules"
               disabled={!priceRules.toggle || priceRules.pending}
               onChange={() => priceRules.toggle?.()} />
@@ -393,7 +393,7 @@ export function TradingModePanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Master ALGO is per user. Each strategy also has its own arm switch and can still be blocked by risk or safety gates.
+          ALGO must be on here and on each strategy. Safety checks still apply.
         </div>
       </PanelCard>
 

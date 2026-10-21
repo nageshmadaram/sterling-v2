@@ -153,7 +153,7 @@ export function TradingModeControls() {
     applyProduction.mutate(undefined, {
       onSuccess: () => {
         setConfirm(null);
-        const msg = 'Production preset applied: Fast Trail, One-Red Exit, ADX 25, Time Stop 48, 2% Daily Loss.';
+        const msg = 'Preset applied: fast trail, exit on 1 red line, ADX 25, 48-hour limit, 2% daily loss.';
         setFeedback(msg);
         notifyOrder({ kind: 'info', title: 'Preset applied', message: msg });
         setTimeout(() => setFeedback(null), 5000);
@@ -203,8 +203,8 @@ export function TradingModeControls() {
   }
   if (killSwitchOff) {
     blockers.push(live?.killSwitch === false
-      ? 'Live execution is off at the release floor. New entries are disabled.'
-      : 'Live execution is switched off (kill switch). New entries are disabled.');
+      ? 'Live trading is off. No new trades.'
+      : 'Kill switch is on. No new trades.');
   }
   if (recoveryBlocked) {
     blockers.push(`Recovery: ${recoveryLabel(live?.recoveryState)}. Resolve it before new entries.`);
@@ -296,7 +296,7 @@ export function TradingModeControls() {
           <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
           <div style={S.modeDesc}>
             {auto
-              ? 'ALGO armed. Strategy switches may request entries; safety gates can still refuse.'
+              ? 'ALGO on. Strategies can trade; safety checks still apply.'
               : 'MANUAL. No automatic entries are requested.'}
           </div>
         </div>
@@ -368,7 +368,7 @@ export function TradingModeControls() {
         {sim && (
           <SimDeniedNote
             what="Kill Switch & Halt"
-            why="It stops the whole app and the real account. The simulation can only halt itself."
+            why="Stops all new trades on your real account."
           />
         )}
       </div>
@@ -409,7 +409,7 @@ export function TradingModeControls() {
           onCancel={() => setConfirm(null)} onConfirm={handleResume}
           body={
             <>
-              <div>Clears safe mode and allows new entries again. Confirm the cause is resolved.</div>
+              <div>Turns safe mode off so new trades can open. Fix the cause first.</div>
               <input
                 aria-label="Reason for resuming"
                 value={resumeReason}

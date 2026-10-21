@@ -63,14 +63,14 @@ export function DailyLossLimitPanel() {
     <PanelCard>
       <Section
         title="Daily loss limit"
-        description="Stops this account opening new positions once the day's realised loss reaches the halt figure."
+        description="Stops new trades for the day after losing the halt amount."
         summary={data.enabled ? `Halt at ${inr(data.hard_halt_inr)}` : 'Off'}
         defaultOpen
         persistKey="daily-loss"
       >
         <Field
           label="Breaker"
-          hint="Off means no loss figure stops a new entry. The kill switch is separate and always applies."
+          hint="Off: no daily loss limit. The kill switch still works."
         >
           <Switch
             checked={data.enabled}
@@ -89,7 +89,7 @@ export function DailyLossLimitPanel() {
 
         <Field
           label="Halt at"
-          hint="A realised loss this size stops every engine and every manual entry for the rest of the session."
+          hint="Losing this much stops all new trades for the rest of the day."
         >
           <input
             type="number" min={1} step={100} value={halt} style={inputStyle}

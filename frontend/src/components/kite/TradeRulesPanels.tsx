@@ -159,7 +159,7 @@ export function ManualRulesPanel() {
           />
         ) : (
           <ConfigNote>
-            With this off, no stop-loss or time limit runs on orders you place yourself.
+            Off: your own orders get no stop-loss or time limit.
           </ConfigNote>
         )}
       </Section>
@@ -264,8 +264,8 @@ export function AutomaticRulesPanel() {
             </div>
             <div style={{ color: MUTED, fontSize: 11.5, lineHeight: 1.5, marginTop: 3 }}>
               {autoOn
-                ? 'Signals can place orders on your Zerodha account. Every rule below is in force.'
-                : 'Master ALGO is OFF. Turn it ON here or in Trading Config to arm automatic entry.'}
+                ? 'Signals can place real orders on your Zerodha account.'
+                : 'ALGO is off. Turn it on here or in Trading Config.'}
             </div>
           </div>
           <ModeToggle
@@ -312,8 +312,7 @@ export function AutomaticRulesPanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          Master ALGO and the strategy switch only request entries. Risk, safety and broker checks can
-          still refuse, so a switch can be ON while the strategy is blocked.
+          ALGO and the strategy switch allow trades. Safety checks can still block them.
         </div>
       </PanelCard>
       

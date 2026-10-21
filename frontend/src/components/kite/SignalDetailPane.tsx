@@ -59,19 +59,19 @@ function StripDiv() {
 const ENGINE_BY_SOURCE: Record<string, { label: string; blurb: string }> = {
   spot: {
     label: 'SuperTrend · underlying',
-    blurb: 'Triple SuperTrend fired on the UNDERLYING chart; the legs below are candidate strikes to buy. Exit is the trailing stop plus the red counter — there is no fixed target.',
+    blurb: 'Signal from the stock or index chart. Strikes below can be bought. Exit: trailing stop or red lines. No fixed target.',
   },
   derivatives: {
     label: 'SuperTrend · premium',
-    blurb: "Triple SuperTrend fired on this contract's OWN premium chart (buy-only). Exit is the trailing stop plus the red counter — there is no fixed target.",
+    blurb: "Signal from this option's own chart. Exit: trailing stop or red lines. No fixed target.",
   },
   confluence: {
     label: 'SuperTrend · confluence',
-    blurb: "The underlying fired AND the leg's own premium confirmed on the same bar. Exit is the trailing stop plus the red counter — there is no fixed target.",
+    blurb: "Both the stock/index and this option signalled. Exit: trailing stop or red lines. No fixed target.",
   },
   navigator: {
     label: 'Value-Flow Navigator',
-    blurb: 'Originated by Navigator itself — no SuperTrend trigger. Its AVWAP proposal supplies BOTH the stop and the target below, and the signal is only surfaced when that proposal is accepted.',
+    blurb: 'Found by Navigator. Its stop and target are shown below.',
   },
 };
 
@@ -170,7 +170,7 @@ function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isAct
             </span>
           )}
           {isBestDelta && (
-            <span title="Highest delta — most responsive to the underlying (moves nearest 1:1 with spot)"
+            <span title="Highest delta: moves most with the stock/index"
               style={{ fontSize: 13, fontWeight: 700, color: k.blue, flexShrink: 0 }}>
               ▲
             </span>
@@ -231,7 +231,7 @@ function LegCard({ leg, exchange, underlying, spotPx, isBest, isBestDelta, isAct
                 title="Live premium minus this signal's entry premium, per unit." />
             )}
             {breached && (
-              <span title="The premium has traded through its trail, but the SuperTrend exit is a red-counter rule — the leg keeps counting as running until enough ST lines flip."
+              <span title="Price crossed the trailing stop. Exit waits for enough red lines."
                 style={{ fontSize: 9, fontWeight: 800, color: k.red, border: `1px solid ${k.red}`, borderRadius: 3, padding: '1px 5px' }}>
                 TSL HIT
               </span>
@@ -501,7 +501,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
       </div>
 
       {isLoading && <div style={{ padding: 32, color: k.dim }}>Loading detail…</div>}
-      {isError && <div style={{ padding: 32, color: k.red }}>No live detail (signal may have aged out of the latest scan, or market is closed).</div>}
+      {isError && <div style={{ padding: 32, color: k.red }}>No live detail. The signal may be old, or the market is closed.</div>}
 
       {data && (
         <div className="sd-page-content" style={{ padding: 20 }}>
@@ -537,7 +537,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
                   <>
                     <StripDiv />
                     <StripStat label="Exit counter" value={data.exit_state}
-                      title="Red-counter progress toward the auto-exit rule. The exit fires on this count, NOT on the trailing stop — the premium can sit below its trail while this is still short of the threshold." />
+                      title="Red lines so far toward the exit." />
                   </>
                 )}
               </div>
@@ -585,18 +585,18 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, paddingTop: 10, borderTop: `1px solid ${k.border}` }}>
                   <PlanCell label={isNav ? 'AVWAP stop' : 'Stop at entry'}
                     value={data.entry_sl != null && data.entry_sl > 0 ? data.entry_sl.toFixed(2) : '—'}
-                    title="Underlying level. Per-leg premium equivalents are in the Option legs section." />
+                    title="Stock/index price. Option prices are in Option legs." />
                   <PlanCell label="Trail now" value={data.stop_loss > 0 ? data.stop_loss.toFixed(2) : '—'}
-                    title="Live trailing stop, recomputed at the latest closed bar (underlying level)." />
+                    title="Trailing stop now, on the stock/index price." />
                   <PlanCell label={LABELS.target}
                     value={data.target != null && data.target > 0 ? data.target.toFixed(2) : 'none'}
                     color={data.target != null && data.target > 0 ? k.text : k.dim}
                     title={data.target != null && data.target > 0
                       ? "Navigator's AVWAP target — an R-multiple of its accepted stop."
-                      : 'SuperTrend is trend-following: it quotes no fixed target, so none is shown rather than inventing one.'} />
+                      : 'SuperTrend has no fixed target.'} />
                   {data.adx != null && <PlanCell label="ADX @ entry" value={data.adx.toFixed(0)} title="Trend strength at the trigger bar." />}
                   {data.atr_pct != null && <PlanCell label="ATR pct'ile" value={`${data.atr_pct.toFixed(0)}%`}
-                    title="This bar's ATR ranked against the last 100 hourly bars (~15 sessions) — a rank, not a % of price." />}
+                    title="How volatile this candle is vs the last 100 hours." />}
                 </div>
 
                 {nav && (
@@ -604,7 +604,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
                     <NavigatorEvidencePanel decision={nav} />
                     <div style={{ fontSize: 10.5, color: k.dim, marginTop: 8, lineHeight: 1.5 }}>
                       {nav.execution_eligible
-                        ? 'Navigator considers this eligible to execute. Whether anything is actually placed still depends on the account being in ALGO — in MANUAL the buttons below are the only way in.'
+                        ? 'Navigator says this can trade. It only trades by itself in ALGO.'
                         : `Navigator does NOT consider this eligible to execute (${nav.reason_codes.join(', ') || 'no reason reported'}). You can still trade it manually below; nothing is placed automatically.`}
                     </div>
                   </div>
@@ -683,7 +683,7 @@ export function SignalDetailPane({ token, underlying, timestamp_ms, source, onCl
             <div style={{ height: 2, background: k.green, borderRadius: 2, marginTop: 12 }} />
           )}
           <div style={{ fontSize: 10, color: k.dim, marginTop: 18, lineHeight: 1.7 }}>
-            Greeks are Black-Scholes from live IV (or backed out of last price when the market is closed). BUY/SELL place real MARKET orders on your Kite account.
+            BUY/SELL place real market orders on your Kite account.
           </div>
         </div>
       )}
