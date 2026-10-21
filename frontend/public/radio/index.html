@@ -1146,7 +1146,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     const stationBadgeCache = {};
 
     function getStationIdentityThumbnail(ch) {
-      if (typeof ch.artwork==='string' && /^https:\/\//i.test(ch.artwork)) return ch.artwork;
+      // Remote artwork is interpolated into HTML attributes; reject markup and non-HTTPS URLs.
+      if (typeof ch.artwork==='string' && ch.artwork.length<=2048 &&
+          /^https:\/\//i.test(ch.artwork) && !/[<>"'\x00-\x20\x7f]/.test(ch.artwork)) {
+        try { const uri=new URL(ch.artwork);if(uri.protocol==='https:'&&uri.hostname&&!uri.username&&!uri.password)return uri.href; }
+        catch (_) {}
+      }
       const cacheKey = ch.id || ch.title;
       if (stationBadgeCache[cacheKey]) return stationBadgeCache[cacheKey];
 
@@ -2403,7 +2408,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function applyAcousticContourToAudio() {
       audio.preservesPitch = appConfig.dspPreset !== 'swclean';
-      const boostFactor = Math.min(1, Math.max(0.1, (appConfig.volume || 0.85) * (1 + (appConfig.bass + appConfig.mid) * 0.015)));
+      // Volume zero is user-selected silence and must never become audible on an EQ change.
+      const requested=Number.isFinite(appConfig.volume)?appConfig.volume:0.85;
+      const boostFactor=Math.min(1,Math.max(0,requested*(1+((appConfig.bass||0)+(appConfig.mid||0))*0.015)));
       audio.volume = boostFactor;
     }
 
@@ -2581,7 +2588,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
                 <div class="text-[11px] text-[#aaa] truncate">${escapeRadioText(ch.subtitle)}</div>
               </div>
             </div>
-            <span class="text-[10px] font-mono-num text-[#aaa] shrink-0">${ch.freqLabel || 'LIVE'}</span>
+            <span class="text-[10px] font-mono-num text-[#aaa] shrink-0">${escapeRadioText(ch.freqLabel || 'LIVE')}</span>
           </div>
         `;
       }).join('');
@@ -2812,7 +2819,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
             <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
             <div class="min-w-0 flex-1">
               <div class="text-[13px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
-              <div class="text-[11px] text-[#b3b3b3] truncate">${sub}</div>
+              <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(sub)}</div>
             </div>
           </div>
         `;
@@ -2842,6 +2849,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function startPlayback(streamObj, overrideUrl = null, isBootAttempt = false) {
+      if (!streamObj || typeof (overrideUrl || streamObj.streamUrl)!=='string' || !(overrideUrl || streamObj.streamUrl).trim()) {
+        showToast('This station has no playable stream');return;
+      }
       if (!isBootAttempt) safeHaptic(10);
       activeStream = streamObj;
       userPaused = false;
@@ -3076,23 +3086,27 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     // --- 14. Search, Podcasts & Transport ---
     function onSearchInput(val, clearId) {
-      radioSearchQuery = String(val).slice(0,200);
-      publishRadioState();
-      const btn = document.getElementById(clearId);
-      if (btn) {
-        btn.classList.toggle('hidden', !val.trim());
-        btn.classList.toggle('flex', !!val.trim());
-      }
-      clearTimeout(searchTimer);
-      searchRevision++;searchAbort?.abort();
-      if (!val.trim()) {clearAllSearches();return;}
-      searchTimer = setTimeout(() => runOmniSearch(val), 300);
+      const query=String(val??'').slice(0,200);
+      radioSearchQuery=query;publishRadioState();
+      // Synchronize embedded desktop and mobile inputs, and host search.
+      ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{
+        const el=document.getElementById(id);if(el&&el.value!==query)el.value=query;
+      });
+      ['sp-clear-desktop','sp-clear-mobile','ytm-clear-btn'].forEach(id=>{
+        const btn=document.getElementById(id);
+        if(btn){btn.classList.toggle('hidden',!query.trim());btn.classList.toggle('flex',!!query.trim());}
+      });
+      clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
+      if(!query.trim()){clearAllSearches();return;}
+      searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }
 
     function clearAllSearches() {
       clearTimeout(searchTimer);
-      radioSearchQuery='';
-      publishRadioState();
+      // Invalidate asynchronous remote results before restoring the browse grid.
+      searchRevision++;searchAbort?.abort();searchAbort=null;
+      document.documentElement.classList.remove('radio-searching');
+      radioSearchQuery='';publishRadioState();
       ['sp-search-desktop', 'sp-search-mobile', 'ytm-search-input'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
@@ -3140,8 +3154,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           finally{clearTimeout(timer);abort.signal.removeEventListener('abort',cancel);}
         }
         if (revision !== searchRevision) return;
-        const remoteMapped = remote.filter(s => s.url_resolved && s.url_resolved.startsWith('http')).map(s => {
-          const cleanName = s.name.trim();
+        const remoteMapped = (Array.isArray(remote)?remote:[]).filter(s =>
+          s && typeof s.name==='string' && s.name.trim() &&
+          typeof s.url_resolved==='string' && /^https:\/\//i.test(s.url_resolved)
+        ).map(s => {
+          const cleanName = s.name.trim().slice(0,200);
           const freqMatch = cleanName.match(/\b(\d{2,3}\.\d|\d{3,4})\b/);
           return {
             id: s.stationuuid,
@@ -3150,9 +3167,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
             freqLabel: freqMatch ? `${freqMatch[1]} FM` : `${s.bitrate || 128}k FM`,
             shortFreq: freqMatch ? freqMatch[1] : 'FM',
             artQuery: cleanName,
-            artwork: typeof s.favicon==='string' && /^https:\/\//i.test(s.favicon) ? s.favicon : null,
+            artwork: typeof s.favicon==='string' && s.favicon.length<=2048 && /^https:\/\//i.test(s.favicon) && !/[<>"'\x00-\x20\x7f]/.test(s.favicon) ? s.favicon : null,
             title: cleanName,
-            subtitle: `${s.country || 'Live Radio'} • ${s.bitrate || 128}kbps`,
+            subtitle: `${String(s.country || 'Live Radio').slice(0,80)} • ${Number.isFinite(s.bitrate)?s.bitrate:128}kbps`,
             streamUrl: s.url_resolved,
             backupUrls: []
           };
