@@ -3049,11 +3049,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(!data.results?.length)return;
       const norm=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
       const wantedTitle=norm(broadcastTrack.title),wantedArtist=norm(broadcastTrack.artist);
-      const pick=data.results.find(item=>
-        wantedTitle && norm(item.trackName)===wantedTitle &&
-        wantedArtist && (norm(item.artistName)===wantedArtist ||
-          norm(item.artistName).includes(wantedArtist) || wantedArtist.includes(norm(item.artistName)))
-      );
+      const pick=data.results.find(item=>{
+        const artist=norm(item.artistName);
+        return wantedTitle && norm(item.trackName)===wantedTitle &&
+          wantedArtist && artist && (artist===wantedArtist ||
+            artist.includes(wantedArtist) || wantedArtist.includes(artist));
+      });
       // Never attach an unrelated song's album art to this broadcast.
       if(!pick)return;
       const hdUrl=pick.artworkUrl100?.replace('100x100bb','600x600bb');
