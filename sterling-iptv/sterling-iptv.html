@@ -4579,11 +4579,18 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     const onScroll=()=>{
       const top=main.scrollTop,delta=top-previousTop;
       if(Math.abs(delta)>5||top<20){document.body.classList.toggle('tm-chips-hidden',top>32&&delta>0);previousTop=top;}
-      const stage=document.getElementById('player-stage');
-      const hidden=stage&&stage.getBoundingClientRect().bottom<16;
+      // Measure the in-flow anchor, not the floating video or sticky stage:
+      // those move when PiP activates and would cause visible oscillation.
+      const anchor=document.getElementById('mobile-sticky-player-wrap');
+      const hidden=anchor && anchor.getBoundingClientRect().bottom < main.getBoundingClientRect().top+16;
       setScrollPip(mobile.matches&&!expanded&&currentTheme!=='spotify'&&!pipDismissed&&!video.paused&&video.readyState>=2&&Boolean(hidden));
     };
-    main.addEventListener('scroll',onScroll,{passive:true});
+    let scrollFramePending=false;
+    main.addEventListener('scroll',()=>{
+      if(scrollFramePending)return;
+      scrollFramePending=true;
+      requestAnimationFrame(()=>{scrollFramePending=false;onScroll();});
+    },{passive:true});
     video.addEventListener('pause',()=>setScrollPip(false));
     video.addEventListener('playing',onScroll);
     window.addEventListener('resize',()=>{setScrollPip(false);onScroll();});
