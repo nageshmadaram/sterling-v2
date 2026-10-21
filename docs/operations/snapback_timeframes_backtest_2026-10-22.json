@@ -1,0 +1,624 @@
+{
+  "generated": "2026-10-22T01:01:45.353171+05:30",
+  "swing_daily_modelled": {
+    "universe": [
+      "AXISBANK",
+      "BAJFINANCE",
+      "BHARTIARTL",
+      "HDFCBANK",
+      "HINDUNILVR",
+      "ICICIBANK",
+      "INFY",
+      "ITC",
+      "KOTAKBANK",
+      "LT",
+      "MARUTI",
+      "NIFTY",
+      "RELIANCE",
+      "SBIN",
+      "SUNPHARMA",
+      "TATASTEEL",
+      "TCS"
+    ],
+    "variants": {
+      "gate_on_no_hedge": {
+        "trades": 69,
+        "win_rate": 0.406,
+        "mean_return_per_trade_pct": 8.87,
+        "median_return_pct": -35.58,
+        "net_inr_one_lot_each": 323144.0,
+        "worst_trade_pct": -85.0,
+        "best_trade_pct": 210.0,
+        "first": "2021-04-19",
+        "last": "2026-10-16",
+        "dropped_signals": {
+          "already holding this underlying": 3,
+          "premium below 10": 1
+        },
+        "break_even_vol_multiple": 1.581
+      },
+      "gate_off_no_hedge": {
+        "trades": 560,
+        "win_rate": 0.318,
+        "mean_return_per_trade_pct": -1.41,
+        "median_return_pct": -35.61,
+        "net_inr_one_lot_each": 224608.0,
+        "worst_trade_pct": -85.0,
+        "best_trade_pct": 366.8,
+        "first": "2020-12-08",
+        "last": "2026-10-16",
+        "dropped_signals": {
+          "already holding this underlying": 88,
+          "premium below 10": 19
+        },
+        "break_even_vol_multiple": 1.019
+      },
+      "gate_on_futures_hedge": {
+        "trades": 69,
+        "win_rate": 0.362,
+        "mean_return_per_trade_pct": 9.56,
+        "median_return_pct": -6.84,
+        "net_inr_one_lot_each": 316052.0,
+        "worst_trade_pct": -102.7,
+        "best_trade_pct": 198.2,
+        "first": "2021-04-19",
+        "last": "2026-10-16",
+        "dropped_signals": {
+          "already holding this underlying": 3,
+          "premium below 10": 1
+        },
+        "break_even_vol_multiple": 1.602
+      },
+      "gate_off_futures_hedge": {
+        "trades": 560,
+        "win_rate": 0.357,
+        "mean_return_per_trade_pct": 0.89,
+        "median_return_pct": -15.21,
+        "net_inr_one_lot_each": 539515.0,
+        "worst_trade_pct": -102.7,
+        "best_trade_pct": 260.7,
+        "first": "2020-12-08",
+        "last": "2026-10-16",
+        "dropped_signals": {
+          "already holding this underlying": 88,
+          "premium below 10": 19
+        },
+        "break_even_vol_multiple": 1.403
+      }
+    }
+  },
+  "minute_modes_real_options": {
+    "totals": {
+      "ultra_scalping": {
+        "contracts": 8,
+        "trades": 190,
+        "net_inr": 19944.0,
+        "profitable_contracts": 2,
+        "avg_win_rate_pct": 49.5
+      },
+      "scalp": {
+        "contracts": 8,
+        "trades": 190,
+        "net_inr": 19630.0,
+        "profitable_contracts": 2,
+        "avg_win_rate_pct": 49.5
+      },
+      "intraday": {
+        "contracts": 11,
+        "trades": 0,
+        "net_inr": 0.0,
+        "profitable_contracts": 0,
+        "avg_win_rate_pct": null
+      },
+      "overnight": {
+        "contracts": 9,
+        "trades": 0,
+        "net_inr": 0.0,
+        "profitable_contracts": 0,
+        "avg_win_rate_pct": null
+      }
+    },
+    "rows": {
+      "ultra_scalping": [
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800CE",
+          "bars": 6750,
+          "days": 18,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800PE",
+          "bars": 7125,
+          "days": 19,
+          "trades": 100,
+          "win_rate_pct": 52.0,
+          "net_inr": 13706.0,
+          "return_pct": 13.71,
+          "max_dd_inr": 3292.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000CE",
+          "bars": 6375,
+          "days": 17,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000PE",
+          "bars": 6000,
+          "days": 16,
+          "trades": 90,
+          "win_rate_pct": 46.7,
+          "net_inr": 6238.0,
+          "return_pct": 6.24,
+          "max_dd_inr": 1494.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210CE",
+          "bars": 360,
+          "days": 1,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210PE",
+          "error": "object of type 'int' has no len()"
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710CE",
+          "bars": 3960,
+          "days": 11,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710PE",
+          "error": "object of type 'int' has no len()"
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390CE",
+          "bars": 720,
+          "days": 2,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390PE",
+          "skipped": "too few complete days"
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960CE",
+          "bars": 2880,
+          "days": 8,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960PE",
+          "error": "object of type 'int' has no len()"
+        }
+      ],
+      "scalp": [
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800CE",
+          "bars": 6750,
+          "days": 18,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800PE",
+          "bars": 7125,
+          "days": 19,
+          "trades": 100,
+          "win_rate_pct": 52.0,
+          "net_inr": 13452.0,
+          "return_pct": 13.45,
+          "max_dd_inr": 3292.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000CE",
+          "bars": 6375,
+          "days": 17,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000PE",
+          "bars": 6000,
+          "days": 16,
+          "trades": 90,
+          "win_rate_pct": 46.7,
+          "net_inr": 6178.0,
+          "return_pct": 6.18,
+          "max_dd_inr": 1494.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210CE",
+          "bars": 360,
+          "days": 1,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210PE",
+          "error": "object of type 'int' has no len()"
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710CE",
+          "bars": 3960,
+          "days": 11,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710PE",
+          "error": "object of type 'int' has no len()"
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390CE",
+          "bars": 720,
+          "days": 2,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390PE",
+          "skipped": "too few complete days"
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960CE",
+          "bars": 2880,
+          "days": 8,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960PE",
+          "error": "object of type 'int' has no len()"
+        }
+      ],
+      "intraday": [
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800CE",
+          "bars": 550,
+          "days": 22,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800PE",
+          "bars": 650,
+          "days": 26,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000CE",
+          "bars": 475,
+          "days": 19,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000PE",
+          "bars": 550,
+          "days": 22,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210CE",
+          "bars": 216,
+          "days": 9,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210PE",
+          "bars": 96,
+          "days": 4,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710CE",
+          "bars": 336,
+          "days": 14,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710PE",
+          "bars": 312,
+          "days": 13,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390CE",
+          "bars": 72,
+          "days": 3,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390PE",
+          "skipped": "too few complete days"
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960CE",
+          "bars": 312,
+          "days": 13,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960PE",
+          "bars": 240,
+          "days": 10,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        }
+      ],
+      "overnight": [
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800CE",
+          "bars": 182,
+          "days": 26,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "NIFTY",
+          "option": "NIFTY26NOV22800PE",
+          "bars": 182,
+          "days": 26,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000CE",
+          "bars": 182,
+          "days": 26,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "BANKNIFTY",
+          "option": "BANKNIFTY26NOV55000PE",
+          "bars": 161,
+          "days": 23,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210CE",
+          "bars": 72,
+          "days": 12,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "RELIANCE",
+          "option": "RELIANCE26NOV1210PE",
+          "skipped": "too few complete days"
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710CE",
+          "bars": 84,
+          "days": 14,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "HDFCBANK",
+          "option": "HDFCBANK26NOV710PE",
+          "bars": 84,
+          "days": 14,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390CE",
+          "skipped": "too few complete days"
+        },
+        {
+          "underlying": "ICICIBANK",
+          "option": "ICICIBANK26NOV1390PE",
+          "skipped": "too few complete days"
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960CE",
+          "bars": 90,
+          "days": 15,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        },
+        {
+          "underlying": "SBIN",
+          "option": "SBIN26NOV960PE",
+          "bars": 84,
+          "days": 14,
+          "trades": 0,
+          "win_rate_pct": 0.0,
+          "net_inr": 0.0,
+          "return_pct": 0.0,
+          "max_dd_inr": 0.0,
+          "rejected_plans": 0
+        }
+      ]
+    }
+  }
+}

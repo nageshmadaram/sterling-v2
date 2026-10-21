@@ -1,0 +1,225 @@
+"""Snapback across timeframes: daily swing on long history, intraday modes on real options.
+
+Part A, swing (daily): the strategy's own portfolio replay (``backtest.replay``)
+on about seven years of Kite daily bars for liquid F&O names plus NIFTY. The
+option premium is MODELLED (no store holds expired-option prices), so the
+honest output includes the break-even vol multiple. Four variants: market gate
+on/off x futures hedge on/off.
+
+Part B, minute modes: ``intraday.replay_intraday`` on REAL synchronized option
+candles from Kite, for contracts still listed (so only recent months). Each
+underlying gets its near-ATM CE and PE of the next monthly expiry. A day is used
+only when both tapes are complete for it; nothing is filled in.
+
+Usage:
+    PYTHONWARNINGS=ignore .venv/bin/python scripts/backtest_snapback_timeframes.py
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import sys
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.core.runtime_env import load_sterling_env  # noqa: E402
+
+load_sterling_env()
+
+from app.engines.snapback import Bars, validate  # noqa: E402
+from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
+from app.engines.snapback.intraday import replay_intraday  # noqa: E402
+
+IST = timezone(timedelta(hours=5, minutes=30))
+OUT = Path(__file__).resolve().parents[2] / "docs" / "operations"
+STOCKS = ["RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "AXISBANK", "LT",
+          "BHARTIARTL", "KOTAKBANK", "ITC", "HINDUNILVR", "BAJFINANCE", "MARUTI", "SUNPHARMA", "TATASTEEL"]
+INDEX_TOKENS = {"NIFTY": 256265, "BANKNIFTY": 260105}
+INTRADAY_UNDERLYINGS = ["NIFTY", "BANKNIFTY", "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN"]
+MODES = {"ultra_scalping": ("minute", 1, 30), "scalp": ("minute", 1, 30),
+         "intraday": ("15minute", 15, 90), "overnight": ("60minute", 60, 90)}
+
+
+def _bars(rows) -> Bars:
+    a = np.array([[r[0], r[1], r[2], r[3], r[4], r[5] if len(r) > 5 else 0.0] for r in rows], dtype=float)
+    return Bars(a[:, 0], a[:, 1], a[:, 2], a[:, 3], a[:, 4], a[:, 5])
+
+
+def _rows(payload) -> list[list[float]]:
+    rows = payload.get("candles", (payload.get("data") or {}).get("candles", [])) if isinstance(payload, dict) else payload
+    out = []
+    for r in rows or []:
+        ts = r[0] if isinstance(r, (list, tuple)) else r["date"]
+        if isinstance(ts, str):
+            ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=IST)
+        vals = r[1:6] if isinstance(r, (list, tuple)) else [r["open"], r["high"], r["low"], r["close"], r.get("volume", 0)]
+        out.append([ts.timestamp(), *[float(v or 0) for v in vals]])
+    return out
+
+
+async def history(client, token: int, interval: str, start: datetime, end: datetime, span_days: int):
+    rows, cur = [], start
+    while cur < end:
+        stop = min(cur + timedelta(days=span_days), end)
+        payload = await client.get_historical(int(token), interval, cur.strftime("%Y-%m-%d %H:%M:%S"),
+                                              stop.strftime("%Y-%m-%d %H:%M:%S"), False, False)
+        rows.extend(_rows(payload))
+        cur = stop
+        await asyncio.sleep(0.4)
+    seen, uniq = set(), []
+    for r in sorted(rows):
+        if r[0] not in seen:
+            seen.add(r[0]); uniq.append(r)
+    return uniq
+
+
+def summary(trades) -> dict:
+    if not trades:
+        return {"trades": 0}
+    rets = np.array([t.ret for t in trades])
+    nets = np.array([t.net for t in trades])
+    return {"trades": len(trades), "win_rate": round(float((nets > 0).mean()), 3),
+            "mean_return_per_trade_pct": round(float(rets.mean() * 100), 2),
+            "median_return_pct": round(float(np.median(rets) * 100), 2),
+            "net_inr_one_lot_each": round(float(nets.sum()), 0),
+            "worst_trade_pct": round(float(rets.min() * 100), 1),
+            "best_trade_pct": round(float(rets.max() * 100), 1),
+            "first": min(t.entry_day for t in trades), "last": max(t.entry_day for t in trades)}
+
+
+async def main() -> None:
+    from app.services.exchanges.kite import accounts
+    from app.services.ema_trend import scanner as ema_scanner
+
+    accounts.bootstrap()
+    acct = next((a for a in accounts.all_accounts() if not a.is_paper and a.is_active and a.access_token_enc), None)
+    if acct is None:
+        raise SystemExit("no Kite account")
+    uid = str(acct.user_id)
+    client = await accounts.acquire_client(acct)
+    now = datetime.now(IST)
+    report: dict = {"generated": now.isoformat()}
+
+    tokens = dict(INDEX_TOKENS)
+    for s in STOCKS:
+        try:
+            meta = await ema_scanner.equity_metadata(uid, f"NSE:{s}", client=client)
+            tokens[s] = int(meta.token)
+        except Exception as exc:  # noqa: BLE001
+            print("no token", s, exc, flush=True)
+
+    # ── Part A: daily swing ──────────────────────────────────────────────
+    tapes = {}
+    for name in ["NIFTY", *STOCKS]:
+        if name not in tokens:
+            continue
+        rows = await history(client, tokens[name], "day", now - timedelta(days=2600), now, 1900)
+        rows = [r for r in rows if datetime.fromtimestamp(r[0], IST).date() < now.date()]
+        if len(rows) > 300:
+            tapes[name] = _bars(rows)
+        print("daily", name, len(rows), flush=True)
+    base = validate({"trading_mode": "swing"})
+    one_lot = dict(sizing_mode="LOTS", lots=1)
+    variants = {
+        "gate_on_no_hedge": replace(base, market_filter="bearish", hedge_mode="none", **one_lot),
+        "gate_off_no_hedge": replace(base, market_filter="off", hedge_mode="none", **one_lot),
+        "gate_on_futures_hedge": replace(base, market_filter="bearish", hedge_mode="index_futures", **one_lot),
+        "gate_off_futures_hedge": replace(base, market_filter="off", hedge_mode="index_futures", **one_lot),
+    }
+    swing = {}
+    for name, cfg in variants.items():
+        try:
+            res = replay(tapes, cfg)
+            s = summary(res.trades)
+            s["dropped_signals"] = dict(res.unsized) if getattr(res, "unsized", None) else {}
+            try:
+                from app.engines.snapback.pricing import break_even_vrp
+                s["break_even_vol_multiple"] = round(float(break_even_vrp(returns_at_vrp(tapes, cfg))), 3)
+            except Exception as exc:  # noqa: BLE001
+                s["vol_curve_error"] = str(exc)[:120]
+            swing[name] = s
+        except Exception as exc:  # noqa: BLE001
+            swing[name] = {"error": str(exc)[:300]}
+        print("swing", name, swing[name], flush=True)
+    report["swing_daily_modelled"] = {"universe": sorted(tapes), "variants": swing}
+
+    # ── Part B: minute modes on real option candles ──────────────────────
+    nfo = await client._load_nfo_instruments()
+    intraday = {m: [] for m in MODES}
+    for und in INTRADAY_UNDERLYINGS:
+        if und not in tokens:
+            continue
+        spot_rows = await history(client, tokens[und], "day", now - timedelta(days=10), now, 30)
+        spot = spot_rows[-1][4] if spot_rows else None
+        opts = [r for r in nfo if str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
+        expiries = sorted({str(r.get("expiry"))[:10] for r in opts if str(r.get("expiry"))[:10] > now.date().isoformat()})
+        if not spot or not expiries:
+            continue
+        # Next monthly expiry: the last expiry in the next calendar month that has one.
+        months = {}
+        for e in expiries:
+            months.setdefault(e[:7], []).append(e)
+        monthly = [max(v) for k, v in sorted(months.items())]
+        expiry = monthly[1] if len(monthly) > 1 and monthly[0] <= (now.date() + timedelta(days=10)).isoformat() else monthly[0]
+        for kind in ("CE", "PE"):
+            cands = [r for r in opts if str(r.get("expiry"))[:10] == expiry and r.get("instrument_type") == kind]
+            if not cands:
+                continue
+            pick = min(cands, key=lambda r: abs(float(r.get("strike") or 0) - spot))
+            for mode, (interval, tf, days) in MODES.items():
+                try:
+                    start = now - timedelta(days=days)
+                    span = 55 if tf == 1 else 180
+                    u = await history(client, tokens[und], interval, start, now, span)
+                    o = await history(client, int(pick["instrument_token"]), interval, start, now, span)
+                    common = sorted(set(r[0] for r in u) & set(r[0] for r in o))
+                    by_u = {r[0]: r for r in u}; by_o = {r[0]: r for r in o}
+                    # Keep only days where both tapes are complete and contiguous.
+                    days_map = {}
+                    for t in common:
+                        days_map.setdefault(datetime.fromtimestamp(t, IST).date(), []).append(t)
+                    keep = []
+                    for d, ts in sorted(days_map.items()):
+                        steps = np.diff(ts) if len(ts) > 1 else np.array([])
+                        if len(ts) >= 3 and (steps == tf * 60).all() and \
+                                len([t for t in by_u if datetime.fromtimestamp(t, IST).date() == d]) == len(ts):
+                            keep.extend(ts)
+                    if len(keep) < 50:
+                        intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"], "skipped": "too few complete days"})
+                        continue
+                    ub = _bars([by_u[t] for t in keep]); ob = _bars([by_o[t] for t in keep])
+                    cfg = validate({"trading_mode": mode})
+                    res = replay_intraday(ub, ob, cfg, und, option_type=kind,
+                                          lot_size=int(pick.get("lot_size") or 1), option_symbol=pick["tradingsymbol"])
+                    intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"], "bars": len(keep),
+                                           "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
+                                           "trades": res["trade_count"], "win_rate_pct": round(res["win_rate_pct"], 1),
+                                           "net_inr": round(res["net_pnl_inr"], 0), "return_pct": round(res["return_pct"], 2),
+                                           "max_dd_inr": round(res["max_realized_drawdown_inr"], 0),
+                                           "rejected_plans": (lambda v: v if isinstance(v, int) else len(v or []))(res.get("rejected_plans"))})
+                except Exception as exc:  # noqa: BLE001
+                    intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"), "error": str(exc)[:160]})
+                print(mode, und, kind, intraday[mode][-1], flush=True)
+    totals = {}
+    for mode, rows in intraday.items():
+        ok = [r for r in rows if "trades" in r]
+        n = sum(r["trades"] for r in ok)
+        totals[mode] = {"contracts": len(ok), "trades": n, "net_inr": round(sum(r["net_inr"] for r in ok), 0),
+                        "profitable_contracts": sum(1 for r in ok if r["net_inr"] > 0),
+                        "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None}
+    report["minute_modes_real_options"] = {"totals": totals, "rows": intraday}
+    path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
+    path.write_text(json.dumps(report, indent=2, default=str))
+    print(json.dumps({"swing": swing, "minute_totals": totals}, indent=2, default=str))
+    print("written", path)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

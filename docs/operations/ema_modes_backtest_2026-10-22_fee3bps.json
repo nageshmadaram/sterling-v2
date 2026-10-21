@@ -1,0 +1,893 @@
+{
+  "generated": "2026-10-22T00:02:48.751305+05:30",
+  "capital_per_symbol": "1000000",
+  "symbols": [
+    "NSE:RELIANCE",
+    "NSE:HDFCBANK",
+    "NSE:ICICIBANK",
+    "NSE:INFY",
+    "NSE:TCS",
+    "NSE:SBIN",
+    "NSE:AXISBANK",
+    "NSE:LT",
+    "NSE:BHARTIARTL",
+    "NSE:KOTAKBANK"
+  ],
+  "summary": {
+    "swing": {
+      "symbols": 10,
+      "trades": 0,
+      "win_rate": null,
+      "net_inr": 0.0,
+      "fees_inr": 0.0,
+      "worst_symbol_dd": 0.0,
+      "profitable_symbols": 0,
+      "history_from": "2024-11-04"
+    },
+    "overnight": {
+      "symbols": 10,
+      "trades": 25,
+      "win_rate": 0.36,
+      "net_inr": -15430.9,
+      "fees_inr": 2034.27,
+      "worst_symbol_dd": 6440.3836,
+      "profitable_symbols": 2,
+      "history_from": "2024-11-04"
+    },
+    "intraday": {
+      "symbols": 10,
+      "trades": 1,
+      "win_rate": 0.0,
+      "net_inr": -1545.4,
+      "fees_inr": 72.36,
+      "worst_symbol_dd": 1545.3985,
+      "profitable_symbols": 0,
+      "history_from": "2025-09-17"
+    },
+    "scalping": {
+      "symbols": 10,
+      "trades": 0,
+      "win_rate": null,
+      "net_inr": 0.0,
+      "fees_inr": 0.0,
+      "worst_symbol_dd": 0.0,
+      "profitable_symbols": 0,
+      "history_from": "2026-04-06"
+    },
+    "ultra_scalping": {
+      "symbols": 10,
+      "trades": 0,
+      "win_rate": null,
+      "net_inr": 0.0,
+      "fees_inr": 0.0,
+      "worst_symbol_dd": 0.0,
+      "profitable_symbols": 0,
+      "history_from": "2026-06-24"
+    }
+  },
+  "rows": [
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:RELIANCE",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 14,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:HDFCBANK",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 15,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:ICICIBANK",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 14,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:INFY",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 14,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:TCS",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 14,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:SBIN",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 15,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:AXISBANK",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 15,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:LT",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 16,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:BHARTIARTL",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 16,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {},
+      "mode": "swing",
+      "symbol": "NSE:KOTAKBANK",
+      "from": "2024-11-04",
+      "bars": 483,
+      "tested_bars": 17,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 2
+      },
+      "mode": "overnight",
+      "symbol": "NSE:RELIANCE",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2638,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "OUTSIDE_ENTRY_WINDOW": 3,
+        "AUTHORIZED": 2,
+        "COST_BUDGET_EXCEEDED": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:HDFCBANK",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2636,
+      "trades": 2,
+      "open": 0,
+      "net": -2671.714642572,
+      "fees": 177.308842572,
+      "win_rate": 0.0,
+      "max_dd": 2671.714642572
+    },
+    {
+      "refusals": {
+        "OUTSIDE_ENTRY_WINDOW": 1,
+        "AUTHORIZED": 1,
+        "COOLDOWN_OR_OLD_CROSS": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:ICICIBANK",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2636,
+      "trades": 1,
+      "open": 0,
+      "net": -648.571978782,
+      "fees": 101.323198782,
+      "win_rate": 0.0,
+      "max_dd": 950.105932074
+    },
+    {
+      "refusals": {
+        "AUTHORIZED": 4,
+        "COOLDOWN_OR_OLD_CROSS": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:INFY",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2636,
+      "trades": 4,
+      "open": 0,
+      "net": -4408.837178078,
+      "fees": 364.522398078,
+      "win_rate": 0.25,
+      "max_dd": 4529.049584658
+    },
+    {
+      "refusals": {
+        "AUTHORIZED": 2,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:TCS",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2637,
+      "trades": 2,
+      "open": 0,
+      "net": 1967.875783002,
+      "fees": 149.294476998,
+      "win_rate": 1.0,
+      "max_dd": 1446.727351584
+    },
+    {
+      "refusals": {
+        "AUTHORIZED": 8,
+        "OUTSIDE_ENTRY_WINDOW": 2,
+        "COOLDOWN_OR_OLD_CROSS": 1,
+        "COST_BUDGET_EXCEEDED": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:SBIN",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2636,
+      "trades": 8,
+      "open": 0,
+      "net": -1583.268136678,
+      "fees": 583.180896678,
+      "win_rate": 0.5,
+      "max_dd": 5754.182354087
+    },
+    {
+      "refusals": {
+        "AUTHORIZED": 3,
+        "COST_BUDGET_EXCEEDED": 2,
+        "OUTSIDE_ENTRY_WINDOW": 2,
+        "COOLDOWN_OR_OLD_CROSS": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:AXISBANK",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2636,
+      "trades": 3,
+      "open": 0,
+      "net": -1587.784446787,
+      "fees": 234.800696787,
+      "win_rate": 0.3333333333333333,
+      "max_dd": 2349.647844247
+    },
+    {
+      "refusals": {
+        "OUTSIDE_ENTRY_WINDOW": 1,
+        "AUTHORIZED": 1,
+        "COOLDOWN_OR_OLD_CROSS": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:LT",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2636,
+      "trades": 1,
+      "open": 0,
+      "net": -1115.53785982,
+      "fees": 71.12273982,
+      "win_rate": 0.0,
+      "max_dd": 1647.612567642
+    },
+    {
+      "refusals": {
+        "OUTSIDE_ENTRY_WINDOW": 4,
+        "AUTHORIZED": 3,
+        "COST_BUDGET_EXCEEDED": 2
+      },
+      "mode": "overnight",
+      "symbol": "NSE:BHARTIARTL",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2639,
+      "trades": 3,
+      "open": 0,
+      "net": -6377.924406418,
+      "fees": 262.574786418,
+      "win_rate": 0.0,
+      "max_dd": 6440.383582578
+    },
+    {
+      "refusals": {
+        "AUTHORIZED": 1
+      },
+      "mode": "overnight",
+      "symbol": "NSE:KOTAKBANK",
+      "from": "2024-11-04",
+      "bars": 3327,
+      "tested_bars": 2640,
+      "trades": 1,
+      "open": 0,
+      "net": 994.866418706,
+      "fees": 90.140121294,
+      "win_rate": 1.0,
+      "max_dd": 173.5
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 9
+      },
+      "mode": "intraday",
+      "symbol": "NSE:RELIANCE",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6372,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 4
+      },
+      "mode": "intraday",
+      "symbol": "NSE:HDFCBANK",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6374,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 10,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "intraday",
+      "symbol": "NSE:ICICIBANK",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6373,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 6
+      },
+      "mode": "intraday",
+      "symbol": "NSE:INFY",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6372,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 10,
+        "AUTHORIZED": 1
+      },
+      "mode": "intraday",
+      "symbol": "NSE:TCS",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6372,
+      "trades": 1,
+      "open": 0,
+      "net": -1545.398485488,
+      "fees": 72.359125488,
+      "win_rate": 0.0,
+      "max_dd": 1545.398485488
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 3,
+        "OUTSIDE_ENTRY_WINDOW": 2
+      },
+      "mode": "intraday",
+      "symbol": "NSE:SBIN",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6374,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 8,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "intraday",
+      "symbol": "NSE:AXISBANK",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6373,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 17,
+        "OUTSIDE_ENTRY_WINDOW": 5
+      },
+      "mode": "intraday",
+      "symbol": "NSE:LT",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6373,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 6,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "intraday",
+      "symbol": "NSE:BHARTIARTL",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6372,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 7,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "intraday",
+      "symbol": "NSE:KOTAKBANK",
+      "from": "2025-09-17",
+      "bars": 6621,
+      "tested_bars": 6373,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 20,
+        "OUTSIDE_ENTRY_WINDOW": 6
+      },
+      "mode": "scalping",
+      "symbol": "NSE:RELIANCE",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16359,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 9,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "scalping",
+      "symbol": "NSE:HDFCBANK",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16359,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 9,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "scalping",
+      "symbol": "NSE:ICICIBANK",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16359,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 21,
+        "OUTSIDE_ENTRY_WINDOW": 2
+      },
+      "mode": "scalping",
+      "symbol": "NSE:INFY",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16360,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 15,
+        "OUTSIDE_ENTRY_WINDOW": 5
+      },
+      "mode": "scalping",
+      "symbol": "NSE:TCS",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16360,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 27,
+        "OUTSIDE_ENTRY_WINDOW": 6
+      },
+      "mode": "scalping",
+      "symbol": "NSE:SBIN",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16359,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 23,
+        "OUTSIDE_ENTRY_WINDOW": 4
+      },
+      "mode": "scalping",
+      "symbol": "NSE:AXISBANK",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16358,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 22,
+        "OUTSIDE_ENTRY_WINDOW": 10
+      },
+      "mode": "scalping",
+      "symbol": "NSE:LT",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16361,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 16,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "scalping",
+      "symbol": "NSE:BHARTIARTL",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16360,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 12,
+        "OUTSIDE_ENTRY_WINDOW": 3
+      },
+      "mode": "scalping",
+      "symbol": "NSE:KOTAKBANK",
+      "from": "2026-04-06",
+      "bars": 16605,
+      "tested_bars": 16360,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 7,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:RELIANCE",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29320,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 8,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:HDFCBANK",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29318,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 18,
+        "OUTSIDE_ENTRY_WINDOW": 4
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:ICICIBANK",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29318,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 10,
+        "OUTSIDE_ENTRY_WINDOW": 2
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:INFY",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29321,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 11
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:TCS",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29320,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 9,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:SBIN",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29319,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 21,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:AXISBANK",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29319,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 18,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:LT",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29319,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 13,
+        "OUTSIDE_ENTRY_WINDOW": 1
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:BHARTIARTL",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29323,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    },
+    {
+      "refusals": {
+        "COST_BUDGET_EXCEEDED": 7,
+        "OUTSIDE_ENTRY_WINDOW": 2
+      },
+      "mode": "ultra_scalping",
+      "symbol": "NSE:KOTAKBANK",
+      "from": "2026-06-24",
+      "bars": 29565,
+      "tested_bars": 29319,
+      "trades": 0,
+      "open": 0,
+      "net": 0.0,
+      "fees": 0.0,
+      "win_rate": null,
+      "max_dd": 0.0
+    }
+  ],
+  "errors": []
+}

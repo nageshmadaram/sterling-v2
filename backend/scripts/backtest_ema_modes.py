@@ -76,8 +76,14 @@ async def main() -> None:
                     context = aggregate_completed_bars(bars, 10080, int(now.timestamp() * 1000), meta.exchange)
                 else:
                     context = await fetch_long(client, meta, profile.context_minutes, now)
+                import os
+                extra = {}
+                if os.environ.get("EMA_FEE_BPS"):
+                    extra["fee_bps"] = Decimal(os.environ["EMA_FEE_BPS"])
+                if os.environ.get("EMA_SLIPPAGE_BPS"):
+                    extra["slippage_bps"] = Decimal(os.environ["EMA_SLIPPAGE_BPS"])
                 cfg = EmaTrendConfig(symbols=[symbol], modes=[mode], allocation_inr=CAPITAL,
-                                     execution_mode="PAPER")
+                                     execution_mode="PAPER", **extra)
                 rep = run_replay(symbol, mode, bars, context, cfg, uid=uid)
                 from app.engines.ema_trend.features import build_features
                 from app.engines.ema_trend.setups import evaluate_setups
@@ -113,7 +119,9 @@ async def main() -> None:
                          "history_from": min(x["from"] for x in r)}
     out = {"generated": now.isoformat(), "capital_per_symbol": str(CAPITAL), "symbols": SYMBOLS,
            "summary": summary, "rows": rows, "errors": errors}
-    path = OUT / f"ema_modes_backtest_{now.date().isoformat()}.json"
+    import os
+    tag = f"_fee{os.environ['EMA_FEE_BPS']}bps" if os.environ.get("EMA_FEE_BPS") else ""
+    path = OUT / f"ema_modes_backtest_{now.date().isoformat()}{tag}.json"
     path.write_text(json.dumps(out, indent=2))
     print(json.dumps(summary, indent=2))
     print("written", path)
