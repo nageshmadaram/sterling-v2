@@ -2866,7 +2866,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         const {action,value} = event.data;
         if (action === 'theme' && ['spotify','youtube','netflix'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : value === 'netflix' ? 'netflix' : 'ytmusic');
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
-        if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200));
+        if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200),event.data.requestId);
         if(action==='select-suggestion'&&typeof value==='string'){const ch=findStationById(value);if(ch){startPlayback(ch);clearAllSearches();}}
         if (action === 'more' || action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
@@ -3827,9 +3827,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         .sort((a,b)=>Number(norm(b.title).startsWith(norm(query)))-Number(norm(a.title).startsWith(norm(query))))
         .slice(0,8);
     }
-    function publishRadioSuggestions(query) {
+    function publishRadioSuggestions(query, requestId) {
       const items=radioSuggestionItems(query);
-      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.suggestions',query,items:items.map(ch=>({id:ch.id,label:ch.title,subtitle:ch.subtitle,artwork:ch.artwork||''}))},'*');
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.suggestions',query,...(typeof requestId==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(requestId)?{requestId}:{}),items:items.map(ch=>({id:ch.id,label:ch.title,subtitle:ch.subtitle,artwork:ch.artwork||''}))},'*');
       // Async results must not remove the suggestion currently used by the keyboard.
       const focusedSuggestions=document.activeElement?.closest('.radio-search-suggestions');
       if(focusedSuggestions?.dataset.query===query)return;

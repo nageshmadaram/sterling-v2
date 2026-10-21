@@ -349,3 +349,18 @@ for(const kind of ['tv','radio'] as const)test(`${kind} offline notices support 
  await page.mouse.move(bounds.x+100,bounds.y+bounds.height/2);await page.mouse.up();
  await expect(notice).toBeHidden();
 });
+
+for(const kind of ['tv','radio'] as const)test(`${kind} echoes bounded search request IDs through the real player`,async({page})=>{
+ await openPlayer(page,kind);
+ await page.evaluate(kind=>{
+  const frame=document.getElementById('player') as HTMLIFrameElement;
+  (window as any).__suggestionReplies=[];
+  window.addEventListener('message',event=>{
+   if(event.source===frame.contentWindow&&event.origin==='null'&&event.data?.type===`sterling.${kind}.suggestions`)(window as any).__suggestionReplies.push(event.data);
+  });
+  frame.contentWindow!.postMessage({type:`sterling.${kind}.hydrate`,hostHeader:true,values:kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet'})}:{}},'*');
+  for(const requestId of ['first-request','retry-request'])frame.contentWindow!.postMessage({type:`sterling.${kind}.command`,action:'suggest',value:kind==='tv'?'Red Bull':'BBC',requestId},'*');
+ },kind);
+ await expect.poll(()=>page.evaluate(()=>(window as any).__suggestionReplies.map((reply:any)=>reply.requestId))).toEqual(['first-request','retry-request']);
+ expect(await page.evaluate(()=>(window as any).__suggestionReplies.every((reply:any)=>reply.items.length>0&&reply.items.length<=8))).toBe(true);
+});
