@@ -708,7 +708,11 @@ async def _maintain(active: Any, live: list[Any], verified_by_kite: Callable[...
     verified_ms = _ms(active.verified_at)
     login_ms = getattr(account, "last_login_at_ms", None)
     stale_for_login = verified_ms is None or (login_ms is not None and login_ms > verified_ms)
-    if not stale_for_login:
+    # Evidence also expires (15 min). Re-read the broker when it has, so posture
+    # does not report "account binding" missing all session between orders.
+    from app.services.account_binding_service import verification_is_current
+    expired = not verification_is_current(active)
+    if not stale_for_login and not expired:
         # Verified since the last login. Between logins the order-time refresh keeps the
         # evidence inside its 15-minute window, so nothing is asked of the broker here.
         return _bind_note(BindOutcome("current", "verified since the last login",

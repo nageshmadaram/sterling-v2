@@ -162,6 +162,21 @@ class TestAutoBind:
         assert world.client.reads == 0
         assert len(AccountBindingStore().all()) == 1
 
+    async def test_expired_evidence_is_re_read_from_the_broker(self, monkeypatch):
+        """Evidence lasts 15 minutes; once it lapses the loop re-reads the broker."""
+        from app.services import account_binding_service as service
+        world = World(monkeypatch, [live_account(login_ms=1_000)])
+        await bind()
+        world.client = FakeClient("KITE-APP-1")
+        real = service.verification_is_current
+        monkeypatch.setattr(service, "verification_is_current",
+                            lambda binding, now=None: False if now is None else real(binding, now=now))
+
+        again = await bind()
+
+        assert again.action != "current"
+        assert world.client.reads > 0
+
     async def test_a_new_login_re_verifies_without_touching_the_binding_identity(
             self, monkeypatch):
         world = World(monkeypatch, [live_account(login_ms=1_000)])
