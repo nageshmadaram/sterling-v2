@@ -90,7 +90,8 @@ async def manage_campaign(uid,document,client):
     entry_actions=[r for r in (await run_blocking(repo.list_documents, uid,"outbox",limit=2000))
                    if r["campaign_id"]==c.id and r["action"]["kind"]=="ENTRY"]
     entry_day=datetime.fromtimestamp(entry_actions[0]["action"]["at_ms"]/1000,scanner.IST).date() if entry_actions else now.date()
-    force_close=bool(profile.force_close and (now.strftime("%H:%M")>=profile.force_close or now.date()>entry_day))
+    from app.engines.ema_trend.config import gap_close_due
+    force_close=bool(profile.force_close and (now.strftime("%H:%M")>=profile.force_close or now.date()>entry_day)) or gap_close_due(profile,now,c.symbol.split(":")[0])
     stop_due=c.qty>0 and Decimal(str(book.bid))<=c.stop
     current_config=(await run_blocking(config_store.config, uid))
     risk_codes=execution._risk_blockers(uid,current_config)

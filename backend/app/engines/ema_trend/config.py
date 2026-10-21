@@ -11,8 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-Mode = Literal["swing", "intraday", "scalping", "ultra_scalping"]
-MODES: tuple[Mode, ...] = ("swing", "intraday", "scalping", "ultra_scalping")
+Mode = Literal["swing", "overnight", "intraday", "scalping", "ultra_scalping"]
+MODES: tuple[Mode, ...] = ("swing", "overnight", "intraday", "scalping", "ultra_scalping")
 
 
 def canonical_mode(value: str) -> Mode:
@@ -48,6 +48,9 @@ class Profile(BaseModel):
     require_green: bool = True
     chop_filter: bool = True
     horizon_policy: Literal["CONDITION_BASED", "TIME_OR_CONDITION"] = "TIME_OR_CONDITION"
+    # Close before a weekend or holiday gap (at force_close-like time ``gap_close``).
+    no_gap_carry: bool = False
+    gap_close: str = "15:15"
 
 
 PROFILES = {
@@ -57,6 +60,13 @@ PROFILES = {
                      max_quote_age_s=30, entry_start="09:20", entry_end="15:00",
                      force_close=None, require_green=False, chop_filter=False,
                      horizon_policy="CONDITION_BASED"),
+    # Hourly signals, daily context, held at most 3 sessions (7 hourly bars a
+    # session) and never into a weekend or holiday. Not yet tested on history.
+    "overnight": Profile(mode="overnight", signal_minutes=60, context_minutes=1440,
+                         product="CNC", setup_expiry_bars=10, cooldown_bars=3,
+                         min_stop_atr=.5, max_stop_atr=3.5, max_chase_atr=.4,
+                         max_quote_age_s=15, max_hold_bars=21, entry_start="09:30",
+                         entry_end="14:30", force_close=None, no_gap_carry=True),
     "intraday": Profile(mode="intraday", signal_minutes=15, context_minutes=60,
                         product="MIS", setup_expiry_bars=12, cooldown_bars=3,
                         min_stop_atr=.5, max_stop_atr=3, max_chase_atr=.3,
@@ -77,7 +87,7 @@ class EmaTrendConfig(BaseModel):
     enabled: bool = False
     auto_execute: bool = False
     execution_mode: Literal["PAPER"] = "PAPER"
-    modes: list[Mode] = Field(default_factory=lambda: ["swing"], min_length=1, max_length=4)
+    modes: list[Mode] = Field(default_factory=lambda: ["swing"], min_length=1, max_length=5)
     symbols: list[str] = Field(default_factory=list, max_length=30)
     # Spot indices are read-only signal sources, never an executable contract.
     scan_indices: list[str] = Field(default_factory=list, max_length=4)
@@ -150,3 +160,17 @@ def descriptor() -> dict:
             "live_capable": False,
             "blockers": ["ECONOMIC_EVIDENCE_INCONCLUSIVE", "EQUITY_PROTECTION_UNVERIFIED",
                          "LIVE_EXECUTION_DISABLED", "FEE_SCHEDULE_NOT_BROKER_VERIFIED"]}
+
+
+def gap_close_due(profile: Profile, local_dt, exchange: str = "NSE") -> bool:
+    """True at/after ``gap_close`` on the last session before a weekend or holiday."""
+    if not profile.no_gap_carry or local_dt.strftime("%H:%M") < profile.gap_close:
+        return False
+    from datetime import timedelta
+    from .calendar import next_regular_session
+    day = local_dt.date()
+    try:
+        return next_regular_session(day, exchange) > day + timedelta(days=1)
+    except Exception:  # noqa: BLE001 - an unknown calendar must not carry risk over a gap
+        return True
+

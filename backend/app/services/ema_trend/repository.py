@@ -174,7 +174,7 @@ def list_signals_by_mode(uid: str, mode: str, *, limit: int = 1000, cursor: int 
     from the caller, never from a raw SQL expression.
     """
     owner(uid)
-    if mode not in {'swing', 'intraday', 'scalping', 'ultra_scalping'}:
+    if mode not in {'swing', 'overnight', 'intraday', 'scalping', 'ultra_scalping'}:
         raise ValueError("INVALID_EMA_MODE")
     with read_only() as conn:
         rows = conn.execute("""SELECT data_json FROM ema_trend_documents
