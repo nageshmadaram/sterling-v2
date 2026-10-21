@@ -2916,8 +2916,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         audio.src = url;
         handlePlayPromise(audio.play());
       } else if (isHls && window.Hls && Hls.isSupported()) {
-        const bufferSec = appConfig.qualityProfile === 'hifi' ? 90 : appConfig.qualityProfile === 'datasaver' ? 30 : 60;
-        hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec });
+        // Live radio needs a smaller buffer on constrained mobile devices.
+        const smallScreen=window.matchMedia?.('(max-width:767px)')?.matches===true;
+        const bufferSec=smallScreen
+          ? (appConfig.qualityProfile==='hifi'?35:20)
+          : (appConfig.qualityProfile==='hifi'?90:appConfig.qualityProfile==='datasaver'?30:60);
+        hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec, maxBufferLength:bufferSec });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -2953,11 +2957,18 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function switchBackupServer() {
       if (!activeStream) return;
-      const backups = activeStream.backupUrls || [];
+      const backups = Array.isArray(activeStream.backupUrls)?activeStream.backupUrls:[];
       if (backupCursor < backups.length) {
-        const nextUrl = backups[backupCursor++];
-        showToast('Switched to backup stream');
-        startPlayback(activeStream, nextUrl);
+        const nextUrl=backups[backupCursor++];
+        showToast('Connecting to backup stream');
+        startPlayback(activeStream,nextUrl);
+      } else {
+        if(audio.paused) {
+          userPaused=true;
+          pendingPlayRecord=null;
+          clearTimeout(watchdogTimer);
+          showToast('Station is unavailable. Choose another station.');
+        } else showToast('No additional backup available for this station');
       }
     }
 
