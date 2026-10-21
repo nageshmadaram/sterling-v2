@@ -519,7 +519,10 @@ def evaluate_rows(report: Report, rows: list[dict[str, Any]]) -> None:
     # zero are different facts. On a full five-deep book nothing is absent, so
     # this passes without testing anything; say which case occurred rather than
     # letting a vacuous pass read like a proven one.
-    zeroed = [r for r in rows if r.get("bid4_price") == 0 or r.get("ask4_price") == 0]
+    zeroed = [r for r in rows if any(
+        r.get(f"{side}{i}_price") == 0
+        for side in ("bid", "ask") for i in range(DEPTH_LEVELS)
+    )]
     exercised = any(
         r.get(f"{side}{i}_price") is None
         for r in rows for side in ("bid", "ask") for i in range(DEPTH_LEVELS)

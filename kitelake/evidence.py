@@ -214,9 +214,17 @@ def evidence_tick_row(
         for i in range(DEPTH_LEVELS):
             level = levels[i] if i < len(levels) else {}
             level = level if isinstance(level, dict) else {}
-            row[f"{side}{i}_price"] = _price(level.get("price"))
-            row[f"{side}{i}_qty"] = _int(level.get("quantity"))
-            row[f"{side}{i}_orders"] = _int(level.get("orders"))
+            price = _price(level.get("price"))
+            quantity = _int(level.get("quantity"))
+            orders = _int(level.get("orders"))
+            # Kite pads an empty FULL-mode rung with three explicit zeros.
+            # Preserve its absence as null; do not hide a malformed zero-price
+            # quote carrying real quantity/orders, or an incomplete payload.
+            if price == 0 and quantity == 0 and orders == 0:
+                price = quantity = orders = None
+            row[f"{side}{i}_price"] = price
+            row[f"{side}{i}_qty"] = quantity
+            row[f"{side}{i}_orders"] = orders
 
     return row
 

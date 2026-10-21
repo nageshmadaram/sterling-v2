@@ -766,3 +766,10 @@ def test_a_contradiction_outranks_an_unfinished_engineering_gate():
 
     assert report.vendor_assumptions == CONTRADICTED
     assert report.overall == FAIL
+
+
+@pytest.mark.parametrize('field', ['bid0_price', 'ask1_price', 'bid2_price', 'ask3_price'])
+def test_zero_quote_is_rejected_at_every_depth_level(field):
+    report = _report()
+    evaluate_rows(report, [_row(**{field: 0})])
+    assert report.checks['absent_level_is_null_not_zero'] == FAIL

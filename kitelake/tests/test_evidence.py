@@ -198,3 +198,23 @@ def test_received_ts_is_never_null():
     assert EVIDENCE_TICK_SCHEMA.field("exchange_ts").nullable is True
     assert EVIDENCE_TICK_SCHEMA.field("instrument_token").nullable is False
     assert EVIDENCE_TICK_SCHEMA.field("evidence_class").nullable is False
+
+
+def test_explicit_zero_padding_is_an_absent_rung_not_a_zero_quote():
+    row = _row(tick=_tick(depth={'buy': [{'price': 0.0, 'quantity': 0, 'orders': 0}],
+                                 'sell': [{'price': 102, 'quantity': 25, 'orders': 2}]}))
+    assert (row['bid0_price'], row['bid0_qty'], row['bid0_orders']) == (None, None, None)
+    assert row['ask0_price'] is not None
+    assert row['ask0_qty'] == 25 and row['ask0_orders'] == 2
+
+
+@pytest.mark.parametrize('level', [
+    {'price': 0, 'quantity': 25, 'orders': 1},
+    {'price': 0, 'quantity': 0},
+    {'price': 101, 'quantity': 0, 'orders': 0},
+])
+def test_padding_normalization_preserves_malformed_or_incomplete_quotes(level):
+    row = _row(tick=_tick(depth={'buy': [level]}))
+    assert row['bid0_price'] is not None
+    assert row['bid0_qty'] == level['quantity']
+    assert row['bid0_orders'] == level.get('orders')
