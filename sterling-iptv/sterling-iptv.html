@@ -307,14 +307,14 @@
 /* Mobile broadcast experiences. One video element, two distinct interfaces. */
 #tv-mobile-shell, #tv-mobile-home, #tv-now-playing, #tv-mobile-mini, #tv-mobile-nav, #tv-mobile-sheet { display:none; }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  body.theme-spotify,body.theme-youtube { --mobile-nav:calc(62px + env(safe-area-inset-bottom, 0px)); font-family:Inter,Arial,sans-serif; background:#121212; }
+  body.theme-spotify,body:is(.theme-youtube,.theme-netflix) { --mobile-nav:calc(62px + env(safe-area-inset-bottom, 0px)); font-family:Inter,Arial,sans-serif; background:#121212; }
   body.theme-spotify { --accent:#1ed760; --bg-outer:#121212; --bg-canvas:#121212; }
-  body.theme-youtube { --accent:#ff0033; --bg-outer:#0f0f0f; --bg-canvas:#0f0f0f; }
-  :is(.theme-spotify,.theme-youtube) #global-header,
-  :is(.theme-spotify,.theme-youtube) #tv-tools-reveal,
-  :is(.theme-spotify,.theme-youtube) body>nav,
-  body:is(.theme-spotify,.theme-youtube)>nav:not(#tv-mobile-nav) { display:none!important; }
-  :is(.theme-spotify,.theme-youtube) #tv-mobile-shell { display:block; flex:none; position:relative; z-index:60; background:var(--bg-outer); color:white; }
+  body:is(.theme-youtube,.theme-netflix) { --accent:#ff0033; --bg-outer:#0f0f0f; --bg-canvas:#0f0f0f; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #global-header,
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #tv-tools-reveal,
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) body>nav,
+  body:is(.theme-spotify,:is(.theme-youtube,.theme-netflix))>nav:not(#tv-mobile-nav) { display:none!important; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #tv-mobile-shell { display:block; flex:none; position:relative; z-index:60; background:var(--bg-outer); color:white; }
   #tv-mobile-shell button,#tv-mobile-nav button,#tv-now-playing button,#tv-mobile-mini button,#tv-mobile-sheet button,#tv-mobile-home button { -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
   #tv-mobile-shell button:focus-visible,#tv-mobile-nav button:focus-visible,#tv-now-playing button:focus-visible,#tv-mobile-mini button:focus-visible,#tv-mobile-home button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
   .tm-top { display:flex; align-items:center; gap:8px; padding:12px 16px 8px; min-height:60px; }
@@ -330,26 +330,26 @@
   .tm-theme button { width:30px;height:28px;display:grid;place-items:center;border-radius:18px;color:#a7a7a7; }
   .tm-theme svg { width:17px;height:17px; }
   .tm-theme button[aria-pressed=true] { background:#fafafa;color:#000; }
-  .theme-spotify .tm-brand,.theme-youtube .tm-avatar,.theme-youtube .tm-tabs { display:none; }
-  .theme-youtube .tm-top { padding:6px 12px;min-height:54px; }
-  .theme-youtube .tm-theme { margin-left:auto; }
+  .theme-spotify .tm-brand,:is(.theme-youtube,.theme-netflix) .tm-avatar,:is(.theme-youtube,.theme-netflix) .tm-tabs { display:none; }
+  :is(.theme-youtube,.theme-netflix) .tm-top { padding:6px 12px;min-height:54px; }
+  :is(.theme-youtube,.theme-netflix) .tm-theme { margin-left:auto; }
   .theme-spotify .tm-top>.tm-search-open { display:none; }
   .tm-search { margin:4px 16px 10px;display:flex;gap:8px;align-items:center; }
   .tm-search[hidden] { display:none; }
   .tm-search input { min-width:0;width:100%;height:42px;border:0;border-radius:8px;background:#fff;color:#121212;padding:0 14px;font-size:14px;outline:none; }
-  .theme-youtube .tm-search input { background:#282828;color:white;border-radius:24px; }
+  :is(.theme-youtube,.theme-netflix) .tm-search input { background:#282828;color:white;border-radius:24px; }
   .tm-search input:focus { box-shadow:0 0 0 2px var(--accent); }
   .tm-context { display:flex;gap:8px;overflow:auto;padding:3px 16px 11px;scrollbar-width:none; }
   .tm-context button { flex:none;font-size:12px;font-weight:600;background:#282828;color:white;border-radius:8px;padding:8px 13px; }
   .tm-context button[aria-pressed=true] { background:white;color:#111; }
   .theme-spotify .tm-context { display:none; }
-  :is(.theme-spotify,.theme-youtube) #main-scroll { padding-bottom:calc(var(--mobile-nav) + 82px)!important;scroll-behavior:smooth;overflow-x:hidden; }
-  :is(.theme-spotify,.theme-youtube) #tv-mobile-nav { position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);z-index:85;min-height:var(--mobile-nav);padding:5px 8px calc(5px + env(safe-area-inset-bottom,0px));background:linear-gradient(0deg,#121212 75%,#121212f5);color:#aaa; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #main-scroll { padding-bottom:calc(var(--mobile-nav) + 82px)!important;scroll-behavior:smooth;overflow-x:hidden; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #tv-mobile-nav { position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);z-index:85;min-height:var(--mobile-nav);padding:5px 8px calc(5px + env(safe-area-inset-bottom,0px));background:linear-gradient(0deg,#121212 75%,#121212f5);color:#aaa; }
   #tv-mobile-nav button { display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;font-size:10px;letter-spacing:.1px;min-height:48px; }
   #tv-mobile-nav svg { width:24px;height:24px; }
   #tv-mobile-nav button[aria-current=page] { color:#fff; }
   #tv-mobile-nav button[aria-current=page] svg { fill:currentColor; }
-  .theme-youtube #tv-mobile-nav { background:#0f0f0ff5;border-top:1px solid #ffffff18; }
+  :is(.theme-youtube,.theme-netflix) #tv-mobile-nav { background:#0f0f0ff5;border-top:1px solid #ffffff18; }
   .theme-spotify #tv-mobile-home { display:block; }
   #tv-mobile-home { padding:8px 16px 20px; }
   .tm-quick { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 26px; }
@@ -374,10 +374,10 @@
   .theme-spotify #catalog-section { padding:0 16px!important; }
   .theme-spotify:not(.tm-catalog-view) #catalog-section { display:none; }
   .theme-spotify.tm-catalog-view #tv-mobile-home { display:none; }
-  :is(.theme-spotify,.theme-youtube) #sticky-chip-bar { position:relative;padding:10px 0;margin-bottom:14px;border:0;background:transparent; }
-  :is(.theme-spotify,.theme-youtube) #sticky-chip-bar>div:first-child { display:none; }
-  :is(.theme-spotify,.theme-youtube) #indian-regional-Subbar { max-width:100%;overflow:auto; }
-  :is(.theme-spotify,.theme-youtube) #dynamic-category-pills-row { overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #sticky-chip-bar { position:relative;padding:10px 0;margin-bottom:14px;border:0;background:transparent; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #sticky-chip-bar>div:first-child { display:none; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #indian-regional-Subbar { max-width:100%;overflow:auto; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #dynamic-category-pills-row { overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none; }
   #dynamic-category-pills-row button { flex:none; }
   .theme-spotify #yt-studio-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 14px; }
   .theme-spotify .channel-grid-card { background:none!important;border:0!important;padding:0!important;border-radius:0;contain-intrinsic-size:210px; }
@@ -414,36 +414,36 @@
   .theme-spotify.tm-now-open #custom-video-hud { opacity:0;pointer-events:none; }.theme-spotify.tm-now-open #video-surface-card:focus-within #custom-video-hud { opacity:1;pointer-events:auto; }
   .theme-spotify.tm-now-open #yt-metadata-below,.theme-spotify.tm-now-open #watch-up-next-rail,.theme-spotify.tm-now-open #multiview-quad-grid { display:none!important; }
   .theme-spotify.tm-now-open #tv-mobile-mini,.theme-spotify.tm-now-open #tv-mobile-nav { display:none; }
-  .theme-youtube #tv-mobile-home { display:none; }
-  .theme-youtube #player-stage { position:relative;top:auto;padding:0!important;z-index:30;border:0;background:#0f0f0f; }
-  .theme-youtube #video-surface-card { max-height:none!important;aspect-ratio:16/9!important;border-radius:0!important;border:0;box-shadow:none!important; }
-  .theme-youtube #left-watch-column { width:100%!important; }
-  .theme-youtube #yt-metadata-below { padding:13px 12px 6px!important; }.theme-youtube #active-title { font-size:18px;letter-spacing:-.4px;line-height:1.3; }
-  .theme-youtube #active-subtitle { font-size:11px;color:#aaa; }.theme-youtube #yt-metadata-below button { border-radius:20px; }
-  .theme-youtube #catalog-section { padding:0!important; }.theme-youtube #sticky-chip-bar { padding:10px 12px 0; }.theme-youtube #dynamic-category-pills-row { gap:7px; }
-  .theme-youtube #yt-studio-grid { display:grid;grid-template-columns:1fr;gap:24px; }
-  .theme-youtube .channel-grid-card { border-radius:0;contain-intrinsic-size:280px; }.theme-youtube .channel-grid-card .preview-thumb-box { border-radius:0!important;border:0!important; }
-  .theme-youtube .channel-grid-card>div:last-child:not(.preview-thumb-box) { padding:10px 12px 0!important; }.theme-youtube .channel-grid-card h4 { font-size:14px;line-height:1.4; }.theme-youtube .channel-grid-card p { font-size:11px;margin-top:4px; }
-  .theme-youtube #watch-up-next-rail { background:#0f0f0f; }.theme-youtube #main-scroll { padding-bottom:calc(var(--mobile-nav) + 24px)!important; }
+  :is(.theme-youtube,.theme-netflix) #tv-mobile-home { display:none; }
+  :is(.theme-youtube,.theme-netflix) #player-stage { position:relative;top:auto;padding:0!important;z-index:30;border:0;background:#0f0f0f; }
+  :is(.theme-youtube,.theme-netflix) #video-surface-card { max-height:none!important;aspect-ratio:16/9!important;border-radius:0!important;border:0;box-shadow:none!important; }
+  :is(.theme-youtube,.theme-netflix) #left-watch-column { width:100%!important; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below { padding:13px 12px 6px!important; }:is(.theme-youtube,.theme-netflix) #active-title { font-size:18px;letter-spacing:-.4px;line-height:1.3; }
+  :is(.theme-youtube,.theme-netflix) #active-subtitle { font-size:11px;color:#aaa; }:is(.theme-youtube,.theme-netflix) #yt-metadata-below button { border-radius:20px; }
+  :is(.theme-youtube,.theme-netflix) #catalog-section { padding:0!important; }:is(.theme-youtube,.theme-netflix) #sticky-chip-bar { padding:10px 12px 0; }:is(.theme-youtube,.theme-netflix) #dynamic-category-pills-row { gap:7px; }
+  :is(.theme-youtube,.theme-netflix) #yt-studio-grid { display:grid;grid-template-columns:1fr;gap:24px; }
+  :is(.theme-youtube,.theme-netflix) .channel-grid-card { border-radius:0;contain-intrinsic-size:280px; }:is(.theme-youtube,.theme-netflix) .channel-grid-card .preview-thumb-box { border-radius:0!important;border:0!important; }
+  :is(.theme-youtube,.theme-netflix) .channel-grid-card>div:last-child:not(.preview-thumb-box) { padding:10px 12px 0!important; }:is(.theme-youtube,.theme-netflix) .channel-grid-card h4 { font-size:14px;line-height:1.4; }:is(.theme-youtube,.theme-netflix) .channel-grid-card p { font-size:11px;margin-top:4px; }
+  :is(.theme-youtube,.theme-netflix) #watch-up-next-rail { background:#0f0f0f; }:is(.theme-youtube,.theme-netflix) #main-scroll { padding-bottom:calc(var(--mobile-nav) + 24px)!important; }
   #tv-mobile-sheet { position:fixed;inset:0;z-index:125;background:#0009;align-items:flex-end; }
   #tv-mobile-sheet.tm-sheet-open { display:flex; }
   .tm-sheet-content { width:100%;max-height:82dvh;overflow:auto;background:#222;border-radius:16px 16px 0 0;padding:10px 20px calc(20px + env(safe-area-inset-bottom,0px));color:white;box-shadow:0 -20px 80px #0005; }
   .tm-sheet-handle { width:36px;height:4px;background:#777;border-radius:6px;margin:0 auto 15px; }
   .tm-sheet-title { display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:19px;font-weight:700; }
   .tm-sheet-content>button { display:flex;align-items:center;gap:16px;min-height:52px;width:100%;text-align:left;font-size:14px; }.tm-sheet-content>button svg { width:22px;height:22px;color:#bbb; }
-  :is(.theme-spotify,.theme-youtube) #startup-channel-modal,:is(.theme-spotify,.theme-youtube) #source-manager-modal { z-index:128; }
-  :is(.theme-spotify,.theme-youtube) #toast { bottom:calc(var(--mobile-nav) + 80px);max-width:calc(100vw - 32px); }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #startup-channel-modal,:is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #source-manager-modal { z-index:128; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #toast { bottom:calc(var(--mobile-nav) + 80px);max-width:calc(100vw - 32px); }
   @media (orientation:landscape) {
     .tm-top { min-height:48px;padding:5px 14px; }.tm-context { padding-bottom:6px; }.tm-tabs button { padding:7px 13px; }
-    :is(.theme-spotify,.theme-youtube) { --mobile-nav:52px; }
+    :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) { --mobile-nav:52px; }
     .theme-spotify #tv-mobile-home { padding-top:4px; }.tm-quick { grid-template-columns:repeat(4,minmax(0,1fr));gap:7px; }.tm-quick button { height:48px; }.tm-quick img { width:48px;height:48px; }.tm-section-title { margin-top:20px; }
     .theme-spotify #tv-mobile-mini { left:auto;width:calc(50% - 16px);bottom:calc(var(--mobile-nav) + 4px);height:52px; }.tm-mini-open img { width:37px;height:37px; }
     .theme-spotify #yt-studio-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
     .tm-now-head { min-height:45px; }.tm-now-spacer { display:none; }.tm-now-copy,.tm-timeline,.tm-now-controls,.tm-now-footer { margin-left:60%; }.tm-now-copy { margin-top:12px; }.tm-now-copy h2 { font-size:20px; }.tm-now-copy p { font-size:11px; }.tm-timeline { margin-top:18px; }.tm-now-controls { margin-top:10px;margin-bottom:6px;gap:4px; }.tm-big-play { width:52px;height:52px; }.tm-now-controls>.tm-icon { width:30px; }.tm-now-controls>.tm-icon svg { width:22px;height:22px; }.tm-now-footer { padding-top:2px; }
     .theme-spotify.tm-now-open #player-stage { left:20px;right:auto;top:60px;width:54%; }.theme-spotify.tm-now-open #video-surface-card { max-height:calc(100dvh - 80px)!important; }
-    .theme-youtube #watch-columns { display:block; }.theme-youtube #left-watch-column { display:grid;grid-template-columns:56% 44%;align-items:start; }.theme-youtube #mobile-sticky-player-wrap { position:sticky;top:0; }.theme-youtube #video-surface-card { max-height:calc(100dvh - 110px)!important; }.theme-youtube #yt-metadata-below { padding:10px 16px!important; }.theme-youtube #active-title { font-size:16px; }.theme-youtube #yt-studio-grid { grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px; }.theme-youtube .channel-grid-card .preview-thumb-box { border-radius:8px!important; }.theme-youtube #catalog-section { padding:0 12px!important; }
+    :is(.theme-youtube,.theme-netflix) #watch-columns { display:block; }:is(.theme-youtube,.theme-netflix) #left-watch-column { display:grid;grid-template-columns:56% 44%;align-items:start; }:is(.theme-youtube,.theme-netflix) #mobile-sticky-player-wrap { position:sticky;top:0; }:is(.theme-youtube,.theme-netflix) #video-surface-card { max-height:calc(100dvh - 110px)!important; }:is(.theme-youtube,.theme-netflix) #yt-metadata-below { padding:10px 16px!important; }:is(.theme-youtube,.theme-netflix) #active-title { font-size:16px; }:is(.theme-youtube,.theme-netflix) #yt-studio-grid { grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px; }:is(.theme-youtube,.theme-netflix) .channel-grid-card .preview-thumb-box { border-radius:8px!important; }:is(.theme-youtube,.theme-netflix) #catalog-section { padding:0 12px!important; }
   }
-  @media (prefers-reduced-motion:reduce) { :is(.theme-spotify,.theme-youtube) * { scroll-behavior:auto!important;transition:none!important;animation:none!important; } }
+  @media (prefers-reduced-motion:reduce) { :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) * { scroll-behavior:auto!important;transition:none!important;animation:none!important; } }
 }
 
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
@@ -456,27 +456,27 @@
   .theme-spotify.tm-now-open #multiview-quad-grid:not(.hidden) { display:grid!important; }
 }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  .theme-youtube #yt-metadata-below { flex-direction:column;align-items:stretch;gap:12px; }
-  .theme-youtube #yt-metadata-below>div:first-child { display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:10px;align-items:center; }
-  .theme-youtube #yt-metadata-below>div:first-child>div { display:contents; }
-  .theme-youtube #yt-metadata-below>div:first-child>div>div { grid-column:1/-1;grid-row:1;display:block; }
-  .theme-youtube #active-title { white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
-  .theme-youtube #active-title+span { display:none; }
-  .theme-youtube #active-poster { grid-column:1;grid-row:2;width:32px;height:32px;border-radius:50%; }
-  .theme-youtube #active-subtitle { grid-column:2;grid-row:2;margin:0; }
-  .theme-youtube #fav-action-btn { grid-column:3;grid-row:2;min-height:36px; }
-  .theme-youtube #yt-metadata-below>div:last-child { overflow-x:auto;max-width:100%;scrollbar-width:none; }
-  .theme-youtube #hud-eq-btn { padding:8px; }.theme-youtube #hud-eq-btn>span { display:none; }
-  .theme-youtube #custom-video-hud button { min-height:36px; }
-  .theme-youtube #custom-video-hud [title="Previous Channel"],.theme-youtube #custom-video-hud [title="Next Channel"] { display:none; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below { flex-direction:column;align-items:stretch;gap:12px; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:first-child { display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:10px;align-items:center; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:first-child>div { display:contents; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:first-child>div>div { grid-column:1/-1;grid-row:1;display:block; }
+  :is(.theme-youtube,.theme-netflix) #active-title { white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+  :is(.theme-youtube,.theme-netflix) #active-title+span { display:none; }
+  :is(.theme-youtube,.theme-netflix) #active-poster { grid-column:1;grid-row:2;width:32px;height:32px;border-radius:50%; }
+  :is(.theme-youtube,.theme-netflix) #active-subtitle { grid-column:2;grid-row:2;margin:0; }
+  :is(.theme-youtube,.theme-netflix) #fav-action-btn { grid-column:3;grid-row:2;min-height:36px; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:last-child { overflow-x:auto;max-width:100%;scrollbar-width:none; }
+  :is(.theme-youtube,.theme-netflix) #hud-eq-btn { padding:8px; }:is(.theme-youtube,.theme-netflix) #hud-eq-btn>span { display:none; }
+  :is(.theme-youtube,.theme-netflix) #custom-video-hud button { min-height:36px; }
+  :is(.theme-youtube,.theme-netflix) #custom-video-hud [title="Previous Channel"],:is(.theme-youtube,.theme-netflix) #custom-video-hud [title="Next Channel"] { display:none; }
   @media (orientation:landscape) {
-    .theme-youtube #video-surface-card { max-height:calc(100dvh - 155px)!important; }
-    .theme-youtube #yt-metadata-below { min-width:0;width:100%; }
+    :is(.theme-youtube,.theme-netflix) #video-surface-card { max-height:calc(100dvh - 155px)!important; }
+    :is(.theme-youtube,.theme-netflix) #yt-metadata-below { min-width:0;width:100%; }
   }
 }
 
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  .theme-youtube #yt-metadata-below button { white-space:nowrap;flex-shrink:0; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below button { white-space:nowrap;flex-shrink:0; }
 }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
   .theme-spotify .tm-top>.tm-icon[data-tm-action="more"] { display:none; }
@@ -498,7 +498,7 @@
   #tm-browse-categories span { position:absolute;right:-8px;bottom:-8px;transform:rotate(25deg);width:70px;height:70px;background:#ffffff22;border-radius:7px;padding:12px;box-shadow:0 8px 20px #0003; }
   #tm-browse-categories svg { width:100%;height:100%; }
   .theme-spotify.tm-browse-search #platform-viewport,.theme-spotify.tm-browse-search #sticky-chip-bar,.theme-spotify.tm-browse-search #load-more-wrap { display:none; }
-  .theme-youtube.tm-catalog-view #player-stage { display:none; }
+  :is(.theme-youtube,.theme-netflix).tm-catalog-view #player-stage { display:none; }
   @media(orientation:landscape) { .theme-spotify.tm-browse-search #tm-browse-categories { grid-template-columns:repeat(4,minmax(0,1fr)); } }
 }
 
@@ -516,6 +516,30 @@
   .tm-scroll-pip .tm-pip-controls{position:absolute;inset:0 0 auto;display:flex;justify-content:space-between;z-index:60;background:linear-gradient(#0009,transparent);}
   .tm-pip-controls .tm-icon{width:32px;height:32px;}.tm-pip-controls svg{width:17px;height:17px;}
   .theme-spotify.tm-scroll-pip #player-stage{opacity:1;pointer-events:auto;overflow:visible;}
+}
+
+/* Hide navigation/category ribbons while showing actual search matches. */
+.tm-search-active .tm-context,
+.tm-search-active #sticky-chip-bar,
+.tm-search-active #tm-browse-categories,
+.tm-search-active #indian-regional-Subbar,
+.tm-search-active #dynamic-category-pills-row,
+.tm-search-active #tv-mobile-home {display:none!important;}
+@media(max-width:767px),(max-width:1024px) and (max-height:600px){
+  body.theme-netflix {--accent:#e50914;--bg-outer:#090909;--bg-canvas:#111;}
+  .theme-netflix #tv-mobile-shell,.theme-netflix #tv-mobile-nav {background:#0b0b0b!important;}
+  .theme-netflix #tv-mobile-home {display:block;padding:14px 16px 24px;}
+  .theme-netflix:not(.tm-catalog-view):not(.tm-watch-view) #catalog-section {display:none!important;}
+  .theme-netflix.tm-catalog-view #tv-mobile-home,.theme-netflix.tm-watch-view #tv-mobile-home {display:none!important;}
+  .theme-netflix .tm-quick {display:none;}
+  .theme-netflix .tm-section-title h2 {font-size:21px;letter-spacing:-.04em;}
+  .theme-netflix .tm-album {flex-basis:min(59vw,224px);}
+  .theme-netflix .tm-cover {width:100%;height:auto;aspect-ratio:16/9;border-radius:7px;}
+  .theme-netflix .tm-mix {background:linear-gradient(135deg,#511013,#151515)!important;color:#fff;}
+  .theme-netflix .tm-tabs button[aria-pressed=true] {background:#e50914!important;color:#fff;}
+  .theme-netflix #tv-mobile-mini {background:linear-gradient(125deg,#451417,#151515)!important;}
+  .theme-netflix .tm-live {background:#e50914;}
+  .theme-netflix #tv-now-playing {background:linear-gradient(155deg,#6c2026,#141414 60%,#060606)!important;}
 }
 </style>
 <!-- TV MOBILE STYLE END -->
@@ -4361,7 +4385,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
-  const activeTheme=()=>currentTheme==='spotify'||currentTheme==='youtube';
+  const activeTheme=()=>['spotify','youtube','netflix'].includes(currentTheme);
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
   function artwork(ch) {
@@ -4402,6 +4426,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     if(lastLandscape!==(innerWidth>innerHeight)){lastLandscape=innerWidth>innerHeight;renderHome();}
     document.body.classList.toggle('tm-catalog-view',enabled&&view!=='home'&&view!=='watch');
     document.body.classList.toggle('tm-browse-search',enabled&&currentTheme==='spotify'&&view==='search'&&!searchInputEl.value.trim());
+    document.body.classList.toggle('tm-search-active',Boolean(searchInputEl.value.trim()));
     document.body.classList.toggle('tm-watch-view',enabled&&view==='watch');
     document.body.classList.toggle('tm-now-open',enabled&&expanded&&currentTheme==='spotify');
     now.hidden=!(enabled&&expanded&&currentTheme==='spotify');
