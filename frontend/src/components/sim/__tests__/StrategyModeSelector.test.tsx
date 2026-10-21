@@ -45,27 +45,14 @@ describe('StrategyModeSelector in the live view', () => {
     expect(modeBtn('Supertrend', 'ALGO')).toBeDisabled();
   });
 
-  it('SIMULATION asks first, says it is virtual money, and sends nothing on Cancel', async () => {
+  it('offers SIMULATION only to switch a strategy out of it', async () => {
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'SIMULATION'));
-    const dialog = screen.getByRole('dialog');
-    expect(dialog).toHaveTextContent(/virtual money/i);
-    expect(dialog).toHaveTextContent(/No real orders are sent/);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(put).not.toHaveBeenCalled();
-  });
-
-  it('SIMULATION confirmed PUTs the mode to that strategy\'s route', async () => {
-    put.mockResolvedValue({ strategy: 'snapback', mode: 'SIMULATION', strategies: strategies({ snapback: 'SIMULATION' }) });
-    renderWithClient(<StrategyModeSelector />);
-    await loaded();
-    fireEvent.click(modeBtn('Snapback', 'SIMULATION'));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Start Simulation' }));
-    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/v1/sim/strategy/snapback/mode', { mode: 'SIMULATION' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('Snapback is now SIMULATION') }));
+    // Snapback is MANUAL: the live release offers MANUAL and ALGO only.
+    expect(within(group('Snapback mode')).queryByRole('button', { name: 'SIMULATION' })).toBeNull();
+    expect(within(group('Snapback mode')).getAllByRole('button')).toHaveLength(2);
+    // Supertrend is already in SIMULATION, so that button stays to show it and leave it.
+    expect(modeBtn('Supertrend', 'SIMULATION')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('AUTO asks first and says in capitals it is REAL money on the Zerodha account', async () => {
@@ -138,8 +125,8 @@ describe('StrategyModeSelector in the live view', () => {
     put.mockRejectedValue(apiError(503, { code: 'tenant_unavailable', message: 'x' }));
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'SIMULATION'));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Start Simulation' }));
+    fireEvent.click(modeBtn('Snapback', 'ALGO'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Arm ALGO with real money/ }));
     expect(await screen.findByTestId('mode-error-snapback')).toHaveTextContent(/not available right now/i);
   });
 
@@ -147,8 +134,8 @@ describe('StrategyModeSelector in the live view', () => {
     put.mockRejectedValue(apiError(500, { code: 'mode_change_failed', message: 'x' }));
     renderWithClient(<StrategyModeSelector />);
     await loaded();
-    fireEvent.click(modeBtn('Snapback', 'SIMULATION'));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Start Simulation' }));
+    fireEvent.click(modeBtn('Snapback', 'ALGO'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Arm ALGO with real money/ }));
     expect(await screen.findByTestId('mode-error-snapback')).toHaveTextContent(/left OFF/);
   });
 

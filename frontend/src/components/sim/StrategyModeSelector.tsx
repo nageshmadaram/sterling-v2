@@ -103,7 +103,8 @@ export function StrategyModeSelector({ readOnly }: { readOnly?: boolean }) {
                 <div role="group" aria-label={`${label} mode`} style={{
                   display: 'inline-flex', gap: 2, padding: 3, background: SIM.sunken, border: `1px solid ${SIM.border}`, borderRadius: 8, maxWidth: '100%',
                 }}>
-                  {STRATEGY_MODES.map((m) => {
+                  {/* Live release: virtual-money SIMULATION is offered only to switch a strategy OUT of it. */}
+                  {STRATEGY_MODES.filter((m) => m !== 'SIMULATION' || mode === 'SIMULATION').map((m) => {
                     const on = known && mode === m;
                     return (
                       <button
