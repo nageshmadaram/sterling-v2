@@ -2,7 +2,7 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="referrer" content="no-referrer" />
   <meta name="theme-color" content="#08080a" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/media/interface.css">
   <link rel="stylesheet" href="/media/fonts.css">
   <script src="/media/hls.min.js"></script>
+  <script src="/media/artwork.js"></script>
 
 
   <style>
@@ -166,6 +167,23 @@
       border-radius: 0 !important;
     }
 
+    #video-surface-card:fullscreen #video-player,
+    #video-surface-card:-webkit-full-screen #video-player {
+      width:100% !important; height:100% !important; object-fit:contain;
+    }
+    #video-surface-card:fullscreen #custom-video-hud,
+    #video-surface-card:-webkit-full-screen #custom-video-hud {
+      opacity:1; pointer-events:auto;
+    }
+    @media (max-width:767px) {
+      #video-surface-card { max-height:min(54dvh,580px) !important; }
+      #video-surface-card:fullscreen,
+      #video-surface-card:-webkit-full-screen {
+        width:100vw !important; height:100dvh !important;
+        max-height:100dvh !important; aspect-ratio:auto !important;
+      }
+    }
+
     #video-player.fit-contain { object-fit: contain; transform: scale(1); }
     #video-player.fit-cover   { object-fit: cover;   transform: scale(1); }
     #video-player.fit-zoom    { object-fit: cover;   transform: scale(1.14); }
@@ -268,19 +286,38 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!-- TV MOBILE STYLE START -->
 <style>
 /* Mobile broadcast experiences. One video element, two distinct interfaces. */
 #tv-mobile-shell, #tv-mobile-home, #tv-now-playing, #tv-mobile-mini, #tv-mobile-nav, #tv-mobile-sheet { display:none; }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  body.theme-spotify,body.theme-youtube { --mobile-nav:calc(62px + env(safe-area-inset-bottom, 0px)); font-family:Inter,Arial,sans-serif; background:#121212; }
+  body.theme-spotify,body:is(.theme-youtube,.theme-netflix) { --mobile-nav:calc(62px + env(safe-area-inset-bottom, 0px)); font-family:Inter,Arial,sans-serif; background:#121212; }
   body.theme-spotify { --accent:#1ed760; --bg-outer:#121212; --bg-canvas:#121212; }
-  body.theme-youtube { --accent:#ff0033; --bg-outer:#0f0f0f; --bg-canvas:#0f0f0f; }
-  :is(.theme-spotify,.theme-youtube) #global-header,
-  :is(.theme-spotify,.theme-youtube) #tv-tools-reveal,
-  :is(.theme-spotify,.theme-youtube) body>nav,
-  body:is(.theme-spotify,.theme-youtube)>nav:not(#tv-mobile-nav) { display:none!important; }
-  :is(.theme-spotify,.theme-youtube) #tv-mobile-shell { display:block; flex:none; position:relative; z-index:60; background:var(--bg-outer); color:white; }
+  body:is(.theme-youtube,.theme-netflix) { --accent:#ff0033; --bg-outer:#0f0f0f; --bg-canvas:#0f0f0f; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #global-header,
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #tv-tools-reveal,
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) body>nav,
+  body:is(.theme-spotify,:is(.theme-youtube,.theme-netflix))>nav:not(#tv-mobile-nav) { display:none!important; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #tv-mobile-shell { display:block; flex:none; position:relative; z-index:60; background:var(--bg-outer); color:white; }
   #tv-mobile-shell button,#tv-mobile-nav button,#tv-now-playing button,#tv-mobile-mini button,#tv-mobile-sheet button,#tv-mobile-home button { -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
   #tv-mobile-shell button:focus-visible,#tv-mobile-nav button:focus-visible,#tv-now-playing button:focus-visible,#tv-mobile-mini button:focus-visible,#tv-mobile-home button:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
   .tm-top { display:flex; align-items:center; gap:8px; padding:12px 16px 8px; min-height:60px; }
@@ -296,26 +333,26 @@
   .tm-theme button { width:30px;height:28px;display:grid;place-items:center;border-radius:18px;color:#a7a7a7; }
   .tm-theme svg { width:17px;height:17px; }
   .tm-theme button[aria-pressed=true] { background:#fafafa;color:#000; }
-  .theme-spotify .tm-brand,.theme-youtube .tm-avatar,.theme-youtube .tm-tabs { display:none; }
-  .theme-youtube .tm-top { padding:6px 12px;min-height:54px; }
-  .theme-youtube .tm-theme { margin-left:auto; }
+  .theme-spotify .tm-brand,:is(.theme-youtube,.theme-netflix) .tm-avatar,:is(.theme-youtube,.theme-netflix) .tm-tabs { display:none; }
+  :is(.theme-youtube,.theme-netflix) .tm-top { padding:6px 12px;min-height:54px; }
+  :is(.theme-youtube,.theme-netflix) .tm-theme { margin-left:auto; }
   .theme-spotify .tm-top>.tm-search-open { display:none; }
   .tm-search { margin:4px 16px 10px;display:flex;gap:8px;align-items:center; }
   .tm-search[hidden] { display:none; }
   .tm-search input { min-width:0;width:100%;height:42px;border:0;border-radius:8px;background:#fff;color:#121212;padding:0 14px;font-size:14px;outline:none; }
-  .theme-youtube .tm-search input { background:#282828;color:white;border-radius:24px; }
+  :is(.theme-youtube,.theme-netflix) .tm-search input { background:#282828;color:white;border-radius:24px; }
   .tm-search input:focus { box-shadow:0 0 0 2px var(--accent); }
   .tm-context { display:flex;gap:8px;overflow:auto;padding:3px 16px 11px;scrollbar-width:none; }
   .tm-context button { flex:none;font-size:12px;font-weight:600;background:#282828;color:white;border-radius:8px;padding:8px 13px; }
   .tm-context button[aria-pressed=true] { background:white;color:#111; }
   .theme-spotify .tm-context { display:none; }
-  :is(.theme-spotify,.theme-youtube) #main-scroll { padding-bottom:calc(var(--mobile-nav) + 82px)!important;scroll-behavior:smooth;overflow-x:hidden; }
-  :is(.theme-spotify,.theme-youtube) #tv-mobile-nav { position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);z-index:85;min-height:var(--mobile-nav);padding:5px 8px calc(5px + env(safe-area-inset-bottom,0px));background:linear-gradient(0deg,#121212 75%,#121212f5);color:#aaa; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #main-scroll { padding-bottom:calc(var(--mobile-nav) + 82px)!important;scroll-behavior:smooth;overflow-x:hidden; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #tv-mobile-nav { position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);z-index:85;min-height:var(--mobile-nav);padding:5px 8px calc(5px + env(safe-area-inset-bottom,0px));background:linear-gradient(0deg,#121212 75%,#121212f5);color:#aaa; }
   #tv-mobile-nav button { display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;font-size:10px;letter-spacing:.1px;min-height:48px; }
   #tv-mobile-nav svg { width:24px;height:24px; }
   #tv-mobile-nav button[aria-current=page] { color:#fff; }
   #tv-mobile-nav button[aria-current=page] svg { fill:currentColor; }
-  .theme-youtube #tv-mobile-nav { background:#0f0f0ff5;border-top:1px solid #ffffff18; }
+  :is(.theme-youtube,.theme-netflix) #tv-mobile-nav { background:#0f0f0ff5;border-top:1px solid #ffffff18; }
   .theme-spotify #tv-mobile-home { display:block; }
   #tv-mobile-home { padding:8px 16px 20px; }
   .tm-quick { display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 26px; }
@@ -340,10 +377,10 @@
   .theme-spotify #catalog-section { padding:0 16px!important; }
   .theme-spotify:not(.tm-catalog-view) #catalog-section { display:none; }
   .theme-spotify.tm-catalog-view #tv-mobile-home { display:none; }
-  :is(.theme-spotify,.theme-youtube) #sticky-chip-bar { position:relative;padding:10px 0;margin-bottom:14px;border:0;background:transparent; }
-  :is(.theme-spotify,.theme-youtube) #sticky-chip-bar>div:first-child { display:none; }
-  :is(.theme-spotify,.theme-youtube) #indian-regional-Subbar { max-width:100%;overflow:auto; }
-  :is(.theme-spotify,.theme-youtube) #dynamic-category-pills-row { overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #sticky-chip-bar { position:relative;padding:10px 0;margin-bottom:14px;border:0;background:transparent; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #sticky-chip-bar>div:first-child { display:none; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #indian-regional-Subbar { max-width:100%;overflow:auto; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #dynamic-category-pills-row { overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none; }
   #dynamic-category-pills-row button { flex:none; }
   .theme-spotify #yt-studio-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 14px; }
   .theme-spotify .channel-grid-card { background:none!important;border:0!important;padding:0!important;border-radius:0;contain-intrinsic-size:210px; }
@@ -380,36 +417,36 @@
   .theme-spotify.tm-now-open #custom-video-hud { opacity:0;pointer-events:none; }.theme-spotify.tm-now-open #video-surface-card:focus-within #custom-video-hud { opacity:1;pointer-events:auto; }
   .theme-spotify.tm-now-open #yt-metadata-below,.theme-spotify.tm-now-open #watch-up-next-rail,.theme-spotify.tm-now-open #multiview-quad-grid { display:none!important; }
   .theme-spotify.tm-now-open #tv-mobile-mini,.theme-spotify.tm-now-open #tv-mobile-nav { display:none; }
-  .theme-youtube #tv-mobile-home { display:none; }
-  .theme-youtube #player-stage { position:relative;top:auto;padding:0!important;z-index:30;border:0;background:#0f0f0f; }
-  .theme-youtube #video-surface-card { max-height:none!important;aspect-ratio:16/9!important;border-radius:0!important;border:0;box-shadow:none!important; }
-  .theme-youtube #left-watch-column { width:100%!important; }
-  .theme-youtube #yt-metadata-below { padding:13px 12px 6px!important; }.theme-youtube #active-title { font-size:18px;letter-spacing:-.4px;line-height:1.3; }
-  .theme-youtube #active-subtitle { font-size:11px;color:#aaa; }.theme-youtube #yt-metadata-below button { border-radius:20px; }
-  .theme-youtube #catalog-section { padding:0!important; }.theme-youtube #sticky-chip-bar { padding:10px 12px 0; }.theme-youtube #dynamic-category-pills-row { gap:7px; }
-  .theme-youtube #yt-studio-grid { display:grid;grid-template-columns:1fr;gap:24px; }
-  .theme-youtube .channel-grid-card { border-radius:0;contain-intrinsic-size:280px; }.theme-youtube .channel-grid-card .preview-thumb-box { border-radius:0!important;border:0!important; }
-  .theme-youtube .channel-grid-card>div:last-child:not(.preview-thumb-box) { padding:10px 12px 0!important; }.theme-youtube .channel-grid-card h4 { font-size:14px;line-height:1.4; }.theme-youtube .channel-grid-card p { font-size:11px;margin-top:4px; }
-  .theme-youtube #watch-up-next-rail { background:#0f0f0f; }.theme-youtube #main-scroll { padding-bottom:calc(var(--mobile-nav) + 24px)!important; }
+  :is(.theme-youtube,.theme-netflix) #tv-mobile-home { display:none; }
+  :is(.theme-youtube,.theme-netflix) #player-stage { position:relative;top:auto;padding:0!important;z-index:30;border:0;background:#0f0f0f; }
+  :is(.theme-youtube,.theme-netflix) #video-surface-card { max-height:none!important;aspect-ratio:16/9!important;border-radius:0!important;border:0;box-shadow:none!important; }
+  :is(.theme-youtube,.theme-netflix) #left-watch-column { width:100%!important; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below { padding:13px 12px 6px!important; }:is(.theme-youtube,.theme-netflix) #active-title { font-size:18px;letter-spacing:-.4px;line-height:1.3; }
+  :is(.theme-youtube,.theme-netflix) #active-subtitle { font-size:11px;color:#aaa; }:is(.theme-youtube,.theme-netflix) #yt-metadata-below button { border-radius:20px; }
+  :is(.theme-youtube,.theme-netflix) #catalog-section { padding:0!important; }:is(.theme-youtube,.theme-netflix) #sticky-chip-bar { padding:10px 12px 0; }:is(.theme-youtube,.theme-netflix) #dynamic-category-pills-row { gap:7px; }
+  :is(.theme-youtube,.theme-netflix) #yt-studio-grid { display:grid;grid-template-columns:1fr;gap:24px; }
+  :is(.theme-youtube,.theme-netflix) .channel-grid-card { border-radius:0;contain-intrinsic-size:280px; }:is(.theme-youtube,.theme-netflix) .channel-grid-card .preview-thumb-box { border-radius:0!important;border:0!important; }
+  :is(.theme-youtube,.theme-netflix) .channel-grid-card>div:last-child:not(.preview-thumb-box) { padding:10px 12px 0!important; }:is(.theme-youtube,.theme-netflix) .channel-grid-card h4 { font-size:14px;line-height:1.4; }:is(.theme-youtube,.theme-netflix) .channel-grid-card p { font-size:11px;margin-top:4px; }
+  :is(.theme-youtube,.theme-netflix) #watch-up-next-rail { background:#0f0f0f; }:is(.theme-youtube,.theme-netflix) #main-scroll { padding-bottom:calc(var(--mobile-nav) + 24px)!important; }
   #tv-mobile-sheet { position:fixed;inset:0;z-index:125;background:#0009;align-items:flex-end; }
   #tv-mobile-sheet.tm-sheet-open { display:flex; }
   .tm-sheet-content { width:100%;max-height:82dvh;overflow:auto;background:#222;border-radius:16px 16px 0 0;padding:10px 20px calc(20px + env(safe-area-inset-bottom,0px));color:white;box-shadow:0 -20px 80px #0005; }
   .tm-sheet-handle { width:36px;height:4px;background:#777;border-radius:6px;margin:0 auto 15px; }
   .tm-sheet-title { display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:19px;font-weight:700; }
   .tm-sheet-content>button { display:flex;align-items:center;gap:16px;min-height:52px;width:100%;text-align:left;font-size:14px; }.tm-sheet-content>button svg { width:22px;height:22px;color:#bbb; }
-  :is(.theme-spotify,.theme-youtube) #startup-channel-modal,:is(.theme-spotify,.theme-youtube) #source-manager-modal { z-index:128; }
-  :is(.theme-spotify,.theme-youtube) #toast { bottom:calc(var(--mobile-nav) + 80px);max-width:calc(100vw - 32px); }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #startup-channel-modal,:is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #source-manager-modal { z-index:128; }
+  :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) #toast { bottom:calc(var(--mobile-nav) + 80px);max-width:calc(100vw - 32px); }
   @media (orientation:landscape) {
     .tm-top { min-height:48px;padding:5px 14px; }.tm-context { padding-bottom:6px; }.tm-tabs button { padding:7px 13px; }
-    :is(.theme-spotify,.theme-youtube) { --mobile-nav:52px; }
+    :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) { --mobile-nav:52px; }
     .theme-spotify #tv-mobile-home { padding-top:4px; }.tm-quick { grid-template-columns:repeat(4,minmax(0,1fr));gap:7px; }.tm-quick button { height:48px; }.tm-quick img { width:48px;height:48px; }.tm-section-title { margin-top:20px; }
     .theme-spotify #tv-mobile-mini { left:auto;width:calc(50% - 16px);bottom:calc(var(--mobile-nav) + 4px);height:52px; }.tm-mini-open img { width:37px;height:37px; }
     .theme-spotify #yt-studio-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
     .tm-now-head { min-height:45px; }.tm-now-spacer { display:none; }.tm-now-copy,.tm-timeline,.tm-now-controls,.tm-now-footer { margin-left:60%; }.tm-now-copy { margin-top:12px; }.tm-now-copy h2 { font-size:20px; }.tm-now-copy p { font-size:11px; }.tm-timeline { margin-top:18px; }.tm-now-controls { margin-top:10px;margin-bottom:6px;gap:4px; }.tm-big-play { width:52px;height:52px; }.tm-now-controls>.tm-icon { width:30px; }.tm-now-controls>.tm-icon svg { width:22px;height:22px; }.tm-now-footer { padding-top:2px; }
     .theme-spotify.tm-now-open #player-stage { left:20px;right:auto;top:60px;width:54%; }.theme-spotify.tm-now-open #video-surface-card { max-height:calc(100dvh - 80px)!important; }
-    .theme-youtube #watch-columns { display:block; }.theme-youtube #left-watch-column { display:grid;grid-template-columns:56% 44%;align-items:start; }.theme-youtube #mobile-sticky-player-wrap { position:sticky;top:0; }.theme-youtube #video-surface-card { max-height:calc(100dvh - 110px)!important; }.theme-youtube #yt-metadata-below { padding:10px 16px!important; }.theme-youtube #active-title { font-size:16px; }.theme-youtube #yt-studio-grid { grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px; }.theme-youtube .channel-grid-card .preview-thumb-box { border-radius:8px!important; }.theme-youtube #catalog-section { padding:0 12px!important; }
+    :is(.theme-youtube,.theme-netflix) #watch-columns { display:block; }:is(.theme-youtube,.theme-netflix) #left-watch-column { display:grid;grid-template-columns:56% 44%;align-items:start; }:is(.theme-youtube,.theme-netflix) #mobile-sticky-player-wrap { position:sticky;top:0; }:is(.theme-youtube,.theme-netflix) #video-surface-card { max-height:calc(100dvh - 110px)!important; }:is(.theme-youtube,.theme-netflix) #yt-metadata-below { padding:10px 16px!important; }:is(.theme-youtube,.theme-netflix) #active-title { font-size:16px; }:is(.theme-youtube,.theme-netflix) #yt-studio-grid { grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 12px; }:is(.theme-youtube,.theme-netflix) .channel-grid-card .preview-thumb-box { border-radius:8px!important; }:is(.theme-youtube,.theme-netflix) #catalog-section { padding:0 12px!important; }
   }
-  @media (prefers-reduced-motion:reduce) { :is(.theme-spotify,.theme-youtube) * { scroll-behavior:auto!important;transition:none!important;animation:none!important; } }
+  @media (prefers-reduced-motion:reduce) { :is(.theme-spotify,:is(.theme-youtube,.theme-netflix)) * { scroll-behavior:auto!important;transition:none!important;animation:none!important; } }
 }
 
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
@@ -422,27 +459,27 @@
   .theme-spotify.tm-now-open #multiview-quad-grid:not(.hidden) { display:grid!important; }
 }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  .theme-youtube #yt-metadata-below { flex-direction:column;align-items:stretch;gap:12px; }
-  .theme-youtube #yt-metadata-below>div:first-child { display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:10px;align-items:center; }
-  .theme-youtube #yt-metadata-below>div:first-child>div { display:contents; }
-  .theme-youtube #yt-metadata-below>div:first-child>div>div { grid-column:1/-1;grid-row:1;display:block; }
-  .theme-youtube #active-title { white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
-  .theme-youtube #active-title+span { display:none; }
-  .theme-youtube #active-poster { grid-column:1;grid-row:2;width:32px;height:32px;border-radius:50%; }
-  .theme-youtube #active-subtitle { grid-column:2;grid-row:2;margin:0; }
-  .theme-youtube #fav-action-btn { grid-column:3;grid-row:2;min-height:36px; }
-  .theme-youtube #yt-metadata-below>div:last-child { overflow-x:auto;max-width:100%;scrollbar-width:none; }
-  .theme-youtube #hud-eq-btn { padding:8px; }.theme-youtube #hud-eq-btn>span { display:none; }
-  .theme-youtube #custom-video-hud button { min-height:36px; }
-  .theme-youtube #custom-video-hud [title="Previous Channel"],.theme-youtube #custom-video-hud [title="Next Channel"] { display:none; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below { flex-direction:column;align-items:stretch;gap:12px; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:first-child { display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:10px;align-items:center; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:first-child>div { display:contents; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:first-child>div>div { grid-column:1/-1;grid-row:1;display:block; }
+  :is(.theme-youtube,.theme-netflix) #active-title { white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden; }
+  :is(.theme-youtube,.theme-netflix) #active-title+span { display:none; }
+  :is(.theme-youtube,.theme-netflix) #active-poster { grid-column:1;grid-row:2;width:32px;height:32px;border-radius:50%; }
+  :is(.theme-youtube,.theme-netflix) #active-subtitle { grid-column:2;grid-row:2;margin:0; }
+  :is(.theme-youtube,.theme-netflix) #fav-action-btn { grid-column:3;grid-row:2;min-height:36px; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below>div:last-child { overflow-x:auto;max-width:100%;scrollbar-width:none; }
+  :is(.theme-youtube,.theme-netflix) #hud-eq-btn { padding:8px; }:is(.theme-youtube,.theme-netflix) #hud-eq-btn>span { display:none; }
+  :is(.theme-youtube,.theme-netflix) #custom-video-hud button { min-height:36px; }
+  :is(.theme-youtube,.theme-netflix) #custom-video-hud [title="Previous Channel"],:is(.theme-youtube,.theme-netflix) #custom-video-hud [title="Next Channel"] { display:none; }
   @media (orientation:landscape) {
-    .theme-youtube #video-surface-card { max-height:calc(100dvh - 155px)!important; }
-    .theme-youtube #yt-metadata-below { min-width:0;width:100%; }
+    :is(.theme-youtube,.theme-netflix) #video-surface-card { max-height:calc(100dvh - 155px)!important; }
+    :is(.theme-youtube,.theme-netflix) #yt-metadata-below { min-width:0;width:100%; }
   }
 }
 
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
-  .theme-youtube #yt-metadata-below button { white-space:nowrap;flex-shrink:0; }
+  :is(.theme-youtube,.theme-netflix) #yt-metadata-below button { white-space:nowrap;flex-shrink:0; }
 }
 @media (max-width:767px), (max-width:1024px) and (max-height:600px) {
   .theme-spotify .tm-top>.tm-icon[data-tm-action="more"] { display:none; }
@@ -464,7 +501,7 @@
   #tm-browse-categories span { position:absolute;right:-8px;bottom:-8px;transform:rotate(25deg);width:70px;height:70px;background:#ffffff22;border-radius:7px;padding:12px;box-shadow:0 8px 20px #0003; }
   #tm-browse-categories svg { width:100%;height:100%; }
   .theme-spotify.tm-browse-search #platform-viewport,.theme-spotify.tm-browse-search #sticky-chip-bar,.theme-spotify.tm-browse-search #load-more-wrap { display:none; }
-  .theme-youtube.tm-catalog-view #player-stage { display:none; }
+  :is(.theme-youtube,.theme-netflix).tm-catalog-view #player-stage { display:none; }
   @media(orientation:landscape) { .theme-spotify.tm-browse-search #tm-browse-categories { grid-template-columns:repeat(4,minmax(0,1fr)); } }
 }
 
@@ -483,9 +520,48 @@
   .tm-pip-controls .tm-icon{width:32px;height:32px;}.tm-pip-controls svg{width:17px;height:17px;}
   .theme-spotify.tm-scroll-pip #player-stage{opacity:1;pointer-events:auto;overflow:visible;}
 }
+
+/* Hide navigation/category ribbons while showing actual search matches. */
+.tm-search-active .tm-context,
+.tm-search-active #sticky-chip-bar,
+.tm-search-active #tm-browse-categories,
+.tm-search-active #indian-regional-Subbar,
+.tm-search-active #dynamic-category-pills-row,
+.tm-search-active #tv-mobile-home {display:none!important;}
+@media(max-width:767px),(max-width:1024px) and (max-height:600px){
+  body.theme-netflix {--accent:#e50914;--bg-outer:#090909;--bg-canvas:#111;}
+  .theme-netflix #tv-mobile-shell,.theme-netflix #tv-mobile-nav {background:#0b0b0b!important;}
+  .theme-netflix #tv-mobile-home {display:block;padding:14px 16px 24px;}
+  .theme-netflix:not(.tm-catalog-view):not(.tm-watch-view) #catalog-section {display:none!important;}
+  .theme-netflix.tm-catalog-view #tv-mobile-home,.theme-netflix.tm-watch-view #tv-mobile-home {display:none!important;}
+  .theme-netflix .tm-quick {display:none;}
+  .theme-netflix .tm-section-title h2 {font-size:21px;letter-spacing:-.04em;}
+  .theme-netflix .tm-album {flex-basis:min(59vw,224px);}
+  .theme-netflix .tm-cover {width:100%;height:auto;aspect-ratio:16/9;border-radius:7px;}
+  .theme-netflix .tm-mix {background:linear-gradient(135deg,#511013,#151515)!important;color:#fff;}
+  .theme-netflix .tm-tabs button[aria-pressed=true] {background:#e50914!important;color:#fff;}
+  .theme-netflix #tv-mobile-mini {background:linear-gradient(125deg,#451417,#151515)!important;}
+  .theme-netflix .tm-live {background:#e50914;}
+  .theme-netflix #tv-now-playing {background:linear-gradient(155deg,#6c2026,#141414 60%,#060606)!important;}
+}
 </style>
 <!-- TV MOBILE STYLE END -->
 <link rel="stylesheet" href="/tv/appearance.css">
+
+<style id="sterling-tv-dynamic-background">
+body[data-tv-backdrop="black"] #player-stage,
+body[data-tv-backdrop="black"] #tv-now-playing {background:#000!important;}
+body[data-tv-backdrop="auto"] #player-stage,
+body[data-tv-backdrop="auto"] #tv-now-playing {
+  background:linear-gradient(165deg,hsl(var(--tv-channel-hue,155) 34% 19%),#080808 72%)!important;
+}
+@media(max-width:767px) {
+  #video-surface-card{width:100%!important;}
+  #left-watch-column{width:100%!important;max-width:100%!important;}
+}
+@media(prefers-reduced-motion:reduce){#video-surface-card,#custom-video-hud{transition:none!important;}}
+</style>
+  <link rel="stylesheet" href="/media/experience.css">
 </head>
 
 <body class="theme-youtube flex flex-col overflow-hidden">
@@ -1214,8 +1290,13 @@
     function escapeHtml(str) {
       return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
+    // HTML attribute values and JavaScript string arguments need separate escaping.
+    // Playlist names/URLs are untrusted: a backslash alone cannot escape markup.
     function escapeAttr(str) {
-      return String(str || '').replace(/'/g, "\\'");
+      return escapeHtml(str);
+    }
+    function escapeJsAttr(str) {
+      return escapeHtml(JSON.stringify(String(str ?? '')));
     }
     function hashString(str) {
       let h = 0;
@@ -1383,8 +1464,14 @@
 
     function getChannelPoster(ch) {
       if (!ch) return generateDynamicChannelThumbnail('BBC Earth US', 'Documentary', 'English');
-      if (ch.logo && ch.logo.startsWith('https://') && !ch.logo.includes('unsplash.com')) {
-        return ch.logo;
+      const remote=window.SterlingArtwork?.resolveTv(ch);if(remote)return remote;
+      if (typeof ch.logo==='string' && ch.logo.length<=2048 &&
+          /^https:\/\//i.test(ch.logo) && !ch.logo.includes('unsplash.com') &&
+          !/[<>"'\x00-\x20\x7f]/.test(ch.logo)) {
+        try {
+          const url=new URL(ch.logo);
+          if(url.protocol==='https:'&&url.hostname&&!url.username&&!url.password)return url.href;
+        }catch(_){}
       }
       return generateDynamicChannelThumbnail(ch.name, ch.group, ch.lang);
     }
@@ -1609,7 +1696,7 @@
           const cnt = dynamicCatCounts[cat] || 0;
           return `
             <button
-              onclick="handleCatalogGenreChange('${escapeAttr(cat)}')"
+              onclick="handleCatalogGenreChange(${escapeJsAttr(cat)})"
               class="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition flex items-center space-x-1.5 ${
                 isSelected
                   ? 'bg-white text-black font-semibold shadow-sm'
@@ -1634,7 +1721,7 @@
             const cnt = langCounts[lid] || 0;
             return `
               <button
-                onclick="handleCatalogLanguageChange('${escapeAttr(lid)}')"
+                onclick="handleCatalogLanguageChange(${escapeJsAttr(lid)})"
                 class="px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition ${
                   active
                     ? 'bg-amber-400 text-black font-bold'
@@ -1913,19 +2000,19 @@
         return `
           <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white/[0.04] transition">
             <div class="flex items-center space-x-3 min-w-0 flex-1">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" class="w-11 h-6 rounded object-cover bg-black shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" class="w-11 h-6 rounded object-cover bg-black shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-medium text-white truncate">${escapeHtml(ch.name)}</p>
                 <p class="text-[10px] text-zinc-400 truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live')}</p>
               </div>
             </div>
             <div class="flex items-center space-x-1.5 shrink-0">
-              <button onclick="setStartupChannelByUrl('${escapeAttr(ch.url)}')" class="px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+              <button onclick="setStartupChannelByUrl(${escapeJsAttr(ch.url)})" class="px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                 isDef ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20 text-zinc-200'
               }">
                 ${isDef ? 'Selected' : 'Set Default'}
               </button>
-              <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); closeStartupChannelModal()" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">
+              <button onclick="playStreamByUrl(${escapeJsAttr(ch.url)}); closeStartupChannelModal()" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">
                 Play
               </button>
             </div>
@@ -2339,7 +2426,7 @@
               <input
                 type="checkbox"
                 ${src.selected ? 'checked' : ''}
-                onchange="toggleSourceSelection('${escapeAttr(src.id)}')"
+                onchange="toggleSourceSelection(${escapeJsAttr(src.id)})"
                 class="mt-1 w-4 h-4 accent-[var(--accent)] rounded cursor-pointer shrink-0"
               />
               <div class="min-w-0 flex-1">
@@ -2351,11 +2438,11 @@
               </div>
             </div>
             <div class="flex items-center space-x-1.5 shrink-0 pl-6 sm:pl-0">
-              <button onclick="soloSelectSource('${escapeAttr(src.id)}')" class="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition">
+              <button onclick="soloSelectSource(${escapeJsAttr(src.id)})" class="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition">
                 Solo
               </button>
-              ${!isBuiltin ? `<button onclick="startEditIptvSource('${escapeAttr(src.id)}')" class="px-2.5 py-1 rounded bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">Edit</button>` : ''}
-              <button onclick="deleteIptvSource('${escapeAttr(src.id)}')" class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-[11px]">Remove</button>
+              ${!isBuiltin ? `<button onclick="startEditIptvSource(${escapeJsAttr(src.id)})" class="px-2.5 py-1 rounded bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">Edit</button>` : ''}
+              <button onclick="deleteIptvSource(${escapeJsAttr(src.id)})" class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-[11px]">Remove</button>
             </div>
           </div>
         `;
@@ -2375,6 +2462,7 @@
         const line = lines[i].trim();
         if (!line) continue;
         if (line.startsWith('#EXTINF:')) {
+          const channelIdMatch=line.match(/tvg-id="([^"]*)"/i);
           const logoMatch = line.match(/tvg-logo="([^"]*)"/i);
           const groupMatch = line.match(/group-title="([^"]*)"/i);
           const logo = logoMatch ? logoMatch[1].trim() : '';
@@ -2388,6 +2476,7 @@
 
           cur = {
             name,
+            channelId:channelIdMatch?channelIdMatch[1]:'',
             logo,
             group: normalizedGroup,
             lang: detectedLang,
@@ -2579,6 +2668,7 @@
     let isManualPipOpen = false;
     let scrollMiniDismissed = false;
     let userHasInteractedWithAudio = false;
+    let preferredTvMuted = false;
     let sleepTimerMinutes = 0;
     let sleepTimeoutId = null;
     let ccTimer = null;
@@ -2595,6 +2685,8 @@
     let activeChannel = null;
     let hls = null;
     let serverStage = 0;
+    // Each stream switch invalidates previous asynchronous HLS callbacks.
+    let playbackGeneration = 0;
 
     // Automatic public proxy services disabled: playlists may contain tokens.
 
@@ -2603,11 +2695,16 @@
      *************************************************************************/
     let singleClickTimer = null;
     let lastTouchTapTime = 0;
+    let lastFullscreenGestureAt = 0;
 
     function handleVideoDoubleClick(e) {
+      if (e.target.closest('button,input,select,[role="button"]')) return;
       e.preventDefault();
       clearTimeout(singleClickTimer);
       singleClickTimer = null;
+      // Mobile can dispatch the second tap and dblclick for one gesture.
+      if (Date.now() - lastFullscreenGestureAt < 450) return;
+      lastFullscreenGestureAt = Date.now();
       toggleFullscreenPlayer();
     }
 
@@ -2618,18 +2715,13 @@
         const rect = e.currentTarget.getBoundingClientRect();
         const clickX = e.clientX - rect.left;
 
-        if (now - lastTouchTapTime < 280) {
+        if (now - lastTouchTapTime < 300) {
           clearTimeout(singleClickTimer);
-          if (clickX < rect.width * 0.32) {
-            playPrevChannel();
-            showGestureFeedbackPill('⏮ Previous Channel');
-          } else if (clickX > rect.width * 0.68) {
-            playNextChannel();
-            showGestureFeedbackPill('Next Channel ⏭');
-          } else {
-            togglePlayPause();
-          }
           lastTouchTapTime = 0;
+          if (now - lastFullscreenGestureAt > 450) {
+            lastFullscreenGestureAt = now;
+            toggleFullscreenPlayer();
+          }
           return;
         }
         lastTouchTapTime = now;
@@ -2756,9 +2848,9 @@
       box.innerHTML = favorites.map(ch => {
         const poster = getChannelPoster(ch);
         return `
-          <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-white/[0.06] text-left transition">
+          <button onclick="playStreamByUrl(${escapeJsAttr(ch.url)}); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-white/[0.06] text-left transition">
             <div class="flex items-center space-x-2.5 min-w-0">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" class="w-5 h-5 rounded-full object-cover shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" class="w-5 h-5 rounded-full object-cover shrink-0" />
               <span class="text-xs text-zinc-200 truncate">${escapeHtml(ch.name)}</span>
             </div>
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0"></span>
@@ -2829,6 +2921,7 @@
       if (stage === 0) recordChannelPlay(channel);
       activeChannel = channel;
       serverStage = stage;
+      playbackGeneration++;
 
       resetVideoInstance();
       document.getElementById('tv-mobile-play')?.classList.add('hidden');
@@ -2884,6 +2977,7 @@
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
     function startHlsPlayback(channel, video, spinner) {
+      const generation=playbackGeneration;
       // Mobile WebKit has better reliability with native HLS than MSE workers.
       if (preferNativeHls(video)) {
         startNativeHlsPlayback(channel, video, spinner);
@@ -2904,10 +2998,11 @@
         hls.attachMedia(video);
 
         const watchdog = setTimeout(() => {
-          if (!parsed && activeChannel === channel) escalateStage(channel);
+          if (!parsed && activeChannel === channel && playbackGeneration===generation) escalateStage(channel);
         }, 6800);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          if(playbackGeneration!==generation)return;
           parsed = true;
           clearTimeout(watchdog);
           spinner.classList.add('hidden');
@@ -2916,6 +3011,7 @@
         });
 
         hls.on(Hls.Events.FRAG_LOADED, () => {
+          if(playbackGeneration!==generation)return;
           if (video.videoHeight) {
             document.getElementById('stat-res').textContent = `${video.videoWidth}x${video.videoHeight}`;
             syncPlayerAspectToStream();
@@ -2926,6 +3022,7 @@
         });
 
         hls.on(Hls.Events.ERROR, (ev, data) => {
+          if(playbackGeneration!==generation)return;
           if (data.fatal) {
             clearTimeout(watchdog);
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR && parsed) {
@@ -2943,17 +3040,20 @@
     }
 
     function startNativeHlsPlayback(channel, video, spinner) {
+      const generation=playbackGeneration;
       const watchdog = setTimeout(() => {
-        if (activeChannel === channel && video.readyState < 2) escalateStage(channel);
+        if (activeChannel === channel && playbackGeneration===generation && video.readyState < 2) escalateStage(channel);
       }, 10000);
       video.onloadedmetadata = () => {
         clearTimeout(watchdog);
+        if(playbackGeneration!==generation)return;
         spinner.classList.add('hidden');
         syncPlayerAspectToStream();
         safeAutoplayVideo(video);
       };
       video.onerror = () => {
         clearTimeout(watchdog);
+        if(playbackGeneration!==generation)return;
         escalateStage(channel);
       };
       video.src = channel.url;
@@ -2976,34 +3076,42 @@
       const video = document.getElementById('video-player');
       const button = document.getElementById('tv-mobile-play');
       if (!video || !activeChannel) return;
-      if (video.readyState === 0 && !video.src && !hls) {
+      userHasInteractedWithAudio = true;
+      video.muted = preferredTvMuted;
+      if (video.error || (video.readyState === 0 && !video.src && !hls)) {
         playStream(activeChannel, 0);
         return;
       }
-      video.muted = true;
+      // The media element retains an explicit mute/unmute choice across streams.
+      // Do not force unmute when the previous interaction was "Mute".
       const promise = video.play(); // must run synchronously inside the tap
       Promise.resolve(promise).then(() => {
         if (button) button.classList.add('hidden');
         syncPlayPauseIcons(false);
-        updateVolIcon(true);
-        document.getElementById('mobile-unmute-pill')?.classList.remove('hidden');
+        updateVolIcon(video.muted);
+        document.getElementById('mobile-unmute-pill')?.classList.toggle('hidden', !video.muted);
       }).catch(() => showTvPlaybackPrompt('Tap to retry playback'));
     }
 
     function safeAutoplayVideo(video) {
       const unmutePill = document.getElementById('mobile-unmute-pill');
       const playButton = document.getElementById('tv-mobile-play');
-      const mutedFirst = !userHasInteractedWithAudio;
-      video.muted = mutedFirst;
+      // Try the saved sound choice first. If browser policy rejects audible
+      // autoplay, mute temporarily without changing the user preference.
+      video.muted = preferredTvMuted;
+      const generation = playbackGeneration;
       const attempt = Promise.resolve(video.play());
       attempt.then(() => {
+        if(generation !== playbackGeneration)return;
         syncPlayPauseIcons(false);
         updateVolIcon(video.muted);
         if (unmutePill) unmutePill.classList.toggle('hidden', !video.muted);
         if (playButton) playButton.classList.add('hidden');
       }).catch(() => {
+        if(generation !== playbackGeneration)return;
         video.muted = true;
         Promise.resolve(video.play()).then(() => {
+          if(generation !== playbackGeneration)return;
           syncPlayPauseIcons(false);
           updateVolIcon(true);
           if (unmutePill) unmutePill.classList.remove('hidden');
@@ -3022,7 +3130,8 @@
       const unmutePill = document.getElementById('mobile-unmute-pill');
       if (video) {
         video.muted = false;
-        video.volume = 1.0;
+        preferredTvMuted = false;
+        if(video.volume === 0)video.volume = 0.85;
         video.play().catch(() => {});
         updateVolIcon(false);
       }
@@ -3064,6 +3173,7 @@
     }
 
     function startBackupFallback(channel, video, spinner, badge) {
+      const generation=playbackGeneration;
       spinner.classList.add('hidden');
       if (channel.ytEmbed) {
         badge.textContent = 'Embed';
@@ -3072,16 +3182,35 @@
         embed.src = channel.ytEmbed;
         embed.classList.remove('hidden');
       } else {
+        const fallbackUrl = channel.backupUrl;
+        if (!fallbackUrl) {
+          badge.textContent='Unavailable';
+          showTvPlaybackPrompt('Channel unavailable. Select another channel');
+          return;
+        }
         badge.textContent = 'Backup HD';
-        const fallbackUrl = channel.backupUrl || VERIFIED_STREAMS[0].url;
         if (hasHlsJs() && !preferNativeHls(video)) {
           hls = new Hls({ enableWorker: false });
           hls.loadSource(fallbackUrl);
           hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => safeAutoplayVideo(video));
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if(playbackGeneration===generation)safeAutoplayVideo(video);
+          });
+          hls.on(Hls.Events.ERROR,(_,data)=>{
+            if(playbackGeneration!==generation||!data.fatal)return;
+            showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+            try{hls?.destroy();}catch(_){}
+            hls=null;
+            video.removeAttribute('src');
+            video.load();
+          });
         } else if (hasNativeHls(video)) {
-          video.onloadedmetadata = () => safeAutoplayVideo(video);
-          video.onerror = () => showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+          video.onloadedmetadata = () => {
+            if(playbackGeneration===generation)safeAutoplayVideo(video);
+          };
+          video.onerror = () => {
+            if(playbackGeneration===generation)showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+          };
           video.src = fallbackUrl;
           video.load();
         } else {
@@ -3116,6 +3245,7 @@
       }
       const video = document.getElementById('video-player');
       video.muted = !video.muted;
+      preferredTvMuted = video.muted;
       updateVolIcon(video.muted);
       const pill = document.getElementById('mobile-unmute-pill');
       if (pill) pill.classList.toggle('hidden', !video.muted);
@@ -3132,7 +3262,8 @@
     function setVolumeLevel(val) {
       userHasInteractedWithAudio = true;
       const video = document.getElementById('video-player');
-      video.volume = parseFloat(val);
+      video.volume = Math.max(0,Math.min(1,Number(val)||0));
+      preferredTvMuted = video.volume === 0;
       if (video.volume > 0 && video.muted) {
         video.muted = false;
         updateVolIcon(false);
@@ -3393,7 +3524,7 @@
           item.innerHTML = `
             <div class="flex items-center space-x-2.5">
               <span class="text-[10px] font-mono-code text-zinc-500 w-5 text-right shrink-0">${globalIdx}</span>
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
                 <p class="text-[11px] text-zinc-400 truncate">${escapeHtml(epg[0].title)}</p>
@@ -3409,7 +3540,7 @@
           item.onmouseleave = () => stopCardHoverPreview();
           item.innerHTML = `
             <div class="preview-thumb-box relative w-[124px] xl:w-[136px] aspect-video rounded-lg overflow-hidden bg-[#16161b] border border-white/[0.08] shrink-0">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
               <span class="absolute bottom-1 right-1 bg-black/85 text-zinc-100 text-[9px] font-mono-code px-1.5 py-0.5 rounded">${escapeHtml(ch.lang || 'LIVE')}</span>
             </div>
             <div class="min-w-0 flex-1">
@@ -3446,18 +3577,20 @@
       });
     }
 
+    const searchTextCache = new WeakMap();
     // Score and rank search matches across all channels globally
     function getRankedSearchMatches(query) {
-      const q = query.trim().toLowerCase();
+      const normalizeSearch = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      const q = normalizeSearch(query);
       if (!q) return [];
       const terms = q.split(/\s+/).filter(Boolean);
 
       const scored = [];
       for (let i = 0; i < allChannels.length; i++) {
         const c = allChannels[i];
-        const nameL = (c.name || '').toLowerCase();
-        const groupL = (c.group || '').toLowerCase();
-        const langL = (c.lang || '').toLowerCase();
+        let indexed=searchTextCache.get(c);
+        if(!indexed){indexed=[normalizeSearch(c.name),normalizeSearch(c.group),normalizeSearch(c.lang)];searchTextCache.set(c,indexed);}
+        const [nameL,groupL,langL]=indexed;
         const hay = `${nameL} ${groupL} ${langL}`;
 
         // Every search token must match somewhere in name, category, or language
@@ -3519,7 +3652,7 @@
         searchDropdownListEl.innerHTML = `
           <div class="p-2 flex flex-wrap gap-1.5">
             ${suggestedTerms.map(term => `
-              <button onclick="applySearchSuggestion('${escapeAttr(term)}')" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-[var(--accent)] text-xs text-zinc-200 hover:text-white font-medium transition">
+              <button onclick="applySearchSuggestion(${escapeJsAttr(term)})" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-[var(--accent)] text-xs text-zinc-200 hover:text-white font-medium transition">
                 ${escapeHtml(term)}
               </button>
             `).join('')}
@@ -3532,7 +3665,7 @@
         statusEl.textContent = 'Direct Stream URL Detected';
         countEl.textContent = 'HLS / M3U8';
         searchDropdownListEl.innerHTML = `
-          <div onclick="playStream({name:'Direct Stream',group:'Custom',logo:'',url:'${escapeAttr(query)}',viewers:'LIVE'},0); closeSearchDropdown()" class="p-3.5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
+          <div onclick="playStream({name:'Direct Stream',group:'Custom',logo:'',url:${escapeJsAttr(query)},viewers:'LIVE'},0); closeSearchDropdown()" class="p-3.5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
             <span class="text-xs font-semibold text-white">▶ Play Direct Stream URL Now</span>
             <span class="text-[10px] font-mono-code text-emerald-400">LIVE</span>
           </div>
@@ -3573,7 +3706,7 @@
         row.innerHTML = `
           <div class="flex items-center space-x-3 min-w-0 pr-2">
             <span class="text-[10px] font-mono-code text-zinc-500 w-5 text-right shrink-0">${rank}</span>
-            <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-11 h-6 rounded object-cover shrink-0 bg-black border border-white/10" />
+            <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-11 h-6 rounded object-cover shrink-0 bg-black border border-white/10" />
             <div class="min-w-0">
               <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
               <p class="text-[11px] text-zinc-400 truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live')}</p>
@@ -3616,7 +3749,10 @@
         const matches = getRankedSearchMatches(q);
         if (matches.length > 0) {
           playStream(matches[0], 0);
-          closeSearchDropdown();
+          clearSearch();
+          // Mobile embedded header must also clear its search input.
+          document.getElementById('tm-search-input')?.value &&
+            (document.getElementById('tm-search-input').value = '');
         }
       } else {
         searchInputEl.focus();
@@ -3792,7 +3928,7 @@
           const matchPct = 92 + (hashString(ch.name) % 8);
           card.innerHTML = `
             <div class="preview-thumb-box relative w-full aspect-video rounded-lg bg-[#141418] overflow-hidden border ${isPlaying ? 'border-[#e50914] ring-2 ring-[#e50914]/40' : 'border-white/[0.08]'}">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
               <div class="absolute inset-0 bg-gradient-to-t from-black/95 via-black/35 to-transparent"></div>
               <span class="absolute top-2 left-2 bg-[#e50914] text-white text-[9px] font-extrabold tracking-wider px-1.5 py-0.5 rounded uppercase">LIVE CINEMA</span>
               <span class="absolute top-2 right-2 bg-black/80 text-zinc-200 text-[10px] font-mono-code px-1.5 py-0.5 rounded">${escapeHtml(ch.lang || 'HD')}</span>
@@ -3811,7 +3947,7 @@
           // SPOTIFY STAGE STYLE: Glassmorphic Audio/Video Stage Card with Floating Emerald Play Button
           card.innerHTML = `
             <div class="preview-thumb-box relative w-full aspect-video rounded-xl bg-[#0e1511] overflow-hidden border ${isPlaying ? 'border-[#1db954]' : 'border-white/[0.06]'} mb-2.5">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
               <div class="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-[#1db954] text-black flex items-center justify-center shadow-xl translate-y-2 opacity-90 group-hover:translate-y-0 group-hover:opacity-100 group-hover:scale-105 transition">
                 <svg class="w-5 h-5 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
               </div>
@@ -3826,7 +3962,7 @@
           // YOUTUBE STUDIO / APPLE TV+ STYLE
           card.innerHTML = `
             <div class="preview-thumb-box relative w-full aspect-video rounded-xl bg-[#141418] overflow-hidden border ${isPlaying ? 'border-[var(--accent)] ring-2 ring-[var(--accent)]/30' : 'border-white/[0.08]'}">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
 
               <span class="absolute bottom-2 right-2 bg-black/85 backdrop-blur-xs text-zinc-100 text-[10px] font-mono-code px-1.5 py-0.5 rounded flex items-center space-x-1">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)]"></span>
@@ -3837,7 +3973,7 @@
             </div>
 
             <div class="flex items-start space-x-2.5 pt-2.5 px-0.5">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-8 h-8 rounded-full object-cover shrink-0 bg-[#1c1c22] border border-white/10 mt-0.5" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-8 h-8 rounded-full object-cover shrink-0 bg-[#1c1c22] border border-white/10 mt-0.5" />
               <div class="min-w-0 flex-1">
                 <h4 class="text-[13px] font-semibold text-zinc-100 truncate group-hover:text-white leading-snug">${escapeHtml(ch.name)}</h4>
                 <p class="text-[11px] text-zinc-400 mt-0.5 truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live broadcast')}</p>
@@ -3891,7 +4027,7 @@
         quadGrid.className = 'grid w-full aspect-video max-h-[calc(100dvh-160px)] bg-black sm:rounded-xl overflow-hidden grid-cols-2 grid-rows-2 gap-1 p-1 border border-white/15';
         const fourChannels = [activeChannel || VERIFIED_STREAMS[0], ...VERIFIED_STREAMS.slice(1, 4)];
         quadGrid.innerHTML = fourChannels.map((ch, idx) => `
-          <div onclick="soloMultiviewChannel('${escapeAttr(ch.url)}')" class="relative w-full h-full bg-[#121216] rounded overflow-hidden cursor-pointer border ${idx === 0 ? 'border-white/40' : 'border-white/10'}">
+          <div onclick="soloMultiviewChannel(${escapeJsAttr(ch.url)})" class="relative w-full h-full bg-[#121216] rounded overflow-hidden cursor-pointer border ${idx === 0 ? 'border-white/40' : 'border-white/10'}">
             <video id="quad-vid-${idx}" class="w-full h-full object-cover" playsinline autoplay muted></video>
             <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 flex items-center justify-between text-xs text-white">
               <span class="font-medium truncate">${idx + 1}. ${escapeHtml(ch.name)}</span>
@@ -3925,18 +4061,37 @@
       playStreamByUrl(url);
     }
 
-    function toggleFullscreenPlayer() {
+    async function toggleFullscreenPlayer() {
       const card = document.getElementById('video-surface-card');
       const video = document.getElementById('video-player');
-      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (card.requestFullscreen) card.requestFullscreen().catch(() => {});
+      if (!card || !video) return;
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        try {
+          if (document.exitFullscreen) await document.exitFullscreen();
+          else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        } catch { showToast('Use your device fullscreen control to exit'); }
+        return;
+      }
+      document.body.classList.remove('tm-scroll-pip');
+      document.getElementById('custom-video-hud')?.classList.remove('mobile-hud-hidden');
+      try {
+        if (card.requestFullscreen) await card.requestFullscreen({ navigationUI: 'hide' });
         else if (card.webkitRequestFullscreen) card.webkitRequestFullscreen();
-        else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
-      } else {
-        if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
-        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        else if (video.webkitEnterFullscreen) { video.controls = true; video.webkitEnterFullscreen(); }
+        else { showToast('Fullscreen is unavailable in this browser'); return; }
+        try { await screen.orientation?.lock?.('landscape'); } catch { /* unsupported by OS */ }
+      } catch {
+        if (video.webkitEnterFullscreen) {
+          try { video.controls = true; video.webkitEnterFullscreen(); }
+          catch { showToast('Fullscreen requires a supported video player'); }
+        } else showToast('Fullscreen is unavailable for this player');
       }
     }
+    document.addEventListener('fullscreenchange', () => {
+      const entered = Boolean(document.fullscreenElement);
+      document.getElementById('custom-video-hud')?.classList.remove('mobile-hud-hidden');
+      if (!entered) { try { screen.orientation?.unlock?.(); } catch {} }
+    });
 
     function cycleServerMode() {
       if (!activeChannel) return;
@@ -4121,6 +4276,25 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <!-- TV MOBILE SCRIPT START -->
 <script>
 // Mobile UI adapter: share the existing player, settings, catalog and history.
@@ -4158,17 +4332,27 @@
   now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
-  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false;
-  const activeTheme=()=>currentTheme==='spotify'||currentTheme==='youtube';
+  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
+  const activeTheme=()=>['spotify','youtube','netflix'].includes(currentTheme);
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
+  const rejectedArtwork=new Set();
   function artwork(ch) {
-    if(ch.logo?.startsWith('https://') && !ch.logo.includes('unsplash.com'))return ch.logo;
+    const remote=window.SterlingArtwork?.resolveTv(ch);
+    if(remote&&!rejectedArtwork.has(remote))return remote;
+    if(!rejectedArtwork.has(ch.logo)&&ch.logo?.startsWith('https://') && !ch.logo.includes('unsplash.com') && !/[<>"'\x00-\x20]/.test(ch.logo))return ch.logo;
     if(artworkCache.has(ch.url))return artworkCache.get(ch.url);
     const hue=[...ch.name].reduce((n,c)=>n+c.charCodeAt(0)*7,0)%360;
     const initials=ch.name.split(/\s+/).slice(0,2).map(w=>w[0]).join('');
-    const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="hsl(${hue},55%,48%)"/><stop offset="1" stop-color="hsl(${hue},60%,17%)"/></linearGradient></defs><path fill="url(#a)" d="M0 0h320v320H0z"/><g fill="none" stroke="#ffffff" opacity=".12"><circle cx="265" cy="70" r="135" stroke-width="45"/><circle cx="265" cy="70" r="190" stroke-width="2"/><path d="M0 220 320 80M0 270 320 130" stroke-width="2"/></g><text x="22" y="38" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">${escapeHtml((ch.group||'LIVE TV').toUpperCase().slice(0,24))}</text><text x="18" y="207" fill="white" font-family="Arial,sans-serif" font-size="112" font-weight="900" letter-spacing="-9">${escapeHtml(initials)}</text><rect x="22" y="248" width="36" height="5" fill="#1ed760"/><text x="22" y="284" fill="white" font-family="Arial,sans-serif" font-size="19" font-weight="700">${escapeHtml(ch.name.slice(0,24))}</text></svg>`;
-    const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);return uri;
+    const pattern=hue%3===0?'<circle cx="265" cy="70" r="135" stroke-width="45"/><circle cx="265" cy="70" r="190" stroke-width="2"/>':hue%3===1?'<path d="M30 90v140m44-90v140m44-160v180m44-220v190m44-100v140m44-180v150m44-100v120" stroke-width="22"/>':'<path d="m200 30 150 100-100 160-150-100z" fill="#fff" stroke-width="0"/><path d="M0 260 320 90M0 290 320 120" stroke-width="3"/>';
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="hsl(${hue},55%,48%)"/><stop offset="1" stop-color="hsl(${hue},60%,17%)"/></linearGradient></defs><path fill="url(#a)" d="M0 0h320v320H0z"/><g fill="none" stroke="#ffffff" opacity=".12">${pattern}</g><text x="22" y="38" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">${escapeHtml((ch.group||'LIVE TV').toUpperCase().slice(0,24))}</text><text x="18" y="207" fill="white" font-family="Arial,sans-serif" font-size="112" font-weight="900" letter-spacing="-9">${escapeHtml(initials)}</text><rect x="22" y="248" width="36" height="5" fill="#1ed760"/><text x="22" y="284" fill="white" font-family="Arial,sans-serif" font-size="19" font-weight="700">${escapeHtml(ch.name.slice(0,24))}</text></svg>`;
+    const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);if(artworkCache.size>128)artworkCache.delete(artworkCache.keys().next().value);return uri;
+  }
+  function applyBackdrop() {
+    document.body.dataset.tvBackdrop=tvBackdropMode;
+    const name=activeChannel?.name||'Sterling';
+    const hue=[...name].reduce((n,ch)=>n+ch.charCodeAt(0)*7,0)%360;
+    document.body.style.setProperty('--tv-channel-hue',String(hue));
   }
   const channelButton=(ch,quick=false)=>`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
   function shelf(title,pool,filter) {
@@ -4178,12 +4362,20 @@
   function renderHome() {
     browse.innerHTML=['News','Sports','Movies','Music','Documentary','Entertainment','Kids & Anime','Devotional'].map(cat=>`<button data-tm-category="${cat}"><strong>${escapeHtml(cat)}</strong><span aria-hidden="true">${icon('screen')}</span></button>`).join('');
     const recent=[...recentHistory,...VERIFIED_STREAMS].filter((ch,i,a)=>a.findIndex(c=>c.url===ch.url)===i);
-    home.innerHTML=`<div class="tm-quick">${recent.slice(0,mobile.matches&&innerWidth>innerHeight?8:6).map(ch=>channelButton(ch,true)).join('')}</div>${shelf('Jump back in',recent,'recent')}${shelf('Made for your screen',VERIFIED_STREAMS,'verified')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="tm-shelf">${['News','Sports','Movies','Music','Documentary'].map(cat=>`<button class="tm-mix" data-tm-category="${cat}"><strong>${cat}</strong><small>Live TV collection</small></button>`).join('')}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}`;
+    const seed=activeChannel||recentHistory[0];
+    const recommendations=allChannels.filter(ch=>ch.url!==seed?.url).map(ch=>({ch,score:
+      (seed&&ch.group===seed.group?5:0)+(seed&&ch.lang===seed.lang?3:0)+
+      (favorites.some(saved=>saved.url===ch.url)?2:0)+(ch.verified?1:0)
+    })).sort((a,b)=>b.score-a.score).slice(0,10).map(item=>item.ch);
+    home.innerHTML=`<div class="tm-quick">${recent.slice(0,8).map(ch=>channelButton(ch,true)).join('')}</div>${shelf('Jump back in',recent,'recent')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="tm-shelf">${['News','Sports','Movies','Music','Documentary'].map(cat=>`<button class="tm-mix" data-tm-category="${cat}"><strong>${cat}</strong><small>Live TV collection</small></button>`).join('')}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}`;
   }
   function sync() {
     scheduled=false;
     const enabled=isMobile();
+    document.body.dataset.mediaView=view;
     document.body.classList.toggle('tm-host-header',hosted);
+    applyBackdrop();
+    publishPlayerState();
     publishState();
     saveUi();
     const stage=document.getElementById('player-stage');
@@ -4192,6 +4384,7 @@
     if(lastLandscape!==(innerWidth>innerHeight)){lastLandscape=innerWidth>innerHeight;renderHome();}
     document.body.classList.toggle('tm-catalog-view',enabled&&view!=='home'&&view!=='watch');
     document.body.classList.toggle('tm-browse-search',enabled&&currentTheme==='spotify'&&view==='search'&&!searchInputEl.value.trim());
+    document.body.classList.toggle('tm-search-active',Boolean(searchInputEl.value.trim()));
     document.body.classList.toggle('tm-watch-view',enabled&&view==='watch');
     document.body.classList.toggle('tm-now-open',enabled&&expanded&&currentTheme==='spotify');
     now.hidden=!(enabled&&expanded&&currentTheme==='spotify');
@@ -4226,7 +4419,7 @@
   function showSheet(kind='more') {
     returnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
@@ -4237,7 +4430,9 @@
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${content}</div>`;
     } else if(kind==='queue') {
       title='Up next';
-      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${computeRightRailPool().slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')}${action('epg','Programme guide','queue')}</div>`;
+      const preferred=computeRightRailPool();
+      const pool=preferred.length?preferred:allChannels.filter(ch=>ch.url!==activeChannel?.url);
+      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${pool.slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')||'<p>Channel queue is empty.</p>'}${action('epg','Programme guide','queue')}</div>`;
     } else {
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${items.map(([name,label,glyph])=>action(name,label,glyph,'tm-feature').replace('</button>',`<span>${label}</span></button>`)).join('')}</div>`;
     }
@@ -4273,6 +4468,11 @@
       case 'previous': playPrevChannel();schedule();break;
       case 'mute': toggleMuteAudio();break;
       case 'fullscreen': toggleFullscreenPlayer();break;
+      case 'backdrop':
+        tvBackdropMode=tvBackdropMode==='auto'?'black':'auto';
+        applyBackdrop();saveUi();
+        showToast(tvBackdropMode==='auto'?'Dynamic channel background':'Black player background');
+        closeSheet();break;
       case 'share': copyStreamShareLink();break;
       case 'more': showSheet();break;
       case 'queue': showSheet('queue');break;
@@ -4295,14 +4495,15 @@
     if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')run('live');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
   sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});
   sheet.addEventListener('click',e=>{if(e.target===sheet)closeSheet();});
+  document.getElementById('tm-search-input').addEventListener('focus',()=>publishSuggestions(searchInputEl.value));
   document.getElementById('tm-search-input').addEventListener('input',e=>applySearch(e.target.value));
-  document.getElementById('tm-search-input').addEventListener('keydown',e=>{if(e.key==='Enter'){triggerSearchNow();if(currentTheme==='spotify')setExpanded(true);e.target.blur();}});
+  document.getElementById('tm-search-input').addEventListener('keydown',e=>{if(e.key==='Enter'){const hasMatch=getRankedSearchMatches(searchInputEl.value).length>0;triggerSearchNow();if(hasMatch){clearSelectionSearch();if(currentTheme==='spotify')setExpanded(true);}e.target.blur();}});
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){if(sheet.classList.contains('tm-sheet-open'))closeSheet();else if(expanded)setExpanded(false);}
     if(e.key==='Tab' && isMobile()){
@@ -4310,6 +4511,12 @@
       if(!scope)return;const focusable=[...scope.querySelectorAll('button,input')].filter(el=>el.getClientRects().length);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}
     }
   });
+  function publishPlayerState() {
+    const open=Boolean(isMobile()&&activeChannel&&(expanded||view==='watch'));
+    if(!hosted||open===lastPublishedPlayerState)return;
+    lastPublishedPlayerState=open;
+    window.parent.postMessage({type:'sterling.tv.player-state',expanded:open},'*');
+  }
   function publishState() {
     if(!hosted)return;
     const next=JSON.stringify({theme:currentTheme,query:searchInputEl.value.slice(0,200)});
@@ -4320,7 +4527,7 @@
   function saveUi() {
     if(!hydrated)return;
     const v=document.getElementById('video-player');
-    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:v.muted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode});
+    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:preferredTvMuted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode});
     if(next===lastSaved)return;lastSaved=next;
     try{uiStorage().setItem('streamos_ui_v14',next);}catch{}
   }
@@ -4335,16 +4542,41 @@
       catalogScope=view==='library'?'favs':view==='history'?'recently_played':'all';
       const v=document.getElementById('video-player');
       if(typeof saved.volume==='number'&&saved.volume>=0&&saved.volume<=1)v.volume=saved.volume;
-      if(typeof saved.muted==='boolean'){v.muted=saved.muted;userHasInteractedWithAudio=!saved.muted;}
+      if(typeof saved.muted==='boolean'){preferredTvMuted=saved.muted;v.muted=saved.muted;}
       if(['fit-contain','fit-cover','fit-zoom'].includes(saved.fit)){currentFitMode=saved.fit;v.classList.remove('fit-contain','fit-cover','fit-zoom');v.classList.add(saved.fit);}
+      if(saved.background==='black'||saved.background==='auto')tvBackdropMode=saved.background;
+      applyBackdrop();
       renderCatalogControls();renderViewport();
     }catch{}
+  }
+  function tvSuggestions(query) {
+    const pool=query.trim()?getRankedSearchMatches(query):[...recentHistory,...favorites,...VERIFIED_STREAMS];
+    return pool.filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
+  }
+  function publishSuggestions(query) {
+    const items=tvSuggestions(query);
+    if(hosted){window.parent.postMessage({type:'sterling.tv.suggestions',query,items:items.map(ch=>({id:ch.url,label:ch.name,subtitle:[ch.group,ch.lang].filter(Boolean).join(' · '),artwork:window.SterlingArtwork?.resolveTv(ch)||ch.logo||''}))},'*');return;}
+    shell.querySelector('.tm-search-suggestions')?.remove();
+    if(shell.querySelector('.tm-search').hidden)return;
+    const list=document.createElement('div');list.className='tm-search-suggestions';list.setAttribute('role','listbox');list.setAttribute('aria-label','Channel suggestions');
+    for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.name+' · '+(ch.group||'Live TV');button.addEventListener('click',()=>{playStream(ch,0);clearSelectionSearch();setExpanded(true);});list.append(button);}
+    shell.querySelector('.tm-search').append(list);
   }
   function applySearch(query) {
     view=query?'search':'home';expanded=false;
     searchInputEl.value=query;document.getElementById('tm-search-input').value=query;
+    publishSuggestions(query);
     renderViewport();closeSearchDropdown();sync();
     document.getElementById('main-scroll').scrollTo({top:0,behavior:'instant'});
+  }
+  function clearSelectionSearch() {
+    searchInputEl.value='';
+    shell.querySelector('.tm-search-suggestions')?.remove();
+    document.getElementById('tm-search-input').value='';
+    document.getElementById('clear-search-btn')?.classList.add('hidden');
+    shell.querySelector('.tm-search').hidden=true;
+    closeSearchDropdown();
+    publishState();
   }
   window.addEventListener('message',event=>{
     if(event.source!==window.parent)return;
@@ -4357,9 +4589,17 @@
     if(data?.type!=='sterling.tv.command'||!hosted)return;
     if(data.action==='theme'&&['youtube','spotify','netflix'].includes(data.value))run(data.value);
     if(data.action==='search'&&typeof data.value==='string'&&data.value.length<=200)applySearch(data.value);
+    if(data.action==='suggest'&&typeof data.value==='string')publishSuggestions(data.value.slice(0,200));
+    if(data.action==='select-suggestion'&&typeof data.value==='string'){const ch=allChannels.find(ch=>ch.url===data.value)||tvSuggestions('').find(ch=>ch.url===data.value);if(ch){playStream(ch,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();}}
+    if(data.action==='startup')openStartupChannelModal();
     if(data.action==='play-search'){
       const match=getRankedSearchMatches(searchInputEl.value)[0];
-      if(match){playStream(match,0);view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
+      if(match){playStream(match,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
+    }
+    if(data.action==='collapse'){
+      if(sheet.classList.contains('tm-sheet-open'))closeSheet();
+      if(expanded)setExpanded(false);
+      view='home';renderHome();schedule();
     }
     if(data.action==='more'){if(mobile.matches)showSheet();else toggleSidebarDrawer(true);}
   });
@@ -4367,8 +4607,10 @@
     const surface=document.getElementById('video-surface-card');
     const wrap=document.getElementById('mobile-sticky-player-wrap');
     if(!surface||!wrap)return;
-    if(value&&!document.body.classList.contains('tm-scroll-pip'))wrap.style.minHeight=surface.offsetHeight+'px';
-    document.body.classList.toggle('tm-scroll-pip',value);
+    const wasFloating=document.body.classList.contains('tm-scroll-pip');
+    if(Boolean(value)===wasFloating)return;
+    if(value)wrap.style.minHeight=surface.offsetHeight+'px';
+    document.body.classList.toggle('tm-scroll-pip',Boolean(value));
     if(!value)wrap.style.minHeight='';
   }
   function installPlaybackContinuity() {
@@ -4379,11 +4621,18 @@
     const onScroll=()=>{
       const top=main.scrollTop,delta=top-previousTop;
       if(Math.abs(delta)>5||top<20){document.body.classList.toggle('tm-chips-hidden',top>32&&delta>0);previousTop=top;}
-      const stage=document.getElementById('player-stage');
-      const hidden=stage&&stage.getBoundingClientRect().bottom<16;
+      // Measure the in-flow anchor, not the floating video or sticky stage:
+      // those move when PiP activates and would cause visible oscillation.
+      const anchor=document.getElementById('mobile-sticky-player-wrap');
+      const hidden=anchor && anchor.getBoundingClientRect().bottom < main.getBoundingClientRect().top+16;
       setScrollPip(mobile.matches&&!expanded&&currentTheme!=='spotify'&&!pipDismissed&&!video.paused&&video.readyState>=2&&Boolean(hidden));
     };
-    main.addEventListener('scroll',onScroll,{passive:true});
+    let scrollFramePending=false;
+    main.addEventListener('scroll',()=>{
+      if(scrollFramePending)return;
+      scrollFramePending=true;
+      requestAnimationFrame(()=>{scrollFramePending=false;onScroll();});
+    },{passive:true});
     video.addEventListener('pause',()=>setScrollPip(false));
     video.addEventListener('playing',onScroll);
     window.addEventListener('resize',()=>{setScrollPip(false);onScroll();});
@@ -4402,18 +4651,57 @@
     video.addEventListener('volumechange',schedule);
   }
   const originalTheme=switchTheme;switchTheme=function(...args){originalTheme(...args);schedule();};
-  const originalPlay=playStream;playStream=function(...args){pipDismissed=false;originalPlay(...args);if(isMobile()&&(!args[1]))renderHome();schedule();};
+  const originalPlay=playStream;playStream=function(...args){
+    pipDismissed=false;
+    originalPlay(...args);
+    // All channel entry points (grid tiles, recommendations, queue, keyboard
+    // search and external header) must leave search mode consistently.
+    if(searchInputEl.value.trim())clearSelectionSearch();
+    applyBackdrop();
+    if(isMobile()&&(!args[1]))renderHome();
+    schedule();
+  };
   const originalBatch=renderNextBatch;renderNextBatch=function(...args){originalBatch(...args);document.querySelectorAll('#yt-studio-grid>.channel-grid-card').forEach((card,i)=>{if(filteredChannels[i]){card.dataset.tmChannel=filteredChannels[i].url;card.onclick=null;}});if(isMobile()&&currentTheme==='spotify'){[...document.querySelectorAll('#yt-studio-grid>.channel-grid-card')].forEach((card,i)=>{const ch=filteredChannels[i];if(ch)card.querySelectorAll('img').forEach(img=>{img.src=artwork(ch);img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};});});}};
-  const originalRender=renderViewport;renderViewport=function(...args){originalRender(...args);if(isMobile())renderHome();schedule();};
+  const originalRender=renderViewport;renderViewport=function(...args){
+    originalRender(...args);
+    // Search inputs and filter changes must not rebuild the entire home shelf
+    // on every keystroke while the home view is not visible.
+    if(isMobile() && view==='home')renderHome();
+    schedule();
+  };
   const originalRebuild=rebuildCombinedChannelCatalog;rebuildCombinedChannelCatalog=function(...args){originalRebuild(...args);if(searchInputEl.value.trim())renderViewport();};
   const originalDock=dockVideoToTopLeftMini;dockVideoToTopLeftMini=function(value){if(isMobile())return;originalDock(value);};
   const video=document.getElementById('video-player');['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
   mobile.addEventListener('change',()=>{if(!mobile.matches){expanded=false;closeSheet();}renderHome();schedule();});
   window.addEventListener('resize',schedule);
-  home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch)img.src=artwork({...ch,logo:''});},true);
-  mini.querySelector('img').addEventListener('error',event=>{if(activeChannel)event.target.src=artwork({...activeChannel,logo:''});});
+  home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch){rejectedArtwork.add(img.src);img.src=artwork({...ch,logo:''});}},true);
+  mini.querySelector('img').addEventListener('error',event=>{if(activeChannel){rejectedArtwork.add(event.target.src);event.target.src=artwork({...activeChannel,logo:''});}});
   installPlaybackContinuity();
+  function installPlayerSwipes(element,onDirection) {
+    let start=null;
+    element.addEventListener('touchstart',e=>{
+      if(e.touches.length!==1||e.target.closest('button,input,select,a'))return;
+      start={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    },{passive:true});
+    element.addEventListener('touchend',e=>{
+      if(!start||!e.changedTouches.length)return;
+      const dx=e.changedTouches[0].clientX-start.x,dy=e.changedTouches[0].clientY-start.y;
+      start=null;
+      if(Math.abs(dy)>85&&Math.abs(dx)<Math.abs(dy)/2)onDirection(dy>0?'down':'up');
+    },{passive:true});
+    element.addEventListener('touchcancel',()=>{start=null;},{passive:true});
+  }
+  installPlayerSwipes(now,dir=>{
+    if(dir==='down'&&expanded){setExpanded(false);view='home';schedule();}
+  });
+  installPlayerSwipes(mini,dir=>{
+    if(dir==='up'&&!expanded)setExpanded(true);
+  });
   if(hydrated)restoreUi();
+  window.addEventListener('sterling-artwork-update',()=>{
+    document.querySelectorAll('[data-tm-channel]').forEach(tile=>{const ch=allChannels.find(ch=>ch.url===tile.dataset.tmChannel);if(ch)tile.querySelectorAll('img').forEach(img=>img.src=artwork(ch));});
+    schedule();
+  });
   renderHome();sync();
 })();
 </script>

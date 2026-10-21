@@ -13,6 +13,74 @@ const originalKiteCss = readFileSync(resolve(process.cwd(), 'src/styles/terminal
 const spectrumSpacingCss = readFileSync(resolve(process.cwd(), 'src/styles/globals.css'), 'utf8');
 
 describe('Sterling TV static integration safety', () => {
+
+  it('keeps user-configured KITE home, mobile search and ticker visible',()=>{
+    const page=readFileSync(resolve(process.cwd(),'src/pages/SimpleTerminal.tsx'),'utf8');
+    expect(page).toContain('className="sterling-home-button"');
+    expect(page).toContain('aria-label="Close page and return to configured home"');
+    expect(page).toContain('onClick={goHome}');
+    expect(page).toContain("useKiteSettings.getState().defaultSection || 'dashboard'");
+    expect(page).toContain('className="sterling-mobile-command-row"');
+    expect(page).toContain('id="sterling-mobile-header-actions"');
+    expect(spectrumSpacingCss).not.toContain('.workspace-market-strip:not([data-page="dashboard"]) { display:none; }');
+    expect(spectrumSpacingCss).not.toContain('.mobile-pane-host .kite-ticker-strip { display:none; }');
+  });
+
+  it('does not splice untrusted playlists into executable inline handlers',()=>{
+    for(const html of [tvPage,latestTv]) {
+      expect(html).toContain('function escapeJsAttr(str)');
+      expect(html).toContain('return escapeHtml(JSON.stringify(String(str ?? \'\')));');
+      expect(html).not.toContain("'\${escapeAttr(");
+      expect(html).toContain("playbackGeneration===generation");
+      expect(html).toContain("url.protocol==='https:'");
+    }
+  });
+
+  it('preserves Radio zero volume and rejects stale remote search results',()=>{
+    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    expect(radio).toContain('const requested=Number.isFinite(appConfig.volume)?appConfig.volume:0.85;');
+    expect(radio).toContain('searchRevision++;searchAbort?.abort();searchAbort=null;');
+    expect(radio).toContain("typeof s.url_resolved==='string'");
+    expect(radio).toContain('artworkLookupInFlight');
+    expect(radio).toContain('playbackRevision===revision');
+    expect(radio).toContain('const generation=playbackRevision;');
+    expect(radio).toContain('if(generation!==playbackRevision||!activeStream');
+    expect(radio).toContain('syncPlayerUI(stationEmblem,!overrideUrl)');
+    expect(radio).toContain('if (resetStationMetadata || !isPlaying)');
+    expect(radio).toContain('stationArtworkInflight<2');
+    expect(radio).toContain('catalogItems.slice(0,16)');
+    expect(radio).toContain('scheduleStationArtworkPaint()');
+    expect(radio).toContain('const artist=norm(item.artistName)');
+    expect(radio).toContain('if (radioBooted) {');
+  });
+
+  it('guards mobile IPTV fullscreen, search dismissal, user audio choice and queue',()=>{
+    expect(tvPage).toContain('lastFullscreenGestureAt');
+    expect(tvPage).toContain('video.muted = preferredTvMuted;');
+    expect(tvPage).not.toContain('video.muted = !userHasInteractedWithAudio');
+    expect(tvPage).toContain('function clearSelectionSearch()');
+    expect(tvPage).toContain('function setScrollPip(value)');
+    expect(tvPage).toContain('if(Boolean(value)===wasFloating)return;');
+    expect(tvPage).toContain("document.getElementById('mobile-sticky-player-wrap')");
+    expect(tvPage).toContain("view==='home')renderHome()");
+    expect(tvPage).toContain("if(searchInputEl.value.trim())clearSelectionSearch()");
+    expect(tvPage).toContain("'backdrop','Player background: black / auto'");
+    expect(tvPage).toContain("installPlayerSwipes(now,dir=>");
+    expect(tvPage).toContain("installPlayerSwipes(mini,dir=>");
+  });
+
+  it('isolates Radio dialogs and restores mobile tuner, search and album identity art',()=>{
+    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    expect(radio).toContain('function openMobileTuner()');
+    expect(radio).toContain('function syncRadioModalState()');
+    expect(radio).toContain('radio-modal-open');
+    expect(radio).toContain('aria-label="Open radio tuner"');
+    expect(radio).toContain('function closeMobileSheet()');
+    expect(radio).toContain('clearAllSearches();');
+    expect(radio).toContain('getStationIdentityThumbnail');
+    expect(radio).toContain("stationBadgeCache[keys[0]]");
+    expect(radio).toContain('RADIO_MIRRORS');
+  });
   it('ships local media styles, fonts and icons without runtime Tailwind',()=>{
     const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
     for(const page of [tvPage,radio]) {

@@ -1,3 +1,4 @@
+import { readMediaSuggestions } from '../media/mediaSuggestions';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const RADIO_KEYS = [
@@ -29,9 +30,11 @@ function readRadioPrefs() {
  * inherited access to Sterling's DOM, auth cookies, Kite API or storage.
  * Only four isolated Radio keys are accepted through the message bridge.
  */
-export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'youtube';query:string})=>void}) {
+export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'spotify'|'youtube'|'netflix';query:string})=>void;onPlayerState?:(expanded:boolean)=>void}) {
   const stateRef = useRef(onState);
   stateRef.current = onState;
+  const playerStateRef=useRef(onPlayerState);
+  playerStateRef.current=onPlayerState;
   const commandsRef = useRef<Array<{action:string;value?:string}>>([]);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const hydratedRef = useRef(false);
@@ -60,9 +63,13 @@ export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'yout
         hydrate();
         frame.contentWindow?.postMessage({type:'sterling.radio.ack'}, '*');
         commandsRef.current.splice(0).forEach(command => frame.contentWindow?.postMessage({type:'sterling.radio.command',...command},'*'));
+      } else if (message.type === 'sterling.radio.suggestions') {
+        if(typeof message.query==='string'&&message.query.length<=200)window.dispatchEvent(new CustomEvent('sterling-radio-suggestions',{detail:{query:message.query,items:readMediaSuggestions(message.items)}}));
       } else if (message.type === 'sterling.radio.state') {
-        if ((message.theme === 'spotify' || message.theme === 'youtube') && typeof message.query === 'string' && message.query.length <= 200)
+        if ((message.theme === 'spotify' || message.theme === 'youtube' || message.theme === 'netflix') && typeof message.query === 'string' && message.query.length <= 200)
           stateRef.current?.({theme:message.theme,query:message.query});
+      } else if(message.type === 'sterling.radio.player-state') {
+        if(typeof message.expanded==='boolean')playerStateRef.current?.(message.expanded);
       } else if (message.type === 'sterling.radio.focus-search') {
         window.dispatchEvent(new Event('sterling-radio-focus-search'));
       } else if (message.type === SAVE && hydratedRef.current) {
@@ -76,17 +83,19 @@ export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'yout
       }
     };
     window.addEventListener('message',onMessage);
+    const refreshPreferences=()=>{hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);};
+    window.addEventListener('sterling-preferences-hydrated',refreshPreferences);
     const watchdog = window.setTimeout(() => {
       if (!readyRef.current) setFailed(true);
     }, 15000);
-    return () => {window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);};
+    return () => {window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);window.removeEventListener('sterling-preferences-hydrated',refreshPreferences);};
   },[version,hydrate]);
 
   useEffect(() => {
     const reload=() => {hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);};
     const command=(event:Event) => {
       const detail=(event as CustomEvent).detail;
-      if(!detail || !['theme','search','more'].includes(detail.action)) return;
+      if(!detail || !['theme','search','more','startup','suggest','select-suggestion','minimize'].includes(detail.action)) return;
       const message={action:detail.action,value:detail.value};
       if(readyRef.current)frameRef.current?.contentWindow?.postMessage({type:'sterling.radio.command',...message},'*');
       else {commandsRef.current=commandsRef.current.filter(item=>item.action!==message.action);commandsRef.current.push(message);}

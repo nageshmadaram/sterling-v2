@@ -46,8 +46,8 @@ button:focus-visible,[data-radio-click]:focus-visible {outline:2px solid #1ed760
   #ytm-quick-picks>div {scroll-snap-align:start;padding:8px 0;}
   #ytm-cards-grid {gap:22px 16px;}
   .solid-ytm-footer {border-radius:0!important;}
-  #mobile-player-sheet {padding:12px 24px calc(24px + env(safe-area-inset-bottom,0px));background:linear-gradient(165deg,#3a5c4b,#193528 55%,#0c1a14)!important;}
-  .mode-ytmusic #mobile-player-sheet {background:linear-gradient(155deg,#323b49,#111820 55%,#030303)!important;}
+  #mobile-player-sheet {padding:12px 24px calc(24px + env(safe-area-inset-bottom,0px));background:linear-gradient(160deg,rgba(var(--ambient-rgb,28,90,56),.98) 0%,#18241e 52%,#090d0b 100%)!important;}
+  .mode-ytmusic #mobile-player-sheet {background:linear-gradient(155deg,rgba(var(--ambient-rgb,28,90,56),.68) 0%,#181818 48%,#060606 100%)!important;}
   #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(100%,340px);height:auto;aspect-ratio:1;max-height:38dvh;margin-bottom:24px;}
   #sheet-title {font-size:24px;font-weight:700;letter-spacing:-.5px;}
   #sheet-sub {font-size:13px;}
@@ -82,4 +82,68 @@ button:focus-visible,[data-radio-click]:focus-visible {outline:2px solid #1ed760
   #spotify-app>.solid-sp-miniplayer,#ytmusic-app>[data-radio-click] {left:auto!important;right:8px!important;width:calc(52% - 16px);bottom:8px!important;height:50px!important;}
   #spotify-app>div.pointer-events-none {height:64px!important;}
   #spotify-app main,#ytmusic-app main {padding-bottom:80px!important;}
+}
+
+/* Shared cinematic and audio brand languages, with station-derived opaque surfaces. */
+html:not(.radio-searching) body.mode-spotify #spotify-app main {
+  background:linear-gradient(180deg,rgba(var(--ambient-rgb,28,90,56),.48),#171717 320px,#101010 100%)!important;
+}
+body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix #ytm-stage-art {border-radius:10px;}
+body.mode-spotify #mobile-player-sheet,
+body.mode-ytmusic #mobile-player-sheet,
+body.mode-netflix #mobile-player-sheet {
+  background-color:#111!important;
+  background-image:linear-gradient(145deg,rgba(var(--ambient-rgb,28,90,56),.98),#101319 61%,#080808)!important;
+  backdrop-filter:none!important;opacity:1!important;
+}
+body.mode-spotify #mobile-player-sheet:before,
+body.mode-ytmusic #mobile-player-sheet:before,
+body.mode-netflix #mobile-player-sheet:before {
+  content:'';position:absolute;inset:0;z-index:-1;
+  background:linear-gradient(180deg,#0000 25%,#050505a8 100%);pointer-events:none;
+}
+body.mode-netflix {background:#080808!important;color:#fff;}
+body.mode-netflix #ytmusic-app {background:radial-gradient(ellipse at 35% 0%,rgba(var(--ambient-rgb,84,20,27),.42),transparent 48%),#0b0b0b!important;}
+body.mode-netflix #ytmusic-app main {background:transparent!important;}
+body.mode-netflix #ytmusic-app header {background:#101010!important;border-bottom:1px solid #ffffff1c;}
+body.mode-netflix #ytm-cards-grid .snap-card,
+body.mode-netflix #ytmusic-app .snap-card {background:#171717;border-radius:10px;overflow:hidden;transition:transform .18s ease;}
+body.mode-netflix #ytmusic-app .snap-card:hover {transform:scale(1.025);background:#262626;}
+body.mode-netflix #ytm-cards-grid img,
+body.mode-netflix #ytmusic-app .snap-card img {border-radius:9px;}
+body.mode-netflix #ytm-queue-drawer {background:#121212!important;}
+body.mode-netflix #mobile-player-sheet {background-image:linear-gradient(155deg,rgba(var(--ambient-rgb,86,24,32),.9),#250e11 46%,#090909)!important;}
+html.radio-searching #spotify-app .snap-carousel,
+html.radio-searching #spotify-app .snap-carousel-heading,
+html.radio-searching #spotify-app #sw-tuner-deck,
+html.radio-searching #spotify-app [id^="sp-mchip"],
+html.radio-searching #ytmusic-app [id^="ytm-mchip"] {display:none!important;}
+/* Keep home discovery categories reachable; hide redundant theme/search controls
+   inside the iframe (those live in Sterling's shared top header). */
+html.radio-hosted #spotify-app>header:nth-child(2) [data-radio-click="28"],
+html.radio-hosted #spotify-app>header:nth-child(2) [data-radio-click="30"],
+html.radio-hosted #spotify-app>header:nth-child(2) #sp-mob-search-bar,
+html.radio-hosted #ytmusic-app [data-radio-click="30"] {display:none!important;}
+html.radio-hosted.radio-searching #spotify-app>header:nth-child(2),
+html.radio-hosted.radio-searching #ytmusic-app>header:nth-child(2) {display:none!important;}
+@media(max-width:767px) {
+  #mobile-player-sheet {padding:16px 22px calc(18px + env(safe-area-inset-bottom,0px))!important;}
+  #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(80vw,320px)!important;max-height:min(45dvh,320px)!important;margin-inline:auto;}
+}
+
+/* Never let translucent desktop players show underlying scrollable cards. */
+body.mode-spotify #spotify-app>div.flex-1>aside:last-child {
+  background:linear-gradient(170deg,rgba(var(--ambient-rgb,28,90,56),.85),#141414 56%,#111 100%)!important;
+  opacity:1!important;backdrop-filter:none!important;
+}
+body.mode-spotify .solid-sp-footer,
+body.mode-ytmusic .solid-ytm-footer,
+body.mode-netflix .solid-ytm-footer {background:#121212!important;backdrop-filter:none!important;border-top:1px solid #ffffff1c;}
+body.mode-ytmusic #ytm-queue-drawer,
+body.mode-netflix #ytm-queue-drawer {
+  background:linear-gradient(145deg,rgba(var(--ambient-rgb,28,90,56),.92),#171717 52%,#0a0a0a)!important;
+  opacity:1!important;backdrop-filter:none!important;
+}
+body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix #ytm-stage-art {
+  background:#101010!important;object-fit:cover;
 }

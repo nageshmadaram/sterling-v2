@@ -20,6 +20,8 @@ def export():
     html = re.sub(r'<link rel="stylesheet" href="(/(?:media|tv)/[^\"]+\.css)">', inline, html)
     hls=(PUBLIC / 'media/hls.min.js').read_text().replace('</script', '<\\/script')
     html=html.replace('<script src="/media/hls.min.js"></script>', '<script>\n'+hls+'\n</script>')
+    artwork=(PUBLIC / 'media/artwork.js').read_text().replace('</script','<\\/script')
+    html=html.replace('<script src="/media/artwork.js"></script>','<script>\n'+artwork+'\n</script>')
     (ROOT / 'sterling-iptv/sterling-iptv.html').write_text(html)
 
 if __name__ == '__main__':

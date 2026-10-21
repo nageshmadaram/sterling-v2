@@ -787,7 +787,6 @@ body[data-mobile-style="app"] .st-leg-row [data-mobile-label]::before, body[data
 }
 
 @media(max-width:900px) {
-  body[data-mobile-style="app"] .workspace-market-strip:not([data-page="dashboard"]) { display:none; }
   body[data-mobile-style="app"] .kite-settings-hub:has(.mobile-settings-picker) { padding:0 !important; }
   body[data-mobile-style="app"] .kite-settings-layout { gap:0 !important; }
 }
@@ -942,7 +941,6 @@ body[data-mobile-style="app"] .st-leg-row [data-mobile-label]::before, body[data
  .mobile-header-tickers .tk-unpin { display:none !important; }
  .mobile-header-tickers .ticker-pcr-line { box-sizing:border-box; width:100%; max-width:100%; }
  .mobile-experience-bar:has(.mobile-header-tickers) { padding:6px 8px; }
- body[data-mobile-style="app"] .mobile-pane-host .kite-ticker-strip { display:none; }
 }
 
 @media(max-width:900px) {
@@ -1677,4 +1675,154 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button>span:last-child {font-size:11px!important;}
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-theme-select {max-width:88px;font-size:10px;}
   .sterling-media-destinations {max-width:76px;}
+}
+
+/* KITE home control, page close-to-home, and the restored mobile search/menu row. */
+.sterling-return-home {
+  display:inline-flex; align-items:center; justify-content:center;
+  flex:0 0 auto; width:32px; height:32px; padding:0;
+  border:1px solid var(--t-border); border-radius:8px;
+  background:transparent; color:var(--k-text); cursor:pointer;
+  font:500 22px/1 system-ui,sans-serif;
+}
+.sterling-return-home:hover { background:var(--k-surface-2); }
+.sterling-return-home:focus-visible { outline:2px solid var(--k-brand); outline-offset:2px; }
+.sterling-mobile-command-row { display:none; }
+@media (max-width:900px) {
+  .term-root:not(.sterling-tv-mode):not(.sterling-radio-mode)
+  .sterling-header-row > .sterling-home-button > span:last-child {
+    display:inline !important; font-size:12px !important;
+    letter-spacing:.035em !important;
+  }
+  .term-root:not(.sterling-tv-mode):not(.sterling-radio-mode) .sterling-mobile-command-row {
+    display:flex; flex:0 0 auto; align-items:center;
+    justify-content:space-between; gap:8px;
+    min-height:44px; padding:2px 12px 6px;
+    background:var(--k-bg); border-top:1px solid var(--t-border);
+  }
+  .sterling-mobile-current-section {
+    min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    color:var(--k-text); font-size:12px; font-weight:600;
+  }
+  .sterling-mobile-command-row .sterling-mobile-controls {
+    display:flex; align-items:center; gap:8px;
+  }
+  .sterling-mobile-command-row .sterling-mobile-controls button {
+    min-height:40px; min-width:40px;
+  }
+  .sterling-return-home { min-width:36px; min-height:36px; }
+  /* Avoid continuous blurred full-screen repainting on constrained GPUs. */
+  .term-root::before { animation:none !important; filter:none !important; opacity:.18; }
+}
+
+
+/* Spectrum media: one compact search/settings cluster shared by TV and Radio. */
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-quick-actions {
+  position:relative;display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:auto;
+  color:#f8f8f8;isolation:isolate;z-index:30;
+}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button {
+  width:42px;height:42px;min-width:42px;display:grid;place-items:center;
+  border:1px solid transparent;border-radius:999px;color:#f5f5f5;background:transparent;
+  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button svg {width:21px;height:21px;}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button:hover,
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button[aria-expanded=true] {background:#ffffff1c;}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button:focus-visible,
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-settings-popover button:focus-visible {outline:2px solid #f8f8f8;outline-offset:2px;}
+.sterling-media-settings-popover {
+  position:absolute;right:0;top:calc(100% + 10px);z-index:500;
+  width:min(305px,calc(100vw - 24px));padding:10px;background:#171717;color:#fff;
+  border:1px solid #ffffff23;border-radius:16px;box-shadow:0 20px 60px #000b;
+  display:flex;flex-direction:column;gap:3px;overscroll-behavior:contain;
+}
+.sterling-media-settings-label {margin:4px 12px 8px;color:#aaa;font-size:11px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;}
+.sterling-media-settings-popover button {
+  border:0;background:transparent;color:inherit;border-radius:9px;min-height:50px;
+  padding:8px 12px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  cursor:pointer;touch-action:manipulation;
+}
+.sterling-media-settings-popover button:hover,
+.sterling-media-settings-popover button[aria-checked=true] {background:#ffffff16;}
+.sterling-media-settings-popover button strong {display:block;font-size:14px;font-weight:650;}
+.sterling-media-settings-popover button small {display:block;font-size:11px;color:#aaa;margin-top:3px;}
+.sterling-media-settings-popover button[aria-checked=true]>span:last-child {color:#1ed760;font-size:18px;font-weight:800;}
+.sterling-media-popover-divider {height:1px;background:#ffffff20;margin:8px 4px;}
+.sterling-media-expanded-search {
+  position:absolute;right:0;top:calc(100% + 10px);z-index:450;display:flex;
+  align-items:center;gap:9px;width:min(480px,calc(100vw - 28px));height:52px;
+  padding:5px 10px 5px 16px;background:#232323;border:1px solid #ffffff35;border-radius:12px;
+  box-shadow:0 12px 35px #0009;
+}
+.sterling-media-expanded-search>svg {width:20px;height:20px;flex-shrink:0;color:#aaa;}
+.sterling-media-expanded-search input {
+  background:transparent!important;min-width:0;width:100%;border:0!important;outline:0!important;
+  color:#fff!important;font-size:16px!important;min-height:38px;flex:1;
+}
+.sterling-media-expanded-search input::placeholder {color:#aaa;}
+.sterling-media-expanded-search button {border:0;border-radius:7px;color:#fff;background:#ffffff16;padding:6px 10px;min-height:35px;cursor:pointer;}
+.sterling-media-expanded-search button[type=submit]{background:#fff;color:#171717;font-size:12px;font-weight:750;}
+/* Portal must sit above the iframe compositor and prevent click-through. */
+body > .sterling-profile-modal {
+  position:fixed!important;inset:0!important;z-index:2147483000!important;
+  pointer-events:auto!important;touch-action:auto!important;overscroll-behavior:contain!important;
+}
+body > .sterling-profile-modal > .profile-panel {
+  position:relative;z-index:1;pointer-events:auto;max-height:calc(100dvh - 32px);
+  overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  box-shadow:0 30px 100px #000b;border:1px solid #ffffff20;
+}
+@media(max-width:800px){
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-header-row {padding:6px 10px!important;min-height:54px!important;gap:4px!important;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button {margin-right:2px!important;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button>span:last-child {font-size:12px!important;letter-spacing:.02em!important;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button {width:40px;height:40px;min-width:40px;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile>span:nth-child(2) {display:none;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-expanded-search {right:-48px;}
+}
+
+/* Mobile app style previously hid direct header buttons and fallback initials. */
+body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-header-row > button.sterling-profile {
+  display:inline-flex!important;min-width:40px;min-height:40px;max-width:44px;
+  flex-shrink:0;justify-content:center;align-items:center;
+}
+body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile > span:first-child {
+  display:grid!important;place-items:center;width:34px;height:34px;padding:0!important;
+}
+body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile > img {
+  display:block!important;width:34px;height:34px;flex-shrink:0;
+}
+
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-destinations {
+  flex:0 1 auto;min-width:0;max-width:min(35vw,360px);overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none;overscroll-behavior-inline:contain;
+}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-destinations::-webkit-scrollbar {display:none;}
+@media(max-width:440px){
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-destinations {
+    max-width:calc(100vw - 235px);
+  }
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button>span:last-child {
+    display:inline!important;font-size:11px!important;letter-spacing:0!important;
+  }
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-quick-actions {gap:0;}
+}
+/* A single shared, keyboard-accessible Spotify-style suggestion list. */
+.sterling-media-suggestions {position:absolute;top:calc(100% + 6px);left:0;right:0;background:#181818;border:1px solid #ffffff18;border-radius:12px;padding:12px;box-shadow:0 20px 48px #000b;max-height:min(520px,65dvh);overflow:auto;}
+.sterling-media-suggestions>p {margin:0 4px 10px;font-size:16px;font-weight:700;color:white;}
+.sterling-media-suggestions>small {display:block;padding:12px 4px;color:#aaa;font-size:13px;line-height:1.5;}
+.sterling-media-suggestions [role=option] {display:flex;align-items:center;gap:12px;width:100%;background:transparent;min-height:68px;padding:8px!important;text-align:left;}
+.sterling-media-suggestions [role=option]:hover,.sterling-media-suggestions [role=option][aria-selected=true] {background:#ffffff10;}
+.sterling-media-suggestions img,.sterling-suggestion-art {width:48px;height:48px;flex-shrink:0;border-radius:4px;object-fit:cover;background:#293b33;}
+.sterling-suggestion-art {display:grid;place-items:center;font-size:24px;color:#a4e6b8;}
+.sterling-media-suggestions [role=option]>span:nth-child(2) {flex:1;min-width:0;}
+.sterling-media-suggestions strong,.sterling-media-suggestions small {display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sterling-media-suggestions strong {font-size:14px;color:white;font-weight:600;}
+.sterling-media-suggestions small {font-size:12px;color:#aaa;margin-top:4px;}
+@media(max-width:767px){
+ .sterling-media-expanded-search {border:0;border-radius:28px;background:#2a2a2a;}
+ .sterling-media-suggestions {background:#121212;border:0;border-radius:12px;max-height:calc(100dvh - 170px);padding:16px 10px;}
+ .sterling-media-suggestions [role=option] {min-height:76px;}
+ .sterling-media-suggestions img,.sterling-suggestion-art {width:56px;height:56px;}
 }
