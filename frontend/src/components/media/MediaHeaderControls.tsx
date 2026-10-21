@@ -20,6 +20,17 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const focusFromPlayer = () => {
+      setSettingsOpen(false);
+      setSearchOpen(true);
+      requestAnimationFrame(() => searchInput.current?.focus());
+    };
+    const event = kind === 'tv' ? 'sterling-tv-focus-search' : 'sterling-radio-focus-search';
+    window.addEventListener(event, focusFromPlayer);
+    return () => window.removeEventListener(event, focusFromPlayer);
+  }, [kind]);
+
+  useEffect(() => {
     if (!settingsOpen) return;
     const dismiss = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) setSettingsOpen(false);
