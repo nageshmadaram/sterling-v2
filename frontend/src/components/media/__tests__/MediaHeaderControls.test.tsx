@@ -43,6 +43,25 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     expect(screen.queryByRole('searchbox',{name:'Search radio stations'})).not.toBeInTheDocument();
   });
 
+  it('restores browse results after closing search with a query',()=>{
+    const {searched}=mount('radio');
+    fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
+    fireEvent.change(screen.getByRole('searchbox',{name:'Search radio stations'}),{target:{value:'BBC'}});
+    fireEvent.click(screen.getByRole('button',{name:'Close search'}));
+    expect(searched).toHaveBeenLastCalledWith('');
+    expect(screen.queryByRole('searchbox',{name:'Search radio stations'})).not.toBeInTheDocument();
+  });
+
+  it('does not leave search applied when switching into appearance settings',()=>{
+    const {searched}=mount('tv');
+    fireEvent.click(screen.getByRole('button',{name:'Search TV channels'}));
+    fireEvent.change(screen.getByRole('searchbox',{name:'Search TV channels'}),{target:{value:'Sports'}});
+    fireEvent.click(screen.getByRole('button',{name:'TV display settings'}));
+    expect(searched).toHaveBeenLastCalledWith('');
+    expect(screen.getByRole('menuitemradio',{name:/Netflix/})).toBeInTheDocument();
+    expect(screen.queryByRole('searchbox',{name:'Search TV channels'})).not.toBeInTheDocument();
+  });
+
   it('dismisses settings on Escape and outside pointer down',()=>{
     mount('radio');
     const settings=screen.getByRole('button',{name:'Radio display settings'});
