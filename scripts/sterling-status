@@ -63,10 +63,13 @@ try:
         # A 503 here is Sterling refusing to start, and the body says why.
         payload = json.loads(exc.read())
     line("Backend", "RUNNING")
-    line("Ready", payload.get("status", "unknown"))
+    # /health/ready is the Snapback evidence recorder's readiness. It needs the
+    # frozen experiment config; live entries are gated by safe mode, the
+    # control plane and the doctor, not by this line.
+    line("Snapback recorder", payload.get("status", "unknown"), "research only; does not gate live trades")
     failed = payload.get("failed_checks") or []
     if failed:
-        line("Blocked by", ", ".join(failed))
+        line("Recorder waits on", ", ".join(failed))
         for check in payload.get("checks", []):
             if check.get("code") in failed:
                 detail = check.get("details")
