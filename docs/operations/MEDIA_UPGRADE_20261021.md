@@ -110,3 +110,15 @@ new cards and preserves existing artwork sources and handlers. Chrome regression
 flows cover bottom scrolling, automatic batch loading, fixed row geometry,
 existing card identity and zero image-source writes in all three TV themes.
 Validation: 12 Chrome browser flows and 26 runtime/security tests passed.
+
+## Availability and portrait controls
+
+Added account-synced Hide unavailable / All channels selection inside existing
+TV UI preferences. Mark failures only after stream fallback exhaustion, never
+merely for autoplay rejection, incompatible browsers or known offline state.
+Search, queues, shelves and counts respect the setting. Successful playback
+clears failure state; records expire after 24 hours and are bounded to 80 URLs.
+Portrait video hides its overlaid HUD while retaining the separate player
+controls; fullscreen/landscape controls remain available. Live-feed market status
+can be dismissed horizontally or with a close button without changing feed
+health; a new outage after recovery reappears.
