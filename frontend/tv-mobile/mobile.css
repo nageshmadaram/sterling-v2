@@ -253,3 +253,8 @@
 #custom-video-hud>div:last-child {flex-wrap:wrap;gap:4px;}
 #custom-video-hud>div:last-child>div {gap:4px;}
 #custom-video-hud>div:last-child>div> :not([hidden])~:not([hidden]) {margin-left:0;}
+/* Portrait uses the dedicated controls below the video; reserve its image area. */
+@media(max-width:767px) and (orientation:portrait){
+ #video-surface-card:not(:fullscreen) #custom-video-hud {display:none!important;}
+ #video-surface-card:-webkit-full-screen #custom-video-hud {display:flex!important;}
+}

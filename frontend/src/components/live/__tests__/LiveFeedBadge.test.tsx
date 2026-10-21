@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { LiveFeedBadge } from '../LiveFeedBadge';
 import { CONNECTING_GRACE_MS, useStreamHealthStore } from '../../../store/useStreamHealthStore';
 
@@ -59,4 +59,21 @@ describe('LiveFeedBadge', () => {
     act(() => { useStreamHealthStore.getState().setTransport('idle'); });
     expect(screen.queryByTestId('live-feed-badge')).toBeNull();
   });
+});
+
+it('dismisses by swipe without changing feed health and returns for a new outage',()=>{
+  vi.stubGlobal('PointerEvent',MouseEvent);
+  render(<LiveFeedBadge />);
+  act(()=>{useStreamHealthStore.getState().setTransport('open');useStreamHealthStore.getState().setTransport('closed');vi.advanceTimersByTime(CONNECTING_GRACE_MS+1000);});
+  const badge=screen.getByTestId('live-feed-badge');
+  fireEvent.pointerDown(badge,{clientX:180,clientY:20});
+  fireEvent.pointerUp(badge,{clientX:80,clientY:25});
+  expect(screen.queryByTestId('live-feed-badge')).toBeNull();
+  expect(useStreamHealthStore.getState().transport).toBe('closed');
+  act(()=>{useStreamHealthStore.getState().setTransport('idle');});
+  act(()=>{useStreamHealthStore.getState().setTransport('closed');vi.advanceTimersByTime(CONNECTING_GRACE_MS+1000);});
+  expect(screen.getByTestId('live-feed-badge')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Dismiss live feed warning'}));
+  expect(screen.queryByTestId('live-feed-badge')).toBeNull();
+  vi.unstubAllGlobals();
 });

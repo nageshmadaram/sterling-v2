@@ -233,3 +233,30 @@ for(const theme of ['spotify','youtube','netflix']){
   expect(after.imageWrites).toBe(0);expect(after.transitions).toBe(0);
  });
 }
+
+test('TV availability filter hides exhausted failures, persists and restores recovered channels',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('body').evaluate(()=>{(window as any).eval(`activeChannel=allChannels[1];startBackupFallback(activeChannel,document.getElementById('video-player'),document.getElementById('player-spinner'),document.getElementById('server-badge'));`);});
+ await frame.locator('#tv-mobile-shell .tm-avatar').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=filters]').click();
+ await frame.locator('[data-tm-filter=availability]').selectOption('available');
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (83)');
+ expect(await frame.locator('body').evaluate(()=>JSON.parse((window as any).eval('tvStorage.getItem("streamos_ui_v14")')).hideUnavailable)).toBe(true);
+ expect(await frame.locator('body').evaluate(()=>(window as any).eval('getRankedSearchMatches("Channel 02").length'))).toBe(0);
+ await frame.locator('#tv-mobile-shell .tm-avatar').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=filters]').click();
+ await frame.locator('[data-tm-filter=availability]').selectOption('all');
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (84)');
+ await frame.locator('body').evaluate(()=>{(window as any).eval(`activeChannel=allChannels[1];document.getElementById('video-player').dispatchEvent(new Event('playing'));`);});
+ expect(await frame.locator('body').evaluate(()=>(window as any).eval('unavailableChannels.has(allChannels[1].url)'))).toBe(false);
+});
+
+test('portrait TV has no video overlay controls while landscape keeps them',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await expect(frame.locator('#custom-video-hud')).toBeHidden();
+ await expect(frame.locator('#tv-now-playing [data-tm-action=play]')).toBeVisible();
+ await page.setViewportSize({width:844,height:390});
+ await frame.locator('#video-surface-card').dispatchEvent('pointermove');
+ await expect(frame.locator('#custom-video-hud')).toBeVisible();
+});
