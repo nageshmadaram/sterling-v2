@@ -260,3 +260,35 @@ test('portrait TV has no video overlay controls while landscape keeps them',asyn
  await frame.locator('#video-surface-card').dispatchEvent('pointermove');
  await expect(frame.locator('#custom-video-hud')).toBeVisible();
 });
+
+test('unavailable channels expire after three hours and can be retried immediately',async({page})=>{
+ await page.clock.install();
+ const frame=await seededTv(page);
+ await frame.locator('body').evaluate(()=>{(window as any).eval('hideUnavailableChannels=true;markChannelUnavailable(allChannels[1]);');});
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (83)');
+ await frame.locator('#tv-mobile-shell .tm-avatar').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=filters]').click();
+ await frame.getByRole('button',{name:'Retry unavailable channels now',exact:true}).click();
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (84)');
+ expect(await frame.locator('body').evaluate(()=>(window as any).eval('hideUnavailableChannels'))).toBe(true);
+ await frame.locator('body').evaluate(()=>{(window as any).eval('markChannelUnavailable(allChannels[1]);');});
+ await page.clock.fastForward(2*60*60*1000);
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (83)');
+ await page.clock.fastForward(60*60*1000+60001);
+ await expect(frame.locator('#catalog-genre-select option').first()).toHaveText('All Categories (84)');
+});
+
+test('unchanged discovery views preserve existing cards and home shelves',async({page})=>{
+ const frame=await seededTv(page);
+ const result=await frame.locator('body').evaluate(()=>{return (window as any).eval(`
+  renderNextBatch();const first=document.querySelector('#yt-studio-grid .channel-grid-card');
+  const count=renderedItems;
+  renderViewport();renderViewport();
+  const stableGrid=first===document.querySelector('#yt-studio-grid .channel-grid-card')&&renderedItems===count;
+  document.querySelector('#tv-mobile-shell .tm-tabs [data-tm-action=home]').click();
+  const shelf=document.querySelector('#tv-mobile-home section');
+  renderViewport();renderViewport();
+  ({stableGrid,stableShelf:shelf===document.querySelector('#tv-mobile-home section')});
+ `);});
+ expect(result).toEqual({stableGrid:true,stableShelf:true});
+});
