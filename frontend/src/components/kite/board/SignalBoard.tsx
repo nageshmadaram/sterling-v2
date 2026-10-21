@@ -462,7 +462,7 @@ function cellContent(
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
             </Pill>}
             {signal.mode && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
-            {detailsOnly && signal.engine === 'ema_trend' && signal.origin && <span className="sb-origin" title={signal.origin.hint}>{signal.origin.label}</span>}
+            
             {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
                 <span tabIndex={0} style={{
@@ -476,7 +476,8 @@ function cellContent(
             )}
             {/* Whatever else this engine wants read without opening the row. */}
             {!detailsOnly && <Marks marks={signal.marks} />}
-            {signal.flags?.map((flag) => (
+            {/* Strategy-specific tags live in the expanded row, so collapsed rows read the same on every board. */}
+            {!detailsOnly && signal.flags?.map((flag) => (
               <Tip key={flag.label} text={`${flag.label} — ${flag.hint}`}>
                 <span tabIndex={0} style={{
                   fontSize: 8, fontWeight: 700, letterSpacing: '.04em',
@@ -870,7 +871,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
       </span>
 
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        {signal.flags?.map((flag) => (
+        {!detailsOnly && signal.flags?.map((flag) => (
           <Tip key={flag.label} text={`${flag.label} — ${flag.hint}`}>
             <span tabIndex={0} style={{
               fontSize: 9, fontWeight: 700, color: ORIGIN_TONE[flag.tone],
