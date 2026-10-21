@@ -2762,6 +2762,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     let activeChannel = null;
     let hls = null;
     let serverStage = 0;
+    // Each stream switch invalidates previous asynchronous HLS callbacks.
+    let playbackGeneration = 0;
 
     // Automatic public proxy services disabled: playlists may contain tokens.
 
@@ -2996,6 +2998,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       if (stage === 0) recordChannelPlay(channel);
       activeChannel = channel;
       serverStage = stage;
+      playbackGeneration++;
 
       resetVideoInstance();
       document.getElementById('tv-mobile-play')?.classList.add('hidden');
@@ -3051,6 +3054,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
     function startHlsPlayback(channel, video, spinner) {
+      const generation=playbackGeneration;
       // Mobile WebKit has better reliability with native HLS than MSE workers.
       if (preferNativeHls(video)) {
         startNativeHlsPlayback(channel, video, spinner);
@@ -3071,10 +3075,11 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         hls.attachMedia(video);
 
         const watchdog = setTimeout(() => {
-          if (!parsed && activeChannel === channel) escalateStage(channel);
+          if (!parsed && activeChannel === channel && playbackGeneration===generation) escalateStage(channel);
         }, 6800);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          if(playbackGeneration!==generation)return;
           parsed = true;
           clearTimeout(watchdog);
           spinner.classList.add('hidden');
@@ -3083,6 +3088,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         });
 
         hls.on(Hls.Events.FRAG_LOADED, () => {
+          if(playbackGeneration!==generation)return;
           if (video.videoHeight) {
             document.getElementById('stat-res').textContent = `${video.videoWidth}x${video.videoHeight}`;
             syncPlayerAspectToStream();
@@ -3093,6 +3099,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         });
 
         hls.on(Hls.Events.ERROR, (ev, data) => {
+          if(playbackGeneration!==generation)return;
           if (data.fatal) {
             clearTimeout(watchdog);
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR && parsed) {
@@ -3110,17 +3117,20 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     }
 
     function startNativeHlsPlayback(channel, video, spinner) {
+      const generation=playbackGeneration;
       const watchdog = setTimeout(() => {
-        if (activeChannel === channel && video.readyState < 2) escalateStage(channel);
+        if (activeChannel === channel && playbackGeneration===generation && video.readyState < 2) escalateStage(channel);
       }, 10000);
       video.onloadedmetadata = () => {
         clearTimeout(watchdog);
+        if(playbackGeneration!==generation)return;
         spinner.classList.add('hidden');
         syncPlayerAspectToStream();
         safeAutoplayVideo(video);
       };
       video.onerror = () => {
         clearTimeout(watchdog);
+        if(playbackGeneration!==generation)return;
         escalateStage(channel);
       };
       video.src = channel.url;
@@ -3233,6 +3243,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     }
 
     function startBackupFallback(channel, video, spinner, badge) {
+      const generation=playbackGeneration;
       spinner.classList.add('hidden');
       if (channel.ytEmbed) {
         badge.textContent = 'Embed';
@@ -3247,10 +3258,16 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
           hls = new Hls({ enableWorker: false });
           hls.loadSource(fallbackUrl);
           hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => safeAutoplayVideo(video));
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if(playbackGeneration===generation)safeAutoplayVideo(video);
+          });
         } else if (hasNativeHls(video)) {
-          video.onloadedmetadata = () => safeAutoplayVideo(video);
-          video.onerror = () => showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+          video.onloadedmetadata = () => {
+            if(playbackGeneration===generation)safeAutoplayVideo(video);
+          };
+          video.onerror = () => {
+            if(playbackGeneration===generation)showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+          };
           video.src = fallbackUrl;
           video.load();
         } else {
