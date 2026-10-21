@@ -31,6 +31,10 @@ let stEnabled: boolean | undefined = true;
 let gmEnabled: boolean | undefined = true;
 let sbEnabled: boolean | undefined = true;
 
+let priceRulesOn = true;
+vi.mock('../../../hooks/usePriceRulesSwitch', () => ({
+  usePriceRulesSwitch: () => ({ enabled: priceRulesOn, pending: false, toggle: vi.fn(), error: null }),
+}));
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: { ...cfg, engine_enabled: stEnabled } }),
   useSetEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
@@ -93,7 +97,8 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('the dock follows the running switches', () => {
-  it('always exposes Price Rules and opens its signals board', async () => {
+  it('exposes Price Rules while it is switched on and opens its signals board', async () => {
+    priceRulesOn = true;
     renderPane();
     fireEvent.click(screen.getByRole('tab', { name: 'Open Price Rules strategy' }));
     expect(await screen.findByTestId('price-rules-board')).toBeTruthy();
@@ -106,6 +111,14 @@ describe('the dock follows the running switches', () => {
       expect(tab(name).length, name).toBeGreaterThan(0);
     }
     expect(screen.getAllByRole('tab')).toHaveLength(5);
+  });
+
+  it('hides Price Rules while its Trading Config switch is off', () => {
+    priceRulesOn = false;
+    renderPane();
+    expect(screen.queryByRole('tab', { name: 'Open Price Rules strategy' })).toBeNull();
+    expect(screen.queryByTestId('price-rules-board')).toBeNull();
+    priceRulesOn = true;
   });
 
   it('never offers a retired strategy', () => {

@@ -14,6 +14,8 @@ import { gammaMoveToBoard } from './board/gammaMoveAdapter';
 import { supertrendToBoard } from './board/supertrendAdapter';
 import { ACTIONABLE, type BoardSignal, type EngineId } from './board/boardTypes';
 import { useReleaseEngineEnabled } from '../../hooks/useEngineToggles';
+import { usePriceRulesSwitch } from '../../hooks/usePriceRulesSwitch';
+import { useIsSimulation } from '../../store/useViewStore';
 import { useEngineSignals } from '../../hooks/useSterlingKiteEngine';
 import { useSnapbackSnapshot } from '../../hooks/useSnapback';
 import { snapbackRowsToBoard } from './board/snapbackAdapter';
@@ -171,17 +173,19 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
    * `touched` is what keeps this from fighting the user: once they click a tab,
    * the preference has had its say for this session.
    */
+  // Price Rules has no scanner tab of its own; it follows its Trading Config switch.
+  const priceRulesOn = usePriceRulesSwitch(useIsSimulation()).enabled;
   const touched = React.useRef(Boolean(sessionStorage.getItem('sterling.page.workspace.engine')));
   useEffect(() => {
     if (!tabs.length) return;
-    const present = (id: string) => id === 'price_rules' || tabs.some((t) => t.id === id);
+    const present = (id: string) => (id === 'price_rules' && priceRulesOn) || tabs.some((t) => t.id === id);
     if (!touched.current && preferredEngine && present(preferredEngine)
         && engine !== preferredEngine) {
       setEngine(preferredEngine as EngineId);
       return;
     }
     if (!present(engine)) setEngine(tabs[0].id);
-  }, [tabs, engine, preferredEngine]);
+  }, [tabs, engine, preferredEngine, priceRulesOn]);
 
   const selectEngine = React.useCallback((id: EngineId) => {
     touched.current = true;
@@ -190,8 +194,8 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
 
   useEffect(() => {
     if (!tabs.length) return;
-    if (engine !== 'price_rules' && !tabs.some((tab) => tab.id === engine)) setEngine(tabs[0].id);
-  }, [tabs, engine]);
+    if (!(engine === 'price_rules' && priceRulesOn) && !tabs.some((tab) => tab.id === engine)) setEngine(tabs[0].id);
+  }, [tabs, engine, priceRulesOn]);
 
   useEffect(() => {
     const onNav = (event: Event) => {
@@ -220,13 +224,13 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   return (
     <div className="signals-workspace" style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: k.bg }}>
       <div className="signal-engine-tabs" style={{ display: 'flex', flexShrink: 0, borderBottom: `1px solid ${k.border}`, background: k.bg }}>
-        <EngineTabs tabs={tabs} active={engine as EngineId} onSelect={selectEngine} trailingTab={
+        <EngineTabs tabs={tabs} active={engine as EngineId} onSelect={selectEngine} trailingTab={priceRulesOn ? (
         <button type="button" role="tab" aria-selected={engine === 'price_rules'} title="Price Rules signals — published and armed entry plans"
           aria-label="Open Price Rules strategy" onClick={() => { touched.current = true; setEngine('price_rules'); }}
           className="sb-tab" style={{ flexShrink: 0, padding: '7px 8px', border: 0, borderLeft: `1px solid ${k.border}`, borderBottom: engine === 'price_rules' ? '2px solid var(--k-brand)' : '2px solid transparent',
             background: 'transparent', color: k.text, fontSize: 9.5, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer' }}>
           PRICE RULES
-        </button>} />
+        </button>) : undefined} />
 
         <button className="strategy-scroll-next" aria-label="Show next strategy" onClick={e=>e.currentTarget.parentElement?.querySelector('[role="tablist"]')?.scrollBy({left:200,behavior:'smooth'})}>›</button>
         <PaneHeaderActions pane="signals">
@@ -282,7 +286,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
         {engine === 'gamma_move' && (
           <GammaMoveBoard onOpenChart={openChartFor} nowMs={nowMs} onOpenDetail={onOpenBoardDetail} />
         )}
-        {engine === 'price_rules' && <PriceRulesBoard />}
+        {engine === 'price_rules' && priceRulesOn && <PriceRulesBoard />}
         {engine === 'ema_trend' && <EmaTrendBoard onOpenDetail={onOpenBoardDetail} onOpenChart={(key, mode, signal) => onOpenChart?.(key, 'chart', undefined, { strategy: 'ema_trend', emaTrendMode: mode, emaTrendSignalId: signal.emaTrend?.signalId, emaTrendCampaignId: signal.emaTrend?.campaignId, emaTrendConfigRevision: signal.emaTrend?.configRevision, timestamp_ms: signal.atMs || 0, direction: 'long', regime: 'BULL' })} />}
         {engine === 'snapback' && (
           <SnapbackBoard onOpenChart={openChartFor} onOpenDetail={onOpenBoardDetail} />

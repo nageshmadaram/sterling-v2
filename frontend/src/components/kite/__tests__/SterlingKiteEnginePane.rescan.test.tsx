@@ -46,6 +46,10 @@ let gammaEnabled = true;
 let snapbackEnabled = true;
 let scanning = false;
 
+let priceRulesOn = true;
+vi.mock('../../../hooks/usePriceRulesSwitch', () => ({
+  usePriceRulesSwitch: () => ({ enabled: priceRulesOn, pending: false, toggle: vi.fn(), error: null }),
+}));
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: cfg }),
   useSetEngineConfig: () => ({ mutate: vi.fn(), isPending: false }),
