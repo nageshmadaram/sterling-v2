@@ -97,8 +97,10 @@ def canonical_exit_reason(strategy: str, raw: object, *, trailed: Optional[bool]
         return "TARGET"
     if "runner trail" in low or low.strip() == "trail":
         return "TSL"
-    if "time" in low or "horizon" in low or "day5" in low or "held" in low or "hold" in low:
+    if "time" in low or "horizon" in low or "day5" in low or "held" in low or "hold" in low or "session_limit" in low:
         return "TIME_STOP"
+    if low.strip() == "gap":                           # Gamma overnight: closed before a weekend/holiday
+        return "EOD"
     if "trail" in low:
         return "SL" if trailed is False else "TSL"
     if re.match(r"^sl\b", low):                      # Gamma: "SL", "SL (broker stop; fill unconfirmed)"
