@@ -77,17 +77,12 @@ describe('live view', () => {
     expect(get).toHaveBeenCalledWith('/api/v1/sim/status');
   });
 
-  it('puts a strategy into Simulation only after the virtual-money confirmation', async () => {
-    put.mockResolvedValue({ strategy: 'supertrend', mode: 'SIMULATION', strategies: strategies({ supertrend: 'SIMULATION' }) });
+  it('does not offer virtual-money Simulation to a live strategy', async () => {
     renderControls();
     const group = within(screen.getByTestId('strategy-modes')).getByRole('group', { name: 'Supertrend mode' });
-    await waitFor(() => expect(within(group).getByRole('button', { name: 'SIMULATION' })).toBeEnabled());
-    fireEvent.click(within(group).getByRole('button', { name: 'SIMULATION' }));
+    await waitFor(() => expect(within(group).getByRole('button', { name: 'MANUAL' })).toBeEnabled());
+    expect(within(group).queryByRole('button', { name: 'SIMULATION' })).toBeNull();
     expect(put).not.toHaveBeenCalled();
-    expect(screen.getByRole('dialog')).toHaveTextContent(/virtual money/);
-    fireEvent.click(screen.getByRole('button', { name: 'Start Simulation' }));
-    await waitFor(() => expect(put).toHaveBeenCalledWith('/api/v1/sim/strategy/supertrend/mode', { mode: 'SIMULATION' }));
-    // Nothing else was touched: the engine's own config is not written from here.
     expect(patchMutate).not.toHaveBeenCalled();
   });
 
