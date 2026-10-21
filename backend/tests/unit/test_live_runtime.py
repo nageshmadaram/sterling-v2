@@ -1720,3 +1720,19 @@ async def test_status_refresh_keeps_disk_reads_off_event_loop(monkeypatch):
     monkeypatch.setattr(lr._STATE,"last_summary","unchanged")
     monkeypatch.setattr(lr._STATE,"boot_announced",True)
     await lr._after_state_change()
+
+
+def test_summary_line_reports_entries_blocked_when_kill_switch_is_on():
+    """Admission can allow while STERLING_LIVE_EXECUTION halts every entry order."""
+    from app.services.live_runtime import summary_line
+
+    line = summary_line({
+        "live_execution": {"enabled": False, "kill_switch": True},
+        "exposure": {"observed": True, "fresh": True, "readable": True, "age_seconds": 1},
+        "admission": {"may_open_new_exposure": True, "accounts": [{"blockers": []}]},
+        "safe_mode": {"state": "NORMAL"},
+        "recovery": {"overall": "CLEAN"},
+        "posture": {"ready": True},
+    })
+    assert "Live Execution: Killed" in line
+    assert "Entries: Blocked (live_execution_off)" in line

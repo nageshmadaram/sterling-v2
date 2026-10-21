@@ -1161,12 +1161,16 @@ def summary_line(status: Mapping[str, Any] | None = None) -> str:
     exec_str = "Killed" if execution.get("kill_switch") else ("Enabled" if execution.get("enabled") else "Disabled")
     safe_str = str(status["safe_mode"]["state"]).replace("_", " ").title()
     rec_str = str(status["recovery"]["overall"]).replace("_", " ").title()
-    entries_str = "Open" if admission["may_open_new_exposure"] else "Blocked"
+    # Admission omits the kill switch, which execution_service enforces per order.
+    entries_open = bool(admission["may_open_new_exposure"]) and bool(execution.get("enabled"))
+    if not execution.get("enabled"):
+        blockers = sorted(set(blockers) | {"live_execution_off"})
+    entries_str = "Open" if entries_open else "Blocked"
     posture = status.get("posture") or {}
     posture_str = "OK" if posture.get("ready") else "Missing"
     if posture and not posture.get("ready"):
         posture_str += f" ({', '.join(posture.get('missing') or ['unknown'])})"
-    block_str = f" ({', '.join(blockers)})" if blockers and not admission["may_open_new_exposure"] else ""
+    block_str = f" ({', '.join(blockers)})" if blockers and not entries_open else ""
     return f"Live Execution: {exec_str} · Safe Mode: {safe_str} · Recovery: {rec_str} · Exposure: {freshness} · Entries: {entries_str}{block_str} · Posture: {posture_str}"
 
 
