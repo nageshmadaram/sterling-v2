@@ -41,6 +41,7 @@ export function useConfigPatch() {
     values: Partial<EngineConfigModel>,
     keys?: FieldKey | FieldKey[],
     messageOverride?: string,
+    options?: { onSuccess?: () => void },
   ) => {
     if (!cfg) return;
     const named = keys === undefined
@@ -64,6 +65,7 @@ export function useConfigPatch() {
         qc.invalidateQueries({ queryKey: ['kite-engine-detail'] });
         if (rescan) runScan.mutate();
         else qc.invalidateQueries({ queryKey: ['kite-engine-signals'] });
+        options?.onSuccess?.();
       },
       onError: (err) => {
         notifyOrder({

@@ -21,6 +21,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { hasUnsavedDraft, resetDraftGuard } from './config/unsavedDraftGuard';
+import { EngineConfigDraftBar } from './config/engineConfigDraft';
 import type { KiteAccount } from '../../types/kite';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
 import { ButtonLoader } from './KiteLoader';
@@ -1292,6 +1293,7 @@ export function ConnectPane() {
               </>
             )}
 
+            {(section === 'mode' || section === 'manualRules' || section === 'autoRules') && <EngineConfigDraftBar />}
             {section === 'mode' && (
               <>
                 <TradingModePanel />

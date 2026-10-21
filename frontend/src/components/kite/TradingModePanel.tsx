@@ -2,7 +2,7 @@ import { openSettingsSection } from './config/registry';
 import { DataSourceSelector } from '../truedata/TrueDataCredentialsPanel';
 import React from 'react';
 import { useKiteSettings } from '../../store/useKiteSettings';
-import { useEngineConfig, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
+import { useStagedConfigPatch } from './config/engineConfigDraft';
 import { BORDER, DIM, MUTED, SOFT, Switch, TEXT } from './kiteSettingsPrimitives';
 import { PanelCard, PanelSectionHeading } from './config/ConfigPrimitives';
 import { TradingModeControls } from './TradingModeControls';
@@ -102,8 +102,10 @@ const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
 
 export function TradingModePanel() {
   const sim = useIsSimulation();
-  const { data: cfg } = useEngineConfig();
-  const patchCfg = usePatchEngineConfig();
+  // Staged: every choice here waits for Apply in the bottom bar.
+  const staged = useStagedConfigPatch();
+  const cfg = staged.cfg;
+  const patchCfg = { mutate: (values: Partial<EngineConfigModel>) => staged.patch(values), isPending: staged.saving };
   const toggles = useReleaseEngineToggles();
   const priceRules = usePriceRulesSwitch(sim);
   const rescanStrategies = useKiteSettings((s) => s.rescanStrategies);

@@ -45,7 +45,7 @@ it('stores what was typed as a loss', async () => {
   // limit of +20000 that can never trigger gets saved.
   show();
   fireEvent.change(await screen.findByTestId('daily-loss-halt'), { target: { value: '20000' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
   await waitFor(() => expect(api.put).toHaveBeenCalledWith(
     '/api/v1/kite/risk/daily-loss',
     { enabled: true, soft_warn_inr: -8000, hard_halt_inr: -20000 },
@@ -56,14 +56,14 @@ it('will not submit a halt smaller than the warning', async () => {
   // It would halt before it ever warned, and the backend rejects the pair.
   show();
   fireEvent.change(await screen.findByTestId('daily-loss-halt'), { target: { value: '100' } });
-  expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
   expect(api.put).not.toHaveBeenCalled();
 });
 
 it('will not submit zero, which reads as no limit but halts everything', async () => {
   show();
   fireEvent.change(await screen.findByTestId('daily-loss-halt'), { target: { value: '0' } });
-  expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Apply changes' })).toBeDisabled();
 });
 
 it('says when the account is on the shared default rather than its own', async () => {

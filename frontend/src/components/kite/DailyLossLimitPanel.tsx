@@ -2,7 +2,8 @@ import React from 'react';
 import {
   BORDER, Field, MUTED, Section, Switch, TEXT, inputStyle,
 } from './kiteSettingsPrimitives';
-import { ConfigNote, PanelCard } from './config/ConfigPrimitives';
+import { ConfigNote, PanelCard, SettingsDraftBar } from './config/ConfigPrimitives';
+import { useUnsavedDraftGuard } from './config/unsavedDraftGuard';
 import {
   useClearDailyLossLimit, useDailyLossLimit, useSetDailyLossLimit,
 } from '../../hooks/useDailyLossLimit';
@@ -30,6 +31,9 @@ export function DailyLossLimitPanel() {
   // A draft, so a half-typed number never round-trips to the breaker.
   const [draft, setDraft] = React.useState<{ warn: string; halt: string } | null>(null);
   React.useEffect(() => { setDraft(null); }, [data?.soft_warn_inr, data?.hard_halt_inr]);
+  const draftDirty = !!data && draft != null
+    && (Number(draft.warn) !== Math.abs(data.soft_warn_inr) || Number(draft.halt) !== Math.abs(data.hard_halt_inr));
+  useUnsavedDraftGuard('daily-loss', draftDirty);
 
   if (isLoading || !data) {
     return <PanelCard><div style={{ color: MUTED, fontSize: 11.5, padding: '10px 0' }}>Loading…</div></PanelCard>;
@@ -105,18 +109,7 @@ export function DailyLossLimitPanel() {
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           padding: '10px 0', borderTop: `1px solid ${BORDER}`, marginTop: 4,
         }}>
-          <button
-            type="button" disabled={!dirty || !valid || save.isPending}
-            onClick={() => apply()}
-            style={{
-              padding: '6px 14px', fontSize: 11.5, fontWeight: 700, fontFamily: 'inherit',
-              borderRadius: 6, border: `1px solid ${dirty && valid ? 'var(--k-brand)' : BORDER}`,
-              background: 'transparent', color: dirty && valid ? 'var(--k-brand)' : MUTED,
-              cursor: dirty && valid ? 'pointer' : 'default',
-            }}
-          >
-            {save.isPending ? 'Saving…' : 'Apply'}
-          </button>
+
           {data.is_account_override && (
             <button
               type="button" onClick={() => clear.mutate()} disabled={clear.isPending}
@@ -147,6 +140,9 @@ export function DailyLossLimitPanel() {
             </span>
           )}
         </div>
+        <SettingsDraftBar dirty={dirty} saving={save.isPending} applyDisabled={!valid}
+          applyTitle={valid ? undefined : 'Halt must be at least the warning, and both above zero'}
+          onApply={() => apply()} onDiscard={() => setDraft(null)} />
       </Section>
     </PanelCard>
   );

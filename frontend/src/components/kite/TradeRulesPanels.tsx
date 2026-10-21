@@ -7,7 +7,7 @@ import {
 } from './kiteSettingsPrimitives';
 import { AdvancedSection, ConfigNote, PanelCard, PanelHeader, PanelSectionHeading } from './config/ConfigPrimitives';
 import { FIELDS, STOP_MODE_OPTIONS, openSettingsSection } from './config/registry';
-import { useConfigPatch } from './config/useConfigPatch';
+import { useStagedConfigPatch } from './config/engineConfigDraft';
 import { DirectionalModePanel } from './DirectionalModePanel';
 import { RunningRow } from './TradingModePanel';
 import { ModeToggle } from './ModeToggle';
@@ -125,7 +125,7 @@ function ExitSafeguards({ expiryDays, timeStop, onExpiry, onTimeStop, alsoOn }: 
 // ── Manual rules ────────────────────────────────────────────────────────────
 
 export function ManualRulesPanel() {
-  const { cfg, patch, saving } = useConfigPatch();
+  const { cfg, patch, saving } = useStagedConfigPatch();
   if (!cfg) return <div style={{ padding: 18, color: DIM, fontSize: 12 }}>Loading…</div>;
 
   const protectOn = cfg.protect_manual_orders ?? true;
@@ -214,7 +214,7 @@ export function ManualRulesPanel() {
 // ── Automatic rules ─────────────────────────────────────────────────────────
 
 export function AutomaticRulesPanel() {
-  const { cfg, patch, saving } = useConfigPatch();
+  const { cfg, patch, saving } = useStagedConfigPatch();
   const { data: stData } = useEngineSignals();
   const algoToggles = useAlgoToggles();
 
@@ -511,7 +511,7 @@ export function AutomaticRulesPanel() {
             <PerEngineEntryExit />
           </Section>
         </AdvancedSection>
-      </PanelCard>
+        </PanelCard>
     </>
   );
 }

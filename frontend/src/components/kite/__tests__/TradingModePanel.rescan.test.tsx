@@ -12,6 +12,7 @@ vi.mock('../../../hooks/useEmaTrend', () => ({ useEmaTrendConfig: () => ({ data:
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { EngineConfigDraftBar, useEngineConfigDraft } from '../config/engineConfigDraft';
 
 const mockPatchMutate = vi.fn();
 let mockEngineConfigData: any = {
@@ -31,6 +32,11 @@ let mockEngineConfigData: any = {
 vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useEngineConfig: () => ({ data: mockEngineConfigData }),
   usePatchEngineConfig: () => ({ mutate: mockPatchMutate, isPending: false }),
+  useRunScan: () => ({ mutate: vi.fn(), isPending: false }),
+}));
+vi.mock('@tanstack/react-query', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
+  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
 }));
 vi.mock('../../../hooks/usePriceRulesSwitch', () => ({
   usePriceRulesSwitch: () => ({ enabled: false, pending: false, toggle: vi.fn(), error: null }),
@@ -79,6 +85,7 @@ function noteOf(label: string): string {
 }
 
 beforeEach(() => {
+  useEngineConfigDraft.getState().clear();
   useKiteSettings.setState({ rescanStrategies: {} });
 });
 afterEach(() => {
@@ -145,7 +152,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
   });
 
   it('renders Options & Strike Execution Config and handles profile selection', () => {
-    render(<TradingModePanel />);
+    render(<><TradingModePanel /><EngineConfigDraftBar /></>);
     expect(screen.getByText('Options & Strike Execution Config')).toBeInTheDocument();
     expect(screen.getByText('Strike Moneyness & Delta Profile')).toBeInTheDocument();
     expect(screen.getByText('ATM')).toBeInTheDocument();
@@ -156,11 +163,12 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
 
     const otmBtn = screen.getByRole('button', { name: /OTM δ ≈ 0\.28/i });
     fireEvent.click(otmBtn);
+    // Staged, not saved: nothing is written until Apply.
+    expect(mockPatchMutate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
     expect(mockPatchMutate).toHaveBeenCalledWith({
-      vehicle: 'otm_options',
-      directional_mode: false,
       target_delta: 0.28,
-    });
+    }, expect.anything());
   });
 
   it('shows max_lots as an automatic cap, not a manual order size', () => {
@@ -182,14 +190,15 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
   });
 
   it('handles automatic lot caps and spread protection controls', () => {
-    render(<TradingModePanel />);
+    render(<><TradingModePanel /><EngineConfigDraftBar /></>);
     const lot5Btn = screen.getByRole('button', { name: '5L' });
     fireEvent.click(lot5Btn);
-    expect(mockPatchMutate).toHaveBeenCalledWith({ max_lots: 5 });
-
     const spread15Btn = screen.getByRole('button', { name: '1.5%' });
     fireEvent.click(spread15Btn);
-    expect(mockPatchMutate).toHaveBeenCalledWith({ max_spread_pct: 1.5 });
+    expect(mockPatchMutate).not.toHaveBeenCalled();
+    // One Apply writes both staged changes together.
+    fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
+    expect(mockPatchMutate).toHaveBeenCalledWith({ max_lots: 5, max_spread_pct: 1.5 }, expect.anything());
   });
 });
 
