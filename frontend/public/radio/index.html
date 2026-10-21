@@ -2236,7 +2236,26 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       recentsList = readRadioJson('omnicast_v11_recents', []);
       playCounts = readRadioJson('omnicast_v11_counts', {});
       likedStations = readRadioJson('omnicast_v11_liked', []);
-      if (document.readyState !== 'loading') bootRadioApplication();
+      if (radioBooted) {
+        // A slow parent hydration may arrive after the standalone fallback
+        // started. Apply stored preferences without installing duplicate loops
+        // or restarting an already-playing station.
+        audio.muted=!!appConfig.muted;
+        applyAcousticContourToAudio();
+        ['sp-vol-slider','ytm-vol-slider'].forEach(id=>{
+          const slider=document.getElementById(id);
+          if(slider)slider.value=appConfig.volume ?? 0.85;
+        });
+        switchAppMode(appConfig.appMode||'spotify',true);
+        loadCategory(appConfig.activeCategory||'shortwave',true);
+        renderPersonalizedShelves();
+        renderSidebarList();
+        if(!isPlaying&&!pendingBootStation) {
+          const savedId=appConfig.bootBehavior==='custom'?appConfig.startupStationId:appConfig.lastStationId;
+          const savedStation=findStationById(savedId);
+          if(savedStation){activeStream=savedStation;syncPlayerUI(getStationIdentityThumbnail(savedStation));}
+        }
+      } else if (document.readyState !== 'loading') bootRadioApplication();
     });
     window.addEventListener('DOMContentLoaded', () => {
       if (window.parent === window) {
