@@ -49,7 +49,7 @@ function readTvPreferences(): Partial<Record<TvKey, string>> {
 }
 
 export type TvHeaderState = {theme:'youtube'|'spotify'|'netflix';query:string};
-export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {}) {
+export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderState)=>void;onPlayerState?:(expanded:boolean)=>void} = {}) {
   const ref = useRef<HTMLIFrameElement>(null);
   const readyRef = useRef(false);
   const pendingCommands=useRef(new Map<string,Record<string,unknown>>());
@@ -87,6 +87,8 @@ export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {
         window.dispatchEvent(new Event('sterling-tv-focus-search'));
       } else if(data.type === 'sterling.tv.state') {
         if(['youtube','spotify','netflix'].includes(data.theme) && typeof data.query==='string' && data.query.length<=200)onState?.({theme:data.theme,query:data.query});
+      } else if(data.type === 'sterling.tv.player-state') {
+        if(typeof data.expanded==='boolean')onPlayerState?.(data.expanded);
       } else if (data.type === MESSAGE_SAVE) {
         // Startup playback emits play-history writes before hydration. Never
         // overwrite persisted preferences with temporary boot defaults.
@@ -106,7 +108,7 @@ export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {
     window.addEventListener('message', onMessage);
     const command=(event:Event)=>{
       const data=(event as CustomEvent).detail;
-      if(!data||!['theme','search','more','play-search'].includes(data.action))return;
+      if(!data||!['theme','search','more','play-search','collapse'].includes(data.action))return;
       if(data.action==='theme'&&!['youtube','spotify','netflix'].includes(data.value))return;
       if(data.action==='search'&&(typeof data.value!=='string'||data.value.length>200))return;
       const payload={type:'sterling.tv.command',action:data.action,value:data.value};
@@ -115,7 +117,7 @@ export function TvWorkspace({onState}:{onState?:(value:TvHeaderState)=>void} = {
     };
     window.addEventListener('sterling-tv-command',command);
     return () => { window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);window.removeEventListener('sterling-tv-command',command); };
-  }, [reloadKey,onState]);
+  }, [reloadKey,onState,onPlayerState]);
 
   return (
     <section

@@ -17,6 +17,7 @@ import { SimBanner } from '../components/sim/SimBanner';
 import '../styles/terminal.css';
 import { MobileExperienceMenu } from '../components/kite/MobileExperienceMenu';
 import { useMobileExperience } from '../store/useMobileExperience';
+import { useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { useSimStatus, isOwnerDenied } from '../hooks/useSim';
 
 function notificationDestination(value:string|null):NavItem|null{return value==='pcr'?'pcr':value==='alerts'?'positions':value==='signals'?'dashboard':null;}
@@ -33,11 +34,19 @@ export function SimpleTerminal() {
   });
   const [tvState,setTvState]=useState<{theme:'youtube'|'spotify'|'netflix';query:string}>(()=>{let theme='youtube';try{theme=localStorage.getItem('sterling.tv.streamos_theme_v14')||theme;}catch{}return {theme:theme==='spotify'||theme==='netflix'?theme:'youtube',query:''};});
   const [radioState,setRadioState]=useState<{theme:'spotify'|'youtube';query:string}>({theme:'spotify',query:''});
+  const [tvPlayerExpanded,setTvPlayerExpanded]=useState(false);
+  const [radioPlayerExpanded,setRadioPlayerExpanded]=useState(false);
   const onRadioState=useCallback((state:{theme:'spotify'|'youtube';query:string})=>setRadioState(state),[]);
   const radioCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-radio-command',{detail:{action,value}}));
   useEffect(()=>{const focus=()=>document.querySelector<HTMLInputElement>('.sterling-radio-search input')?.focus();window.addEventListener('sterling-radio-focus-search',focus);return()=>window.removeEventListener('sterling-radio-focus-search',focus);},[]);
   const onTvState=useCallback((state:{theme:'youtube'|'spotify'|'netflix';query:string})=>setTvState(state),[]);
   const tvCommand=(action:string,value?:string)=>window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action,value}}));
+  useMobileBackLayer(spectrum==='tv'&&tvPlayerExpanded,()=>{
+    setTvPlayerExpanded(false);tvCommand('collapse');
+  },'tv-player');
+  useMobileBackLayer(spectrum==='radio'&&radioPlayerExpanded,()=>{
+    setRadioPlayerExpanded(false);radioCommand('minimize');
+  },'radio-player');
   useEffect(()=>{const focus=()=>document.querySelector<HTMLInputElement>('.sterling-tv-search input')?.focus();window.addEventListener('sterling-tv-focus-search',focus);return()=>window.removeEventListener('sterling-tv-focus-search',focus);},[]);
   useEffect(()=>{try{localStorage.setItem('sterling.workspace',spectrum);}catch{}},[spectrum]);
   const selectedView = useViewStore(s => s.view);
@@ -53,6 +62,7 @@ export function SimpleTerminal() {
     if (hasUnsavedDraft() && !window.confirm('You have unsaved settings changes. Switch workspace and discard them?')) return false;
     setToolsOpen(false);
     setShowSettings(false);
+    if(next!==spectrum){setTvPlayerExpanded(false);setRadioPlayerExpanded(false);}
     if (targetView && targetView !== selectedView) setSelectedView(targetView);
     setSpectrum(next);
     return true;
@@ -88,6 +98,8 @@ export function SimpleTerminal() {
     initialHomePendingRef.current = false;
     // Close managed overlays before changing the underlying workspace.
     window.dispatchEvent(new Event('sterling-home'));
+    tvCommand('collapse');radioCommand('minimize');
+    setTvPlayerExpanded(false);setRadioPlayerExpanded(false);
     setToolsOpen(false);
     setShowSettings(false);
     const home = navOptions.spectrumHome;
@@ -233,6 +245,14 @@ export function SimpleTerminal() {
                 </button>
               ))}
             </div>
+            {kiteNav !== preferredSection && (
+              <button type="button" className="sterling-return-home"
+                aria-label={`Close ${navigation.find(item => item.id === kiteNav)?.label ?? kiteNav} and return to ${navigation.find(item => item.id === preferredSection)?.label ?? 'Home'}`}
+                title={`Return to ${navigation.find(item => item.id === preferredSection)?.label ?? 'Home'}`}
+                onClick={() => handleKiteNav(preferredSection || 'dashboard')}>
+                <span aria-hidden="true">×</span>
+              </button>
+            )}
             {overflow.length > 0 && <div className="sterling-desktop-tools" ref={toolsRef} style={{ position: 'relative', flexShrink: 0 }}>
               <button type="button" aria-haspopup="menu" aria-expanded={toolsOpen}
                 onClick={() => setToolsOpen(open => !open)}
@@ -286,8 +306,13 @@ export function SimpleTerminal() {
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
             ⚙
           </button>}
-          <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />
         </div>
+        {spectrum === 'kite' && (
+          <div className="sterling-mobile-command-row" aria-label="Mobile navigation and search">
+            <span className="sterling-mobile-current-section">{navigation.find(item => item.id === kiteNav)?.label ?? kiteNav}</span>
+            <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />
+          </div>
+        )}
       </div>
 
       {/* The Simulation banner (virtual money, no real orders), or the chip that points to it. */}
@@ -309,12 +334,12 @@ export function SimpleTerminal() {
       </div>
       {spectrum === 'radio' && <div id="sterling-radio-surface" role="tabpanel"
         aria-label="Radio workspace" style={{ display:'flex', flex:1, minHeight:0, minWidth:0, overflow:'hidden' }}>
-        <RadioWorkspace onState={onRadioState} />
+        <RadioWorkspace onState={onRadioState} onPlayerState={setRadioPlayerExpanded} />
       </div>}
       {spectrum === 'tv' && <div id="sterling-tv-surface" role="tabpanel"
         aria-label="TV workspace" style={{ display: 'flex', flex: 1,
           minHeight: 0, minWidth: 0, overflow: 'hidden' }}>
-        <TvWorkspace onState={onTvState} />
+        <TvWorkspace onState={onTvState} onPlayerState={setTvPlayerExpanded} />
       </div>}
 
       <SimpleSettingsDrawer open={showSettings} onClose={() => setShowSettings(false)} />

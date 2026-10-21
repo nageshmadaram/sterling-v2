@@ -252,6 +252,31 @@
     }
   </style>
 <link rel="stylesheet" href="/radio/appearance.css">
+
+<style id="sterling-radio-mobile-recovery">
+/* Settings must consume touches; background channel cards stay inert. */
+#startup-modal:not(.hidden),#audio-dsp-modal:not(.hidden) {
+  z-index:10000!important;pointer-events:auto!important;touch-action:pan-y;
+  overflow-y:auto;overscroll-behavior:contain;
+}
+#startup-modal:not(.hidden)>div,#audio-dsp-modal:not(.hidden)>div {
+  max-height:calc(100dvh - 24px);overflow-y:auto;touch-action:pan-y;
+}
+html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
+  pointer-events:none!important;
+}
+@media(max-width:1023px) {
+  #mobile-player-sheet {background:linear-gradient(170deg,rgba(var(--ambient-rgb,28,90,56),.85),#121212 62%)!important;}
+  #mobile-player-sheet>div:nth-child(2){margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
+  #mobile-player-sheet .radio-mobile-art{width:min(82vw,350px)!important;height:min(82vw,350px)!important;max-height:45dvh!important;aspect-ratio:1;flex-shrink:1!important;margin-bottom:14px!important;}
+  #mobile-player-sheet .radio-mobile-art img{width:100%;height:100%;object-fit:cover;}
+  #mobile-player-sheet [data-radio-click="56"]{width:68px;min-height:68px;}
+}
+@media(max-width:1023px) and (orientation:landscape) {
+  #mobile-player-sheet .radio-mobile-art{width:min(39vw,250px)!important;height:min(39vw,250px)!important;max-height:56dvh!important;}
+}
+@media(prefers-reduced-motion:reduce){#mobile-player-sheet{transition:none!important;}}
+</style>
 </head>
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
@@ -331,9 +356,10 @@
     <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-semibold text-[15px] text-white">Audio Quality & Equalizer</h3>
-        <button data-radio-click="9" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
-          <i class="fa-solid fa-xmark text-xs"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button data-radio-click="7" aria-label="Pin playing station as startup" title="Pin as startup station" class="w-10 h-10 btn-circle bg-[#282828] text-white"><i class="fa-solid fa-thumbtack"></i></button>
+          <button data-radio-click="9" aria-label="Close audio settings" class="w-10 h-10 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white"><i class="fa-solid fa-xmark text-xs"></i></button>
+        </div>
       </div>
 
       <div class="mb-4">
@@ -641,9 +667,6 @@
               <p id="sp-np-sub" class="text-xs text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button data-radio-click="7" class="text-[#b3b3b3] hover:text-white text-xs" title="Set as Startup Channel">
-                <i class="fa-solid fa-thumbtack"></i>
-              </button>
               <button data-radio-click="53" id="sp-np-like" class="text-[#b3b3b3] hover:text-white text-base">
                 <i class="fa-regular fa-heart"></i>
               </button>
@@ -1002,18 +1025,22 @@
       </button>
       <span class="text-xs font-semibold text-white/90">Now Playing</span>
       <div class="flex items-center gap-1">
-        <button data-radio-click="7" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Set as Startup Channel">
-          <i class="fa-solid fa-thumbtack text-sm"></i>
+        <button data-radio-click="74" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" aria-label="Open radio tuner" title="Tuner">
+          <i class="fa-solid fa-wave-square text-sm"></i>
         </button>
-        <button data-radio-click="29" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Equalizer">
+        <button data-radio-click="29" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" title="Audio settings">
           <i class="fa-solid fa-sliders text-sm"></i>
         </button>
       </div>
     </div>
 
     <div class="my-auto flex flex-col items-center py-4">
-      <div class="w-64 h-64 sm:w-72 sm:h-72 rounded-lg overflow-hidden shadow-2xl mb-6 bg-[#181818]">
-        <img id="sheet-art" src="" class="w-full h-full object-cover" alt="" />
+      <div class="radio-mobile-art relative w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
+        <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
+        <button type="button" data-radio-click="75" aria-label="Refresh now-playing artwork" title="Refresh artwork"
+          class="absolute top-2 right-2 w-11 h-11 btn-circle bg-black/65 text-white flex items-center justify-center">
+          <i class="fa-solid fa-rotate text-sm"></i>
+        </button>
       </div>
 
       <div class="w-full flex items-center justify-between gap-3">
@@ -1119,14 +1146,22 @@
     const stationBadgeCache = {};
 
     function getStationIdentityThumbnail(ch) {
-      if (ch.kind === 'podcast_show' && ch.artwork) return ch.artwork;
+      // Remote artwork is interpolated into HTML attributes; reject markup and non-HTTPS URLs.
+      if (typeof ch.artwork==='string' && ch.artwork.length<=2048 &&
+          /^https:\/\//i.test(ch.artwork) && !/[<>"'\x00-\x20\x7f]/.test(ch.artwork)) {
+        try { const uri=new URL(ch.artwork);if(uri.protocol==='https:'&&uri.hostname&&!uri.username&&!uri.password)return uri.href; }
+        catch (_) {}
+      }
       const cacheKey = ch.id || ch.title;
       if (stationBadgeCache[cacheKey]) return stationBadgeCache[cacheKey];
 
       const canvas = document.createElement('canvas');
-      canvas.width = 600;
-      canvas.height = 600;
+      // 384 square is sufficient for mobile covers; scaling legacy drawing
+      // coordinates reduces repeated rasterization, memory and JPEG size.
+      canvas.width = 384;
+      canvas.height = 384;
       const ctx = canvas.getContext('2d');
+      ctx.scale(384/600,384/600);
 
       const h = hashString(cacheKey);
       const theme = STUDIO_THEMES[h % STUDIO_THEMES.length];
@@ -1139,13 +1174,7 @@
       ctx.fillRect(0, 0, 600, 600);
       ctx.globalAlpha=0.14;ctx.fillStyle=theme.accent;ctx.fillRect(0,0,600,600);ctx.globalAlpha=1;
 
-      // Subtle Top-Left Brand Mark + Frequency Tag
-      const freqText = (ch.freqLabel || (ch.freqKhz ? `${ch.freqKhz} kHz` : 'LIVE')).toUpperCase();
-      ctx.fillStyle = theme.accent;
-      ctx.font = '700 24px "JetBrains Mono", monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(freqText.slice(0, 16), 44, 68);
-
+      // Frequency is printed once (large), not repeated above it.
       // Minimal Horizontal Hairline Rule
       ctx.fillStyle = 'rgba(255,255,255,0.10)';
       ctx.fillRect(44, 92, 512, 1.5);
@@ -1178,8 +1207,11 @@
       ctx.font = '500 22px "Inter", sans-serif';
       ctx.fillText((ch.subtitle || 'Live Broadcast').slice(0, 30), 44, 540);
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
       stationBadgeCache[cacheKey] = dataUrl;
+      // Without a bound this cache grows with every remote search result.
+      const keys=Object.keys(stationBadgeCache);
+      if(keys.length>96)delete stationBadgeCache[keys[0]];
       return dataUrl;
     }
 
@@ -2023,15 +2055,22 @@
     }
 
     // --- Startup Modal ---
+    function syncRadioModalState() {
+      const open = ['startup-modal','audio-dsp-modal'].some(id=>!document.getElementById(id).classList.contains('hidden'));
+      document.documentElement.classList.toggle('radio-modal-open',open);
+    }
     function openStartupModal() {
       safeHaptic(10);
       populateStartupSelectDropdown();
       syncStartupModalUI();
       document.getElementById('startup-modal').classList.remove('hidden');
+      syncRadioModalState();
+      document.querySelector('#startup-modal button')?.focus();
     }
 
     function closeStartupModal() {
       document.getElementById('startup-modal').classList.add('hidden');
+      syncRadioModalState();
     }
 
     function populateStartupSelectDropdown() {
@@ -2112,6 +2151,10 @@
     let searchAbort = null;
     let watchdogTimer = null;
     let pendingPlayRecord = null;
+    let playbackRevision = 0;
+    let artworkLookupInFlight = false;
+    let lastArtworkTrackKey = '', lastArtworkTrackCheck = 0;
+    let nextBackgroundRetryAt = 0;
 
     const audio = document.getElementById('audio-engine');
     let hlsInstance = null;
@@ -2184,6 +2227,7 @@
         if (action === 'theme' && ['spotify','youtube'].includes(value)) switchAppMode(value === 'spotify' ? 'spotify' : 'ytmusic');
         if (action === 'search' && typeof value === 'string' && value.length <= 200) onSearchInput(value);
         if (action === 'more') openStartupModal();
+        if (action === 'minimize') closeMobileSheet();
         return;
       }
       if (event.data?.type !== 'sterling.radio.hydrate') return;
@@ -2194,7 +2238,26 @@
       recentsList = readRadioJson('omnicast_v11_recents', []);
       playCounts = readRadioJson('omnicast_v11_counts', {});
       likedStations = readRadioJson('omnicast_v11_liked', []);
-      if (document.readyState !== 'loading') bootRadioApplication();
+      if (radioBooted) {
+        // A slow parent hydration may arrive after the standalone fallback
+        // started. Apply stored preferences without installing duplicate loops
+        // or restarting an already-playing station.
+        audio.muted=!!appConfig.muted;
+        applyAcousticContourToAudio();
+        ['sp-vol-slider','ytm-vol-slider'].forEach(id=>{
+          const slider=document.getElementById(id);
+          if(slider)slider.value=appConfig.volume ?? 0.85;
+        });
+        switchAppMode(appConfig.appMode||'spotify',true);
+        loadCategory(appConfig.activeCategory||'shortwave',true);
+        renderPersonalizedShelves();
+        renderSidebarList();
+        if(!isPlaying&&!pendingBootStation) {
+          const savedId=appConfig.bootBehavior==='custom'?appConfig.startupStationId:appConfig.lastStationId;
+          const savedStation=findStationById(savedId);
+          if(savedStation){activeStream=savedStation;syncPlayerUI(getStationIdentityThumbnail(savedStation));}
+        }
+      } else if (document.readyState !== 'loading') bootRadioApplication();
     });
     window.addEventListener('DOMContentLoaded', () => {
       if (window.parent === window) {
@@ -2297,10 +2360,13 @@
       safeHaptic(10);
       syncDspModalUI();
       document.getElementById('audio-dsp-modal').classList.remove('hidden');
+      syncRadioModalState();
+      document.querySelector('#audio-dsp-modal button')?.focus();
     }
 
     function closeDspModal() {
       document.getElementById('audio-dsp-modal').classList.add('hidden');
+      syncRadioModalState();
     }
 
     function setStreamQualityProfile(profile) {
@@ -2365,7 +2431,9 @@
 
     function applyAcousticContourToAudio() {
       audio.preservesPitch = appConfig.dspPreset !== 'swclean';
-      const boostFactor = Math.min(1, Math.max(0.1, (appConfig.volume || 0.85) * (1 + (appConfig.bass + appConfig.mid) * 0.015)));
+      // Volume zero is user-selected silence and must never become audible on an EQ change.
+      const requested=Number.isFinite(appConfig.volume)?appConfig.volume:0.85;
+      const boostFactor=Math.min(1,Math.max(0,requested*(1+((appConfig.bass||0)+(appConfig.mid||0))*0.015)));
       audio.volume = boostFactor;
     }
 
@@ -2482,6 +2550,10 @@
       if (found) {
         if (found.freqKhz) previewSwDial(found.freqKhz);
         startPlayback(found);
+        if (radioSearchQuery.trim()) {
+          clearAllSearches();
+          activeIndex = catalogItems.findIndex(ch=>ch.id===found.id);
+        }
       }
     }
 
@@ -2539,7 +2611,7 @@
                 <div class="text-[11px] text-[#aaa] truncate">${escapeRadioText(ch.subtitle)}</div>
               </div>
             </div>
-            <span class="text-[10px] font-mono-num text-[#aaa] shrink-0">${ch.freqLabel || 'LIVE'}</span>
+            <span class="text-[10px] font-mono-num text-[#aaa] shrink-0">${escapeRadioText(ch.freqLabel || 'LIVE')}</span>
           </div>
         `;
       }).join('');
@@ -2770,7 +2842,7 @@
             <img src="${emblem}" class="w-11 h-11 rounded-[4px] object-cover shrink-0" alt="" />
             <div class="min-w-0 flex-1">
               <div class="text-[13px] font-medium text-white truncate">${escapeRadioText(ch.title)}</div>
-              <div class="text-[11px] text-[#b3b3b3] truncate">${sub}</div>
+              <div class="text-[11px] text-[#b3b3b3] truncate">${escapeRadioText(sub)}</div>
             </div>
           </div>
         `;
@@ -2790,13 +2862,23 @@
         backupCursor = 0;
         if (item.freqKhz) previewSwDial(item.freqKhz);
         startPlayback(item);
+        // Navigation to a search result returns the search UI to browse mode.
+        // Keep playback alive, then repair the new catalog's queue index.
+        if (radioSearchQuery.trim()) {
+          clearAllSearches();
+          activeIndex = catalogItems.findIndex(ch=>ch.id===item.id);
+        }
       }
     }
 
     function startPlayback(streamObj, overrideUrl = null, isBootAttempt = false) {
+      if (!streamObj || typeof (overrideUrl || streamObj.streamUrl)!=='string' || !(overrideUrl || streamObj.streamUrl).trim()) {
+        showToast('This station has no playable stream');return;
+      }
       if (!isBootAttempt) safeHaptic(10);
       activeStream = streamObj;
       userPaused = false;
+      const revision=++playbackRevision;
       const url = overrideUrl || streamObj.streamUrl;
 
       if (!overrideUrl) pendingPlayRecord = streamObj;
@@ -2815,9 +2897,11 @@
       const handlePlayPromise = (p) => {
         if (!p) return;
         p.then(() => {
+          if(playbackRevision!==revision)return;
           pendingBootStation = null;
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
+          if(playbackRevision!==revision)return;
           if (isBootAttempt && err.name === 'NotAllowedError') {
             const banner = document.getElementById('boot-resume-banner');
             document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
@@ -2836,15 +2920,19 @@
         hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
-        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => handlePlayPromise(audio.play()));
-        hlsInstance.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) switchBackupServer(); });
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          if(playbackRevision===revision)handlePlayPromise(audio.play());
+        });
+        hlsInstance.on(Hls.Events.ERROR, (_, d) => {
+          if(playbackRevision===revision&&d.fatal)switchBackupServer();
+        });
       } else {
         audio.src = url;
         handlePlayPromise(audio.play());
       }
 
       watchdogTimer = setTimeout(() => {
-        if (audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
+        if (playbackRevision===revision && audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
           switchBackupServer();
         }
       }, 8500);
@@ -2857,7 +2945,9 @@
       updateMediaSession(stationEmblem, streamObj.title, streamObj.subtitle);
 
       if (streamObj.kind === 'radio') {
-        setTimeout(() => updateActivePlayerSongArtwork(streamObj), 900);
+        setTimeout(() => {
+          if(playbackRevision===revision)updateActivePlayerSongArtwork(streamObj);
+        }, 900);
       }
     }
 
@@ -2871,8 +2961,19 @@
       }
     }
 
+    function refreshNowPlayingArtwork() {
+      if(!activeStream)return showToast('Play a station first');
+      lastArtworkTrackCheck=0;
+      syncPlayerUI(getStationIdentityThumbnail(activeStream));
+      if(activeStream.somaId){
+        Promise.resolve(updateActivePlayerSongArtwork(activeStream)).catch(()=>{});
+        showToast('Checking current-track artwork');
+      }else showToast('Station artwork refreshed; track artwork unavailable');
+    }
     async function updateActivePlayerSongArtwork(streamObj) {
-      if (!streamObj.somaId) return;
+      if (!streamObj.somaId || artworkLookupInFlight) return;
+      artworkLookupInFlight=true;
+      try {
       let broadcastTrack=null;
       let query = streamObj.artQuery || streamObj.title.replace(/akashvani|all india radio|\(.*?\)/gi, '').trim();
 
@@ -2888,6 +2989,11 @@
       }
 
       if(!broadcastTrack)return;
+      // A station's now-playing song normally lasts minutes; avoid repeated
+      // image search/validation requests for the same track every 25 seconds.
+      const trackKey=streamObj.id+'|'+broadcastTrack.artist+'|'+broadcastTrack.title;
+      if(trackKey===lastArtworkTrackKey&&Date.now()-lastArtworkTrackCheck<90000)return;
+      lastArtworkTrackKey=trackKey;lastArtworkTrackCheck=Date.now();
       const data = await itunesJsonp({ term: query, media: 'music', entity: 'song', limit: 10 });
       if (!data.results?.length) return;
 
@@ -2901,7 +3007,7 @@
       // Updates ONLY active player surfaces; channel grids keep their clean station covers
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.src = validUrl;
+        if (el) { delete el.dataset.radioFallbackApplied; el.src = validUrl; }
       });
 
       ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
@@ -2910,6 +3016,7 @@
       });
 
       updateMediaSession(validUrl, broadcastTrack.title, `${broadcastTrack.artist} • ${streamObj.title}`);
+      } finally { artworkLookupInFlight=false; }
     }
 
     function updateAmbientColorFromId(idStr) {
@@ -2925,6 +3032,7 @@
       audio.addEventListener('playing', () => {
         clearTimeout(watchdogTimer);
         isPlaying = true;
+        nextBackgroundRetryAt=0;
         if(pendingPlayRecord && pendingPlayRecord.id === activeStream?.id){recordStationPlay(pendingPlayRecord);pendingPlayRecord=null;}
         pendingBootStation = null;
         document.getElementById('boot-resume-banner')?.classList.add('hidden');
@@ -2934,9 +3042,8 @@
       audio.addEventListener('pause', () => {
         isPlaying = false;
         syncPlayerUI();
-        if (document.hidden && !userPaused && activeStream) {
-          setTimeout(() => audio.play().catch(() => {}), 250);
-        }
+        // Deliberate pauses during station switches must not race against an
+        // automatic play call while the next HLS manifest is still loading.
       });
 
       audio.addEventListener('timeupdate', () => {
@@ -2958,17 +3065,20 @@
       });
     }
 
+    function tryResumeBackgroundAudio() {
+      if(!activeStream || userPaused || pendingBootStation || !audio.paused)return;
+      if(Date.now()<nextBackgroundRetryAt)return;
+      // Mobile OS media policies may reject background playback. Do not issue
+      // another rejected play promise every few seconds indefinitely.
+      nextBackgroundRetryAt=Date.now()+15000;
+      audio.play().catch(()=>{});
+    }
     function bindBackgroundPlayGuard() {
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden && activeStream && !userPaused && audio.paused) {
-          audio.play().catch(() => {});
-        }
+        if(document.hidden)tryResumeBackgroundAudio();
+        else if(isPlaying&&activeStream?.somaId)updateActivePlayerSongArtwork(activeStream);
       });
-      setInterval(() => {
-        if (activeStream && !userPaused && !pendingBootStation && audio.paused) {
-          audio.play().catch(() => {});
-        }
-      }, 3500);
+      setInterval(tryResumeBackgroundAudio,3500);
     }
 
     function syncPlayerUI(overrideArt = null) {
@@ -2978,7 +3088,7 @@
       if (overrideArt) {
         ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
           const el = document.getElementById(id);
-          if (el) el.src = overrideArt;
+          if (el) { delete el.dataset.radioFallbackApplied; el.src = overrideArt; }
         });
       }
 
@@ -3020,23 +3130,27 @@
 
     // --- 14. Search, Podcasts & Transport ---
     function onSearchInput(val, clearId) {
-      radioSearchQuery = String(val).slice(0,200);
-      publishRadioState();
-      const btn = document.getElementById(clearId);
-      if (btn) {
-        btn.classList.toggle('hidden', !val.trim());
-        btn.classList.toggle('flex', !!val.trim());
-      }
-      clearTimeout(searchTimer);
-      searchRevision++;searchAbort?.abort();
-      if (!val.trim()) {clearAllSearches();return;}
-      searchTimer = setTimeout(() => runOmniSearch(val), 300);
+      const query=String(val??'').slice(0,200);
+      radioSearchQuery=query;publishRadioState();
+      // Synchronize embedded desktop and mobile inputs, and host search.
+      ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{
+        const el=document.getElementById(id);if(el&&el.value!==query)el.value=query;
+      });
+      ['sp-clear-desktop','sp-clear-mobile','ytm-clear-btn'].forEach(id=>{
+        const btn=document.getElementById(id);
+        if(btn){btn.classList.toggle('hidden',!query.trim());btn.classList.toggle('flex',!!query.trim());}
+      });
+      clearTimeout(searchTimer);searchRevision++;searchAbort?.abort();
+      if(!query.trim()){clearAllSearches();return;}
+      searchTimer=setTimeout(()=>runOmniSearch(query),300);
     }
 
     function clearAllSearches() {
       clearTimeout(searchTimer);
-      radioSearchQuery='';
-      publishRadioState();
+      // Invalidate asynchronous remote results before restoring the browse grid.
+      searchRevision++;searchAbort?.abort();searchAbort=null;
+      document.documentElement.classList.remove('radio-searching');
+      radioSearchQuery='';publishRadioState();
       ['sp-search-desktop', 'sp-search-mobile', 'ytm-search-input'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
@@ -3070,11 +3184,25 @@
       catalogItems=localMatches;
       renderCategoryGrids();
       try {
-        const res = await fetch(`${RADIO_MIRRORS[0]}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`,{signal:abort.signal});
-        const remote = res.ok ? await res.json() : [];
+        let remote=[];
+        for(const host of RADIO_MIRRORS){
+          if(abort.signal.aborted)break;
+          const attempt=new AbortController();
+          const cancel=()=>attempt.abort();
+          const timer=setTimeout(cancel,2000);
+          abort.signal.addEventListener('abort',cancel,{once:true});
+          try{
+            const res=await fetch(`${host}/stations/byname/${encodeURIComponent(q)}?limit=24&order=clickcount&reverse=true&hidebroken=true`,{signal:attempt.signal});
+            if(res.ok){remote=await res.json();break;}
+          }catch{/* try next Radio Browser mirror */}
+          finally{clearTimeout(timer);abort.signal.removeEventListener('abort',cancel);}
+        }
         if (revision !== searchRevision) return;
-        const remoteMapped = remote.filter(s => s.url_resolved && s.url_resolved.startsWith('http')).map(s => {
-          const cleanName = s.name.trim();
+        const remoteMapped = (Array.isArray(remote)?remote:[]).filter(s =>
+          s && typeof s.name==='string' && s.name.trim() &&
+          typeof s.url_resolved==='string' && /^https:\/\//i.test(s.url_resolved)
+        ).map(s => {
+          const cleanName = s.name.trim().slice(0,200);
           const freqMatch = cleanName.match(/\b(\d{2,3}\.\d|\d{3,4})\b/);
           return {
             id: s.stationuuid,
@@ -3083,8 +3211,9 @@
             freqLabel: freqMatch ? `${freqMatch[1]} FM` : `${s.bitrate || 128}k FM`,
             shortFreq: freqMatch ? freqMatch[1] : 'FM',
             artQuery: cleanName,
+            artwork: typeof s.favicon==='string' && s.favicon.length<=2048 && /^https:\/\//i.test(s.favicon) && !/[<>"'\x00-\x20\x7f]/.test(s.favicon) ? s.favicon : null,
             title: cleanName,
-            subtitle: `${s.country || 'Live Radio'} • ${s.bitrate || 128}kbps`,
+            subtitle: `${String(s.country || 'Live Radio').slice(0,80)} • ${Number.isFinite(s.bitrate)?s.bitrate:128}kbps`,
             streamUrl: s.url_resolved,
             backupUrls: []
           };
@@ -3273,6 +3402,7 @@
       s.classList.remove('drawer-hidden');
       s.classList.add('drawer-visible');
       s.setAttribute('role','dialog');s.setAttribute('aria-modal','true');s.setAttribute('aria-label','Now Playing');
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
       s.querySelector('button')?.focus();
     }
 
@@ -3280,12 +3410,49 @@
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-visible');
       s.classList.add('drawer-hidden');
-      s.removeAttribute('aria-modal');s.removeAttribute('role');radioSheetReturnFocus?.focus();
+      s.removeAttribute('aria-modal');s.removeAttribute('role');
+      if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:false},'*');
+      radioSheetReturnFocus?.focus();
+    }
+    function openMobileTuner() {
+      closeMobileSheet();
+      switchAppMode('spotify');
+      loadCategory('shortwave');
+      toggleSwDrawer(true);
+      requestAnimationFrame(()=>document.getElementById('sw-tuner-deck')?.scrollIntoView({block:'start',behavior:'smooth'}));
     }
 
     function bindTouchSheet() {
       const sheet = document.getElementById('mobile-player-sheet');
       const handle = sheet.firstElementChild;
+      let sheetGesture=null;
+      sheet.addEventListener('touchstart',e=>{
+        sheetGesture=null;
+        if(e.touches.length!==1||sheet.scrollTop>0||e.target.closest('button,input,select,a'))return;
+        sheetGesture={x:e.touches[0].clientX,y:e.touches[0].clientY};
+      },{passive:true});
+      sheet.addEventListener('touchend',e=>{
+        if(!sheetGesture||!e.changedTouches.length)return;
+        const dx=e.changedTouches[0].clientX-sheetGesture.x,dy=e.changedTouches[0].clientY-sheetGesture.y;
+        sheetGesture=null;
+        if(dy>90&&Math.abs(dx)<dy/2&&sheet.scrollTop===0)closeMobileSheet();
+      },{passive:true});
+      sheet.addEventListener('touchcancel',()=>{sheetGesture=null;},{passive:true});
+      // Compact player swipes reopen Now Playing, without intercepting playback buttons.
+      document.querySelectorAll('[data-radio-click="0"]').forEach(mini=>{
+        let gesture=null;
+        mini.addEventListener('touchstart',e=>{
+          gesture=e.touches.length===1&&!e.target.closest('button,input,select')
+            ? {x:e.touches[0].clientX,y:e.touches[0].clientY}:null;
+        },{passive:true});
+        mini.addEventListener('touchend',e=>{
+          if(!gesture||!e.changedTouches.length)return;
+          const dx=e.changedTouches[0].clientX-gesture.x,dy=e.changedTouches[0].clientY-gesture.y;
+          if(dy< -65 && Math.abs(dx)<Math.abs(dy)/2)openMobileSheet();
+          gesture=null;
+        },{passive:true});
+        mini.addEventListener('touchcancel',()=>{gesture=null;},{passive:true});
+      });
       let start = null;
       // Drag only the header: scrolling the sheet or changing volume must not
       // dismiss it or steal station/control taps.
@@ -3308,22 +3475,26 @@
       const c = document.getElementById('sp-spectrum');
       if (!c) return;
       const ctx = c.getContext('2d');
-      let p = 0;
-      function loop() {
-        requestAnimationFrame(loop);
-        p += 0.08;
-        ctx.clearRect(0, 0, c.width, c.height);
-        const bars = 32;
-        for (let i = 0; i < bars; i++) {
-          const amp = (isPlaying && !audio.paused)
-            ? (Math.sin(p + i * 0.25) * 0.45 + 0.55) * (Math.cos(p * 0.7 - i * 0.3) * 0.35 + 0.65)
-            : 0.08;
-          const h = Math.max(3, amp * c.height * 0.9);
-          ctx.fillStyle = '#1ed760';
-          ctx.fillRect(i * (c.width / bars), c.height - h, (c.width / bars) - 2, h);
+      if (!ctx) return;
+      let p = 0, lastFrame = 0;
+      function loop(time) {
+        // Keep the visualizer near 10fps rather than occupying the main thread
+        // with a frame callback on every screen refresh.
+        setTimeout(()=>requestAnimationFrame(loop),90);
+        // Do not paint when the visualizer is off-screen or the tab is hidden.
+        if (document.hidden || time-lastFrame<90 || !c.getClientRects().length) return;
+        lastFrame=time;p+=0.18;
+        ctx.clearRect(0,0,c.width,c.height);
+        for (let i=0;i<32;i++) {
+          const amp=(isPlaying&&!audio.paused)
+            ? (Math.sin(p+i*.25)*.45+.55)*(Math.cos(p*.7-i*.3)*.35+.65)
+            : .08;
+          const h=Math.max(3,amp*c.height*.9);
+          ctx.fillStyle='#1ed760';
+          ctx.fillRect(i*(c.width/32),c.height-h,c.width/32-2,h);
         }
       }
-      loop();
+      requestAnimationFrame(loop);
     }
 
     function formatSec(sec) {
@@ -3332,6 +3503,17 @@
       return `${m}:${s < 10 ? '0' : ''}${s}`;
     }
 
+    // Remote station favicons can disappear. Fall back to a locally generated
+    // cover rather than displaying broken thumbnails in player and results.
+    document.addEventListener('error',event=>{
+      const img=event.target;
+      if(!(img instanceof HTMLImageElement)||img.dataset.radioFallbackApplied==='1')return;
+      const stationId=img.closest('[data-radio-arg]')?.getAttribute('data-radio-arg');
+      const station=(stationId && (catalogItems.find(ch=>ch.id===stationId)||findStationById(stationId)))||activeStream;
+      if(!station)return;
+      img.dataset.radioFallbackApplied='1';
+      img.src=getStationIdentityThumbnail({...station,artwork:null});
+    },true);
     // Real listeners keep static controls and generated station cards actionable
     // when a reverse proxy disallows inline event attributes. No eval is used.
     const enhanceRadioControls=root=>{
@@ -3342,6 +3524,8 @@
     new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)enhanceRadioControls(node);}))).observe(document.body,{childList:true,subtree:true});
     document.addEventListener('keydown',event=>{
       const sheet=document.getElementById('mobile-player-sheet');
+      if(event.key==='Escape' && !document.getElementById('audio-dsp-modal').classList.contains('hidden')){event.preventDefault();closeDspModal();return;}
+      if(event.key==='Escape' && !document.getElementById('startup-modal').classList.contains('hidden')){event.preventDefault();closeStartupModal();return;}
       if(sheet.classList.contains('drawer-visible')) {
         if(event.key==='Escape'){event.preventDefault();closeMobileSheet();return;}
         if(event.key==='Tab'){
@@ -3428,7 +3612,9 @@
       "70": function(event) { closeMobileSheet(); },
       "71": function(event) { playStationById(this.dataset.radioArg); },
       "72": function(event) { selectChannel(Number(this.dataset.radioArg)); },
-      "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); }
+      "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); },
+      "74": function(event) { openMobileTuner(); },
+      "75": function(event) { refreshNowPlayingArtwork(); }
     };
     for (const eventType of ['click','input','change']) {
       document.addEventListener(eventType, event => {

@@ -183,6 +183,23 @@
       border-radius: 0 !important;
     }
 
+    #video-surface-card:fullscreen #video-player,
+    #video-surface-card:-webkit-full-screen #video-player {
+      width:100% !important; height:100% !important; object-fit:contain;
+    }
+    #video-surface-card:fullscreen #custom-video-hud,
+    #video-surface-card:-webkit-full-screen #custom-video-hud {
+      opacity:1; pointer-events:auto;
+    }
+    @media (max-width:767px) {
+      #video-surface-card { max-height:min(54dvh,580px) !important; }
+      #video-surface-card:fullscreen,
+      #video-surface-card:-webkit-full-screen {
+        width:100vw !important; height:100dvh !important;
+        max-height:100dvh !important; aspect-ratio:auto !important;
+      }
+    }
+
     #video-player.fit-contain { object-fit: contain; transform: scale(1); }
     #video-player.fit-cover   { object-fit: cover;   transform: scale(1); }
     #video-player.fit-zoom    { object-fit: cover;   transform: scale(1.14); }
@@ -612,6 +629,19 @@ button {touch-action:manipulation;}
   #main-scroll {scroll-behavior:auto!important;}
 }
 
+</style>
+<style id="sterling-tv-dynamic-background">
+body[data-tv-backdrop="black"] #player-stage,
+body[data-tv-backdrop="black"] #tv-now-playing {background:#000!important;}
+body[data-tv-backdrop="auto"] #player-stage,
+body[data-tv-backdrop="auto"] #tv-now-playing {
+  background:linear-gradient(165deg,hsl(var(--tv-channel-hue,155) 34% 19%),#080808 72%)!important;
+}
+@media(max-width:767px) {
+  #video-surface-card{width:100%!important;}
+  #left-watch-column{width:100%!important;max-width:100%!important;}
+}
+@media(prefers-reduced-motion:reduce){#video-surface-card,#custom-video-hud{transition:none!important;}}
 </style>
 </head>
 
@@ -1341,8 +1371,13 @@ button {touch-action:manipulation;}
     function escapeHtml(str) {
       return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
+    // HTML attribute values and JavaScript string arguments need separate escaping.
+    // Playlist names/URLs are untrusted: a backslash alone cannot escape markup.
     function escapeAttr(str) {
-      return String(str || '').replace(/'/g, "\\'");
+      return escapeHtml(str);
+    }
+    function escapeJsAttr(str) {
+      return escapeHtml(JSON.stringify(String(str ?? '')));
     }
     function hashString(str) {
       let h = 0;
@@ -1510,8 +1545,13 @@ button {touch-action:manipulation;}
 
     function getChannelPoster(ch) {
       if (!ch) return generateDynamicChannelThumbnail('BBC Earth US', 'Documentary', 'English');
-      if (ch.logo && ch.logo.startsWith('https://') && !ch.logo.includes('unsplash.com')) {
-        return ch.logo;
+      if (typeof ch.logo==='string' && ch.logo.length<=2048 &&
+          /^https:\/\//i.test(ch.logo) && !ch.logo.includes('unsplash.com') &&
+          !/[<>"'\x00-\x20\x7f]/.test(ch.logo)) {
+        try {
+          const url=new URL(ch.logo);
+          if(url.protocol==='https:'&&url.hostname&&!url.username&&!url.password)return url.href;
+        }catch(_){}
       }
       return generateDynamicChannelThumbnail(ch.name, ch.group, ch.lang);
     }
@@ -1736,7 +1776,7 @@ button {touch-action:manipulation;}
           const cnt = dynamicCatCounts[cat] || 0;
           return `
             <button
-              onclick="handleCatalogGenreChange('${escapeAttr(cat)}')"
+              onclick="handleCatalogGenreChange(${escapeJsAttr(cat)})"
               class="px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition flex items-center space-x-1.5 ${
                 isSelected
                   ? 'bg-white text-black font-semibold shadow-sm'
@@ -1761,7 +1801,7 @@ button {touch-action:manipulation;}
             const cnt = langCounts[lid] || 0;
             return `
               <button
-                onclick="handleCatalogLanguageChange('${escapeAttr(lid)}')"
+                onclick="handleCatalogLanguageChange(${escapeJsAttr(lid)})"
                 class="px-2.5 py-1 rounded-lg text-[11px] font-medium whitespace-nowrap transition ${
                   active
                     ? 'bg-amber-400 text-black font-bold'
@@ -2040,19 +2080,19 @@ button {touch-action:manipulation;}
         return `
           <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white/[0.04] transition">
             <div class="flex items-center space-x-3 min-w-0 flex-1">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" class="w-11 h-6 rounded object-cover bg-black shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" class="w-11 h-6 rounded object-cover bg-black shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-medium text-white truncate">${escapeHtml(ch.name)}</p>
                 <p class="text-[10px] text-zinc-400 truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live')}</p>
               </div>
             </div>
             <div class="flex items-center space-x-1.5 shrink-0">
-              <button onclick="setStartupChannelByUrl('${escapeAttr(ch.url)}')" class="px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
+              <button onclick="setStartupChannelByUrl(${escapeJsAttr(ch.url)})" class="px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                 isDef ? 'bg-white text-black' : 'bg-white/10 hover:bg-white/20 text-zinc-200'
               }">
                 ${isDef ? 'Selected' : 'Set Default'}
               </button>
-              <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); closeStartupChannelModal()" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">
+              <button onclick="playStreamByUrl(${escapeJsAttr(ch.url)}); closeStartupChannelModal()" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">
                 Play
               </button>
             </div>
@@ -2466,7 +2506,7 @@ button {touch-action:manipulation;}
               <input
                 type="checkbox"
                 ${src.selected ? 'checked' : ''}
-                onchange="toggleSourceSelection('${escapeAttr(src.id)}')"
+                onchange="toggleSourceSelection(${escapeJsAttr(src.id)})"
                 class="mt-1 w-4 h-4 accent-[var(--accent)] rounded cursor-pointer shrink-0"
               />
               <div class="min-w-0 flex-1">
@@ -2478,11 +2518,11 @@ button {touch-action:manipulation;}
               </div>
             </div>
             <div class="flex items-center space-x-1.5 shrink-0 pl-6 sm:pl-0">
-              <button onclick="soloSelectSource('${escapeAttr(src.id)}')" class="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition">
+              <button onclick="soloSelectSource(${escapeJsAttr(src.id)})" class="px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition">
                 Solo
               </button>
-              ${!isBuiltin ? `<button onclick="startEditIptvSource('${escapeAttr(src.id)}')" class="px-2.5 py-1 rounded bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">Edit</button>` : ''}
-              <button onclick="deleteIptvSource('${escapeAttr(src.id)}')" class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-[11px]">Remove</button>
+              ${!isBuiltin ? `<button onclick="startEditIptvSource(${escapeJsAttr(src.id)})" class="px-2.5 py-1 rounded bg-white/5 hover:bg-white/15 text-zinc-300 text-[11px]">Edit</button>` : ''}
+              <button onclick="deleteIptvSource(${escapeJsAttr(src.id)})" class="px-2.5 py-1 rounded bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 text-[11px]">Remove</button>
             </div>
           </div>
         `;
@@ -2722,6 +2762,8 @@ button {touch-action:manipulation;}
     let activeChannel = null;
     let hls = null;
     let serverStage = 0;
+    // Each stream switch invalidates previous asynchronous HLS callbacks.
+    let playbackGeneration = 0;
 
     // Automatic public proxy services disabled: playlists may contain tokens.
 
@@ -2883,9 +2925,9 @@ button {touch-action:manipulation;}
       box.innerHTML = favorites.map(ch => {
         const poster = getChannelPoster(ch);
         return `
-          <button onclick="playStreamByUrl('${escapeAttr(ch.url)}'); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-white/[0.06] text-left transition">
+          <button onclick="playStreamByUrl(${escapeJsAttr(ch.url)}); toggleSidebarDrawer(false)" class="w-full flex items-center justify-between px-3 py-1.5 rounded-lg hover:bg-white/[0.06] text-left transition">
             <div class="flex items-center space-x-2.5 min-w-0">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" class="w-5 h-5 rounded-full object-cover shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" class="w-5 h-5 rounded-full object-cover shrink-0" />
               <span class="text-xs text-zinc-200 truncate">${escapeHtml(ch.name)}</span>
             </div>
             <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)] shrink-0"></span>
@@ -2956,6 +2998,7 @@ button {touch-action:manipulation;}
       if (stage === 0) recordChannelPlay(channel);
       activeChannel = channel;
       serverStage = stage;
+      playbackGeneration++;
 
       resetVideoInstance();
       document.getElementById('tv-mobile-play')?.classList.add('hidden');
@@ -3011,6 +3054,7 @@ button {touch-action:manipulation;}
         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
     function startHlsPlayback(channel, video, spinner) {
+      const generation=playbackGeneration;
       // Mobile WebKit has better reliability with native HLS than MSE workers.
       if (preferNativeHls(video)) {
         startNativeHlsPlayback(channel, video, spinner);
@@ -3031,10 +3075,11 @@ button {touch-action:manipulation;}
         hls.attachMedia(video);
 
         const watchdog = setTimeout(() => {
-          if (!parsed && activeChannel === channel) escalateStage(channel);
+          if (!parsed && activeChannel === channel && playbackGeneration===generation) escalateStage(channel);
         }, 6800);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
+          if(playbackGeneration!==generation)return;
           parsed = true;
           clearTimeout(watchdog);
           spinner.classList.add('hidden');
@@ -3043,6 +3088,7 @@ button {touch-action:manipulation;}
         });
 
         hls.on(Hls.Events.FRAG_LOADED, () => {
+          if(playbackGeneration!==generation)return;
           if (video.videoHeight) {
             document.getElementById('stat-res').textContent = `${video.videoWidth}x${video.videoHeight}`;
             syncPlayerAspectToStream();
@@ -3053,6 +3099,7 @@ button {touch-action:manipulation;}
         });
 
         hls.on(Hls.Events.ERROR, (ev, data) => {
+          if(playbackGeneration!==generation)return;
           if (data.fatal) {
             clearTimeout(watchdog);
             if (data.type === Hls.ErrorTypes.MEDIA_ERROR && parsed) {
@@ -3070,17 +3117,20 @@ button {touch-action:manipulation;}
     }
 
     function startNativeHlsPlayback(channel, video, spinner) {
+      const generation=playbackGeneration;
       const watchdog = setTimeout(() => {
-        if (activeChannel === channel && video.readyState < 2) escalateStage(channel);
+        if (activeChannel === channel && playbackGeneration===generation && video.readyState < 2) escalateStage(channel);
       }, 10000);
       video.onloadedmetadata = () => {
         clearTimeout(watchdog);
+        if(playbackGeneration!==generation)return;
         spinner.classList.add('hidden');
         syncPlayerAspectToStream();
         safeAutoplayVideo(video);
       };
       video.onerror = () => {
         clearTimeout(watchdog);
+        if(playbackGeneration!==generation)return;
         escalateStage(channel);
       };
       video.src = channel.url;
@@ -3107,21 +3157,23 @@ button {touch-action:manipulation;}
         playStream(activeChannel, 0);
         return;
       }
-      video.muted = true;
+      // The media element retains an explicit mute/unmute choice across streams.
+      // Do not force unmute when the previous interaction was "Mute".
       const promise = video.play(); // must run synchronously inside the tap
       Promise.resolve(promise).then(() => {
         if (button) button.classList.add('hidden');
         syncPlayPauseIcons(false);
-        updateVolIcon(true);
-        document.getElementById('mobile-unmute-pill')?.classList.remove('hidden');
+        updateVolIcon(video.muted);
+        document.getElementById('mobile-unmute-pill')?.classList.toggle('hidden', !video.muted);
       }).catch(() => showTvPlaybackPrompt('Tap to retry playback'));
     }
 
     function safeAutoplayVideo(video) {
       const unmutePill = document.getElementById('mobile-unmute-pill');
       const playButton = document.getElementById('tv-mobile-play');
-      const mutedFirst = !userHasInteractedWithAudio;
-      video.muted = mutedFirst;
+      // Autoplay before a user gesture must be muted; afterwards, preserve
+      // the actual mute selection instead of inferring it from interaction.
+      if (!userHasInteractedWithAudio) video.muted = true;
       const attempt = Promise.resolve(video.play());
       attempt.then(() => {
         syncPlayPauseIcons(false);
@@ -3191,6 +3243,7 @@ button {touch-action:manipulation;}
     }
 
     function startBackupFallback(channel, video, spinner, badge) {
+      const generation=playbackGeneration;
       spinner.classList.add('hidden');
       if (channel.ytEmbed) {
         badge.textContent = 'Embed';
@@ -3205,10 +3258,16 @@ button {touch-action:manipulation;}
           hls = new Hls({ enableWorker: false });
           hls.loadSource(fallbackUrl);
           hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => safeAutoplayVideo(video));
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            if(playbackGeneration===generation)safeAutoplayVideo(video);
+          });
         } else if (hasNativeHls(video)) {
-          video.onloadedmetadata = () => safeAutoplayVideo(video);
-          video.onerror = () => showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+          video.onloadedmetadata = () => {
+            if(playbackGeneration===generation)safeAutoplayVideo(video);
+          };
+          video.onerror = () => {
+            if(playbackGeneration===generation)showTvPlaybackPrompt('Stream unavailable. Tap to retry');
+          };
           video.src = fallbackUrl;
           video.load();
         } else {
@@ -3520,7 +3579,7 @@ button {touch-action:manipulation;}
           item.innerHTML = `
             <div class="flex items-center space-x-2.5">
               <span class="text-[10px] font-mono-code text-zinc-500 w-5 text-right shrink-0">${globalIdx}</span>
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-12 h-7 rounded object-cover bg-black shrink-0" />
               <div class="min-w-0 flex-1">
                 <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
                 <p class="text-[11px] text-zinc-400 truncate">${escapeHtml(epg[0].title)}</p>
@@ -3536,7 +3595,7 @@ button {touch-action:manipulation;}
           item.onmouseleave = () => stopCardHoverPreview();
           item.innerHTML = `
             <div class="preview-thumb-box relative w-[124px] xl:w-[136px] aspect-video rounded-lg overflow-hidden bg-[#16161b] border border-white/[0.08] shrink-0">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" />
               <span class="absolute bottom-1 right-1 bg-black/85 text-zinc-100 text-[9px] font-mono-code px-1.5 py-0.5 rounded">${escapeHtml(ch.lang || 'LIVE')}</span>
             </div>
             <div class="min-w-0 flex-1">
@@ -3646,7 +3705,7 @@ button {touch-action:manipulation;}
         searchDropdownListEl.innerHTML = `
           <div class="p-2 flex flex-wrap gap-1.5">
             ${suggestedTerms.map(term => `
-              <button onclick="applySearchSuggestion('${escapeAttr(term)}')" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-[var(--accent)] text-xs text-zinc-200 hover:text-white font-medium transition">
+              <button onclick="applySearchSuggestion(${escapeJsAttr(term)})" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-[var(--accent)] text-xs text-zinc-200 hover:text-white font-medium transition">
                 ${escapeHtml(term)}
               </button>
             `).join('')}
@@ -3659,7 +3718,7 @@ button {touch-action:manipulation;}
         statusEl.textContent = 'Direct Stream URL Detected';
         countEl.textContent = 'HLS / M3U8';
         searchDropdownListEl.innerHTML = `
-          <div onclick="playStream({name:'Direct Stream',group:'Custom',logo:'',url:'${escapeAttr(query)}',viewers:'LIVE'},0); closeSearchDropdown()" class="p-3.5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
+          <div onclick="playStream({name:'Direct Stream',group:'Custom',logo:'',url:${escapeJsAttr(query)},viewers:'LIVE'},0); closeSearchDropdown()" class="p-3.5 hover:bg-white/10 cursor-pointer flex items-center justify-between">
             <span class="text-xs font-semibold text-white">▶ Play Direct Stream URL Now</span>
             <span class="text-[10px] font-mono-code text-emerald-400">LIVE</span>
           </div>
@@ -3700,7 +3759,7 @@ button {touch-action:manipulation;}
         row.innerHTML = `
           <div class="flex items-center space-x-3 min-w-0 pr-2">
             <span class="text-[10px] font-mono-code text-zinc-500 w-5 text-right shrink-0">${rank}</span>
-            <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-11 h-6 rounded object-cover shrink-0 bg-black border border-white/10" />
+            <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-11 h-6 rounded object-cover shrink-0 bg-black border border-white/10" />
             <div class="min-w-0">
               <p class="text-xs font-semibold text-white truncate">${escapeHtml(ch.name)}</p>
               <p class="text-[11px] text-zinc-400 truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live')}</p>
@@ -3743,7 +3802,10 @@ button {touch-action:manipulation;}
         const matches = getRankedSearchMatches(q);
         if (matches.length > 0) {
           playStream(matches[0], 0);
-          closeSearchDropdown();
+          clearSearch();
+          // Mobile embedded header must also clear its search input.
+          document.getElementById('tm-search-input')?.value &&
+            (document.getElementById('tm-search-input').value = '');
         }
       } else {
         searchInputEl.focus();
@@ -3919,7 +3981,7 @@ button {touch-action:manipulation;}
           const matchPct = 92 + (hashString(ch.name) % 8);
           card.innerHTML = `
             <div class="preview-thumb-box relative w-full aspect-video rounded-lg bg-[#141418] overflow-hidden border ${isPlaying ? 'border-[#e50914] ring-2 ring-[#e50914]/40' : 'border-white/[0.08]'}">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-110 transition duration-500" />
               <div class="absolute inset-0 bg-gradient-to-t from-black/95 via-black/35 to-transparent"></div>
               <span class="absolute top-2 left-2 bg-[#e50914] text-white text-[9px] font-extrabold tracking-wider px-1.5 py-0.5 rounded uppercase">LIVE CINEMA</span>
               <span class="absolute top-2 right-2 bg-black/80 text-zinc-200 text-[10px] font-mono-code px-1.5 py-0.5 rounded">${escapeHtml(ch.lang || 'HD')}</span>
@@ -3938,7 +4000,7 @@ button {touch-action:manipulation;}
           // SPOTIFY STAGE STYLE: Glassmorphic Audio/Video Stage Card with Floating Emerald Play Button
           card.innerHTML = `
             <div class="preview-thumb-box relative w-full aspect-video rounded-xl bg-[#0e1511] overflow-hidden border ${isPlaying ? 'border-[#1db954]' : 'border-white/[0.06]'} mb-2.5">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
               <div class="absolute bottom-2 right-2 w-10 h-10 rounded-full bg-[#1db954] text-black flex items-center justify-center shadow-xl translate-y-2 opacity-90 group-hover:translate-y-0 group-hover:opacity-100 group-hover:scale-105 transition">
                 <svg class="w-5 h-5 fill-current ml-0.5" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
               </div>
@@ -3953,7 +4015,7 @@ button {touch-action:manipulation;}
           // YOUTUBE STUDIO / APPLE TV+ STYLE
           card.innerHTML = `
             <div class="preview-thumb-box relative w-full aspect-video rounded-xl bg-[#141418] overflow-hidden border ${isPlaying ? 'border-[var(--accent)] ring-2 ring-[var(--accent)]/30' : 'border-white/[0.08]'}">
-              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+              <img src="${poster}" referrerpolicy="no-referrer" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
 
               <span class="absolute bottom-2 right-2 bg-black/85 backdrop-blur-xs text-zinc-100 text-[10px] font-mono-code px-1.5 py-0.5 rounded flex items-center space-x-1">
                 <span class="w-1.5 h-1.5 rounded-full bg-[var(--accent)]"></span>
@@ -3964,7 +4026,7 @@ button {touch-action:manipulation;}
             </div>
 
             <div class="flex items-start space-x-2.5 pt-2.5 px-0.5">
-              <img src="${poster}" onerror="handleImgFallback(this,'${escapeAttr(ch.name)}','${escapeAttr(ch.group)}','${escapeAttr(ch.lang)}')" loading="lazy" class="w-8 h-8 rounded-full object-cover shrink-0 bg-[#1c1c22] border border-white/10 mt-0.5" />
+              <img src="${poster}" onerror="handleImgFallback(this,${escapeJsAttr(ch.name)},${escapeJsAttr(ch.group)},${escapeJsAttr(ch.lang)})" loading="lazy" class="w-8 h-8 rounded-full object-cover shrink-0 bg-[#1c1c22] border border-white/10 mt-0.5" />
               <div class="min-w-0 flex-1">
                 <h4 class="text-[13px] font-semibold text-zinc-100 truncate group-hover:text-white leading-snug">${escapeHtml(ch.name)}</h4>
                 <p class="text-[11px] text-zinc-400 mt-0.5 truncate">${escapeHtml(ch.group)} • ${escapeHtml(ch.lang || 'Live broadcast')}</p>
@@ -4018,7 +4080,7 @@ button {touch-action:manipulation;}
         quadGrid.className = 'grid w-full aspect-video max-h-[calc(100dvh-160px)] bg-black sm:rounded-xl overflow-hidden grid-cols-2 grid-rows-2 gap-1 p-1 border border-white/15';
         const fourChannels = [activeChannel || VERIFIED_STREAMS[0], ...VERIFIED_STREAMS.slice(1, 4)];
         quadGrid.innerHTML = fourChannels.map((ch, idx) => `
-          <div onclick="soloMultiviewChannel('${escapeAttr(ch.url)}')" class="relative w-full h-full bg-[#121216] rounded overflow-hidden cursor-pointer border ${idx === 0 ? 'border-white/40' : 'border-white/10'}">
+          <div onclick="soloMultiviewChannel(${escapeJsAttr(ch.url)})" class="relative w-full h-full bg-[#121216] rounded overflow-hidden cursor-pointer border ${idx === 0 ? 'border-white/40' : 'border-white/10'}">
             <video id="quad-vid-${idx}" class="w-full h-full object-cover" playsinline autoplay muted></video>
             <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 flex items-center justify-between text-xs text-white">
               <span class="font-medium truncate">${idx + 1}. ${escapeHtml(ch.name)}</span>
@@ -4285,7 +4347,7 @@ button {touch-action:manipulation;}
   now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
-  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false;
+  let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
   const activeTheme=()=>currentTheme==='spotify'||currentTheme==='youtube';
   const isMobile=()=>mobile.matches && activeTheme();
   const artworkCache=new Map();
@@ -4295,7 +4357,13 @@ button {touch-action:manipulation;}
     const hue=[...ch.name].reduce((n,c)=>n+c.charCodeAt(0)*7,0)%360;
     const initials=ch.name.split(/\s+/).slice(0,2).map(w=>w[0]).join('');
     const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320"><defs><linearGradient id="a" x2="1" y2="1"><stop stop-color="hsl(${hue},55%,48%)"/><stop offset="1" stop-color="hsl(${hue},60%,17%)"/></linearGradient></defs><path fill="url(#a)" d="M0 0h320v320H0z"/><g fill="none" stroke="#ffffff" opacity=".12"><circle cx="265" cy="70" r="135" stroke-width="45"/><circle cx="265" cy="70" r="190" stroke-width="2"/><path d="M0 220 320 80M0 270 320 130" stroke-width="2"/></g><text x="22" y="38" fill="white" font-family="Arial,sans-serif" font-size="13" font-weight="700" letter-spacing="2">${escapeHtml((ch.group||'LIVE TV').toUpperCase().slice(0,24))}</text><text x="18" y="207" fill="white" font-family="Arial,sans-serif" font-size="112" font-weight="900" letter-spacing="-9">${escapeHtml(initials)}</text><rect x="22" y="248" width="36" height="5" fill="#1ed760"/><text x="22" y="284" fill="white" font-family="Arial,sans-serif" font-size="19" font-weight="700">${escapeHtml(ch.name.slice(0,24))}</text></svg>`;
-    const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);return uri;
+    const uri='data:image/svg+xml;utf8,'+encodeURIComponent(svg);artworkCache.set(ch.url,uri);if(artworkCache.size>128)artworkCache.delete(artworkCache.keys().next().value);return uri;
+  }
+  function applyBackdrop() {
+    document.body.dataset.tvBackdrop=tvBackdropMode;
+    const name=activeChannel?.name||'Sterling';
+    const hue=[...name].reduce((n,ch)=>n+ch.charCodeAt(0)*7,0)%360;
+    document.body.style.setProperty('--tv-channel-hue',String(hue));
   }
   const channelButton=(ch,quick=false)=>`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
   function shelf(title,pool,filter) {
@@ -4311,6 +4379,8 @@ button {touch-action:manipulation;}
     scheduled=false;
     const enabled=isMobile();
     document.body.classList.toggle('tm-host-header',hosted);
+    applyBackdrop();
+    publishPlayerState();
     publishState();
     saveUi();
     const stage=document.getElementById('player-stage');
@@ -4353,7 +4423,7 @@ button {touch-action:manipulation;}
   function showSheet(kind='more') {
     returnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
@@ -4364,7 +4434,9 @@ button {touch-action:manipulation;}
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${content}</div>`;
     } else if(kind==='queue') {
       title='Up next';
-      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${computeRightRailPool().slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')}${action('epg','Programme guide','queue')}</div>`;
+      const preferred=computeRightRailPool();
+      const pool=preferred.length?preferred:allChannels.filter(ch=>ch.url!==activeChannel?.url);
+      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${pool.slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')||'<p>Channel queue is empty.</p>'}${action('epg','Programme guide','queue')}</div>`;
     } else {
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${items.map(([name,label,glyph])=>action(name,label,glyph,'tm-feature').replace('</button>',`<span>${label}</span></button>`)).join('')}</div>`;
     }
@@ -4400,6 +4472,11 @@ button {touch-action:manipulation;}
       case 'previous': playPrevChannel();schedule();break;
       case 'mute': toggleMuteAudio();break;
       case 'fullscreen': toggleFullscreenPlayer();break;
+      case 'backdrop':
+        tvBackdropMode=tvBackdropMode==='auto'?'black':'auto';
+        applyBackdrop();saveUi();
+        showToast(tvBackdropMode==='auto'?'Dynamic channel background':'Black player background');
+        closeSheet();break;
       case 'share': copyStreamShareLink();break;
       case 'more': showSheet();break;
       case 'queue': showSheet('queue');break;
@@ -4422,14 +4499,14 @@ button {touch-action:manipulation;}
     if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')run('live');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
   sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});
   sheet.addEventListener('click',e=>{if(e.target===sheet)closeSheet();});
   document.getElementById('tm-search-input').addEventListener('input',e=>applySearch(e.target.value));
-  document.getElementById('tm-search-input').addEventListener('keydown',e=>{if(e.key==='Enter'){triggerSearchNow();if(currentTheme==='spotify')setExpanded(true);e.target.blur();}});
+  document.getElementById('tm-search-input').addEventListener('keydown',e=>{if(e.key==='Enter'){const hasMatch=getRankedSearchMatches(searchInputEl.value).length>0;triggerSearchNow();if(hasMatch){clearSelectionSearch();if(currentTheme==='spotify')setExpanded(true);}e.target.blur();}});
   document.addEventListener('keydown',e=>{
     if(e.key==='Escape'){if(sheet.classList.contains('tm-sheet-open'))closeSheet();else if(expanded)setExpanded(false);}
     if(e.key==='Tab' && isMobile()){
@@ -4437,6 +4514,12 @@ button {touch-action:manipulation;}
       if(!scope)return;const focusable=[...scope.querySelectorAll('button,input')].filter(el=>el.getClientRects().length);const first=focusable[0],last=focusable[focusable.length-1];if(e.shiftKey&&document.activeElement===first){last.focus();e.preventDefault();}else if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}
     }
   });
+  function publishPlayerState() {
+    const open=Boolean(isMobile()&&activeChannel&&(expanded||view==='watch'));
+    if(!hosted||open===lastPublishedPlayerState)return;
+    lastPublishedPlayerState=open;
+    window.parent.postMessage({type:'sterling.tv.player-state',expanded:open},'*');
+  }
   function publishState() {
     if(!hosted)return;
     const next=JSON.stringify({theme:currentTheme,query:searchInputEl.value.slice(0,200)});
@@ -4447,7 +4530,7 @@ button {touch-action:manipulation;}
   function saveUi() {
     if(!hydrated)return;
     const v=document.getElementById('video-player');
-    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:v.muted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode});
+    const next=JSON.stringify({view,query:searchInputEl.value.slice(0,200),category:catalogCategory,language:catalogLanguage,volume:v.volume,muted:v.muted,fit:typeof currentFitMode==='undefined'?'fit-contain':currentFitMode,background:tvBackdropMode});
     if(next===lastSaved)return;lastSaved=next;
     try{uiStorage().setItem('streamos_ui_v14',next);}catch{}
   }
@@ -4464,6 +4547,8 @@ button {touch-action:manipulation;}
       if(typeof saved.volume==='number'&&saved.volume>=0&&saved.volume<=1)v.volume=saved.volume;
       if(typeof saved.muted==='boolean'){v.muted=saved.muted;userHasInteractedWithAudio=!saved.muted;}
       if(['fit-contain','fit-cover','fit-zoom'].includes(saved.fit)){currentFitMode=saved.fit;v.classList.remove('fit-contain','fit-cover','fit-zoom');v.classList.add(saved.fit);}
+      if(saved.background==='black'||saved.background==='auto')tvBackdropMode=saved.background;
+      applyBackdrop();
       renderCatalogControls();renderViewport();
     }catch{}
   }
@@ -4472,6 +4557,14 @@ button {touch-action:manipulation;}
     searchInputEl.value=query;document.getElementById('tm-search-input').value=query;
     renderViewport();closeSearchDropdown();sync();
     document.getElementById('main-scroll').scrollTo({top:0,behavior:'instant'});
+  }
+  function clearSelectionSearch() {
+    searchInputEl.value='';
+    document.getElementById('tm-search-input').value='';
+    document.getElementById('clear-search-btn')?.classList.add('hidden');
+    shell.querySelector('.tm-search').hidden=true;
+    closeSearchDropdown();
+    publishState();
   }
   window.addEventListener('message',event=>{
     if(event.source!==window.parent)return;
@@ -4486,7 +4579,12 @@ button {touch-action:manipulation;}
     if(data.action==='search'&&typeof data.value==='string'&&data.value.length<=200)applySearch(data.value);
     if(data.action==='play-search'){
       const match=getRankedSearchMatches(searchInputEl.value)[0];
-      if(match){playStream(match,0);view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
+      if(match){playStream(match,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}
+    }
+    if(data.action==='collapse'){
+      if(sheet.classList.contains('tm-sheet-open'))closeSheet();
+      if(expanded)setExpanded(false);
+      view='home';renderHome();schedule();
     }
     if(data.action==='more'){if(mobile.matches)showSheet();else toggleSidebarDrawer(true);}
   });
@@ -4494,8 +4592,10 @@ button {touch-action:manipulation;}
     const surface=document.getElementById('video-surface-card');
     const wrap=document.getElementById('mobile-sticky-player-wrap');
     if(!surface||!wrap)return;
-    if(value&&!document.body.classList.contains('tm-scroll-pip'))wrap.style.minHeight=surface.offsetHeight+'px';
-    document.body.classList.toggle('tm-scroll-pip',value);
+    const wasFloating=document.body.classList.contains('tm-scroll-pip');
+    if(Boolean(value)===wasFloating)return;
+    if(value)wrap.style.minHeight=surface.offsetHeight+'px';
+    document.body.classList.toggle('tm-scroll-pip',Boolean(value));
     if(!value)wrap.style.minHeight='';
   }
   function installPlaybackContinuity() {
@@ -4506,11 +4606,18 @@ button {touch-action:manipulation;}
     const onScroll=()=>{
       const top=main.scrollTop,delta=top-previousTop;
       if(Math.abs(delta)>5||top<20){document.body.classList.toggle('tm-chips-hidden',top>32&&delta>0);previousTop=top;}
-      const stage=document.getElementById('player-stage');
-      const hidden=stage&&stage.getBoundingClientRect().bottom<16;
+      // Measure the in-flow anchor, not the floating video or sticky stage:
+      // those move when PiP activates and would cause visible oscillation.
+      const anchor=document.getElementById('mobile-sticky-player-wrap');
+      const hidden=anchor && anchor.getBoundingClientRect().bottom < main.getBoundingClientRect().top+16;
       setScrollPip(mobile.matches&&!expanded&&currentTheme!=='spotify'&&!pipDismissed&&!video.paused&&video.readyState>=2&&Boolean(hidden));
     };
-    main.addEventListener('scroll',onScroll,{passive:true});
+    let scrollFramePending=false;
+    main.addEventListener('scroll',()=>{
+      if(scrollFramePending)return;
+      scrollFramePending=true;
+      requestAnimationFrame(()=>{scrollFramePending=false;onScroll();});
+    },{passive:true});
     video.addEventListener('pause',()=>setScrollPip(false));
     video.addEventListener('playing',onScroll);
     window.addEventListener('resize',()=>{setScrollPip(false);onScroll();});
@@ -4529,9 +4636,24 @@ button {touch-action:manipulation;}
     video.addEventListener('volumechange',schedule);
   }
   const originalTheme=switchTheme;switchTheme=function(...args){originalTheme(...args);schedule();};
-  const originalPlay=playStream;playStream=function(...args){pipDismissed=false;originalPlay(...args);if(isMobile()&&(!args[1]))renderHome();schedule();};
+  const originalPlay=playStream;playStream=function(...args){
+    pipDismissed=false;
+    originalPlay(...args);
+    // All channel entry points (grid tiles, recommendations, queue, keyboard
+    // search and external header) must leave search mode consistently.
+    if(searchInputEl.value.trim())clearSelectionSearch();
+    applyBackdrop();
+    if(isMobile()&&(!args[1]))renderHome();
+    schedule();
+  };
   const originalBatch=renderNextBatch;renderNextBatch=function(...args){originalBatch(...args);document.querySelectorAll('#yt-studio-grid>.channel-grid-card').forEach((card,i)=>{if(filteredChannels[i]){card.dataset.tmChannel=filteredChannels[i].url;card.onclick=null;}});if(isMobile()&&currentTheme==='spotify'){[...document.querySelectorAll('#yt-studio-grid>.channel-grid-card')].forEach((card,i)=>{const ch=filteredChannels[i];if(ch)card.querySelectorAll('img').forEach(img=>{img.src=artwork(ch);img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};});});}};
-  const originalRender=renderViewport;renderViewport=function(...args){originalRender(...args);if(isMobile())renderHome();schedule();};
+  const originalRender=renderViewport;renderViewport=function(...args){
+    originalRender(...args);
+    // Search inputs and filter changes must not rebuild the entire home shelf
+    // on every keystroke while the home view is not visible.
+    if(isMobile() && view==='home')renderHome();
+    schedule();
+  };
   const originalRebuild=rebuildCombinedChannelCatalog;rebuildCombinedChannelCatalog=function(...args){originalRebuild(...args);if(searchInputEl.value.trim())renderViewport();};
   const originalDock=dockVideoToTopLeftMini;dockVideoToTopLeftMini=function(value){if(isMobile())return;originalDock(value);};
   const video=document.getElementById('video-player');['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
@@ -4540,6 +4662,26 @@ button {touch-action:manipulation;}
   home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch)img.src=artwork({...ch,logo:''});},true);
   mini.querySelector('img').addEventListener('error',event=>{if(activeChannel)event.target.src=artwork({...activeChannel,logo:''});});
   installPlaybackContinuity();
+  function installPlayerSwipes(element,onDirection) {
+    let start=null;
+    element.addEventListener('touchstart',e=>{
+      if(e.touches.length!==1||e.target.closest('button,input,select,a'))return;
+      start={x:e.touches[0].clientX,y:e.touches[0].clientY};
+    },{passive:true});
+    element.addEventListener('touchend',e=>{
+      if(!start||!e.changedTouches.length)return;
+      const dx=e.changedTouches[0].clientX-start.x,dy=e.changedTouches[0].clientY-start.y;
+      start=null;
+      if(Math.abs(dy)>85&&Math.abs(dx)<Math.abs(dy)/2)onDirection(dy>0?'down':'up');
+    },{passive:true});
+    element.addEventListener('touchcancel',()=>{start=null;},{passive:true});
+  }
+  installPlayerSwipes(now,dir=>{
+    if(dir==='down'&&expanded){setExpanded(false);view='home';schedule();}
+  });
+  installPlayerSwipes(mini,dir=>{
+    if(dir==='up'&&!expanded)setExpanded(true);
+  });
   if(hydrated)restoreUi();
   renderHome();sync();
 })();
