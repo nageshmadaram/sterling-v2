@@ -1,4 +1,4 @@
-import { readMediaSuggestions } from '../media/mediaSuggestions';
+import { readMediaCommand, readMediaSuggestionResponse } from '../media/mediaBridge';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -43,6 +43,8 @@ function readTvPreferences(): Partial<Record<TvKey, string>> {
 export type TvHeaderState = {theme:'youtube'|'spotify'|'netflix';query:string};
 export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderState)=>void;onPlayerState?:(expanded:boolean)=>void} = {}) {
   const ref = useRef<HTMLIFrameElement>(null);
+  const stateCallback = useRef(onState); stateCallback.current = onState;
+  const playerCallback = useRef(onPlayerState); playerCallback.current = onPlayerState;
   const readyRef = useRef(false);
   const pendingCommands=useRef(new Map<string,Record<string,unknown>>());
   const [loaded, setLoaded] = useState(false);
@@ -78,11 +80,12 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
       } else if(data.type === 'sterling.tv.focus-search') {
         window.dispatchEvent(new Event('sterling-tv-focus-search'));
       } else if(data.type === 'sterling.tv.suggestions') {
-        if(typeof data.query==='string'&&data.query.length<=200)window.dispatchEvent(new CustomEvent('sterling-tv-suggestions',{detail:{query:data.query,items:readMediaSuggestions(data.items)}}));
+        const response=readMediaSuggestionResponse(data);
+        if(response)window.dispatchEvent(new CustomEvent('sterling-tv-suggestions',{detail:response}));
       } else if(data.type === 'sterling.tv.state') {
-        if(['youtube','spotify','netflix'].includes(data.theme) && typeof data.query==='string' && data.query.length<=200)onState?.({theme:data.theme,query:data.query});
+        if(['youtube','spotify','netflix'].includes(data.theme) && typeof data.query==='string' && data.query.length<=200)stateCallback.current?.({theme:data.theme,query:data.query});
       } else if(data.type === 'sterling.tv.player-state') {
-        if(typeof data.expanded==='boolean')onPlayerState?.(data.expanded);
+        if(typeof data.expanded==='boolean')playerCallback.current?.(data.expanded);
       } else if (data.type === MESSAGE_SAVE) {
         // Startup playback emits play-history writes before hydration. Never
         // overwrite persisted preferences with temporary boot defaults.
@@ -100,20 +103,18 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
       if (!readyRef.current) setFailed(true);
     }, 15000);
     window.addEventListener('message', onMessage);
-    const refreshPreferences=()=>{readyRef.current=false;setLoaded(false);setReloadKey(n=>n+1);};
+    const refreshPreferences=()=>{readyRef.current=false;setLoaded(false);setFailed(false);setReloadKey(n=>n+1);};
     window.addEventListener('sterling-preferences-hydrated',refreshPreferences);
     const command=(event:Event)=>{
-      const data=(event as CustomEvent).detail;
-      if(!data||!['theme','search','more','startup','suggest','select-suggestion','play-search','collapse'].includes(data.action))return;
-      if(data.action==='theme'&&!['youtube','spotify','netflix'].includes(data.value))return;
-      if(data.action==='search'&&(typeof data.value!=='string'||data.value.length>200))return;
-      const payload={type:'sterling.tv.command',action:data.action,value:data.value};
+      const data=readMediaCommand('tv',(event as CustomEvent).detail);
+      if(!data)return;
+      const payload={type:'sterling.tv.command',...data};
       if(!readyRef.current){pendingCommands.current.set(data.action,payload);return;}
       ref.current?.contentWindow?.postMessage(payload,'*');
     };
     window.addEventListener('sterling-tv-command',command);
     return () => { window.clearTimeout(watchdog);window.removeEventListener('message',onMessage);window.removeEventListener('sterling-preferences-hydrated',refreshPreferences);window.removeEventListener('sterling-tv-command',command); };
-  }, [reloadKey,onState,onPlayerState]);
+  }, [reloadKey]);
 
   return (
     <section

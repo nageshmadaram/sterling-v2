@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useId } from 'react';
-import { readMediaSuggestions, type MediaSuggestion } from './mediaSuggestions';
+import type { MediaSuggestion } from './mediaSuggestions';
+import { useMediaSuggestions } from './useMediaSuggestions';
+import './MediaHeaderControls.css';
 
 export type MediaTheme = 'spotify' | 'youtube' | 'netflix';
 
@@ -16,19 +18,14 @@ type Props = {
 /** Same compact, touch-accessible controls for video and audio workspaces. */
 export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEnter, onFeatures }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
-  const [suggestions,setSuggestions]=useState<MediaSuggestion[]>([]);
   const [activeSuggestion,setActiveSuggestion]=useState(-1);
   const suggestionId=useId();
   const [draft, setDraft] = useState(query);
   const [composing, setComposing] = useState(false);
-  const [pending, setPending] = useState(false);
-  const [suggestionError, setSuggestionError] = useState(false);
-  const responseTimeout = useRef<number | undefined>(undefined);
   const searchToggle = useRef<HTMLButtonElement>(null);
   const settingsToggle = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const keepSearchOpen = useRef(false);
-  const searchOpenRef = useRef(searchOpen); searchOpenRef.current = searchOpen;
   const composingRef = useRef(false);
   const queryRef=useRef(query);queryRef.current=query;
   useEffect(() => { if (!composingRef.current) setDraft(query); }, [query]);
@@ -40,25 +37,17 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
     }
   }, [searchOpen]);
   const closeSearch = () => {
-    setSearchOpen(false); setSuggestions([]); setPending(false);
+    setSearchOpen(false);
     searchToggle.current?.focus({preventScroll:true});
   };
-  const selectSuggestion=(item:MediaSuggestion)=>{window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`,{detail:{action:'select-suggestion',value:item.id}}));setSearchOpen(false);setSuggestions([]);};
-  useEffect(()=>{
-    const receive=(event:Event)=>{const detail=(event as CustomEvent).detail;if(!searchOpenRef.current||composingRef.current||detail?.query!==queryRef.current)return;setSuggestions(readMediaSuggestions(detail.items));setActiveSuggestion(-1);setPending(false);setSuggestionError(false);window.clearTimeout(responseTimeout.current);};
-    window.addEventListener(`sterling-${kind}-suggestions`,receive);
-    return()=>window.removeEventListener(`sterling-${kind}-suggestions`,receive);
-  },[kind]);
-  useEffect(() => {
-    if (!searchOpen || composing) return;
-    setSuggestions([]); setActiveSuggestion(-1); setPending(true); setSuggestionError(false);
-    // Coalesce rapid keystrokes before crossing the isolated player bridge.
-    const request = window.setTimeout(() => window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`, {
-      detail: {action:'suggest', value:query},
-    })), query.trim() ? 120 : 0);
-    responseTimeout.current = window.setTimeout(() => { setPending(false); setSuggestionError(true); }, 4000);
-    return () => { window.clearTimeout(request); window.clearTimeout(responseTimeout.current); };
-  }, [query, searchOpen, kind, composing]);
+  const {items: suggestions, status: suggestionStatus, retry: retrySuggestions} = useMediaSuggestions(kind, query, searchOpen && !composing);
+  const pending = suggestionStatus === 'loading';
+  const suggestionError = suggestionStatus === 'timeout';
+  useEffect(() => setActiveSuggestion(-1), [suggestions]);
+  const selectSuggestion = (item: MediaSuggestion) => {
+    window.dispatchEvent(new CustomEvent(`sterling-${kind}-command`, {detail: {action:'select-suggestion', value:item.id}}));
+    setSearchOpen(false);
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -152,11 +141,11 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
       </div>}
       {searchOpen && <form className="sterling-media-expanded-search" role="search" onSubmit={event => { event.preventDefault(); if(composingRef.current)return; if(activeSuggestion>=0&&suggestions[activeSuggestion])selectSuggestion(suggestions[activeSuggestion]);else onEnter?.(); }}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
-        <input role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestionId} aria-activedescendant={activeSuggestion>=0?`${suggestionId}-${activeSuggestion}`:undefined} onKeyDown={event=>{if(event.nativeEvent.isComposing||composingRef.current)return;if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setActiveSuggestion(index=>suggestions.length?(index<0?(event.key==='ArrowDown'?0:suggestions.length-1):(index+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length):-1);}if(event.key==='Escape'){event.preventDefault();closeSearch();onQuery('');}}} ref={searchInput} type="search" maxLength={200} value={draft} onCompositionStart={() => {composingRef.current=true;setComposing(true);setSuggestions([]);setActiveSuggestion(-1);}} onCompositionEnd={event => {composingRef.current=false;setComposing(false);setDraft(event.currentTarget.value);onQuery(event.currentTarget.value);}} onChange={event => {setDraft(event.currentTarget.value);if(!composingRef.current)onQuery(event.currentTarget.value);}}
+        <input role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length>0} aria-controls={suggestionId} aria-activedescendant={activeSuggestion>=0?`${suggestionId}-${activeSuggestion}`:undefined} onKeyDown={event=>{if(event.nativeEvent.isComposing||composingRef.current)return;if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setActiveSuggestion(index=>suggestions.length?(index<0?(event.key==='ArrowDown'?0:suggestions.length-1):(index+(event.key==='ArrowDown'?1:-1)+suggestions.length)%suggestions.length):-1);}if(event.key==='Escape'){event.preventDefault();closeSearch();onQuery('');}}} ref={searchInput} type="search" maxLength={200} value={draft} onCompositionStart={() => {composingRef.current=true;setComposing(true);setActiveSuggestion(-1);}} onCompositionEnd={event => {composingRef.current=false;setComposing(false);setDraft(event.currentTarget.value);onQuery(event.currentTarget.value);}} onChange={event => {setDraft(event.currentTarget.value);if(!composingRef.current)onQuery(event.currentTarget.value);}}
           aria-label={kind === 'tv' ? 'Search TV channels' : 'Search radio stations'}
           placeholder={kind === 'tv' ? 'What do you want to watch?' : 'What do you want to listen to?'} />
         {draft && <button type="button" aria-label="Clear search" onClick={() => { keepSearchOpen.current=true;composingRef.current=false;setComposing(false);setDraft('');onQuery(''); searchInput.current?.focus(); }}>×</button>}
-        <div className="sterling-media-suggestions"><p>{query.trim()?'Suggestions':'Recently played & picks'}</p><div role="listbox" aria-busy={pending} id={suggestionId} aria-label="Search suggestions">{suggestions.map((item,index)=><button type="button" tabIndex={-1} role="option" aria-selected={activeSuggestion===index} id={`${suggestionId}-${index}`} key={item.id} onMouseDown={event=>event.preventDefault()} onClick={()=>selectSuggestion(item)}>{item.artwork?<img src={item.artwork} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={event=>{event.currentTarget.style.visibility='hidden';}}/>:<span className="sterling-suggestion-art" aria-hidden="true">{item.label.slice(0,1)}</span>}<span><strong>{item.label}</strong><small>{item.subtitle}</small></span><span aria-hidden="true">↗</span></button>)}</div>{!suggestions.length&&<small role="status">{composing?'Finish typing to search.':pending?'Finding channels and stations…':suggestionError?'Suggestions are taking longer. Edit your search to try again.':query?'No matches. Try a name, language or category.':'Choose a station or channel to get started.'}</small>}</div>
+        <div className="sterling-media-suggestions"><p>{query.trim()?'Suggestions':'Recently played & picks'}</p><div role="listbox" aria-busy={pending} id={suggestionId} aria-label="Search suggestions">{suggestions.map((item,index)=><button type="button" tabIndex={-1} role="option" aria-selected={activeSuggestion===index} id={`${suggestionId}-${index}`} key={item.id} onMouseDown={event=>event.preventDefault()} onClick={()=>selectSuggestion(item)}>{item.artwork?<img src={item.artwork} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={event=>{event.currentTarget.style.visibility='hidden';}}/>:<span className="sterling-suggestion-art" aria-hidden="true">{item.label.slice(0,1)}</span>}<span><strong>{item.label}</strong><small>{item.subtitle}</small></span><span aria-hidden="true">↗</span></button>)}</div>{!suggestions.length&&<small role="status">{composing?'Finish typing to search.':pending?'Finding channels and stations…':suggestionError?'Suggestions are taking longer. You can retry without changing your search.':query?'No matches. Try a name, language or category.':'Choose a station or channel to get started.'}</small>}{suggestionError&&<button type="button" className="sterling-media-suggestions-retry" onClick={()=>{retrySuggestions();searchInput.current?.focus();}}>Retry suggestions</button>}</div>
         {kind === 'tv' && <button type="submit" aria-label="Play first matching TV channel">Play</button>}
       </form>}
     </div>
