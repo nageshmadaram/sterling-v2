@@ -5226,9 +5226,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     const pool=query.trim()?getRankedSearchMatches(query):[...recentHistory,...favorites,...VERIFIED_STREAMS];
     return pool.filter(isChannelVisible).filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
   }
-  function publishSuggestions(query) {
+  function publishSuggestions(query, requestId) {
     const items=tvSuggestions(query);
-    if(hosted){window.parent.postMessage({type:'sterling.tv.suggestions',query,items:items.map(ch=>({id:ch.url,label:ch.name,subtitle:[ch.group,ch.lang].filter(Boolean).join(' · '),artwork:window.SterlingArtwork?.resolveTv(ch)||ch.logo||''}))},'*');return;}
+    if(hosted){window.parent.postMessage({type:'sterling.tv.suggestions',query,...(typeof requestId==='string'&&/^[a-zA-Z0-9-]{1,64}$/.test(requestId)?{requestId}:{}),items:items.map(ch=>({id:ch.url,label:ch.name,subtitle:[ch.group,ch.lang].filter(Boolean).join(' · '),artwork:window.SterlingArtwork?.resolveTv(ch)||ch.logo||''}))},'*');return;}
     shell.querySelector('.tm-search-suggestions')?.remove();
     if(shell.querySelector('.tm-search').hidden)return;
     const list=document.createElement('div');list.className='tm-search-suggestions';list.setAttribute('role','listbox');list.setAttribute('aria-label','Channel suggestions');
@@ -5262,7 +5262,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     if(data?.type!=='sterling.tv.command'||!hosted)return;
     if(data.action==='theme'&&['youtube','spotify','netflix'].includes(data.value))run(data.value);
     if(data.action==='search'&&typeof data.value==='string'&&data.value.length<=200)applySearch(data.value);
-    if(data.action==='suggest'&&typeof data.value==='string')publishSuggestions(data.value.slice(0,200));
+    if(data.action==='suggest'&&typeof data.value==='string')publishSuggestions(data.value.slice(0,200),data.requestId);
     if(data.action==='select-suggestion'&&typeof data.value==='string'){const ch=allChannels.find(ch=>ch.url===data.value)||tvSuggestions('').find(ch=>ch.url===data.value);if(ch){playStream(ch,0);clearSelectionSearch();view=currentTheme==='youtube'?'watch':'home';if(currentTheme==='spotify')setExpanded(true);sync();}}
     if(data.action==='startup')openStartupChannelModal();
     if(data.action==='play-search'){

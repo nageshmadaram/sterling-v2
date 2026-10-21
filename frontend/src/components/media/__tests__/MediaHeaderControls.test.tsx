@@ -31,13 +31,15 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
   });
 
   it('shows suggestions, ignores stale queries and selects with the keyboard',()=>{
-    mount('radio');const command=vi.fn();window.addEventListener('sterling-radio-command',command);
+    vi.useFakeTimers();mount('radio');const command=vi.fn();window.addEventListener('sterling-radio-command',command);
     fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
     const input=screen.getByRole('combobox',{name:'Search radio stations'});
     fireEvent.change(input,{target:{value:'BBC'}});
+    act(()=>vi.advanceTimersByTime(120));
+    const requestId=command.mock.calls.at(-1)?.[0].detail.requestId;
     fireEvent(window,new CustomEvent('sterling-radio-suggestions',{detail:{query:'old',items:[{id:'old',label:'Old result'}]}}));
     expect(screen.queryByRole('option')).toBeNull();
-    fireEvent(window,new CustomEvent('sterling-radio-suggestions',{detail:{query:'BBC',items:[{id:'bbc',label:'BBC World Service',subtitle:'World news'}]}}));
+    fireEvent(window,new CustomEvent('sterling-radio-suggestions',{detail:{query:'BBC',requestId,items:[{id:'bbc',label:'BBC World Service',subtitle:'World news'}]}}));
     expect(screen.getByRole('option')).toHaveTextContent('BBC World Service');
     fireEvent.keyDown(input,{key:'ArrowDown'});fireEvent.submit(screen.getByRole('search'));
     expect(command.mock.calls.at(-1)?.[0].detail).toEqual({action:'select-suggestion',value:'bbc'});
@@ -106,7 +108,7 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     expect(screen.getByRole('listbox')).toHaveAttribute('aria-busy','true');
     act(()=>vi.advanceTimersByTime(120));
     expect(command).toHaveBeenCalledTimes(1);
-    expect(command.mock.calls[0][0].detail).toEqual({action:'suggest',value:'BBC'});
+    expect(command.mock.calls[0][0].detail).toEqual({action:'suggest',value:'BBC',requestId:expect.any(String)});
     act(()=>vi.advanceTimersByTime(4000));
     expect(screen.getByRole('status')).toHaveTextContent('taking longer');
     expect(screen.getByRole('listbox')).toHaveAttribute('aria-busy','false');
@@ -173,4 +175,24 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     fireEvent.blur(screen.getByRole('menuitemradio',{name:/Spotify/}),{relatedTarget:document.body});
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
+  it.each(['tv','radio'] as const)('retries %s suggestions and rejects an older reply for the same query',kind=>{
+    vi.useFakeTimers();const {searched,entered}=mount(kind);
+    const command=vi.fn();window.addEventListener(`sterling-${kind}-command`,command);
+    fireEvent.click(screen.getByRole('button',{name:kind==='tv'?'Search TV channels':'Search radio stations'}));
+    fireEvent.change(screen.getByRole('combobox'),{target:{value:'News'}});
+    act(()=>vi.advanceTimersByTime(4120));
+    const oldRequest=command.mock.calls.at(-1)![0].detail;
+    fireEvent.click(screen.getByRole('button',{name:'Retry suggestions'}));
+    act(()=>vi.advanceTimersByTime(0));
+    const currentRequest=command.mock.calls.at(-1)![0].detail;
+    expect(currentRequest.requestId).not.toBe(oldRequest.requestId);
+    const reply=(requestId:string,label:string)=>fireEvent(window,new CustomEvent(`sterling-${kind}-suggestions`,{detail:{query:'News',requestId,items:[{id:label,label}]}}));
+    reply(oldRequest.requestId,'Stale news');expect(screen.queryByRole('option')).toBeNull();
+    reply(currentRequest.requestId,'Current news');expect(screen.getByRole('option')).toHaveTextContent('Current news');
+    act(()=>vi.advanceTimersByTime(5000));expect(screen.queryByRole('button',{name:'Retry suggestions'})).toBeNull();
+    expect(searched).toHaveBeenCalledTimes(1);expect(entered).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox')).toHaveFocus();
+    window.removeEventListener(`sterling-${kind}-command`,command);
+  });
+
 });
