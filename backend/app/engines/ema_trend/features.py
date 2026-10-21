@@ -123,9 +123,29 @@ def build_features(bars: Sequence[Bar], context_bars: Sequence[Bar]) -> list[Fea
     return out
 
 
-def continuous(previous: Bar, current: Bar, signal_minutes: int, exchange: str = "NSE") -> bool:
+def continuous(previous: Bar, current: Bar, signal_minutes: int, exchange: str = "NSE",
+               *, across_sessions: bool = False) -> bool:
+    """Whether ``current`` directly follows ``previous`` with no missing bar.
+
+    Intraday bars are continuous within a session only. A mode that carries
+    positions overnight (``across_sessions``) also treats the first bar of the
+    next trading session after the previous session's last bar as continuous;
+    otherwise every session boundary would reset its setups.
+    """
     if signal_minutes < 1440:
-        return current.open_ms == previous.close_ms
+        if current.open_ms == previous.close_ms:
+            return True
+        if not across_sessions:
+            return False
+        from .calendar import next_regular_session, regular_close
+        old_dt = datetime.fromtimestamp(previous.close_ms/1000, IST)
+        new_dt = datetime.fromtimestamp(current.open_ms/1000, IST)
+        try:
+            closed_at_bell = old_dt.time() >= regular_close(old_dt.date(), exchange)
+            next_day = next_regular_session(old_dt.date(), exchange)
+        except Exception:  # noqa: BLE001 - unknown calendar is a gap
+            return False
+        return closed_at_bell and new_dt.date() == next_day and new_dt.strftime("%H:%M") == "09:15"
     from .calendar import next_regular_session as next_trading_session
     old = datetime.fromtimestamp(previous.open_ms/1000, IST).date()
     new = datetime.fromtimestamp(current.open_ms/1000, IST).date()

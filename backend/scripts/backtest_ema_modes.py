@@ -28,7 +28,29 @@ from app.engines.ema_trend.features import IST, aggregate_completed_bars  # noqa
 
 SYMBOLS = ["NSE:RELIANCE", "NSE:HDFCBANK", "NSE:ICICIBANK", "NSE:INFY", "NSE:TCS",
            "NSE:SBIN", "NSE:AXISBANK", "NSE:LT", "NSE:BHARTIARTL", "NSE:KOTAKBANK"]
-CAPITAL = Decimal("100000")
+CAPITAL = Decimal("1000000")
+#: History per signal timeframe. The live scanner only fetches a recent window
+#: (enough to trade, not to test); the backtest asks for as much as the
+#: verified session calendar allows (from 2024-11-01).
+DAYS = {1: 120, 3: 200, 5: 200, 15: 400, 60: 720, 1440: 800}
+
+
+async def fetch_long(client, meta, minutes: int, now):
+    from datetime import time as dtime
+    from app.engines.ema_trend.calendar import HISTORY_START
+    from app.services.ema_trend.scanner import normalize_history
+    interval = {1: "minute", 3: "3minute", 5: "5minute", 15: "15minute", 60: "60minute", 1440: "day"}[minutes]
+    span = {1: 55, 3: 90, 5: 90, 15: 180, 60: 360, 1440: 1500}[minutes]
+    earliest = datetime.combine(HISTORY_START, dtime(0, 0), IST)
+    cursor, raw = max(now - timedelta(days=DAYS[minutes]), earliest), []
+    while cursor < now:
+        end = min(cursor + timedelta(days=span), now)
+        payload = await client.get_historical(meta.token, interval, cursor.strftime("%Y-%m-%d %H:%M:%S"),
+                                              end.strftime("%Y-%m-%d %H:%M:%S"))
+        raw.extend(payload.get("candles", (payload.get("data") or {}).get("candles", [])))
+        cursor = end
+        await asyncio.sleep(0.35)
+    return normalize_history(raw, minutes, asof_ms=int(now.timestamp() * 1000), exchange=meta.exchange)
 OUT = Path(__file__).resolve().parents[2] / "docs" / "operations"
 
 
@@ -49,18 +71,23 @@ async def main() -> None:
         for symbol in SYMBOLS:
             try:
                 meta = await scanner.equity_metadata(uid, symbol, client=client)
-                bars = await scanner.fetch_bars(client, meta, profile.signal_minutes, now)
+                bars = await fetch_long(client, meta, profile.signal_minutes, now)
                 if profile.context_minutes == 10080:
                     context = aggregate_completed_bars(bars, 10080, int(now.timestamp() * 1000), meta.exchange)
                 else:
-                    context = await scanner.fetch_bars(client, meta, profile.context_minutes, now)
+                    context = await fetch_long(client, meta, profile.context_minutes, now)
                 cfg = EmaTrendConfig(symbols=[symbol], modes=[mode], allocation_inr=CAPITAL,
                                      execution_mode="PAPER")
-                rep = run_replay(symbol, mode, bars, context, cfg, uid=uid,
-                                 activation_ms=int(bars[min(250, len(bars) - 1)].close_ms))
+                rep = run_replay(symbol, mode, bars, context, cfg, uid=uid)
+                from app.engines.ema_trend.features import build_features
+                from app.engines.ema_trend.setups import evaluate_setups
+                warm = sum(1 for x in evaluate_setups(symbol, mode, build_features(bars, context))
+                           if getattr(x, "reason", "") == "WARMING_UP")
                 m = rep["metrics"]
                 first = datetime.fromtimestamp(bars[0].close_ms / 1000, IST).date()
-                rows.append({"mode": mode, "symbol": symbol, "from": first.isoformat(), "bars": len(bars),
+                import collections
+                refusals = dict(collections.Counter(d.get("reason") for d in rep["decisions"]).most_common(4))
+                rows.append({"refusals": refusals, "mode": mode, "symbol": symbol, "from": first.isoformat(), "bars": len(bars), "tested_bars": len(bars) - warm,
                              "trades": m["completed_campaigns"], "open": m["open_campaigns"],
                              "net": float(m["net_realized"]), "fees": float(m["estimated_fees"]),
                              "win_rate": m["win_rate"], "max_dd": float(m["max_drawdown"])})

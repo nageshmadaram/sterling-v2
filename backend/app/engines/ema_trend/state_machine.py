@@ -212,7 +212,8 @@ def decide(c: Campaign, f: Feature, previous: Feature | None, profile: Profile,
             if (c.bearish_epoch >= 0 and pivot.occurred_index > c.bearish_epoch and reference is not None
                     and pivot.price < reference):
                 return make_action(c, "STRUCTURAL_EXIT", "SELL", c.qty, f.index, f.bar.available_ms, price)
-    if previous and not continuous(previous.bar, f.bar, profile.signal_minutes, c.symbol.split(":")[0]):
+    if previous and not continuous(previous.bar, f.bar, profile.signal_minutes, c.symbol.split(":")[0],
+                                   across_sessions=profile.mode == "overnight"):
         c.below10 = c.below21 = 0
     c.below10 = c.below10+1 if f.bar.close < f.ema10 else 0
     c.below21 = c.below21+1 if f.bar.close < f.ema21 else 0

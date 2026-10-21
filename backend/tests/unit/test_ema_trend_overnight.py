@@ -26,3 +26,23 @@ def test_overnight_closes_before_a_weekend_but_not_midweek():
     assert gap_close_due(p, wednesday) is False
     assert gap_close_due(p, friday.replace(hour=14)) is False
     assert gap_close_due(PROFILES["swing"], friday) is False
+
+
+def test_overnight_setups_continue_across_the_session_boundary():
+    from app.engines.ema_trend.contracts import Bar
+    from app.engines.ema_trend.features import continuous
+
+    def bar(y, mo, d, h, mi, minutes=60):
+        start = datetime(y, mo, d, h, mi, tzinfo=IST)
+        end = start + timedelta(minutes=minutes)
+        ms = lambda t: int(t.timestamp() * 1000)
+        return Bar(open_ms=ms(start), close_ms=ms(end), available_ms=ms(end),
+                   open=1, high=1, low=1, close=1, volume=1, provider="test",
+                   adjustment_version="test")
+    last = bar(2026, 10, 20, 15, 15, minutes=15)   # 15:15-15:30 Tuesday
+    first = bar(2026, 10, 21, 9, 15)               # 09:15 Wednesday
+    assert continuous(last, first, 60, across_sessions=True) is True
+    assert continuous(last, first, 60) is False
+    friday_last = bar(2026, 10, 23, 15, 15, minutes=15)
+    tuesday = bar(2026, 10, 27, 9, 15)             # skips Monday: a real gap
+    assert continuous(friday_last, tuesday, 60, across_sessions=True) is False
