@@ -46,7 +46,7 @@ from app.services.safe_mode import SafeModeService
 safe = SafeModeService(os.environ["STERLING_SAFE_MODE_FILE"]).read()
 head("SAFETY")
 line("Safe mode", "ON" if safe.active else "OFF")
-line("New trades", "BLOCKED" if safe.active else "allowed")
+line("New trades", "BLOCKED by safe mode" if safe.active else "not blocked by safe mode", "see BOTTOM LINE")
 line("Closing trades", "always allowed")
 if safe.active:
     line("Because", safe.reason or "no reason recorded")
