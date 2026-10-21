@@ -25,6 +25,26 @@ describe('Sterling TV static integration safety', () => {
     expect(spectrumSpacingCss).not.toContain('.mobile-pane-host .kite-ticker-strip { display:none; }');
   });
 
+  it('does not splice untrusted playlists into executable inline handlers',()=>{
+    for(const html of [tvPage,latestTv]) {
+      expect(html).toContain('function escapeJsAttr(str)');
+      expect(html).toContain('return escapeHtml(JSON.stringify(String(str ?? \'\')));');
+      expect(html).not.toContain("'\${escapeAttr(");
+      expect(html).toContain("playbackGeneration===generation");
+      expect(html).toContain("url.protocol==='https:'");
+    }
+  });
+
+  it('preserves Radio zero volume and rejects stale remote search results',()=>{
+    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    expect(radio).toContain('const requested=Number.isFinite(appConfig.volume)?appConfig.volume:0.85;');
+    expect(radio).toContain('searchRevision++;searchAbort?.abort();searchAbort=null;');
+    expect(radio).toContain("typeof s.url_resolved==='string'");
+    expect(radio).toContain('artworkLookupInFlight');
+    expect(radio).toContain('playbackRevision===revision');
+    expect(radio).toContain('if (radioBooted) {');
+  });
+
   it('guards mobile IPTV fullscreen, search dismissal, user audio choice and queue',()=>{
     expect(tvPage).toContain('lastFullscreenGestureAt');
     expect(tvPage).toContain('if (!userHasInteractedWithAudio) video.muted = true;');
