@@ -16,6 +16,7 @@ import { useSavedSelection } from '../../../hooks/useSavedSelection';
 import { useCallback, useMemo, useState } from 'react';
 import { sessionDayKey, type BoardSignal } from './boardTypes';
 import { DEFAULT_HIDDEN_COLUMNS, type ColumnId } from './SignalBoard';
+import type { TradeMode } from './boardTypes';
 import { useEffectiveNowMs } from '../../../hooks/useReplayStore';
 
 export interface BoardView {
@@ -27,6 +28,9 @@ export interface BoardView {
   setTodayOnly: (v: boolean) => void;
   bestOnly: boolean;
   setBestOnly: (v: boolean) => void;
+  /** Trading modes to show. Empty means every mode. */
+  modes: readonly TradeMode[];
+  setModes: (v: TradeMode[]) => void;
   /** Rows after every filter, in board order. */
   visible: BoardSignal[];
   /** Whether each control has anything to act on. */
@@ -139,6 +143,9 @@ export function useBoardView(
   const [showEnded, setShowEnded] = useSavedSelection<boolean>(storageKey ? `${storageKey}.ended` : undefined, endedByDefault);
   const [todayOnly, setTodayOnly] = useSavedSelection<boolean>(storageKey ? `${storageKey}.today` : undefined, todayByDefault);
   const [bestOnly, setBestOnly] = useSavedSelection<boolean>(storageKey ? `${storageKey}.best` : undefined, false);
+  const [modesRaw, setModesRaw] = useSavedSelection<string>(storageKey ? `${storageKey}.modes` : undefined, '');
+  const modes = useMemo(() => (modesRaw ? modesRaw.split(',') : []) as TradeMode[], [modesRaw]);
+  const setModes = useCallback((next: TradeMode[]) => setModesRaw(next.join(',')), [setModesRaw]);
   const [hidden, setHidden] = useState<Set<ColumnId>>(() => loadHidden(storageKey, defaults));
 
   const toggleColumn = useCallback((id: ColumnId) => {
@@ -199,12 +206,14 @@ export function useBoardView(
       });
     }
     if (bestOnly) visible = bestLegPerUnderlying(visible);
+    if (modes.length) visible = visible.filter((s) => !s.mode || modes.includes(s.mode));
 
     return {
       query, setQuery, showEnded, setShowEnded, todayOnly, setTodayOnly, bestOnly, setBestOnly,
+      modes, setModes,
       visible, offers,
       counts: { total: all.length, shown: visible.length, ended },
       hidden, toggleColumn, showAllColumns, resetColumns,
     };
-  }, [signals, query, showEnded, todayOnly, bestOnly, hidden, toggleColumn, showAllColumns, resetColumns, effectiveNow]);
+  }, [signals, query, showEnded, todayOnly, bestOnly, modes, setModes, hidden, toggleColumn, showAllColumns, resetColumns, effectiveNow]);
 }

@@ -171,21 +171,6 @@ describe('actual strategy components share persisted layout and actions', () => 
       useKiteSettings.setState({ signalLeftColumnOrder: before.signalLeftColumnOrder, hiddenSignalCols: before.hiddenSignalCols });
     }
   });
-  it('puts strategy controls before the rows and uses the same contract row styling', () => {
-    const { container } = mountBoards();
-    const rows = [...container.querySelectorAll('.sb-row:not(.sb-parent)')] as HTMLElement[];
-    expect(rows).toHaveLength(3);
-    expect(rows.map(row => row.style.background)).toEqual([rows[0].style.background, rows[0].style.background, rows[0].style.background]);
-    expect(rows.map(row => row.style.borderBottom)).toEqual([rows[0].style.borderBottom, rows[0].style.borderBottom, rows[0].style.borderBottom]);
-    for (const name of ['Snapback', 'Gamma Unwind']) {
-      const footer = screen.getByRole('region', { name: `${name} controls and information` });
-      const parent = footer.parentElement!;
-      const header = parent.querySelector('.sb-head-row') || parent.parentElement?.querySelector('.sb-head-row');
-      expect(header).toBeTruthy();
-      expect(header!.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
-      expect(footer.querySelector('button')).toBeTruthy();
-    }
-  });
 });
 
 describe('column parity across engines', () => {

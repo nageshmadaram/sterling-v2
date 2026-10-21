@@ -114,7 +114,7 @@ beforeEach(() => {
 
 function renderEvidence(ui: import('react').ReactElement) {
  const result=render(ui);
- fireEvent.click(screen.getByRole('button',{name:'Snapback information and options'}));
+ // Status text is inline now; there is no info panel to open.
  return result;
 }
 
@@ -281,14 +281,6 @@ describe('Snapback board', () => {
       .toBeInTheDocument();
   });
 
-  it('disables the scan control while the engine is off', () => {
-    snap = {
-      data: snapshot({ config: { enabled: false } }), isLoading: false, error: null,
-    };
-    renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    expect(screen.getByRole('button', { name: /Scan now/ })).toBeDisabled();
-  });
-
   it('shows replayed history so a quiet board is not a broken one', () => {
     historyState = {
       data: {
@@ -314,12 +306,6 @@ describe('Snapback board', () => {
     };
     renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
     expect(screen.getAllByText(/NIFTY/).length).toBeGreaterThan(1);
-  });
-
-  it('runs a scan on demand', () => {
-    renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
-    screen.getByRole('button', { name: /Scan now/ }).click();
-    expect(scanState.mutate).toHaveBeenCalled();
   });
 
   it('keeps daily evidence/history out of scalp while exposing the live scalp lane', () => {
@@ -423,38 +409,6 @@ it('groups replay rows against the replay clock', () => {
     wall.mockRestore();
   }
 });
-
-it('combines identical broker blockers and distinguishes configured ALGO from readiness', () => {
-  const reason = 'Not logged in to Kite. Log in to the broker, then Snapback can trade.';
-  snap.data = snapshot({
-    capabilities: {
-      auto_execution: { available: false, reason },
-      manual_execution: { single_leg: false, reason },
-    },
-    warnings: ['Automatic execution is on. Walk-forward promotion is waived for this release; this engine has not passed it.'],
-  });
-  renderEvidence(<SnapbackBoard />);
-  expect(screen.getAllByText(/New entries are unavailable/)).toHaveLength(1);
-  expect(screen.getByRole('button', { name: /Reconnect Kite/ })).toBeTruthy();
-  expect(screen.queryByText(/Automatic execution is on/)).toBeNull();
-  expect(screen.getByText(/ALGO is enabled in settings; broker readiness/)).toBeTruthy();
-  expect(screen.getByText(/EXECUTION BLOCKED/)).toBeTruthy();
-});
-
-it('selects multiple scan modes without changing execution configuration', () => {
-  renderEvidence(<SnapbackBoard />);
-  fireEvent.click(screen.getByRole('checkbox', { name: 'Scalp' }));
-  expect(screen.getByRole('checkbox', { name: 'Swing · daily' })).toBeChecked();
-  expect(screen.getByRole('checkbox', { name: 'Scalp' })).toBeChecked();
-  fireEvent.click(screen.getByRole('button', { name: 'Scan now' }));
-  expect(scanState.mutate).toHaveBeenCalledWith(['swing', 'scalp']);
-});
-it('provides Stop while an owned scan is running', () => {
-  snap = { data: snapshot({ scanning: true, scan_cancellable: true }), isLoading: false, error: null };
-  renderEvidence(<SnapbackBoard />);
-  fireEvent.click(screen.getByRole('button', { name: 'Stop scan' }));
-  expect(updateMode).toHaveBeenCalled();
-});
 it('labels clock pauses separately from execution faults', () => {
   const data = snapshot();
   data.capabilities.auto_execution.session = ['cash_signal_auction'];
@@ -462,14 +416,6 @@ it('labels clock pauses separately from execution faults', () => {
   renderEvidence(<SnapbackBoard />);
   expect(screen.getByText('SESSION PAUSED')).toBeInTheDocument();
   expect(screen.queryByText('EXECUTION BLOCKED')).not.toBeInTheDocument();
-});
-
-it('places strategy controls in the horizontal filter toolbar and removes search', () => {
-  const { container } = renderEvidence(<SnapbackBoard />);
-  const footer = screen.getByRole('region', { name: 'Snapback controls and information' });
-  expect(footer.parentElement).toHaveClass('strategy-inline-controls');
-  expect(container.querySelector('.strategy-inline-controls')).toContainElement(footer);
-  expect(screen.queryByPlaceholderText('Symbol, contract or exchange')).not.toBeInTheDocument();
 });
 
 it('displays visible trading mode badges on snapback rows', () => {

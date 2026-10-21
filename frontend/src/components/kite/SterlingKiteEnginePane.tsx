@@ -5,7 +5,9 @@ import { stamp, barCloseMs, isDayExpandedByDefault, sessionDayKey, shiftSessionD
 import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ToolbarButton } from './board/EngineToolbar';
-import { ColumnsMenu, FilterToggle } from './board/BoardFilters';
+import { ColumnsMenu, FilterToggle, ModeFilter } from './board/BoardFilters';
+import { normalizeMode, type TradeMode } from './board/boardTypes';
+import { useSavedSelection } from '../../hooks/useSavedSelection';
 // The row's geometry and columns now live beside the shared board, so every
 // engine renders against the same table rather than a copy of it.
 import { HEAD_METRICS, DAY_HEAD_METRICS, LEG_BG, LEG_INDENT,
@@ -2005,8 +2007,14 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     saveTableFlag('kite_st_today_only', next);
   };
 
+  // Same Modes filter as every other strategy. SuperTrend runs one mode at a
+  // time, so the filter either shows that mode's rows or none.
+  const [stModesRaw, setStModesRaw] = useSavedSelection<string>('supertrend.board.modes', '');
+  const stModes = React.useMemo(() => (stModesRaw ? stModesRaw.split(',') : []) as TradeMode[], [stModesRaw]);
+  const stMode = normalizeMode(cfg?.horizon_mode);
   const filteredRows = React.useMemo(() => {
     let result = [...rows];
+    if (stModes.length && stMode && !stModes.includes(stMode)) result = [];
     if (signalMode === 'navigator') {
       result = result.filter((r) => r.navigator != null);
     } else if (signalMode === 'common') {
@@ -2041,7 +2049,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
       });
     }
     return result;
-  }, [rows, query, signalMode, todayOnly, effectiveNowMs]);
+  }, [rows, query, signalMode, todayOnly, effectiveNowMs, stModes, stMode]);
   const showSignalPremiumColumns = React.useMemo(
     () => cfg?.scan_source !== 'spot' || filteredRows.some(hasPremiumSnapshot),
     [cfg?.scan_source, filteredRows],
@@ -2523,6 +2531,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                   if (!s.showPriceDirection) s.toggleShow('showPriceDirection');
                 }}
               />
+              <ModeFilter modes={stModes} onChange={(next) => setStModesRaw(next.join(','))} />
               <FilterToggle
                 on={bestOnly}
                 label="BEST LEG"

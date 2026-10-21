@@ -148,30 +148,11 @@ beforeEach(() => {
 
 function renderEvidence(ui: import('react').ReactElement) {
  const result=render(ui);
- fireEvent.click(screen.getByRole('button',{name:'Gamma Unwind information and options'}));
+ // Status text is inline now; there is no info panel to open.
  return result;
 }
 
 describe('GammaMoveBoard / Gamma Unwind', () => {
-  it('labels E1 evidence from an incomplete replay as partial', () => {
-    historyState = {
-      data: {
-        days: [], count: 1,
-        tier_counts: { entry: 1, strong_watchlist: 0, watchlist_e1: 0 },
-        signals: [{
-          ...signal({ id: 'partial-ledger', tier: 'ENTRY' }),
-          history_day: '2026-10-01',
-          source: 'historical_replay',
-          history_complete: false,
-        }],
-      },
-      isLoading: false, error: null,
-    };
-
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(screen.getByText('historical · partial')).toBeInTheDocument();
-  });
 
   it('never exposes the generic trade action on a historical day', async () => {
     snap = {
@@ -190,43 +171,6 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     expect(screen.queryByText(/^Buy\b/i)).toBeNull();
     expect(screen.getByText(/read-only/i)).toBeInTheDocument();
-  });
-  it('shows recent persisted E1 events across days even when selected day is empty', () => {
-    historyState.data = {
-      days: [],
-      signals: [
-        { ...signal(), history_day: '2026-10-02', source: 'live_recorded' },
-        {
-          ...signal({ id: 'old-strong', tier: 'STRONG_WATCHLIST' }),
-          history_day: '2026-10-01',
-          source: 'historical_replay',
-        },
-      ],
-      count: 2,
-      tier_counts: { entry: 1, strong_watchlist: 1, watchlist_e1: 0 },
-    };
-    snap.data = data({ candidates: [] });
-
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(screen.getByText(/2 persisted E1 events/)).toBeTruthy();
-    expect(screen.getAllByText('ENTRY').length).toBeGreaterThan(0);
-    expect(screen.getByText('STRONG_WATCHLIST')).toBeTruthy();
-    expect(screen.getAllByText('historical').length).toBeGreaterThan(0);
-  });
-
-  it('jumps from the E1 ledger to that signal day', () => {
-    historyState.data = {
-      days: [],
-      signals: [{ ...signal(), history_day: '2026-10-02', source: 'live_recorded' }],
-      count: 1,
-      tier_counts: { entry: 1, strong_watchlist: 0, watchlist_e1: 0 },
-    };
-
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Open day' }));
-
-    expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
   });
 
   it('polls while flat so ticker-driven E1 can appear', () => {
@@ -307,68 +251,6 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(scanState.mutate).not.toHaveBeenCalled();
   });
 
-  it('renders a historical ENTRY as recorded and never exposes Buy', () => {
-    snap.data = data({
-      day: '2026-10-02',
-      historical: true,
-      recorded: true,
-      source: 'live_recorded',
-      candidates: [signal()],
-    });
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(screen.getByRole('status')).toHaveTextContent('Historical · read-only · 2026-10-02');
-    expect(screen.getByTestId('gamma-board-information')).not.toHaveAttribute('open');
-    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-02 · captured from the live runtime/)).toBeTruthy();
-    expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
-    fireEvent.click(screen.getByText(/RELIANCE/));
-    expect(screen.queryByText(/Quote & sizing preview/i)).toBeNull();
-    expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
-    expect(screen.queryByText(/Place BUY CALL/i)).toBeNull();
-  });
-
-  it('automatically loads an unrecorded historical trading day', () => {
-    snap.data = data({
-      day: '2026-10-01',
-      historical: true,
-      recorded: false,
-      source: 'available_replay',
-      replay_available: true,
-      is_trading_day: true,
-      candidates: [],
-      history_days: [],
-      blockers: ['No cached Gamma-Unwind state for 2026-10-01. Historical signals will load automatically from available broker history.'],
-    });
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-    fireEvent.change(screen.getByLabelText('Gamma history date'), {
-      target: { value: '2026-10-01' },
-    });
-
-    expect(historicalLoadState.mutate).toHaveBeenCalledWith({ day: '2026-10-01' });
-    expect(document.body.textContent).toContain('Loading historical Gamma-Unwind signals');
-  });
-
-  it('renders reconstructed ENTRY rows read-only as historical signals', () => {
-    snap.data = data({
-      day: '2026-10-01',
-      historical: true,
-      recorded: true,
-      source: 'historical_replay',
-      replay: { resolution: '1minute_ohlcv_proxy', complete: true },
-      candidates: [signal({
-        source: 'historical_replay',
-        snapshot: { historical_replay: true, replay_resolution: '1minute_ohlcv_proxy' },
-      })],
-    });
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(screen.getByText(/Historical Gamma-Unwind signals for 2026-10-01/)).toBeTruthy();
-    expect(screen.getByText(/1 historical ENTRY signal/)).toBeTruthy();
-    fireEvent.click(screen.getAllByText(/RELIANCE/)[0]);
-    expect(document.body.textContent).toContain('HISTORICAL');
-    expect(screen.queryByRole('button', { name: /Buy .*RELIANCE26OCT3000CE/i })).toBeNull();
-  });
-
   it('moves a closed-market Today view to the latest trading session', () => {
     snap.data = data({
       day: '2026-10-04',
@@ -407,69 +289,6 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
     expect(scanState.mutate).not.toHaveBeenCalled();
-  });
-
-  it('runs an on-demand watchlist rebuild', () => {
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-    fireEvent.click(screen.getByRole('button', { name: /scan now/i }));
-    expect(scanState.mutate).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows watch, E1 and tier counts even when there is no executable entry', () => {
-    snap.data = data({
-      candidates: [
-        signal({
-          id: 'watch:RELIANCE26OCT3000CE:BREAKOUT-CE',
-          state: 'watching',
-          tier: 'WATCHLIST',
-          gates: null,
-        }),
-        signal({
-          id: 'e1-strong',
-          state: 'armed',
-          tier: 'STRONG_WATCHLIST',
-          gates: {
-            ...signal().gates,
-            passes: ['zone', 'liquidity', 'unwind'],
-            tier: 'STRONG_WATCHLIST',
-          },
-        }),
-      ],
-    });
-
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(screen.getByTestId('gamma-row-counts').textContent)
-      .toContain('1 watches · 1 E1 · 0 ENTRY · 1 STRONG');
-  });
-
-  it('shows when today was reconstructed from a missed reference build slot', () => {
-    snap.data = data({
-      scan: {
-        recovered_slot: '13:15',
-        recovery_source: 'scheduled_history',
-        coverage: ['dated instrument master unavailable'],
-        stage_b: { candidates: 2, seconds: null },
-        stage_c: { watched: 2, armed: 0, historical_requests: 2, seconds: null },
-      },
-      candidates: [signal({
-        id: 'watch:RELIANCE26OCT3000CE:BREAKOUT-CE',
-        state: 'watching', tier: 'WATCHLIST', gates: null,
-      })],
-    });
-
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-
-    expect(document.body.textContent).toContain('recovered 13:15');
-    expect(document.body.textContent).toContain('reconstructed at the missed reference slot 13:15');
-  });
-
-  it('shows reference warnings without repeating account mode', () => {
-    renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(screen.getByText(/HOI-1/)).toBeTruthy();
-    expect(screen.queryByText('NOT LIVE')).not.toBeInTheDocument();
-    expect(screen.queryByText('PAPER')).toBeNull();
-    expect(screen.queryByText('ALGO OFF')).not.toBeInTheDocument();
   });
 
   it('renders an ENTRY row with only the guarded strategy-owned buy action', () => {

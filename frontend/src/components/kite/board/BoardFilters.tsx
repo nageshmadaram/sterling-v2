@@ -16,7 +16,7 @@ import { COLUMNS, type ColumnId } from './SignalBoard';
 import { k, tint } from '../../../styles/kiteUI';
 import type { BoardView } from './useBoardView';
 import { useSimNowMs } from '../../../hooks/useReplayStore';
-import { sessionDayKey } from './boardTypes';
+import { MODE_LABEL, TRADE_MODES, sessionDayKey, type TradeMode } from './boardTypes';
 
 /**
  * A local view filter.
@@ -237,7 +237,24 @@ function ColumnPicker({ view, available, columnLabels }: {
   return <ColumnsMenu items={items} onShowAll={view.showAllColumns} />;
 }
 
-export function BoardFilters({ view, columns, columnLabels, children, hideSearch = false }: {
+/** One mode filter for every strategy. Empty selection means all five modes. */
+export function ModeFilter({ modes, onChange }: { modes: readonly TradeMode[]; onChange: (next: TradeMode[]) => void }) {
+  const on = (m: TradeMode) => modes.length === 0 || modes.includes(m);
+  return <ColumnsMenu buttonText={modes.length === 0 || modes.length === TRADE_MODES.length ? 'MODES' : `MODES ${modes.length}`}
+    menuLabel="Trading modes shown" buttonTitle="Show only some trading modes. Does not change scanning or orders."
+    showAllText="Show all modes"
+    items={TRADE_MODES.map((m) => ({
+      id: m as unknown as ColumnId, label: MODE_LABEL[m], on: on(m),
+      toggle: () => {
+        const current = modes.length === 0 ? [...TRADE_MODES] : [...modes];
+        const next = current.includes(m) ? current.filter((x) => x !== m) : [...current, m];
+        onChange(next.length === 0 || next.length === TRADE_MODES.length ? [] : next);
+      },
+    }))}
+    onShowAll={() => onChange([])} />;
+}
+
+export function BoardFilters({ view, columns, columnLabels, children, hideSearch = false, alwaysChips = true }: {
   view: BoardView;
   /** The columns this board asks for, so the picker offers only those. */
   columns?: readonly ColumnId[];
@@ -245,6 +262,8 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
   columnLabels?: Partial<Record<ColumnId, string>>;
   children?: React.ReactNode;
   hideSearch?: boolean;
+  /** Show Best leg / Today only / Ended on every board, even when they would change nothing. */
+  alwaysChips?: boolean;
 }) {
   React.useEffect(() => { if (hideSearch && view.query) view.setQuery(''); }, [hideSearch, view.query, view.setQuery]);
   const { counts } = view;
@@ -275,7 +294,8 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
 
       {/* Columns first, as on SuperTrend's toolbar, so every strategy reads the same left to right. */}
       {columns && <ColumnPicker view={view} available={columns} columnLabels={columnLabels} />}
-      {view.offers.best && (
+      {view.setModes && <ModeFilter modes={view.modes ?? []} onChange={view.setModes} />}
+      {(view.offers.best || alwaysChips) && (
         <FilterToggle
           on={view.bestOnly}
           label="BEST LEG"
@@ -283,7 +303,7 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
           onChange={() => view.setBestOnly(!view.bestOnly)}
         />
       )}
-      {view.offers.today && (
+      {(view.offers.today || alwaysChips) && (
         <FilterToggle
           on={view.todayOnly}
           label={isHistoricalSim ? 'REPLAY DATE ONLY' : 'TODAY ONLY'}
@@ -291,7 +311,7 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
           onChange={() => view.setTodayOnly(!view.todayOnly)}
         />
       )}
-      {view.offers.ended && (
+      {(view.offers.ended || alwaysChips) && (
         <FilterToggle
           on={view.showEnded}
           label={`ENDED ${counts.ended}`}
