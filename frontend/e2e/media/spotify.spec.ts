@@ -1,3 +1,5 @@
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import {test,expect,type Page} from '@playwright/test';
 
 async function openPlayer(page:Page,kind:'radio'|'tv'){
@@ -291,4 +293,41 @@ test('unchanged discovery views preserve existing cards and home shelves',async(
   ({stableGrid,stableShelf:shelf===document.querySelector('#tv-mobile-home section')});
  `);});
  expect(result).toEqual({stableGrid:true,stableShelf:true});
+});
+
+test('feature menus restore focus to the player instead of their removed controls',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ const more=frame.locator('#tv-now-playing [data-tm-action=more]');await more.click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=filters]').click();
+ await frame.locator('#tv-mobile-sheet [data-tm-action=close-sheet]').click();
+ await expect(more).toBeFocused();
+});
+
+test('comfort sheet padding is not treated as a backdrop dismissal',async({page})=>{
+ const frame=await seededTv(page);
+ await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await frame.getByRole('button',{name:'Set sleep timer',exact:true}).click();
+ const dialog=frame.getByRole('dialog',{name:'Wind down'});await expect(dialog).toBeVisible();
+ await dialog.click({position:{x:4,y:6}});await expect(dialog).toBeVisible();
+ await dialog.getByRole('button',{name:'Close sleep timer'}).click();await expect(dialog).toBeHidden();
+});
+
+test('standalone TV boots without a host, persists settings and tolerates damaged libraries',async({page})=>{
+ await page.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+ const html=readFileSync(resolve(process.cwd(),'../sterling-iptv/sterling-iptv.html'),'utf8');
+ await page.route('**/__standalone_tv__',route=>route.fulfill({contentType:'text/html',body:html}));
+ await page.addInitScript(()=>{
+  localStorage.setItem('sterling.tv.streamos_theme_v14','spotify');
+  localStorage.setItem('sterling.tv.streamos_startup_channel_v14',JSON.stringify({name:'Audit standalone',url:'https://fixture.test/live.m3u8'}));
+  localStorage.setItem('sterling.tv.streamos_favs_v14','[null,5,{}]');
+  localStorage.setItem('sterling.tv.streamos_stats_v14','broken JSON');
+ });
+ const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.goto('/__standalone_tv__');
+ await expect(page.locator('#tm-now-title')).toHaveText('Audit standalone');
+ await page.evaluate(()=>{(window as any).setChannelAvailabilityFilter('available');});
+ expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('sterling.tv.streamos_ui_v14')||'{}').hideUnavailable)).toBe(true);
+ await page.reload();await expect(page.locator('#catalog-availability-select')).toHaveValue('available');
+ expect(errors).toEqual([]);
 });

@@ -60,7 +60,7 @@
       if(!Array.isArray(channels)||!Array.isArray(images))throw Error('Invalid artwork metadata');
       const nextNames=new Map(),nextLogos=new Map();
       for(const row of channels){if(!row||row.is_nsfw||typeof row.id!=='string'||typeof row.name!=='string')continue;for(const name of [row.name,...(Array.isArray(row.alt_names)?row.alt_names:[])]){const key=normalize(name);if(key)nextNames.set(key,nextNames.has(key)&&nextNames.get(key)!==row.id?null:row.id);}}
-      for(const row of images){if(!row||typeof row.channel!=='string'||!safe(row.url)||row.in_use===false)continue;if(!nextLogos.has(row.channel)||row.tags?.includes('square'))nextLogos.set(row.channel,row.url);}
+      for(const row of images){if(!row||typeof row.channel!=='string'||!safe(row.url)||row.in_use===false)continue;if(!nextLogos.has(row.channel)||(Array.isArray(row.tags)&&row.tags.includes('square')))nextLogos.set(row.channel,row.url);}
       names=nextNames;logos=nextLogos;window.dispatchEvent(new Event('sterling-artwork-update'));
     }).catch(()=>{controller.abort();lastFetch=Date.now()-29*60*1000;}).finally(()=>{clearTimeout(timer);pending=null;});return pending;
   }
@@ -1048,7 +1048,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       }
       const minutes = deadline ? Math.max(1,Math.ceil((deadline-Date.now())/60000)) : 0;
       for (const button of triggers) {
-        button.textContent = minutes ? `◷ ${minutes}m` : '◷';
+        const label=minutes ? `◷ ${minutes}m` : '◷';if(button.textContent!==label)button.textContent=label;
         button.setAttribute('aria-label',minutes?`Sleep timer: ${minutes} minutes remaining`:'Set sleep timer');
         button.classList.toggle('media-timer-active',Boolean(deadline));
       }
@@ -1065,7 +1065,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       } else if(event.target.closest('.media-timer-cancel')) {
         deadline = 0; clearInterval(interval); interval = null;
         refresh(); close(); announce('Sleep timer cancelled');
-      } else if(event.target.closest('[data-close]') || event.target===dialog) close();
+      } else if(event.target.closest('[data-close]') || (event.target===dialog && (()=>{const r=dialog.getBoundingClientRect();return event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom;})())) close();
     });
     dialog.addEventListener('keydown',event=>event.stopPropagation());
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
@@ -1812,19 +1812,19 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14']);
       const memory=new Map();
       return Object.freeze({
-        getItem(key){return allowed.has(key)&&memory.has(key)?memory.get(key):null;},
+        getItem(key){if(!allowed.has(key))return null;if(memory.has(key))return memory.get(key);if(window.parent===window){try{return localStorage.getItem('sterling.tv.'+key);}catch{}}return null;},
         setItem(key,value){
           if(!allowed.has(key))return;
           const text=String(value);
-          if(text.length>500000)return;
+          if(text.length>500000||new Blob([text]).size>500000)return;
           memory.set(key,text);
-          window.parent.postMessage({type:'sterling.tv.save',key,value:text},'*');
+          if(window.parent===window){try{localStorage.setItem('sterling.tv.'+key,text);}catch{}}else window.parent.postMessage({type:'sterling.tv.save',key,value:text},'*');
         },
         removeItem(key){this.setItem(key, "null");},
         hydrate(values){
           if(!values||typeof values!=='object')return;
           for(const key of allowed){
-            if(typeof values[key]==='string'&&values[key].length<=500000)
+            if(typeof values[key]==='string'&&values[key].length<=500000&&new Blob([values[key]]).size<=500000)
               memory.set(key,values[key]);
           }
         }
@@ -1839,6 +1839,17 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     const SUPPORTS_FINE_HOVER = () => window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     const yieldToMain = () => new Promise(resolve => setTimeout(resolve, 0));
 
+    function readTvStoredJson(key,fallback) {
+      try {
+        const value=JSON.parse(tvStorage.getItem(key)||'null');
+        if(key==='streamos_sources_v14')return Array.isArray(value)?value.filter(src=>src&&typeof src.id==='string'&&typeof src.name==='string'&&typeof src.url==='string').slice(0,100):fallback;
+        if(Array.isArray(fallback))return Array.isArray(value)?value.filter(ch=>ch&&typeof ch==='object'&&typeof ch.name==='string'&&typeof ch.url==='string').map(ch=>({...ch,group:typeof ch.group==='string'?ch.group:'Entertainment',lang:typeof ch.lang==='string'?ch.lang:'Global'})).slice(0,200):fallback;
+        if(!value||typeof value!=='object'||Array.isArray(value))return fallback;
+        if(key==='streamos_stats_v14')return Object.fromEntries(Object.entries(value).filter(([,entry])=>entry&&Number.isFinite(entry.plays)));
+        if(key==='streamos_startup_channel_v14')return typeof value.url==='string'?{...value,name:typeof value.name==='string'?value.name:'Custom channel'}:fallback;
+        return value;
+      }catch{return fallback;}
+    }
     function escapeHtml(str) {
       return String(str || '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
     }
@@ -2500,7 +2511,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     /*************************************************************************
      * 7. DEFAULT BOOT STREAM MANAGER
      *************************************************************************/
-    let startupChannelConfig = JSON.parse(tvStorage.getItem('streamos_startup_channel_v14') || 'null');
+    let startupChannelConfig = readTvStoredJson('streamos_startup_channel_v14',null);
 
     function getStartupChannelObject() {
       if (startupChannelConfig && startupChannelConfig.url) {
@@ -2794,7 +2805,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     ];
 
     let iptvSources = [];
-    let savedSources = JSON.parse(tvStorage.getItem('streamos_sources_v14') || 'null');
+    let savedSources = readTvStoredJson('streamos_sources_v14',null);
     if (savedSources && Array.isArray(savedSources)) {
       const existingUrls = new Set(savedSources.map(s => s.url));
       DEFAULT_IPTV_SOURCES.forEach(defSrc => {
@@ -3219,9 +3230,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 
     let allChannels = [...VERIFIED_STREAMS];
     let filteredChannels = [...VERIFIED_STREAMS];
-    let favorites = JSON.parse(tvStorage.getItem('streamos_favs_v14') || '[]');
-    let playStats = JSON.parse(tvStorage.getItem('streamos_stats_v14') || '{}');
-    let recentHistory = JSON.parse(tvStorage.getItem('streamos_history_v14') || '[]');
+    let favorites = readTvStoredJson('streamos_favs_v14',[]);
+    let playStats = readTvStoredJson('streamos_stats_v14',{});
+    let recentHistory = readTvStoredJson('streamos_history_v14',[]);
 
     let currentTheme = tvStorage.getItem('streamos_theme_v14') || 'youtube';
     let isTheatreMode = false;
@@ -3249,6 +3260,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     let serverStage = 0;
     // Each stream switch invalidates previous asynchronous HLS callbacks.
     let playbackGeneration = 0;
+    let tvUserPaused=false;
+    function pauseTvPlayback(){tvUserPaused=true;document.getElementById("video-player").pause();const embed=document.getElementById("embed-fallback");if(embed&&!embed.classList.contains("hidden"))embed.removeAttribute("src");syncPlayPauseIcons(true);window.dispatchEvent(new Event("sterling-tv-playback-intent"));}
+    window.addEventListener("sterling-media-sleep",pauseTvPlayback);
 
     // Automatic public proxy services disabled: playlists may contain tokens.
 
@@ -3292,7 +3306,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
           hud.classList.remove('mobile-hud-hidden');
           clearTimeout(mobileHudFadeTimer);
           if (!hud.classList.contains('mobile-hud-hidden')) {
-            mobileHudFadeTimer = setTimeout(() => hud.classList.add('mobile-hud-hidden'), 4200);
+            mobileHudFadeTimer = setTimeout(() => {if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');}, 2500);
           }
         }
         return;
@@ -3480,6 +3494,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 
     function playStream(channel, stage = 0) {
       if (!channel) return;
+      if(stage===0)tvUserPaused=false;
       if(stage===0 && !navigatingPlaybackQueue && activeChannel?.url!==channel.url) {
         const visible=computeFilteredCatalogPool();
         const pool=visible.some(c=>c.url===channel.url)?visible:allChannels;
@@ -3644,6 +3659,8 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       const button = document.getElementById('tv-mobile-play');
       if (!video || !activeChannel) return;
       userHasInteractedWithAudio = true;
+      tvUserPaused=false;
+      if(video.classList.contains('hidden')&&activeChannel.ytEmbed){playStream(activeChannel,1);return;}
       video.muted = preferredTvMuted;
       if (video.error || (video.readyState === 0 && !video.src && !hls)) {
         playStream(activeChannel, 0);
@@ -3651,16 +3668,19 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       }
       // The media element retains an explicit mute/unmute choice across streams.
       // Do not force unmute when the previous interaction was "Mute".
+      const generation=playbackGeneration;
       const promise = video.play(); // must run synchronously inside the tap
       Promise.resolve(promise).then(() => {
+        if(generation!==playbackGeneration||tvUserPaused)return;
         if (button) button.classList.add('hidden');
         syncPlayPauseIcons(false);
         updateVolIcon(video.muted);
         document.getElementById('mobile-unmute-pill')?.classList.toggle('hidden', !video.muted);
-      }).catch(() => showTvPlaybackPrompt('Tap to retry playback'));
+      }).catch(() => {if(generation===playbackGeneration&&!tvUserPaused)showTvPlaybackPrompt('Tap to retry playback');});
     }
 
     function safeAutoplayVideo(video) {
+      if(tvUserPaused)return;
       const unmutePill = document.getElementById('mobile-unmute-pill');
       const playButton = document.getElementById('tv-mobile-play');
       // Try the saved sound choice first. If browser policy rejects audible
@@ -3669,21 +3689,21 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       const generation = playbackGeneration;
       const attempt = Promise.resolve(video.play());
       attempt.then(() => {
-        if(generation !== playbackGeneration)return;
+        if(generation !== playbackGeneration||tvUserPaused){if(tvUserPaused)video.pause();return;}
         syncPlayPauseIcons(false);
         updateVolIcon(video.muted);
         if (unmutePill) unmutePill.classList.toggle('hidden', !video.muted);
         if (playButton) playButton.classList.add('hidden');
       }).catch(() => {
-        if(generation !== playbackGeneration)return;
+        if(generation !== playbackGeneration||tvUserPaused){if(tvUserPaused)video.pause();return;}
         video.muted = true;
         Promise.resolve(video.play()).then(() => {
-          if(generation !== playbackGeneration)return;
+          if(generation !== playbackGeneration||tvUserPaused){if(tvUserPaused)video.pause();return;}
           syncPlayPauseIcons(false);
           updateVolIcon(true);
           if (unmutePill) unmutePill.classList.remove('hidden');
           if (playButton) playButton.classList.add('hidden');
-        }).catch(() => showTvPlaybackPrompt('Tap to play live TV'));
+        }).catch(() => {if(generation===playbackGeneration&&!tvUserPaused)showTvPlaybackPrompt('Tap to play live TV');});
       });
     }
 
@@ -3734,12 +3754,13 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     }
 
     function escalateStage(channel) {
-      if (activeChannel !== channel) return;
+      if (activeChannel !== channel || tvUserPaused) return;
       if (serverStage === 0) playStream(channel, 1);
 
     }
 
     function startBackupFallback(channel, video, spinner, badge) {
+      if(tvUserPaused)return;
       const generation=playbackGeneration;
       spinner.classList.add('hidden');
       if (channel.ytEmbed) {
@@ -3790,12 +3811,14 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 
     function togglePlayPause() {
       const video = document.getElementById('video-player');
-      if (!video || video.classList.contains('hidden')) return;
+      if (!video)return;
+      if(video.classList.contains('hidden')){if(tvUserPaused)resumeTvPlayback();else pauseTvPlayback();return;}
       if (video.paused) {
+        tvUserPaused=false;
         video.play().catch(() => {});
         syncPlayPauseIcons(false);
       } else {
-        video.pause();
+        pauseTvPlayback();
         syncPlayPauseIcons(true);
       }
     }
@@ -4682,10 +4705,13 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     function playNextChannel() { stepPlaybackQueue(1); }
     function playPrevChannel() { stepPlaybackQueue(-1); }
 
-    function copyStreamShareLink() {
+    async function copyStreamShareLink() {
       if (!activeChannel) return;
-      navigator.clipboard?.writeText(activeChannel.url).catch(() => {});
-      showToast('Stream URL copied to clipboard');
+      try {
+        if(!navigator.clipboard?.writeText)throw Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(activeChannel.url);
+        showToast('Stream URL copied to clipboard');
+      } catch { showToast('Clipboard unavailable. Use your browser share options.'); }
     }
 
     function resetHomeView() {
@@ -4789,7 +4815,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       if(['youtube','spotify','netflix'].includes(savedTheme))currentTheme=savedTheme;
       try{
         const raw=tvStorage.getItem('streamos_startup_channel_v14');
-        const parsed=raw?JSON.parse(raw):null;
+        const parsed=readTvStoredJson('streamos_startup_channel_v14',null);
         if(parsed && typeof parsed==='object' && typeof parsed.url==='string'
             && parsed.url.length<=4096)startupChannelConfig=parsed;
       }catch(_){}
@@ -4810,9 +4836,9 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         try{
           const raw=tvStorage.getItem(key);
           if(!raw)continue;
-          const value=JSON.parse(raw);
+          const value=readTvStoredJson(key,fallback);
           if(value && typeof value==='object'
-              && Array.isArray(value)===Array.isArray(fallback))setter(value);
+              && Array.isArray(value)===Array.isArray(fallback))setter(Array.isArray(value)?value.filter(ch=>ch&&typeof ch.name==='string'&&typeof ch.url==='string').map(ch=>({...ch,group:typeof ch.group==='string'?ch.group:'Entertainment',lang:typeof ch.lang==='string'?ch.lang:'Global'})).slice(0,200):value);
         }catch(_){}
       }
       updateSourceBadgesUI();
@@ -5002,21 +5028,23 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     }
     nav.querySelector('[data-tm-action="library"] span').textContent=currentTheme==='youtube'?'Subscriptions':'Your Library';
     nav.querySelector('[data-tm-action="more"] span').textContent=currentTheme==='youtube'?'You':'More';
-    const paused=document.getElementById('video-player').paused;
+    const player=document.getElementById('video-player');
+    const paused=player.classList.contains('hidden')?tvUserPaused:player.paused;
     const mute=now.querySelector('[data-tm-action="mute"]');
     const muted=document.getElementById('video-player').muted;
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
     [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');});
   }
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
-  function closeSheet() { sheet.classList.remove('tm-sheet-open');returnFocus?.focus(); }
+  let sheetReturnFocus=null;
+  function closeSheet() { sheet.classList.remove('tm-sheet-open');sheetReturnFocus?.focus(); }
   function setExpanded(value) {
     expanded=value;sync();
     if(value){returnFocus=document.activeElement;now.querySelector('button').focus();}
     else mini.querySelector('button').focus();
   }
   function showSheet(kind='more') {
-    returnFocus=document.activeElement;
+    if(!sheet.classList.contains('tm-sheet-open'))sheetReturnFocus=document.activeElement;
     let title='Your TV, your way';
     let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
@@ -5078,7 +5106,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       case 'close-search': shell.querySelector('.tm-search').hidden=true;run('home');break;
       case 'expand': setExpanded(true);break;
       case 'collapse': setExpanded(false);break;
-      case 'play': { const video=document.getElementById('video-player'); if(video.paused && video.readyState===0)resumeTvPlayback();else togglePlayPause();schedule();break; }
+      case 'play': { const video=document.getElementById('video-player'); if(video.classList.contains('hidden'))togglePlayPause();else if(video.paused && video.readyState===0)resumeTvPlayback();else togglePlayPause();schedule();break; }
       case 'save': toggleSubscribeAndFavorite();renderHome();sync();break;
       case 'next': playNextChannel();schedule();break;
       case 'previous': playPrevChannel();schedule();break;
@@ -5265,7 +5293,7 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     main.addEventListener('touchcancel',reset);
     const enterPip=async()=>{if(video.paused||video.readyState<2||document.pictureInPictureElement)return;try{if(video.requestPictureInPicture)await video.requestPictureInPicture();else if(video.webkitSupportsPresentationMode?.('picture-in-picture'))video.webkitSetPresentationMode('picture-in-picture');}catch{/* Browser/OS permission or gesture policy owns background PiP. */}};
     video.setAttribute('autopictureinpicture','');
-    try{if(navigator.mediaSession){navigator.mediaSession.setActionHandler('enterpictureinpicture',enterPip);navigator.mediaSession.setActionHandler('play',()=>video.play());navigator.mediaSession.setActionHandler('pause',()=>video.pause());}}catch{}
+    try{if(navigator.mediaSession){navigator.mediaSession.setActionHandler('enterpictureinpicture',enterPip);navigator.mediaSession.setActionHandler('play',resumeTvPlayback);navigator.mediaSession.setActionHandler('pause',pauseTvPlayback);}}catch{}
     document.addEventListener('visibilitychange',()=>{saveUi();if(document.visibilityState==='hidden')enterPip();});
     window.addEventListener('pagehide',saveUi);
     video.addEventListener('volumechange',schedule);
@@ -5312,14 +5340,14 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
   const video=document.getElementById('video-player');video.addEventListener('playing',()=>{if(activeChannel&&unavailableChannels.delete(activeChannel.url))window.dispatchEvent(new Event('sterling-tv-availability'));});['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
   mobile.addEventListener('change',()=>{if(!mobile.matches){expanded=false;closeSheet();}renderHome();schedule();});
   window.addEventListener('resize',schedule);
+  window.addEventListener('sterling-tv-playback-intent',schedule);
   home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch){rejectedArtwork.add(img.src);img.src=artwork({...ch,logo:''});}},true);
   mini.querySelector('img').addEventListener('error',event=>{if(activeChannel){rejectedArtwork.add(event.target.src);event.target.src=artwork({...activeChannel,logo:''});}});
   const catalogMore=document.getElementById('load-more-wrap');
   if(catalogMore && 'IntersectionObserver' in window)new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)&&renderedItems<filteredChannels.length)renderNextBatch();},{root:document.getElementById('main-scroll'),rootMargin:'300px'}).observe(catalogMore);
   installPlaybackContinuity();
   const surface=document.getElementById('video-surface-card'),hud=document.getElementById('custom-video-hud');
-  let controlsTimer;
-  function revealControls(){hud.classList.remove('mobile-hud-hidden');clearTimeout(controlsTimer);controlsTimer=setTimeout(()=>{if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');},2500);}
+  function revealControls(){hud.classList.remove('mobile-hud-hidden');clearTimeout(mobileHudFadeTimer);mobileHudFadeTimer=setTimeout(()=>{if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');},2500);}
   surface.addEventListener('pointermove',revealControls,{passive:true});
   surface.addEventListener('pointerdown',revealControls,{passive:true});
   surface.addEventListener('focusin',revealControls);
@@ -5356,5 +5384,6 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 })();
 </script>
 <!-- TV MOBILE SCRIPT END -->
+<script>if(window.parent===window)window.postMessage({type:'sterling.tv.hydrate',hostHeader:false,values:{}},'*');</script>
 </body>
 </html>

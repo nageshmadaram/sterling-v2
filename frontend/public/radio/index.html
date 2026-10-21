@@ -2036,7 +2036,20 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function readRadioJson(key, fallback) {
       try {
         const value = JSON.parse(radioStorage.getItem(key) || 'null');
-        if (Array.isArray(fallback)) return Array.isArray(value) ? value : fallback;
+        const station=entry=>entry&&typeof entry==='object'&&typeof entry.id==='string'&&typeof entry.title==='string';
+        if (Array.isArray(fallback)) return Array.isArray(value) ? value.filter(station).map(entry=>({...entry,tags:Array.isArray(entry.tags)?entry.tags.filter(tag=>typeof tag==='string'):[],backupUrls:Array.isArray(entry.backupUrls)?entry.backupUrls.filter(url=>typeof url==='string'):[]})).slice(0,200) : fallback;
+        if(key==='omnicast_v11_config'&&value&&typeof value==='object'&&!Array.isArray(value)){
+          const clean={...value};
+          for(const field of ['volume','bass','mid','treble'])if(!Number.isFinite(clean[field]))delete clean[field];
+          if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
+          if(typeof clean.muted!=='boolean')delete clean.muted;
+          if(!['spotify','ytmusic','netflix'].includes(clean.appMode))delete clean.appMode;
+          if(!['all','shortwave','akashvani','telugu','tamil','featured','podcasts'].includes(clean.activeCategory))delete clean.activeCategory;
+          if(!['last','custom','quiet'].includes(clean.bootBehavior))delete clean.bootBehavior;
+          if(clean.lastStationSnapshot&&!station(clean.lastStationSnapshot))delete clean.lastStationSnapshot;
+          return clean;
+        }
+        if(key==='omnicast_v11_counts')return value&&typeof value==='object'?Object.fromEntries(Object.entries(value).filter(([,entry])=>entry&&Number.isFinite(entry.count)&&station(entry.station))):{};
         return value && typeof value === 'object' && !Array.isArray(value) ? value : fallback;
       } catch (_) { return fallback; }
     }
@@ -2228,6 +2241,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let ytmDrawerTab = 'upnext';
     let catalogItems = [];
     let episodeList = [];
+    let podcastRevision=0,podcastAbort=null;
     let activeIndex = -1;
     let activeStream = null;
     let backupCursor = 0;
@@ -2982,6 +2996,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
       if (!isBootAttempt) safeHaptic(10);
       activeStream = streamObj;
+      activeIndex=catalogItems.findIndex(ch=>ch.id===streamObj.id);
       if(!overrideUrl)activeTrackArtwork='';
       userPaused = false;
       const revision=++playbackRevision;
@@ -3003,11 +3018,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const handlePlayPromise = (p) => {
         if (!p) return;
         p.then(() => {
-          if(playbackRevision!==revision)return;
+          if(playbackRevision!==revision||userPaused)return;
           pendingBootStation = null;
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
-          if(playbackRevision!==revision)return;
+          if(playbackRevision!==revision||userPaused)return;
           if (isBootAttempt && err.name === 'NotAllowedError') {
             const banner = document.getElementById('boot-resume-banner');
             document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
@@ -3031,10 +3046,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-          if(playbackRevision===revision)handlePlayPromise(audio.play());
+          if(playbackRevision===revision&&!userPaused)handlePlayPromise(audio.play());
         });
         hlsInstance.on(Hls.Events.ERROR, (_, d) => {
-          if(playbackRevision===revision&&d.fatal)switchBackupServer();
+          if(playbackRevision===revision&&!userPaused&&d.fatal)switchBackupServer();
         });
       } else {
         audio.src = url;
@@ -3411,6 +3426,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     async function openPodcastShow(show) {
+      const revision=++podcastRevision;podcastAbort?.abort();const controller=new AbortController();podcastAbort=controller;
+      const timeout=setTimeout(()=>controller.abort(),10000);
       const box = document.getElementById('sp-podcast-box');
       box.classList.remove('hidden');
       document.getElementById('sp-pod-art').src = getStationIdentityThumbnail(show);
@@ -3419,17 +3436,19 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sp-pod-episodes').innerHTML = `<div class="text-xs text-[#b3b3b3] py-2">Loading episodes...</div>`;
 
       try {
-        const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(show.feedUrl)}`);
+        const res = await fetch(`https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(show.feedUrl)}`,{signal:controller.signal});
         const data = await res.json();
-        if (data.status === 'ok' && data.items?.length) {
+        if(revision!==podcastRevision)return;
+        if (data.status === 'ok' && Array.isArray(data.items) && data.items.length) {
           episodeList = data.items.map((ep, i) => ({
             id: `ep_${show.id}_${i}`,
             kind: 'podcast_episode',
-            title: ep.title,
+            title: typeof ep.title==='string'?ep.title:'Untitled episode',
             subtitle: show.title,
             artwork: ep.thumbnail || show.artwork,
             streamUrl: ep.enclosure?.link || ep.link
-          })).filter(e => e.streamUrl);
+          })).filter(e => typeof e.streamUrl==='string'&&/^https?:\/\//i.test(e.streamUrl));
+          if(!episodeList.length)throw Error('No playable episodes');
 
           document.getElementById('sp-pod-episodes').innerHTML = episodeList.map((ep, i) => `
             <div data-radio-click="73" data-radio-arg="${i}" class="flex items-center justify-between gap-3 p-2 rounded-md hover:bg-white/10 cursor-pointer">
@@ -3438,11 +3457,16 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
             </div>
           `).join('');
           if (episodeList.length) startPlayback(episodeList[0]);
-        }
-      } catch (_) {}
+        } else throw Error('Podcast feed unavailable');
+      } catch (_) {
+        if(revision!==podcastRevision)return;
+        const list=document.getElementById('sp-pod-episodes');list.textContent='Episodes could not load. ';
+        const retry=document.createElement('button');retry.type='button';retry.textContent='Retry episodes';retry.addEventListener('click',()=>openPodcastShow(show));list.append(retry);
+      } finally {clearTimeout(timeout);}
     }
 
     function closePodcastBox() {
+      podcastRevision++;podcastAbort?.abort();
       document.getElementById('sp-podcast-box').classList.add('hidden');
     }
 
@@ -3464,17 +3488,15 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
     }
 
-    function playNextChannel() {
-      if (!catalogItems.length) return;
-      activeIndex = (activeIndex + 1) % catalogItems.length;
-      selectChannel(activeIndex);
+    function stepRadioQueue(direction) {
+      const episodes=activeStream?.kind==='podcast_episode'&&episodeList.some(ch=>ch.id===activeStream.id);
+      const queue=episodes?episodeList:catalogItems;if(!queue.length)return;
+      const current=queue.findIndex(ch=>ch.id===activeStream?.id);
+      const next=current<0?(direction>0?0:queue.length-1):(current+direction+queue.length)%queue.length;
+      if(episodes)startPlayback(queue[next]);else selectChannel(next);
     }
-
-    function playPrevChannel() {
-      if (!catalogItems.length) return;
-      activeIndex = (activeIndex - 1 + catalogItems.length) % catalogItems.length;
-      selectChannel(activeIndex);
-    }
+    function playNextChannel() {stepRadioQueue(1);}
+    function playPrevChannel() {stepRadioQueue(-1);}
 
     function playRandomChannel() {
       if (!catalogItems.length) return;

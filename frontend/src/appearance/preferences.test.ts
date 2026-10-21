@@ -47,3 +47,18 @@ describe('Database preferences',()=>{
  });
 
 });
+
+it('does not revive unowned legacy TV even for the recorded browser owner',async()=>{
+ const legacy='sterling.tv.streamos_favs_v13',key='sterling.tv.streamos_favs_v14';
+ localStorage.setItem('sterling.preferences.owner.v1','alice');localStorage.setItem(legacy,'[]');
+ get.mockResolvedValue({values:{},initialized:true});patch.mockImplementation(async(_url,body)=>({values:body.values,initialized:true}));
+ await startPreferenceSync('alice');expect(localStorage.getItem(key)).toBeNull();expect(localStorage.getItem(legacy)).toBe('[]');
+ get.mockResolvedValue({values:{[key]:null},initialized:true});await startPreferenceSync('alice');expect(localStorage.getItem(key)).toBeNull();
+ get.mockResolvedValue({values:{},initialized:true});await startPreferenceSync('bob');expect(localStorage.getItem(key)).toBeNull();
+});
+
+it('does not stall first sync on an oversized Unicode media cache',async()=>{
+ const key='sterling.tv.streamos_favs_v14';localStorage.setItem('sterling.preferences.owner.v1','alice');localStorage.setItem(key,'త'.repeat(170000));
+ get.mockResolvedValue({values:{},initialized:false});patch.mockImplementation(async(_url,body)=>({values:body.values,initialized:true}));
+ await startPreferenceSync('alice');expect(patch.mock.calls.every(call=>call[1].values[key]===undefined)).toBe(true);expect(localStorage.getItem(key)).toBeNull();
+});

@@ -32,18 +32,9 @@ function readTvPreferences(): Partial<Record<TvKey, string>> {
   const values: Partial<Record<TvKey, string>> = {};
   for (const key of TV_STORAGE_KEYS) {
     try {
-      let value = window.localStorage.getItem(STORAGE_PREFIX + key);
-      // V14 renamed the persisted TV keys. Preserve existing v13 playlists,
-      // subscriptions and watch history without ever sharing trading storage.
-      if (!value && key !== 'streamos_startup_channel_v14') {
-        const legacy = window.localStorage.getItem(
-          STORAGE_PREFIX + key.replace(/_v14$/, '_v13'));
-        if (legacy && legacy.length <= MAX_VALUE_LENGTH) {
-          value = legacy;
-          window.localStorage.setItem(STORAGE_PREFIX + key, legacy);
-        }
-      }
-      if (value && value.length <= MAX_VALUE_LENGTH) values[key] = value;
+      const value = window.localStorage.getItem(STORAGE_PREFIX + key);
+      // Legacy migration runs only in the owner-aware preference service.
+      if (value && value.length <= MAX_VALUE_LENGTH && new Blob([value]).size <= MAX_VALUE_LENGTH) values[key] = value;
     } catch { /* storage can be unavailable in a private browser */ }
   }
   return values;
@@ -98,7 +89,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
         if (!readyRef.current) return;
         if (!ALLOWED_KEYS.has(data.key) ||
             typeof data.value !== 'string' ||
-            data.value.length > MAX_VALUE_LENGTH) return;
+            data.value.length > MAX_VALUE_LENGTH || new Blob([data.value]).size > MAX_VALUE_LENGTH) return;
         try { window.localStorage.setItem(STORAGE_PREFIX + data.key, data.value); }
         catch { /* browsing remains functional even with disabled storage */ }
       }
