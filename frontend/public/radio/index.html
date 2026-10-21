@@ -278,6 +278,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 @media(prefers-reduced-motion:reduce){#mobile-player-sheet{transition:none!important;}}
 </style>
   <link rel="stylesheet" href="/media/experience.css">
+  <script defer src="/media/comfort.js"></script>
 </head>
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
@@ -3277,6 +3278,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function publishRadioSuggestions(query) {
       const items=radioSuggestionItems(query);
       if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.suggestions',query,items:items.map(ch=>({id:ch.id,label:ch.title,subtitle:ch.subtitle,artwork:ch.artwork||''}))},'*');
+      // Async results must not remove the suggestion currently used by the keyboard.
+      const focusedSuggestions=document.activeElement?.closest('.radio-search-suggestions');
+      if(focusedSuggestions?.dataset.query===query)return;
       document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
       if(!query.trim()){
         document.documentElement.dataset.radioView='search';
@@ -3289,7 +3293,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(radioHosted)return;
       for(const id of ['sp-search-desktop','sp-search-mobile','ytm-search-input']){
         const input=document.getElementById(id);if(document.activeElement!==input)continue;
-        const list=document.createElement('div');list.className='radio-search-suggestions';list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
+        const list=document.createElement('div');list.className='radio-search-suggestions';list.dataset.query=query;list.setAttribute('role','listbox');list.setAttribute('aria-label',query?'Station suggestions':'Recently played stations');
         for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.title+' · '+ch.subtitle;button.addEventListener('click',()=>{startPlayback(ch);clearAllSearches();});list.append(button);}
         list.addEventListener('keydown',event=>{const buttons=[...list.querySelectorAll('button')],index=buttons.indexOf(document.activeElement);if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();buttons[(index+(event.key==='ArrowDown'?1:-1)+buttons.length)%buttons.length]?.focus();}if(event.key==='Escape'){list.remove();input.focus();}});
         input.parentElement.append(list);
@@ -3441,6 +3445,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function closePodcastBox() {
       document.getElementById('sp-podcast-box').classList.add('hidden');
     }
+
+    window.addEventListener('sterling-media-sleep', () => { userPaused = true; pendingBootStation = null; audio.pause(); });
 
     function togglePlayPause() {
       safeHaptic(10);

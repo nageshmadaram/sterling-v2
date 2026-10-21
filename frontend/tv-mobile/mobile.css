@@ -235,3 +235,23 @@
   .theme-netflix .tm-live {background:#e50914;}
   .theme-netflix #tv-now-playing {background:linear-gradient(155deg,#6c2026,#141414 60%,#060606)!important;}
 }
+
+/* Resizable feature sheet: the visible grip is an actual touch/keyboard control. */
+@media(max-width:767px),(max-width:1024px) and (max-height:600px){
+ .tm-sheet-content {height:var(--tm-sheet-height,72dvh);max-height:95dvh;overscroll-behavior:contain;}
+ .tm-sheet-handle {width:64px;height:24px;margin:0 auto 6px;background:transparent;touch-action:none;cursor:ns-resize;position:relative;}
+ .tm-sheet-handle::after {content:'';position:absolute;top:10px;left:14px;right:14px;height:4px;border-radius:6px;background:#999;}
+ .tm-sheet-title h2 {flex:1;min-width:0;}
+ #tm-queue-items>button {display:flex;align-items:center;gap:14px;width:100%;min-height:64px;text-align:left;border-bottom:1px solid #ffffff0b;}
+ #tm-queue-items svg {width:22px;height:22px;flex-shrink:0;}
+ #tm-queue-items small {display:block;color:#aaa;font-size:11px;margin-top:4px;}
+ .tm-queue-current {padding:14px;background:#1ed76012;border-radius:10px;}
+ .tm-queue-current small,.tm-queue-current strong {display:block;}.tm-queue-current small {font-size:9px;color:#1ed760;letter-spacing:1px;margin-bottom:6px;}
+}
+#custom-video-hud button {min-width:36px;min-height:36px;display:inline-flex;align-items:center;justify-content:center;}
+#custom-video-hud button svg {width:20px;height:20px;}
+#custom-video-hud.mobile-hud-hidden {opacity:0!important;pointer-events:none!important;}
+#custom-video-hud:not(.mobile-hud-hidden) {opacity:1!important;pointer-events:auto!important;}
+#custom-video-hud>div:last-child {flex-wrap:wrap;gap:4px;}
+#custom-video-hud>div:last-child>div {gap:4px;}
+#custom-video-hud>div:last-child>div> :not([hidden])~:not([hidden]) {margin-left:0;}
