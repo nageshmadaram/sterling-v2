@@ -51,7 +51,7 @@ describe('kite-settings migration', () => {
     const s = await loadStore();
     // v4 appended Time, v8 appended Trade and Chart. The operator's own order
     // still leads; every later column lands behind it.
-    expect(s.signalRightColumnOrder).toEqual(['ltp', 'dir', 'chg', 'time', 'trade', 'chart']);
+    expect(s.signalRightColumnOrder).toEqual(['ltp', 'pnl', 'dir', 'chg', 'time', 'trade', 'chart']);
   });
 
   it('does not add a second copy when the column is already there', async () => {
@@ -66,7 +66,7 @@ describe('kite-settings migration', () => {
     seed(2, { loaderStyle: 'classic', signalRightColumnOrder: ['ltp'] });
     const s = await loadStore();
     expect(s.loaderStyle).toBe('material');
-    expect(s.signalRightColumnOrder).toEqual(['ltp', 'time', 'trade', 'chart']);
+    expect(s.signalRightColumnOrder).toEqual(['ltp', 'pnl', 'time', 'trade', 'chart']);
   });
 
   it('v8 appends Trade and Chart, so the picker can finally offer them', async () => {
@@ -75,7 +75,7 @@ describe('kite-settings migration', () => {
     // so "show/hide Buy and Sell" existed nowhere on the default renderer.
     seed(7, { signalRightColumnOrder: ['chg', 'ltp', 'time'] });
     const s = await loadStore();
-    expect(s.signalRightColumnOrder).toEqual(['chg', 'ltp', 'time', 'trade', 'chart']);
+    expect(s.signalRightColumnOrder).toEqual(['chg', 'ltp', 'pnl', 'time', 'trade', 'chart']);
   });
 
   it('does not duplicate Trade or Chart when they are already stored', async () => {

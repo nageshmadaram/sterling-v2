@@ -40,6 +40,8 @@ export const SIGNAL_RIGHT_COLUMNS: Record<string, SignalColumnDef> = {
   chgPct: { key: 'chgPct', label: 'Chg. %', width: 60, align: 'right', sortKey: 'chgPct', visibleWhen: 'chgPct' },
   dir: { key: 'dir', label: '', width: 14, align: 'right', visibleWhen: 'dir' },
   ltp: { key: 'ltp', label: 'LTP', width: 70, align: 'right', sortKey: 'ltp', visibleWhen: 'always' },
+  /** Rupee P&L of an open or closed position. A setup never entered shows a dash. */
+  pnl: { key: 'pnl', label: 'P&L', width: 70, align: 'right', visibleWhen: 'always' },
   /**
    * When the signal fired.
    *
@@ -194,7 +196,7 @@ export const SIGNAL_COL_TO_BOARD = {
   // maps to `exitState`. Mapping it to `exit` put a counter under a heading that
   // means "where it got out" and lost the counter entirely.
   exit: 'exitState', target: 'target', chg: 'chg', chgPct: 'chgPct', dir: 'dir',
-  ltp: 'ltp', time: 'time', trade: 'trade', chart: 'chart',
+  ltp: 'ltp', pnl: 'pnl', time: 'time', trade: 'trade', chart: 'chart',
 } as const satisfies Record<string, string>;
 
 export type SignalColKey = keyof typeof SIGNAL_COL_TO_BOARD;

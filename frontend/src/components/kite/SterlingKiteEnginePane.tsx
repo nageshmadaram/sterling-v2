@@ -1241,6 +1241,9 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                               );
                             case 'chart':
                               return <KiteActionButtons className="st-chart-cell" onChart={legChart} />;
+                            case 'pnl':
+                              // A signal leg is not a position: its P&L lives in Positions.
+                              return <span title="Shown once you hold this contract" style={{ color: 'var(--k-dim)' }}>—</span>;
                             default:
                               return null;
                           }

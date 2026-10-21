@@ -237,7 +237,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
       sortBy: 'Custom',
       legSort: { key: '', dir: '' },
       signalLeftColumnOrder: ['exc', 'leg', 'entry', 'sl', 'tsl', 'exit', 'target'],
-      signalRightColumnOrder: ['chg', 'chgPct', 'dir', 'ltp', 'time', 'trade', 'chart'],
+      signalRightColumnOrder: ['chg', 'chgPct', 'dir', 'ltp', 'pnl', 'time', 'trade', 'chart'],
       hiddenSignalCols: [],
       setLoaderStyle: (s) => set({ loaderStyle: s === 'classic' ? 'material' : s === 'off' ? 'minimal' : s }),
       setBrandIcon: (icon) => set((state) => ({
@@ -292,13 +292,13 @@ export const useKiteSettings = create<KiteSettingsState>()(
         showLeg: true,
         legSort: { key: '', dir: '' },
         signalLeftColumnOrder: ['exc', 'leg', 'entry', 'sl', 'tsl', 'exit', 'target'],
-        signalRightColumnOrder: ['chg', 'chgPct', 'dir', 'ltp', 'time', 'trade', 'chart'],
+        signalRightColumnOrder: ['chg', 'chgPct', 'dir', 'ltp', 'pnl', 'time', 'trade', 'chart'],
         hiddenSignalCols: [],
       }),
     }),
     {
       name: 'kite-settings',
-      version: 12,
+      version: 13,
       migrate: (persisted: any) => {
         const loaderStyle = (() => {
           const legacy = persisted?.loaderStyle;
@@ -355,6 +355,15 @@ export const useKiteSettings = create<KiteSettingsState>()(
         if (Array.isArray(right8)) {
           const missing = ['trade', 'chart'].filter((k) => !right8.includes(k));
           if (missing.length) next = { ...next, signalRightColumnOrder: [...right8, ...missing] };
+        }
+
+        // v13 adds P&L after LTP, keeping the operator's own order otherwise.
+        const right13 = next.signalRightColumnOrder;
+        if (Array.isArray(right13) && !right13.includes('pnl')) {
+          const at = right13.indexOf('ltp');
+          const order = [...right13];
+          order.splice(at >= 0 ? at + 1 : order.length, 0, 'pnl');
+          next = { ...next, signalRightColumnOrder: order };
         }
 
         // v7 adopts the layout choice from the standalone key the pane used to
