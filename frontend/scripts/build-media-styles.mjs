@@ -5,7 +5,7 @@ import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const output=path.join(root,'public/media');
 mkdirSync(output,{recursive:true});
-for(const file of ['experience.css','artwork.js','comfort.js','radio-catalog.js','radio-directory.js','spotify-shell.js'])copyFileSync(path.join(root,'media',file),path.join(output,file));
+for(const file of ['experience.css','artwork.js','comfort.js','radio-sources.js','radio-catalog.js','radio-directory.js','spotify-shell.js'])copyFileSync(path.join(root,'media',file),path.join(output,file));
 execFileSync(process.execPath,[path.join(root,'node_modules/tailwindcss/lib/cli.js'),'-c','tailwind.media.config.mjs','-i','media/utilities.css','-o','public/media/interface.css','--minify'],{cwd:root,stdio:'inherit'});
 // Embed font files: opaque-origin media sandboxes cannot rely on same-origin
 // font CORS. Data URLs keep fonts available without widening iframe access.

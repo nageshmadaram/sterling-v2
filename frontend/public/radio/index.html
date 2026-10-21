@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/media/interface.css">
   <link rel="stylesheet" href="/media/fonts.css">
   <script src="/media/hls.min.js"></script>
+  <script src="/media/radio-sources.js"></script>
   <script src="/media/radio-catalog.js"></script>
   <script src="/media/radio-directory.js"></script>
   <script src="/media/spotify-shell.js"></script>
@@ -2052,7 +2053,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(key==='omnicast_v11_config'&&value&&typeof value==='object'&&!Array.isArray(value)){
           const clean={...value};
           if('catalogSources' in clean)clean.catalogSources=window.SterlingRadioCatalog?.normalizeSources(clean.catalogSources);
-          const filters=clean.catalogFilters;clean.catalogFilters=filters&&typeof filters==='object'?{language:typeof filters.language==='string'?filters.language.slice(0,100):'',country:typeof filters.country==='string'?filters.country.slice(0,100):'',tag:typeof filters.tag==='string'?filters.tag.slice(0,100):'',secure:filters.secure===true}:{};
+          const filters=clean.catalogFilters;clean.catalogFilters=filters&&typeof filters==='object'?{group:typeof filters.group==='string'?filters.group.slice(0,40):'',region:typeof filters.region==='string'?filters.region.slice(0,60):'',language:typeof filters.language==='string'?filters.language.slice(0,100):'',country:typeof filters.country==='string'?filters.country.slice(0,100):'',tag:typeof filters.tag==='string'?filters.tag.slice(0,100):'',secure:filters.secure===true}:{};
+          if(!Number.isInteger(clean.catalogSourcesVersion))delete clean.catalogSourcesVersion;
           for(const field of ['volume','bass','mid','treble'])if(!Number.isFinite(clean[field]))delete clean[field];
           if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
           if(typeof clean.muted!=='boolean')delete clean.muted;
@@ -2304,14 +2306,26 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }else catalogItems=filtered;
       renderCategoryGrids();if(radioSearchQuery.trim())publishRadioSuggestions(radioSearchQuery);
     }
+    // New built-in sources reach saved lists once; anything the user deleted later stays deleted.
+    function upgradeRadioSources(){
+      const presets=window.SterlingRadioPresets;if(!presets||(appConfig.catalogSourcesVersion||1)>=presets.version)return;
+      if(Array.isArray(appConfig.catalogSources)&&appConfig.catalogSources.length){
+        const list=window.SterlingRadioCatalog.normalizeSources(appConfig.catalogSources),known=new Map(presets.sources().map(row=>[row.id,row]));
+        for(const row of list){const preset=known.get(row.id);if(preset){row.group=preset.group;row.category=preset.category;}}
+        for(const preset of presets.sources())if(!list.some(row=>row.id===preset.id||row.url===preset.url))list.push(preset);
+        appConfig.catalogSources=window.SterlingRadioCatalog.normalizeSources(list);
+        appConfig.catalogSourcesVersion=presets.version;saveAppConfig();
+      }
+    }
     function initRadioDirectory(){
       if(!window.SterlingRadioCatalog||!window.SterlingRadioDirectory)return;
+      upgradeRadioSources();
       if(radioCatalog){void radioCatalog.reload(appConfig.catalogSources);return;}
       radioCatalog=window.SterlingRadioCatalog.create({seeds:CURATED_RADIO_POOL,sources:appConfig.catalogSources,onUpdate:snapshot=>{
         MASTER_POOL.length=0;for(const station of snapshot.stations){MASTER_POOL.push(station);if(!radioDirectoryIndexed.has(station)){radioSearchFields(station);radioDirectoryIndexed.add(station);}}refreshRadioDirectory(snapshot);
       }});
       radioDirectoryUi=window.SterlingRadioDirectory.mount({catalog:radioCatalog,getConfig:()=>appConfig,artwork:getStationIdentityThumbnail,onPlay:playStationById,
-        onSources:sources=>{appConfig.catalogSources=sources;saveAppConfig();void radioCatalog.reload(sources);},
+        onSources:sources=>{appConfig.catalogSources=sources;appConfig.catalogSourcesVersion=window.SterlingRadioPresets?.version||1;saveAppConfig();void radioCatalog.reload(sources);},
         onFilter:(filters,fromHome)=>{if(fromHome)loadCategory('all');appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
       });
       window.addEventListener('pagehide',event=>{if(!event.persisted)radioCatalog.pause();});
@@ -2320,22 +2334,26 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function openRadioSources(){radioDirectoryUi?.openSources();}
     /* Spotify-style Search / Recents / Your Library, shared with TV (media/spotify-shell.js). */
     let spotifyShell=null,shellCategoryCache={size:-1,list:[]};
-    const SHELL_TAGS=[['news','News & talk'],['pop','Pop'],['rock','Rock'],['jazz','Jazz'],['classical','Classical'],['dance','Dance'],['talk','Talk'],['devotional','Devotional']];
-    const SHELL_LANGS=[['telugu','Telugu'],['tamil','Tamil'],['hindi','Hindi'],['english','English']];
+    const SHELL_TAGS=[['news','News & talk'],['pop','Pop'],['bollywood','Bollywood'],['rock','Rock'],['jazz','Jazz'],['classical','Classical'],['dance','Dance'],['talk','Talk'],['devotional','Devotional'],['oldies','Oldies'],['hits','Hits'],['folk','Folk'],['sports','Sports']];
+    const SHELL_LANGS=[['telugu','Telugu'],['tamil','Tamil'],['hindi','Hindi'],['malayalam','Malayalam'],['kannada','Kannada'],['marathi','Marathi'],['bengali','Bengali'],['punjabi','Punjabi'],['urdu','Urdu'],['gujarati','Gujarati'],['odia','Odia'],['english','English']];
     function shellItem(s){return {id:s.id,title:s.title,subtitle:s.subtitle,art:getStationIdentityThumbnail(s),type:'Station'};}
     function shellCategories(){
       if(shellCategoryCache.size===MASTER_POOL.length)return shellCategoryCache.list;
       const counts=new Map(),art=new Map(),mosaic=new Map();
       const bump=(key,s)=>{counts.set(key,(counts.get(key)||0)+1);if(!art.has(key))art.set(key,getStationIdentityThumbnail(s));const m=mosaic.get(key)||[];if(m.length<4){m.push(getStationIdentityThumbnail(s));mosaic.set(key,m);}};
-      for(const s of MASTER_POOL){for(const l of s.languages||[])bump('lang:'+l,s);for(const t of new Set(s.tags||[]))bump('tag:'+t,s);}
-      const list=[...SHELL_LANGS.map(([k,label])=>({key:'lang:'+k,label,chip:'languages'})),...SHELL_TAGS.map(([k,label])=>({key:'tag:'+k,label,chip:'genres'}))]
+      const regions=new Set();
+      for(const s of MASTER_POOL){for(const l of s.languages||[])bump('lang:'+l,s);for(const t of new Set(s.tags||[]))bump('tag:'+t,s);for(const g of s.groups||[])bump('group:'+g,s);if(s.category==='akashvani'&&s.region){bump('region:'+s.region,s);regions.add(s.region);}}
+      const groupRows=(window.SterlingRadioPresets?.groups||[]).filter(g=>g.id!=='world').map(g=>({key:'group:'+g.id,label:g.label,chip:'playlists'}));
+      const regionRows=[...regions].sort().map(r=>({key:'region:'+r,label:`Akashvani · ${r.toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase())}`,chip:'playlists'}));
+      const list=[...groupRows,...SHELL_LANGS.map(([k,label])=>({key:'lang:'+k,label,chip:'languages'})),...SHELL_TAGS.map(([k,label])=>({key:'tag:'+k,label,chip:'genres'})),...regionRows]
         .map(c=>({...c,count:counts.get(c.key)||0,art:art.get(c.key),mosaic:mosaic.get(c.key)||[]})).filter(c=>c.count>0);
       shellCategoryCache={size:MASTER_POOL.length,list};return list;
     }
     function shellOpenCategory(key){
       const [kind,value]=key.split(':');
       if(kind==='lang'&&['telugu','tamil'].includes(value)){appConfig.catalogFilters={};saveAppConfig();loadCategory(value);return;}
-      appConfig.catalogFilters=kind==='lang'?{language:value}:{tag:value};saveAppConfig();loadCategory('all');refreshRadioDirectory();
+      const rest=key.slice(kind.length+1);
+      appConfig.catalogFilters=kind==='lang'?{language:rest}:kind==='group'?{group:rest}:kind==='region'?{region:rest}:{tag:rest};saveAppConfig();loadCategory('all');refreshRadioDirectory();
       document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});
     }
     function shellActive(){return document.body.classList.contains('mode-spotify')&&window.innerWidth<1024;}

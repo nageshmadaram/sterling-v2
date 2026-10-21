@@ -306,3 +306,19 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 @media (min-width:1024px){.sps-root{left:auto;width:min(480px,40vw);border-left:1px solid #282828}}
 .solid-sp-mob-nav [data-sps-create]{display:flex!important}
 .sps-chips::-webkit-scrollbar,.sps-tall::-webkit-scrollbar{display:none}.sps-tall{scrollbar-width:none}
+/* Station sources: grouped list with on/off switches. */
+.radio-source-dialog .radio-source-total {margin:4px 0 8px;color:#1ed760;font-weight:600;}
+.radio-source-group {margin:18px 0 6px;}.radio-source-group>header {position:sticky;top:-24px;z-index:1;background:#181818!important;padding:8px 0;}
+.radio-source-group h3 {font-size:13px;font-weight:700;letter-spacing:.2px;margin:0;}.radio-source-group>header button {min-height:32px;width:auto;padding:4px 12px;font-size:11px;white-space:nowrap;}
+.radio-source-dialog article {display:flex;align-items:flex-start;gap:12px;}.radio-source-dialog article>div:first-child {display:block;flex:1;min-width:0;}
+.radio-source-dialog article>div:last-child {flex:none;align-items:center;flex-wrap:nowrap;}.radio-source-dialog article>div:last-child button:not(.radio-source-switch) {min-height:36px;padding:6px 12px;}
+.radio-source-dialog article[data-enabled=false] strong,.radio-source-dialog article[data-enabled=false] small {opacity:.5;}
+.radio-source-dialog article p {margin:6px 0 0;font-size:11px;}.radio-source-dialog article em {display:block;font-style:normal;font-size:11px;color:#8f8f8f;margin-top:4px;}
+.radio-source-dialog article small {white-space:nowrap;overflow:hidden;text-overflow:ellipsis;overflow-wrap:normal;}
+.radio-source-switch {position:relative;width:46px;min-height:28px!important;height:28px;padding:0!important;border-radius:14px!important;background:#535353!important;border:none!important;flex:none;}
+.radio-source-switch span {position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .15s;}
+.radio-source-switch[aria-pressed=true] {background:#1ed760!important;}.radio-source-switch[aria-pressed=true] span {transform:translateX(18px);}
+.radio-source-library {margin:16px 0;border:1px solid #ffffff18;border-radius:12px;padding:10px 14px;}.radio-source-library summary {cursor:pointer;font-size:13px;font-weight:600;}
+.radio-source-library>div {display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}.radio-source-library>div button {min-height:34px;padding:6px 12px;}
+.radio-source-dialog form h3 {font-size:15px;margin:0;}
+@media(max-width:600px){.radio-source-dialog article {flex-wrap:wrap;}.radio-source-dialog article>div:last-child {width:100%;justify-content:flex-end;}}

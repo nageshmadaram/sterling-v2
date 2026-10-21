@@ -55,3 +55,26 @@ it('loads a 50,000-station directory completely while rejecting duplicate source
  await service.load();expect(service.snapshot().stations).toHaveLength(50000);expect(service.snapshot().complete).toBe(true);
  const list=serviceApi.normalizeSources([source,{...source,url:'https://other.fixture/stations'}]);expect(new Set(list.map((item:any)=>item.id)).size).toBe(2);
 },30000);
+function withPresets(){const serviceApi=api();const dom=opened.at(-1)!;new Script(readFileSync('media/radio-sources.js','utf8')).runInContext(dom.getInternalVMContext());return serviceApi;}
+it('defaults to the grouped source library and keeps built-in playlists editable',()=>{
+ const serviceApi=withPresets();const list=serviceApi.defaults();
+ expect(list.length).toBeGreaterThan(25);expect(list.find((row:any)=>row.id==='akashvani-pbaudio')).toMatchObject({kind:'builtin',url:'builtin:akashvani-pbaudio',group:'akashvani',category:'akashvani',enabled:true});
+ expect(list.find((row:any)=>row.id==='tag-mw').enabled).toBe(false);
+ expect(serviceApi.normalizeSources([{id:'x',name:'Bad',url:'builtin:../etc',kind:'builtin'}])).toHaveLength(0);
+});
+it('reads Radio Browser M3U links as paged JSON on any mirror, and top lists as one request',()=>{
+ const serviceApi=api();
+ expect(serviceApi.radioBrowserJson('https://de1.api.radio-browser.info/m3u/stations/bylanguageexact/telugu?hidebroken=true')).toEqual({href:'https://de1.api.radio-browser.info/json/stations/bylanguageexact/telugu?hidebroken=true',paged:true});
+ expect(serviceApi.radioBrowserJson('https://de1.api.radio-browser.info/m3u/stations/topclick/1000?hidebroken=true').paged).toBe(false);
+ expect(serviceApi.radioBrowserJson('https://example.com/m3u/stations/x.m3u')).toBeNull();
+});
+it('loads a built-in playlist and merges groups when sources overlap',async()=>{
+ const serviceApi=withPresets();const stream='https://airhlspush.pc.cdn.bitgravity.com/httppush/hlspbaudio002/hlspbaudio002_Auto.m3u8';
+ const service=serviceApi.create({sources:[{id:'akashvani-pbaudio',name:'AIR',url:'builtin:akashvani-pbaudio',kind:'builtin',group:'akashvani',category:'akashvani'},
+  {id:'daily',name:'Daily',url:'https://list.fixture/stations.json',kind:'json',group:'india'}],
+  fetcher:async()=>response([{name:'Live News 24x7',stream_url:stream,state:' Delhi ',language:'Hindi, English'}])});
+ await service.load();const rows=service.snapshot().stations;
+ expect(rows).toHaveLength(5);const news=rows.find((row:any)=>row.streamUrl===stream);
+ expect(news).toMatchObject({category:'akashvani',country:'India',groups:['akashvani','india'],region:'DELHI',languages:['hindi','english']});
+ expect(service.snapshot().sources.map((row:any)=>row.count)).toEqual([5,1]);
+});

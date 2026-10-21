@@ -416,8 +416,8 @@ test('Radio source manager adds, edits, disables and deletes URL feeds without c
  await dialog.getByRole('button',{name:'Edit My jazz',exact:true}).click();
  await dialog.getByLabel('Source name',{exact:true}).fill('My edited jazz');
  await dialog.getByRole('button',{name:'Save source',exact:true}).click();
- await expect(dialog.getByRole('button',{name:'Disable My edited jazz',exact:true})).toBeVisible();
- await dialog.getByRole('button',{name:'Disable My edited jazz',exact:true}).click();
+ await expect(dialog.getByRole('button',{name:'Turn off My edited jazz',exact:true})).toBeVisible();
+ await dialog.getByRole('button',{name:'Turn off My edited jazz',exact:true}).click();
  await expect.poll(()=>frame.locator('body').evaluate(()=>eval('MASTER_POOL.some(station=>station.title==="My jazz station")'))).toBe(false);
  await dialog.getByRole('button',{name:'Delete My edited jazz',exact:true}).click();
  expect(await frame.locator('body').evaluate(()=>eval('appConfig.catalogSources.length'))).toBe(1);
