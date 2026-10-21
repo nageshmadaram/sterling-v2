@@ -1714,3 +1714,70 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
   /* Avoid continuous blurred full-screen repainting on constrained GPUs. */
   .term-root::before { animation:none !important; filter:none !important; opacity:.18; }
 }
+
+
+/* Spectrum media: one compact search/settings cluster shared by TV and Radio. */
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-quick-actions {
+  position:relative;display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:auto;
+  color:#f8f8f8;isolation:isolate;z-index:30;
+}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button {
+  width:42px;height:42px;min-width:42px;display:grid;place-items:center;
+  border:1px solid transparent;border-radius:999px;color:#f5f5f5;background:transparent;
+  cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button svg {width:21px;height:21px;}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button:hover,
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button[aria-expanded=true] {background:#ffffff1c;}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button:focus-visible,
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-settings-popover button:focus-visible {outline:2px solid #f8f8f8;outline-offset:2px;}
+.sterling-media-settings-popover {
+  position:absolute;right:0;top:calc(100% + 10px);z-index:500;
+  width:min(305px,calc(100vw - 24px));padding:10px;background:#171717;color:#fff;
+  border:1px solid #ffffff23;border-radius:16px;box-shadow:0 20px 60px #000b;
+  display:flex;flex-direction:column;gap:3px;overscroll-behavior:contain;
+}
+.sterling-media-settings-label {margin:4px 12px 8px;color:#aaa;font-size:11px;text-transform:uppercase;letter-spacing:.1em;font-weight:700;}
+.sterling-media-settings-popover button {
+  border:0;background:transparent;color:inherit;border-radius:9px;min-height:50px;
+  padding:8px 12px;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:12px;
+  cursor:pointer;touch-action:manipulation;
+}
+.sterling-media-settings-popover button:hover,
+.sterling-media-settings-popover button[aria-checked=true] {background:#ffffff16;}
+.sterling-media-settings-popover button strong {display:block;font-size:14px;font-weight:650;}
+.sterling-media-settings-popover button small {display:block;font-size:11px;color:#aaa;margin-top:3px;}
+.sterling-media-settings-popover button[aria-checked=true]>span:last-child {color:#1ed760;font-size:18px;font-weight:800;}
+.sterling-media-popover-divider {height:1px;background:#ffffff20;margin:8px 4px;}
+.sterling-media-expanded-search {
+  position:absolute;right:0;top:calc(100% + 10px);z-index:450;display:flex;
+  align-items:center;gap:9px;width:min(480px,calc(100vw - 28px));height:52px;
+  padding:5px 10px 5px 16px;background:#232323;border:1px solid #ffffff35;border-radius:12px;
+  box-shadow:0 12px 35px #0009;
+}
+.sterling-media-expanded-search>svg {width:20px;height:20px;flex-shrink:0;color:#aaa;}
+.sterling-media-expanded-search input {
+  background:transparent!important;min-width:0;width:100%;border:0!important;outline:0!important;
+  color:#fff!important;font-size:16px!important;min-height:38px;flex:1;
+}
+.sterling-media-expanded-search input::placeholder {color:#aaa;}
+.sterling-media-expanded-search button {border:0;border-radius:7px;color:#fff;background:#ffffff16;padding:6px 10px;min-height:35px;cursor:pointer;}
+.sterling-media-expanded-search button[type=submit]{background:#fff;color:#171717;font-size:12px;font-weight:750;}
+/* Portal must sit above the iframe compositor and prevent click-through. */
+body > .sterling-profile-modal {
+  position:fixed!important;inset:0!important;z-index:2147483000!important;
+  pointer-events:auto!important;touch-action:auto!important;overscroll-behavior:contain!important;
+}
+body > .sterling-profile-modal > .profile-panel {
+  position:relative;z-index:1;pointer-events:auto;max-height:calc(100dvh - 32px);
+  overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  box-shadow:0 30px 100px #000b;border:1px solid #ffffff20;
+}
+@media(max-width:800px){
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-header-row {padding:6px 10px!important;min-height:54px!important;gap:4px!important;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button {margin-right:2px!important;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button>span:last-child {font-size:12px!important;letter-spacing:.02em!important;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-icon-button {width:40px;height:40px;min-width:40px;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile>span:nth-child(2) {display:none;}
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-expanded-search {right:-48px;}
+}
