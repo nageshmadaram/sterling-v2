@@ -201,3 +201,20 @@ def test_settings_require_authentication(monkeypatch):
     api = TestClient(app)
     assert api.get('/ops/production-settings').status_code in (401, 403)
     assert api.put('/ops/production-settings', json={'settings': {}}).status_code in (401, 403)
+
+
+def test_limits_built_from_live_lane_scopes_leave_no_lane_uncapped():
+    """The settings form fills every scope this returns; that must clear the doctor."""
+    import json
+    from app.core.risk_hierarchy import configured_hierarchy, live_lane_scopes, missing_live_lane_caps
+
+    lanes = live_lane_scopes()
+    assert lanes
+    blob = {
+        "global": {"": 100000},
+        "strategy": {lane.split(":", 1)[0]: 50000 for lane in lanes},
+        "mode": {lane: 20000 for lane in lanes},
+        "position": {lane: 5000 for lane in lanes},
+    }
+    hierarchy = configured_hierarchy({"STERLING_RISK_LIMITS": json.dumps(blob)})
+    assert missing_live_lane_caps(hierarchy) == ()

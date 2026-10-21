@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { ProductionSettingsPanel } from '../ProductionSettingsPanel';
+import { ProductionSettingsPanel, buildRiskLimits, parseSimpleLimits } from '../ProductionSettingsPanel';
 
 const { get, put, post } = vi.hoisted(() => ({ get: vi.fn(), put: vi.fn(), post: vi.fn() }));
 vi.mock('../../../utils/api', () => ({ api: { get, put, post } }));
@@ -10,6 +10,7 @@ vi.mock('../config/unsavedDraftGuard', () => ({ useUnsavedDraftGuard: vi.fn() })
 const snapshot = {
   settings: { allocation_capital_inr: null, experiment_id: '', dataset_start: '', risk_limits: '', live_execution: false },
   runtime: { enabled: false }, safe_mode: { state: 'NORMAL', reason: '' },
+  risk_scopes: { strategies: ['gamma_move', 'snapback', 'supertrend'], lanes: ['snapback:swing', 'supertrend:intraday'] },
   posture: { ready: false, missing: ['static IP not verified'], egress: { registered_ip: '1.1.1.1', observed_ip: '2.2.2.2', reason: 'IP mismatch' }, binding: { binding_id: 'account-1', detail: 'Verification expired' } },
 };
 function show() {
@@ -48,5 +49,39 @@ describe('production settings', () => {
     show();
     expect(await screen.findByRole('alert')).toHaveTextContent('Administrator access is required');
     expect(screen.queryByLabelText('Approved live capital (₹)')).not.toBeInTheDocument();
+  });
+
+  it('builds every lane cap from four plain limits', async () => {
+    show();
+    for (const [label, value] of [['Total limit (₹)', '100000'], ['Per strategy (₹)', '50000'], ['Per mode (₹)', '20000'], ['Per trade (₹)', '5000']]) {
+      fireEvent.change(await screen.findByLabelText(label), { target: { value } });
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Save production settings' }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    const sent = JSON.parse(put.mock.calls[0][1].settings.risk_limits);
+    expect(sent).toEqual({
+      global: { '': 100000 },
+      strategy: { gamma_move: 50000, snapback: 50000, supertrend: 50000 },
+      mode: { 'snapback:swing': 20000, 'supertrend:intraday': 20000 },
+      position: { 'snapback:swing': 5000, 'supertrend:intraday': 5000 },
+    });
+  });
+
+  it('blocks save until all four limits are filled and nested', async () => {
+    show();
+    fireEvent.change(await screen.findByLabelText('Total limit (₹)'), { target: { value: '1000' } });
+    expect(screen.getByText('Fill all four limits.')).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'Save production settings' })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Per strategy (₹)'), { target: { value: '5000' } });
+    fireEvent.change(screen.getByLabelText('Per mode (₹)'), { target: { value: '500' } });
+    fireEvent.change(screen.getByLabelText('Per trade (₹)'), { target: { value: '100' } });
+    expect(screen.getByText(/at most the one above it/)).toHaveAttribute('role', 'alert');
+    expect(screen.getByRole('button', { name: 'Save production settings' })).toBeDisabled();
+  });
+
+  it('round-trips saved limits into the four fields', () => {
+    const raw = buildRiskLimits({ total: 9, strategy: 7, lane: 5, trade: 3 }, { strategies: ['snapback'], lanes: ['snapback:swing'] });
+    expect(parseSimpleLimits(raw)).toEqual({ total: 9, strategy: 7, lane: 5, trade: 3 });
+    expect(buildRiskLimits({ total: 9, strategy: null, lane: 5, trade: 3 }, { strategies: ['snapback'], lanes: ['snapback:swing'] })).toBe('');
   });
 });

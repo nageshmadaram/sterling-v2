@@ -39,7 +39,16 @@ def production_settings(_user: UserContext = Depends(require_admin)) -> dict:
             for check in report.checks
         ],
         'activation': 'Restart the backend after saving. Startup and order safety gates still apply.',
+        'risk_scopes': _risk_scopes(),
     }
+
+
+def _risk_scopes() -> dict:
+    """Scopes the settings form fills, so the UI never hard-codes lane keys."""
+    from app.core.risk_hierarchy import live_lane_scopes
+    lanes = list(live_lane_scopes())
+    strategies = sorted({lane.split(':', 1)[0] for lane in lanes} | {'gamma_move'})
+    return {'strategies': strategies, 'lanes': lanes}
 
 
 class ProductionSettingsRequest(BaseModel):

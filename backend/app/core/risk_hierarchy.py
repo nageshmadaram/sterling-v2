@@ -242,6 +242,21 @@ def missing_live_lane_caps(hierarchy: RiskHierarchy) -> tuple[str, ...]:
     return tuple(sorted(set(missing)))
 
 
+def live_lane_scopes() -> tuple[str, ...]:
+    """Lane keys that need a MODE and a POSITION cap before live entries.
+
+    Same lanes :func:`missing_live_lane_caps` checks, so a form that fills
+    every one of these clears that check by construction.
+    """
+    from app.core.horizon import LaneState
+    from app.core.lane_registry import all_lanes
+
+    return tuple(sorted(
+        lane.lane_key for lane in all_lanes()
+        if lane.state in (LaneState.LIVE_MINIMUM, LaneState.LIVE_SCALED) and lane.rules_defined
+    ))
+
+
 def configured_hierarchy(env: Mapping[str, str] | None = None) -> "RiskHierarchy | None":
     """The hierarchy the operator configured, or ``None`` when none is set.
 
