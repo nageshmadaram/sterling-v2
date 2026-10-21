@@ -10,7 +10,7 @@ export function StrategyBoardFooter({name,children,onReset}:{name:string;childre
  const controls=React.isValidElement(first)?React.Children.toArray(first.props.children):[];
  const primary=controls.filter(c=>React.isValidElement(c)&&c.type==='button');
  const secondary=controls.filter(c=>!primary.includes(c));
- const modes=secondary.some(c=>React.isValidElement<{className?:string}>(c)&&c.props.className?.includes('snapback-scan-modes'));
+ const modes=secondary.some(c=>React.isValidElement<{className?:string}>(c)&&(c.props.className?.includes('snapback-scan-modes')||c.props.className?.includes('strategy-scan-modes')));
  // SuperTrend's source/exit controls are already compact; keep their original row.
  if(name==='SuperTrend')return <section className="sb-strategy-footer" aria-label={`${name} controls and information`}>{children}</section>;
  return <section className="sb-strategy-footer" aria-label={`${name} controls and information`}>

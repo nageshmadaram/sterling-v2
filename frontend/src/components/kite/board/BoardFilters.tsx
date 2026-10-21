@@ -273,6 +273,8 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
         />
       </label>}
 
+      {/* Columns first, as on SuperTrend's toolbar, so every strategy reads the same left to right. */}
+      {columns && <ColumnPicker view={view} available={columns} columnLabels={columnLabels} />}
       {view.offers.best && (
         <FilterToggle
           on={view.bestOnly}
@@ -299,8 +301,6 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
       )}
 
       {children}
-
-      {columns && <ColumnPicker view={view} available={columns} columnLabels={columnLabels} />}
 
       {counts.shown !== counts.total && (
         <span style={{ fontSize: 9, color: k.dim, whiteSpace: 'nowrap', marginLeft: 'auto' }}>

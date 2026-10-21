@@ -6,11 +6,14 @@ import { emaTrendSetupsToBoard, emaTrendCampaignsToBoard } from '../emaTrendAdap
 import { emaSetup, emaCampaign } from '../../../../test/emaTrendFixtures';
 
 describe('EMA table row evidence', () => {
-  it('shows stock/profile tags and real bar values in both row states', () => {
+  it('keeps the collapsed row standard and shows EMA evidence when expanded', () => {
     const row = emaTrendSetupsToBoard([emaSetup('scalping')])[0];
     const table = (openId: string | null) => <SignalBoard signals={[row]} columns={BOARD_COLUMNS}
       rowScroll openId={openId} onToggle={() => {}} nowMs={row.atMs!} />;
     const view = render(table(null));
+    // Collapsed: the same cells as every other strategy, no EMA-only strip.
+    expect(screen.queryByTestId('ema-signal-readout')).toBeNull();
+    view.rerender(table(row.id));
     const strip = screen.getByTestId('ema-signal-readout');
     expect(strip).toHaveTextContent('STOCK');
     expect(strip).toHaveTextContent('Scalp');
@@ -21,7 +24,6 @@ describe('EMA table row evidence', () => {
     expect(cells.querySelector('[data-cell="ltp"]')).toHaveTextContent('102.00');
     expect(cells.querySelector('[data-cell="entry"]')).toHaveTextContent('102.50');
     expect(cells.querySelector('[data-cell="stop"]')).toHaveTextContent('98.00');
-    view.rerender(table(row.id));
     expect(screen.getByText('Setup evidence')).toBeInTheDocument();
     expect(screen.getByTestId('ema-signal-readout')).toHaveTextContent('STOCK');
     expect(screen.getByText('Context bars')).toBeInTheDocument();
@@ -43,7 +45,7 @@ describe('EMA table row evidence', () => {
     ];
     rows.forEach((row, i) => {
       const v = render(<SignalBoard signals={[row]} columns={BOARD_COLUMNS}
-        rowScroll openId={null} onToggle={() => {}} nowMs={row.atMs!} />);
+        rowScroll openId={row.id} onToggle={() => {}} nowMs={row.atMs!} />);
       const strip = within(v.container).getByTestId('ema-signal-readout');
       expect(strip).toHaveTextContent(['INDEX · WATCH ONLY', 'FUTURE', 'CALL · CE', 'PUT · PE'][i]);
       expect(strip).toHaveTextContent('Ultra scalp');
@@ -53,7 +55,7 @@ describe('EMA table row evidence', () => {
     const unavailable = emaTrendSetupsToBoard([{ ...base, id: 'unknown',
       symbol: 'NFO:UNVERIFIED' }])[0];
     const ui = render(<SignalBoard signals={[unavailable]} columns={BOARD_COLUMNS} rowScroll
-      openId={null} onToggle={() => {}} nowMs={unavailable.atMs!} />);
+      openId={unavailable.id} onToggle={() => {}} nowMs={unavailable.atMs!} />);
     expect(within(ui.container).getByTestId('ema-signal-readout')).toHaveTextContent('CONTRACT TYPE UNAVAILABLE');
     ui.unmount();
   });
@@ -61,15 +63,15 @@ describe('EMA table row evidence', () => {
     const row = emaTrendSetupsToBoard([{ ...emaSetup(), ceiling: null, stop: null,
       feature: { ...emaSetup().feature, ema10: null } }])[0];
     render(<SignalBoard signals={[row]} columns={BOARD_COLUMNS} rowScroll
-      openId={null} onToggle={() => {}} nowMs={row.atMs!} />);
+      openId={row.id} onToggle={() => {}} nowMs={row.atMs!} />);
     const strip = screen.getByTestId('ema-signal-readout');
     expect(strip).toHaveTextContent('Entry trigger: —');
     expect(strip).toHaveTextContent('EMA10: —');
   });
-  it('shows campaign marks and position size while collapsed', () => {
+  it('shows campaign marks and position size when expanded', () => {
     const row = emaTrendCampaignsToBoard([emaCampaign('intraday')])[0];
     render(<SignalBoard signals={[row]} columns={BOARD_COLUMNS} rowScroll
-      openId={null} onToggle={() => {}} nowMs={row.atMs!} />);
+      openId={row.id} onToggle={() => {}} nowMs={row.atMs!} />);
     const strip = screen.getByTestId('ema-signal-readout');
     expect(strip).toHaveTextContent('STOCK');
     expect(strip).toHaveTextContent('Intraday');

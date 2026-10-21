@@ -3,8 +3,11 @@ import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrend
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
-import { SignalBoard, BOARD_COLUMNS } from './SignalBoard';
-import { BoardFilters, ColumnsMenu } from './BoardFilters';
+import { SignalBoard } from './SignalBoard';
+import { BoardFilters } from './BoardFilters';
+import { StrategyBoardFooter } from './StrategyBoardFooter';
+import { useSignalColumns } from './useSignalColumns';
+import { KiteActionButtons } from '../KiteActionButtons';
 import { useBoardView } from './useBoardView';
 import { EmaTrendTicket } from './EmaTrendTicket';
 import { EmaTrendOperations } from './EmaTrendOperations';
@@ -85,6 +88,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   ], [snapshot.data, historical]);
   // v4 starts with an unrestricted view; stale TODAY/ENDED preferences must
   // not make genuine older saved signals look like a broken scanner.
+  const commonColumns = useSignalColumns();
   const view = useBoardView(signals, { storageKey: 'ema_trend_profiles_v5', endedByDefault: true,
     defaultHidden: ['engine', 'score', 'leg', 'target', 'exit'] });
   // Keep the UI bounded while retaining all unresolved/open campaigns.
@@ -140,31 +144,25 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
 
   return <div className="sb-strategy-layout" style={{ height: '100%', overflow: 'auto' }}>
     <div className="sb-strategy-rows">
-      <BoardFilters hideSearch view={{ ...view,
-        offers: { ...view.offers, best: false } }} columns={BOARD_COLUMNS}>
-        <ColumnsMenu buttonText="EMA TREND" menuLabel="EMA Trend visible profiles"
-          buttonTitle="Filter by mode. Does not change scanning or orders"
-          showAllText="Select all profiles"
-          items={MODES.map(mode => ({
-            id: mode, label: EMA_TREND_MODE_LABEL[mode],
-            on: selectedModes.includes(mode),
-            toggle: () => toggleMode(mode),
-          }))}
-          onShowAll={resetProfiles} />
-        <span aria-label="Selected EMA Trend profiles" style={{ fontSize: 10, opacity: 0.9 }}>
-          {selectedModes.length === MODES.length ? 'All profiles' :
-            selectedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(' · ')}
-        </span>
+      <BoardFilters hideSearch view={{ ...view, ...commonColumns,
+        offers: { ...view.offers, best: false } }} columns={commonColumns.columns}>
+        <StrategyBoardFooter name="EMA Trend" onReset={resetProfiles}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '8px 12px' }}>
         <button type="button" className="sb-tool" disabled={!canScan}
           onClick={() => scan.mutate(activeModes)}>
-          {scanning ? 'Scanning…' : 'Refresh signals'}
+          {scanning ? 'Scanning…' : 'Scan now'}
         </button>
         {scanning && <button type="button" className="sb-tool"
           disabled={cancel.isPending || !job.data?.id}
           onClick={() => { if (job.data?.id) cancel.mutate(job.data.id); }}>Stop scan</button>}
-        <button type="button" className="sb-tool"
-          onClick={() => openSettingsSection('emaTrend')}>Settings</button>
-        <span role="status" style={{ fontSize: 10, opacity: 0.85 }}>{status}</span>
+        <details className="strategy-scan-modes"><summary>Modes · {selectedModes.length}</summary>
+          <div role="group" aria-label="EMA Trend visible modes">
+            {MODES.map(mode => <label key={mode}><input type="checkbox" checked={selectedModes.includes(mode)}
+              disabled={selectedModes.length === 1 && selectedModes.includes(mode)}
+              onChange={() => toggleMode(mode)} />{EMA_TREND_MODE_LABEL[mode]}</label>)}
+          </div></details>
+        <span role="status" style={{ fontSize: 11, color: 'var(--k-dim)' }}>{status}</span>
+        <a href="#" className="sb-tool" onClick={(e) => { e.preventDefault(); openSettingsSection('emaTrend'); }}>Settings</a>
         {signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended') &&
           <button type="button" className="sb-tool" disabled={historical || operation.isPending}
             onClick={() => {
@@ -172,14 +170,16 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
             }}>Close simulated campaigns</button>}
         <details style={{ fontSize: 11, maxWidth: '100%' }}>
           <summary style={{ cursor: 'pointer' }}>
-            Live trading blocked · {safetyBlockers.length} safety checks
+            Practice only · {safetyBlockers.length} safety checks
           </summary>
           <div style={{ padding: '8px 10px', lineHeight: 1.5, maxWidth: 440 }}>
             <strong>Practice trades only. No real orders.</strong>
-            {safetyBlockers.map(reason => <div key={reason}>{reason.replace(/_/g, ' ')}</div>)}
+            {safetyBlockers.map(reason => <div key={reason}>{reason.replace(/_/g, ' ').toLowerCase()}</div>)}
             <p>EMA 10/21 · DEMA 50 · SuperTrend (10,3). Finished candles only. Not approved for real money.</p>
           </div>
         </details>
+        </div>
+        </StrategyBoardFooter>
       </BoardFilters>
       {!historical && (snapshot.data?.campaigns?.some(c =>
         c.qty > 0 || Boolean(c.pending || c.pending_close) || c.state === 'RECOVERY_REQUIRED') ||
@@ -194,8 +194,15 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         <p role="status" style={{ padding: 12 }}>Close requested for practice trades. Real Kite positions are not affected.</p>}
       {[snapshot.error, config.error, scan.error, cancel.error, operation.error, quickstart.error].filter(Boolean).map((error, index) =>
         <p role="alert" key={index} style={{ padding: 12 }}>{(error as Error).message}</p>)}
-      {(currentScan?.status === 'FAILED' || scanError.length > 0) && scanError.length > 0 &&
-        <p role="alert" style={{ padding: 12 }}>EMA scan errors: {scanError.slice(0, 8).join(' · ')}</p>}
+      {scanError.length > 0 &&
+        <details role="alert" style={{ padding: '6px 12px', fontSize: 11 }}>
+          <summary style={{ cursor: 'pointer', color: 'var(--k-amber)' }}>
+            Last scan: {scanError.length} name{scanError.length === 1 ? '' : 's'} could not be checked
+          </summary>
+          <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+            {scanError.slice(0, 20).map((e, i) => <li key={i}>{e.replace(/_/g, ' ').toLowerCase()}</li>)}
+          </ul>
+        </details>}
       {snapshot.data?.failedModes?.length ? <p role="alert" style={{ padding: 12 }}>
         Could not load saved signals for {snapshot.data.failedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}.
         Other profiles remain visible. Check the EMA API and refresh.
@@ -234,13 +241,16 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         <p role="status" style={{ padding: '4px 12px', fontSize: 11 }}>
           Not enabled for new scans: {unavailableSelected.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Any existing history is still shown.
         </p>}
-      {visible.length > 0 ? <SignalBoard signals={visible} columns={BOARD_COLUMNS} hidden={view.hidden} rowScroll
+      {visible.length > 0 ? <SignalBoard signals={visible} columns={commonColumns.columns} hidden={commonColumns.hidden}
+        onReorderColumn={commonColumns.onReorderColumn} rowScroll={commonColumns.rowScroll}
         isHistoricalSim={historical} strategyDetailsInExpansion openId={openId}
         onToggle={id => setOpenId(previous => previous === id ? null : id)}
         onOpenDetail={onOpenDetail}
-        renderTrade={signal => signal.emaTrend?.signalId ? <button className="sb-tool" type="button"
-          disabled={historical || signal.status !== 'armed' || !signal.executionEligible}
-          onClick={event => { event.stopPropagation(); setOpenId(signal.id); }}>Preview</button> : null}
+        renderTrade={signal => signal.emaTrend?.signalId ? <KiteActionButtons className="sb-row-trade"
+          buyAriaLabel={`Practice buy ${signal.instrument.symbol}`}
+          buyDisabled={historical || signal.status !== 'armed' || !signal.executionEligible}
+          disabledHint={historical ? 'Past signals are view only.' : 'Not ready to enter.'}
+          onBuy={() => setOpenId(signal.id)} /> : null}
         renderChart={signal => onOpenChart && <button type="button" className="sb-tool"
           disabled={historical || signal.historical} aria-label={`Chart ${signal.instrument.symbol}`}
           onClick={event => { event.stopPropagation(); onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal); }}>↗</button>}

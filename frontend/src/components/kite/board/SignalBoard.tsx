@@ -1088,7 +1088,7 @@ function Row({
           </span>
         )}
       </div>
-      <EmaEvidenceStrip signal={signal} />
+      {open && <EmaEvidenceStrip signal={signal} />}
       {open && (
         <div style={{ padding: 10, background: k.surface, borderBottom: `2px solid ${k.border}`, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {detailsOnly && <div className="sb-strategy-evidence" style={{ fontSize: 11, color: k.dim, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
