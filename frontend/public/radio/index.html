@@ -1142,6 +1142,34 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     ];
 
     const stationBadgeCache = {};
+    const stationArtworkChecked = new Map();
+    function refreshStationArtwork(streamObj,revision) {
+      if(!streamObj || streamObj.artwork || !streamObj.title || !RADIO_MIRRORS?.length) return;
+      const key=streamObj.id||streamObj.title;
+      if(Date.now()-(stationArtworkChecked.get(key)||0)<30*60*1000)return;
+      stationArtworkChecked.set(key,Date.now());
+      if(stationArtworkChecked.size>96)stationArtworkChecked.delete(stationArtworkChecked.keys().next().value);
+      const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),4500);
+      fetch(`${RADIO_MIRRORS[0]}/stations/bynameexact/${encodeURIComponent(streamObj.title)}?limit=8`,
+        {signal:controller.signal})
+        .then(res=>res.ok?res.json():[])
+        .then(items=>{
+          if(!Array.isArray(items))return;
+          const title=streamObj.title.trim().toLowerCase();
+          const row=items.find(item=>item?.name?.trim().toLowerCase()===title &&
+            typeof item.favicon==='string' && /^https:\/\//i.test(item.favicon));
+          if(!row)return;
+          const cover=getStationIdentityThumbnail({...streamObj,artwork:row.favicon});
+          if(!cover.startsWith('https://'))return;
+          streamObj.artwork=cover;
+          if(revision===playbackRevision&&activeStream===streamObj){
+            syncPlayerUI(cover);
+            updateMediaSession(cover,streamObj.title,streamObj.subtitle);
+          }
+          // Station covers belong to station cards; track art remains player-only.
+          renderCategoryGrids();renderPersonalizedShelves();
+        }).catch(()=>{}).finally(()=>clearTimeout(timeout));
+    }
 
     function getStationIdentityThumbnail(ch) {
       // Remote artwork is interpolated into HTML attributes; reject markup and non-HTTPS URLs.
@@ -2944,6 +2972,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       const stationEmblem = getStationIdentityThumbnail(streamObj);
       syncPlayerUI(stationEmblem);
+      refreshStationArtwork(streamObj,revision);
       updateMediaSession(stationEmblem, streamObj.title, streamObj.subtitle);
 
       if (streamObj.kind === 'radio') {
@@ -3012,6 +3041,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (!validUrl || !activeStream || activeStream.id !== streamObj.id || !isPlaying) return;
 
       const trackLabel = `${broadcastTrack.artist} • ${broadcastTrack.title}`;
+      updateAmbientColorFromId(streamObj.id+'|'+trackLabel);
 
       // Updates ONLY active player surfaces; channel grids keep their clean station covers
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
@@ -3029,12 +3059,15 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function updateAmbientColorFromId(idStr) {
-      const h = hashString(idStr);
-      const rgbs = [
-        '28, 90, 56', '30, 64, 110', '68, 42, 96',
-        '96, 52, 32', '92, 36, 58', '24, 82, 78'
-      ];
-      document.documentElement.style.setProperty('--ambient-rgb', rgbs[h % rgbs.length]);
+      // The color changes with every selected station and every reported song.
+      // Deterministic HSL->RGB allows hundreds of hues instead of six static backgrounds.
+      const h=hashString(String(idStr||'radio'))%360/360,s=.42,l=.28;
+      const hue=n=>{
+        const k=(n+h*12)%12;
+        const a=s*Math.min(l,1-l);
+        return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1))));
+      };
+      document.documentElement.style.setProperty('--ambient-rgb',[hue(0),hue(8),hue(4)].join(','));
     }
 
     function bindAudioEvents() {
