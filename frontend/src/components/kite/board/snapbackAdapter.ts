@@ -463,7 +463,7 @@ export function snapbackPositionToBoard(pos: SnapbackPosition, setup?: BoardSign
   const strike = sameContract ? setup!.instrument.strike : Number(parseInstrument(pos.option_symbol)?.strike);
   const target = typeof pos.rules.target_premium === 'number' ? price(pos.rules.target_premium) : null;
   return {
-    id: `snapback-position:${pos.position_id}`, engine: 'snapback', mode: normalizeMode((pos as { trading_mode?: string }).trading_mode ?? pos.lane), historical: closed, underlying: pos.underlying,
+    id: `snapback-position:${pos.position_id}`, engine: 'snapback', held: true, mode: normalizeMode((pos as { trading_mode?: string }).trading_mode ?? pos.lane), historical: closed, underlying: pos.underlying,
     instrument: {
       symbol: pos.option_symbol, exchange: pos.option_exchange, kind: 'option',
       optionType: pos.option_type, expiry: pos.option_expiry || null, lotSize: pos.lot_size,

@@ -279,3 +279,18 @@ it('starts a mobile group collapsed with one contract summary and respects hidde
   view.unmount();
  } finally {Object.defineProperty(window,'innerWidth',{configurable:true,value:previous});}
 });
+
+describe('signalPnl', () => {
+  it('is null for a signal nobody bought and rupees for a held position', async () => {
+    const { signalPnl } = await import('../SignalBoard');
+    const base = {
+      direction: 'long', status: 'running',
+      levels: { entry: 100, ltp: 110, exit: null, stop: 90, trail: null, target: null },
+      sizing: { quantity: 50 },
+    } as any;
+    expect(signalPnl(base)).toBeNull();
+    expect(signalPnl({ ...base, held: true })).toBe(500);
+    expect(signalPnl({ ...base, held: true, status: 'ended', levels: { ...base.levels, exit: 95 } })).toBe(-250);
+    expect(signalPnl({ ...base, held: true, status: 'armed' })).toBeNull();
+  });
+});

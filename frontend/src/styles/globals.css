@@ -1279,7 +1279,14 @@ body[data-mobile-style="app"] .st-leg-row [data-mobile-label]::before, body[data
 body[data-mobile-style=app] .st-leg-row { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:12px 16px !important; padding:14px 16px !important; border-bottom:1px solid var(--k-border) !important; border-radius:0; font-family:var(--k-font); }
 body[data-mobile-style=app] .st-leg-row [data-mobile-cell=instrument] { grid-column:1 / -1; font-weight:600 !important; }
 
-  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell]:not([data-mobile-cell=instrument]):not([data-mobile-cell=entry]):not([data-mobile-cell=ltp]):not([data-mobile-cell=time]):not([data-mobile-cell=trade]) { display:none !important; }
+  /* Collapsed card, same on every strategy: contract, then Entry, SL, LTP, P&L, then Buy/Sell. */
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] { grid-template-columns:repeat(4,minmax(0,1fr)) !important; gap:8px 10px !important; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell]:not([data-mobile-cell=instrument]):not([data-mobile-cell=entry]):not([data-mobile-cell=sl]):not([data-mobile-cell=ltp]):not([data-mobile-cell=pnl]):not([data-mobile-cell=trade]) { display:none !important; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell=entry] { order:1; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell=sl] { order:2; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell=ltp] { order:3; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell=pnl] { order:4; }
+  body[data-mobile-style=app] .st-leg-row[aria-expanded=false] [data-mobile-cell=trade] { order:5; grid-column:1 / -1; }
 body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit !important; font-size:13px !important; font-variant-numeric:tabular-nums; }
 }
 @media(max-width:900px) {
@@ -1308,9 +1315,10 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
    background:var(--k-bg) !important; text-decoration:none !important;
  }
  body[data-mobile-style=app] .sterling-signal-board .sb-row:not(.sb-parent)[aria-expanded=false] {
-   grid-template-columns:minmax(88px,1.4fr) minmax(52px,1fr) minmax(54px,1fr) 46px !important;
-   gap:8px !important;
+   grid-template-columns:repeat(4,minmax(0,1fr)) !important;
+   gap:8px 10px !important;
  }
+ body[data-mobile-style=app] .sterling-signal-board .sb-row:not(.sb-parent)[aria-expanded=false] [data-cell]:not([data-cell=instrument]):not([data-cell=entry]):not([data-cell=stop]):not([data-cell=ltp]):not([data-cell=pnl]):not([data-cell=trade]) { display:none !important; }
  body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell],
  body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell] span {
    font-family:inherit !important; font-size:12px !important; font-weight:400 !important; line-height:1.45 !important;
@@ -1323,9 +1331,10 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
    font-family:inherit !important; font-size:10px !important; font-weight:400 !important; line-height:1.4; margin-bottom:3px;
  }
  body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=entry] { order:1; }
- body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=ltp] { order:2; }
- body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=time] { order:3; }
- body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=trade] { order:4; }
+ body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=stop] { order:2; }
+ body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=ltp] { order:3; }
+ body[data-mobile-style=app] .sterling-signal-board .sb-row [data-cell=pnl] { order:4; }
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell=trade] { order:5; grid-column:1 / -1; }
  body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=true] [data-cell] { order:0; }
  body[data-mobile-style=app] .sterling-signal-board .sb-row button { min-height:32px; }
 }
@@ -1336,7 +1345,6 @@ body[data-mobile-style=app] .st-leg-row [data-mobile-cell] { font-family:inherit
 @media(max-width:900px) {
  body[data-mobile-style=app] .sterling-signal-board .sb-head-row { display:none !important; }
  body[data-mobile-style=app] .sterling-signal-board .sb-row:not(.sb-parent)>span:first-child:not([data-cell]) { display:none !important; }
- body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell]:not([data-cell=instrument]):not([data-cell=entry]):not([data-cell=ltp]):not([data-cell=time]):not([data-cell=trade]) { display:none !important; }
  body[data-mobile-style=app] .sterling-signal-board .sb-parent-fields { flex-wrap:wrap; flex-basis:100% !important; width:100%; max-width:100%; }
  body[data-mobile-style=app] .sterling-signal-board .sb-parent-fields>span { width:auto !important; flex:0 1 auto !important; min-width:0; max-width:100%; }
  body[data-mobile-style=app] .sterling-signal-board .sb-parent-fields>span:nth-child(2) { flex:1 1 80px !important; }

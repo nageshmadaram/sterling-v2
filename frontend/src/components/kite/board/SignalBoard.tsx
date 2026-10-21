@@ -284,11 +284,12 @@ const num = (v: number | null | undefined, dp = 2) => fmtPx(v, dp);
 export const inr = (v: number | null | undefined) => fmtMoney(v);
 
 /**
- * Rupee P&L of a row: open at the live price, closed at the exit. Null for a
- * setup that was never entered, or when quantity or a price is unknown.
+ * Rupee P&L of a held position: open at the live price, closed at the exit.
+ * Null for a signal row (never bought), or when quantity or a price is unknown.
  */
 export function signalPnl(signal: BoardSignal): number | null {
   const { entry, ltp, exit } = signal.levels;
+  if (!signal.held) return null; // a signal nobody bought has no P&L
   const qty = signal.sizing.quantity;
   const open = signal.status === 'running' || signal.status === 'weakening';
   const mark = signal.status === 'ended' ? exit : open ? ltp : null;

@@ -199,6 +199,8 @@ export interface BoardSignal {
   historical?: boolean;
   id: string;
   engine: EngineId;
+  /** True when this row is a position the account actually holds (or held). */
+  held?: boolean;
   /** Trading mode this signal belongs to, when the engine knows it. */
   mode?: TradeMode | null;
   /** The underlying the thesis is about, e.g. NIFTY — not the contract. */
