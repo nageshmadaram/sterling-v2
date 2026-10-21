@@ -57,6 +57,56 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(w.document.body.classList.contains('tm-watch-view')).toBe(true);
     expect(errors).toEqual([]);
   });
+  it('separates Radio home discovery, categories and the dedicated SW player',()=>{
+    const {w,errors}=boot('radio');
+    expect(w.document.documentElement.dataset.radioCategory).toBe('all');
+    expect(w.document.getElementById('sp-collections')?.textContent).toContain('Shortwave & AM');
+    (w.document.getElementById('sp-mchip-te') as HTMLElement).click();
+    expect(w.document.documentElement.dataset.radioCategory).toBe('telugu');
+    expect(w.document.getElementById('sp-grid-heading')?.textContent).toContain('Telugu');
+    expect(w.eval('catalogItems.every(ch=>ch.category=== "telugu")')).toBe(true);
+    (w.document.getElementById('sp-mchip-all') as HTMLElement).click();
+    expect(w.document.documentElement.dataset.radioCategory).toBe('all');
+    (w as any).openMobileTuner();
+    const panel=w.document.getElementById('sw-player-window')!;
+    expect(panel.getAttribute('role')).toBe('dialog');
+    expect(panel.querySelectorAll('.sw-player-presets button').length).toBeGreaterThan(0);
+    (panel.querySelector('.sw-player-presets button') as HTMLButtonElement).click();
+    expect(panel.querySelector('.sw-player-title')?.textContent).not.toBe('');
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'minimize'}}));
+    expect(panel.classList.contains('hidden')).toBe(true);
+    expect(errors).toEqual([]);
+  });
+  it.each(['radio','tv'] as const)('publishes and selects real %s search suggestions',kind=>{
+    const {w,errors,flush}=boot(kind);
+    const received:any[]=[];w.parent.postMessage=(message:any)=>received.push(message);
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'suggest',value:kind==='tv'?'Red Bull':'BBC'}}));
+    const payload=received.find(message=>message.type===`sterling.${kind}.suggestions`);
+    expect(payload.items.length).toBeGreaterThan(0);
+    w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'select-suggestion',value:payload.items[0].id}}));flush();
+    expect(w.document.getElementById(kind==='tv'?'active-title':'sheet-title')?.textContent).toContain(kind==='tv'?'Red Bull':'BBC');
+    expect(errors).toEqual([]);
+  });
+  it('keeps temporary autoplay muting separate from the chosen sound setting',async()=>{
+    const {w}=boot('tv');
+    await new Promise(resolve=>setTimeout(resolve,0));
+    const video=w.document.getElementById('video-player') as HTMLVideoElement;
+    w.eval('preferredTvMuted=false');
+    w.HTMLMediaElement.prototype.play=()=>Promise.reject(new w.DOMException('Gesture required','NotAllowedError'));
+    w.eval('safeAutoplayVideo(document.getElementById("video-player"))');
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(video.muted).toBe(true);
+    expect(w.eval('preferredTvMuted')).toBe(false);
+    w.HTMLMediaElement.prototype.play=()=>Promise.resolve();
+    w.eval('resumeTvPlayback()');await Promise.resolve();
+    expect(video.muted).toBe(false);
+    w.eval('toggleMuteAudio()');
+    expect(w.eval('preferredTvMuted')).toBe(true);
+  });
+  it('finds TV channels with punctuation-insensitive multiword queries',()=>{
+    const {w}=boot('tv');
+    expect(w.eval('getRankedSearchMatches("red-bull").length')).toBeGreaterThan(0);
+  });
   it('boots Radio and responds to category and player-sheet taps',()=>{
     const {w,errors}=boot('radio');
     (w.document.querySelector('#sp-mchip-te') as HTMLButtonElement).click();
@@ -90,7 +140,7 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(w.document.querySelector('#sp-cards-grid')?.textContent).not.toContain('Stale BBC result');
     (w as any).onSearchInput('');
     expect(w.document.documentElement.classList.contains('radio-searching')).toBe(false);
-    expect(w.document.querySelector('#sp-grid-heading')?.textContent).toContain('Shortwave');
+    expect(w.document.querySelector('#sp-grid-heading')?.textContent).toContain('Explore all');
     w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'theme',value:'youtube'}}));
     expect(w.document.body.classList.contains('mode-ytmusic')).toBe(true);
     expect(errors).toEqual([]);
@@ -122,9 +172,15 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(w.document.documentElement.classList.contains('radio-modal-open')).toBe(false);
     w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:'sterling.radio.command',action:'minimize'}}));
     expect(sheet.classList.contains('drawer-hidden')).toBe(true);
-    (w.document.querySelector('#spotify-app .solid-sp-miniplayer') as HTMLElement).click();
-    (w.document.querySelector('#mobile-player-sheet [data-radio-click="74"]') as HTMLElement).click();
-    expect(w.document.getElementById('sw-tuner-drawer')?.classList.contains('hidden')).toBe(false);
+    // Tuning belongs in Home, not the full-screen now-playing sheet.
+    // A tap on the Home tuner must open the drawer without reopening playback.
+    expect(sheet.querySelector('[data-radio-click="74"]')).toBeNull();
+    const homeTuner=w.document.querySelector('#sw-tuner-deck [data-radio-click="74"]') as HTMLElement | null;
+    expect(homeTuner).not.toBeNull();
+    homeTuner!.click();
+    expect(w.document.getElementById('sw-player-window')?.classList.contains('hidden')).toBe(false);
+    expect(w.document.getElementById('sw-player-window')?.getAttribute('aria-label')).toBe('Shortwave and AM player');
+    expect(sheet.classList.contains('drawer-hidden')).toBe(true);
     expect(errors).toEqual([]);
   });
 

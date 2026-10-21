@@ -9,6 +9,7 @@ from app.services import db
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 EXACT = set('sterling.experience.options.v1 kite-settings sterling_theme sterling_theme_default_migrated_v1 sterling_appearance_v1 sterling_zoom sterling_density sterling_autofit sterling_mobile_style sterling_activity_rail kite_terminal_theme sterling.kite.tickerPins.v1 sterling.kite.watchlist.v1 sterling.kite.watchlist.manual-empty.v1 sterling:kite-chart-templates:v1 sterling.pcr.desk.v2'.split())
+EXACT.update(['sterling.tv.streamos_sources_v14', 'sterling.tv.streamos_source_mode_v14', 'sterling.tv.streamos_favs_v14', 'sterling.tv.streamos_stats_v14', 'sterling.tv.streamos_history_v14', 'sterling.tv.streamos_startup_channel_v14', 'sterling.tv.streamos_theme_v14', 'sterling.tv.streamos_ui_v14', 'sterling.radio.omnicast_v11_config', 'sterling.radio.omnicast_v11_recents', 'sterling.radio.omnicast_v11_counts', 'sterling.radio.omnicast_v11_liked'])
 PREFIXES = ('sterling.board.hidden.v2.',)
 
 def permitted(key: str) -> bool:
@@ -37,10 +38,10 @@ def read_preferences(user: UserContext = Depends(get_current_user)):
 def write_preferences(body: PreferencePatch, user: UserContext = Depends(get_current_user)):
     if not db.is_available():
         raise HTTPException(503, 'Preference database unavailable')
-    if len(body.values) > 300 or len(json.dumps(body.values).encode()) > 1_000_000:
+    if len(body.values) > 300 or len(json.dumps(body.values).encode()) > 5_000_000:
         raise HTTPException(413, 'Preference package too large')
     for key, value in body.values.items():
-        if not permitted(key) or (value is not None and len(value.encode()) > 200_000):
+        if not permitted(key) or (value is not None and len(value.encode()) > (500_000 if key.startswith('sterling.tv.') else 200_000)):
             raise HTTPException(422, 'Unsupported preference key or value size')
     with db._conn() as c:
         _table(c)
