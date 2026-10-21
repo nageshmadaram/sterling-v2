@@ -13,6 +13,14 @@ def test_supervisor_error_diagnostics_keep_errno_but_never_secret_text():
  assert 'sensitive' not in stack.error_code(error)
  assert stack.error_code(RuntimeError('private url'))=='RuntimeError'
 
+def test_launch_failure_reason_goes_to_private_log_with_urls_redacted(tmp_path):
+ log=tmp_path/'manager.log'
+ stack.record_launch_failure(RuntimeError('Web port 5180 is occupied; see https://x.trycloudflare.com/?t=secret'),log)
+ text=log.read_text()
+ assert 'Web port 5180 is occupied' in text
+ assert 'secret' not in text and 'trycloudflare' not in text
+ assert oct(log.stat().st_mode)[-3:]=='600'
+
 def test_destinations_change_atomically():
  from app.services import db,public_access
  db.init();public_access.publish('https://old.example.test')

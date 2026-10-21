@@ -1266,6 +1266,27 @@ def main():
         save_state(stack.status)
 
 
+def record_launch_failure(error, log_path=None):
+    """Write the reason a launch failed to the operator-only manager log.
+
+    stderr reaches journald and stays code-only. Without this, a crash loop
+    such as a second manager hitting EADDRINUSE on the gateway port printed
+    only "RuntimeError" thirteen times. URLs are redacted: they can carry
+    tunnel hostnames or tokens.
+    """
+    reason=re.sub(r'https?://\S+','<url>',str(error))[:300]
+    path=Path(log_path) if log_path else STATE/'manager.log'
+    try:
+        path.parent.mkdir(parents=True,exist_ok=True)
+        with path.open('a') as log:
+            log.write(f'Launch failure detail: {error_code(error)}: {reason}\n')
+        os.chmod(path,0o600)
+    except OSError:
+        pass
+
+
 if __name__=='__main__':
     try:main()
-    except Exception as error:print(f'Sterling launch failed: {error_code(error)}. See .runtime/stack logs.',file=sys.stderr);sys.exit(1)
+    except Exception as error:
+        record_launch_failure(error)
+        print(f'Sterling launch failed: {error_code(error)}. See .runtime/stack/manager.log.',file=sys.stderr);sys.exit(1)
