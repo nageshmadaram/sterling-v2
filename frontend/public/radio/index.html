@@ -252,6 +252,31 @@
     }
   </style>
 <link rel="stylesheet" href="/radio/appearance.css">
+
+<style id="sterling-radio-mobile-recovery">
+/* Settings must consume touches; background channel cards stay inert. */
+#startup-modal:not(.hidden),#audio-dsp-modal:not(.hidden) {
+  z-index:10000!important;pointer-events:auto!important;touch-action:pan-y;
+  overflow-y:auto;overscroll-behavior:contain;
+}
+#startup-modal:not(.hidden)>div,#audio-dsp-modal:not(.hidden)>div {
+  max-height:calc(100dvh - 24px);overflow-y:auto;touch-action:pan-y;
+}
+html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
+  pointer-events:none!important;
+}
+@media(max-width:1023px) {
+  #mobile-player-sheet {background:linear-gradient(170deg,rgba(var(--ambient-rgb,28,90,56),.85),#121212 62%)!important;}
+  #mobile-player-sheet>div:nth-child(2){margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
+  #mobile-player-sheet .radio-mobile-art{width:min(82vw,350px)!important;height:min(82vw,350px)!important;max-height:45dvh!important;aspect-ratio:1;flex-shrink:1!important;margin-bottom:14px!important;}
+  #mobile-player-sheet .radio-mobile-art img{width:100%;height:100%;object-fit:cover;}
+  #mobile-player-sheet [data-radio-click="56"]{width:68px;min-height:68px;}
+}
+@media(max-width:1023px) and (orientation:landscape) {
+  #mobile-player-sheet .radio-mobile-art{width:min(39vw,250px)!important;height:min(39vw,250px)!important;max-height:56dvh!important;}
+}
+@media(prefers-reduced-motion:reduce){#mobile-player-sheet{transition:none!important;}}
+</style>
 </head>
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
@@ -331,9 +356,10 @@
     <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-semibold text-[15px] text-white">Audio Quality & Equalizer</h3>
-        <button data-radio-click="9" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
-          <i class="fa-solid fa-xmark text-xs"></i>
-        </button>
+        <div class="flex items-center gap-2">
+          <button data-radio-click="7" aria-label="Pin playing station as startup" title="Pin as startup station" class="w-10 h-10 btn-circle bg-[#282828] text-white"><i class="fa-solid fa-thumbtack"></i></button>
+          <button data-radio-click="9" aria-label="Close audio settings" class="w-10 h-10 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white"><i class="fa-solid fa-xmark text-xs"></i></button>
+        </div>
       </div>
 
       <div class="mb-4">
@@ -641,9 +667,6 @@
               <p id="sp-np-sub" class="text-xs text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
-              <button data-radio-click="7" class="text-[#b3b3b3] hover:text-white text-xs" title="Set as Startup Channel">
-                <i class="fa-solid fa-thumbtack"></i>
-              </button>
               <button data-radio-click="53" id="sp-np-like" class="text-[#b3b3b3] hover:text-white text-base">
                 <i class="fa-regular fa-heart"></i>
               </button>
@@ -1002,17 +1025,17 @@
       </button>
       <span class="text-xs font-semibold text-white/90">Now Playing</span>
       <div class="flex items-center gap-1">
-        <button data-radio-click="7" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Set as Startup Channel">
-          <i class="fa-solid fa-thumbtack text-sm"></i>
+        <button data-radio-click="74" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" aria-label="Open radio tuner" title="Tuner">
+          <i class="fa-solid fa-wave-square text-sm"></i>
         </button>
-        <button data-radio-click="29" class="w-9 h-9 btn-circle text-[#b3b3b3] hover:text-white" title="Equalizer">
+        <button data-radio-click="29" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white" title="Audio settings">
           <i class="fa-solid fa-sliders text-sm"></i>
         </button>
       </div>
     </div>
 
     <div class="my-auto flex flex-col items-center py-4">
-      <div class="w-64 h-64 sm:w-72 sm:h-72 rounded-lg overflow-hidden shadow-2xl mb-6 bg-[#181818]">
+      <div class="radio-mobile-art w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
         <img id="sheet-art" src="" class="w-full h-full object-cover" alt="" />
       </div>
 
@@ -1139,13 +1162,7 @@
       ctx.fillRect(0, 0, 600, 600);
       ctx.globalAlpha=0.14;ctx.fillStyle=theme.accent;ctx.fillRect(0,0,600,600);ctx.globalAlpha=1;
 
-      // Subtle Top-Left Brand Mark + Frequency Tag
-      const freqText = (ch.freqLabel || (ch.freqKhz ? `${ch.freqKhz} kHz` : 'LIVE')).toUpperCase();
-      ctx.fillStyle = theme.accent;
-      ctx.font = '700 24px "JetBrains Mono", monospace';
-      ctx.textAlign = 'left';
-      ctx.fillText(freqText.slice(0, 16), 44, 68);
-
+      // Frequency is printed once (large), not repeated above it.
       // Minimal Horizontal Hairline Rule
       ctx.fillStyle = 'rgba(255,255,255,0.10)';
       ctx.fillRect(44, 92, 512, 1.5);
@@ -1178,8 +1195,11 @@
       ctx.font = '500 22px "Inter", sans-serif';
       ctx.fillText((ch.subtitle || 'Live Broadcast').slice(0, 30), 44, 540);
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
       stationBadgeCache[cacheKey] = dataUrl;
+      // Without a bound this cache grows with every remote search result.
+      const keys=Object.keys(stationBadgeCache);
+      if(keys.length>96)delete stationBadgeCache[keys[0]];
       return dataUrl;
     }
 
@@ -2023,15 +2043,22 @@
     }
 
     // --- Startup Modal ---
+    function syncRadioModalState() {
+      const open = ['startup-modal','audio-dsp-modal'].some(id=>!document.getElementById(id).classList.contains('hidden'));
+      document.documentElement.classList.toggle('radio-modal-open',open);
+    }
     function openStartupModal() {
       safeHaptic(10);
       populateStartupSelectDropdown();
       syncStartupModalUI();
       document.getElementById('startup-modal').classList.remove('hidden');
+      syncRadioModalState();
+      document.querySelector('#startup-modal button')?.focus();
     }
 
     function closeStartupModal() {
       document.getElementById('startup-modal').classList.add('hidden');
+      syncRadioModalState();
     }
 
     function populateStartupSelectDropdown() {
@@ -2297,10 +2324,13 @@
       safeHaptic(10);
       syncDspModalUI();
       document.getElementById('audio-dsp-modal').classList.remove('hidden');
+      syncRadioModalState();
+      document.querySelector('#audio-dsp-modal button')?.focus();
     }
 
     function closeDspModal() {
       document.getElementById('audio-dsp-modal').classList.add('hidden');
+      syncRadioModalState();
     }
 
     function setStreamQualityProfile(profile) {
@@ -2482,6 +2512,10 @@
       if (found) {
         if (found.freqKhz) previewSwDial(found.freqKhz);
         startPlayback(found);
+        if (radioSearchQuery.trim()) {
+          clearAllSearches();
+          activeIndex = catalogItems.findIndex(ch=>ch.id===found.id);
+        }
       }
     }
 
@@ -2790,6 +2824,12 @@
         backupCursor = 0;
         if (item.freqKhz) previewSwDial(item.freqKhz);
         startPlayback(item);
+        // Navigation to a search result returns the search UI to browse mode.
+        // Keep playback alive, then repair the new catalog's queue index.
+        if (radioSearchQuery.trim()) {
+          clearAllSearches();
+          activeIndex = catalogItems.findIndex(ch=>ch.id===item.id);
+        }
       }
     }
 
@@ -3282,10 +3322,32 @@
       s.classList.add('drawer-hidden');
       s.removeAttribute('aria-modal');s.removeAttribute('role');radioSheetReturnFocus?.focus();
     }
+    function openMobileTuner() {
+      closeMobileSheet();
+      switchAppMode('spotify');
+      loadCategory('shortwave');
+      toggleSwDrawer(true);
+      requestAnimationFrame(()=>document.getElementById('sw-tuner-deck')?.scrollIntoView({block:'start',behavior:'smooth'}));
+    }
 
     function bindTouchSheet() {
       const sheet = document.getElementById('mobile-player-sheet');
       const handle = sheet.firstElementChild;
+      // Compact player swipes reopen Now Playing, without intercepting playback buttons.
+      document.querySelectorAll('[data-radio-click="0"]').forEach(mini=>{
+        let gesture=null;
+        mini.addEventListener('touchstart',e=>{
+          gesture=e.touches.length===1&&!e.target.closest('button,input,select')
+            ? {x:e.touches[0].clientX,y:e.touches[0].clientY}:null;
+        },{passive:true});
+        mini.addEventListener('touchend',e=>{
+          if(!gesture||!e.changedTouches.length)return;
+          const dx=e.changedTouches[0].clientX-gesture.x,dy=e.changedTouches[0].clientY-gesture.y;
+          if(dy< -65 && Math.abs(dx)<Math.abs(dy)/2)openMobileSheet();
+          gesture=null;
+        },{passive:true});
+        mini.addEventListener('touchcancel',()=>{gesture=null;},{passive:true});
+      });
       let start = null;
       // Drag only the header: scrolling the sheet or changing volume must not
       // dismiss it or steal station/control taps.
@@ -3308,22 +3370,24 @@
       const c = document.getElementById('sp-spectrum');
       if (!c) return;
       const ctx = c.getContext('2d');
-      let p = 0;
-      function loop() {
+      if (!ctx) return;
+      let p = 0, lastFrame = 0;
+      function loop(time) {
         requestAnimationFrame(loop);
-        p += 0.08;
-        ctx.clearRect(0, 0, c.width, c.height);
-        const bars = 32;
-        for (let i = 0; i < bars; i++) {
-          const amp = (isPlaying && !audio.paused)
-            ? (Math.sin(p + i * 0.25) * 0.45 + 0.55) * (Math.cos(p * 0.7 - i * 0.3) * 0.35 + 0.65)
-            : 0.08;
-          const h = Math.max(3, amp * c.height * 0.9);
-          ctx.fillStyle = '#1ed760';
-          ctx.fillRect(i * (c.width / bars), c.height - h, (c.width / bars) - 2, h);
+        // Do not paint 60 times/second when the visualizer is not visible.
+        if (document.hidden || !c.getClientRects().length || time-lastFrame<90) return;
+        lastFrame=time;p+=0.18;
+        ctx.clearRect(0,0,c.width,c.height);
+        for (let i=0;i<32;i++) {
+          const amp=(isPlaying&&!audio.paused)
+            ? (Math.sin(p+i*.25)*.45+.55)*(Math.cos(p*.7-i*.3)*.35+.65)
+            : .08;
+          const h=Math.max(3,amp*c.height*.9);
+          ctx.fillStyle='#1ed760';
+          ctx.fillRect(i*(c.width/32),c.height-h,c.width/32-2,h);
         }
       }
-      loop();
+      requestAnimationFrame(loop);
     }
 
     function formatSec(sec) {
@@ -3342,6 +3406,8 @@
     new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1)enhanceRadioControls(node);}))).observe(document.body,{childList:true,subtree:true});
     document.addEventListener('keydown',event=>{
       const sheet=document.getElementById('mobile-player-sheet');
+      if(event.key==='Escape' && !document.getElementById('audio-dsp-modal').classList.contains('hidden')){event.preventDefault();closeDspModal();return;}
+      if(event.key==='Escape' && !document.getElementById('startup-modal').classList.contains('hidden')){event.preventDefault();closeStartupModal();return;}
       if(sheet.classList.contains('drawer-visible')) {
         if(event.key==='Escape'){event.preventDefault();closeMobileSheet();return;}
         if(event.key==='Tab'){
@@ -3428,7 +3494,8 @@
       "70": function(event) { closeMobileSheet(); },
       "71": function(event) { playStationById(this.dataset.radioArg); },
       "72": function(event) { selectChannel(Number(this.dataset.radioArg)); },
-      "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); }
+      "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); },
+      "74": function(event) { openMobileTuner(); }
     };
     for (const eventType of ['click','input','change']) {
       document.addEventListener(eventType, event => {
