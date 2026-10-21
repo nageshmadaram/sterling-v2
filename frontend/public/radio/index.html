@@ -2153,6 +2153,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let pendingPlayRecord = null;
     let playbackRevision = 0;
     let artworkLookupInFlight = false;
+    let lastArtworkTrackKey = '', lastArtworkTrackCheck = 0;
+    let nextBackgroundRetryAt = 0;
 
     const audio = document.getElementById('audio-engine');
     let hlsInstance = null;
@@ -2961,6 +2963,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function refreshNowPlayingArtwork() {
       if(!activeStream)return showToast('Play a station first');
+      lastArtworkTrackCheck=0;
       syncPlayerUI(getStationIdentityThumbnail(activeStream));
       if(activeStream.somaId){
         Promise.resolve(updateActivePlayerSongArtwork(activeStream)).catch(()=>{});
@@ -2986,6 +2989,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
 
       if(!broadcastTrack)return;
+      // A station's now-playing song normally lasts minutes; avoid repeated
+      // image search/validation requests for the same track every 25 seconds.
+      const trackKey=streamObj.id+'|'+broadcastTrack.artist+'|'+broadcastTrack.title;
+      if(trackKey===lastArtworkTrackKey&&Date.now()-lastArtworkTrackCheck<90000)return;
+      lastArtworkTrackKey=trackKey;lastArtworkTrackCheck=Date.now();
       const data = await itunesJsonp({ term: query, media: 'music', entity: 'song', limit: 10 });
       if (!data.results?.length) return;
 
@@ -3024,6 +3032,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       audio.addEventListener('playing', () => {
         clearTimeout(watchdogTimer);
         isPlaying = true;
+        nextBackgroundRetryAt=0;
         if(pendingPlayRecord && pendingPlayRecord.id === activeStream?.id){recordStationPlay(pendingPlayRecord);pendingPlayRecord=null;}
         pendingBootStation = null;
         document.getElementById('boot-resume-banner')?.classList.add('hidden');
@@ -3033,9 +3042,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       audio.addEventListener('pause', () => {
         isPlaying = false;
         syncPlayerUI();
-        if (document.hidden && !userPaused && activeStream) {
-          setTimeout(() => audio.play().catch(() => {}), 250);
-        }
+        // Deliberate pauses during station switches must not race against an
+        // automatic play call while the next HLS manifest is still loading.
       });
 
       audio.addEventListener('timeupdate', () => {
@@ -3057,17 +3065,20 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       });
     }
 
+    function tryResumeBackgroundAudio() {
+      if(!activeStream || userPaused || pendingBootStation || !audio.paused)return;
+      if(Date.now()<nextBackgroundRetryAt)return;
+      // Mobile OS media policies may reject background playback. Do not issue
+      // another rejected play promise every few seconds indefinitely.
+      nextBackgroundRetryAt=Date.now()+15000;
+      audio.play().catch(()=>{});
+    }
     function bindBackgroundPlayGuard() {
       document.addEventListener('visibilitychange', () => {
-        if (document.hidden && activeStream && !userPaused && audio.paused) {
-          audio.play().catch(() => {});
-        }
+        if(document.hidden)tryResumeBackgroundAudio();
+        else if(isPlaying&&activeStream?.somaId)updateActivePlayerSongArtwork(activeStream);
       });
-      setInterval(() => {
-        if (activeStream && !userPaused && !pendingBootStation && audio.paused) {
-          audio.play().catch(() => {});
-        }
-      }, 3500);
+      setInterval(tryResumeBackgroundAudio,3500);
     }
 
     function syncPlayerUI(overrideArt = null) {
