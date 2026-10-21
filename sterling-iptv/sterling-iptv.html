@@ -4184,9 +4184,11 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     }
 
     const searchTextCache = new WeakMap();
-    // Score and rank search matches across all channels globally
-    function getRankedSearchMatches(query) {
-      const normalizeSearch = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const normalizeSearch = value => String(value || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    // Full results stay unbounded; suggestion calls retain only their best rows.
+    function getRankedSearchMatches(query, maxResults=Infinity) {
+      const limit=Number.isInteger(maxResults)&&maxResults>=0?maxResults:Infinity;
+      if(limit===0)return [];
       const q = normalizeSearch(query);
       if (!q) return [];
       const terms = q.split(/\s+/).filter(Boolean);
@@ -4195,9 +4197,10 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
       for (let i = 0; i < allChannels.length; i++) {
         const c = allChannels[i];
         if(!isChannelVisible(c))continue;
+        const source=[c.name,c.group,c.lang];
         let indexed=searchTextCache.get(c);
-        if(!indexed){indexed=[normalizeSearch(c.name),normalizeSearch(c.group),normalizeSearch(c.lang)];searchTextCache.set(c,indexed);}
-        const [nameL,groupL,langL]=indexed;
+        if(!indexed || source.some((value,index)=>value!==indexed.source[index])){indexed={source,text:source.map(normalizeSearch)};searchTextCache.set(c,indexed);}
+        const [nameL,groupL,langL]=indexed.text;
         const hay = `${nameL} ${groupL} ${langL}`;
 
         // Every search token must match somewhere in name, category, or language
@@ -4218,10 +4221,17 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
         if (groupL === q) score += 80;
         if (c.verified) score += 25;
 
-        scored.push({ ch: c, score });
+        if(limit===Infinity){scored.push({ch:c,score});continue;}
+        // A URL may have multiple aliases. Keep its highest-scoring alias,
+        // preserving catalog order on ties just like the full stable sort.
+        const duplicate=scored.findIndex(item=>item.ch.url===c.url);
+        if(duplicate>=0){if(scored[duplicate].score>=score)continue;scored.splice(duplicate,1);}
+        let position=0;
+        while(position<scored.length && scored[position].score>=score)position++;
+        if(position<limit){scored.splice(position,0,{ch:c,score});if(scored.length>limit)scored.pop();}
       }
 
-      scored.sort((a, b) => b.score - a.score);
+      if(limit===Infinity)scored.sort((a, b) => b.score - a.score);
       return scored.map(s => s.ch);
     }
 
@@ -5223,8 +5233,13 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
     }catch{}
   }
   function tvSuggestions(query) {
-    const pool=query.trim()?getRankedSearchMatches(query):[...recentHistory,...favorites,...VERIFIED_STREAMS];
-    return pool.filter(isChannelVisible).filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
+    if(query.trim())return getRankedSearchMatches(query,8);
+    const seen=new Set(),items=[];
+    for(const ch of [...recentHistory,...favorites,...VERIFIED_STREAMS]) {
+      if(!isChannelVisible(ch)||seen.has(ch.url))continue;
+      seen.add(ch.url);items.push(ch);if(items.length===8)break;
+    }
+    return items;
   }
   function publishSuggestions(query, requestId) {
     const items=tvSuggestions(query);
