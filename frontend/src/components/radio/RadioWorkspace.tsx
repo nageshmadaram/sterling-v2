@@ -29,9 +29,11 @@ function readRadioPrefs() {
  * inherited access to Sterling's DOM, auth cookies, Kite API or storage.
  * Only four isolated Radio keys are accepted through the message bridge.
  */
-export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'youtube';query:string})=>void}) {
+export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'spotify'|'youtube';query:string})=>void;onPlayerState?:(expanded:boolean)=>void}) {
   const stateRef = useRef(onState);
   stateRef.current = onState;
+  const playerStateRef=useRef(onPlayerState);
+  playerStateRef.current=onPlayerState;
   const commandsRef = useRef<Array<{action:string;value?:string}>>([]);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const hydratedRef = useRef(false);
@@ -63,6 +65,8 @@ export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'yout
       } else if (message.type === 'sterling.radio.state') {
         if ((message.theme === 'spotify' || message.theme === 'youtube') && typeof message.query === 'string' && message.query.length <= 200)
           stateRef.current?.({theme:message.theme,query:message.query});
+      } else if(message.type === 'sterling.radio.player-state') {
+        if(typeof message.expanded==='boolean')playerStateRef.current?.(message.expanded);
       } else if (message.type === 'sterling.radio.focus-search') {
         window.dispatchEvent(new Event('sterling-radio-focus-search'));
       } else if (message.type === SAVE && hydratedRef.current) {
@@ -86,7 +90,7 @@ export function RadioWorkspace({onState}:{onState?:(state:{theme:'spotify'|'yout
     const reload=() => {hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);};
     const command=(event:Event) => {
       const detail=(event as CustomEvent).detail;
-      if(!detail || !['theme','search','more'].includes(detail.action)) return;
+      if(!detail || !['theme','search','more','minimize'].includes(detail.action)) return;
       const message={action:detail.action,value:detail.value};
       if(readyRef.current)frameRef.current?.contentWindow?.postMessage({type:'sterling.radio.command',...message},'*');
       else {commandsRef.current=commandsRef.current.filter(item=>item.action!==message.action);commandsRef.current.push(message);}
