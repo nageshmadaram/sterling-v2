@@ -7,6 +7,15 @@ ROOT=Path(__file__).resolve().parents[2]
 spec=importlib.util.spec_from_file_location('stack_test',ROOT/'scripts/sterling_stack.py')
 stack=importlib.util.module_from_spec(spec);spec.loader.exec_module(stack)
 
+@pytest.fixture(autouse=True)
+def _restore_environ():
+ # stack.main() copies STERLING_* keys from the real backend/.env into
+ # os.environ; without this, live settings leak into later test files.
+ import os
+ saved=dict(os.environ)
+ yield
+ os.environ.clear();os.environ.update(saved)
+
 def test_supervisor_error_diagnostics_keep_errno_but_never_secret_text():
  error=OSError(28,'sensitive credential-bearing detail')
  assert stack.error_code(error)=='OSError(errno=28)'
