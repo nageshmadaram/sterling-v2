@@ -702,6 +702,34 @@ class TestArmingIsIdempotentPerSymbol:
         assert pos.get("a1", "NIFTY24JUN24000CE").gtt_id == 4242
 
     @pytest.mark.asyncio
+    async def test_adding_to_a_holding_never_lowers_its_trailed_stop(self):
+        """ST-5: held lot trailed to 130; a new lot planned at 120 keeps 130."""
+        _held("a5", gtt_id=555, stop=130.0)
+        client = _FakeClient()
+
+        armed = await protection.arm_position(
+            client, "a5", symbol="NIFTY24JUN24000CE", exchange="NFO", token=777,
+            qty=50, lot_size=50, entry_premium=150.0, stop_premium=120.0,
+            order_id="O5", stop_mode="both")
+
+        held = pos.get("a5", "NIFTY24JUN24000CE")
+        assert held.qty == 100
+        assert held.stop_premium == pytest.approx(130.0)
+        assert armed.stop_premium == pytest.approx(130.0)
+
+    @pytest.mark.asyncio
+    async def test_adding_with_a_tighter_plan_stop_uses_the_tighter_one(self):
+        _held("a6", gtt_id=555, stop=90.0)
+        client = _FakeClient()
+
+        await protection.arm_position(
+            client, "a6", symbol="NIFTY24JUN24000CE", exchange="NFO", token=777,
+            qty=50, lot_size=50, entry_premium=150.0, stop_premium=120.0,
+            order_id="O6", stop_mode="both")
+
+        assert pos.get("a6", "NIFTY24JUN24000CE").stop_premium == pytest.approx(120.0)
+
+    @pytest.mark.asyncio
     async def test_arming_reports_what_it_actually_armed(self):
         pos.reset("a2")
         client = _FakeClient()

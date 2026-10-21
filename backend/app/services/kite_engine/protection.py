@@ -336,6 +336,14 @@ async def arm_position(
     if order_id:
         qty_by_order[str(order_id)] = int(qty)
     if prior_qty and prior is not None:
+        # Owner decision 2026-10-21 (ST-5): adding to a holding never loosens its
+        # stop. Keep the tighter of the trailed stop and the new plan's stop.
+        prior_stop = float(prior.stop_premium or 0.0)
+        if prior_stop > 0 and stop_premium > 0:
+            if str(direction or "long") == "short":
+                stop_premium = min(float(stop_premium), prior_stop)
+            else:
+                stop_premium = max(float(stop_premium), prior_stop)
         prior_px = float(prior.fill_price or prior.entry_premium or 0.0)
         if prior_px > 0 and entry_premium > 0 and total_qty > 0:
             # Weighted average, so realized PnL is booked against what the holding
