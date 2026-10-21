@@ -161,7 +161,8 @@ describe('Sterling TV static integration safety', () => {
     expect(tvPage).not.toContain('api.allorigins.win');
     expect(tvPage).not.toContain('PROXY_RELAYS');
     expect(tvPage).not.toContain('98% Match');
-    expect(tvPage).toContain('Guide preview');
+    expect(tvPage).toContain('Programme schedule not supplied by this broadcaster');
+    expect(tvPage).not.toContain('programme times are illustrative');
   });
 
   it('secures the actual Node release gateway, not only optional Nginx deployments', () => {

@@ -6,6 +6,7 @@
     library:'M4 3v18M9 3v18M15 3l6 17M13 3h3', play:'m9 5 11 7-11 7z', pause:'M6 5h4v14H6zM14 5h4v14h-4z',
     next:'m5 5 11 7-11 7zM19 5v14', prev:'m19 5-11 7 11 7zM5 5v14', plus:'M12 5v14M5 12h14',
     check:'m5 12 4 4L19 6', down:'m6 9 6 6 6-6', close:'m6 6 12 12M6 18 18 6', more:'M5 12h.01M12 12h.01M19 12h.01',
+    pip:'M3 4h18v16H3zM11 8h7v6h-7z',info:'M12 8h.01M11 11h1v6m0-15a10 10 0 1 0 0 20 10 10 0 0 0 0-20',
     queue:'M4 5h16M4 11h16M4 17h9m4-2 4 3-4 3z', screen:'M3 4h18v13H3zM8 21h8M12 17v4',
     settings:'M4 7h16M4 17h16M8 4v6M16 14v6', share:'m14 3 7 7-7 7M21 10H10a7 7 0 0 0-7 7v4',
     globe:'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18',
@@ -30,7 +31,7 @@
   const mini=document.createElement('div');mini.id='tv-mobile-mini';mini.setAttribute('aria-label','Now playing');
   mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live television</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
   const now=document.createElement('section');now.id='tv-now-playing';now.setAttribute('aria-label','Now Playing');now.setAttribute('role','dialog');now.setAttribute('aria-modal','true');now.hidden=true;
-  now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('fullscreen','Fullscreen video','screen')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('share','Share channel','share')}${action('queue','Open channel queue','queue')}</div></div>`;
+  now.innerHTML=`<div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
@@ -68,7 +69,7 @@
       (seed&&ch.group===seed.group?5:0)+(seed&&ch.lang===seed.lang?3:0)+
       (favorites.some(saved=>saved.url===ch.url)?2:0)+(ch.verified?1:0)
     })).sort((a,b)=>b.score-a.score).slice(0,10).map(item=>item.ch);
-    home.innerHTML=`<div class="tm-quick">${recent.slice(0,8).map(ch=>channelButton(ch,true)).join('')}</div>${shelf('Jump back in',recent,'recent')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="tm-shelf">${['News','Sports','Movies','Music','Documentary'].map(cat=>`<button class="tm-mix" data-tm-category="${cat}"><strong>${cat}</strong><small>Live TV collection</small></button>`).join('')}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}`;
+    home.innerHTML=`<div class="tm-quick">${recent.slice(0,8).map(ch=>channelButton(ch,true)).join('')}</div>${shelf('Jump back in',recent,'recent')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="tm-shelf">${['News','Sports','Movies','Music','Documentary'].map(cat=>`<button class="tm-mix" data-tm-category="${cat}"><strong>${cat}</strong><small>Live TV collection</small></button>`).join('')}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
   }
   function sync() {
     scheduled=false;
@@ -120,23 +121,39 @@
   function showSheet(kind='more') {
     returnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Up next & programme guide','queue'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Languages & categories','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
       if(kind==='filters') content=`<label class="tm-filter-label">Language<select data-tm-filter="language">${document.getElementById('catalog-lang-select').innerHTML}</select></label><label class="tm-filter-label">Category<select data-tm-filter="category">${document.getElementById('catalog-genre-select').innerHTML}</select></label>`;
       if(kind==='equalizer') content=Object.entries(EQ_PRESETS).map(([key,preset])=>`<button data-tm-eq="${key}">${icon('settings')}<span>${escapeHtml(preset.label)}</span></button>`).join('');
       if(kind==='quality') content=`${action('fit','Change video fit','screen','tm-feature').replace('</button>','<span>Fit / Fill / Zoom</span></button>')}<button data-tm-quality="-1">${icon('check')}<span>Automatic quality</span></button>${(hls?.levels||[]).map((level,i)=>`<button data-tm-quality="${i}">${icon('screen')}<span>${level.height||'Auto'}p · ${Math.round((level.bitrate||0)/1000)} kbps</span></button>`).join('')}<p class="tm-feature-note">${hasNativeHls(document.getElementById('video-player'))&&!hls?'Your browser manages stream quality automatically.':'Quality options depend on the current broadcast.'}</p>`;
-      if(kind==='epg') content=activeChannel?`<p class="tm-feature-note">Guide preview · programme times are illustrative.</p>${getChannelEpgSchedule(activeChannel).map(item=>`<div class="tm-guide-row"><strong>${escapeHtml(item.title||'Live broadcast')}</strong><small>${escapeHtml(item.time||item.start||'Live TV')}</small></div>`).join('')}`:'<p>Select a channel to view its guide.</p>';
+      if(kind==='epg') content=activeChannel?`<div class="tm-queue-current"><strong>${escapeHtml(activeChannel.name)}</strong><small>${escapeHtml(activeChannel.group||'Television')} · ${escapeHtml(activeChannel.lang||'Global')}</small></div><p class="tm-feature-note">Live channel information. Programme listings appear only when supplied by the broadcaster.</p>${getChannelEpgSchedule(activeChannel).map(item=>`<div class="tm-guide-row"><strong>${escapeHtml(item.title||'Live broadcast')}</strong><small>${escapeHtml(item.time||item.start||'Live TV')}</small></div>`).join('')}`:'<p>Select a channel to view its guide.</p>';
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${content}</div>`;
     } else if(kind==='queue') {
       title='Up next';
-      const preferred=computeRightRailPool();
-      const pool=preferred.length?preferred:allChannels.filter(ch=>ch.url!==activeChannel?.url);
-      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${pool.slice(0,20).map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}">${icon('screen')}<span>${escapeHtml(ch.name)}</span></button>`).join('')||'<p>Channel queue is empty.</p>'}${action('epg','Programme guide','queue')}</div>`;
+      const pool=getUpcomingPlaybackQueue();
+      sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close queue','close')}</div>${activeChannel?`<div class="tm-queue-current"><small>PLAYING NOW</small><strong>${escapeHtml(activeChannel.name)}</strong></div>`:''}<p class="tm-feature-note">${pool.length.toLocaleString()} channels · Next follows this order</p><div id="tm-queue-items"></div><button data-tm-action="queue-more">Show more channels</button></div>`;
+      let offset=0;
+      const appendQueue=()=>{
+        const batch=pool.slice(offset,offset+50);offset+=batch.length;
+        document.getElementById('tm-queue-items').insertAdjacentHTML('beforeend',batch.map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}" data-tm-queued="true">${icon('screen')}<span>${escapeHtml(ch.name)}<small>${escapeHtml(ch.group||'Live TV')} · ${escapeHtml(ch.lang||'Global')}</small></span></button>`).join(''));
+        sheet.querySelector('[data-tm-action="queue-more"]').hidden=offset>=pool.length;
+      };
+      sheet.querySelector('[data-tm-action="queue-more"]').addEventListener('click',appendQueue);appendQueue();
     } else {
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${items.map(([name,label,glyph])=>action(name,label,glyph,'tm-feature').replace('</button>',`<span>${label}</span></button>`)).join('')}</div>`;
     }
+    sheet.querySelector('.tm-sheet-title').insertAdjacentHTML('beforeend',action('resize-sheet','Expand menu','screen'));
+    const handle=sheet.querySelector('.tm-sheet-handle');
+    handle.tabIndex=0;handle.setAttribute('role','slider');handle.setAttribute('aria-label','Menu height');handle.setAttribute('aria-valuemin','40');handle.setAttribute('aria-valuemax','95');
+    const resize=height=>{const value=Math.max(40,Math.min(95,height));sheet.style.setProperty('--tm-sheet-height',value+'dvh');handle.setAttribute('aria-valuenow',String(Math.round(value)));};
+    resize(72);
+    let drag=null;
+    handle.addEventListener('pointerdown',e=>{drag={y:e.clientY,height:sheet.querySelector('.tm-sheet-content').getBoundingClientRect().height};handle.setPointerCapture(e.pointerId);});
+    handle.addEventListener('pointermove',e=>{if(drag)resize((drag.height+drag.y-e.clientY)/innerHeight*100);});
+    ['pointerup','pointercancel','lostpointercapture'].forEach(name=>handle.addEventListener(name,()=>{drag=null;}));
+    handle.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','Home','End'].includes(e.key)){e.preventDefault();resize(e.key==='Home'?40:e.key==='End'?95:Number(handle.getAttribute('aria-valuenow'))+(e.key==='ArrowUp'?10:-10));}});
     sheet.classList.add('tm-sheet-open');sheet.querySelector('button')?.focus();
   }
   function catalog(next,scope='all',category='All') {
@@ -153,13 +170,14 @@
       case 'pip-dismiss': pipDismissed=true;setScrollPip(false);break;
       case 'netflix': case 'spotify': case 'youtube': expanded=false;switchTheme(name);renderHome();sync();break;
       case 'home': catalog('home');shell.querySelector('.tm-search').hidden=true;renderHome();break;
-      case 'live': catalog('live','verified');break;
+      case 'live': catalog('live','all');break;
       case 'library': catalog('library','favs');break;
       case 'history': catalog('history','recently_played');break;
       case 'news': catalog('news','all','News');break;
       case 'sports': catalog('sports','all','Sports');break;
-      case 'indian': catalog('live','indian_hub');activateIndianSection();break;
+      case 'indian': closeSheet();catalog('live','indian_hub');activateIndianSection();break;
       case 'search': if(hosted){window.parent.postMessage({type:'sterling.tv.focus-search'},'*');}else{catalog('search');shell.querySelector('.tm-search').hidden=false;document.getElementById('tm-search-input').focus();}break;
+      case 'queue-more': break;
       case 'close-search': shell.querySelector('.tm-search').hidden=true;run('home');break;
       case 'expand': setExpanded(true);break;
       case 'collapse': setExpanded(false);break;
@@ -177,6 +195,7 @@
       case 'share': copyStreamShareLink();break;
       case 'more': showSheet();break;
       case 'queue': showSheet('queue');break;
+      case 'resize-sheet': { const handle=sheet.querySelector('.tm-sheet-handle');const height=Number(handle.getAttribute('aria-valuenow'))>=90?72:95;sheet.style.setProperty('--tm-sheet-height',height+'dvh');handle.setAttribute('aria-valuenow',String(height));const button=sheet.querySelector('[data-tm-action=resize-sheet]');button.setAttribute('aria-label',height===95?'Reduce menu':'Expand menu');break; }
       case 'close-sheet': closeSheet();break;
       case 'tools': closeSheet();if(expanded)setExpanded(false);toggleSidebarDrawer(true);break;
       case 'sources': closeSheet();openSourceManagerModal();break;
@@ -196,8 +215,8 @@
     if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){playStream(ch,0);clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
-    if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')run('live');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
+    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')catalog('live','verified');else if(cat==='all')catalog('live','all');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
   sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});
@@ -351,6 +370,7 @@
     window.addEventListener('pagehide',saveUi);
     video.addEventListener('volumechange',schedule);
   }
+  const originalGuide=openRightRailEpg;openRightRailEpg=function(){if(isMobile())showSheet('epg');else originalGuide();};
   const originalTheme=switchTheme;switchTheme=function(...args){originalTheme(...args);schedule();};
   const originalPlay=playStream;playStream=function(...args){
     pipDismissed=false;
@@ -377,7 +397,19 @@
   window.addEventListener('resize',schedule);
   home.addEventListener('error',event=>{const img=event.target;if(img.tagName!=='IMG')return;const ch=allChannels.find(c=>c.url===img.closest('[data-tm-channel]')?.dataset.tmChannel);if(ch){rejectedArtwork.add(img.src);img.src=artwork({...ch,logo:''});}},true);
   mini.querySelector('img').addEventListener('error',event=>{if(activeChannel){rejectedArtwork.add(event.target.src);event.target.src=artwork({...activeChannel,logo:''});}});
+  const catalogMore=document.getElementById('load-more-wrap');
+  if(catalogMore && 'IntersectionObserver' in window)new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)&&renderedItems<filteredChannels.length)renderNextBatch();},{root:document.getElementById('main-scroll'),rootMargin:'300px'}).observe(catalogMore);
   installPlaybackContinuity();
+  const surface=document.getElementById('video-surface-card'),hud=document.getElementById('custom-video-hud');
+  let controlsTimer;
+  function revealControls(){hud.classList.remove('mobile-hud-hidden');clearTimeout(controlsTimer);controlsTimer=setTimeout(()=>{if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');},2500);}
+  surface.addEventListener('pointermove',revealControls,{passive:true});
+  surface.addEventListener('pointerdown',revealControls,{passive:true});
+  surface.addEventListener('focusin',revealControls);
+  surface.addEventListener('focusout',revealControls);
+  video.addEventListener('playing',revealControls);
+  document.addEventListener('fullscreenchange',revealControls);
+
   function installPlayerSwipes(element,onDirection) {
     let start=null;
     element.addEventListener('touchstart',e=>{
