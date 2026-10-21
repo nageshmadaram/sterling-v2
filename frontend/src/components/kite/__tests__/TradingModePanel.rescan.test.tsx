@@ -64,7 +64,6 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 const ROWS: Array<{ label: string; note: string }> = [
   { label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
   { label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
-  { label: 'EMA Trend', note: 'Cash-equity paper trends on four independent profiles' },
   { label: 'Snapback', note: 'Daily swing and intraday scans on the active config' },
 ];
 
@@ -125,7 +124,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
     for (const gone of ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack']) {
       expect(screen.queryByText(gone)).toBeNull();
     }
-    expect(screen.getAllByRole('switch')).toHaveLength(5);
+    expect(screen.getAllByRole('switch')).toHaveLength(4);
   });
 
   it('says plainly that the running switch beats the tick box', () => {

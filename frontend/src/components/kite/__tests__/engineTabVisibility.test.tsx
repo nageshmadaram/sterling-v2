@@ -105,7 +105,7 @@ describe('the dock follows the running switches', () => {
     for (const name of ['SuperTrend', 'Gamma Unwind', 'Snapback']) {
       expect(tab(name).length, name).toBeGreaterThan(0);
     }
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
   });
 
   it('never offers a retired strategy', () => {

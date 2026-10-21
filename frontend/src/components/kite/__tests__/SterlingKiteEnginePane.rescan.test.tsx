@@ -159,7 +159,7 @@ describe('manual re-scan across the release strategies', () => {
     gammaEnabled = false;
     snapbackEnabled = false;
     renderPane();
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
+    expect(screen.getAllByRole('tab')).toHaveLength(4);
     expect(screen.getByRole('tab', { name: 'Open Price Rules strategy' })).toBeTruthy();
   });
 

@@ -635,7 +635,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
     expect(blocked).toBeDisabled();
-    expect(blocked).toHaveAttribute('title', 'Broker mode is unknown.');
+    expect(blocked).toHaveAttribute('title', 'Broker not connected.');
     expect(armState.mutate).not.toHaveBeenCalled();
   });
 

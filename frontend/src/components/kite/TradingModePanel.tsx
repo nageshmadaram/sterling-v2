@@ -97,7 +97,6 @@ export function RunningRow({ label, description, on, children }: {
 const RESCANNABLE: Array<{ engine: string; label: string; note: string }> = [
   { engine: 'supertrend', label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
   { engine: 'gamma_move', label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
-  { engine: 'ema_trend', label: 'EMA Trend', note: 'Cash-equity paper trends on four independent profiles' },
   { engine: 'snapback', label: 'Snapback', note: 'Daily swing and intraday scans on the active config' },
 ];
 

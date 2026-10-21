@@ -426,7 +426,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const gammaEntryBlockReason = (signalId: string): string | null => {
     if (replay) return 'Replay signals are read-only.';
     if (historicalView) return 'Historical signals are read-only.';
-    if (data?.mode?.is_paper == null) return 'Broker mode is unknown.';
+    if (data?.mode?.is_paper == null) return 'Broker not connected.';
     const raw = (data?.candidates ?? []).find((row) => row.id === signalId);
     if (raw?.source === 'historical_replay' || raw?.snapshot?.historical_replay === true) return 'Historical signals are read-only.';
     if (!raw || raw.tier !== 'ENTRY') return 'Only ENTRY tier may execute.';

@@ -1,4 +1,3 @@
-import { useEmaTrendConfig, useUpdateEmaTrend } from './useEmaTrend';
 import { useEngineConfig, usePatchEngineConfig } from './useSterlingKiteEngine';
 import { useGammaMoveConfig, useUpdateGammaMove } from './useGammaMove';
 import { useSnapbackConfig, useUpdateSnapback } from './useSnapback';
@@ -26,13 +25,13 @@ export function useReleaseEngineEnabled(): Record<EngineToggleId, boolean> {
   const st = useEngineConfig();
   const gm = useGammaMoveConfig();
   const sb = useSnapbackConfig();
-  const ema = useEmaTrendConfig();
 
   return {
     supertrend: st.data?.engine_enabled === true,
     gamma_move: (gm.data?.config as { enabled?: boolean } | undefined)?.enabled === true,
     snapback: sb.data?.config?.enabled === true,
-    ema_trend: !ema.isError && ema.data?.config.enabled === true,
+    // EMA Trend is a paper-only research engine, outside the release. Never on here.
+    ema_trend: false,
   };
 }
 
@@ -42,9 +41,7 @@ export function useReleaseEngineToggles(): EngineToggle[] {
   const gm = useGammaMoveConfig();
   const gmSet = useUpdateGammaMove();
   const sb = useSnapbackConfig();
-  const ema = useEmaTrendConfig();
   const sbSet = useUpdateSnapback();
-  const emaSet = useUpdateEmaTrend();
   const on = useReleaseEngineEnabled();
 
   return [
@@ -79,9 +76,6 @@ export function useReleaseEngineToggles(): EngineToggle[] {
         ? 'Scanning for Snapback setups. Automatic entry is armed separately.'
         : 'Off. No Snapback scans or signals.',
     },
-    { id: 'ema_trend', label: 'EMA Trend · paper', enabled: on.ema_trend, pending: emaSet.isPending,
-      toggle: ema.data && !ema.isError ? () => emaSet.mutate({ expected_revision: ema.data!.revision, changes: { enabled: !on.ema_trend } }) : null,
-      description: '10/21 EMA + Supertrend cash-equity paper scanner. Held campaigns continue when disabled.' },
   ];
 }
 

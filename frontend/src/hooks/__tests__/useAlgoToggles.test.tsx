@@ -37,9 +37,9 @@ function setup() {
 }
 
 describe('useAlgoToggles', () => {
-  it('returns the release strategies including paper EMA Trend', () => {
+  it('returns only the three release strategies', () => {
     const { result } = setup();
-    expect(result.current.map((t) => t.id)).toEqual(['supertrend', 'gamma_move', 'snapback', 'ema_trend']);
+    expect(result.current.map((t) => t.id)).toEqual(['supertrend', 'gamma_move', 'snapback']);
     for (const retired of ['navigator', 'adaptive_edge', 'intraday']) {
       expect(result.current.map((t) => t.id)).not.toContain(retired);
     }

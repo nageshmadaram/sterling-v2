@@ -1,4 +1,3 @@
-import { useEmaTrendConfig, useUpdateEmaTrend } from './useEmaTrend';
 import { useEngineConfig, usePatchEngineConfig } from './useSterlingKiteEngine';
 import { useGammaMoveConfig, useUpdateGammaMove } from './useGammaMove';
 import { useSnapbackConfig, useUpdateSnapback } from './useSnapback';
@@ -32,8 +31,6 @@ export function useAlgoToggles(): AlgoToggle[] {
   const gmSet = useUpdateGammaMove();
   const sb = useSnapbackConfig();
   const sbSet = useUpdateSnapback();
-  const ema = useEmaTrendConfig();
-  const emaSet = useUpdateEmaTrend();
 
   const stAuto = st.data ? st.data.supertrend_auto_execute !== false : false;
   const gmAuto = !!(gm.data?.config as { auto_execute?: boolean } | undefined)?.auto_execute;
@@ -74,9 +71,6 @@ export function useAlgoToggles(): AlgoToggle[] {
         ? 'Auto entry requested for armed Snapback plans. Safety gates still apply.'
         : 'Off. Snapback plans are manual only.',
     },
-    { id: 'ema_trend', label: 'EMA Trend · paper', enabled: !ema.isError && ema.data?.config.auto_execute === true, engineEnabled: engineOn.ema_trend, pending: emaSet.isPending,
-      toggle: ema.data && !ema.isError ? () => emaSet.mutate({ expected_revision: ema.data!.revision, changes: { auto_execute: !ema.data!.config.auto_execute } }) : null,
-      description: 'Requests paper entries only. Live EMA Trend execution remains disabled.' },
   ];
 }
 

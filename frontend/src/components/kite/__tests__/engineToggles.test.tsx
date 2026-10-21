@@ -44,7 +44,7 @@ vi.mock('../../truedata/TrueDataCredentialsPanel', () => ({ DataSourceSelector: 
 
 import { TradingModePanel } from '../TradingModePanel';
 
-const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback', 'EMA Trend · paper', 'Price Rules'];
+const ENGINES = ['SuperTrend engine', 'Gamma Unwind', 'Snapback', 'Price Rules'];
 const RETIRED = ['Value-Flow Navigator', 'Adaptive Edge', 'Intraday pack', 'Opening Volume'];
 
 /**
