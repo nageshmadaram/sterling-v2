@@ -244,7 +244,7 @@ describe('ConnectPane — every option engine is reachable and complete', () => 
     await waitFor(() => expect(document.querySelectorAll('summary').length).toBeGreaterThan(0));
     const text = document.body.textContent ?? '';
     expect(text).toContain('Expiry switch threshold');
-    expect(text).toContain('effective HOI-1');
+    expect(text).toContain('Fixed at 1 in this version');
     expect(text).toContain('1m base');
     expect(text).toContain('5m signal');
     expect(text).toContain('15m display');

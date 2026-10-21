@@ -10,12 +10,12 @@ import { InstrumentsGroup } from './kite/config/ScanSettings';
 import { EnginePowerHeader } from './kite/config/EnginePowerHeader';
 
 const STOP_MODE_OPTIONS: Array<{ value: StopMode; label: string; hint: string }> = [
-  { value: 'both', label: 'Broker + monitor', hint: 'For intraday and post-T1 premium stops: broker GTT plus Sterling tick monitor.' },
-  { value: 'broker', label: 'Broker only', hint: 'Use the broker GTT where Gamma-Unwind defines a premium stop.' },
-  { value: 'monitor', label: 'Monitor only', hint: 'No broker-side stop; Sterling must stay running. Live entry is refused in this mode.' },
+  { value: 'both', label: 'Broker + monitor', hint: 'Stop at Zerodha plus Sterling\'s own watch.' },
+  { value: 'broker', label: 'Broker only', hint: 'Stop at Zerodha only.' },
+  { value: 'monitor', label: 'Monitor only', hint: 'Sterling watches only. Live trades are not allowed in this mode.' },
 ];
 const DIRECTION_OPTIONS: Array<{ value: DirectionMode; label: string; hint: string }> = [
-  { value: 'any', label: 'Any', hint: 'Client default: VWAP alignment OR 30-minute drift alignment.' },
+  { value: 'any', label: 'Any', hint: 'Default: price above VWAP or moving the right way over 30 minutes.' },
   { value: 'all', label: 'All', hint: 'Require both direction checks.' },
 ];
 
@@ -69,7 +69,7 @@ export function GammaMoveSettings() {
       on={cfg.enabled} liveOn={server.enabled} busy={setCfg.isPending}
       onToggle={() => patch({ enabled: !cfg.enabled })}
       runningNote="Daily zones → HOI-1 → hidden E2 → live E1 → four-gate tier."
-      offNote="Off. Watchlists, E1 alerts and new Gamma-Unwind entries are disabled." />
+      offNote="Off. No watchlists, alerts or new trades." />
 
     <ConfigNote><span><strong>{strategy.reference_package} · {strategy.spec_version} · {strategy.edition} edition.</strong>{' '}{strategy.how_it_works}</span></ConfigNote>
     <ConfigNote><span><strong>Execution is an adapter, not part of the supplied client.</strong>{' '}
@@ -82,23 +82,23 @@ export function GammaMoveSettings() {
     <Section title="Execution adapter" description="Sterling-only controls around the unchanged signal tier."
       summary={String(cfg.execution_lots) + ' lot(s) · ' + (cfg.auto_execute ? 'ALGO' : 'manual') + ' · ' + cfg.stop_mode}
       persistKey="gamma-unwind-execution" defaultOpen>
-      <Field label="Algo execute" hint="Requires both this switch and shared Kite ALGO. Only ENTRY may increase exposure.">
+      <Field label="Algo execute" hint="Needs this and ALGO on. Only ENTRY signals trade.">
         <Switch checked={cfg.auto_execute} label={cfg.auto_execute ? 'On' : 'Off'}
           onChange={() => patch({ auto_execute: !cfg.auto_execute })} />
       </Field>
       <NumberField label="Execution lots" hint="Sterling execution size; not a reference signal input."
         value={cfg.execution_lots} defaultValue={defaults.execution_lots}
         onChange={(v) => patch({ execution_lots: v })} min={1} max={100} step={1} />
-      <Field label="Premium stop transport" hint="Only where the reference defines a premium stop: DTE≤1 base-low and post-T1 entry stop.">
+      <Field label="Premium stop transport" hint="Used on expiry-day trades and after target 1.">
         <ChoiceRow value={cfg.stop_mode} options={STOP_MODE_OPTIONS} onChange={(v) => patch({ stop_mode: v })} />
       </Field>
       <ConfigNote>
-        Live entry requires a broker-held stop: choose Broker + monitor (recommended) or Broker only.
+        Live trades need a stop at Zerodha. Pick Broker + monitor or Broker only.
       </ConfigNote>
     </Section>
 
     <Section title="Instruments"
-      description="Reference universe: every currently listed F&O single-stock underlying; indices and NSETEST contracts are excluded."
+      description="All F&O stocks. Indices are not included."
       summary={cfg.scan_all_stocks ? 'all ' + eligible.length + ' listed F&O stocks' : cfg.scan_stocks.length + ' selected stocks'}
       persistKey="gamma-unwind-instruments" defaultOpen>
       <InstrumentsGroup idPrefix="gamma-unwind" indices={[]} showIndices={false} eligibleStocks={eligible} stocks={cfg.scan_stocks}
@@ -122,13 +122,13 @@ export function GammaMoveSettings() {
       <NumberField label="Zone depth" hint="Actual buffer is ATR × depth / 10."
         value={cfg.zone_depth} defaultValue={defaults.zone_depth}
         onChange={(v) => patch({ zone_depth: v })} min={0} max={20} step={0.1} />
-      <NumberField label="Guard multiplier" hint="New midpoint must clear this many ATRs from existing zone midpoints."
+      <NumberField label="Guard multiplier" hint="New zones must be this many ATRs from old ones."
         value={cfg.zone_guard_mult} defaultValue={defaults.zone_guard_mult}
         onChange={(v) => patch({ zone_guard_mult: v })} min={0} max={10} step={0.1} />
       <NumberField label="Zone memory" hint="Maximum live buy and sell zones retained."
         value={cfg.zone_memory} defaultValue={defaults.zone_memory}
         onChange={(v) => patch({ zone_memory: v })} min={1} max={100} step={1} />
-      <Field label="Break zones on wick" hint="Off in the reference: closes retire zones; on uses high/low.">
+      <Field label="Break zones on wick" hint="Off = closing price ends a zone. On = high/low.">
         <Switch checked={cfg.zone_break_on_wick} label={cfg.zone_break_on_wick ? 'Wick' : 'Close'}
           onChange={() => patch({ zone_break_on_wick: !cfg.zone_break_on_wick })} />
       </Field>
@@ -140,13 +140,13 @@ export function GammaMoveSettings() {
     <Section title="Watchlist and strike" description="Zone proximity, expiry lists and client HOI selection."
       summary={'stock ±' + cfg.stock_band_pct + '% · strike ±' + cfg.strike_band_pct + '% · HOI-' + effective.top_n_oi}
       persistKey="gamma-unwind-watchlist" defaultOpen>
-      <NumberField label="Stock band" hint="Zone-edge proximity required before the stock enters a list."
+      <NumberField label="Stock band" hint="How close to a zone a stock must be to be watched."
         value={cfg.stock_band_pct} defaultValue={defaults.stock_band_pct}
         onChange={(v) => patch({ stock_band_pct: v })} min={0} max={20} step={0.1} suffix="%" />
       <NumberField label="Strike band" hint="Maximum strike distance from the relevant zone edge."
         value={cfg.strike_band_pct} defaultValue={defaults.strike_band_pct}
         onChange={(v) => patch({ strike_band_pct: v })} min={0} max={20} step={0.1} suffix="%" />
-      <NumberField label="strategy.yaml top_n_oi" hint="Reference YAML is 2; client edition is hard-pinned to effective HOI-1."
+      <NumberField label="strategy.yaml top_n_oi" hint="Fixed at 1 in this version."
         value={cfg.top_n_oi} defaultValue={defaults.top_n_oi} onChange={() => {}} min={1} max={10} step={1} disabled />
       <NumberField label="Minimum premium" hint="Minimum option premium in ticks; 0 disables."
         value={cfg.min_premium_ticks} defaultValue={defaults.min_premium_ticks}
@@ -154,10 +154,10 @@ export function GammaMoveSettings() {
       <NumberField label="Minimum OI" hint="Option OI floor in contract lots."
         value={cfg.min_oi_lots} defaultValue={defaults.min_oi_lots}
         onChange={(v) => patch({ min_oi_lots: v })} min={0} max={10000} step={1} suffix=" lots" />
-      <NumberField label="Previous-session turnover" hint="Reference floor; fails open when prior-session values are unavailable."
+      <NumberField label="Previous-session turnover" hint="Minimum value. Skipped if yesterday's data is missing."
         value={cfg.min_prev_turnover_rs} defaultValue={defaults.min_prev_turnover_rs}
         onChange={(v) => patch({ min_prev_turnover_rs: v })} min={0} step={10000} suffix="₹" />
-      <NumberField label="Expiry switch threshold" hint="At/below this NSE trading-DTE, build four lists; otherwise two."
+      <NumberField label="Expiry switch threshold" hint="Days to expiry at which four lists are built instead of two."
         value={cfg.expiry_dte_threshold} defaultValue={defaults.expiry_dte_threshold}
         onChange={(v) => patch({ expiry_dte_threshold: v })} min={0} max={30} step={1} suffix=" trading days" />
     </Section>
@@ -181,7 +181,7 @@ export function GammaMoveSettings() {
       <NumberField label="Volume SMA" hint="Closed 5-minute bars used for normal volume."
         value={cfg.vol_sma_len} defaultValue={defaults.vol_sma_len}
         onChange={(v) => patch({ vol_sma_len: v })} min={2} max={200} step={1} />
-      <NumberField label="Volume bars of last 3" hint="B requires this many of the last three closed bars above SMA."
+      <NumberField label="Volume bars of last 3" hint="Of the last 3 candles, this many must close above the average."
         value={cfg.vol_build_min_of_last3} defaultValue={defaults.vol_build_min_of_last3}
         onChange={(v) => patch({ vol_build_min_of_last3: v })} min={1} max={3} step={1} />
       <NumberField label="Consolidation bars" hint="Closed 5-minute bars in the E2 base."
@@ -211,7 +211,7 @@ export function GammaMoveSettings() {
         <Switch checked={cfg.gates_enabled} label={cfg.gates_enabled ? 'On' : 'Off'}
           onChange={() => patch({ gates_enabled: !cfg.gates_enabled })} />
       </Field>
-      <Field label="All lists" hint="Client S1.6.0 applies the four gates to every list; fixed in this edition.">
+      <Field label="All lists" hint="All four checks apply to every list. Fixed.">
         <Switch checked={cfg.gates_all_lists} label="All lists" onChange={() => {}} disabled />
       </Field>
       <NumberField label="Base zone gap" hint="Minimum zone-gate allowance."
@@ -240,7 +240,7 @@ export function GammaMoveSettings() {
         <ChoiceRow value={cfg.v1_direction_mode} options={DIRECTION_OPTIONS}
           onChange={(v) => patch({ v1_direction_mode: v })} />
       </Field>
-      <Field label="Unwind gate" hint="E2 close must improve on OI-peak-bar close by configured ticks.">
+      <Field label="Unwind gate" hint="Setup candle must close this many ticks past the OI-peak candle.">
         <Switch checked={cfg.unwind_enabled} label={cfg.unwind_enabled ? 'On' : 'Off'}
           onChange={() => patch({ unwind_enabled: !cfg.unwind_enabled })} />
       </Field>
@@ -252,7 +252,7 @@ export function GammaMoveSettings() {
     <Section title="Trade follow-up" description="Reference T1/T2, D68 and hold horizon."
       summary={'T1 +20% · T2 +40% · ' + cfg.swing_days + ' trading days'}
       persistKey="gamma-unwind-hold" defaultOpen>
-      <ConfigNote><span>DTE≤1 is intraday: base-low stop and 15:20 exit. Swing has no premium stop before T1; D68 uses the underlying daily close. T1 moves the premium stop to entry; T2 closes. “Book part” at T1 has no fraction in the reference, so Sterling does not invent one.</span></ConfigNote>
+      <ConfigNote><span>Expiry-day trades: stop at the base low, exit by 15:20. Longer trades: no option stop until target 1, then the stop moves to entry. Target 2 closes the trade.</span></ConfigNote>
       <NumberField label="Swing trading days" hint="Maximum swing hold before the reference 15:20 exit."
         value={cfg.swing_days} defaultValue={defaults.swing_days}
         onChange={(v) => patch({ swing_days: v })} min={1} max={20} step={1} suffix=" trading days" />
@@ -269,7 +269,7 @@ export function GammaMoveSettings() {
         hint="Morning watchlist build." onChange={(v) => patch({ build_watchlists_times: setTime(cfg.build_watchlists_times, 0, v) })} />
       <TimeField label="Build watchlists #2" value={timeAt(cfg.build_watchlists_times, 1, '13:15')}
         hint="Afternoon watchlist refresh." onChange={(v) => patch({ build_watchlists_times: setTime(cfg.build_watchlists_times, 1, v) })} />
-      <NumberField label="Token poll" hint="Reference standalone-client value. Sterling account/session keeper owns token refresh, so this is informational here."
+      <NumberField label="Token poll" hint="For reference only. Sterling refreshes the login itself."
         value={cfg.token_poll_minutes} defaultValue={defaults.token_poll_minutes}
         onChange={() => {}} min={1} max={120} step={1} suffix=" min" disabled />
     </Section>
@@ -282,7 +282,7 @@ export function GammaMoveSettings() {
         value={cfg.alert_per_chat_rate_per_sec} defaultValue={defaults.alert_per_chat_rate_per_sec}
         onChange={(v) => patch({ alert_per_chat_rate_per_sec: v })} min={0.1} max={20} step={0.1} suffix="/sec" />
       <TimeField label="Late-day warning" value={cfg.late_day_warn_ist}
-        hint="Signals at/after this IST time carry the day-closing warning."
+        hint="Signals after this time are marked as late in the day."
         onChange={(v) => patch({ late_day_warn_ist: v })} />
       <NumberField label="Expiry warning" hint="Warn inside this trading-DTE."
         value={cfg.expiry_warn_dte} defaultValue={defaults.expiry_warn_dte}

@@ -505,7 +505,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     const blocked = screen.getByRole('button', { name: /Entry blocked/i });
     expect(blocked).toBeDisabled();
-    expect(blocked).toHaveAttribute('title', expect.stringContaining('STERLING_LIVE_EXECUTION'));
+    expect(blocked).toHaveAttribute('title', expect.stringContaining('Live trading is switched off'));
     fireEvent.click(blocked);
     expect(armState.mutate).not.toHaveBeenCalled();
     expect(screen.getByText(/LIVE ENTRY BLOCKED/)).toBeInTheDocument();
@@ -532,7 +532,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(blocked).toBeDisabled();
     expect(blocked).toHaveAttribute(
       'title',
-      expect.stringContaining('Live swing entry is blocked'),
+      expect.stringContaining('Swing trades are not allowed live'),
     );
     fireEvent.click(blocked);
     expect(armState.mutate).not.toHaveBeenCalled();

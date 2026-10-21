@@ -195,8 +195,7 @@ function GammaHistoryLedger({
             </p>
           ) : recent.length === 0 && !loading ? (
             <p style={note}>
-              No persisted E1 events yet. Watch rows can still exist without an E1 breakout.
-              Select any past trading day; Sterling loads available historical signals automatically.
+              No breakouts saved yet. Pick a past day to load its signals.
             </p>
           ) : (
             <table className="gamma-history-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
@@ -438,11 +437,11 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     }
     if (data.mode.is_paper === false) {
       if (data.mode.live_execution_enabled === false) {
-        return 'New entries are halted by the operator master switch (STERLING_LIVE_EXECUTION).';
+        return 'Live trading is switched off.';
       }
       const dte = raw.watch?.dte;
       if (dte == null || dte > 1) {
-        return 'Live swing entry is blocked: Gamma-Unwind has no broker-resting premium stop before T1.';
+        return 'Swing trades are not allowed live: no stop at Zerodha before target 1.';
       }
       const istClock = new Intl.DateTimeFormat('en-GB', {
         timeZone: 'Asia/Kolkata',
@@ -477,7 +476,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             type="button"
             onClick={() => { if (!replay) scan.mutate(); }}
             disabled={replay || scan.isPending || data?.is_trading_day === false}
-            title="Rebuild daily zones, client watchlists and the 5-minute E2 runtime now"
+            title="Refresh today's zones and watchlists"
             style={{
               background: 'transparent', border: `1px solid ${k.border}`, color: k.text,
               borderRadius: 6, padding: '4px 10px', fontSize: 11,
@@ -587,7 +586,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
         <span
           data-testid="gamma-row-counts"
           style={{ fontSize: 10.5, color: k.dim, marginLeft: 'auto' }}
-          title="Watch contracts are selected at the reference 09:20/13:15 builds. E1 is the breakout event; only 4/4 ENTRY is executable."
+          title="Watchlists build at 09:20 and 13:15. Only 4/4 ENTRY signals trade."
         >
           {watchCount} watches · {e1Count} E1 · {entryCount} ENTRY · {strongCount} STRONG
           {data?.scan?.recovered_slot ? ` · recovered ${data.scan.recovered_slot}` : ''}
@@ -741,7 +740,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
                 : data?.is_trading_day === false
                   ? `${data.day} is not a trading day.`
                   : `Historical signals for ${selectedDay || data?.day || 'this session'} are still loading.`
-          : 'No Gamma-Unwind watch or E1 signal right now. Use Scan now to rebuild today\'s watchlist.'}
+          : 'No signals right now. Press Scan now to refresh.'}
       />
       </div>
 

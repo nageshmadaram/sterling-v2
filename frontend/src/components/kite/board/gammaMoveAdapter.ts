@@ -59,8 +59,8 @@ function gateFlags(gate?: GammaEntryGate): BoardOrigin[] {
     return [{
       label: gate.hold.toUpperCase(), tone: 'dim',
       hint: gate.hold === 'intraday'
-        ? 'Expiry within 1 trading day: base-low premium stop, exit 15:20 IST.'
-        : 'Swing: D68 daily-close zone stop before T1, time exit on reference day 5.',
+        ? 'Expiry tomorrow or today: stop at base low, exit by 15:20.'
+        : 'Swing: stop on a daily close past the zone, exit on day 5.',
     }];
   }
   const known = GATE_FLAG[gate.code];
@@ -92,7 +92,7 @@ function tierOrigin(row: GammaSignalRow): BoardOrigin {
   if (row.tier === 'NEAR ENTRY') {
     return {
       label: 'NEAR ENTRY 3/4', tone: 'amber',
-      hint: 'E1 fired with exactly three gate passes. Alert-only; Sterling will not enter it.',
+      hint: 'Breakout with 3 of 4 checks. Alert only, no trade.',
     };
   }
   if (row.tier === 'STRONG_WATCHLIST') {
@@ -104,7 +104,7 @@ function tierOrigin(row: GammaSignalRow): BoardOrigin {
   if (row.tier === 'WATCH ONLY') {
     return {
       label: 'WATCH ONLY', tone: 'dim',
-      hint: 'Watching or E1 with two or fewer gate passes. Dashboard-only.',
+      hint: 'Watching, or breakout with 2 or fewer checks. No trade.',
     };
   }
   return {
@@ -149,7 +149,7 @@ function warnings(row: GammaSignalRow): BoardOrigin[] {
     out.unshift({
       label: 'HISTORICAL',
       tone: 'blue',
-      hint: 'Read-only reconstruction. E1 uses one-minute HIGH as breakout evidence and minute-end volume as the volume proxy because Kite has no historical tick endpoint; intraminute ordering is unknown.',
+      hint: 'Past day, rebuilt from 1-minute candles. View only.',
     });
   }
   return out;
@@ -163,27 +163,27 @@ function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
       tone: pos.hold === 'intraday' ? 'blue' : 'purple',
       hint: pos.hold === 'intraday'
         ? 'DTE≤1: base-low premium SL and 15:20 exit.'
-        : 'Swing: D68 daily-close zone stop before T1; maximum hold is the reference trading-day horizon.',
+        : 'Swing: stop on a daily close past the zone. Held at most the set days.',
     },
   ];
   if (pos.trade_state === 'T1_TRAIL') {
     out.push({
       label: 'T1 HIT', tone: 'green',
-      hint: 'Reference T1 was reached. TSL is now the actual entry price; no partial quantity was invented.',
+      hint: 'Target 1 hit. Stop moved to entry price.',
     });
   } else if (pos.hold === 'swing') {
     out.push({
       label: pos.swing_armed ? 'D68 ARMED' : 'D68 WAIT',
       tone: pos.swing_armed ? 'amber' : 'dim',
       hint: pos.swing_armed
-        ? 'Underlying has closed through the zone edge once; a close back across the edge stops the swing.'
+        ? 'Price closed past the zone once. Another close back exits the trade.'
         : 'Swing pre-T1 has no premium SL. D68 has not armed yet.',
     });
   }
   if (pos.status === 'pending') {
     out.push({
       label: 'RECONCILE', tone: 'amber',
-      hint: 'Broker entry identity exists but final fill state is unresolved; no blind retry is sent.',
+      hint: 'Order sent; fill not confirmed yet. No second order is sent.',
     });
   }
   if (pos.broker_stop) {
@@ -194,19 +194,19 @@ function positionMarks(pos?: GammaPositionRow): BoardOrigin[] {
   } else if (pos.stop != null && pos.stop > 0 && pos.stop_mode !== 'monitor') {
     out.push({
       label: 'STOP UNSYNC', tone: 'amber',
-      hint: 'A reference stop exists but broker-side protection is not fully synchronized.',
+      hint: 'Stop not yet confirmed at Zerodha.',
     });
   }
   if (pos.exiting) {
     out.push({
       label: 'EXITING', tone: 'amber',
-      hint: 'An exit order is working at the broker; no second exit will be sent.',
+      hint: 'Exit order is working at Zerodha.',
     });
   }
   if (pos.pnl_reconciliation_required) {
     out.push({
       label: 'P&L CHECK', tone: 'amber',
-      hint: 'An exit fill could not be booked to the daily-loss total. Reconcile with the broker.',
+      hint: 'Exit not added to today\'s loss total. Check in Kite.',
     });
   }
   return out;
@@ -294,11 +294,11 @@ function planSection(
         hint: swing && !pos ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
       { label: LABELS.tsl, value: num(pos?.trade_state === 'T1_TRAIL' ? live : null),
         hint: pos && pos.stop_mode !== 'monitor'
-          ? 'Broker-confirmed trailing stop. A desired stop that has not synchronized to Kite is not shown here as active protection.'
+          ? 'Trailing stop confirmed at Zerodha.'
           : 'After T1 the active stop moves to the entry price' },
       ...(pos && pos.stop_mode !== 'monitor' ? [
         { label: 'Desired stop', value: num(price(pos.stop)),
-          hint: 'Strategy stop requested from the broker. It is not active protection until the GTT is synchronized.' },
+          hint: 'Stop sent to Zerodha, not confirmed yet.' },
         { label: 'Broker stop', value: pos.broker_stop ? num(price(pos.gtt_at)) : '—',
           hint: pos.broker_stop ? `Confirmed GTT #${pos.gtt_id} · Qty ${pos.gtt_qty}` : 'No fully synchronized broker GTT is confirmed.' },
       ] : []),
@@ -416,7 +416,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
       },
       score: null,
       reason: pos.hold + ' · ' + pos.trade_state + ' · ' + pos.sessions_held + ' session(s)',
-      origin: { label: 'HELD', tone: 'blue', hint: 'Durable Gamma-Unwind position restored independently of the current watchlist.' },
+      origin: { label: 'HELD', tone: 'blue', hint: 'Open position, kept even if it left today\'s watchlist.' },
       flags: positionMarks(pos),
       planPriced: true,
       noTrailingStop: true,
@@ -429,7 +429,7 @@ export function gammaMoveToBoard(snapshot?: GammaMoveSnapshot | null): BoardSign
             hint: pos.hold === 'swing' ? 'Swing has no premium SL before T1' : 'Base-low premium stop (DTE≤1 only)' },
           { label: LABELS.tsl, value: num(pos.trade_state === 'T1_TRAIL' ? activeProtectionStop(pos) : null),
             hint: pos.stop_mode !== 'monitor'
-              ? 'Broker-confirmed trailing stop; unsynchronized desired stops are not presented as active protection.'
+              ? 'Trailing stop confirmed at Zerodha.'
               : 'In-process monitor stop.' },
           ...(pos.stop_mode !== 'monitor' ? [
             { label: 'Desired stop', value: num(price(pos.stop)),

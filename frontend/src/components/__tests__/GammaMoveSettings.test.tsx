@@ -49,7 +49,7 @@ describe('GammaMoveSettings / Gamma Unwind', () => {
     expect(text).toContain('1m base');
     expect(text).toContain('5m signal');
     expect(text).toContain('15m display');
-    expect(text).toContain('effective HOI-1');
+    expect(text).toContain('Fixed at 1 in this version');
     expect(text).toContain('strategy.yaml top_n_oi');
   });
 
@@ -82,7 +82,7 @@ describe('GammaMoveSettings / Gamma Unwind', () => {
     render(<GammaMoveSettings />);
     const text = document.body.textContent ?? '';
     expect(text).toContain('trades intraday contracts only');
-    expect(text).toContain('Live entry requires a broker-held stop');
+    expect(text).toContain('Live trades need a stop at Zerodha');
     expect(text).not.toMatch(/paper|simulat/i);
   });
 
