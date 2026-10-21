@@ -18,6 +18,7 @@ export const TV_STORAGE_KEYS = [
   'streamos_startup_channel_v14',
   'streamos_theme_v14',
   'streamos_ui_v14',
+  'streamos_extras_v14',
 ] as const;
 type TvKey = (typeof TV_STORAGE_KEYS)[number];
 

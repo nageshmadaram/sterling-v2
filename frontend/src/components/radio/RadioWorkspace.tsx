@@ -6,6 +6,7 @@ const RADIO_KEYS = [
   'omnicast_v11_recents',
   'omnicast_v11_counts',
   'omnicast_v11_liked',
+  'omnicast_v11_extras',
 ] as const;
 const ALLOWED_KEYS = new Set<string>(RADIO_KEYS);
 const STORAGE_PREFIX = 'sterling.radio.';

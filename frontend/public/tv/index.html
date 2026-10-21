@@ -15,6 +15,7 @@
   <script src="/media/hls.min.js"></script>
   <script src="/media/artwork.js"></script>
   <script src="/media/spotify-shell.js"></script>
+  <script src="/media/extras.js"></script>
 
 
   <style>
@@ -380,7 +381,7 @@
   .tm-section-title { display:flex;align-items:center;justify-content:space-between;margin:24px 0 15px;gap:12px; }
   .tm-section-title h2 { font-size:22px;font-weight:800;letter-spacing:-.7px;line-height:1.2; }
   .tm-section-title button { font-size:11px;font-weight:700;color:#bbb;white-space:nowrap;min-height:36px; }
-  .tm-shelf { display:flex;gap:14px;overflow:auto;margin:0 -16px;padding:0 16px 8px;scroll-snap-type:x proximity;scrollbar-width:none; }
+  .tm-shelf { display:flex;gap:14px;overflow:auto;margin:0 -16px;padding:0 16px 8px;scroll-snap-type:x proximity;scroll-padding-inline:16px;scrollbar-width:none; }
   .tm-album { display:block;flex:0 0 142px;min-width:0;text-align:left;scroll-snap-align:start; }
   .tm-cover { position:relative;width:142px;height:142px;border-radius:5px;overflow:hidden;background:#282828; }
   .tm-cover img { width:100%;height:100%;object-fit:cover; }
@@ -779,6 +780,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         <span>Indian Hub</span>
       </button>
 
+      <button type="button" onclick="tvExtras?.open()" class="hidden sm:flex h-8 px-3 rounded-xl bg-[#1b1b22] hover:bg-[#262630] border border-white/[0.08] text-xs font-medium text-zinc-200 items-center transition whitespace-nowrap" title="Surprise me, backup and keyboard shortcuts (?)">✦ Extras</button>
       <button onclick="openSourceManagerModal()" class="h-8 px-2.5 sm:px-3 rounded-xl bg-[#1b1b22] hover:bg-[#262630] border border-white/[0.08] text-xs font-medium text-zinc-200 flex items-center space-x-1.5 transition" title="Manage IPTV Sources & Audio">
         <span class="hidden sm:inline">Sources</span>
         <span id="active-sources-badge" class="bg-white/[0.1] text-emerald-400 text-[10px] font-mono-code px-1.5 py-0.5 rounded">All</span>
@@ -1325,7 +1327,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     const tvStorage=(()=>{
       const allowed=new Set(['streamos_sources_v14','streamos_source_mode_v14',
         'streamos_favs_v14','streamos_stats_v14','streamos_history_v14',
-        'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14']);
+        'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14','streamos_extras_v14']);
       const memory=new Map();
       return Object.freeze({
         getItem(key){return allowed.has(key)&&memory.has(key)?memory.get(key):null;},
@@ -4533,7 +4535,12 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       if(ranked.length>10)ranked.pop();
     }
     const recommendations=ranked.map(item=>item.ch);
-    home.innerHTML=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
+    const html=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
+    // Patch section by section: unchanged rows keep their DOM and loaded logos, so a catalog refresh
+    // or a channel change does not flash the whole page.
+    const next=document.createElement('div');next.innerHTML=html;const fresh=[...next.children],current=[...home.children];
+    fresh.forEach((node,index)=>{const old=current[index];if(old&&old.outerHTML===node.outerHTML)return;if(old)old.replaceWith(node);else home.append(node);});
+    for(const extra of current.slice(fresh.length))extra.remove();
   }
   function setPlayerText(element,text){if(element.textContent!==text)element.textContent=text;}
   function setPlayerGlyph(button,name){if(button.dataset.glyph!==name){button.innerHTML=icon(name);button.dataset.glyph=name;}}
@@ -4613,7 +4620,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   function showSheet(kind='more') {
     if(!sheet.classList.contains('tm-sheet-open'))sheetReturnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['extras','Extras: Surprise me, backup, shortcuts','settings'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
@@ -4691,6 +4698,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       case 'retry-unavailable': retryUnavailableChannelsNow();closeSheet();break;
       case 'resize-sheet': { const handle=sheet.querySelector('.tm-sheet-handle');const height=Number(handle.getAttribute('aria-valuenow'))>=90?72:95;sheet.style.setProperty('--tm-sheet-height',height+'dvh');handle.setAttribute('aria-valuenow',String(height));const button=sheet.querySelector('[data-tm-action=resize-sheet]');button.setAttribute('aria-label',height===95?'Reduce menu':'Expand menu');break; }
       case 'close-sheet': closeSheet();break;
+      case 'extras': closeSheet();window.tvExtras?.open();break;
       case 'tools': closeSheet();if(expanded)setExpanded(false);toggleSidebarDrawer(true);break;
       case 'sources': closeSheet();openSourceManagerModal();break;
       case 'startup': closeSheet();openStartupChannelModal();break;
@@ -4710,8 +4718,30 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   const findChannel=url=>allChannels.find(c=>c.url===url)||recentHistory.find(c=>c.url===url)||favorites.find(c=>c.url===url);
   let shellCats={size:-1,list:[]},shellPage=null;
   function markShellNav(){if(!shellPage)return;nav.querySelectorAll('button').forEach(b=>{const on=b.dataset.tmAction===shellPage;b.toggleAttribute('aria-current',on);if(on)b.setAttribute('aria-current','page');});}
+  window.SterlingSpotifyShell?.pullToRefresh?.(document.getElementById('main-scroll'),()=>{
+    if(!isMobile())return;lastHomeKey='';renderHome();if(typeof syncAllActivePlaylists==='function')return syncAllActivePlaylists(false);
+  });
+  /* Extras (media/extras.js): Surprise me, backup, keyboard help, screen wake lock, lock-screen controls. */
+  const tvVideo=()=>document.getElementById('video-player');
+  window.tvExtras=window.SterlingMediaExtras?.mount({kind:'tv',noun:'channel',storageKey:'streamos_extras_v14',
+    storage:{get:key=>tvStorage.getItem(key),set:(key,value)=>tvStorage.setItem(key,value)},
+    features:{wakeLock:true,mediaSession:true},
+    isPlaying:()=>{const v=tvVideo();return Boolean(v&&!v.paused&&!v.classList.contains('hidden'));},
+    toggle:()=>togglePlayPause(),next:()=>playNextChannel(),prev:()=>playPrevChannel(),like:()=>toggleSubscribeAndFavorite(),
+    getVolume:()=>tvVideo()?.volume??1,setVolume:value=>{const v=tvVideo();if(v)v.volume=Math.max(0,Math.min(1,value));},
+    current:()=>activeChannel?{id:activeChannel.url,title:activeChannel.name,subtitle:[activeChannel.group,activeChannel.lang].filter(Boolean).join(' · '),art:artwork(activeChannel)}:null,
+    pool:()=>computeFilteredCatalogPool().map(c=>({id:c.url,title:c.name})),
+    play:url=>{const ch=findChannel(url);if(ch)playStream(ch,0);},toast:message=>showToast(message),video:tvVideo,
+    handledKeys:['t','z','c','m','f','p','a','e','/'],
+    extraShortcuts:[['T','Theatre mode'],['Z','Video fit'],['C','Captions'],['M','Mute'],['F','Full screen'],['P','Picture in picture'],['A','Audio equalizer'],['E','Programme guide'],['/','Search']],
+    exportData:()=>({favorites,history:recentHistory.slice(0,40),sources:iptvSources}),
+    importData:data=>{let count=0;
+      if(Array.isArray(data.favorites)){favorites.splice(0,favorites.length,...data.favorites.filter(c=>c&&typeof c.url==='string'&&typeof c.name==='string').slice(0,500));count+=favorites.length;try{tvStorage.setItem('streamos_favs_v14',JSON.stringify(favorites));}catch(_){}}
+      if(Array.isArray(data.sources)&&data.sources.length){iptvSources=data.sources.filter(s=>s&&typeof s.url==='string').slice(0,40);count+=iptvSources.length;saveSourcesState();if(typeof syncAllActivePlaylists==='function')syncAllActivePlaylists(false);}
+      if(typeof updateSubscribeLikeUI==='function')updateSubscribeLikeUI();lastHomeKey='';renderHome();return count;}
+  });
   const tvShell=window.SterlingSpotifyShell?.mount({kind:'tv',noun:'channels',itemType:'Channel',likedTitle:'Subscribed Channels',placeholder:'What do you want to watch?',
-    avatar:()=>'S',openSettings:()=>showSheet('more'),
+    avatar:()=>'S',openSettings:()=>showSheet('more'),openExtras:()=>window.tvExtras?.open(),
     items:()=>allChannels.filter(isChannelVisible).map(shellItem),
     fallbackArt:url=>{const ch=findChannel(url);if(!ch)return '';for(let i=0;i<2;i++){const src=artwork(ch);if(src.startsWith('data:'))return src;rejectedArtwork.add(src);}return artwork(ch);},
     search:(q,limit)=>(typeof getRankedSearchMatches==='function'?getRankedSearchMatches(q,limit):allChannels.filter(c=>isChannelVisible(c)&&`${c.name} ${c.group||''}`.toLowerCase().includes(q)).slice(0,limit)).map(shellItem),

@@ -16,6 +16,7 @@
   <script src="/media/radio-catalog.js"></script>
   <script src="/media/radio-directory.js"></script>
   <script src="/media/spotify-shell.js"></script>
+  <script src="/media/extras.js"></script>
   <link rel="stylesheet" href="/media/icons.css" />
 
   <style>
@@ -454,6 +455,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- Right Controls -->
       <div class="flex items-center gap-2">
+        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Sleep timer, alarm, stats, backup and shortcuts (?)">✦ Extras</button>
         <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
         <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
         <button data-radio-click="30" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
@@ -2004,7 +2006,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     // Standalone Radio keeps using its own browser storage.
     const RADIO_KEYS = new Set([
       'omnicast_v11_config', 'omnicast_v11_recents',
-      'omnicast_v11_counts', 'omnicast_v11_liked'
+      'omnicast_v11_counts', 'omnicast_v11_liked', 'omnicast_v11_extras'
     ]);
     const radioCached = new Map();
     const radioNativeStore = (() => {
@@ -2370,6 +2372,27 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});
     }
     function shellActive(){return document.body.classList.contains('mode-spotify')&&window.innerWidth<1024;}
+    /* Extras (media/extras.js): sleep timer, wake-up alarm, listening stats, Surprise me, backup, shortcuts. */
+    let radioExtras=null;
+    function initRadioExtras(){
+      if(radioExtras||!window.SterlingMediaExtras)return;
+      radioExtras=window.SterlingMediaExtras.mount({kind:'radio',noun:'station',storageKey:'omnicast_v11_extras',
+        storage:{get:key=>radioStorage.getItem(key),set:(key,value)=>radioStorage.setItem(key,value)},
+        features:{sleep:true,alarm:true,stats:true},
+        isPlaying:()=>isPlaying,toggle:()=>togglePlayPause(),next:()=>playNextChannel(),prev:()=>playPrevChannel(),
+        mute:()=>toggleMute(),like:()=>{toggleLikeCurrent();showToast?.(likedStations.some(s=>s.id===activeStream?.id)?'Added to Liked Stations':'Removed from Liked Stations');},
+        focusSearch:()=>{if(shellActive()&&spotifyShell)spotifyShell.show('search');else document.getElementById('sp-search-desktop')?.focus();},
+        getVolume:()=>audio.volume,setVolume:value=>{audio.volume=Math.max(0,Math.min(1,value));},
+        current:()=>activeStream?{id:activeStream.id,title:activeStream.title,subtitle:activeStream.subtitle,art:getStationIdentityThumbnail(activeStream)}:null,
+        pool:()=>(catalogItems.length?catalogItems:MASTER_POOL).map(s=>({id:s.id,title:s.title})),
+        play:id=>playStationById(id),toast:message=>showToast?.(message),
+        exportData:()=>({liked:likedStations,recents:recentsList,sources:appConfig.catalogSources||null,filters:appConfig.catalogFilters||{}}),
+        importData:data=>{let count=0;
+          if(Array.isArray(data.liked)){likedStations=data.liked.filter(s=>s&&typeof s.id==='string'&&typeof s.title==='string').slice(0,200);count+=likedStations.length;try{radioStorage.setItem('omnicast_v11_liked',JSON.stringify(likedStations));}catch(_){}}
+          if(Array.isArray(data.sources)){appConfig.catalogSources=window.SterlingRadioCatalog.normalizeSources(data.sources);appConfig.catalogSourcesVersion=window.SterlingRadioPresets?.version||1;count+=appConfig.catalogSources.length;saveAppConfig();initRadioDirectory();}
+          syncLikeIcons?.();renderPersonalizedShelves?.();return count;}
+      });
+    }
     function initSpotifyShell(){
       if(spotifyShell||!window.SterlingSpotifyShell)return;
       // Now Playing and the mini player take their colour from the station artwork.
@@ -2379,6 +2402,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sheet-share')?.addEventListener('click',async()=>{
         if(!activeStream)return;const text=`${activeStream.title} · Sterling Radio`;
         try{if(navigator.share){await navigator.share({title:activeStream.title,text});return;}await navigator.clipboard?.writeText(`${text}\n${activeStream.streamUrl||''}`);showToast?.('Station details copied');}catch(_){}
+      });
+      window.SterlingSpotifyShell.pullToRefresh?.(document.querySelector('main.sp-canvas-bg'),()=>{
+        if(radioCatalog)void radioCatalog.reload(appConfig.catalogSources);
+        renderPersonalizedShelves?.();loadCategory(appConfig.activeCategory,true);showToast?.('Refreshing stations…');
       });
       document.getElementById('sheet-queue')?.addEventListener('click',()=>document.getElementById('sheet-similar-block')?.scrollIntoView({behavior:'smooth',block:'end'}));
       spotifyShell=window.SterlingSpotifyShell.mount({kind:'radio',noun:'stations',itemType:'Station',likedTitle:'Liked Stations',placeholder:'What do you want to listen to?',
@@ -2396,7 +2423,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         categories:shellCategories,openCategory:shellOpenCategory,
         featured:()=>(recentsList.length?recentsList:CURATED_RADIO_POOL).slice(0,10).map(shellItem),featuredTitle:'Stations to discover',
         libraryChips:[{key:'playlists',label:'Playlists'},{key:'genres',label:'Genres'},{key:'languages',label:'Languages'},{key:'saved',label:'Saved'}],
-        create:openRadioSources,createLabel:'Add a radio source',
+        create:openRadioSources,createLabel:'Add a radio source',openExtras:()=>radioExtras?.open(),
         onShow:page=>{document.documentElement.dataset.spsPage=page||'';markShellNav(page);}
       });
       const nav=document.querySelector('nav.solid-sp-mob-nav');
@@ -2451,6 +2478,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       renderSidebarList();
       initRadioDirectory();
       initSpotifyShell();
+      initRadioExtras();
       bindAudioEvents();
       bindBackgroundPlayGuard();
       bindTouchSheet();

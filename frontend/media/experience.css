@@ -325,3 +325,39 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 /* Radio desktop header: category pills stay on one line and scroll instead of wrapping. */
 .radio-header-chips {flex:0 1 auto;scrollbar-width:none;}.radio-header-chips::-webkit-scrollbar {display:none;}
 .radio-header-chips>button {white-space:nowrap;flex:none;}
+/* Pull-to-refresh ring (Radio and TV phone pages). */
+.sps-pull{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) - 34px);z-index:200;width:34px;height:34px;border-radius:50%;background:#fff;box-shadow:0 4px 14px #0007;display:grid;place-items:center;opacity:0;pointer-events:none;transform:translate(-50%,var(--sps-pull,0px))}
+.sps-pull.sps-pull-animate{transition:transform .25s ease,opacity .25s ease}
+.sps-pull span{width:16px;height:16px;border-radius:50%;border:2.5px solid #1ed760;border-right-color:transparent;transform:rotate(calc(var(--sps-pull,0px) * 4))}
+.sps-pull.sps-pull-busy span{animation:sps-spin .8s linear infinite}
+@keyframes sps-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.sps-pull.sps-pull-busy span{animation-duration:2.4s}}
+/* Extras panel (Radio and TV): Surprise me, sleep timer, alarm, stats, backup, shortcuts. */
+.mx-dialog{margin:auto;background:#181818;color:#fff;border:1px solid #ffffff20;border-radius:20px;padding:22px;width:min(520px,calc(100vw - 24px));max-height:88dvh;overflow:auto;overscroll-behavior:contain;font-family:Inter,system-ui,sans-serif;animation:mx-in .18s ease-out}
+.mx-dialog::backdrop{background:#000b}
+.mx-dialog header{display:flex;align-items:center;justify-content:space-between;gap:16px;background:transparent!important}
+.mx-dialog header small{font-size:9px;letter-spacing:1.5px;color:#a7bcaf}.mx-dialog h2{font-size:26px;font-weight:750;margin:4px 0;letter-spacing:-.8px}
+.mx-dialog header button{width:44px;height:44px;border-radius:50%;border:1px solid #ffffff30;color:#fff;background:transparent}
+.mx-dialog section{margin-top:20px;padding-top:16px;border-top:1px solid #ffffff12}.mx-dialog section[hidden]{display:none}
+.mx-dialog h3{font-size:15px;font-weight:700;margin:0 0 6px}.mx-note{font-size:12px;color:#a9a9a9;margin:0 0 10px;line-height:1.5}
+.mx-status{font-size:12px;color:#1ed760;margin:8px 0 0;min-height:1em}
+.mx-quick button{display:flex;align-items:center;gap:14px;width:100%;padding:14px;border-radius:14px;background:linear-gradient(120deg,#1ed76033,#7c3aed33);border:1px solid #ffffff1a;color:#fff;text-align:left;transition:transform .15s}
+.mx-quick button:hover{transform:translateY(-1px)}.mx-quick b{font-size:26px}.mx-quick span{display:flex;flex-direction:column;font-weight:700}.mx-quick small{font-weight:400;font-size:12px;color:#c9c9c9}
+.mx-chips{display:flex;flex-wrap:wrap;gap:8px}.mx-chips button{min-height:36px;padding:6px 14px;border-radius:18px;border:1px solid #ffffff30;color:#fff;background:transparent;font-size:12px}
+.mx-chips button[aria-pressed=true]{background:#1ed760;color:#061a0c;border-color:transparent;font-weight:700}
+.mx-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px}.mx-row label{font-size:12px;color:#bbb;display:flex;flex-direction:column;gap:6px}
+.mx-row input[type=time]{min-height:42px;border-radius:8px;border:1px solid #ffffff30;background:#292929;color:#fff;padding:6px 10px;font-size:16px;color-scheme:dark}
+.mx-toggle{flex-direction:row!important;align-items:center;gap:8px!important;min-height:42px}
+.mx-secondary{min-height:40px;padding:8px 14px;border-radius:20px;border:1px solid #ffffff30;color:#fff;background:transparent;font-size:12px;margin-top:8px}
+.mx-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.mx-stat{background:#ffffff0d;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:2px}
+.mx-stat strong{font-size:20px;font-weight:800}.mx-stat small{font-size:11px;color:#aaa}
+.mx-top{list-style:none;padding:0;margin:10px 0 0;counter-reset:mx}.mx-top li{counter-increment:mx}
+.mx-top button{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;color:#fff;background:transparent;border:0;text-align:left;font-size:13px}
+.mx-top button::before{content:counter(mx);width:18px;color:#1ed760;font-weight:800}.mx-top button span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mx-top small{color:#aaa}
+.mx-empty{font-size:12px;color:#999}
+.mx-keys{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:0;font-size:13px}.mx-keys dt{font-family:ui-monospace,monospace;font-size:11px;background:#ffffff14;border:1px solid #ffffff24;border-bottom-width:2px;border-radius:6px;padding:2px 8px;justify-self:start;min-width:22px;text-align:center}.mx-keys dd{margin:0;color:#ccc}
+.mx-sleep-chip{position:fixed;right:14px;bottom:calc(env(safe-area-inset-bottom,0px) + 150px);z-index:95;padding:7px 12px;border-radius:16px;background:#1f1f1fe6;border:1px solid #1ed76066;color:#1ed760;font:700 12px Inter,system-ui,sans-serif;box-shadow:0 6px 18px #0008}
+.mx-sleep-chip[hidden]{display:none}
+@keyframes mx-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+@media(max-width:600px){.mx-dialog{width:100%;max-width:100%;margin:auto 0 0;border-radius:24px 24px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom))}}
+@media(prefers-reduced-motion:reduce){.mx-dialog{animation:none}.mx-quick button{transition:none}}

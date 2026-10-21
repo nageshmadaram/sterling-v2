@@ -3,6 +3,7 @@
    playback, storage or the network itself. */
 (()=>{
  const ICON={
+  spark:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l1.9 5.6L19.5 9.5l-5.6 1.9L12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2Zm7 12 .9 2.6 2.6.9-2.6.9L19 21l-.9-2.6-2.6-.9 2.6-.9L19 14Z"/></svg>',
   search:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 3a7.5 7.5 0 1 0 4.7 13.35l4.72 4.72 1.41-1.41-4.72-4.72A7.5 7.5 0 0 0 10.5 3Zm0 2a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11Z"/></svg>',
   back:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2Z"/></svg>',
   plus:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7V4Z"/></svg>',
@@ -34,7 +35,9 @@
   function header(title){
    const bar=el('header','sps-header');const avatar=el('button','sps-avatar',a.avatar?.()||'S');avatar.type='button';avatar.setAttribute('aria-label','Profile and settings');
    avatar.addEventListener('click',()=>a.openSettings?.());
-   bar.append(avatar,el('h1','',title));return bar;
+   bar.append(avatar,el('h1','',title));
+   if(a.openExtras){const extras=iconButton('spark','Extras: sleep timer, alarm, stats, backup','sps-icon sps-extras');extras.addEventListener('click',()=>a.openExtras());bar.append(extras);}
+   return bar;
   }
   function row(item,{actions=true,removable=false}={}){
    const r=el('div','sps-row');r.setAttribute('role','button');r.tabIndex=0;r.dataset.id=item.id;
@@ -156,5 +159,20 @@
    el.style.setProperty('background',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`,'important');}};
   img.addEventListener('load',apply);if(img.complete)apply();
  }
- window.SterlingSpotifyShell=Object.freeze({mount,palette:PALETTE,tint,bindTint});
+ // Pull down at the top of a scrolling page to refresh, like the Spotify app. The page scrolls inside its
+ // own element, so the browser's built-in pull-to-refresh never fires there.
+ function pullToRefresh(scroller,onRefresh,threshold=64){
+  if(!scroller||scroller.dataset.spsPull)return;scroller.dataset.spsPull='1';
+  const ring=el('div','sps-pull');ring.setAttribute('aria-hidden','true');ring.append(el('span'));document.body.append(ring);
+  let start=null,pull=0,busy=false;
+  const place=(y,animate)=>{ring.classList.toggle('sps-pull-animate',animate);ring.style.setProperty('--sps-pull',`${y}px`);ring.style.opacity=y>4?String(Math.min(1,y/threshold)):'0';};
+  scroller.addEventListener('touchstart',e=>{start=!busy&&scroller.scrollTop<=0&&e.touches.length===1?e.touches[0].clientY:null;pull=0;},{passive:true});
+  scroller.addEventListener('touchmove',e=>{if(start===null)return;const d=e.touches[0].clientY-start;if(d<=0||scroller.scrollTop>0){place(0,false);pull=0;return;}pull=Math.min(d*.5,threshold*1.4);place(pull,false);ring.classList.toggle('sps-pull-ready',pull>=threshold);},{passive:true});
+  scroller.addEventListener('touchend',async()=>{if(start===null)return;start=null;
+   if(pull<threshold){place(0,true);return;}
+   busy=true;ring.classList.add('sps-pull-busy');place(threshold,true);
+   try{await Promise.all([Promise.resolve(onRefresh()),new Promise(r=>setTimeout(r,700))]);}catch(_){}
+   ring.classList.remove('sps-pull-busy','sps-pull-ready');place(0,true);busy=false;});
+ }
+ window.SterlingSpotifyShell=Object.freeze({mount,palette:PALETTE,tint,bindTint,pullToRefresh});
 })();

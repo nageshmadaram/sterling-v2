@@ -85,7 +85,12 @@
       if(ranked.length>10)ranked.pop();
     }
     const recommendations=ranked.map(item=>item.ch);
-    home.innerHTML=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
+    const html=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
+    // Patch section by section: unchanged rows keep their DOM and loaded logos, so a catalog refresh
+    // or a channel change does not flash the whole page.
+    const next=document.createElement('div');next.innerHTML=html;const fresh=[...next.children],current=[...home.children];
+    fresh.forEach((node,index)=>{const old=current[index];if(old&&old.outerHTML===node.outerHTML)return;if(old)old.replaceWith(node);else home.append(node);});
+    for(const extra of current.slice(fresh.length))extra.remove();
   }
   function setPlayerText(element,text){if(element.textContent!==text)element.textContent=text;}
   function setPlayerGlyph(button,name){if(button.dataset.glyph!==name){button.innerHTML=icon(name);button.dataset.glyph=name;}}
@@ -165,7 +170,7 @@
   function showSheet(kind='more') {
     if(!sheet.classList.contains('tm-sheet-open'))sheetReturnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['extras','Extras: Surprise me, backup, shortcuts','settings'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
@@ -243,6 +248,7 @@
       case 'retry-unavailable': retryUnavailableChannelsNow();closeSheet();break;
       case 'resize-sheet': { const handle=sheet.querySelector('.tm-sheet-handle');const height=Number(handle.getAttribute('aria-valuenow'))>=90?72:95;sheet.style.setProperty('--tm-sheet-height',height+'dvh');handle.setAttribute('aria-valuenow',String(height));const button=sheet.querySelector('[data-tm-action=resize-sheet]');button.setAttribute('aria-label',height===95?'Reduce menu':'Expand menu');break; }
       case 'close-sheet': closeSheet();break;
+      case 'extras': closeSheet();window.tvExtras?.open();break;
       case 'tools': closeSheet();if(expanded)setExpanded(false);toggleSidebarDrawer(true);break;
       case 'sources': closeSheet();openSourceManagerModal();break;
       case 'startup': closeSheet();openStartupChannelModal();break;
@@ -262,8 +268,30 @@
   const findChannel=url=>allChannels.find(c=>c.url===url)||recentHistory.find(c=>c.url===url)||favorites.find(c=>c.url===url);
   let shellCats={size:-1,list:[]},shellPage=null;
   function markShellNav(){if(!shellPage)return;nav.querySelectorAll('button').forEach(b=>{const on=b.dataset.tmAction===shellPage;b.toggleAttribute('aria-current',on);if(on)b.setAttribute('aria-current','page');});}
+  window.SterlingSpotifyShell?.pullToRefresh?.(document.getElementById('main-scroll'),()=>{
+    if(!isMobile())return;lastHomeKey='';renderHome();if(typeof syncAllActivePlaylists==='function')return syncAllActivePlaylists(false);
+  });
+  /* Extras (media/extras.js): Surprise me, backup, keyboard help, screen wake lock, lock-screen controls. */
+  const tvVideo=()=>document.getElementById('video-player');
+  window.tvExtras=window.SterlingMediaExtras?.mount({kind:'tv',noun:'channel',storageKey:'streamos_extras_v14',
+    storage:{get:key=>tvStorage.getItem(key),set:(key,value)=>tvStorage.setItem(key,value)},
+    features:{wakeLock:true,mediaSession:true},
+    isPlaying:()=>{const v=tvVideo();return Boolean(v&&!v.paused&&!v.classList.contains('hidden'));},
+    toggle:()=>togglePlayPause(),next:()=>playNextChannel(),prev:()=>playPrevChannel(),like:()=>toggleSubscribeAndFavorite(),
+    getVolume:()=>tvVideo()?.volume??1,setVolume:value=>{const v=tvVideo();if(v)v.volume=Math.max(0,Math.min(1,value));},
+    current:()=>activeChannel?{id:activeChannel.url,title:activeChannel.name,subtitle:[activeChannel.group,activeChannel.lang].filter(Boolean).join(' · '),art:artwork(activeChannel)}:null,
+    pool:()=>computeFilteredCatalogPool().map(c=>({id:c.url,title:c.name})),
+    play:url=>{const ch=findChannel(url);if(ch)playStream(ch,0);},toast:message=>showToast(message),video:tvVideo,
+    handledKeys:['t','z','c','m','f','p','a','e','/'],
+    extraShortcuts:[['T','Theatre mode'],['Z','Video fit'],['C','Captions'],['M','Mute'],['F','Full screen'],['P','Picture in picture'],['A','Audio equalizer'],['E','Programme guide'],['/','Search']],
+    exportData:()=>({favorites,history:recentHistory.slice(0,40),sources:iptvSources}),
+    importData:data=>{let count=0;
+      if(Array.isArray(data.favorites)){favorites.splice(0,favorites.length,...data.favorites.filter(c=>c&&typeof c.url==='string'&&typeof c.name==='string').slice(0,500));count+=favorites.length;try{tvStorage.setItem('streamos_favs_v14',JSON.stringify(favorites));}catch(_){}}
+      if(Array.isArray(data.sources)&&data.sources.length){iptvSources=data.sources.filter(s=>s&&typeof s.url==='string').slice(0,40);count+=iptvSources.length;saveSourcesState();if(typeof syncAllActivePlaylists==='function')syncAllActivePlaylists(false);}
+      if(typeof updateSubscribeLikeUI==='function')updateSubscribeLikeUI();lastHomeKey='';renderHome();return count;}
+  });
   const tvShell=window.SterlingSpotifyShell?.mount({kind:'tv',noun:'channels',itemType:'Channel',likedTitle:'Subscribed Channels',placeholder:'What do you want to watch?',
-    avatar:()=>'S',openSettings:()=>showSheet('more'),
+    avatar:()=>'S',openSettings:()=>showSheet('more'),openExtras:()=>window.tvExtras?.open(),
     items:()=>allChannels.filter(isChannelVisible).map(shellItem),
     fallbackArt:url=>{const ch=findChannel(url);if(!ch)return '';for(let i=0;i<2;i++){const src=artwork(ch);if(src.startsWith('data:'))return src;rejectedArtwork.add(src);}return artwork(ch);},
     search:(q,limit)=>(typeof getRankedSearchMatches==='function'?getRankedSearchMatches(q,limit):allChannels.filter(c=>isChannelVisible(c)&&`${c.name} ${c.group||''}`.toLowerCase().includes(q)).slice(0,limit)).map(shellItem),
