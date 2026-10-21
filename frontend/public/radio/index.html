@@ -3032,29 +3032,39 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const trackKey=streamObj.id+'|'+broadcastTrack.artist+'|'+broadcastTrack.title;
       if(trackKey===lastArtworkTrackKey&&Date.now()-lastArtworkTrackCheck<90000)return;
       lastArtworkTrackKey=trackKey;lastArtworkTrackCheck=Date.now();
-      const data = await itunesJsonp({ term: query, media: 'music', entity: 'song', limit: 10 });
-      if (!data.results?.length) return;
-
-      const pick = data.results[0];
-      const hdUrl = pick.artworkUrl100?.replace('100x100bb', '600x600bb');
-      const validUrl = await validateImageUrl(hdUrl);
-      if (!validUrl || !activeStream || activeStream.id !== streamObj.id || !isPlaying) return;
-
-      const trackLabel = `${broadcastTrack.artist} • ${broadcastTrack.title}`;
+      if(!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
+      const trackLabel=`${broadcastTrack.artist} • ${broadcastTrack.title}`;
       updateAmbientColorFromId(streamObj.id+'|'+trackLabel);
+      // Station-provided song metadata is authoritative. Show it immediately,
+      // even when an album-art service has no reliable match.
+      ['sp-np-sub','sp-bar-sub','sp-mini-sub','ytm-bar-sub','ytm-mini-sub','ytm-stage-sub','sheet-sub'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el)el.textContent=trackLabel;
+      });
+      updateMediaSession(getStationIdentityThumbnail(streamObj),broadcastTrack.title,trackLabel);
 
-      // Updates ONLY active player surfaces; channel grids keep their clean station covers
+      const data=await itunesJsonp({term:query,media:'music',entity:'song',limit:12});
+      if(!data.results?.length)return;
+      const norm=value=>String(value||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+      const wantedTitle=norm(broadcastTrack.title),wantedArtist=norm(broadcastTrack.artist);
+      const pick=data.results.find(item=>
+        wantedTitle && norm(item.trackName)===wantedTitle &&
+        wantedArtist && (norm(item.artistName)===wantedArtist ||
+          norm(item.artistName).includes(wantedArtist) || wantedArtist.includes(norm(item.artistName)))
+      );
+      // Never attach an unrelated song's album art to this broadcast.
+      if(!pick)return;
+      const hdUrl=pick.artworkUrl100?.replace('100x100bb','600x600bb');
+      const validUrl=await validateImageUrl(hdUrl);
+      if(!validUrl||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
+
+      // Update only active player surfaces; keep channel cards station-specific
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
         const el = document.getElementById(id);
         if (el) { delete el.dataset.radioFallbackApplied; el.src = validUrl; }
       });
 
-      ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) el.textContent = trackLabel;
-      });
-
-      updateMediaSession(validUrl, broadcastTrack.title, `${broadcastTrack.artist} • ${streamObj.title}`);
+      updateMediaSession(validUrl,broadcastTrack.title,`${broadcastTrack.artist} • ${streamObj.title}`);
       } finally { artworkLookupInFlight=false; }
     }
 
