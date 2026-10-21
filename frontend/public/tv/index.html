@@ -3011,8 +3011,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         playStream(activeChannel, 0);
         return;
       }
-      // Respect explicit Unmute when resuming from a user gesture.
-      video.muted = !userHasInteractedWithAudio;
+      // The media element retains an explicit mute/unmute choice across streams.
+      // Do not force unmute when the previous interaction was "Mute".
       const promise = video.play(); // must run synchronously inside the tap
       Promise.resolve(promise).then(() => {
         if (button) button.classList.add('hidden');
@@ -3025,8 +3025,9 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     function safeAutoplayVideo(video) {
       const unmutePill = document.getElementById('mobile-unmute-pill');
       const playButton = document.getElementById('tv-mobile-play');
-      const mutedFirst = !userHasInteractedWithAudio;
-      video.muted = mutedFirst;
+      // Autoplay before a user gesture must be muted; afterwards, preserve
+      // the actual mute selection instead of inferring it from interaction.
+      if (!userHasInteractedWithAudio) video.muted = true;
       const attempt = Promise.resolve(video.play());
       attempt.then(() => {
         syncPlayPauseIcons(false);
@@ -3648,7 +3649,10 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
         const matches = getRankedSearchMatches(q);
         if (matches.length > 0) {
           playStream(matches[0], 0);
-          closeSearchDropdown();
+          clearSearch();
+          // Mobile embedded header must also clear its search input.
+          document.getElementById('tm-search-input')?.value &&
+            (document.getElementById('tm-search-input').value = '');
         }
       } else {
         searchInputEl.focus();
