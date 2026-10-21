@@ -72,7 +72,7 @@ const server = http.createServer((req,res) => {
   }
   if (['/tma/','/api/v1/tma/'].includes(pathname)) { res.writeHead(302, {Location:pathname.slice(0,-1), 'Cache-Control':'no-store'}); res.end(); return; }
   if (isApi(pathname)) {
-    const anonymous = /^\/api\/v1\/auth\/(login|refresh)$/.test(pathname) || pathname === '/api/v1/kite/callback' || ['/tma','/api/v1/tma','/tma/operator'].includes(pathname) || /^\/health/.test(pathname);
+    const anonymous = /^\/api\/v1\/auth\/(login|refresh)$/.test(pathname) || pathname === '/api/v1/kite/callback' || pathname === '/api/v1/media/youtube/library' || ['/tma','/api/v1/tma','/tma/operator'].includes(pathname) || /^\/health/.test(pathname);
     const miniAuth = /^\/(api\/v1\/)?tma\//.test(pathname) && req.headers['x-telegram-init-data'];
     if (!anonymous && !miniAuth && !req.headers.authorization?.startsWith('Bearer ')) {
       if(req.method === 'GET' && req.headers.accept?.includes('text/html')) {res.writeHead(302,{Location:'/tma','Cache-Control':'no-store'});res.end();return;}

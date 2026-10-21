@@ -9,7 +9,7 @@ from app.services import db
 
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 EXACT = set('sterling.experience.options.v1 kite-settings sterling_theme sterling_theme_default_migrated_v1 sterling_appearance_v1 sterling_zoom sterling_density sterling_autofit sterling_mobile_style sterling_activity_rail kite_terminal_theme sterling.kite.tickerPins.v1 sterling.kite.watchlist.v1 sterling.kite.watchlist.manual-empty.v1 sterling:kite-chart-templates:v1 sterling.pcr.desk.v2'.split())
-EXACT.update(['sterling.tv.streamos_sources_v14', 'sterling.tv.streamos_source_mode_v14', 'sterling.tv.streamos_favs_v14', 'sterling.tv.streamos_stats_v14', 'sterling.tv.streamos_history_v14', 'sterling.tv.streamos_startup_channel_v14', 'sterling.tv.streamos_theme_v14', 'sterling.tv.streamos_ui_v14', 'sterling.radio.omnicast_v11_config', 'sterling.radio.omnicast_v11_recents', 'sterling.radio.omnicast_v11_counts', 'sterling.radio.omnicast_v11_liked', 'sterling.tv.streamos_extras_v14', 'sterling.radio.omnicast_v11_extras'])
+EXACT.update(['sterling.tv.streamos_sources_v14', 'sterling.tv.streamos_source_mode_v14', 'sterling.tv.streamos_favs_v14', 'sterling.tv.streamos_stats_v14', 'sterling.tv.streamos_history_v14', 'sterling.tv.streamos_startup_channel_v14', 'sterling.tv.streamos_theme_v14', 'sterling.tv.streamos_ui_v14', 'sterling.radio.omnicast_v11_config', 'sterling.radio.omnicast_v11_recents', 'sterling.radio.omnicast_v11_counts', 'sterling.radio.omnicast_v11_liked', 'sterling.tv.streamos_extras_v14', 'sterling.tv.streamos_youtube_v14', 'sterling.radio.omnicast_v11_extras'])
 PREFIXES = ('sterling.board.hidden.v2.',)
 
 def permitted(key: str) -> bool:

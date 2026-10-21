@@ -997,6 +997,20 @@
  .channel-grid-card img,.tm-quick button,.tm-album,.tm-icon {transition-property:transform,opacity,background-color,border-color;transition-duration:.16s;}
 }
 @keyframes tm-menu-enter {from {opacity:0;transform:translateY(14px);} to {opacity:1;transform:translateY(0);}}
+/* YouTube: settings switch and the "Watch on YouTube" link over the player. */
+.youtube-switch {position:relative;width:46px;height:28px;flex:none;border-radius:14px;background:#535353;transition:background .15s;}
+.youtube-switch span {position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:transform .15s;}
+.youtube-switch[data-on=true] {background:#ff0033;}.youtube-switch[data-on=true] span {transform:translateX(18px);}
+.youtube-open-link {position:absolute;right:10px;bottom:10px;z-index:6;padding:6px 12px;border-radius:16px;background:#000c;color:#fff;font:600 12px Inter,system-ui,sans-serif;border:1px solid #ffffff33;text-decoration:none;opacity:.75;transition:opacity .15s;}
+.youtube-open-link:hover,.youtube-open-link:focus-visible {opacity:1;}
+.youtube-open-link-strong {opacity:1;background:#ff0033;border-color:transparent;bottom:50%;right:50%;transform:translate(50%,50%);padding:10px 18px;font-size:14px;}
+@media (prefers-reduced-motion:reduce){.youtube-switch,.youtube-switch span{transition:none}}
+/* YouTube on the phone home: wide video cards and a category tile grid. */
+.tm-album.tm-yt { width:220px;flex:none; }
+.tm-album.tm-yt .tm-cover { aspect-ratio:16/9;width:220px;height:auto; }
+.tm-album.tm-yt .tm-cover img { width:100%;height:100%;object-fit:cover; }
+.tm-album.tm-yt strong { display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal;line-height:1.3; }
+.tm-yt-block .tm-section-title h2 { display:flex;flex-direction:column; }
 </style>
 <!-- TV MOBILE STYLE END -->
 <style>
@@ -1510,6 +1524,31 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 @keyframes mx-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
 @media(max-width:600px){.mx-dialog{width:100%;max-width:100%;margin:auto 0 0;border-radius:24px 24px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom))}}
 @media(prefers-reduced-motion:reduce){.mx-dialog{animation:none}.mx-quick button{transition:none}}
+/* Radio: YouTube Music & Podcasts shelf, floating player, settings row. */
+.radio-youtube{margin:0 0 28px}.radio-youtube header{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px;background:transparent!important}
+.radio-youtube h2{font-size:20px;font-weight:700;letter-spacing:-.02em;color:#fff;margin:0}.radio-youtube header small{font-size:11px;color:#a7a7a7}
+.radio-youtube-chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-bottom:12px}.radio-youtube-chips::-webkit-scrollbar{display:none}
+.radio-youtube-chips button{flex:none;min-height:32px;padding:5px 14px;border-radius:16px;background:#2a2a2a;color:#fff;font-size:12px;font-weight:600;white-space:nowrap}
+.radio-youtube-chips button span{color:#a7a7a7;font-weight:500;margin-left:4px}.radio-youtube-chips button[aria-selected=true]{background:#fff;color:#000}.radio-youtube-chips button[aria-selected=true] span{color:#555}
+.radio-youtube-row{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;padding-bottom:4px}.radio-youtube-row::-webkit-scrollbar{display:none}
+.radio-youtube-card{flex:none;width:210px;text-align:left;color:#fff;scroll-snap-align:start;background:transparent;border:0;padding:0}
+.radio-youtube-thumb{display:block;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#222;margin-bottom:8px;transition:transform .15s}
+.radio-youtube-card:hover .radio-youtube-thumb{transform:scale(1.02)}.radio-youtube-thumb img{width:100%;height:100%;object-fit:cover}
+.radio-youtube-card strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13px;font-weight:600;line-height:1.3}
+.radio-youtube-card small{display:block;font-size:11px;color:#a7a7a7;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.radio-youtube-more{display:block;margin:12px 0 0;min-height:34px;padding:6px 16px;border-radius:17px;border:1px solid #ffffff40;color:#fff;font-size:12px;background:transparent}.radio-youtube-more[hidden]{display:none}
+.radio-yt-player{position:fixed;right:16px;bottom:110px;z-index:120;width:min(400px,calc(100vw - 32px));border-radius:14px;overflow:hidden;background:#000;box-shadow:0 20px 50px #000c;border:1px solid #ffffff1f;animation:mx-in .18s ease-out}
+.radio-yt-player[hidden]{display:none}.radio-yt-player iframe{display:block;width:100%;aspect-ratio:16/9;border:0}
+.radio-yt-bar{display:flex;align-items:center;gap:10px;padding:8px 10px;background:#181818;color:#fff;font:12px Inter,system-ui,sans-serif}
+.radio-yt-bar strong{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.radio-yt-bar a{color:#fff;background:#ff0033;border-radius:12px;padding:3px 10px;text-decoration:none;font-weight:600;white-space:nowrap}
+.radio-yt-bar button{width:28px;height:28px;border-radius:50%;color:#fff;background:#ffffff1a}
+.radio-youtube-setting{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;margin:6px 0 10px;border-radius:12px;background:#ffffff0d}
+.radio-youtube-setting strong{display:block;font-size:13px}.radio-youtube-setting small{display:block;font-size:11px;color:#a9a9a9;margin-top:3px}
+.radio-source-switch[data-on=true]{background:#1ed760!important}.radio-source-switch[data-on=true] span{transform:translateX(18px)}
+@media(max-width:1023px){.radio-yt-player{left:8px;right:8px;width:auto;bottom:calc(140px + env(safe-area-inset-bottom,0px))}.radio-youtube-card{width:180px}}
+.radio-yt-blocked .radio-yt-bar a{animation:mx-in .3s ease-out;box-shadow:0 0 0 3px #ff003355}
+.radio-youtube-only .radio-youtube-thumb{position:relative}.radio-youtube-only .radio-youtube-thumb::after{content:'YouTube only';position:absolute;left:6px;top:6px;padding:2px 7px;border-radius:9px;background:#ff0033;color:#fff;font:700 10px Inter,system-ui,sans-serif}
 
 </style>
   <script>
@@ -1875,6 +1914,13 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         </div>
       </div>
 
+      <div class="youtube-setting px-5 py-3 border-b border-white/10 flex items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-[13px] font-semibold text-white">YouTube</p>
+          <p id="youtube-setting-status" class="text-[11px] text-zinc-400 mt-0.5">Live channels and a library of documentaries, movies, series and more.</p>
+        </div>
+        <button id="youtube-setting-toggle" type="button" role="switch" aria-checked="true" aria-label="YouTube channels and videos" data-on="true" onclick="setYoutubeEnabled(!youtubeEnabled)" class="youtube-switch"><span></span></button>
+      </div>
       <div class="px-5 py-2.5 bg-[#121216] border-b border-white/10 flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center space-x-1.5">
           <span class="text-zinc-400 font-medium">Feed Mode:</span>
@@ -1969,6 +2015,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
                 <!-- Web Embed Fallback -->
                 <iframe
                   id="embed-fallback"
+                  referrerpolicy="strict-origin-when-cross-origin"
                   class="hidden absolute inset-0 w-full h-full border-0 bg-black"
                   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                   allowfullscreen
@@ -2340,7 +2387,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
     const tvStorage=(()=>{
       const allowed=new Set(['streamos_sources_v14','streamos_source_mode_v14',
         'streamos_favs_v14','streamos_stats_v14','streamos_history_v14',
-        'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14','streamos_extras_v14']);
+        'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14','streamos_extras_v14','streamos_youtube_v14']);
       const memory=new Map();
       return Object.freeze({
         getItem(key){if(!allowed.has(key))return null;if(memory.has(key))return memory.get(key);if(window.parent===window){try{return localStorage.getItem('sterling.tv.'+key);}catch{}}return null;},
@@ -2722,7 +2769,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       }
 
       catalogScope = scopeId;
-      if (scopeId === 'all') {
+      if (scopeId === 'all' || scopeId === 'youtube') {
         catalogLanguage = 'All';
         catalogCategory = 'All';
       }
@@ -2755,7 +2802,8 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
           { id: 'indian_hub', label: 'Indian Section' },
           { id: 'verified', label: 'Verified HD' },
           { id: 'favs', label: `Subscribed (${favorites.length})` },
-          { id: 'recently_played', label: 'Recent' }
+          { id: 'recently_played', label: 'Recent' },
+          ...(youtubeEnabled&&(youtubeLive.length||youtubeVideos.length)?[{ id: 'youtube', label: `YouTube (${(youtubeLive.length+youtubeVideos.length).toLocaleString()})` }]:[])
         ];
         chips.innerHTML = tabs.map(t => {
           const active = (t.id === 'indian_hub' && isIndianMode) || (t.id === catalogScope && !isIndianMode);
@@ -3661,7 +3709,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         : iptvSources;
 
       if (targetSources.length === 0) {
-        allChannels = [...VERIFIED_STREAMS];
+        allChannels = withYoutube([...VERIFIED_STREAMS]);
         renderCatalogControls();
         renderViewport();
         renderUpNextQueue(false);
@@ -3706,7 +3754,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         });
       });
 
-      allChannels = combined;
+      allChannels = withYoutube(combined);
       renderCatalogControls();
 
       if (renderedItems <= PAGE_BATCH) {
@@ -3721,6 +3769,85 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       if (sDrop && !sDrop.classList.contains('hidden')) {
         renderSmartSearchDropdown(searchInputEl.value.trim());
       }
+    }
+
+    /* YouTube integration. Live news, music and devotional channels join the channel list; the latest
+       uploads of official channels form a library (Documentaries, Full movies, Web series...). The data
+       comes from Sterling's public /api/v1/media/youtube/library route and refreshes every 15 minutes.
+       Settings → YouTube turns all of it off. */
+    let youtubeEnabled=(()=>{try{return JSON.parse(tvStorage.getItem('streamos_youtube_v14')||'{}').enabled!==false;}catch{return true;}})();
+    let youtubeLive=[],youtubeVideos=[],youtubeCategories=[],youtubeLoadedAt=0,youtubeTimer=0,youtubeStatus='';
+    const YT_GROUP={News:'News',Business:'Business',Music:'Music',Devotional:'Devotional',Science:'Science & space'};
+    const ytEmbedUrl=id=>`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`;
+    const ytId=value=>typeof value==='string'&&/^[\w-]{11}$/.test(value)?value:'';
+    function youtubeLiveChannel(row){
+      const id=ytId(row.id);if(!id||typeof row.name!=='string')return null;
+      return {name:row.name.slice(0,120),group:YT_GROUP[row.genre]||'News',lang:String(row.lang||'English').slice(0,40),country:String(row.country||'').slice(0,4),
+        isIndian:row.country==='IN',logo:`https://i.ytimg.com/vi/${id}/hqdefault_live.jpg`,url:`https://www.youtube.com/watch?v=${id}`,
+        ytEmbed:ytEmbedUrl(id),youtube:'live',ytId:id,sourceName:'YouTube Live',viewers:'LIVE',description:String(row.title||'').slice(0,200)};
+    }
+    function youtubeVideo(row,label){
+      const id=ytId(row.id);if(!id||typeof row.title!=='string')return null;
+      return {name:row.title.slice(0,200),group:label,lang:String(row.lang||'English').slice(0,40),country:String(row.country||'').slice(0,4),
+        isIndian:row.country==='IN',logo:`https://i.ytimg.com/vi/${id}/hqdefault.jpg`,url:`https://www.youtube.com/watch?v=${id}`,
+        ytEmbed:ytEmbedUrl(id),youtube:'video',ytId:id,channelName:String(row.channel||'YouTube').slice(0,80),published:String(row.published||''),
+        views:Number(row.views)||0,sourceName:'YouTube'};
+    }
+    function withYoutube(list){
+      if(!youtubeEnabled||!youtubeLive.length)return list;
+      const seen=new Set(list.map(c=>c.url));return [...list,...youtubeLive.filter(c=>!seen.has(c.url))];
+    }
+    function findAnyChannel(url){
+      return allChannels.find(c=>c.url===url)||youtubeVideos.find(c=>c.url===url)||favorites.find(c=>c.url===url)||recentHistory.find(c=>c.url===url)||null;
+    }
+    async function loadYoutubeLibrary(){
+      clearTimeout(youtubeTimer);if(!youtubeEnabled){renderYoutubeSetting();return;}
+      try{
+        const response=await fetch('/api/v1/media/youtube/library',{credentials:'omit',cache:'no-store'});
+        if(!response.ok)throw Error(String(response.status));
+        const data=await response.json();
+        youtubeLive=(Array.isArray(data.live)?data.live:[]).map(youtubeLiveChannel).filter(Boolean);
+        youtubeCategories=(Array.isArray(data.categories)?data.categories:[]).filter(c=>c&&typeof c.label==='string'&&Array.isArray(c.videos))
+          .map(c=>({id:String(c.id).slice(0,40),label:c.label.slice(0,40),videos:c.videos.map(v=>youtubeVideo(v,c.label.slice(0,40))).filter(Boolean)}));
+        youtubeVideos=youtubeCategories.flatMap(c=>c.videos);youtubeLoadedAt=Date.now();
+        youtubeStatus=`${youtubeLive.length} live channels · ${youtubeVideos.length.toLocaleString()} videos`;
+      }catch(_){youtubeStatus=youtubeLoadedAt?youtubeStatus:'YouTube library is unavailable here. It needs the Sterling server.';}
+      if(youtubeEnabled){allChannels=withYoutube(allChannels);renderCatalogControls();renderViewport();window.dispatchEvent(new Event('sterling-tv-youtube'));}
+      renderYoutubeSetting();
+      youtubeTimer=setTimeout(loadYoutubeLibrary,15*60*1000);
+    }
+    function setYoutubeEnabled(on){
+      youtubeEnabled=Boolean(on);try{tvStorage.setItem('streamos_youtube_v14',JSON.stringify({enabled:youtubeEnabled}));}catch(_){}
+      if(youtubeEnabled){loadYoutubeLibrary();showToast('YouTube is on');}
+      else{clearTimeout(youtubeTimer);allChannels=allChannels.filter(c=>!c.youtube);if(catalogScope==='youtube')catalogScope='all';
+        if(activeChannel?.youtube)document.getElementById('embed-fallback').src='about:blank';
+        renderCatalogControls();renderViewport();window.dispatchEvent(new Event('sterling-tv-youtube'));showToast('YouTube is off');}
+      renderYoutubeSetting();
+    }
+    function renderYoutubeSetting(){
+      const toggle=document.getElementById('youtube-setting-toggle'),status=document.getElementById('youtube-setting-status');
+      if(toggle){toggle.setAttribute('aria-checked',String(youtubeEnabled));toggle.dataset.on=String(youtubeEnabled);}
+      if(status)status.textContent=youtubeEnabled?(youtubeStatus||'Loading…'):'Off. YouTube channels and videos are hidden.';
+    }
+    // Embedded YouTube reports errors 101/150 when the owner blocks embedding or the video is age-restricted.
+    window.addEventListener('message',event=>{
+      if(!/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(event.origin))return;
+      let data=event.data;try{if(typeof data==='string')data=JSON.parse(data);}catch(_){return;}
+      if(data?.event==='onError'&&activeChannel?.youtube)showYoutubeElsewhere(activeChannel);
+    });
+    function startYoutubePlayback(channel,video,spinner,badge){
+      badge.textContent=channel.youtube==='live'?'YouTube Live':'YouTube';
+      video.classList.add('hidden');
+      const embed=document.getElementById('embed-fallback');
+      embed.onload=()=>{spinner.classList.add('hidden');try{embed.contentWindow.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch(_){}};
+      embed.src=channel.ytEmbed;embed.classList.remove('hidden');
+      document.getElementById('youtube-open-link')?.remove();
+      const link=document.createElement('a');link.id='youtube-open-link';link.href=channel.url;link.target='_blank';link.rel='noopener noreferrer';
+      link.textContent='Watch on YouTube';link.className='youtube-open-link';embed.parentElement.append(link);
+    }
+    function showYoutubeElsewhere(channel){
+      showTvPlaybackPrompt('YouTube only plays this video on its own site or app.');
+      const link=document.getElementById('youtube-open-link');if(link){link.classList.add('youtube-open-link-strong');link.textContent='Open in YouTube to watch';}
     }
 
     /*************************************************************************
@@ -4021,7 +4148,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 
     function playStreamByUrl(url) {
       const def = getStartupChannelObject();
-      const found = allChannels.find(c => c.url === url) || favorites.find(c => c.url === url) || (def && def.url === url ? def : null);
+      const found = findAnyChannel(url) || (def && def.url === url ? def : null);
       if (found) playStream(found, 0);
     }
 
@@ -4067,6 +4194,9 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       updateClosedCaptionText();
 
       spinner.classList.remove('hidden');
+
+      if (channel.youtube) { document.getElementById('active-subtitle').textContent = `${channel.group} • ${channel.channelName || 'YouTube'} • ${channel.youtube === 'live' ? 'Live on YouTube' : 'YouTube'}`; startYoutubePlayback(channel, video, spinner, badge); return; }
+      document.getElementById('youtube-open-link')?.remove();
 
       if (stage === 0 && location.protocol === 'https:' && channel.url.startsWith('http://')) {
         stage = 1;
@@ -4702,8 +4832,10 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       const terms = q.split(/\s+/).filter(Boolean);
 
       const scored = [];
-      for (let i = 0; i < allChannels.length; i++) {
-        const c = allChannels[i];
+      // Search also covers the YouTube library (videos are not in the channel list).
+      const searchPool = youtubeEnabled && youtubeVideos.length ? [...allChannels, ...youtubeVideos] : allChannels;
+      for (let i = 0; i < searchPool.length; i++) {
+        const c = searchPool[i];
         if(!isChannelVisible(c))continue;
         const source=[c.name,c.group,c.lang];
         let indexed=searchTextCache.get(c);
@@ -4966,6 +5098,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       if(catalogScope==='indian_hub')pool=allChannels.filter(c=>channelMatchesLanguage(c,'Indian'));
       if(catalogScope==='favs')pool=favorites;
       if(catalogScope==='recently_played')pool=recentHistory;
+      if(catalogScope==='youtube')pool=youtubeEnabled?[...youtubeLive,...youtubeVideos]:[];
       return pool.filter(isChannelVisible);
     }
 
@@ -5401,6 +5534,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       updateStartupChannelUI();
       playStream(getStartupChannelObject(),0);
       setTimeout(()=>{syncAllActivePlaylists(false);},1200);
+      setTimeout(loadYoutubeLibrary,1600);
     });
     function toggleEmbeddedTvTools(){
       const header=document.getElementById('global-header');
@@ -5519,15 +5653,29 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
     const hue=[...name].reduce((n,ch)=>n+ch.charCodeAt(0)*7,0)%360;
     document.body.style.setProperty('--tv-channel-hue',String(hue));
   }
-  const channelButton=(ch,quick=false)=>`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
+  const ago=iso=>{const t=Date.parse(iso);if(!t)return '';const d=Math.max(0,(Date.now()-t)/864e5);return d<1?'today':d<2?'yesterday':d<30?`${Math.floor(d)} days ago`:d<365?`${Math.floor(d/30)} mo ago`:`${Math.floor(d/365)} yr ago`;};
+  // YouTube videos get wide 16:9 cards and "channel · age"; live YouTube channels keep the TV card.
+  const videoButton=ch=>`<button type="button" class="tm-album tm-yt" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}"><div class="tm-cover"><img src="${escapeAttr(ch.logo)}" alt="" loading="lazy"/></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml([ch.channelName,ago(ch.published)].filter(Boolean).join(' · '))}</small></button>`;
+  const channelButton=(ch,quick=false)=>!quick&&ch.youtube==='video'?videoButton(ch):`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
   function shelf(title,pool,filter) {
     pool=pool.filter(isChannelVisible);
     if(!pool.length)return '';
-    return `<section><div class="tm-section-title"><h2>${title}<small class="media-shelf-count">${pool.length.toLocaleString()} ${filter==='all'?(pool.length===1?'pick':'picks'):(pool.length===1?'channel':'channels')}</small></h2><button data-tm-category="${filter}">${filter==='all'?'Browse all':'Show all'}</button></div><div class="tm-shelf">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
+    return `<section><div class="tm-section-title"><h2>${title}<small class="media-shelf-count">${pool.length.toLocaleString()} ${filter==='all'?(pool.length===1?'pick':'picks'):String(filter).startsWith('yt:')?(pool.length===1?'video':'videos'):(pool.length===1?'channel':'channels')}</small></h2><button data-tm-category="${escapeAttr(filter)}">${filter==='all'?'Browse all':'Show all'}</button></div><div class="tm-shelf">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
+  }
+  // Home shows YouTube as one block: a tile per category, then a few featured rows. Everything else
+  // stays one tap away, so the page does not turn into twenty rows.
+  function youtubeHome(){
+    if(typeof youtubeEnabled==='undefined'||!youtubeEnabled||!youtubeCategories.length)return '';
+    const tiles=youtubeCategories.map(c=>`<button type="button" data-tm-category="${escapeAttr('yt:'+c.label)}"><strong>${escapeHtml(c.label)}</strong><small>${c.videos.length.toLocaleString()} videos</small>${c.videos[0]?`<img src="${escapeAttr(c.videos[0].logo)}" alt="" loading="lazy" decoding="async">`:''}</button>`).join('');
+    const pick=id=>youtubeCategories.find(c=>c.id===id);
+    const music=youtubeCategories.filter(c=>c.id.startsWith('music')).flatMap(c=>c.videos).sort((a,b)=>String(b.published).localeCompare(String(a.published)));
+    const rows=[['documentaries','Documentaries'],['movies','Full movies'],['podcasts','Podcasts'],['web_series','Web series']].map(([id,label])=>{const c=pick(id);return c?shelf(`YouTube · ${label}`,c.videos,'yt:'+c.label):'';});
+    rows.splice(3,0,music.length?shelf('YouTube · Latest music',music,'yt:music'):'');
+    return `<section class="tm-yt-block"><div class="tm-section-title"><h2>YouTube<small class="media-shelf-count">${(youtubeLive.length+youtubeVideos.length).toLocaleString()} live channels and videos</small></h2><button data-tm-category="youtube">Open all</button></div><div class="media-browse-grid tm-yt-tiles">${tiles}</div></section>${rows.join('')}`;
   }
   let lastHomeCatalog=null,lastHomeKey='';
   function renderHome() {
-    const key=JSON.stringify([activeChannel?.url,recentHistory.slice(0,8).map(ch=>ch.url),favorites.map(ch=>ch.url),hideUnavailableChannels,[...unavailableChannels]]);
+    const key=JSON.stringify([typeof youtubeLoadedAt==='number'&&youtubeEnabled?youtubeLoadedAt:0,activeChannel?.url,recentHistory.slice(0,8).map(ch=>ch.url),favorites.map(ch=>ch.url),hideUnavailableChannels,[...unavailableChannels]]);
     if(lastHomeCatalog===allChannels&&key===lastHomeKey)return;
     lastHomeCatalog=allChannels;lastHomeKey=key;
 
@@ -5548,7 +5696,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       if(ranked.length>10)ranked.pop();
     }
     const recommendations=ranked.map(item=>item.ch);
-    const html=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
+    const html=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${youtubeHome()}${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
     // Patch section by section: unchanged rows keep their DOM and loaded logos, so a catalog refresh
     // or a channel change does not flash the whole page.
     const next=document.createElement('div');next.innerHTML=html;const fresh=[...next.children],current=[...home.children];
@@ -5633,7 +5781,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
   function showSheet(kind='more') {
     if(!sheet.classList.contains('tm-sheet-open'))sheetReturnFocus=document.activeElement;
     let title='Your TV, your way';
-    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['extras','Extras: Surprise me, backup, shortcuts','settings'],['tools','All TV tools & themes','settings']];
+    let items=[['sources','Playlist sources','library'],['startup','Default startup channel','screen'],['indian','Indian TV & languages','globe'],['filters','Channel availability & filters','search'],['queue','Playing queue','queue'],['epg','Channel information & programme guide','info'],['equalizer','Sound equalizer','settings'],['sleep','Sleep timer','clock'],['backdrop','Player background: black / auto','screen'],['quality','Quality, captions & fit','screen'],['share','Share current channel','share'],['pip','Picture in picture','screen'],['multiview','Four-channel multiview','screen'],['extras','Extras: Surprise me, backup, shortcuts','settings'],['youtube',`YouTube: ${typeof youtubeEnabled!=='undefined'&&youtubeEnabled?'on, tap to turn off':'off, tap to turn on'}`,'screen'],['tools','All TV tools & themes','settings']];
     if(['filters','equalizer','quality','epg'].includes(kind)) {
       title={filters:'Languages & categories',equalizer:'Sound equalizer',quality:'Playback settings',epg:'Programme guide'}[kind];
       let content='';
@@ -5712,6 +5860,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       case 'resize-sheet': { const handle=sheet.querySelector('.tm-sheet-handle');const height=Number(handle.getAttribute('aria-valuenow'))>=90?72:95;sheet.style.setProperty('--tm-sheet-height',height+'dvh');handle.setAttribute('aria-valuenow',String(height));const button=sheet.querySelector('[data-tm-action=resize-sheet]');button.setAttribute('aria-label',height===95?'Reduce menu':'Expand menu');break; }
       case 'close-sheet': closeSheet();break;
       case 'extras': closeSheet();window.tvExtras?.open();break;
+      case 'youtube': closeSheet();if(typeof setYoutubeEnabled==='function')setYoutubeEnabled(!youtubeEnabled);break;
       case 'tools': closeSheet();if(expanded)setExpanded(false);toggleSidebarDrawer(true);break;
       case 'sources': closeSheet();openSourceManagerModal();break;
       case 'startup': closeSheet();openStartupChannelModal();break;
@@ -5728,7 +5877,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
   /* Spotify-style Search / Recents / Your Library shared with Radio (media/spotify-shell.js). */
   const SHELL_GROUPS=['News','Sports','Movies','Music','Entertainment','Documentary','Kids & Anime','Devotional','Lifestyle','Business','Religious','Comedy'];
   const shellItem=ch=>({id:ch.url,title:ch.name,subtitle:[ch.group,ch.lang].filter(Boolean).join(' · '),art:artwork(ch),type:'Channel'});
-  const findChannel=url=>allChannels.find(c=>c.url===url)||recentHistory.find(c=>c.url===url)||favorites.find(c=>c.url===url);
+  const findChannel=url=>typeof findAnyChannel==='function'?findAnyChannel(url):allChannels.find(c=>c.url===url)||recentHistory.find(c=>c.url===url)||favorites.find(c=>c.url===url);
   let shellCats={size:-1,list:[]},shellPage=null;
   function markShellNav(){if(!shellPage)return;nav.querySelectorAll('button').forEach(b=>{const on=b.dataset.tmAction===shellPage;b.toggleAttribute('aria-current',on);if(on)b.setAttribute('aria-current','page');});}
   window.SterlingSpotifyShell?.pullToRefresh?.(document.getElementById('main-scroll'),()=>{
@@ -5753,6 +5902,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       if(Array.isArray(data.sources)&&data.sources.length){iptvSources=data.sources.filter(s=>s&&typeof s.url==='string').slice(0,40);count+=iptvSources.length;saveSourcesState();if(typeof syncAllActivePlaylists==='function')syncAllActivePlaylists(false);}
       if(typeof updateSubscribeLikeUI==='function')updateSubscribeLikeUI();lastHomeKey='';renderHome();return count;}
   });
+  window.addEventListener('sterling-tv-youtube',()=>{lastHomeKey='';renderHome();schedule();});
   const tvShell=window.SterlingSpotifyShell?.mount({kind:'tv',noun:'channels',itemType:'Channel',likedTitle:'Subscribed Channels',placeholder:'What do you want to watch?',
     avatar:()=>'S',openSettings:()=>showSheet('more'),openExtras:()=>window.tvExtras?.open(),
     items:()=>allChannels.filter(isChannelVisible).map(shellItem),
@@ -5786,8 +5936,8 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
     if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){if(button.dataset.tmRelated){playbackQueue=[...relatedPool];playQueuedChannel(ch);}else if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);if(button.closest('#tv-now-playing'))now.scrollTo({top:0,behavior:'smooth'});clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
-    if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')catalog('live','verified');else if(cat==='all')catalog('live','all');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
+    if(button.dataset.tmChannel){const ch=findChannel(button.dataset.tmChannel);if(ch){if(button.dataset.tmRelated){playbackQueue=[...relatedPool];playQueuedChannel(ch);}else if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);if(button.closest('#tv-now-playing'))now.scrollTo({top:0,behavior:'smooth'});clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')catalog('live','verified');else if(cat==='all')catalog('live','all');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else if(cat==='yt:music'){catalog('live','youtube');}else if(cat.startsWith('yt:'))catalog('live','youtube',cat.slice(3));else if(cat==='youtube')catalog('live','youtube');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });
   sheet.addEventListener('change',async e=>{if(e.target.dataset.tmFilter==='availability'){hideUnavailableChannels=e.target.value==='available';window.dispatchEvent(new Event('sterling-tv-availability'));closeSheet();}else if(e.target.dataset.tmFilter==='language'){view='live';await handleCatalogLanguageChange(e.target.value);closeSheet();schedule();}else if(e.target.dataset.tmFilter==='category'){view='live';handleCatalogGenreChange(e.target.value);closeSheet();schedule();}});

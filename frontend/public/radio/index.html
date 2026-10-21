@@ -2060,6 +2060,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           for(const field of ['volume','bass','mid','treble'])if(!Number.isFinite(clean[field]))delete clean[field];
           if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
           if(typeof clean.muted!=='boolean')delete clean.muted;
+          if(typeof clean.youtube!=='boolean')delete clean.youtube;
           if(!['spotify','ytmusic','netflix'].includes(clean.appMode))delete clean.appMode;
           if(!['all','shortwave','akashvani','telugu','tamil','featured','podcasts'].includes(clean.activeCategory))delete clean.activeCategory;
           if(!['last','custom','quiet'].includes(clean.bootBehavior))delete clean.bootBehavior;
@@ -2393,6 +2394,90 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           syncLikeIcons?.();renderPersonalizedShelves?.();return count;}
       });
     }
+    /* YouTube Music & Podcasts in Radio: music by language (newest first) and video podcasts from
+       Sterling's public /api/v1/media/youtube/library route, played in a small YouTube player. Station
+       sources → YouTube switches it off. Radio audio pauses while a YouTube video plays. */
+    let radioYoutube={rows:[],chip:'music',shown:30,loadedAt:0,timer:0};
+    const radioYoutubeOn=()=>appConfig.youtube!==false;
+    const ytAgo=iso=>{const t=Date.parse(iso);if(!t)return '';const d=Math.max(0,(Date.now()-t)/864e5);return d<1?'today':d<2?'yesterday':d<30?`${Math.floor(d)} days ago`:d<365?`${Math.floor(d/30)} mo ago`:`${Math.floor(d/365)} yr ago`;};
+    async function loadRadioYoutube(){
+      clearTimeout(radioYoutube.timer);
+      if(radioYoutubeOn()){
+        try{
+          const response=await fetch('/api/v1/media/youtube/library',{credentials:'omit',cache:'no-store'});
+          if(!response.ok)throw Error(String(response.status));
+          const data=await response.json();
+          radioYoutube.rows=(Array.isArray(data.categories)?data.categories:[]).filter(c=>c&&/^(music|podcasts)/.test(String(c.id))&&Array.isArray(c.videos))
+            .map(c=>({id:String(c.id),label:String(c.label).replace(/^Music · /,'').slice(0,40),videos:c.videos.filter(v=>/^[\w-]{11}$/.test(String(v.id))&&typeof v.title==='string')}));
+          radioYoutube.loadedAt=Date.now();
+        }catch(_){}
+        radioYoutube.timer=setTimeout(loadRadioYoutube,15*60*1000);
+      }
+      renderRadioYoutube();
+    }
+    function radioYoutubeVideos(){
+      if(radioYoutube.chip==='music')return radioYoutube.rows.filter(r=>r.id.startsWith('music')).flatMap(r=>r.videos).sort((a,b)=>String(b.published).localeCompare(String(a.published)));
+      return radioYoutube.rows.find(r=>r.id===radioYoutube.chip)?.videos||[];
+    }
+    function renderRadioYoutube(){
+      let section=document.getElementById('radio-youtube');
+      if(!radioYoutubeOn()||!radioYoutube.rows.length){section?.remove();return;}
+      if(!section){
+        section=document.createElement('section');section.id='radio-youtube';section.className='radio-youtube';
+        section.innerHTML='<header><div><h2>YouTube Music &amp; Podcasts</h2><small></small></div></header><div class="radio-youtube-chips" role="tablist" aria-label="YouTube collections"></div><div class="radio-youtube-row"></div><button type="button" class="radio-youtube-more">Show more</button>';
+        section.addEventListener('click',event=>{
+          const chip=event.target.closest('[data-yt-chip]');if(chip){radioYoutube.chip=chip.dataset.ytChip;radioYoutube.shown=30;renderRadioYoutube();return;}
+          if(event.target.closest('.radio-youtube-more')){radioYoutube.shown+=30;renderRadioYoutube();return;}
+          const card=event.target.closest('[data-yt-video]');if(card)playRadioYoutube(card.dataset.ytVideo);
+        });
+        document.getElementById('sp-recents-section')?.before(section);
+      }
+      const videos=radioYoutubeVideos(),music=radioYoutube.rows.filter(r=>r.id.startsWith('music'));
+      section.querySelector('small').textContent=`${radioYoutube.rows.reduce((n,r)=>n+r.videos.length,0).toLocaleString()} videos · newest first · updates every 15 minutes`;
+      const chips=[['music','Latest music',music.reduce((n,r)=>n+r.videos.length,0)],...music.map(r=>[r.id,r.label,r.videos.length]),...radioYoutube.rows.filter(r=>r.id==='podcasts').map(r=>[r.id,'Podcasts',r.videos.length])];
+      const chipHtml=chips.map(([id,label,count])=>`<button type="button" role="tab" data-yt-chip="${escapeRadioText(id)}" aria-selected="${radioYoutube.chip===id}">${escapeRadioText(label)} <span>${count}</span></button>`).join('');
+      const chipBox=section.querySelector('.radio-youtube-chips');if(chipBox.dataset.html!==chipHtml){chipBox.innerHTML=chipHtml;chipBox.dataset.html=chipHtml;}
+      const rowHtml=videos.slice(0,radioYoutube.shown).map(v=>`<button type="button" class="radio-youtube-card${radioYoutubeBlocked.has(v.id)?' radio-youtube-only':''}" data-yt-video="${escapeRadioText(v.id)}" aria-label="Play ${escapeRadioText(v.title)}"><span class="radio-youtube-thumb"><img src="https://i.ytimg.com/vi/${escapeRadioText(v.id)}/mqdefault.jpg" alt="" loading="lazy" decoding="async"></span><strong>${escapeRadioText(v.title)}</strong><small>${escapeRadioText([v.channel,ytAgo(v.published)].filter(Boolean).join(' · '))}</small></button>`).join('');
+      const row=section.querySelector('.radio-youtube-row');if(row.dataset.html!==rowHtml){row.innerHTML=rowHtml;row.dataset.html=rowHtml;}
+      section.querySelector('.radio-youtube-more').hidden=videos.length<=radioYoutube.shown;
+    }
+    function playRadioYoutube(id){
+      const video=radioYoutube.rows.flatMap(r=>r.videos).find(v=>v.id===id);if(!video)return;
+      if(!audio.paused){userPaused=true;audio.pause();isPlaying=false;}
+      let box=document.getElementById('radio-yt-player');
+      if(!box){
+        box=document.createElement('div');box.id='radio-yt-player';box.className='radio-yt-player';box.setAttribute('role','dialog');box.setAttribute('aria-label','YouTube player');
+        box.innerHTML='<div class="radio-yt-bar"><strong></strong><a target="_blank" rel="noopener noreferrer">Open in YouTube</a><button type="button" aria-label="Close YouTube player">✕</button></div><iframe allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin" title="YouTube video"></iframe>';
+        box.querySelector('button').addEventListener('click',()=>closeRadioYoutube(true));
+        document.body.append(box);
+      }
+      box.querySelector('strong').textContent=video.title;box.querySelector('a').href=`https://www.youtube.com/watch?v=${id}`;
+      box.dataset.video=id;box.classList.remove('radio-yt-blocked');const frame=box.querySelector('iframe');frame.onload=()=>{try{frame.contentWindow.postMessage(JSON.stringify({event:'listening',id:1}),'*');}catch(_){}};
+      frame.src=`https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1`;
+      box.hidden=false;showToast?.(`Playing on YouTube: ${video.channel||''}`);
+    }
+    // The YouTube player reports error 100/101/150/153 when a video only plays on YouTube itself.
+    const radioYoutubeBlocked=new Set();
+    window.addEventListener('message',event=>{
+      if(!/^https:\/\/www\.youtube(-nocookie)?\.com$/.test(event.origin))return;
+      let data=event.data;try{if(typeof data==='string')data=JSON.parse(data);}catch(_){return;}
+      if(data?.event!=='onError')return;const box=document.getElementById('radio-yt-player');if(!box||box.hidden)return;
+      radioYoutubeBlocked.add(box.dataset.video);box.classList.add('radio-yt-blocked');box.querySelector('a').textContent='Plays only on YouTube · Open';
+      document.querySelector(`[data-yt-video="${CSS.escape(box.dataset.video||'')}"]`)?.classList.add('radio-youtube-only');
+    });
+    function closeRadioYoutube(manual){
+      const box=document.getElementById('radio-yt-player');if(!box||box.hidden)return;
+      box.querySelector('iframe').src='about:blank';box.hidden=true;if(manual)box.blur?.();
+    }
+    function setRadioYoutube(on){appConfig.youtube=Boolean(on);saveAppConfig();if(on)loadRadioYoutube();else{closeRadioYoutube(true);renderRadioYoutube();}syncRadioYoutubeSwitch();}
+    function syncRadioYoutubeSwitch(){const toggle=document.getElementById('radio-youtube-switch');if(toggle){toggle.setAttribute('aria-checked',String(radioYoutubeOn()));toggle.dataset.on=String(radioYoutubeOn());}}
+    function mountRadioYoutubeSetting(){
+      const dialog=document.querySelector('.radio-source-dialog');if(!dialog||dialog.querySelector('#radio-youtube-switch'))return;
+      const row=document.createElement('div');row.className='radio-youtube-setting';
+      row.innerHTML='<div><strong>YouTube Music &amp; Podcasts</strong><small>Newest music by language and video podcasts, on the home page.</small></div><button type="button" id="radio-youtube-switch" class="radio-source-switch" role="switch" aria-label="YouTube Music and Podcasts"><span></span></button>';
+      row.querySelector('button').addEventListener('click',()=>setRadioYoutube(!radioYoutubeOn()));
+      dialog.querySelector('.radio-source-total')?.after(row);syncRadioYoutubeSwitch();
+    }
     function initSpotifyShell(){
       if(spotifyShell||!window.SterlingSpotifyShell)return;
       // Now Playing and the mini player take their colour from the station artwork.
@@ -2479,6 +2564,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       initRadioDirectory();
       initSpotifyShell();
       initRadioExtras();
+      mountRadioYoutubeSetting();setTimeout(loadRadioYoutube,1500);
       bindAudioEvents();
       bindBackgroundPlayGuard();
       bindTouchSheet();
@@ -3216,6 +3302,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function startPlayback(streamObj, overrideUrl = null, isBootAttempt = false) {
+      closeRadioYoutube(false);
       if (!streamObj || typeof (overrideUrl || streamObj.streamUrl)!=='string' || !(overrideUrl || streamObj.streamUrl).trim()) {
         showToast('This station has no playable stream');return;
       }
