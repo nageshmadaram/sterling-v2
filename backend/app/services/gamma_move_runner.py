@@ -908,7 +908,7 @@ async def _ensure_protection(uid: str, client, pos: PositionState) -> bool:
                             f"{int(pos.gtt_id)}:{float(pos.stop):.2f}:{int(pos.quantity)}"
                         ),
                         strategy="Gamma-Unwind",
-                        event_type="TSL SYNCED",
+                        event_type="TSL UPDATED",
                         title=pos.instrument.tradingsymbol,
                         detail=(
                             f"SL ₹{old_stop:.2f} → ₹{float(pos.stop):.2f} "

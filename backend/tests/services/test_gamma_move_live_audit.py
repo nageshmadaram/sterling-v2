@@ -131,6 +131,36 @@ async def test_broker_stop_is_never_moved_down(monkeypatch):
     assert pos.gtt_at == pytest.approx(95.0)
 
 
+@pytest.mark.asyncio
+async def test_broker_stop_raise_alerts_as_tsl_updated(monkeypatch):
+    """Gamma's trail alert uses the shared name every engine sends."""
+    pos = _position()
+    pos.stop_mode = "both"
+    pos.gtt_id = 77
+    pos.gtt_at = 90.0
+    pos.gtt_qty = int(pos.quantity)
+    pos.stop = 95.0
+    events = []
+
+    class Client:
+        _is_paper = False
+        _account_id = "acct-live"
+
+    from app.services.kite_engine import protective_stop
+    from app.services.notifications import telegram_lifecycle
+
+    async def move_stop(*_a, **_kw):
+        return True
+
+    monkeypatch.setattr(protective_stop, "move_stop", move_stop)
+    monkeypatch.setattr(runner.positions_store, "put", lambda _u, p: p)
+    monkeypatch.setattr(telegram_lifecycle, "enqueue_best_effort",
+                        lambda _uid, **kw: events.append(kw["event_type"]) or True)
+
+    assert await runner._ensure_protection("u1", Client(), pos) is True
+    assert events == ["TSL UPDATED"]
+
+
 # ------------------------------------------------------ exit serialisation
 class _ExitClient:
     _is_paper = False

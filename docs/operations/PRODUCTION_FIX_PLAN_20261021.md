@@ -64,7 +64,7 @@ Fix all of these before the first live order. Most are operator actions, not cod
 | P0-5 | `network_path` COULD NOT CHECK. | Refresh binding (P0-4) or record broker reachability. | Operator |
 | P0-6 | Safe mode was released with reason "test". Live execution flag is already `true`. | Engage safe mode now. Release it only after P0-1…P0-5 pass, with a real reason. | Operator |
 | P0-7 | Static egress: doctor says the IP matches, but the matched IP **changed** from an IPv6 address. Zerodha requires a whitelisted static IP for order APIs. | Confirm in the Kite developer console that the current IPv4 is the registered one. A home/mobile IP that changes will reject orders mid-day. | Operator |
-| P0-8 | `sterling-web.service` failed under systemd. If the gateway dies, the UI and the Telegram desk go dark while trades stay open. | Read `.runtime/stack/*.log` for the `RuntimeError`; fix the launch; `systemctl --user reset-failed` and restart. | Claude |
+| P0-8 | **Cause found 2026-10-21:** EADDRINUSE on 5180 — a manually started `sterling_stack.py run --all` already owned the gateway, so the systemd unit crash-looped. Launcher now logs the reason to `manager.log`. Operator: run the stack under ONE owner (systemd *or* manual). Original: `sterling-web.service` failed under systemd. If the gateway dies, the UI and the Telegram desk go dark while trades stay open. | Read `.runtime/stack/*.log` for the `RuntimeError`; fix the launch; `systemctl --user reset-failed` and restart. | Claude |
 | P0-9 | Cloudflare quick-tunnel URL changes on every restart (`trycloudflare.com`). The Kite redirect URL and the Telegram desk link break each time. | Use a named Cloudflare tunnel with a fixed hostname, or update the Kite console redirect every restart. | Operator + Claude |
 | P0-10 | Running source is not the frozen experiment config: `source_identity_mismatch`, `config_hash_mismatch`. | After fixes, commit, restart the backend once, confirm Build line = HEAD. | Claude |
 
@@ -86,8 +86,8 @@ Fix all of these before the first live order. Most are operator actions, not cod
 | ID | Finding | Fix |
 |---|---|---|
 | SB-1 | Doctor: Snapback preflight FAILED (`worktree_clean`, `config_identity`, `evidence_meta`, `dataset_start`, `allocation_capital`, `disk`). Several are waived but still printed as FAILED, which confuses the operator. | Fix P0-1/P0-2. Make the preflight line print only non-waived failures. |
-| SB-2 | No `SL ARMED` Telegram alert. Snapback emits `ENTRY FILLED`, `TSL ARMED`, `TSL UPDATED`, `POSITION CLOSED`. The operator never gets a message confirming the initial stop is at the broker. | Emit `SL ARMED` when protection becomes ACTIVE (`snapback_evidence_recorder` already records `PROTECTION_ACTIVE`). |
-| SB-3 | No `PROTECTION FAILED` Telegram alert for Snapback (Gamma has one). `PROTECTION_FAILED` is recorded only to evidence. | Route it to the Telegram outbox at CRITICAL severity. |
+| SB-2 | ~~No `SL ARMED` alert~~ **Withdrawn 2026-10-21.** The live path sends `SL ARMED` (`snapback_live_wiring.py:477`) through a local `alert(...)` helper the first search missed. | None. |
+| SB-3 | ~~No `PROTECTION FAILED` alert~~ **Withdrawn 2026-10-21.** Sent at CRITICAL with kill switch (`snapback_live_wiring.py:695`). | None. |
 | SB-4 | Hedge is mandatory for the edge. Confirm live entry refuses when the futures hedge leg fails, instead of leaving a naked option. `HEDGE_WAIVED` exists as an event. | Audit every `HEDGE_WAIVED` path; for real money, waiving must close the option leg. |
 | SB-5 | Status economic gate says "BLOCKED — strategy is unproven". This is correct and must stay visible. Do not hide it to make the UI look ready. | Keep. Shorten the text (see UI-3). |
 
@@ -96,7 +96,7 @@ Fix all of these before the first live order. Most are operator actions, not cod
 | ID | Finding | Fix |
 |---|---|---|
 | GM-1 | Gamma is **not** in the focus policy. `FocusedStrategy = Literal["snapback", "supertrend"]` (`app/core/focus.py:17`). Doctor shows only those two as originators. Gamma entries are governed only by its own `auto_execute` flag. | Decide: either add `gamma_unwind` to the focus policy so one switch governs all three, or document that Gamma is manual-only. One governance model, not two. |
-| GM-2 | Trailing alert is named `TSL SYNCED`, not `TSL UPDATED`. Also emits `T1 / BREAKEVEN`, `STOP TRIGGERED, SELL NOT FILLING`. | Rename to the shared set (TG-1). Keep the extra events, use the same style. |
+| GM-2 | **Fixed 2026-10-21.** Trailing alert was named `TSL SYNCED`, not `TSL UPDATED`. Also emits `T1 / BREAKEVEN`, `STOP TRIGGERED, SELL NOT FILLING`. | Rename to the shared set (TG-1). Keep the extra events, use the same style. |
 | GM-3 | `entry_trigger = "live_breakout"` default. Research says the trigger has no edge. | Keep `auto_execute=False`. Show "Manual" clearly on the board. |
 | GM-4 | `GammaMoveBoard.tsx:423-545` still branches on `mode.is_paper` and prints "Broker mode is unknown." | Replace with live/blocked states only (see PM-2). |
 | GM-5 | Gamma board has its own `<table>` for history cards (`GammaMoveBoard.tsx:202`) beside the shared `SignalBoard`. | Move history to the shared table spec or accept as a separate view; match font sizes (`ROW_METRICS`). |
@@ -107,7 +107,7 @@ Fix all of these before the first live order. Most are operator actions, not cod
 
 | ID | Finding | Fix |
 |---|---|---|
-| TG-1 | Lifecycle event names differ by engine. | One table for all three: `SIGNAL`, `ENTRY FILLED`, `SL ARMED`, `TSL UPDATED`, `PARTIAL EXIT`, `POSITION CLOSED`, `PROTECTION FAILED`, `ORDER OUTCOME UNKNOWN`. Map Gamma `TSL SYNCED` → `TSL UPDATED`; add SB-2/SB-3. |
+| TG-1 | Lifecycle event names differ by engine. | One table for all three: `SIGNAL`, `ENTRY FILLED`, `SL ARMED`, `TSL UPDATED`, `PARTIAL EXIT`, `POSITION CLOSED`, `PROTECTION FAILED`, `ORDER OUTCOME UNKNOWN`. Gamma `TSL SYNCED` → `TSL UPDATED` done. SB-2/SB-3 were already present. |
 | TG-2 | Delivery is proven in tests (51 pass) but not on a phone. | Send one test event per type; confirm receipt on the phone. |
 | TG-3 | Mini App URL is on the rotating tunnel (P0-9). | Fix with P0-9. |
 | TG-4 | Mini App `place_order` accepts any symbol/side/qty ≤100000 when `signal` is not true (`tma.py:303-326`). It goes through `place_manual_order`, which applies the live-safety gate. | Confirm the safety gate's lot cap applies here; lower the 100000 bound to the configured max lots. |
