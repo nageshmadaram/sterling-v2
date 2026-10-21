@@ -151,15 +151,22 @@ except Exception as exc:
 
 # ─── the bottom line ─────────────────────────────────────────────────────────
 head("BOTTOM LINE")
-print("Economic gate         INCONCLUSIVE")
-print("                      Snapback has not passed its evidence gate.")
-print("                      It needs 300+ real trades across 60+ sessions.")
+# The real admission answer, the same one every new order is checked against.
+try:
+    from app.services.live_runtime import live_status
+
+    admission = live_status()["admission"]
+    blockers = sorted({b for a in admission["accounts"] for b in a["blockers"]})
+    if admission["may_open_new_exposure"]:
+        line("New entries", "OPEN", "real money; exits always allowed")
+    else:
+        line("New entries", "BLOCKED", ", ".join(blockers) or "reason unknown")
+        if "safe_mode" in blockers:
+            line("", "Run: ./scripts/sterling-safe-mode status")
+except Exception as exc:
+    line("New entries", "UNKNOWN", f"could not read admission ({type(exc).__name__})")
 print()
-if safe.active:
-    print("Live trading          BLOCKED — safe mode is on.")
-    print("                      Run: ./scripts/sterling-safe-mode status")
-else:
-    print("Live trading          BLOCKED — the strategy is unproven.")
-    print("                      Sterling records evidence; it does not yet")
-    print("                      have permission to risk meaningful money.")
+print("Evidence              Snapback is not yet proven on real trades")
+print("                      (needs 300+ trades across 60+ sessions).")
+print("                      Informational: this does not block entries.")
 PY
