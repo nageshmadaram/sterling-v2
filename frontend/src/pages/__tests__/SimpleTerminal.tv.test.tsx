@@ -140,7 +140,24 @@ describe('Sterling Spectrum navigation and Home', () => {
     fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
     fireEvent.click(screen.getByRole('button',{name:'Sterling Home'}));
     expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
-    expect(screen.getByRole('button',{name:'Reload Radio'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Radio display settings'})).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Search radio stations'})).toBeInTheDocument();
+  });
+
+  it('puts Spotify, YouTube and Netflix in one compact media settings menu',()=>{
+    useExperienceOptions.getState().update({spectrumHome:'tv',spectrumLayout:'separate'});
+    render(<SimpleTerminal />);
+    const settings=screen.getByRole('button',{name:'TV display settings'});
+    expect(settings).toHaveAttribute('aria-expanded','false');
+    expect(screen.queryByRole('menuitemradio',{name:/Netflix/})).not.toBeInTheDocument();
+    fireEvent.click(settings);
+    expect(screen.getByRole('menuitemradio',{name:/Netflix/})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitemradio',{name:/Netflix/}));
+    expect(settings).toHaveAttribute('aria-expanded','false');
+    fireEvent.click(screen.getByRole('button',{name:'Search TV channels'}));
+    const input=screen.getByRole('searchbox',{name:'Search TV channels'});
+    fireEvent.change(input,{target:{value:'BBC'}});
+    expect(input).toHaveValue('BBC');
   });
 
   it('uses a configured TV landing tab and home setting', () => {
