@@ -362,6 +362,12 @@ class PositionState:
     # timeout, a cancelled task, a crash) can be found in the broker's order book.
     exit_tag: str = ""
     exit_submitted_ms: int = 0
+    # Trading mode and its extra exits (see modes.py). Empty mode on rows saved
+    # before modes existed reads as the reference hold.
+    mode: str = ""
+    time_limit_min: int = 0
+    max_sessions: int = 0
+    no_gap_carry: bool = False
 
     @property
     def effective_entry(self) -> float:
@@ -387,11 +393,19 @@ class PositionState:
 
     @classmethod
     def from_signal(cls, signal: GammaSignal, *, fill: float, quantity: int,
-                    lots: int, at_ms: int, day: str) -> "PositionState":
+                    lots: int, at_ms: int, day: str,
+                    trade_mode: str | None = None) -> "PositionState":
+        from .modes import resolve_mode
         inst = signal.contract.instrument
-        hold = "intraday" if signal.contract.dte is not None and signal.contract.dte <= 1 else "swing"
+        rules = resolve_mode(trade_mode, signal.contract.dte)
+        hold = rules.hold
         entry = q2(fill)
+        t1 = target_price(entry, T1_PCT, inst.tick_size)
         return cls(
+            mode=rules.mode,
+            time_limit_min=rules.time_limit_min,
+            max_sessions=rules.max_sessions,
+            no_gap_carry=rules.no_gap_carry,
             signal_id=signal.id,
             instrument=inst,
             list_name=signal.contract.list_name,
@@ -406,8 +420,10 @@ class PositionState:
             hold=hold,
             zone_edge=float(signal.contract.zone_edge),
             base_low=float(signal.base_low),
-            t1=target_price(entry, T1_PCT, inst.tick_size),
-            t2=target_price(entry, T2_PCT, inst.tick_size),
+            t1=t1,
+            # Ultra scalp books the whole position at T1: T2 equal to T1 makes
+            # the T1 tick a full close through the existing T2 path.
+            t2=t1 if rules.full_exit_at_t1 else target_price(entry, T2_PCT, inst.tick_size),
             # Reference D125: DTE<=1 gets base-low premium SL. Swing has no
             # premium SL before T1 and is governed by D68 daily closes.
             stop=q2(signal.base_low) if hold == "intraday" else 0.0,
