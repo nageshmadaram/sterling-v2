@@ -337,10 +337,10 @@
     const main=document.getElementById('main-scroll'),surface=document.getElementById('video-surface-card');
     if(!main||!surface)return;
     const controls=document.createElement('div');controls.className='tm-pip-controls';controls.innerHTML=action('pip-return','Return to playing channel','screen')+action('pip-dismiss','Dismiss floating player','close');surface.append(controls);
-    let previousTop=0;
     const onScroll=()=>{
-      const top=main.scrollTop,delta=top-previousTop;
-      if(Math.abs(delta)>5||top<20){document.body.classList.toggle('tm-chips-hidden',top>32&&delta>0);previousTop=top;}
+      // Scroll must not change the height of headers or filter rows. Collapsing
+      // them changes scrollTop and feeds back into the direction detector.
+      if(!mobile.matches)return;
       // Measure the in-flow anchor, not the floating video or sticky stage:
       // those move when PiP activates and would cause visible oscillation.
       const anchor=document.getElementById('mobile-sticky-player-wrap');
@@ -382,7 +382,21 @@
     if(isMobile()&&(!args[1]))renderHome();
     schedule();
   };
-  const originalBatch=renderNextBatch;renderNextBatch=function(...args){originalBatch(...args);document.querySelectorAll('#yt-studio-grid>.channel-grid-card').forEach((card,i)=>{if(filteredChannels[i]){card.dataset.tmChannel=filteredChannels[i].url;card.onclick=null;}});if(isMobile()&&currentTheme==='spotify'){[...document.querySelectorAll('#yt-studio-grid>.channel-grid-card')].forEach((card,i)=>{const ch=filteredChannels[i];if(ch)card.querySelectorAll('img').forEach(img=>{img.src=artwork(ch);img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};});});}};
+  const originalBatch=renderNextBatch;renderNextBatch=function(...args){
+    const firstNew=renderedItems;
+    originalBatch(...args);
+    // Appending a page must not rewrite old images/handlers: that restarts
+    // artwork decoding and repaints tiles while the user is scrolling.
+    const cards=document.getElementById('yt-studio-grid')?.children||[];
+    for(let i=firstNew;i<cards.length;i++){
+      const card=cards[i],ch=filteredChannels[i];if(!ch)continue;
+      card.dataset.tmChannel=ch.url;card.onclick=null;
+      if(isMobile()&&currentTheme==='spotify')card.querySelectorAll('img').forEach(img=>{
+        const source=artwork(ch);if(img.getAttribute('src')!==source)img.src=source;
+        img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};
+      });
+    }
+  };
   const originalRender=renderViewport;renderViewport=function(...args){
     originalRender(...args);
     // Search inputs and filter changes must not rebuild the entire home shelf
