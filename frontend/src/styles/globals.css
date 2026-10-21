@@ -1781,3 +1781,15 @@ body > .sterling-profile-modal > .profile-panel {
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile>span:nth-child(2) {display:none;}
   :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-expanded-search {right:-48px;}
 }
+
+/* Mobile app style previously hid direct header buttons and fallback initials. */
+body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-header-row > button.sterling-profile {
+  display:inline-flex!important;min-width:40px;min-height:40px;max-width:44px;
+  flex-shrink:0;justify-content:center;align-items:center;
+}
+body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile > span:first-child {
+  display:grid!important;place-items:center;width:34px;height:34px;padding:0!important;
+}
+body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile > img {
+  display:block!important;width:34px;height:34px;flex-shrink:0;
+}
