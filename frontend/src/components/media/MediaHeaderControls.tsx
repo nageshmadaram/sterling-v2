@@ -18,6 +18,14 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
   const [settingsOpen, setSettingsOpen] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const previousQuery = useRef(query);
+
+  useEffect(() => {
+    // A selected channel or station clears its query via the iframe bridge.
+    // Collapse the bar when that happens; reopening is one search-icon tap.
+    if(previousQuery.current.trim() && !query.trim())setSearchOpen(false);
+    previousQuery.current=query;
+  },[query]);
 
   useEffect(() => {
     const focusFromPlayer = () => {
@@ -48,10 +56,8 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
 
   const toggleSearch = () => {
     setSettingsOpen(false);
-    setSearchOpen(current => {
-      if (!current) requestAnimationFrame(() => searchInput.current?.focus());
-      return !current;
-    });
+    if(!searchOpen)requestAnimationFrame(()=>searchInput.current?.focus());
+    setSearchOpen(!searchOpen);
   };
   const themes: { id: MediaTheme; label: string; note: string }[] = [
     { id: 'spotify', label: 'Spotify', note: 'Library and music-style player' },
