@@ -219,12 +219,6 @@ export function SimpleTerminal() {
             </span>
           </button>
           {spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>}
-{spectrum==='tv' && <MediaHeaderControls
-            kind="tv" theme={tvState.theme} query={tvState.query}
-            onTheme={theme=>{setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}
-            onQuery={query=>{setTvState(s=>({...s,query}));tvCommand('search',query);}}
-            onEnter={()=>tvCommand('play-search')} onFeatures={()=>tvCommand('more')}
-          />}
 
           <div style={{ flex: 1 }} />
           {spectrum === 'kite' && <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
@@ -293,6 +287,13 @@ export function SimpleTerminal() {
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
+          
+          {spectrum==='tv' && <MediaHeaderControls
+            kind="tv" theme={tvState.theme} query={tvState.query}
+            onTheme={theme=>{setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}
+            onQuery={query=>{setTvState(s=>({...s,query}));tvCommand('search',query);}}
+            onEnter={()=>tvCommand('play-search')} onFeatures={()=>tvCommand('more')}
+          />}
           {spectrum === 'radio' && <MediaHeaderControls
             kind="radio" theme={radioState.theme} query={radioState.query}
             onTheme={theme=>{setRadioState(s=>({...s,theme}));radioCommand('theme',theme);}}
