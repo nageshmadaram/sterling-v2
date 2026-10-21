@@ -4611,7 +4611,13 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   const originalTheme=switchTheme;switchTheme=function(...args){originalTheme(...args);schedule();};
   const originalPlay=playStream;playStream=function(...args){pipDismissed=false;originalPlay(...args);applyBackdrop();if(isMobile()&&(!args[1]))renderHome();schedule();};
   const originalBatch=renderNextBatch;renderNextBatch=function(...args){originalBatch(...args);document.querySelectorAll('#yt-studio-grid>.channel-grid-card').forEach((card,i)=>{if(filteredChannels[i]){card.dataset.tmChannel=filteredChannels[i].url;card.onclick=null;}});if(isMobile()&&currentTheme==='spotify'){[...document.querySelectorAll('#yt-studio-grid>.channel-grid-card')].forEach((card,i)=>{const ch=filteredChannels[i];if(ch)card.querySelectorAll('img').forEach(img=>{img.src=artwork(ch);img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};});});}};
-  const originalRender=renderViewport;renderViewport=function(...args){originalRender(...args);if(isMobile())renderHome();schedule();};
+  const originalRender=renderViewport;renderViewport=function(...args){
+    originalRender(...args);
+    // Search inputs and filter changes must not rebuild the entire home shelf
+    // on every keystroke while the home view is not visible.
+    if(isMobile() && view==='home')renderHome();
+    schedule();
+  };
   const originalRebuild=rebuildCombinedChannelCatalog;rebuildCombinedChannelCatalog=function(...args){originalRebuild(...args);if(searchInputEl.value.trim())renderViewport();};
   const originalDock=dockVideoToTopLeftMini;dockVideoToTopLeftMini=function(value){if(isMobile())return;originalDock(value);};
   const video=document.getElementById('video-player');['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
