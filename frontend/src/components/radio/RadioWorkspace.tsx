@@ -29,7 +29,7 @@ function readRadioPrefs() {
  * inherited access to Sterling's DOM, auth cookies, Kite API or storage.
  * Only four isolated Radio keys are accepted through the message bridge.
  */
-export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'spotify'|'youtube';query:string})=>void;onPlayerState?:(expanded:boolean)=>void}) {
+export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'spotify'|'youtube'|'netflix';query:string})=>void;onPlayerState?:(expanded:boolean)=>void}) {
   const stateRef = useRef(onState);
   stateRef.current = onState;
   const playerStateRef=useRef(onPlayerState);
@@ -63,7 +63,7 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
         frame.contentWindow?.postMessage({type:'sterling.radio.ack'}, '*');
         commandsRef.current.splice(0).forEach(command => frame.contentWindow?.postMessage({type:'sterling.radio.command',...command},'*'));
       } else if (message.type === 'sterling.radio.state') {
-        if ((message.theme === 'spotify' || message.theme === 'youtube') && typeof message.query === 'string' && message.query.length <= 200)
+        if ((message.theme === 'spotify' || message.theme === 'youtube' || message.theme === 'netflix') && typeof message.query === 'string' && message.query.length <= 200)
           stateRef.current?.({theme:message.theme,query:message.query});
       } else if(message.type === 'sterling.radio.player-state') {
         if(typeof message.expanded==='boolean')playerStateRef.current?.(message.expanded);
