@@ -199,3 +199,37 @@ test('TV menu resizes and player exposes honest programme info and instant PiP',
  await frame.locator('#video-surface-card').dispatchEvent('pointerdown');
  await expect(frame.locator('#custom-video-hud')).not.toHaveClass(/mobile-hud-hidden/);
 });
+
+for(const theme of ['spotify','youtube','netflix']){
+ test(`${theme} bottom scrolling keeps filter rows stable and preserves loaded cards`,async({page})=>{
+  const frame=await seededTv(page);
+  await frame.locator('body').evaluate((theme)=>{(window as any).eval(`switchTheme(${JSON.stringify(theme)});renderViewport();`);},theme);
+  const before=await frame.locator('body').evaluate(()=>{
+   const row=document.getElementById('sticky-chip-bar')!;
+   const first=document.querySelector('#yt-studio-grid .channel-grid-card')!;
+   (window as any).__firstCard=first;
+   (window as any).__imageWrites=0;
+   new MutationObserver(records=>{(window as any).__imageWrites+=records.length;}).observe(first,{subtree:true,attributes:true,attributeFilter:['src']});
+   (window as any).__scrollTransitions=0;
+   let hidden=document.body.classList.contains('tm-chips-hidden');
+   new MutationObserver(()=>{const next=document.body.classList.contains('tm-chips-hidden');if(next!==hidden){(window as any).__scrollTransitions++;hidden=next;}}).observe(document.body,{attributes:true,attributeFilter:['class']});
+   return {height:row.getBoundingClientRect().height,count:document.querySelectorAll('#yt-studio-grid .channel-grid-card').length};
+  });
+  const main=frame.locator('#main-scroll');
+  // Cross the old collapse threshold in both directions, then reach pagination.
+  for(const top of [90,50,120,70]){
+   await main.evaluate((el,top)=>el.scrollTo({top,behavior:'instant'}),top);
+   await page.waitForTimeout(40);
+  }
+  await main.evaluate(el=>el.scrollTo({top:el.scrollHeight,behavior:'instant'}));
+  await expect.poll(()=>frame.locator('#yt-studio-grid .channel-grid-card').count()).toBeGreaterThan(before.count);
+  await page.waitForTimeout(200);
+  const after=await frame.locator('body').evaluate(()=>({
+   height:document.getElementById('sticky-chip-bar')!.getBoundingClientRect().height,
+   sameCard:(window as any).__firstCard===document.querySelector('#yt-studio-grid .channel-grid-card'),
+   imageWrites:(window as any).__imageWrites,transitions:(window as any).__scrollTransitions
+  }));
+  expect(after.height).toBe(before.height);expect(after.sameCard).toBe(true);
+  expect(after.imageWrites).toBe(0);expect(after.transitions).toBe(0);
+ });
+}

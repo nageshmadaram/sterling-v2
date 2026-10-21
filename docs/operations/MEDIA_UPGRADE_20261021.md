@@ -100,3 +100,13 @@ and manual review of mobile comfort-sheet screenshots.
 - Regression checks: 71 frontend tests; Chrome flows cover queue traversal and
   selection, 84-channel pagination, 28-channel Indian subset, menu resize, guide
   status, native PiP dispatch, and timed HUD visibility.
+
+## Scroll stability correction
+
+Removed direction-driven filter collapse: changing row height during scroll
+caused scroll anchoring to reverse the detected direction and repeatedly hide /
+show the rows. Filter rows retain their height. Pagination now initializes only
+new cards and preserves existing artwork sources and handlers. Chrome regression
+flows cover bottom scrolling, automatic batch loading, fixed row geometry,
+existing card identity and zero image-source writes in all three TV themes.
+Validation: 12 Chrome browser flows and 26 runtime/security tests passed.
