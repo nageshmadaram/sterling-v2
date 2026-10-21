@@ -2957,7 +2957,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       // Updates ONLY active player surfaces; channel grids keep their clean station covers
       ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.src = validUrl;
+        if (el) { delete el.dataset.radioFallbackApplied; el.src = validUrl; }
       });
 
       ['sp-np-sub', 'sp-bar-sub', 'sp-mini-sub', 'ytm-bar-sub', 'ytm-mini-sub', 'ytm-stage-sub', 'sheet-sub'].forEach(id => {
@@ -3034,7 +3034,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (overrideArt) {
         ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {
           const el = document.getElementById(id);
-          if (el) el.src = overrideArt;
+          if (el) { delete el.dataset.radioFallbackApplied; el.src = overrideArt; }
         });
       }
 
@@ -3440,6 +3440,17 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       return `${m}:${s < 10 ? '0' : ''}${s}`;
     }
 
+    // Remote station favicons can disappear. Fall back to a locally generated
+    // cover rather than displaying broken thumbnails in player and results.
+    document.addEventListener('error',event=>{
+      const img=event.target;
+      if(!(img instanceof HTMLImageElement)||img.dataset.radioFallbackApplied==='1')return;
+      const stationId=img.closest('[data-radio-arg]')?.getAttribute('data-radio-arg');
+      const station=(stationId && (catalogItems.find(ch=>ch.id===stationId)||findStationById(stationId)))||activeStream;
+      if(!station)return;
+      img.dataset.radioFallbackApplied='1';
+      img.src=getStationIdentityThumbnail({...station,artwork:null});
+    },true);
     // Real listeners keep static controls and generated station cards actionable
     // when a reverse proxy disallows inline event attributes. No eval is used.
     const enhanceRadioControls=root=>{
