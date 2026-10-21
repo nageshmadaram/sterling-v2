@@ -322,7 +322,16 @@
     video.addEventListener('volumechange',schedule);
   }
   const originalTheme=switchTheme;switchTheme=function(...args){originalTheme(...args);schedule();};
-  const originalPlay=playStream;playStream=function(...args){pipDismissed=false;originalPlay(...args);applyBackdrop();if(isMobile()&&(!args[1]))renderHome();schedule();};
+  const originalPlay=playStream;playStream=function(...args){
+    pipDismissed=false;
+    originalPlay(...args);
+    // All channel entry points (grid tiles, recommendations, queue, keyboard
+    // search and external header) must leave search mode consistently.
+    if(searchInputEl.value.trim())clearSelectionSearch();
+    applyBackdrop();
+    if(isMobile()&&(!args[1]))renderHome();
+    schedule();
+  };
   const originalBatch=renderNextBatch;renderNextBatch=function(...args){originalBatch(...args);document.querySelectorAll('#yt-studio-grid>.channel-grid-card').forEach((card,i)=>{if(filteredChannels[i]){card.dataset.tmChannel=filteredChannels[i].url;card.onclick=null;}});if(isMobile()&&currentTheme==='spotify'){[...document.querySelectorAll('#yt-studio-grid>.channel-grid-card')].forEach((card,i)=>{const ch=filteredChannels[i];if(ch)card.querySelectorAll('img').forEach(img=>{img.src=artwork(ch);img.onerror=()=>{img.onerror=null;img.src=artwork({...ch,logo:''});};});});}};
   const originalRender=renderViewport;renderViewport=function(...args){
     originalRender(...args);
