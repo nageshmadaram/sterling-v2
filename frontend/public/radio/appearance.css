@@ -118,8 +118,14 @@ html.radio-searching #spotify-app .snap-carousel-heading,
 html.radio-searching #spotify-app #sw-tuner-deck,
 html.radio-searching #spotify-app [id^="sp-mchip"],
 html.radio-searching #ytmusic-app [id^="ytm-mchip"] {display:none!important;}
-.radio-hosted body #spotify-app>header:nth-child(2) {display:none!important;}
-.radio-hosted body #ytmusic-app>header:nth-child(2) {display:none!important;}
+/* Keep home discovery categories reachable; hide redundant theme/search controls
+   inside the iframe (those live in Sterling's shared top header). */
+html.radio-hosted #spotify-app>header:nth-child(2) [data-radio-click="28"],
+html.radio-hosted #spotify-app>header:nth-child(2) [data-radio-click="30"],
+html.radio-hosted #spotify-app>header:nth-child(2) #sp-mob-search-bar,
+html.radio-hosted #ytmusic-app [data-radio-click="30"] {display:none!important;}
+html.radio-hosted.radio-searching #spotify-app>header:nth-child(2),
+html.radio-hosted.radio-searching #ytmusic-app>header:nth-child(2) {display:none!important;}
 @media(max-width:767px) {
   #mobile-player-sheet {padding:16px 22px calc(18px + env(safe-area-inset-bottom,0px))!important;}
   #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(80vw,320px)!important;max-height:min(45dvh,320px)!important;margin-inline:auto;}
