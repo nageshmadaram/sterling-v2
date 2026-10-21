@@ -117,13 +117,13 @@ export function SuperTrendEnginePanel() {
         liveOn={serverCfg?.engine_enabled ?? on}
         busy={saving}
         onToggle={() => patch({ engine_enabled: !on })}
-        runningNote="Scans for new SuperTrend signals. Existing positions are also managed."
-        offNote="New SuperTrend scans are off. Existing positions still reconcile with the broker and keep protection, expiry exits, and time-stop exits."
+        runningNote="Scanning for signals. Open trades are managed."
+        offNote="Scanning is off. Open trades keep their stops and exits."
       />
 
       <PanelCard>
-        <Section title="Trading horizon" summary={cfg.horizon_mode ?? 'swing'} description="Signal candles and holding rules for new positions. Mode changes require existing SuperTrend positions to be closed." defaultOpen persistKey="st-horizon">
-          <Field label="Mode" hint="Intraday modes close by 15:20 IST. Overnight holds at most three sessions and does not carry over weekends or holiday gaps.">
+        <Section title="Trading horizon" summary={cfg.horizon_mode ?? 'swing'} description="Candle size and hold time. Close open trades before changing." defaultOpen persistKey="st-horizon">
+          <Field label="Mode" hint="Intraday exits by 15:20. Overnight holds up to 3 days, never over weekends.">
             <ChoiceRow value={cfg.horizon_mode ?? 'swing'} options={[
               { value: 'ultra_scalping', label: 'Ultra scalping' }, { value: 'scalping', label: 'Scalping' },
               { value: 'intraday', label: 'Intraday' }, { value: 'overnight', label: 'Overnight' }, { value: 'swing', label: 'Swing' },
@@ -259,12 +259,7 @@ export function SuperTrendEnginePanel() {
             </div>
           </Field>
           <ConfigNote>
-            Measured on 7.5 years of real 1H candles across all four indices, with
-            costs and slippage: the short book netted about zero over 1102 trades
-            while the long book earned the entire return. Long-only takes slightly
-            more money on half the trades, with a quarter less drawdown
-            (profit factor 1.54 vs 1.25, worst drawdown 19.9% vs 26.0%). Closing a
-            position is unaffected either way.
+            Tested on 7.5 years of index data: shorts made about nothing. Long-only makes a bit more with less drawdown.
           </ConfigNote>
         </Section>
 

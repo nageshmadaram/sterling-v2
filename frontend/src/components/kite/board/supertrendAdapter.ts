@@ -102,13 +102,13 @@ function marksOf(row: EngineSignalRow, opts: SuperTrendAdapterOptions): BoardOri
 function originOf(row: EngineSignalRow): BoardOrigin | undefined {
   switch (row.source) {
     case 'spot':
-      return { label: 'SPOT', tone: 'brand', hint: "Read from the underlying's own chart. The option legs are candidates to buy." };
+      return { label: 'SPOT', tone: 'brand', hint: "From the stock or index chart. Options shown to buy." };
     case 'derivatives':
       return { label: 'PREMIUM', tone: 'blue', hint: "Read from this option's own premium chart." };
     case 'confluence':
       return { label: 'BOTH AGREE', tone: 'green', hint: "The underlying fired and this option's own premium confirmed it." };
     case 'navigator':
-      return { label: 'NAVIGATOR', tone: 'purple', hint: "Found by the Value-Flow Navigator from its own AVWAP and flow evidence — no SuperTrend trigger at all." };
+      return { label: 'NAVIGATOR', tone: 'purple', hint: "Found by Navigator, not SuperTrend." };
     default:
       return undefined;
   }
@@ -409,7 +409,7 @@ function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterO
 
   const counter = leg.exit_state ?? row.exit_state;
   if (counter && !reason) {
-    flags.push({ label: counter, tone: 'dim', hint: 'SuperTrend lines currently turned against this position, out of the number needed to close it.' });
+    flags.push({ label: counter, tone: 'dim', hint: 'Red lines now, out of how many close the trade.' });
   }
 
   // A second entry on an instrument whose earlier trade is still running is a
@@ -417,7 +417,7 @@ function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterO
   // doubles the exposure on one idea.
   const firstEntry = opts.originalEntryMs?.get(`${row.underlying}|${row.direction}|${row.source ?? 'spot'}`);
   if (firstEntry != null && row.timestamp_ms > firstEntry) {
-    flags.push({ label: 're-entry', tone: 'purple', hint: 'An earlier entry on this instrument is still running. This adds to that idea rather than starting a new one.' });
+    flags.push({ label: 're-entry', tone: 'purple', hint: 'Adds to a trade already open on this name.' });
   }
 
   return flags;
