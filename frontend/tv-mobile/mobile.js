@@ -288,8 +288,13 @@
     }catch{}
   }
   function tvSuggestions(query) {
-    const pool=query.trim()?getRankedSearchMatches(query):[...recentHistory,...favorites,...VERIFIED_STREAMS];
-    return pool.filter(isChannelVisible).filter((ch,i,all)=>all.findIndex(other=>other.url===ch.url)===i).slice(0,8);
+    if(query.trim())return getRankedSearchMatches(query,8);
+    const seen=new Set(),items=[];
+    for(const ch of [...recentHistory,...favorites,...VERIFIED_STREAMS]) {
+      if(!isChannelVisible(ch)||seen.has(ch.url))continue;
+      seen.add(ch.url);items.push(ch);if(items.length===8)break;
+    }
+    return items;
   }
   function publishSuggestions(query, requestId) {
     const items=tvSuggestions(query);
