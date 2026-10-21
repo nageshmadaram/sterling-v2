@@ -13,6 +13,7 @@ and it is fine", never "I could not look".
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from app.core.health import (
@@ -22,6 +23,9 @@ from app.core.health import (
     compose_health,
 )
 from app.core.lane_registry import dashboard_rows
+
+#: Repository root (beside backend/), for defaults the service process lacks.
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 
 #: Exit codes for the operator CLI. Distinct so a wrapper script can react.
 EXIT_OK = 0
@@ -295,6 +299,11 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         physically attached needs a different fix from one that is missing, so
         the reason says which.
         """
+        import sys
+
+        # kitelake lives at the repo root, which the service does not put on sys.path.
+        if str(_REPO_ROOT) not in sys.path:
+            sys.path.insert(0, str(_REPO_ROOT))
         from kitelake.volume import lake_status
 
         status = lake_status()
@@ -417,7 +426,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         backup_root = Path(
             os.environ.get("STERLING_BACKUP_ROOT")
             or os.environ.get("STERLING_SNAPBACK_BACKUP_ROOT")
-            or Path(os.environ.get("STERLING_ROOT", ".")) / "backups" / "snapback"
+            or Path(os.environ.get("STERLING_ROOT") or _REPO_ROOT) / "backups" / "snapback"
         )
         directory = latest_backup_dir(backup_root)
         if directory is None:
@@ -447,7 +456,7 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         backup_root = Path(
             os.environ.get("STERLING_BACKUP_ROOT")
             or os.environ.get("STERLING_SNAPBACK_BACKUP_ROOT")
-            or Path(os.environ.get("STERLING_ROOT", ".")) / "backups" / "snapback"
+            or Path(os.environ.get("STERLING_ROOT") or _REPO_ROOT) / "backups" / "snapback"
         )
         directory = latest_backup_dir(backup_root)
         if directory is None:
@@ -467,7 +476,11 @@ def lane_doctor_checks() -> tuple[DoctorCheck, ...]:
         """Operator safe mode. An unreadable state already fails closed elsewhere."""
         from app.services.safe_mode import SafeModeService
 
-        path = os.environ.get("STERLING_SAFE_MODE_FILE")
+        # The running service may not carry sterlingctl's exports; read the same
+        # file live admission enforces rather than reporting "no home".
+        from app.services.safety_supervisor import safe_mode_path
+
+        path = os.environ.get("STERLING_SAFE_MODE_FILE") or str(safe_mode_path() or "")
         if not path:
             return None, "STERLING_SAFE_MODE_FILE is unset; the safety state has no home"
         state = SafeModeService(path).read()

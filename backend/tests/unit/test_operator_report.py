@@ -527,3 +527,18 @@ def test_account_binding_ignores_age_only(monkeypatch, intact_when_new, usable, 
     assert check.passed is expected
     if expected:
         assert 're-verified before every order' in check.detail
+
+
+def test_safe_mode_check_uses_the_service_path_when_env_is_unset(monkeypatch, tmp_path):
+    """The service does not export STERLING_SAFE_MODE_FILE; it must not read as 'no home'."""
+    from app.core.operator_report import lane_doctor_checks
+    from app.services import safety_supervisor
+    from app.services.safe_mode import SafeModeService
+
+    path = tmp_path / 'safe_mode.json'
+    SafeModeService(path)  # fresh file reads NORMAL
+    monkeypatch.delenv('STERLING_SAFE_MODE_FILE', raising=False)
+    monkeypatch.setattr(safety_supervisor, 'safe_mode_path', lambda: path)
+    check = _by_name(lane_doctor_checks())['safe_mode_state']
+    assert check.passed is True
+    assert check.detail == 'NORMAL'
