@@ -160,8 +160,14 @@ async def main(days: int) -> None:
     for d in sessions:
         res = await hist.replay_day(uid, d, replace(cfg, trade_mode="auto"))
         entries = [s for s in res.get("signals", []) if str(s.get("tier")) == TIER_ENTRY]
+        tiers = {}
+        for s in res.get("signals", []):
+            tiers[str(s.get("tier"))] = tiers.get(str(s.get("tier")), 0) + 1
+        notes = res.get("coverage") or []
         coverage.append({"day": d.isoformat(), "entries": len(entries), "complete": res.get("complete"),
-                         "issue": res.get("issue")})
+                         "issue": res.get("issue"), "watchlist": len(res.get("watchlist") or []),
+                         "tiers": tiers, "gaps": len(notes), "gap_samples": [str(n)[:160] for n in notes[:5]]})
+        print("   watch", len(res.get("watchlist") or []), "tiers", tiers, "gaps", len(notes), flush=True)
         print(f"{d} entries={len(entries)} complete={res.get('complete')} {res.get('issue') or ''}", flush=True)
         for s in entries:
             try:

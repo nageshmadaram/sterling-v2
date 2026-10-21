@@ -1,0 +1,416 @@
+{
+  "generated": "2026-10-22T01:23:10.455847+05:30",
+  "sessions": [
+    "2026-09-28",
+    "2026-09-29",
+    "2026-09-30",
+    "2026-10-01",
+    "2026-10-05",
+    "2026-10-06",
+    "2026-10-07",
+    "2026-10-08",
+    "2026-10-09",
+    "2026-10-12",
+    "2026-10-13",
+    "2026-10-14",
+    "2026-10-15",
+    "2026-10-16",
+    "2026-10-19"
+  ],
+  "signals": 1,
+  "skipped_no_data": 0,
+  "costs": {
+    "slippage_per_leg": 0.01,
+    "fixed_per_trade_inr": 60.0
+  },
+  "coverage": [
+    {
+      "day": "2026-09-28",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: CONCOR/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 77,
+      "tiers": {},
+      "gaps": 6,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "CONCOR/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "INDUSTOWER/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired seri",
+        "MPHASIS/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "OIL/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-09-29",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: BOSCHLTD/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 81,
+      "tiers": {},
+      "gaps": 10,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "BOSCHLTD/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series",
+        "COLPAL/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "MAXHEALTH/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired serie",
+        "MPHASIS/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-09-30",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: CIPLA: Too many requests",
+      "watchlist": 87,
+      "tiers": {
+        "WATCH ONLY": 1
+      },
+      "gaps": 2,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "CIPLA: Too many requests"
+      ]
+    },
+    {
+      "day": "2026-10-01",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: ALKEM/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 111,
+      "tiers": {},
+      "gaps": 11,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "ALKEM/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "BPCL/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "CANBK/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "INOXWIND/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series"
+      ]
+    },
+    {
+      "day": "2026-10-05",
+      "entries": 1,
+      "complete": false,
+      "issue": "historical replay incomplete: DIXON: Too many requests",
+      "watchlist": 104,
+      "tiers": {
+        "ENTRY": 1
+      },
+      "gaps": 8,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "DIXON: Too many requests",
+        "INOXWIND/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series",
+        "NAM-INDIA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired serie",
+        "NHPC/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-06",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: FORCEMOT/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 97,
+      "tiers": {
+        "WATCH ONLY": 1
+      },
+      "gaps": 4,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "FORCEMOT/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series",
+        "IREDA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "SWIGGY/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-07",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: IREDA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 82,
+      "tiers": {},
+      "gaps": 4,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "IREDA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "NAM-INDIA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired serie",
+        "SAIL/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-08",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: BANDHANBNK/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 92,
+      "tiers": {},
+      "gaps": 7,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "BANDHANBNK/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired seri",
+        "FORCEMOT/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series",
+        "JSWENERGY/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired serie",
+        "SAIL/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-09",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: LTM: Too many requests",
+      "watchlist": 89,
+      "tiers": {},
+      "gaps": 2,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "LTM: Too many requests"
+      ]
+    },
+    {
+      "day": "2026-10-12",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 85,
+      "tiers": {},
+      "gaps": 2,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-13",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: FORCEMOT/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 68,
+      "tiers": {},
+      "gaps": 3,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "FORCEMOT/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series",
+        "NAM-INDIA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired serie"
+      ]
+    },
+    {
+      "day": "2026-10-14",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: NHPC/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 67,
+      "tiers": {
+        "NEAR ENTRY": 1
+      },
+      "gaps": 2,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "NHPC/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-15",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 105,
+      "tiers": {
+        "WATCH ONLY": 1
+      },
+      "gaps": 25,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "ALKEM/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "AXISBANK/BREAKOUT-CE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "CGPOWER/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-16",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 97,
+      "tiers": {},
+      "gaps": 13,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "BANKBARODA/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired seri",
+        "DRREDDY/BREAKOUT-CE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "INDHOTEL/BREAKOUT-CE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    },
+    {
+      "day": "2026-10-19",
+      "entries": 0,
+      "complete": false,
+      "issue": "historical replay incomplete: ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+      "watchlist": 84,
+      "tiers": {},
+      "gaps": 20,
+      "gap_samples": [
+        "dated instrument master unavailable; replay uses the current live master, so expired option series cannot be reconstructed",
+        "ABB/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "COLPAL/BREAKDOWN-PE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "DRREDDY/BREAKOUT-CE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)",
+        "FORCEMOT/BREAKOUT-CE: option contracts existed in the date-effective master but historical option candles/OI are unavailable from Kite (commonly expired series)"
+      ]
+    }
+  ],
+  "summary": {
+    "auto": {
+      "trades": 1,
+      "win_rate": 0.0,
+      "net_inr": -530.4,
+      "avg_net_inr": -530.4,
+      "worst_inr": -530.4,
+      "best_inr": -530.4,
+      "avg_minutes": 4094,
+      "exits": {
+        "TRAIL": 1
+      }
+    },
+    "ultra_scalping": {
+      "trades": 1,
+      "win_rate": 0.0,
+      "net_inr": -1362.0,
+      "avg_net_inr": -1362.0,
+      "worst_inr": -1362.0,
+      "best_inr": -1362.0,
+      "avg_minutes": 2,
+      "exits": {
+        "SL": 1
+      }
+    },
+    "scalping": {
+      "trades": 1,
+      "win_rate": 0.0,
+      "net_inr": -1362.0,
+      "avg_net_inr": -1362.0,
+      "worst_inr": -1362.0,
+      "best_inr": -1362.0,
+      "avg_minutes": 2,
+      "exits": {
+        "SL": 1
+      }
+    },
+    "intraday": {
+      "trades": 1,
+      "win_rate": 0.0,
+      "net_inr": -1362.0,
+      "avg_net_inr": -1362.0,
+      "worst_inr": -1362.0,
+      "best_inr": -1362.0,
+      "avg_minutes": 2,
+      "exits": {
+        "SL": 1
+      }
+    },
+    "overnight": {
+      "trades": 1,
+      "win_rate": 1.0,
+      "net_inr": 3469.2,
+      "avg_net_inr": 3469.2,
+      "worst_inr": 3469.2,
+      "best_inr": 3469.2,
+      "avg_minutes": 12960,
+      "exits": {
+        "SESSION_LIMIT": 1
+      }
+    },
+    "swing": {
+      "trades": 1,
+      "win_rate": 0.0,
+      "net_inr": -530.4,
+      "avg_net_inr": -530.4,
+      "worst_inr": -530.4,
+      "best_inr": -530.4,
+      "avg_minutes": 4094,
+      "exits": {
+        "TRAIL": 1
+      }
+    }
+  },
+  "trades": [
+    {
+      "mode": "auto",
+      "hold": "swing",
+      "symbol": "HCLTECH26OCT1220PE",
+      "day": "2026-10-05",
+      "entry": 58.8,
+      "exit": 58.8,
+      "reason": "TRAIL",
+      "lot": 400,
+      "gross": 0.0,
+      "net": -530.4,
+      "minutes": 4094
+    },
+    {
+      "mode": "ultra_scalping",
+      "hold": "intraday",
+      "symbol": "HCLTECH26OCT1220PE",
+      "day": "2026-10-05",
+      "entry": 58.8,
+      "exit": 56.7,
+      "reason": "SL",
+      "lot": 400,
+      "gross": -840.0,
+      "net": -1362.0,
+      "minutes": 2
+    },
+    {
+      "mode": "scalping",
+      "hold": "intraday",
+      "symbol": "HCLTECH26OCT1220PE",
+      "day": "2026-10-05",
+      "entry": 58.8,
+      "exit": 56.7,
+      "reason": "SL",
+      "lot": 400,
+      "gross": -840.0,
+      "net": -1362.0,
+      "minutes": 2
+    },
+    {
+      "mode": "intraday",
+      "hold": "intraday",
+      "symbol": "HCLTECH26OCT1220PE",
+      "day": "2026-10-05",
+      "entry": 58.8,
+      "exit": 56.7,
+      "reason": "SL",
+      "lot": 400,
+      "gross": -840.0,
+      "net": -1362.0,
+      "minutes": 2
+    },
+    {
+      "mode": "overnight",
+      "hold": "swing",
+      "symbol": "HCLTECH26OCT1220PE",
+      "day": "2026-10-05",
+      "entry": 58.8,
+      "exit": 68.9,
+      "reason": "SESSION_LIMIT",
+      "lot": 400,
+      "gross": 4040.0,
+      "net": 3469.2,
+      "minutes": 12960
+    },
+    {
+      "mode": "swing",
+      "hold": "swing",
+      "symbol": "HCLTECH26OCT1220PE",
+      "day": "2026-10-05",
+      "entry": 58.8,
+      "exit": 58.8,
+      "reason": "TRAIL",
+      "lot": 400,
+      "gross": 0.0,
+      "net": -530.4,
+      "minutes": 4094
+    }
+  ]
+}
