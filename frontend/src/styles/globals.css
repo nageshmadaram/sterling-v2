@@ -1793,3 +1793,18 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
 body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-profile > img {
   display:block!important;width:34px;height:34px;flex-shrink:0;
 }
+
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-destinations {
+  flex:0 1 auto;min-width:0;max-width:min(35vw,360px);overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:none;overscroll-behavior-inline:contain;
+}
+:is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-destinations::-webkit-scrollbar {display:none;}
+@media(max-width:440px){
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-destinations {
+    max-width:calc(100vw - 235px);
+  }
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-home-button>span:last-child {
+    display:inline!important;font-size:11px!important;letter-spacing:0!important;
+  }
+  :is(.sterling-tv-mode,.sterling-radio-mode) .sterling-media-quick-actions {gap:0;}
+}
