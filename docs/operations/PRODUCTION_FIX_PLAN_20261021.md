@@ -77,8 +77,9 @@ Fix all of these before the first live order. Most are operator actions, not cod
 | ID | Finding | Fix |
 |---|---|---|
 | ST-1 | Two renderers. Default is the shared `SignalBoard`, but the old `classic` table still lives inside `SterlingKiteEnginePane.tsx` (2860 lines, branch at line 2552). Two code paths to keep in sync. | Remove the classic renderer and its setting after confirming day-grouping parity in the shared board. |
-| ST-2 | `positions.update_stop` sets `p.gtt_id` even when it ignores a looser stop (`positions.py:437-446`). If a caller ever modifies the broker GTT to a looser level and passes the new GTT id, local state shows a tighter stop than the broker holds. | Only accept `gtt_id` when the stop actually moved, or assert the caller never loosens. Add a test. |
+| ST-2 | **Checked 2026-10-21, no bug:** callers pass `gtt_id` only for the stop they just placed/moved, so local stop and broker GTT agree. **New ST-5 below.** Original: `positions.update_stop` sets `p.gtt_id` even when it ignores a looser stop (`positions.py:437-446`). If a caller ever modifies the broker GTT to a looser level and passes the new GTT id, local state shows a tighter stop than the broker holds. | Only accept `gtt_id` when the stop actually moved, or assert the caller never loosens. Add a test. |
 | ST-3 | Lane origination: doctor lists 5 SuperTrend lanes allowed (`ultra_scalping` … `swing`). Memory notes sub-hour timeframes lose to fees. | Disable `ultra_scalping` and `scalping` lanes for real money until they have live evidence. |
+| ST-5 | **Open — operator decision.** A scale-in (second BUY of a held contract) re-registers the position with the NEW plan stop and moves the broker GTT to it (`protection.py:345-403`). If the first lot had trailed higher, protection loosens. | Choose: keep (stop re-based on the combined entry), or keep max(trailed, new) for longs. Do not change without a test. |
 | ST-4 | Telegram alert names: `SL ARMED`, `TSL UPDATED`, `POSITION CLOSED`. These are the reference set; other engines should match them (see TG-1). | None. Reference. |
 
 ### 3.2 Snapback
@@ -95,10 +96,10 @@ Fix all of these before the first live order. Most are operator actions, not cod
 
 | ID | Finding | Fix |
 |---|---|---|
-| GM-1 | Gamma is **not** in the focus policy. `FocusedStrategy = Literal["snapback", "supertrend"]` (`app/core/focus.py:17`). Doctor shows only those two as originators. Gamma entries are governed only by its own `auto_execute` flag. | Decide: either add `gamma_unwind` to the focus policy so one switch governs all three, or document that Gamma is manual-only. One governance model, not two. |
+| GM-1 | **Fixed 2026-10-21 (report only).** Gamma IS gated, by `release_scope.RELEASE_ORIGINATORS`; the doctor focus line now names it. Original: Gamma is **not** in the focus policy. `FocusedStrategy = Literal["snapback", "supertrend"]` (`app/core/focus.py:17`). Doctor shows only those two as originators. Gamma entries are governed only by its own `auto_execute` flag. | Decide: either add `gamma_unwind` to the focus policy so one switch governs all three, or document that Gamma is manual-only. One governance model, not two. |
 | GM-2 | **Fixed 2026-10-21.** Trailing alert was named `TSL SYNCED`, not `TSL UPDATED`. Also emits `T1 / BREAKEVEN`, `STOP TRIGGERED, SELL NOT FILLING`. | Rename to the shared set (TG-1). Keep the extra events, use the same style. |
 | GM-3 | `entry_trigger = "live_breakout"` default. Research says the trigger has no edge. | Keep `auto_execute=False`. Show "Manual" clearly on the board. |
-| GM-4 | `GammaMoveBoard.tsx:423-545` still branches on `mode.is_paper` and prints "Broker mode is unknown." | Replace with live/blocked states only (see PM-2). |
+| GM-4 | **Partly fixed.** Message is now "Broker not connected." The `is_paper` checks stay: they fail closed when the broker mode is unknown. | Replace with live/blocked states only (see PM-2). |
 | GM-5 | Gamma board has its own `<table>` for history cards (`GammaMoveBoard.tsx:202`) beside the shared `SignalBoard`. | Move history to the shared table spec or accept as a separate view; match font sizes (`ROW_METRICS`). |
 
 ---
@@ -110,7 +111,7 @@ Fix all of these before the first live order. Most are operator actions, not cod
 | TG-1 | Lifecycle event names differ by engine. | One table for all three: `SIGNAL`, `ENTRY FILLED`, `SL ARMED`, `TSL UPDATED`, `PARTIAL EXIT`, `POSITION CLOSED`, `PROTECTION FAILED`, `ORDER OUTCOME UNKNOWN`. Gamma `TSL SYNCED` → `TSL UPDATED` done. SB-2/SB-3 were already present. |
 | TG-2 | Delivery is proven in tests (51 pass) but not on a phone. | Send one test event per type; confirm receipt on the phone. |
 | TG-3 | Mini App URL is on the rotating tunnel (P0-9). | Fix with P0-9. |
-| TG-4 | Mini App `place_order` accepts any symbol/side/qty ≤100000 when `signal` is not true (`tma.py:303-326`). It goes through `place_manual_order`, which applies the live-safety gate. | Confirm the safety gate's lot cap applies here; lower the 100000 bound to the configured max lots. |
+| TG-4 | **Checked, no bug:** live manual BUY is capped at `cfg.max_lots × lot_size` (`service.py:316`). Original: Mini App `place_order` accepts any symbol/side/qty ≤100000 when `signal` is not true (`tma.py:303-326`). It goes through `place_manual_order`, which applies the live-safety gate. | Confirm the safety gate's lot cap applies here; lower the 100000 bound to the configured max lots. |
 
 ---
 
@@ -122,7 +123,7 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 |---|---|---|
 | PM-1 | `SIM-…` simulation account active for `sim:default`. | Deactivate. Do not delete the row (audit history). |
 | PM-2 | Frontend `is_paper` branches: `GammaMoveBoard.tsx`, `types/kite.ts`, `types/kiteDiagnostics.ts`, `ConnectPane.tsx:521` label cleanup. | Remove UI branches; keep the type field optional so old payloads parse. |
-| PM-3 | EMA Trend is labelled "paper" in `useAlgoToggles.ts:77-79`, `useEngineToggles.ts:82-84`, `useSim.ts:25`, `TradingModePanel.tsx:100`, `LiveOperationsPanel.tsx:122-126`. EMA Trend is outside the three strategies. | Hide EMA Trend from navigation and toggles. Do not delete its code in this release. |
+| PM-3 | **Fixed 2026-10-21.** Removed from tabs, re-scan, switches, sim list, Operations card; its queries no longer poll. Original: EMA Trend is labelled "paper" in `useAlgoToggles.ts:77-79`, `useEngineToggles.ts:82-84`, `useSim.ts:25`, `TradingModePanel.tsx:100`, `LiveOperationsPanel.tsx:122-126`. EMA Trend is outside the three strategies. | Hide EMA Trend from navigation and toggles. Do not delete its code in this release. |
 | PM-4 | Backend `KiteClient` paper simulation (`client.py`, 57 hits) and Snapback observation warehouse (92 hits). These back the test suite. | **Keep.** Removing them breaks ~1400 tests and gains nothing for users. Ensure `ENVIRONMENT=production` refuses an `is_paper` account. |
 | PM-5 | Live database file is named `sterling_paper.db`. | **Do not rename** the day before release. Every path, backup manifest and restore proof references it. Rename later. |
 
@@ -135,7 +136,7 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 | UI-1 | Shared row spec exists (`signalRowSpec.ts`): columns Exc., Leg (Δ), Entry (Δpts), SL, TSL, Exit, Target, Chg., Chg. %, LTP, Time, Trade, Chart. All three boards import `SignalBoard`. | Verify each adapter fills SL, TSL, Exit, Target the same way; blank cell = "—", never `₹0.00`. |
 | UI-2 | Status words differ: Snapback/SuperTrend use `entry_ok`; Gamma uses tiers (`4/4 ENTRY`, watchlist). | Map all to one chip set: Watch · Ready · Open · Exited · Blocked. |
 | UI-3 | Long copy on boards and status (e.g. "Watch contracts are selected at the reference 09:20/13:15 builds. E1 is the breakout event; only 4/4 ENTRY is executable."). | Cut to one short line; move detail into a tooltip. |
-| UI-4 | Navigation still shows strategies outside scope (EMA Trend, others in `TradingModePanel`). | Show only SuperTrend, Snapback, Gamma Unwind. |
+| UI-4 | **Fixed with PM-3.** Navigation still showed strategies outside scope (EMA Trend, others in `TradingModePanel`). | Show only SuperTrend, Snapback, Gamma Unwind. |
 
 ---
 
@@ -144,7 +145,7 @@ Backend already treats every new account as live (`accounts.py:13`, `:518`). Wha
 | ID | Finding | Fix |
 |---|---|---|
 | PERF-1 | Read-only `sqlite3` on the live DB returned `database is locked (5)` once without a busy timeout. | Check for long write transactions in scanners; confirm all app connections set `busy_timeout`. |
-| PERF-2 | Positions hook polled every 1 s (carried from issue register UI-01). | Confirm current interval; use WebSocket push, poll ≥5 s as fallback. |
+| PERF-2 | **Already fixed:** `useKitePositions` defaults to 5 s. Positions hook polled every 1 s (carried from issue register UI-01). | Confirm current interval; use WebSocket push, poll ≥5 s as fallback. |
 | PERF-3 | Full backend suite: ~3% in 10 minutes on this host. A full regression run before each release is not practical. | Find slow tests (`--durations=30`); add `pytest-xdist`; mark slow tests. |
 | SEC-1 | `.env` holds broker and Telegram secrets on a 99%-full single disk. | Back up encrypted to the lake drive (P0-1). |
 | SEC-2 | Public quick tunnels expose the gateway to the internet. | Confirm every trading route requires auth; Mini App requires Telegram `initData` signature (`telegram_webapp_auth.py`). |
