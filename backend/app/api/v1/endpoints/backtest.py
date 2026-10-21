@@ -302,7 +302,7 @@ async def _run_ema_trend_backtest(body: UnifiedBacktestRequest, user: UserContex
     try:
         mode = canonical_mode(body.strategy_params.get("mode", "swing"))
         profile = PROFILES[mode]
-        expected_tf = {1440: {"day", "D", "1d"}, 15: {"15m"}, 3: {"3m"}, 1: {"1m"}}[profile.signal_minutes]
+        expected_tf = {1440: {"day", "D", "1d"}, 60: {"60m", "1h"}, 15: {"15m"}, 3: {"3m"}, 1: {"1m"}}[profile.signal_minutes]
         if body.timeframe not in expected_tf:
             raise ValueError(f"mode {mode} requires timeframe {sorted(expected_tf)}")
         symbol = body.symbol.strip().upper()
