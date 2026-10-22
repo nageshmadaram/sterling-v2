@@ -48,7 +48,8 @@
     const paint=()=>{const fav=Boolean(a.isFavorite?.(item.id));add.innerHTML=ICON[fav?'added':'add'];const label=fav?`Remove ${item.title} from your library`:`Add ${item.title} to your library`;add.setAttribute('aria-label',label);add.title=label;};
     r._paint=paint;paint();add.addEventListener('click',e=>{e.stopPropagation();a.toggleFavorite?.(item.id);paint();if(!(page==='search'&&focus))render();});r.append(add);}
    if(removable){const x=iconButton('close',`Remove ${item.title} from recents`,'sps-row-action');x.addEventListener('click',e=>{e.stopPropagation();a.removeRecent?.(item.id);if(page==='search'&&focus){r.remove();rowCache.delete('r:'+item.id);lastResults='';}else render();});r.append(x);}
-   const play=()=>{a.play(item.id);};r.addEventListener('click',play);r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();play();}});
+   // The list this row sits in becomes the queue, in the order shown (Next continues after it).
+   const play=()=>{const ids=[...(r.parentElement?.querySelectorAll(':scope>.sps-row[data-id]')||[])].map(n=>n.dataset.id);a.play(item.id,ids.length>1?ids:undefined);};r.addEventListener('click',play);r.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();play();}});
    return r;
   }
 

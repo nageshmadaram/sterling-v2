@@ -4852,7 +4852,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     isFavorite:url=>favorites.some(c=>c.url===url),
     toggleFavorite:url=>{const ch=findChannel(url);if(!ch)return;const i=favorites.findIndex(c=>c.url===url);if(i>-1)favorites.splice(i,1);else favorites.unshift(ch);
       try{tvStorage.setItem('streamos_favs_v14',JSON.stringify(favorites));}catch(_){}if(typeof updateSubscribeLikeUI==='function')updateSubscribeLikeUI();},
-    play:url=>{const ch=findChannel(url);if(!ch)return;tvShell.hide();playStream(ch,0);view='home';if(currentTheme==='spotify')setExpanded(true);sync();},
+    // The Search/Library list a channel was picked from becomes the queue, in the order shown.
+    play:(url,urls)=>{const ch=findChannel(url);if(!ch)return;tvShell.hide();const list=(urls||[]).map(findChannel).filter(Boolean);if(list.length>1){playbackQueue=list;playQueuedChannel(ch);}else playStream(ch,0);view='home';if(currentTheme==='spotify')setExpanded(true);sync();},
     categories:()=>{if(shellCats.size===allChannels.length)return shellCats.list;const by=new Map();for(const ch of allChannels){if(!isChannelVisible(ch)||!ch.group)continue;const g=by.get(ch.group)||{count:0,mosaic:[]};g.count++;if(g.mosaic.length<4)g.mosaic.push(artwork(ch));by.set(ch.group,g);}
       const names=[...SHELL_GROUPS.filter(n=>by.has(n)),...[...by.keys()].filter(n=>!SHELL_GROUPS.includes(n)).sort((x,y)=>by.get(y).count-by.get(x).count).slice(0,8)];
       shellCats={size:allChannels.length,list:names.map(n=>({key:n,label:n,count:by.get(n).count,art:by.get(n).mosaic[0],mosaic:by.get(n).mosaic,chip:'categories'}))};return shellCats.list;},

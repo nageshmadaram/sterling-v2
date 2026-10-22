@@ -2494,7 +2494,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         getVolume:()=>audio.volume,setVolume:value=>{audio.volume=Math.max(0,Math.min(1,value));},
         current:()=>activeStream?{id:activeStream.id,title:activeStream.title,subtitle:activeStream.subtitle,art:getStationIdentityThumbnail(activeStream)}:null,
         pool:()=>(catalogItems.length?catalogItems:MASTER_POOL).map(s=>({id:s.id,title:s.title})),
-        play:id=>playStationById(id),toast:message=>showToast?.(message),
+        play:(id,ids)=>{if(ids?.length>1){const list=ids.map(findStationById).filter(Boolean);if(list.length>1)radioRowQueue=list;}playStationById(id);},toast:message=>showToast?.(message),
         exportData:()=>({liked:likedStations,recents:recentsList,sources:appConfig.catalogSources||null,filters:appConfig.catalogFilters||{}}),
         importData:data=>{let count=0;
           if(Array.isArray(data.liked)){likedStations=data.liked.filter(s=>s&&typeof s.id==='string'&&typeof s.title==='string').slice(0,200);count+=likedStations.length;try{radioStorage.setItem('omnicast_v11_liked',JSON.stringify(likedStations));}catch(_){}}
@@ -2528,7 +2528,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         isFavorite:id=>likedStations.some(s=>s.id===id),
         toggleFavorite:id=>{const st=findStationById(id);if(!st)return;if(likedStations.some(s=>s.id===id))likedStations=likedStations.filter(s=>s.id!==id);else likedStations.unshift(st);
           try{radioStorage.setItem('omnicast_v11_liked',JSON.stringify(likedStations));}catch(_){};syncLikeIcons();},
-        play:id=>{playStationById(id);},
+        play:(id,ids)=>{if(ids?.length>1){const list=ids.map(findStationById).filter(Boolean);if(list.length>1)radioRowQueue=list;}playStationById(id);},
         categories:shellCategories,openCategory:shellOpenCategory,
         featured:()=>(recentsList.length?recentsList:CURATED_RADIO_POOL).slice(0,10).map(shellItem),featuredTitle:'Stations to discover',
         libraryChips:[{key:'playlists',label:'Playlists'},{key:'genres',label:'Genres'},{key:'languages',label:'Languages'},{key:'saved',label:'Saved'}],
@@ -3002,6 +3002,14 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
     }
 
+    // Tapping a station in any list (recents, library, similar, shelves) makes that list the queue,
+    // in the order shown, so Next plays the one after it instead of restarting somewhere else.
+    function queueFromList(el){
+      for(let box=el.parentElement,depth=0;box&&depth<4;box=box.parentElement,depth++){
+        const ids=[...box.querySelectorAll('[data-radio-click="71"][data-radio-arg]')].map(n=>n.getAttribute('data-radio-arg'));
+        if(ids.length>1){const seen=new Set(),list=[];for(const id of ids){if(seen.has(id))continue;seen.add(id);const ch=findStationById(id);if(ch)list.push(ch);}if(list.length>1){radioRowQueue=list;return;}}
+      }
+    }
     function playStationById(id) {
       const found = findStationById(id);
       if (found) {
@@ -4311,8 +4319,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       "68": function(event) { switchYtmDrawerTab('related'); },
       "69": function(event) { toggleYtmQueue(); },
       "70": function(event) { closeMobileSheet(); },
-      "71": function(event) { playStationById(this.dataset.radioArg); },
-      "72": function(event) { selectChannel(Number(this.dataset.radioArg)); },
+      "71": function(event) { queueFromList(this); playStationById(this.dataset.radioArg); },
+      "72": function(event) { radioRowQueue=null; selectChannel(Number(this.dataset.radioArg)); },
       "73": function(event) { startPlayback(episodeList[Number(this.dataset.radioArg)]); },
       "74": function(event) { openMobileTuner(); },
       "75": function(event) { refreshNowPlayingArtwork(); }
