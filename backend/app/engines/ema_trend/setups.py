@@ -28,8 +28,7 @@ def evaluate_setups(symbol: str, mode: str, features: Sequence[Feature],
         # Missing or discontinuous source candles invalidate a cross and its
         # pending setup. Comparing EMAs across an unobserved interval could
         # manufacture a new cross and turn stale evidence into an entry.
-        gap = bool(previous and not continuous(previous.bar, f.bar, profile.signal_minutes, symbol.split(":")[0],
-                                               across_sessions=profile.mode == "overnight"))
+        gap = bool(previous and not continuous(previous.bar, f.bar, profile.signal_minutes, symbol.split(":")[0]))
         if gap:
             cross = touch = None
         lows.extend(p for p in f.pivots if p.side == "LOW")
