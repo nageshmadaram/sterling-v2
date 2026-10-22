@@ -119,11 +119,13 @@
    if(basePool.length<6000){const zones=new Map();const noZone={...filters,zone:''};for(const station of basePool){const zone=zoneOf(station);if(zone&&match(station,noZone))zones.set(zone,(zones.get(zone)||0)+1);}
     for(const id of Object.keys(ZONES))if(zones.get(id))chips.push(['zone:'+id,`${ZONES[id]} ${zones.get(id).toLocaleString()}`]);}
    const languages=[...counts.language].sort((a,b)=>b[1]-a[1]),top=languages.slice(0,6).map(([l])=>l),others=languages.slice(6).reduce((n,[,c])=>n+c,0);
-   for(const [language,count] of languages.slice(0,6))chips.push(['lang:'+language,`${title(language)} ${count.toLocaleString()}`]);
+   // Inside a language section (Telugu, Tamil) every station is in that language: no language chips.
+   const languageSection=['telugu','tamil'].includes(getConfig().activeCategory);
+   if(!languageSection)for(const [language,count] of languages.slice(0,6))chips.push(['lang:'+language,`${title(language)} ${count.toLocaleString()}`]);
    // Telugu always second, right after All, when this section has it.
    const te=chips.findIndex(([key])=>key==='lang:telugu');if(te>1)chips.splice(1,0,...chips.splice(te,1));
-   else if(te<0&&counts.language.get('telugu')){chips.splice(1,0,['lang:telugu',`Telugu ${counts.language.get('telugu').toLocaleString()}`]);}
-   if(others)chips.push(['lang:__other',`Others ${others.toLocaleString()}`,top]);
+   else if(!languageSection&&te<0&&counts.language.get('telugu')){chips.splice(1,0,['lang:telugu',`Telugu ${counts.language.get('telugu').toLocaleString()}`]);}
+   if(others&&!languageSection)chips.push(['lang:__other',`Others ${others.toLocaleString()}`,top]);
    const html=JSON.stringify(chips)+(filters.zone||'')+(filters.language||'');if(box.dataset.sig===html)return;box.dataset.sig=html;
    box.replaceChildren(...chips.map(([key,label,othersOf])=>{const b=doc.createElement('button');b.type='button';b.dataset.sub=key;b.textContent=label;if(othersOf)b.dataset.others=JSON.stringify(othersOf);
     const [kind,value]=key.split(':');b.setAttribute('aria-pressed',String(!kind?!filters.zone&&!filters.language:kind==='zone'?filters.zone===value:filters.language===value));return b;}));

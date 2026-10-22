@@ -2269,7 +2269,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function radioDirectoryBase(cat=appConfig.activeCategory) {
       if(BAND_CATEGORIES.includes(cat))return bandStations(RADIO_BANDS?.BY_CATEGORY[cat]);
       if(cat==='akashvani')return MASTER_POOL.filter(station=>station.category==='akashvani'||/akashvani|all india radio/i.test(station.title));
-      if(cat==='telugu'||cat==='tamil')return MASTER_POOL.filter(station=>station.category===cat||(station.languages||[]).includes(cat));
+      // A language section holds stations IN that language: its own category, or that language first.
+      // Multi-language national streams that merely list it (Hindi, Malayalam, Telugu, …) stay out.
+      if(cat==='telugu'||cat==='tamil')return MASTER_POOL.filter(station=>station.category===cat||(station.languages||[])[0]===cat);
       if(cat==='featured')return MASTER_POOL.filter(station=>station.category!=='shortwave');
       return MASTER_POOL;
     }
