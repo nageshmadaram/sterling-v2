@@ -5,7 +5,7 @@ import type {
 import { normalizeMode } from './boardTypes';
 import { LABELS, fmtMoney, fmtPnl, fmtPx, fmtQty } from '../../../lib/format';
 import type {
-  GammaEntryGate, GammaGateContext, GammaMoveSnapshot, GammaPositionRow,
+  GammaEntryGate, GammaGateContext, GammaMetrics, GammaMoveSnapshot, GammaPositionRow,
   GammaSignalRow,
 } from '../../../hooks/useGammaMove';
 
@@ -273,12 +273,28 @@ function plannedSizing(row: GammaSignalRow, lots: number | undefined) {
   return { lots, quantity: lots * lotSize };
 }
 
+/**
+ * The plan a row trades, filled in before E1 fires. A watch row has no engine
+ * entry yet, but its breakout trigger (the base high) is the price E1 buys
+ * above, and T2/base-low follow from it, so the board shows them instead of
+ * a row of dashes.
+ */
+function planLevels(row: GammaSignalRow, pos: GammaPositionRow | undefined) {
+  const m = row.metrics as (GammaMetrics & { consol_hi?: number | null; consol_lo?: number | null }) | null;
+  const intraday = (row.watch.dte ?? 99) <= 1;
+  const entry = price(pos?.effective_entry ?? row.levels.entry ?? m?.base_high ?? m?.consol_hi);
+  const stop = pos ? hardStop(pos) : price(row.levels.stop ?? (intraday ? (m?.base_low ?? m?.consol_lo) : null));
+  const tick = row.instrument.tick_size || 0.05;
+  const t2 = price(pos?.t2 ?? row.levels.t2)
+    ?? (entry != null ? Math.round(Math.ceil(entry * 1.4 / tick - 1e-9) * tick * 100) / 100 : null);
+  return { entry, stop, t2, intraday };
+}
+
 function planSection(
   row: GammaSignalRow, pos: GammaPositionRow | undefined, qty: number | null,
 ): BoardSection {
   const swing = (row.watch.dte ?? 99) > 1;
-  const entry = price(pos?.effective_entry ?? row.levels.entry);
-  const stop = pos ? hardStop(pos) : price(row.levels.stop);
+  const { entry, stop } = planLevels(row, pos);
   const live = pos ? activeProtectionStop(pos) : stop;
   const pnl = pos ? unrealisedInr(pos) : null;
   return {
@@ -332,9 +348,9 @@ function toSignal(
     : expired ? 'ended' : row.tier === 'ENTRY' ? 'armed' : 'watching';
   const planned = pos ? null : plannedSizing(row, executionLots);
   const qty = pos?.quantity ?? planned?.quantity ?? null;
-  const entry = price(pos?.effective_entry ?? row.levels.entry);
-  const stop = pos ? hardStop(pos) : price(row.levels.stop);
+  const { entry, stop, t2, intraday } = planLevels(row, pos);
   const live = pos ? activeProtectionStop(pos) : stop;
+  const trailing = pos?.trade_state === 'T1_TRAIL';
   return {
     id: row.id,
     engine: 'gamma_move',
@@ -347,13 +363,22 @@ function toSignal(
     status,
     atMs: row.at_ms || null,
     levels: {
-      ltp: price(pos?.ltp ?? row.levels.ltp),
+      // The option-chain quote stands in until the contract is watched live.
+      ltp: price(pos?.ltp ?? row.levels.ltp ?? row.watch.chain_ltp),
       entry,
       stop,
-      trail: pos?.trade_state === 'T1_TRAIL' ? activeProtectionStop(pos) : null,
-      target: price(pos?.t2 ?? row.levels.t2),
+      trail: trailing ? activeProtectionStop(pos!) : null,
+      target: t2,
       exit: null,
     },
+    levelNotes: {
+      ...(stop == null && !intraday ? { stop: {
+        text: `U ${row.watch.zone_edge.toFixed(2)}`,
+        hint: 'Swing has no premium stop before T1: a daily close of the underlying beyond its zone edge exits.',
+      } } : {}),
+      ...(!trailing ? { trail: { text: 'at T1', hint: 'At T1 (+20%) the stop moves to the entry price and trails from there.' } } : {}),
+    },
+    exitProgress: pos ? pos.trade_state : intraday ? 'T2 · 15:20' : 'T2 · day 5',
     quoteAgeS: (pos ? pos.ltp_age_s : row.levels.ltp_age_s) ?? null,
     sizing: {
       lots: pos?.lots ?? planned?.lots ?? null,

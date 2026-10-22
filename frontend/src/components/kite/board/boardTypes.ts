@@ -244,6 +244,12 @@ export interface BoardSignal {
    */
   exitProgress?: string | null;
   /**
+   * What a level column says when the engine has a rule rather than a premium,
+   * e.g. a swing stop that is an underlying daily close, or a trail that only
+   * starts at T1. Shown in place of "—" so the row explains itself.
+   */
+  levelNotes?: Partial<Record<'stop' | 'trail', { text: string; hint: string }>>;
+  /**
    * Short inline badges an engine wants on the row itself.
    *
    * `origin` says where a signal came from and there is exactly one of those.

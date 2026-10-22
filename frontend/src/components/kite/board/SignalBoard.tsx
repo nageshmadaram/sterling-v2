@@ -574,8 +574,13 @@ function cellContent(
         ),
       };
     }
-    case 'stop': return { node: num(signal.levels.stop) };
-    case 'trail': return { node: num(signal.levels.trail) };
+    case 'stop':
+    case 'trail': {
+      const value = signal.levels[id];
+      const note = signal.levelNotes?.[id];
+      if (value == null && note) return { node: <span title={note.hint}>{note.text}</span>, color: k.dim };
+      return { node: num(value) };
+    }
     case 'target': return { node: num(signal.levels.target) };
     case 'exit': return { node: num(signal.levels.exit) };
     case 'qty': return { node: signal.sizing.quantity ?? '—' };
