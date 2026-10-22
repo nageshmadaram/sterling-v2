@@ -141,6 +141,11 @@ export function SimpleTerminal() {
     window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: section }));
   };
   useEffect(() => {
+    // KITE's own Home tab stays in KITE; the configured Home (maybe TV or Radio) is for app-level Home.
+    window.addEventListener('sterling-open-kite', openFromLogo);
+    return () => window.removeEventListener('sterling-open-kite', openFromLogo);
+  });
+  useEffect(() => {
     window.addEventListener('sterling-go-home', goHome);
     return () => window.removeEventListener('sterling-go-home', goHome);
   });

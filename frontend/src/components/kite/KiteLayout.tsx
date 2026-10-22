@@ -861,7 +861,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
           {mobile ? <>
             <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
               {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
-                aria-controls={`mobile-pane-${id}`} onClick={() => { if (id === 'dashboard') { window.dispatchEvent(new Event('sterling-go-home')); } else { if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); } }}>
+                aria-controls={`mobile-pane-${id}`} onClick={() => { if (id === 'dashboard') { setMobilePane('dashboard'); window.dispatchEvent(new Event('sterling-open-kite')); } else { if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); } }}>
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
               <button type="button" aria-label="Open replay" aria-pressed={useReplayOpenValue} onClick={()=>{useReplayStore.getState().setOpen(!useReplayStore.getState().open);}}>
