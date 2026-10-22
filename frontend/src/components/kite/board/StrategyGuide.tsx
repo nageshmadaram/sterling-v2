@@ -7,7 +7,7 @@ import { k } from '../../../styles/kiteUI';
 import type { EngineId } from './boardTypes';
 
 const WHAT: Partial<Record<EngineId | 'price_rules', string>> = {
-  supertrend: 'Buys a call option when three trend lines turn up together. Sells when they turn down or the trailing stop is hit.',
+  supertrend: 'Buys a call when three trend lines turn up together, or a put when they turn down. Sells when the lines turn against it or the trailing stop is hit.',
   gamma_move: 'Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. Takes profit at +20% and +40%.',
   snapback: 'Finds stocks that moved too far, too fast. Buys an option that gains when the price comes back toward its average.',
   ema_trend: 'Practice only, no real orders. Follows stocks trending above their 10- and 21-day averages.',
@@ -40,7 +40,7 @@ export function StrategyGuide({ engine }: { engine: string }) {
         <div style={{ color: k.dim, marginTop: 3 }}>
           <strong style={{ color: k.text }}>1</strong> Tap a row to see the plan ·{' '}
           <strong style={{ color: k.text }}>2</strong> Press <strong style={{ color: k.green }}>B</strong> to buy it yourself ·{' '}
-          <strong style={{ color: k.text }}>3</strong> To let Sterling trade for you: Connect → Trading mode → set this strategy to ALGO (auto).
+          <strong style={{ color: k.text }}>3</strong> To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
         </div>
       </div>
       <button type="button" onClick={hide} aria-label="Hide this guide" style={{

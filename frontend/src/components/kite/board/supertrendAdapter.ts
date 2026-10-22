@@ -239,7 +239,7 @@ export function closedReasonText(
     return { text: `Stop hit${level ? ' ' + level : ''}`, hint: `Closed by the trailing stop: the price fell to ${level || 'the stop'}. The red counter had not fired; whichever rule comes first closes the trade.` };
   }
   if (r.startsWith('red count')) {
-    return { text: 'Trend turned red', hint: 'Closed by the red counter: with the "one red" exit, the first SuperTrend line turning red closes the trade. Change the exit rule in SuperTrend settings to wait for more lines.' };
+    return { text: 'Trend turned red', hint: `Closed by the red counter: ${exitReason}. Enough SuperTrend lines turned red for the exit rule set in SuperTrend settings.` };
   }
   if (r.startsWith('time decay')) return { text: 'Stalled', hint: 'Closed because the price stopped moving for too long (option value was decaying).' };
   if (r.startsWith('time stop')) return { text: 'Time limit', hint: 'Closed at the time limit for this mode.' };
