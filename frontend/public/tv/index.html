@@ -603,6 +603,10 @@
  #video-surface-card:not(:fullscreen) #custom-video-hud {display:none!important;}
  #video-surface-card:-webkit-full-screen #custom-video-hud {display:flex!important;}
 }
+/* Landscape Now Playing has its controls on the right; the video stays clean until fullscreen. */
+@media(max-width:1024px) and (max-height:600px) and (orientation:landscape){
+ .theme-spotify.tm-now-open #video-surface-card:not(:fullscreen) #custom-video-hud {display:none!important;}
+}
 /* Keep animation work to compositor-friendly properties and short durations. */
 .channel-grid-card {contain:layout style;}
 @media(prefers-reduced-motion:no-preference){
