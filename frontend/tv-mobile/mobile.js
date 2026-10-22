@@ -19,7 +19,7 @@
   const action = (name,label,glyph,cls='tm-icon') => `<button type="button" class="${cls}" data-tm-action="${name}" aria-label="${label}" title="${label}">${icon(glyph)}</button>`;
   const shell = document.createElement('div');
   shell.id='tv-mobile-shell';
-  shell.innerHTML=`<div class="tm-top"><button class="tm-avatar" data-tm-action="more" aria-label="TV settings and features">S</button><div class="tm-brand"><span>Sterling</span></div><div class="tm-tabs"><button data-tm-action="home" aria-pressed="true">All</button><button data-tm-action="live">Live TV</button><button data-tm-action="library">Following</button></div><div class="tm-theme" aria-label="TV appearance"><button data-tm-action="youtube" aria-label="YouTube theme"><span>YT</span></button><button data-tm-action="spotify" aria-label="Spotify theme">${icon('spotify')}</button></div>${action('search','Search channels','search','tm-icon tm-search-open')}${action('more','More TV features','more')}</div><div class="tm-search" hidden><input id="tm-search-input" type="search" placeholder="What do you want to watch?" aria-label="Search all TV channels" autocomplete="off"/>${action('close-search','Close search','close')}</div><div class="tm-context"><button data-tm-action="home" aria-pressed="true">All</button><button data-tm-action="live">Live</button><button data-tm-action="indian">Indian TV</button><button data-tm-action="news">News</button><button data-tm-action="sports">Sports</button><button data-tm-action="history">Recently watched</button></div>`;
+  shell.innerHTML=`<div class="tm-top"><button class="tm-avatar" data-tm-action="more" aria-label="TV settings and features">S</button><div class="tm-brand"><span>Sterling</span></div><div class="tm-tabs"><button data-tm-action="home" aria-pressed="true">All</button><button data-tm-action="telugu">Telugu</button><button data-tm-action="live">Browse</button><button data-tm-action="library">Following</button></div><div class="tm-theme" aria-label="TV appearance"><button data-tm-action="youtube" aria-label="YouTube theme"><span>YT</span></button><button data-tm-action="spotify" aria-label="Spotify theme">${icon('spotify')}</button></div>${action('search','Search channels','search','tm-icon tm-search-open')}${action('more','More TV features','more')}</div><div class="tm-search" hidden><input id="tm-search-input" type="search" placeholder="What do you want to watch?" aria-label="Search all TV channels" autocomplete="off"/>${action('close-search','Close search','close')}</div><div class="tm-context"><button data-tm-action="home" aria-pressed="true">All</button><button data-tm-action="live">Live</button><button data-tm-action="indian">Indian TV</button><button data-tm-action="news">News</button><button data-tm-action="sports">Sports</button><button data-tm-action="history">Recently watched</button></div>`;
   document.getElementById('app-workspace').before(shell);
   const home=document.createElement('section'); home.id='tv-mobile-home'; home.setAttribute('aria-label','TV home');
   document.getElementById('main-scroll').prepend(home);
@@ -29,12 +29,12 @@
   const labels=['Home','Search','Your Library','More'];
   [...nav.children].forEach((el,i)=>el.insertAdjacentHTML('beforeend',`<span>${labels[i]}</span>`));
   const mini=document.createElement('div');mini.id='tv-mobile-mini';mini.setAttribute('aria-label','Now playing');
-  mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live television</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
+  mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
   const now=document.createElement('section');now.id='tv-now-playing';now.setAttribute('aria-label','Now Playing');now.setAttribute('role','dialog');now.setAttribute('aria-modal','true');now.hidden=true;
-  now.innerHTML=`<div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM LIVE TV</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
+  now.innerHTML=`<div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer"><span>Watching on this device</span><div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
-  let shellPage=null;
+  let shellPage=null,tvRows=null,tvRowsKey='',tvListView=false;
   let view='home',expanded=false,scheduled=false,returnFocus=null,lastLandscape=innerWidth>innerHeight,hosted=false,hydrated=window.parent===window,lastState='',lastSaved='',pipDismissed=false,tvBackdropMode='auto',lastPublishedPlayerState=null;
   const activeTheme=()=>['spotify','youtube','netflix'].includes(currentTheme);
   const isMobile=()=>mobile.matches && activeTheme();
@@ -86,7 +86,7 @@
       if(ranked.length>10)ranked.pop();
     }
     const recommendations=ranked.map(item=>item.ch);
-    const html=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat+' · Live collection',allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
+    const html=`<div class="tm-quick">${quick.map(ch=>channelButton(ch,true)).join('')}</div>${shelf(recentHistory.length?'Jump back in':'Start watching',recent,recentHistory.length?'recent':verifiedPool.length?'verified':'all')}${shelf(seed?'Recommended for you':'Made for your screen',recommendations,'all')}<section><div class="tm-section-title"><h2>Find your next favourite</h2></div><div class="media-browse-grid">${categoryTiles}</div></section>${shelf('Live from India',allChannels.filter(ch=>ch.isIndian||INDIAN_LANG_IDS.includes(ch.lang)),'indian')}${shelf('Your saved channels',favorites,'favs')}${['News','Movies','Sports','Music','Documentary','Kids & Anime','Devotional'].map(cat=>shelf(cat,allChannels.filter(ch=>ch.group===cat),cat)).join('')}`;
     // Patch section by section: unchanged rows keep their DOM and loaded logos, so a catalog refresh
     // or a channel change does not flash the whole page.
     const next=document.createElement('div');next.innerHTML=html;const fresh=[...next.children],current=[...home.children];
@@ -122,7 +122,7 @@
       const source=artwork(activeChannel),miniArt=mini.querySelector('img');if(miniArt.getAttribute('src')!==source)miniArt.src=source;
       setPlayerText(mini.querySelector('strong'),activeChannel.name);
       setPlayerText(document.getElementById('tm-now-title'),activeChannel.name);
-      setPlayerText(document.getElementById('tm-now-subtitle'),`${activeChannel.group||'Live television'} · ${activeChannel.lang||'Global'}`);
+      setPlayerText(document.getElementById('tm-now-subtitle'),`${activeChannel.group||'Channel'} · ${activeChannel.lang||'Global'}`);
       setPlayerText(document.getElementById('tm-now-group'),activeChannel.group||'Your live channels');
       if(expanded&&!now.hidden)renderNowMore();
       const saved=favorites.some(c=>c.url===activeChannel.url);
@@ -137,11 +137,12 @@
     const muted=document.getElementById('video-player').muted;
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
     [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');});
+    if(typeof renderTvRows==='function')renderTvRows();
   }
   // Below the player, like Spotify: the next few queued channels, then every channel in the same category
   // (same language first). Picking one plays that category in order, so Next keeps following it.
   let relatedFor='',relatedPool=[],relatedShown=0,nextKey='';
-  const relatedRow=(ch,attr)=>`<button data-tm-channel="${escapeAttr(ch.url)}" ${attr}><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy" decoding="async"><span><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group||'Live TV')} · ${escapeHtml(ch.lang||'Global')}</small></span></button>`;
+  const relatedRow=(ch,attr)=>`<button data-tm-channel="${escapeAttr(ch.url)}" ${attr}><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy" decoding="async"><span><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group||'Channel')} · ${escapeHtml(ch.lang||'Global')}</small></span></button>`;
   function renderNowMore(){
     if(!activeChannel||now.hidden||typeof getUpcomingPlaybackQueue!=='function')return;
     const upcoming=getUpcomingPlaybackQueue().slice(0,5),key=activeChannel.url+'|'+upcoming.map(c=>c.url).join('|');
@@ -180,7 +181,7 @@
       if(kind==='filters') content=`<label class="tm-filter-label">Channel availability<select data-tm-filter="availability"><option value="all" ${!hideUnavailableChannels?'selected':''}>All channels, including unavailable</option><option value="available" ${hideUnavailableChannels?'selected':''}>Hide unavailable channels</option></select></label><p class="tm-feature-note">Hides channels that failed playback on this account for 3 hours. Untested channels remain visible. You can reset failures and retry anytime.</p><button type="button" data-tm-action="retry-unavailable" class="tm-feature">Retry unavailable channels now</button><label class="tm-filter-label">Language<select data-tm-filter="language">${document.getElementById('catalog-lang-select').innerHTML}</select></label><label class="tm-filter-label">Category<select data-tm-filter="category">${document.getElementById('catalog-genre-select').innerHTML}</select></label>`;
       if(kind==='equalizer') content=Object.entries(EQ_PRESETS).map(([key,preset])=>`<button data-tm-eq="${key}">${icon('settings')}<span>${escapeHtml(preset.label)}</span></button>`).join('');
       if(kind==='quality') content=`${action('fit','Change video fit','screen','tm-feature').replace('</button>','<span>Fit / Fill / Zoom</span></button>')}<button data-tm-quality="-1">${icon('check')}<span>Automatic quality</span></button>${(hls?.levels||[]).map((level,i)=>`<button data-tm-quality="${i}">${icon('screen')}<span>${level.height||'Auto'}p · ${Math.round((level.bitrate||0)/1000)} kbps</span></button>`).join('')}<p class="tm-feature-note">${hasNativeHls(document.getElementById('video-player'))&&!hls?'Your browser manages stream quality automatically.':'Quality options depend on the current broadcast.'}</p>`;
-      if(kind==='epg') content=activeChannel?`<div class="tm-queue-current"><strong>${escapeHtml(activeChannel.name)}</strong><small>${escapeHtml(activeChannel.group||'Television')} · ${escapeHtml(activeChannel.lang||'Global')}</small></div><p class="tm-feature-note">Live channel information. Programme listings appear only when supplied by the broadcaster.</p>${getChannelEpgSchedule(activeChannel).map(item=>`<div class="tm-guide-row"><strong>${escapeHtml(item.title||'Live broadcast')}</strong><small>${escapeHtml(item.time||item.start||'Live TV')}</small></div>`).join('')}`:'<p>Select a channel to view its guide.</p>';
+      if(kind==='epg') content=activeChannel?`<div class="tm-queue-current"><strong>${escapeHtml(activeChannel.name)}</strong><small>${escapeHtml(activeChannel.group||'Television')} · ${escapeHtml(activeChannel.lang||'Global')}</small></div><p class="tm-feature-note">Live channel information. Programme listings appear only when supplied by the broadcaster.</p>${getChannelEpgSchedule(activeChannel).map(item=>`<div class="tm-guide-row"><strong>${escapeHtml(item.title||'Live broadcast')}</strong><small>${escapeHtml(item.time||item.start||'Channel')}</small></div>`).join('')}`:'<p>Select a channel to view its guide.</p>';
       sheet.innerHTML=`<div class="tm-sheet-content"><div class="tm-sheet-handle"></div><div class="tm-sheet-title"><h2>${title}</h2>${action('close-sheet','Close TV features','close')}</div>${content}</div>`;
     } else if(kind==='queue') {
       title='Up next';
@@ -189,7 +190,7 @@
       let offset=0;
       const appendQueue=()=>{
         const batch=pool.slice(offset,offset+50);offset+=batch.length;
-        document.getElementById('tm-queue-items').insertAdjacentHTML('beforeend',batch.map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}" data-tm-queued="true">${icon('screen')}<span>${escapeHtml(ch.name)}<small>${escapeHtml(ch.group||'Live TV')} · ${escapeHtml(ch.lang||'Global')}</small></span></button>`).join(''));
+        document.getElementById('tm-queue-items').insertAdjacentHTML('beforeend',batch.map(ch=>`<button data-tm-channel="${escapeAttr(ch.url)}" data-tm-queued="true">${icon('screen')}<span>${escapeHtml(ch.name)}<small>${escapeHtml(ch.group||'Channel')} · ${escapeHtml(ch.lang||'Global')}</small></span></button>`).join(''));
         sheet.querySelector('[data-tm-action="queue-more"]').hidden=offset>=pool.length;
       };
       sheet.querySelector('[data-tm-action="queue-more"]').addEventListener('click',appendQueue);appendQueue();
@@ -210,13 +211,37 @@
   }
   // Filter icon at the end of the category chips, as in Radio; it opens TV's filters sheet.
   {const pills=document.getElementById('dynamic-category-pills-row');if(pills&&!document.getElementById('tm-filter-btn')){const b=document.createElement('button');b.id='tm-filter-btn';b.type='button';b.className='radio-filter-btn tm-filter-btn';b.dataset.tmAction='filters';b.setAttribute('aria-label','Filter channels');b.title='Filter channels';b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8.2V19l-4 2v-7.8z"/></svg>';pills.after(b);}}
+  // Browse opens as Spotify rows, like Radio's sections (media/radio-home.js): Popular, Telugu, then a row
+  // per category (or per language inside a category) and All channels. Show all, search and Following use the grid.
+  const TV_CATEGORIES=['News','Movies','Entertainment','Music','Sports','Kids & Anime','Documentary','Devotional','Comedy','Business','Lifestyle & Food','Education & Public'];
+  function tvRowsMode(){return isMobile()&&currentTheme==='spotify'&&view==='live'&&!tvListView&&!searchInputEl.value.trim()&&!['favs','recently_played'].includes(catalogScope);}
+  function openTvList(apply){rememberTvPlace();apply?.();tvListView=true;renderCatalogControls();renderViewport();sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'instant'});}
+  function buildTvRows(pool){
+    const item=ch=>({kind:'station',key:ch.url,station:{id:ch.url,title:ch.name,country:[ch.group,ch.lang].filter(Boolean).join(' · '),ch}});
+    const rows=[{id:'popular',title:catalogCategory==='All'?'Popular channels':`Popular ${catalogCategory}`,size:'large',items:[...pool].sort((a,b)=>(b.verified?1:0)-(a.verified?1:0)).slice(0,300).map(item),open:()=>openTvList()}];
+    const telugu=pool.filter(c=>c.lang==='Telugu');
+    if(telugu.length&&catalogLanguage!=='Telugu')rows.push({id:'telugu',title:'Telugu',items:telugu.map(item),open:()=>openTvList(()=>{catalogLanguage='Telugu';})});
+    if(catalogCategory==='All'){for(const cat of TV_CATEGORIES){const list=pool.filter(c=>(c.group||'Entertainment')===cat);if(list.length>=3)rows.push({id:'cat-'+cat,title:cat,items:list.map(item),open:()=>openTvList(()=>{catalogCategory=cat;})});}}
+    const langs=new Map();for(const c of pool)if(c.lang&&c.lang!=='Telugu'){langs.set(c.lang,(langs.get(c.lang)||0)+1);}
+    for(const [lang,count] of [...langs].sort((a,b)=>b[1]-a[1]).slice(0,catalogCategory==='All'?4:8))if(count>=3&&catalogLanguage==='All')rows.push({id:'lang-'+lang,title:lang,items:pool.filter(c=>c.lang===lang).map(item),open:()=>openTvList(()=>{catalogLanguage=lang;})});
+    rows.push({id:'everything',title:`All ${pool.length.toLocaleString()} channels`,items:pool.map(item),open:()=>openTvList()});
+    return rows;
+  }
+  function renderTvRows(){
+    const on=tvRowsMode()&&Boolean(window.SterlingRadioHome);document.body.classList.toggle('tm-rows-view',on);
+    if(!on)return;
+    const pool=computeFilteredCatalogPool(),key=[catalogScope,catalogCategory,catalogLanguage,pool.length,allChannels.length].join('|');
+    if(!tvRows){const holder=document.createElement('div');holder.id='tv-rows-holder';document.getElementById('sticky-chip-bar')?.after(holder);
+      tvRows=window.SterlingRadioHome.mount({container:holder,artwork:s=>artwork(s.ch),fallback:s=>{rejectedArtwork.add(artwork(s.ch));return artwork(s.ch);},onPlay:url=>{const ch=findChannel(url);if(ch){playStream(ch,0);if(currentTheme==='spotify')setExpanded(true);}}});}
+    if(key===tvRowsKey)return;tvRowsKey=key;tvRows.render(buildTvRows(pool));
+  }
   // Back: every place opened from here records how to return (media/nav-stack.js).
   const tvNav=window.SterlingNav?.create({kind:'tv',hosted:()=>hosted});
   function tvPlace(){
-    return {view,scope:catalogScope,category:catalogCategory,language:catalogLanguage,query:searchInputEl.value,shell:shellPage,scroll:document.getElementById('main-scroll').scrollTop};
+    return {view,list:tvListView,scope:catalogScope,category:catalogCategory,language:catalogLanguage,query:searchInputEl.value,shell:shellPage,scroll:document.getElementById('main-scroll').scrollTop};
   }
   function restoreTvPlace(place){
-    view=place.view;catalogScope=place.scope;catalogCategory=place.category;catalogLanguage=place.language;
+    view=place.view;tvListView=Boolean(place.list);tvRowsKey='';catalogScope=place.scope;catalogCategory=place.category;catalogLanguage=place.language;
     searchInputEl.value=place.query;const box=document.getElementById('tm-search-input');if(box)box.value=place.query;
     if(place.shell)tvShell?.show(place.shell);else{shellPage=null;tvShell?.hide();}
     if(view==='home')document.querySelector('.tm-feed-heading')?.remove();
@@ -225,11 +250,11 @@
   }
   function rememberTvPlace(){const place=tvPlace();tvNav?.push(()=>restoreTvPlace(place));}
   function catalog(next,scope='all',category='All') {
-    rememberTvPlace();
+    rememberTvPlace();tvListView=false;
     view=next;expanded=false;catalogScope=scope;catalogCategory=category;catalogLanguage='All';
     searchInputEl.value='';document.getElementById('tm-search-input').value='';
     renderCatalogControls();renderViewport();sync();
-    const heading=document.createElement('h2');heading.className='tm-feed-heading';heading.textContent=next==='library'?'Your Library':next==='search'?'Search':next==='history'?'Recently watched':category!=='All'?category:'Live television';
+    const heading=document.createElement('h2');heading.className='tm-feed-heading';heading.textContent=next==='library'?'Your Library':next==='search'?'Search':next==='history'?'Recently watched':category!=='All'?category:'Browse';
     document.querySelector('.tm-feed-heading')?.remove();if(currentTheme==='spotify'&&next!=='home')document.getElementById('catalog-section').prepend(heading);
     document.getElementById('main-scroll').scrollTo({top:0,behavior:'instant'});
   }
@@ -240,6 +265,7 @@
       case 'netflix': case 'spotify': case 'youtube': expanded=false;switchTheme(name);renderHome();sync();break;
       case 'home': catalog('home');shell.querySelector('.tm-search').hidden=true;renderHome();break;
       case 'live': catalog('live','all');break;
+      case 'telugu': catalog('live','all');catalogLanguage='Telugu';renderCatalogControls();renderViewport();sync();break;
       case 'library': catalog('library','favs');break;
       case 'history': catalog('history','recently_played');break;
       case 'news': catalog('news','all','News');break;
@@ -414,7 +440,7 @@
     shell.querySelector('.tm-search-suggestions')?.remove();
     if(shell.querySelector('.tm-search').hidden)return;
     const list=document.createElement('div');list.className='tm-search-suggestions';list.setAttribute('role','listbox');list.setAttribute('aria-label','Channel suggestions');
-    for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.name+' · '+(ch.group||'Live TV');button.addEventListener('click',()=>{playStream(ch,0);clearSelectionSearch();setExpanded(true);});list.append(button);}
+    for(const ch of items){const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.textContent=ch.name+' · '+(ch.group||'Channel');button.addEventListener('click',()=>{playStream(ch,0);clearSelectionSearch();setExpanded(true);});list.append(button);}
     shell.querySelector('.tm-search').append(list);
   }
   // Search arrives per keystroke. The first one applies at once; a fast burst redraws once, 220 ms after

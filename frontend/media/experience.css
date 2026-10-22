@@ -383,7 +383,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 /* Rows view: Home hides the whole list section; a section keeps its chips and filter icon and hides only the list. */
 html[data-radio-home="1"][data-radio-category="all"] #sp-grid-section,#radio-directory-browse,#radio-world-shelves{display:none!important}
 html[data-radio-home="1"] #sp-grid-section>div:first-child,html[data-radio-home="1"] #sp-cards-grid,html[data-radio-home="1"] #sp-grid-section .radio-load-more,html[data-radio-home="1"] #sp-grid-section .radio-genre-chips{display:none!important}
-html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
+html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display:none}
 #radio-home-shelves{margin-top:4px}
 .rh-row{margin:0 0 28px}.rh-row header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 12px;background:transparent!important}
 .rh-row h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;color:#fff}
