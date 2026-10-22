@@ -224,7 +224,7 @@ export function TradingModePanel() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Maximum lots per automatic entry</div>
-              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling on automatic entries. Does not size manual orders.</div>
+              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling on automatic and manual entries. Manual quantity must fit this limit.</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               {[1, 2, 5, 10, 25].map((l) => {

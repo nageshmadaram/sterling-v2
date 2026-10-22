@@ -107,7 +107,7 @@ def test_empty_journal_is_all_zero_not_an_error():
 
 def test_by_strategy_ranks_and_explains_the_biggest_drag(trades):
     table = {g["strategy"]: g for g in stats.by_strategy(trades)}
-    assert list(table) == ["supertrend", "snapback", "gamma"]
+    assert list(table) == ["supertrend", "snapback", "gamma", "ema_trend", "price_rules"]
     assert table["supertrend"]["net_pnl"] == 400.0 and table["supertrend"]["trades"] == 3
     assert table["gamma"]["net_pnl"] == -300.0 and table["snapback"]["net_pnl"] == 300.0
     assert (table["supertrend"]["rank"], table["snapback"]["rank"], table["gamma"]["rank"]) == (1, 2, 3)
@@ -120,9 +120,9 @@ def test_by_strategy_ranks_and_explains_the_biggest_drag(trades):
     assert table["snapback"]["headline"] == "Snapback is making money: +₹300 over 1 trade, 100% winners."
 
 
-def test_by_strategy_lists_all_three_even_with_no_trades():
+def test_by_strategy_lists_all_strategies_even_with_no_trades():
     table = stats.by_strategy([])
-    assert [g["strategy"] for g in table] == ["supertrend", "snapback", "gamma"]
+    assert [g["strategy"] for g in table] == ["supertrend", "snapback", "gamma", "ema_trend", "price_rules"]
     assert all(g["rank"] is None and g["trades"] == 0 for g in table)
     assert table[0]["headline"] == "Supertrend: no closed trades yet."
 

@@ -1,0 +1,346 @@
+{
+  "base_commit": "ff137155a083b2c52981545ff94400764ad6c188",
+  "scope": "Initial remediation plus 23 October follow-ups; uncommitted source content before integration",
+  "files": [
+    {
+      "path": "EXECUTION.md",
+      "bytes": 4979,
+      "sha256": "e0096c1dca584a35ef29825303eaaca1d6fdff5e040a85e2aec7fe51a5e3767c"
+    },
+    {
+      "path": "TESTING.md",
+      "bytes": 3274,
+      "sha256": "2fd415875ed12c38227dcf4b984d7835d361b95f4e7c484bc7f41ae5b9cbf4d6"
+    },
+    {
+      "path": "backend/app/api/v1/endpoints/kite.py",
+      "bytes": 99610,
+      "sha256": "5c52d728a872148ce18bbb1c08adb9e29654ecae5bf44217fbb039713c3d1598"
+    },
+    {
+      "path": "backend/app/api/v1/endpoints/navigator.py",
+      "bytes": 20755,
+      "sha256": "e155ad78ee5b2f5c55d22f328f845f59700a02594b0c4c65b20cdebc44080980"
+    },
+    {
+      "path": "backend/app/api/v1/endpoints/ops_live.py",
+      "bytes": 6235,
+      "sha256": "d9026302eea345474efd6250282618ba9c2991664f87772249894726331f9346"
+    },
+    {
+      "path": "backend/app/core/build_artifact_identity.py",
+      "bytes": 8468,
+      "sha256": "a30f5c466f50601ed6d52461d672a149e9aa87ce0b5ba4a9412c11c92bd03bb8"
+    },
+    {
+      "path": "backend/app/core/runtime_identity.py",
+      "bytes": 3333,
+      "sha256": "d069f1ba769288ba69fa3338425c6465b6b26ba5cb061947c63be3c86ff75fd1"
+    },
+    {
+      "path": "backend/app/services/db.py",
+      "bytes": 60551,
+      "sha256": "5c9af85762d76afa2a0196b158a5ca03aabdebe12e740408c3ceac75a9360dc7"
+    },
+    {
+      "path": "backend/app/services/gamma_move_historical.py",
+      "bytes": 28060,
+      "sha256": "66a00185741cc2d885acd17e8964a40d49f10d79d6bc73e5cec3b292bc1a5d45"
+    },
+    {
+      "path": "backend/app/services/gamma_move_scanner.py",
+      "bytes": 44467,
+      "sha256": "92fe7349e76c831ced6476ea21ab677a7af355c104f91b8c97817980944d7987"
+    },
+    {
+      "path": "backend/app/services/kite_engine/protection.py",
+      "bytes": 23919,
+      "sha256": "b1b292b4fbccf4e1845e634ac8c51ddf6c649f2a3b6cbd6d4a308a817f384c62"
+    },
+    {
+      "path": "backend/app/services/kite_engine/service.py",
+      "bytes": 184217,
+      "sha256": "bbb929cef0817f59115a6d3401248e350f088e691c638a6a68fa594d3129316e"
+    },
+    {
+      "path": "backend/app/services/price_rules.py",
+      "bytes": 28675,
+      "sha256": "4cb6362854c08693fc654e3b8f5c1e3cc8c0f187c30d846d25158a676d1b359d"
+    },
+    {
+      "path": "backend/app/services/trade_journal.py",
+      "bytes": 48353,
+      "sha256": "e6833ddc31b6b34ad079c562409d899f074f9bad8e0188a101d6793d7ca048c6"
+    },
+    {
+      "path": "backend/app/services/trade_journal_backfill.py",
+      "bytes": 11541,
+      "sha256": "00823fb4557a5d63c5de25edc6f5333213b7fee43ea47e95f2c56be935ef05b8"
+    },
+    {
+      "path": "backend/app/services/trade_journal_narrative.py",
+      "bytes": 20340,
+      "sha256": "14f83800c907e403d864eb60208da7341196e24f2dda5e6fe651d01813eb01ce"
+    },
+    {
+      "path": "backend/app/services/trade_journal_stats.py",
+      "bytes": 11239,
+      "sha256": "aa0467fc64147093299a0d7db4af37222833f547859f864a217e03c88315505e"
+    },
+    {
+      "path": "backend/main.py",
+      "bytes": 35871,
+      "sha256": "401550f2457512dbcf0f9642380e11ed3fc9797a10df809e125c813076e64ec3"
+    },
+    {
+      "path": "backend/tests/engines/sterling_kite_engine/test_live_manual_execution.py",
+      "bytes": 6450,
+      "sha256": "fa22006c2dabd93614ab2250a42ac28abbbf9bfa1043003ab8f288b449199b2c"
+    },
+    {
+      "path": "backend/tests/services/navigator/test_chart_route.py",
+      "bytes": 1647,
+      "sha256": "69b65ba44207724f69c73cec867d2feeb363b683d50972a9a4454307c5ce1dd4"
+    },
+    {
+      "path": "backend/tests/services/navigator/test_chart_series.py",
+      "bytes": 10330,
+      "sha256": "f97598ca969df4cb794668522d66c68ad98a13295b4091d5145c8cb8f240342d"
+    },
+    {
+      "path": "backend/tests/services/test_gamma_history_retries.py",
+      "bytes": 1813,
+      "sha256": "f7cebf082367b5ca52c391e790fda7e365d7a8ce75e0aeb302799a96ff404e55"
+    },
+    {
+      "path": "backend/tests/services/test_gamma_move_scanner_audit.py",
+      "bytes": 4815,
+      "sha256": "a6de2ff12a923ee24cd46db72e21a8f8bde266ff487d49d7f7ef27ee8292fe46"
+    },
+    {
+      "path": "backend/tests/services/test_price_rules.py",
+      "bytes": 24161,
+      "sha256": "9a7bcba3334ccb7aed5ea46fecf5a20b1006f722cd8184709e192c50e279f4f1"
+    },
+    {
+      "path": "backend/tests/test_public_access_stack.py",
+      "bytes": 54661,
+      "sha256": "dc2e80fd4d8361b1e08cbea1f84277e2be5566c32228cfafedb3c1f74329b0d1"
+    },
+    {
+      "path": "backend/tests/test_trader_qa_20261022.py",
+      "bytes": 6152,
+      "sha256": "c2beb3d8392d857a3c2b20f130315d5a3634db5ac49643742cbed8d8788c68be"
+    },
+    {
+      "path": "backend/tests/unit/test_build_artifact_identity.py",
+      "bytes": 3920,
+      "sha256": "7c364b0e1d7d9f898f74c4faa62dd9c8de6a4b19c60f4cf57347a2a0e6da9bab"
+    },
+    {
+      "path": "backend/tests/unit/test_live_db_guard.py",
+      "bytes": 2807,
+      "sha256": "6ecf6025718645e82d7e1ca8f937f16ba3d6bcade88b90b893875ae601662f1d"
+    },
+    {
+      "path": "backend/tests/unit/test_runtime_identity_images.py",
+      "bytes": 1105,
+      "sha256": "83f532f1c418b52cb8c1874ed7862d914a00c6b276ba5f862bad8e3a5ce09bb8"
+    },
+    {
+      "path": "backend/tests/unit/test_trade_journal_api.py",
+      "bytes": 12934,
+      "sha256": "10aaca3d83488fb2843d904b086dac062fcfb83f0448831aa7752c4f7e1d7794"
+    },
+    {
+      "path": "backend/tests/unit/test_trade_journal_stats.py",
+      "bytes": 7972,
+      "sha256": "446ef1af96a01472fd4fb35da0f88300cc11e7790b74046558122b0a45dd3fa8"
+    },
+    {
+      "path": "docs/operator/START_HERE.md",
+      "bytes": 5056,
+      "sha256": "77303a0ce395bd7dd3f9de160d4ab45f72bdd6b8202ae231820d2e5c1c87c6eb"
+    },
+    {
+      "path": "frontend/Dockerfile",
+      "bytes": 765,
+      "sha256": "4c6d58d7fef8a0da33554a4de39ca08fd469a214c7f6240be150e9bd0833aa37"
+    },
+    {
+      "path": "frontend/buildIdentity.ts",
+      "bytes": 390,
+      "sha256": "62a053bc8c32e39abc6df90236ba96b8416eb8b1b313f7df1cf5e20f6edefcf2"
+    },
+    {
+      "path": "frontend/src/__tests__/buildIdentity.test.ts",
+      "bytes": 671,
+      "sha256": "b26c6646211037150ebb34b7b832c9a59ce94cf9e037ec7eaca20b64fa398fc9"
+    },
+    {
+      "path": "frontend/src/components/journal/JournalTab.tsx",
+      "bytes": 5305,
+      "sha256": "19cb8f1b98a4fca5e2ac5d47ff6266d61a5eb3e203d2bdafe5c34c0d20b73bb1"
+    },
+    {
+      "path": "frontend/src/components/journal/StrategyComparison.tsx",
+      "bytes": 5376,
+      "sha256": "05dd81acf94fdb6d79b345635c011babb078975839baa9b8c4811a8d5951b3f5"
+    },
+    {
+      "path": "frontend/src/components/journal/types.ts",
+      "bytes": 6065,
+      "sha256": "19eae46f2f67fc62a5c4b4f10dcf04b66e37d187bd12dd2bb723967e5ed2a481"
+    },
+    {
+      "path": "frontend/src/components/kite/AdaptiveEdgePositionCalculator.tsx",
+      "bytes": 26175,
+      "sha256": "1aa65ef3ce2050f1dffcce085318a6f3c6f20d33fcff1c07854506215d72c8bd"
+    },
+    {
+      "path": "frontend/src/components/kite/EnginePositionsPane.tsx",
+      "bytes": 14315,
+      "sha256": "441d3149d1a8e87d210b614c85890222043338ac444e4bf860d3897402d1afbb"
+    },
+    {
+      "path": "frontend/src/components/kite/KiteDashboard.tsx",
+      "bytes": 21293,
+      "sha256": "a7c173f95a342277862972e533ae295c86d1562a7a16e954cb276687a483cd5d"
+    },
+    {
+      "path": "frontend/src/components/kite/KiteFooterStatus.tsx",
+      "bytes": 5084,
+      "sha256": "ea83fbf8bf670dbc1262f690da9c933d226a6c9735afec92994f0332f0001762"
+    },
+    {
+      "path": "frontend/src/components/kite/KiteLayout.tsx",
+      "bytes": 58074,
+      "sha256": "228a27121e39352767aed84a71732292e3ad39560a802bc6cffe4fc76207f0a1"
+    },
+    {
+      "path": "frontend/src/components/kite/KiteTab.tsx",
+      "bytes": 15569,
+      "sha256": "c27069bf21572c8b4f8ab9e2ae8d0ec6cea4ab434421b114ff32ae978579c1aa"
+    },
+    {
+      "path": "frontend/src/components/kite/LiveOperationsPanel.tsx",
+      "bytes": 6403,
+      "sha256": "0ac6a8deb805747e25122a43a683eaa6614ca9905aea337278384b6c56640020"
+    },
+    {
+      "path": "frontend/src/components/kite/OrderWindow.tsx",
+      "bytes": 51871,
+      "sha256": "e0b92c5239c5fce54a203b8b3309b528bf3066363f6564e161b394a2f7a8276f"
+    },
+    {
+      "path": "frontend/src/components/kite/PendingGttProtectionWatcher.tsx",
+      "bytes": 2936,
+      "sha256": "a2e9a3d376de40898ba5405d25d7ced5b0dbe30bf6562b42e001f26c4c27fd2e"
+    },
+    {
+      "path": "frontend/src/components/kite/PriceRulesPanel.tsx",
+      "bytes": 10354,
+      "sha256": "931efb1b26ed37c7bfda1bf19445067a3ad9337b44073c7dbf007d7e3a378118"
+    },
+    {
+      "path": "frontend/src/components/kite/TradingModePanel.tsx",
+      "bytes": 21167,
+      "sha256": "1f398f11449c8759a15317c1f7f63a61469acb8fdeab4805896966e044621d74"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx",
+      "bytes": 8708,
+      "sha256": "1c75cdb561ab3156482694a82c2ce6dd7086b96eb773011847e840ac058e25dc"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/KiteFooterStatus.test.tsx",
+      "bytes": 6194,
+      "sha256": "b2897805f9922ae0c976ed66db27686efded6801790e2d0d452c23fe96510882"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/KiteLayout.workspace.test.tsx",
+      "bytes": 19542,
+      "sha256": "196906c582d1ec34b08dc63392dd73a14ec92baeccaf5cb40e3c3cb00509bcbe"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx",
+      "bytes": 15411,
+      "sha256": "496b30c3d0d255b1500c39cbde783a8435ebbbb0459963f94edcb65a346f3c81"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/PendingGttProtectionWatcher.test.tsx",
+      "bytes": 3453,
+      "sha256": "405be3a788511b1c60c17a46f77e0aeac5e7508344696aafe0e38396410bc91b"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/SterlingKiteEnginePane.rescan.test.tsx",
+      "bytes": 10820,
+      "sha256": "b28e28d0a6b9f2e92031dd4e5f348f53cccb12388ccbe3083c6c534116ec78a8"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/TradingModePanel.rescan.test.tsx",
+      "bytes": 9072,
+      "sha256": "70170634d12ee6d561661a7f527a453553d151405b47a867747c1b6905e5ddbe"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/engineTabVisibility.test.tsx",
+      "bytes": 8132,
+      "sha256": "60f851d7b0fbe3f95f967e654c655000afc8a80cd2dcd004f14defefa1ef091b"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/traderQa20261022.test.tsx",
+      "bytes": 2122,
+      "sha256": "9c8cb830e2231b3ec444bf895a743759553d94bc281d115f1e2578591c31cb0d"
+    },
+    {
+      "path": "frontend/src/components/kite/board/SnapbackBoard.tsx",
+      "bytes": 20346,
+      "sha256": "30e55655dce194e83675b985dad9e75fccc5536f56fb079f5d5e340c3281d979"
+    },
+    {
+      "path": "frontend/src/components/kite/board/StrategyGuide.tsx",
+      "bytes": 3205,
+      "sha256": "6cc1f6fe97e5b1eddb0f4ef5eca0b038dfa1e15a81b07e0c588e3ee9d2d85935"
+    },
+    {
+      "path": "frontend/src/components/kite/board/__tests__/SnapbackBoard.test.tsx",
+      "bytes": 19896,
+      "sha256": "39a1778ad14c553f8f70eb88aa5ff04d34b79fbabef3c1a2c040ff3c2c43765b"
+    },
+    {
+      "path": "frontend/src/components/kite/config/registry.ts",
+      "bytes": 22912,
+      "sha256": "9c425d66bc3d7acadae9bc10ce89312c35d0e64491e4d5f7dcfac2e1aeaa3d86"
+    },
+    {
+      "path": "frontend/src/components/sim/SpectrumNavigation.tsx",
+      "bytes": 2810,
+      "sha256": "d427794826eb728eb1f23f5df140a8c66e5470681924bb960e6e7d047f732aef"
+    },
+    {
+      "path": "frontend/src/hooks/__tests__/useJournal.test.tsx",
+      "bytes": 7984,
+      "sha256": "8330b0fc3e3ad329a1ad7b639607eb939042f79444bdf27c16f21a20978365e9"
+    },
+    {
+      "path": "frontend/src/hooks/__tests__/useKiteOrderAcknowledgement.test.tsx",
+      "bytes": 2156,
+      "sha256": "a82d23979aadc7a495bf2816f5f5925ebc4fd1c2fa1f7987015c04b8e73b4e3f"
+    },
+    {
+      "path": "frontend/src/hooks/useKite.ts",
+      "bytes": 48117,
+      "sha256": "1043339074dc7457d32c79dac266fcdd8b8aa3ba1ca7a0fff053b783ea1d0345"
+    },
+    {
+      "path": "frontend/vite.config.ts",
+      "bytes": 1918,
+      "sha256": "a2c03de79117911c9a80d0a63051fa8be4beaa5005bd30fe9787b41e5bd5089e"
+    },
+    {
+      "path": "scripts/sterling_stack.py",
+      "bytes": 65949,
+      "sha256": "221517998e99d0d721d035317d37fe71b05047642fc55bd1032a334e75f58b7a"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+[
+  {
+    "origin": "http://127.0.0.1:5180",
+    "method": "GET",
+    "path": "/health",
+    "authenticated": false,
+    "observed_at": "2026-10-22T22:17:58.494136+05:30",
+    "http_status": 200,
+    "body": {
+      "status": "ok",
+      "version": "0.4.0",
+      "environment": "production",
+      "live_execution": true,
+      "exchange_reachable": true
+    }
+  },
+  {
+    "origin": "http://127.0.0.1:5180",
+    "method": "GET",
+    "path": "/api/v1/kite/status",
+    "authenticated": false,
+    "observed_at": "2026-10-22T22:17:58.516741+05:30",
+    "http_status": 401
+  },
+  {
+    "origin": "http://127.0.0.1:5180",
+    "method": "GET",
+    "path": "/api/v1/kite/engine/readiness",
+    "authenticated": false,
+    "observed_at": "2026-10-22T22:17:58.518411+05:30",
+    "http_status": 401
+  },
+  {
+    "origin": "http://127.0.0.1:5180",
+    "method": "GET",
+    "path": "/api/v1/ops/live-status",
+    "authenticated": false,
+    "observed_at": "2026-10-22T22:17:58.519998+05:30",
+    "http_status": 401
+  }
+]

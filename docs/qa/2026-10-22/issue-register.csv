@@ -1,0 +1,19 @@
+id,priority,finding,evidence_class,exact_fix_summary,status
+QA-01,P0,Runtime mismatch,Recorded running process/frontend identities,Select and certify loaded immutable release,DIAGNOSTICS_IMPLEMENTED_RUNTIME_CERTIFICATION_PENDING
+QA-02,P1,Hard-coded hourly freshness,Reproduced offline,Validate actual row interval and closed-bar age,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-03,P1,Stale manual signals become AMO,Reproduced offline,Remove fallback and implicit conversion; explicit validated AMO policy,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-04,P1,Escape requests all owned exits,Reproduced with mocked API,Remove shortcut; deliberate reviewed action,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-05,P1,Invented SL and R in copied plan,Observed UI and reproduced,Keep absent stop null in screen/copy/export,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-06,P1,Editable preview not executable plan,Source contract and UI,Read-only server revision or separate hypothetical calculator,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-07,P1,Conflicting browser protection owner,Source contract,Canonical owner metadata; no generic live GTT watcher,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-08,P1,Pending protection/AMO mislabelled,Source contract,Lifecycle states and returned variety,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-09,P2,Snapback AMO promise not implemented,Observed UI and source contract,Show server capabilities/refusal,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-10,P2,Maximized navigation hides destination,Observed UI and source,Restore focused main pane on explicit navigation,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-11,P2,Static market events labelled LIVE,Observed UI and source literals,Remove fixtures; truthful source/as-of state,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-12,P1,18 frontend gate failures,Existing full suite,Repair missing useKiteStatus mocks; rerun real assertions,FIXED_FULL_FRONTEND_SUITE_PASSED
+QA-13,SCOPE,Simulation access and discoverability limitation,Observed preference/access attempt and source capability,Explain Spectrum visibility and owner availability separately from strategy arming,SCOPE_CLARIFIED_AUTHORIZATION_UNCHANGED
+QA-14,P2,Defaults paths and cap help disagree,Source/documentation,Correct unset live default launcher and manual lot cap wording,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-15,P2,Ambiguous live/open/algo labels,Observed UI and source,Separate account setup ownership entry readiness and auto state,LABELS_IMPLEMENTED_DEVICE_VISUAL_SMOKE_PENDING
+QA-16,INVESTIGATE,Gamma recovery and post-close timestamps,Observed UI; root cause unverified,Trace source time/provenance; bounded symbol recovery diagnostics,GUARDS_IMPLEMENTED_UPSTREAM_REPRO_PENDING
+QA-17,P1,Gamma T1 guide promises profit booking,Observed guide and source,Say stop moves to entry; no invented partial fraction,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT
+QA-18,P1,Price Rules missing from global Trade Journal,Actual UI filter and source schema/adapter exclusion,Project confirmed Price Rules lifecycle into unified journal with idempotent adapter,IMPLEMENTED_LOCAL_PENDING_DEPLOYMENT

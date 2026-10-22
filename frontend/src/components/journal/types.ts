@@ -6,18 +6,19 @@
  */
 
 export type JournalMode = 'live' | 'simulation' | 'all';
-export type StrategyId = 'supertrend' | 'snapback' | 'gamma' | 'ema_trend';
+export type StrategyId = 'supertrend' | 'snapback' | 'gamma' | 'ema_trend' | 'price_rules';
 export type Outcome = 'win' | 'loss' | 'open';
 export type TradeModeLabel = 'LIVE' | 'SIMULATION';
 export type TradeStatus = 'PENDING' | 'OPEN' | 'CLOSED' | 'REJECTED';
 
-export const STRATEGY_IDS: readonly StrategyId[] = ['supertrend', 'snapback', 'gamma', 'ema_trend'];
+export const STRATEGY_IDS: readonly StrategyId[] = ['supertrend', 'snapback', 'gamma', 'ema_trend', 'price_rules'];
 
 export const STRATEGY_NAMES: Record<StrategyId, string> = {
   supertrend: 'Supertrend',
   snapback: 'Snapback',
   gamma: 'Gamma Unwind',
   ema_trend: 'EMA Trend',
+  price_rules: 'Price Rules',
 };
 
 export interface JournalScope {

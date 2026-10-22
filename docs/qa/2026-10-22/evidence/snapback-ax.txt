@@ -1,0 +1,83 @@
+Browser tab: 1, Title: "Sterling", URL: "http://127.0.0.1:5180/".
+0 AXWebArea Sterling, URL: 127.0.0.1:5180/
+	1 container
+		2 container
+			3 button Description: Sterling Home, Help: Open KITE
+				4 container Sterling
+				5 text STERLING
+			6 button Description: Toggle Spectrum: KITE, Help: Switch to next selected workspace
+			7 button Dashboard
+			8 button PCR
+			9 button Positions
+			10 pop up button (collapsed) Tools ▾, Secondary Actions: Expand
+			11 pop up button (collapsed) Description: Choose theme, Secondary Actions: Expand
+			12 button (collapsed) Description: Sterling account profile, Secondary Actions: Expand
+			13 button ⋮, Help: More options
+			14 container Description: KITE workspace, ID: sterling-kite-surface
+				15 container VS Code Activity Rail
+					16 button ⯵, Help: Search & Command Palette (Ctrl+K)
+					17 button Main Dashboard
+					18 button PCR Analytics
+					19 button Positions
+					20 button More
+					21 button Description: Customize Layout, Help: Customize Workspace Layout
+					22 button Description: Kite Account Status, Help: Zerodha Kite Account & Session
+				23 container Signals pane
+					24 container Double-click to restore workspace
+						25 image
+						26 text Signals Right dock
+						27 button Description: Restore Signals, Help: Restore workspace
+							28 image
+						29 container kw-pane-actions-signals
+							30 button Re-scan Snapback, SuperTrend, Gamma Unwind, EMA Trend
+							31 checkbox Description: Board settings, Value: 0
+								32 image
+						33 button Minimize Signals
+							34 image
+						35 checkbox Description: Half screen Signals, Value: 0
+							36 image
+						37 checkbox Description: Maximize Signals, Value: 1
+							38 image
+						39 checkbox Description: Full screen Signals, Value: 0
+							40 image
+					41 container
+						42 tab group Signal engine
+							43 tab (selectable, settable, boolean) Description: SuperTrend, 17 live of 102 scanned, Value: 0
+							44 tab (selectable, settable, boolean) Description: Gamma Unwind, 0 live of 188 scanned, Value: 0
+							45 tab (selected, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 1
+							46 tab (selectable, settable, boolean) Description: EMA Trend, 0 live of 1000 scanned, Value: 0
+						47 container How this strategy works
+							48 text Finds stocks that moved too far, too fast. Buys an option that gains when the price comes back toward its average.
+							49 container
+								50 text 1  Tap a row to see the plan · 2  Press  B  to buy it yourself · 3  To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
+							51 button Hide this guide
+						3050 pop up button (collapsed) Secondary Actions: Expand
+						3051 pop up button (collapsed) Secondary Actions: Expand
+						3052 switch 0
+						3053 switch 0
+						3054 switch 1
+						3055 button (expanded) Secondary Actions: Collapse
+							3056 image
+						3057 button (collapsed) Secondary Actions: Expand
+							3058 button
+							3059 button
+								3060 image
+				3033 container
+					3034 button Description: Open basket, Help: Basket
+						3035 image
+					3036 container Minimized panes and Kite status
+						3037 button LIVE, Help: Live trading. New entries allowed.
+						3038 button KITE, Help: Connected · Madaram Nagesh · expires 06:00:00 IST
+						3039 checkbox Description: Open replay dock, Help: Open the replay dock, Value: 0
+						3040 button Watchlist, Help: Restore Watchlist
+							3041 image
+							3042 text Watchlist
+					3043 container Workspace and engine status
+						3044 button (collapsed) Layout, Help: Open workspace layouts, Secondary Actions: Expand
+							3045 image
+							3046 text Layout
+							3047 image
+						3048 text ALGO
+						3049 text · Market closed
+
+The focused UI element is 45 tab (selected, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 1

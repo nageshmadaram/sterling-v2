@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { k } from '../../styles/kiteUI';
 import { roundToTick, fmtTick, fmtINR } from '../../utils/fmt';
 import { formatInstrument } from '../../lib/instrument';
@@ -63,18 +63,25 @@ export function AdaptiveEdgePositionCalculator({
     () => (propLotSize != null && propLotSize > 0 ? propLotSize : getInstrumentLotSize(symbol)),
     [propLotSize, symbol],
   );
-  const baseEntry = roundToTick(defaultEntryPrice ?? currentLtp ?? 100) ?? 100;
-  const baseSl = roundToTick(defaultSl ?? (baseEntry * 0.8)) ?? Number((baseEntry * 0.8).toFixed(2));
-  const baseTsl = roundToTick(defaultTsl ?? baseEntry) ?? baseEntry;
+  const baseEntry = roundToTick(defaultEntryPrice ?? (allowOrder ? currentLtp : null) ?? 0) ?? 0;
+  const baseSl = roundToTick(defaultSl ?? 0) ?? 0;
+  const baseTsl = roundToTick(defaultTsl ?? 0) ?? 0;
   const baseTarget = roundToTick(defaultExit ?? 0) ?? baseEntry;
 
   // Editable State
-  const plannedLots = defaultLots != null && defaultLots > 0 ? Math.round(defaultLots) : 1;
+  const plannedLots = defaultLots != null && defaultLots > 0 ? Math.round(defaultLots) : allowOrder ? 1 : 0;
   const [numLots, setNumLots] = useState<number>(plannedLots);
   const [entryPrice, setEntryPrice] = useState<number>(baseEntry);
   const [slPrice, setSlPrice] = useState<number>(baseSl);
   const [tslPrice, setTslPrice] = useState<number>(baseTsl);
   const [targetPrice, setTargetPrice] = useState<number>(baseTarget);
+
+  useEffect(() => {
+    if (!allowOrder) {
+      setNumLots(plannedLots); setEntryPrice(baseEntry); setSlPrice(baseSl);
+      setTslPrice(baseTsl); setTargetPrice(baseTarget);
+    }
+  }, [allowOrder, plannedLots, baseEntry, baseSl, baseTsl, baseTarget]);
 
   const isCustomized =
     numLots !== plannedLots ||
@@ -104,9 +111,9 @@ export function AdaptiveEdgePositionCalculator({
 
   // Hard SL Risk. A bought option can go to zero, so ORB (hideTsl) sizes
   // against the full premium outlay — the same number the board row shows.
-  const slDistance = Math.max(0, roundToTick(entryPrice - slPrice) ?? 0);
+  const slDistance = slPrice > 0 ? Math.max(0, roundToTick(entryPrice - slPrice) ?? 0) : 0;
   const premiumOutlay = roundToTick(entryPrice * totalQty) ?? (entryPrice * totalQty);
-  const maxRiskAmount = hideTsl ? premiumOutlay : (roundToTick(slDistance * totalQty) ?? 0);
+  const maxRiskAmount = roundToTick(slDistance * totalQty) ?? 0;
   const riskPerLot = hideTsl
     ? (roundToTick(entryPrice * lotSize) ?? (entryPrice * lotSize))
     : (roundToTick(slDistance * lotSize) ?? 0);
@@ -119,7 +126,7 @@ export function AdaptiveEdgePositionCalculator({
   // Target / Reward
   const targetDistance = Math.max(0, roundToTick(targetPrice - entryPrice) ?? 0);
   const targetReward = roundToTick(targetDistance * totalQty) ?? 0;
-  const riskRewardRatio = slDistance > 0 ? (targetDistance / slDistance).toFixed(2) : '1.00';
+  const riskRewardRatio = slDistance > 0 && entryPrice > 0 && targetPrice > entryPrice ? (targetDistance / slDistance).toFixed(2) : '—';
   const realizedRR = slDistance > 0 ? (coveredPoints / slDistance).toFixed(2) : '0.00';
 
   const estFrictionINR = 60 * numLots;
@@ -178,8 +185,8 @@ export function AdaptiveEdgePositionCalculator({
   };
 
   const handleCopyTradePlan = () => {
-    const tslLine = hideTsl ? '' : `\nTSL: ₹${fmtTick(tslPrice)}`;
-    const text = `TRADE PLAN\nSymbol: ${formatInstrument(tradingsymbol || symbol)} (${exchange})\nLots: ${numLots} (${totalQty} Qty)\nEntry: ₹${fmtTick(entryPrice)}\nStop Loss: ₹${fmtTick(slPrice)} (-${fmtTick(slDistance)} pts)${tslLine}\nTarget: ₹${fmtTick(targetPrice)} (+${fmtTick(targetDistance)} pts)\nRisk/Reward: 1 : ${riskRewardRatio} R`;
+    const tslLine = hideTsl ? '' : `\nTSL: ${tslPrice > 0 ? '₹' + fmtTick(tslPrice) : 'Not supplied'}`;
+    const text = `TRADE PLAN\nPlan authority: ${allowOrder ? 'Editable sizing preview; server admission required' : 'Strategy snapshot; execution uses the server plan'}\nSymbol: ${formatInstrument(tradingsymbol || symbol)} (${exchange})\nLots: ${numLots} (${totalQty} Qty)\nEntry: ${entryPrice > 0 ? '₹' + fmtTick(entryPrice) : 'Not supplied'}\nStop Loss: ${slPrice > 0 ? `₹${fmtTick(slPrice)} (-${fmtTick(slDistance)} pts)` : 'Not supplied'}${tslLine}\nTarget: ${targetPrice > 0 ? `₹${fmtTick(targetPrice)} (+${fmtTick(targetDistance)} pts)` : 'Not supplied'}\nRisk/Reward: ${riskRewardRatio !== '—' ? `1 : ${riskRewardRatio} R` : 'Unknown (entry, stop or target unavailable)'}`;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(text);
       setCopied(true);
@@ -331,7 +338,7 @@ export function AdaptiveEdgePositionCalculator({
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
-                disabled={numLots <= 1}
+                disabled={!allowOrder || numLots <= 1}
               >
                 −
               </button>
@@ -339,6 +346,7 @@ export function AdaptiveEdgePositionCalculator({
                 type="number"
                 min={1}
                 max={500}
+                readOnly={!allowOrder}
                 value={numLots}
                 onChange={(e) => {
                   const val = parseInt(e.target.value, 10);
@@ -359,6 +367,7 @@ export function AdaptiveEdgePositionCalculator({
               />
               <button
                 type="button"
+                disabled={!allowOrder}
                 onClick={() => setNumLots((l) => l + 1)}
                 style={{
                   width: 24,
@@ -387,7 +396,8 @@ export function AdaptiveEdgePositionCalculator({
             <input
               type="number"
               step="0.05"
-              value={entryPrice}
+              readOnly={!allowOrder}
+              value={entryPrice || ''}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);
                 if (!isNaN(val) && val >= 0) setEntryPrice(roundToTick(val) ?? val);
@@ -415,7 +425,8 @@ export function AdaptiveEdgePositionCalculator({
             <input
               type="number"
               step="0.05"
-              value={slPrice}
+              readOnly={!allowOrder}
+              value={slPrice || ''}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);
                 if (!isNaN(val) && val >= 0) setSlPrice(roundToTick(val) ?? val);
@@ -444,7 +455,8 @@ export function AdaptiveEdgePositionCalculator({
             <input
               type="number"
               step="0.05"
-              value={tslPrice}
+              readOnly={!allowOrder}
+              value={tslPrice || ''}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);
                 if (!isNaN(val) && val >= 0) setTslPrice(roundToTick(val) ?? val);
@@ -473,7 +485,8 @@ export function AdaptiveEdgePositionCalculator({
             <input
               type="number"
               step="0.05"
-              value={targetPrice}
+              readOnly={!allowOrder}
+              value={targetPrice || ''}
               onChange={(e) => {
                 const val = parseFloat(e.target.value);
                 if (!isNaN(val) && val >= 0) setTargetPrice(roundToTick(val) ?? val);
@@ -497,24 +510,24 @@ export function AdaptiveEdgePositionCalculator({
 
       <div className="plan-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
         <MetricCard title="Position estimate" summary={lotSize > 0 ? `${totalQty} Qty` : 'Lot size required'}>
-          <Metric label="Entry / capital" value={`₹${fmtTick(entryPrice)} · ${lotSize > 0 ? fmtINR(totalInvestment) : '—'}`} />
+          <Metric label="Entry / capital" value={entryPrice > 0 ? `₹${fmtTick(entryPrice)} · ${lotSize > 0 ? fmtINR(totalInvestment) : '—'}` : '—'} />
           <Metric label="Current LTP" value={currentLtp != null ? `₹${fmtTick(liveLtp)}` : '—'}
-            detail={currentLtp != null ? `${coveredPoints >= 0 ? '+' : ''}${fmtTick(coveredPoints)} pts (${coveredPct >= 0 ? '+' : ''}${coveredPct.toFixed(2)}%)` : 'Quote unavailable'} tone={isProfit ? k.green : k.red} />
-          <Metric label="Gross MTM estimate" value={currentLtp != null && lotSize > 0 ? fmtINR(unrealizedPnl, { showSign: true }) : '—'}
+            detail={currentLtp != null && entryPrice > 0 ? `${coveredPoints >= 0 ? '+' : ''}${fmtTick(coveredPoints)} pts (${coveredPct >= 0 ? '+' : ''}${coveredPct.toFixed(2)}%)` : 'Quote unavailable'} tone={isProfit ? k.green : k.red} />
+          <Metric label="Gross MTM estimate" value={currentLtp != null && entryPrice > 0 && lotSize > 0 ? fmtINR(unrealizedPnl, { showSign: true }) : '—'}
             detail={currentLtp != null && lotSize > 0 && slDistance > 0 ? `${realizedRR}R` : undefined} tone={isProfit ? k.green : k.red} />
           <span style={{ color: k.dim, fontSize: 10 }}>Plan quantity; confirmed holdings appear in Positions.</span>
         </MetricCard>
         <MetricCard title="Protection" summary="Planned levels">
-          <Metric label="Stop (SL)" value={defaultSl != null || isCustomized ? `₹${fmtTick(slPrice)}` : '—'}
-            detail={defaultSl != null || isCustomized ? `-${fmtTick(slDistance)} pts · ${lotSize > 0 ? fmtINR(-maxRiskAmount) : '—'}` : 'No strategy stop supplied'} tone={k.red} />
+          <Metric label="Stop (SL)" value={slPrice > 0 ? `₹${fmtTick(slPrice)}` : '—'}
+            detail={slPrice > 0 ? `-${fmtTick(slDistance)} pts · ${lotSize > 0 ? fmtINR(-maxRiskAmount) : '—'}` : 'No strategy stop supplied'} tone={k.red} />
           {hideTsl && <Metric label="Premium at risk" value={lotSize > 0 ? fmtINR(-premiumOutlay) : '—'} tone={k.red} />}
-          {!hideTsl && <Metric label="Trail (TSL)" value={defaultTsl != null || isCustomized ? `₹${fmtTick(tslPrice)}` : '—'}
-            detail={defaultTsl != null || isCustomized ? `${isRiskFree ? 'Profit locked' : 'Downside'} · ${lotSize > 0 ? fmtINR(tslPnl, { showSign: true }) : '—'}` : 'No strategy trail supplied'} tone={isRiskFree ? k.green : k.orange} />}
+          {!hideTsl && <Metric label="Trail (TSL)" value={tslPrice > 0 ? `₹${fmtTick(tslPrice)}` : '—'}
+            detail={tslPrice > 0 ? `${isRiskFree ? 'Profit locked' : 'Downside'} · ${lotSize > 0 ? fmtINR(tslPnl, { showSign: true }) : '—'}` : 'No strategy trail supplied'} tone={isRiskFree ? k.green : k.orange} />}
           <span style={{ color: k.dim, fontSize: 10 }}>Stop outcomes exclude slippage and charges; verify broker protection.</span>
         </MetricCard>
         <MetricCard title="Exit plan">
-          <Metric label="Target / reward" value={targetPrice > entryPrice ? `₹${fmtTick(targetPrice)}` : '—'}
-            detail={targetPrice > entryPrice ? `${lotSize > 0 ? fmtINR(targetReward, { showSign: true }) : '—'} · ${riskRewardRatio}R` : 'No fixed target supplied'} tone={k.purple} />
+          <Metric label="Target / reward" value={entryPrice > 0 && targetPrice > entryPrice ? `₹${fmtTick(targetPrice)}` : '—'}
+            detail={entryPrice > 0 && targetPrice > entryPrice ? `${lotSize > 0 ? fmtINR(targetReward, { showSign: true }) : '—'} · ${riskRewardRatio === '—' ? 'R unavailable' : riskRewardRatio + 'R'}` : 'No fixed target supplied'} tone={k.purple} />
           <Metric label="Estimated charges" value={lotSize > 0 ? `~${fmtINR(estFrictionINR)}` : '—'} detail="Sizing allowance; actual fees vary" />
           <Metric label="Exit status" value={exitState || '—'} tone={exitState?.includes('red') ? k.orange : k.text} />
         </MetricCard>

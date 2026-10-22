@@ -1,0 +1,6174 @@
+Browser tab: 1, Title: "Sterling", URL: "http://127.0.0.1:5180/".
+0 AXWebArea Sterling, URL: 127.0.0.1:5180/
+	1 container
+		2 container
+			3 button Description: Sterling Home, Help: Open KITE
+				4 container Sterling
+				5 text STERLING
+			6 button Description: Toggle Spectrum: KITE, Help: Switch to next selected workspace
+			7 button Dashboard
+			8 button PCR
+			9 button Positions
+			170 pop up button (collapsed) Tools ▾, Secondary Actions: Expand
+			11 pop up button (collapsed) Description: Choose theme, Secondary Actions: Expand
+			12 button (collapsed) Description: Sterling account profile, Secondary Actions: Expand
+			13 button ⋮, Help: More options
+			14 container Description: KITE workspace, ID: sterling-kite-surface
+				15 container VS Code Activity Rail
+					16 button ⯵, Help: Search & Command Palette (Ctrl+K)
+					17 button Main Dashboard
+					18 button PCR Analytics
+					19 button Positions
+					20 button More
+					21 button Description: Customize Layout, Help: Customize Workspace Layout
+					22 button Description: Kite Account Status, Help: Zerodha Kite Account & Session
+				171 container Signals pane
+					172 container Double-click to restore workspace
+						173 image
+						174 text Signals Right dock
+						175 button Description: Restore Signals, Help: Restore workspace
+							176 image
+						177 container kw-pane-actions-signals
+							178 button Re-scan SuperTrend, Gamma Unwind, Snapback, EMA Trend
+							179 checkbox Description: Board settings, Value: 0
+								180 image
+						181 button Minimize Signals
+							182 image
+						183 checkbox Description: Half screen Signals, Value: 0
+							184 image
+						185 checkbox Description: Maximize Signals, Value: 1
+							186 image
+						187 checkbox Description: Full screen Signals, Value: 0
+							188 image
+					189 container
+						190 tab group Signal engine
+							191 tab (selected, settable, boolean) Description: SuperTrend, 17 live of 102 scanned, Value: 1
+							192 tab (selectable, settable, boolean) Description: Gamma Unwind, 0 live of 188 scanned, Value: 0
+							193 tab (selectable, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 0
+							194 tab (selectable, settable, boolean) Description: EMA Trend, 4 live of 1000 scanned, Value: 0
+						195 container How this strategy works
+							196 text Buys a call when three trend lines turn up together, or a put when they turn down. Sells when the lines turn against it or the trailing stop is hit.
+							197 container
+								198 text 1  Tap a row to see the plan · 2  Press  B  to buy it yourself · 3  To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
+							199 button Hide this guide
+						200 container
+							201 pop up button (collapsed) Description: Columns, Help: Choose which columns this table shows, Secondary Actions: Expand
+							202 pop up button (collapsed) Description: MODES, Help: Show only some trading modes. Does not change scanning or orders., Secondary Actions: Expand
+							203 switch Description: BEST PICK, Value: 1, Help: Show only the nearest-the-money leg of each underlying — the one whose premium tracks the thesis most directly. A local filter; it never changes what is scanned.
+							204 switch Description: TODAY ONLY, Help: Show only signals generated today. Hides historical setups from yesterday and older sessions., Value: 0
+							205 switch Description: CLOSED, Help: Include closed positions. They are kept for the record and are not calls to action., Value: 1
+							206 container SuperTrend controls and information
+								207 text 1H
+								208 pop up button (collapsed) SOURCE Both, Help: SOURCE — Which chart SuperTrend reads a signal from. Saved on the server., Secondary Actions: Expand
+									209 text SOURCE
+									210 text Both
+									211 image
+								212 pop up button (collapsed) EXIT 3R + Signal, Secondary Actions: Expand, Help: EXIT — How many SuperTrend lines must turn red to close a trade. Saved on the server and applied to every live SuperTrend position.
+									213 text EXIT
+									214 text 3R + Signal
+									215 image
+						216 row
+							217 button INSTRUMENT
+							218 button EXC.
+							219 button STRIKE
+							220 button ENTRY
+							221 button STOP
+							222 button TRAIL
+							223 button EXIT RULE
+							224 button TARGET
+							225 button DAY ±
+							226 button DAY %
+							227 button PRICE
+							228 button P&L
+							229 button TIME
+							230 button TRADE
+							231 button CHART
+						232 container
+							233 button (expanded) TODAY 61 SIGNALS, Secondary Actions: Collapse
+								234 image
+								235 text TODAY
+								236 text 61
+								237 text SIGNALS
+							238 button (expanded) Description: NIFTY 50 long, 12 contracts, Closed, Secondary Actions: Collapse
+								239 button Open NIFTY 50 detail
+								240 text Ultra scalp
+								241 text 22,687.65
+								242 text 12
+								243 text  contract
+								244 text s
+								245 text 22 Oct 2026 03:41 PM
+								246 text 6 h ago
+							247 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								248 container NIFTY 3 NOV 22700 CE
+									249 text NIFTY 3
+									250 container
+										251 text rd w
+									252 text NOV 22700 CE
+								253 text NFO
+								254 text OTM1 (Δ0.53)
+								255 text 250.40
+								256 text (
+								257 text +
+								258 text 4.15
+								259 text )
+								260 text 240.85
+								261 text 256.20
+								262 text Stop hit 256.20
+								263 text —
+								264 text -24.05
+								265 text -8.63%
+								266 text 254.55
+								267 text —
+								268 text 15:41
+								269 button (disabled) B, Help: trail breach (≤ 22680.96)
+								270 button Chart
+									271 image
+							272 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								273 container NIFTY 3 NOV 22750 CE
+									274 text NIFTY 3
+									275 container
+										276 text rd w
+									277 text NOV 22750 CE
+								278 text NFO
+								279 text OTM2 (Δ0.50)
+								280 text 227.00
+								281 text (
+								282 text +
+								283 text 2.55
+								284 text )
+								285 text 218.05
+								286 text 232.45
+								287 text Stop hit 232.45
+								288 text —
+								289 text -21.10
+								290 text -8.42%
+								291 text 229.55
+								292 text —
+								293 text 15:41
+								294 button (disabled) B, Help: trail breach (≤ 22680.96)
+								295 button Chart
+									296 image
+							297 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								298 container NIFTY 9 NOV 22700 CE
+									299 text NIFTY 9
+									300 container
+										301 text th w
+									302 text NOV 22700 CE
+								303 text NFO
+								304 text OTM1 (Δ0.54)
+								305 text 328.00
+								306 text (
+								307 text +
+								308 text 2.00
+								309 text )
+								310 text 318.25
+								311 text 333.95
+								312 text Stop hit 333.95
+								313 text —
+								314 text -21.15
+								315 text -6.02%
+								316 text 330.00
+								317 text —
+								318 text 15:41
+								319 button (disabled) B, Help: trail breach (≤ 22680.96)
+								320 button Chart
+									321 image
+							322 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								323 container NIFTY 9 NOV 22750 CE
+									324 text NIFTY 9
+									325 container
+										326 text th w
+									327 text NOV 22750 CE
+								328 text NFO
+								329 text OTM2 (Δ0.51)
+								330 text 292.40
+								331 text (
+								332 text +
+								333 text 6.70
+								334 text )
+								335 text 283.10
+								336 text 298.05
+								337 text Stop hit 298.05
+								338 text —
+								339 text -24.95
+								340 text -7.70%
+								341 text 299.10
+								342 text —
+								343 text 15:41
+								344 button (disabled) B, Help: trail breach (≤ 22680.96)
+								345 button Chart
+									346 image
+							347 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								348 container NIFTY 17 NOV 22700 CE
+									349 text NIFTY 17
+									350 container
+										351 text th w
+									352 text NOV 22700 CE
+								353 text NFO
+								354 text OTM1 (Δ0.55)
+								355 text 397.00
+								356 text 387.00
+								357 text 403.10
+								358 text Stop hit 403.10
+								359 text —
+								360 text -28.05
+								361 text -6.60%
+								362 text 397.00
+								363 text —
+								364 text 15:41
+								365 button (disabled) B, Help: trail breach (≤ 22680.96)
+								366 button Chart
+									367 image
+							368 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								369 container NIFTY 17 NOV 22750 CE
+									370 text NIFTY 17
+									371 container
+										372 text th w
+									373 text NOV 22750 CE
+								374 text NFO
+								375 text OTM2 (Δ0.53)
+								376 text 371.00
+								377 text (
+								378 text -3.45
+								379 text )
+								380 text 361.40
+								381 text 376.85
+								382 text Stop hit 376.85
+								383 text —
+								384 text -26.25
+								385 text -6.67%
+								386 text 367.55
+								387 text —
+								388 text 15:41
+								389 button (disabled) B, Help: trail breach (≤ 22680.96)
+								390 button Chart
+									391 image
+							392 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								393 container NIFTY 1 DEC 22700 CE
+									394 text NIFTY 1
+									395 container
+										396 text st w
+									397 text DEC 22700 CE
+								398 text ▲
+								399 text NFO
+								400 text OTM1 (Δ0.57)
+								401 text 479.10
+								402 text (
+								403 text +
+								404 text 9.05
+								405 text )
+								406 text 468.75
+								407 text 485.40
+								408 text Stop hit 485.40
+								409 text —
+								410 text -203.05
+								411 text -29.38%
+								412 text 488.15
+								413 text —
+								414 text 15:41
+								415 button (disabled) B, Help: trail breach (≤ 22680.96)
+								416 button Chart
+									417 image
+							418 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								419 container NIFTY 1 DEC 22750 CE
+									420 text NIFTY 1
+									421 container
+										422 text st w
+									423 text DEC 22750 CE
+								424 text NFO
+								425 text OTM2 (Δ0.55)
+								426 text 462.50
+								427 text (
+								428 text +
+								429 text 11.25
+								430 text )
+								431 text 452.55
+								432 text 468.60
+								433 text Stop hit 468.60
+								434 text —
+								435 text -188.05
+								436 text -28.41%
+								437 text 473.75
+								438 text —
+								439 text 15:41
+								440 button (disabled) B, Help: trail breach (≤ 22680.96)
+								441 button Chart
+									442 image
+							443 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								444 container NIFTY OCT 22700 CE
+									445 text NIFTY OCT 22700 CE
+								446 text NFO
+								447 text OTM1 (Δ0.51)
+								448 text 156.50
+								449 text (
+								450 text +
+								451 text 3.80
+								452 text )
+								453 text 147.40
+								454 text 162.05
+								455 text Stop hit 162.05
+								456 text —
+								457 text -25.35
+								458 text -13.65%
+								459 text 160.30
+								460 text —
+								461 text 15:41
+								462 button (disabled) B, Help: trail breach (≤ 22680.96)
+								463 button Chart
+									464 image
+							465 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								466 container NIFTY OCT 22750 CE
+									467 text NIFTY OCT 22750 CE
+								468 text NFO
+								469 text OTM2 (Δ0.46)
+								470 text 131.00
+								471 text (
+								472 text +
+								473 text 4.30
+								474 text )
+								475 text 122.80
+								476 text 136.00
+								477 text Stop hit 136.00
+								478 text —
+								479 text -24.70
+								480 text -15.44%
+								481 text 135.30
+								482 text —
+								483 text 15:41
+								484 button (disabled) B, Help: trail breach (≤ 22680.96)
+								485 button Chart
+									486 image
+							487 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								488 container NIFTY NOV 22700 CE
+									489 text NIFTY NOV 22700 CE
+								490 text NFO
+								491 text OTM1 (Δ0.56)
+								492 text 452.75
+								493 text (
+								494 text -1.50
+								495 text )
+								496 text 442.65
+								497 text 458.90
+								498 text Stop hit 458.90
+								499 text —
+								500 text -24.65
+								501 text -5.18%
+								502 text 451.25
+								503 text —
+								504 text 15:41
+								505 button (disabled) B, Help: trail breach (≤ 22680.96)
+								506 button Chart
+									507 image
+							508 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								509 container NIFTY NOV 22750 CE
+									510 text NIFTY NOV 22750 CE
+								511 text NFO
+								512 text OTM2 (Δ0.54)
+								513 text 411.15
+								514 text (
+								515 text +
+								516 text 12.00
+								517 text )
+								518 text 401.40
+								519 text 417.10
+								520 text Stop hit 417.10
+								521 text —
+								522 text -26.45
+								523 text -5.88%
+								524 text 423.15
+								525 text —
+								526 text 15:41
+								527 button (disabled) B, Help: trail breach (≤ 22680.96)
+								528 button Chart
+									529 image
+							530 button (expanded) Description: SENSEX long, 12 contracts, Closed, Secondary Actions: Collapse
+								531 button Open SENSEX detail
+								532 text Ultra scalp
+								533 text 73,249.39
+								534 text 12
+								535 text  contract
+								536 text s
+								537 text 22 Oct 2026 03:32 PM
+								538 text 6 h ago
+							539 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								540 container SENSEX 22 OCT 73300 CE
+									541 text SENSEX 22
+									542 container
+										543 text nd w
+									544 text OCT 73300 CE
+								545 text BFO
+								546 text OTM1
+								547 text 78.40
+								548 text (
+								549 text -78.35
+								550 text )
+								551 text 55.30
+								552 text 95.60
+								553 text Stop hit 95.60
+								554 text —
+								555 text -389.20
+								556 text -99.99%
+								557 text 0.05
+								558 text —
+								559 text 15:32
+								560 button (disabled) B, Help: trail breach (≤ 73268.58)
+								561 button Chart
+									562 image
+							563 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								564 container SENSEX 22 OCT 73400 CE
+									565 text SENSEX 22
+									566 container
+										567 text nd w
+									568 text OCT 73400 CE
+								569 text BFO
+								570 text OTM2
+								571 text 49.40
+								572 text (
+								573 text -49.35
+								574 text )
+								575 text 33.45
+								576 text 61.30
+								577 text Stop hit 61.30
+								578 text —
+								579 text -329.60
+								580 text -99.98%
+								581 text 0.05
+								582 text —
+								583 text 15:32
+								584 button (disabled) B, Help: trail breach (≤ 73268.58)
+								585 button Chart
+									586 image
+							587 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								588 container SENSEX 5 NOV 73300 CE
+									589 text SENSEX 5
+									590 container
+										591 text th w
+									592 text NOV 73300 CE
+								593 text BFO
+								594 text OTM1 (Δ0.53)
+								595 text 976.95
+								596 text (
+								597 text +
+								598 text 30.05
+								599 text )
+								600 text 947.45
+								601 text 998.95
+								602 text Stop hit 998.95
+								603 text —
+								604 text -13.00
+								605 text -1.27%
+								606 text 1,007.00
+								607 text —
+								608 text 15:32
+								609 button (disabled) B, Help: trail breach (≤ 73268.58)
+								610 button Chart
+									611 image
+							612 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								613 container SENSEX 5 NOV 73400 CE
+									614 text SENSEX 5
+									615 container
+										616 text th w
+									617 text NOV 73400 CE
+								618 text BFO
+								619 text OTM2 (Δ0.51)
+								620 text 920.00
+								621 text (
+								622 text +
+								623 text 49.00
+								624 text )
+								625 text 891.45
+								626 text 941.25
+								627 text Stop hit 941.25
+								628 text —
+								629 text -94.45
+								630 text -8.88%
+								631 text 969.00
+								632 text —
+								633 text 15:32
+								634 button (disabled) B, Help: trail breach (≤ 73268.58)
+								635 button Chart
+									636 image
+							637 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								638 container SENSEX 12 NOV 73300 CE
+									639 text SENSEX 12
+									640 container
+										641 text th w
+									642 text NOV 73300 CE
+								643 text BFO
+								644 text OTM1 (Δ0.54)
+								645 text 1367.65
+								646 text 1,337.65
+								647 text 1,390.00
+								648 text Stop hit 1390.00
+								649 text —
+								650 text 13.55
+								651 text 1.00%
+								652 text 1,367.65
+								653 text —
+								654 text 15:32
+								655 button (disabled) B, Help: trail breach (≤ 73268.58)
+								656 button Chart
+									657 image
+							658 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								659 container SENSEX 12 NOV 73400 CE
+									660 text SENSEX 12
+									661 container
+										662 text th w
+									663 text NOV 73400 CE
+								664 text BFO
+								665 text OTM2 (Δ0.52)
+								666 text 1311.31
+								667 text (
+								668 text -16.11
+								669 text )
+								670 text 1,282.00
+								671 text 1,333.15
+								672 text Stop hit 1333.15
+								673 text —
+								674 text 0.00
+								675 text 0.00%
+								676 text 1,295.20
+								677 text —
+								678 text 15:32
+								679 button (disabled) B, Help: trail breach (≤ 73268.58)
+								680 button Chart
+									681 image
+							682 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								683 container SENSEX 19 NOV 73300 CE
+									684 text SENSEX 19
+									685 container
+										686 text th w
+									687 text NOV 73300 CE
+								688 text BFO
+								689 text OTM1 (Δ0.55)
+								690 text 1603.66
+								691 text (
+								692 text -60.31
+								693 text )
+								694 text 1,573.20
+								695 text 1,626.35
+								696 text Stop hit 1626.35
+								697 text —
+								698 text 0.00
+								699 text 0.00%
+								700 text 1,543.35
+								701 text —
+								702 text 15:32
+								703 button (disabled) B, Help: trail breach (≤ 73268.58)
+								704 button Chart
+									705 image
+							706 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								707 container SENSEX 19 NOV 73400 CE
+									708 text SENSEX 19
+									709 container
+										710 text th w
+									711 text NOV 73400 CE
+								712 text BFO
+								713 text OTM2 (Δ0.53)
+								714 text 1552.26
+								715 text (
+								716 text -67.56
+								717 text )
+								718 text 1,522.45
+								719 text 1,574.50
+								720 text Stop hit 1574.50
+								721 text —
+								722 text 0.00
+								723 text 0.00%
+								724 text 1,484.70
+								725 text —
+								726 text 15:32
+								727 button (disabled) B, Help: trail breach (≤ 73268.58)
+								728 button Chart
+									729 image
+							730 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								731 container SENSEX OCT 73300 CE
+									732 text SENSEX OCT 73300 CE
+								733 text BFO
+								734 text OTM1 (Δ0.51)
+								735 text 693.85
+								736 text (
+								737 text +
+								738 text 30.15
+								739 text )
+								740 text 665.25
+								741 text 715.15
+								742 text Stop hit 715.15
+								743 text —
+								744 text -99.70
+								745 text -12.10%
+								746 text 724.00
+								747 text —
+								748 text 15:32
+								749 button (disabled) B, Help: trail breach (≤ 73268.58)
+								750 button Chart
+									751 image
+							752 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								753 container SENSEX OCT 73400 CE
+									754 text SENSEX OCT 73400 CE
+								755 text BFO
+								756 text OTM2 (Δ0.49)
+								757 text 642.65
+								758 text (
+								759 text +
+								760 text 27.35
+								761 text )
+								762 text 615.35
+								763 text 663.00
+								764 text Stop hit 663.00
+								765 text —
+								766 text -90.90
+								767 text -11.95%
+								768 text 670.00
+								769 text —
+								770 text 15:32
+								771 button (disabled) B, Help: trail breach (≤ 73268.58)
+								772 button Chart
+									773 image
+							774 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								775 container SENSEX NOV 73300 CE
+									776 text SENSEX NOV 73300 CE
+								777 text ▲
+								778 text BFO
+								779 text OTM1 (Δ0.55)
+								780 text 1633.70
+								781 text 1,602.65
+								782 text 1,656.80
+								783 text Stop hit 1656.80
+								784 text —
+								785 text 0.00
+								786 text 0.00%
+								787 text 1,633.70
+								788 text —
+								789 text 15:32
+								790 button (disabled) B, Help: trail breach (≤ 73268.58)
+								791 button Chart
+									792 image
+							793 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								794 container SENSEX NOV 73400 CE
+									795 text SENSEX NOV 73400 CE
+								796 text BFO
+								797 text OTM2 (Δ0.54)
+								798 text 1770.27
+								799 text (
+								800 text -112.62
+								801 text )
+								802 text 1,740.00
+								803 text 1,792.80
+								804 text Stop hit 1792.80
+								805 text —
+								806 text 0.00
+								807 text 0.00%
+								808 text 1,657.65
+								809 text —
+								810 text 15:32
+								811 button (disabled) B, Help: trail breach (≤ 73268.58)
+								812 button Chart
+									813 image
+							814 button (expanded) Description: ADANIPORTS long, 4 contracts, Closed, Secondary Actions: Collapse
+								815 button Open ADANIPORTS detail
+								816 text Ultra scalp
+								817 text 1,750.00
+								818 text 4
+								819 text  contract
+								820 text s
+								821 text 22 Oct 2026 04:14 PM
+								822 text 5 h ago
+							823 button (collapsed) Description: ADANIPORTS CE Closed, Secondary Actions: Expand
+								824 container ADANIPORTS NOV 1780 CE
+									825 text ADANIPORTS NOV 1780 CE
+								826 text NFO
+								827 text OTM2 (Δ0.45)
+								828 text 43.75
+								829 text (
+								830 text -0.50
+								831 text )
+								832 text 42.51
+								833 text 42.51
+								834 text Stop hit 42.51
+								835 text —
+								836 text 3.20
+								837 text 7.99%
+								838 text 43.25
+								839 text —
+								840 text 16:14
+								841 button (disabled) B, Help: trail breach (≤ 12.32)
+								842 button Chart
+									843 image
+							844 button (collapsed) Description: ADANIPORTS CE Closed, Secondary Actions: Expand
+								845 container ADANIPORTS NOV 1760 CE
+									846 text ADANIPORTS NOV 1760 CE
+								847 text ▲
+								848 text NFO
+								849 text OTM1 (Δ0.51)
+								850 text 53.00
+								851 text (
+								852 text +
+								853 text 0.20
+								854 text )
+								855 text 51.85
+								856 text 52.17
+								857 text Stop hit 52.17
+								858 text —
+								859 text 3.65
+								860 text 7.37%
+								861 text 53.20
+								862 text —
+								863 text 16:03
+								864 button (disabled) B, Help: trail breach (≤ 12.32)
+								865 button Chart
+									866 image
+							867 button (collapsed) Description: ADANIPORTS CE Closed, Secondary Actions: Expand
+								868 container ADANIPORTS OCT 1780 CE
+									869 text ADANIPORTS OCT 1780 CE
+								870 text NFO
+								871 text OTM2 (Δ0.24)
+								872 text 6.00
+								873 text (
+								874 text -0.55
+								875 text )
+								876 text 5.59
+								877 text 6.42
+								878 text Stop hit 6.42
+								879 text —
+								880 text -1.05
+								881 text -16.15%
+								882 text 5.45
+								883 text —
+								884 text 15:41
+								885 button (disabled) B, Help: trail breach (≤ 12.32)
+								886 button Chart
+									887 image
+							888 button (collapsed) Description: ADANIPORTS CE Closed, Secondary Actions: Expand
+								889 container ADANIPORTS OCT 1760 CE
+									890 text ADANIPORTS OCT 1760 CE
+								891 text NFO
+								892 text OTM1 (Δ0.41)
+								893 text 11.30
+								894 text (
+								895 text -0.35
+								896 text )
+								897 text 10.61
+								898 text 12.32
+								899 text Stop hit 12.32
+								900 text —
+								901 text -0.30
+								902 text -2.67%
+								903 text 10.95
+								904 text —
+								905 text 15:40
+								906 button (disabled) B, Help: trail breach (≤ 12.32)
+								907 button Chart
+									908 image
+							909 button (expanded) Description: ADANIPORTS long, 4 contracts, Open, Secondary Actions: Collapse
+								910 button Open ADANIPORTS detail
+								911 text Ultra scalp
+								912 text 1,750.00
+								913 text 4
+								914 text  contract
+								915 text s
+								916 text 22 Oct 2026 04:13 PM
+								917 text 5 h ago
+							918 button (collapsed) Description: ADANIPORTS CE Open, Secondary Actions: Expand
+								919 container ADANIPORTS OCT 1760 CE
+									920 text ADANIPORTS OCT 1760 CE
+								921 text NFO
+								922 text OTM1 (Δ0.41)
+								923 text 11.55
+								924 text (
+								925 text -0.60
+								926 text )
+								927 text 9.85
+								928 text 10.50
+								929 text 0/3 red
+								930 text —
+								931 text -0.30
+								932 text -2.67%
+								933 text 10.95
+								934 text —
+								935 text 16:13
+								936 button (disabled) B, Help: This row is not execution eligible.
+								937 button Chart
+									938 image
+							939 button (collapsed) Description: ADANIPORTS CE Open, Secondary Actions: Expand
+								940 container ADANIPORTS OCT 1780 CE
+									941 text ADANIPORTS OCT 1780 CE
+								942 text NFO
+								943 text OTM2 (Δ0.24)
+								944 text 5.85
+								945 text (
+								946 text -0.40
+								947 text )
+								948 text 4.85
+								949 text 5.25
+								950 text 0/3 red
+								951 text —
+								952 text -1.05
+								953 text -16.15%
+								954 text 5.45
+								955 text —
+								956 text 16:13
+								957 button (disabled) B, Help: This row is not execution eligible.
+								958 button Chart
+									959 image
+							960 button (collapsed) Description: ADANIPORTS CE Open, Secondary Actions: Expand
+								961 container ADANIPORTS NOV 1760 CE
+									962 text ADANIPORTS NOV 1760 CE
+								963 text ▲
+								964 text NFO
+								965 text OTM1 (Δ0.51)
+								966 text 52.30
+								967 text (
+								968 text +
+								969 text 0.90
+								970 text )
+								971 text 50.10
+								972 text 50.95
+								973 text 0/3 red
+								974 text —
+								975 text 3.65
+								976 text 7.37%
+								977 text 53.20
+								978 text —
+								979 text 16:13
+								980 button (disabled) B, Help: This row is not execution eligible.
+								981 button Chart
+									982 image
+							983 button (collapsed) Description: ADANIPORTS CE Open, Secondary Actions: Expand
+								984 container ADANIPORTS NOV 1780 CE
+									985 text ADANIPORTS NOV 1780 CE
+								986 text NFO
+								987 text OTM2 (Δ0.45)
+								988 text 41.85
+								989 text (
+								990 text +
+								991 text 1.40
+								992 text )
+								993 text 39.95
+								994 text 40.70
+								995 text 0/3 red
+								996 text —
+								997 text 3.20
+								998 text 7.99%
+								999 text 43.25
+								1000 text —
+								1001 text 16:13
+								1002 button (disabled) B, Help: This row is not execution eligible.
+								1003 button Chart
+									1004 image
+							1005 button (expanded) Description: INFY long, 4 contracts, Closed, Secondary Actions: Collapse
+								1006 button Open INFY detail
+								1007 text Ultra scalp
+								1008 text 1,153.35
+								1009 text 4
+								1010 text  contract
+								1011 text s
+								1012 text 22 Oct 2026 04:13 PM
+								1013 text 5 h ago
+							1014 button (collapsed) Description: INFY CE Closed, Secondary Actions: Expand
+								1015 container INFY NOV 1200 CE
+									1016 text INFY NOV 1200 CE
+								1017 text NFO
+								1018 text OTM2 (Δ0.40)
+								1019 text 30.95
+								1020 text (
+								1021 text +
+								1022 text 1.95
+								1023 text )
+								1024 text 30.19
+								1025 text 30.38
+								1026 text Stop hit 30.38
+								1027 text —
+								1028 text -4.50
+								1029 text -12.03%
+								1030 text 32.90
+								1031 text —
+								1032 text 16:13
+								1033 button (disabled) B, Help: trail breach (≤ 14.98)
+								1034 button Chart
+									1035 image
+							1036 button (collapsed) Description: INFY CE Closed, Secondary Actions: Expand
+								1037 container INFY NOV 1180 CE
+									1038 text INFY NOV 1180 CE
+								1039 text ▲
+								1040 text NFO
+								1041 text OTM1 (Δ0.46)
+								1042 text 38.50
+								1043 text (
+								1044 text +
+								1045 text 2.15
+								1046 text )
+								1047 text 37.76
+								1048 text 38.23
+								1049 text Stop hit 38.23
+								1050 text —
+								1051 text -5.60
+								1052 text -12.11%
+								1053 text 40.65
+								1054 text —
+								1055 text 16:07
+								1056 button (disabled) B, Help: trail breach (≤ 14.98)
+								1057 button Chart
+									1058 image
+							1059 button (collapsed) Description: INFY CE Closed, Secondary Actions: Expand
+								1060 container INFY OCT 1180 CE
+									1061 text INFY OCT 1180 CE
+								1062 text NFO
+								1063 text OTM1 (Δ0.35)
+								1064 text 12.90
+								1065 text (
+								1066 text +
+								1067 text 1.75
+								1068 text )
+								1069 text 12.10
+								1070 text 14.98
+								1071 text Stop hit 14.98
+								1072 text —
+								1073 text -3.75
+								1074 text -20.38%
+								1075 text 14.65
+								1076 text —
+								1077 text 15:15
+								1078 button (disabled) B, Help: trail breach (≤ 14.98)
+								1079 button Chart
+									1080 image
+							1081 button (collapsed) Description: INFY CE Closed, Secondary Actions: Expand
+								1082 container INFY OCT 1200 CE
+									1083 text INFY OCT 1200 CE
+								1084 text NFO
+								1085 text OTM2 (Δ0.25)
+								1086 text 7.80
+								1087 text (
+								1088 text +
+								1089 text 1.40
+								1090 text )
+								1091 text 7.35
+								1092 text 9.28
+								1093 text Stop hit 9.28
+								1094 text —
+								1095 text -2.50
+								1096 text -21.37%
+								1097 text 9.20
+								1098 text —
+								1099 text 15:15
+								1100 button (disabled) B, Help: trail breach (≤ 14.98)
+								1101 button Chart
+									1102 image
+							1103 button (expanded) Description: KOTAKBANK long, 4 contracts, Open, Secondary Actions: Collapse
+								1104 button Open KOTAKBANK detail
+								1105 text Ultra scalp
+								1106 text 437.00
+								1107 text 4
+								1108 text  contract
+								1109 text s
+								1110 text 22 Oct 2026 04:13 PM
+								1111 text 5 h ago
+							1112 button (collapsed) Description: KOTAKBANK PE Open, Secondary Actions: Expand
+								1113 container KOTAKBANK OCT 430 PE
+									1114 text KOTAKBANK OCT 430 PE
+								1115 text NFO
+								1116 text OTM1 (Δ0.33)
+								1117 text 4.05
+								1118 text (
+								1119 text -0.05
+								1120 text )
+								1121 text 3.90
+								1122 text 3.92
+								1123 text 0/3 red
+								1124 text —
+								1125 text 0.30
+								1126 text 8.11%
+								1127 text 4.00
+								1128 text —
+								1129 text 16:13
+								1130 button (disabled) B, Help: This row is not execution eligible.
+								1131 button Chart
+									1132 image
+							1133 button (collapsed) Description: KOTAKBANK PE Open, Secondary Actions: Expand
+								1134 container KOTAKBANK OCT 425 PE
+									1135 text KOTAKBANK OCT 425 PE
+								1136 text NFO
+								1137 text OTM2 (Δ0.24)
+								1138 text 2.65
+								1139 text 2.56
+								1140 text 2.56
+								1141 text 0/3 red
+								1142 text —
+								1143 text 0.25
+								1144 text 10.42%
+								1145 text 2.65
+								1146 text —
+								1147 text 16:13
+								1148 button (disabled) B, Help: This row is not execution eligible.
+								1149 button Chart
+									1150 image
+							1151 button (collapsed) Description: KOTAKBANK PE Open, Secondary Actions: Expand
+								1152 container KOTAKBANK NOV 430 PE
+									1153 text KOTAKBANK NOV 430 PE
+								1154 text ▲
+								1155 text NFO
+								1156 text OTM1 (Δ0.37)
+								1157 text 8.60
+								1158 text (
+								1159 text +
+								1160 text 0.10
+								1161 text )
+								1162 text 8.51
+								1163 text 8.55
+								1164 text 0/3 red
+								1165 text —
+								1166 text 0.90
+								1167 text 11.54%
+								1168 text 8.70
+								1169 text —
+								1170 text 16:11
+								1171 button (disabled) B, Help: This row is not execution eligible.
+								1172 button Chart
+									1173 image
+							1174 button (collapsed) Description: KOTAKBANK PE Open, Secondary Actions: Expand
+								1175 container KOTAKBANK NOV 425 PE
+									1176 text KOTAKBANK NOV 425 PE
+								1177 text NFO
+								1178 text OTM2 (Δ0.31)
+								1179 text 6.75
+								1180 text (
+								1181 text +
+								1182 text 0.05
+								1183 text )
+								1184 text 6.48
+								1185 text 6.80
+								1186 text 0/3 red
+								1187 text —
+								1188 text 1.35
+								1189 text 24.77%
+								1190 text 6.80
+								1191 text —
+								1192 text 14:06
+								1193 button (disabled) B, Help: This row is not execution eligible.
+								1194 button Chart
+									1195 image
+							1196 button (expanded) Description: RELIANCE long, 4 contracts, Closed, Secondary Actions: Collapse
+								1197 button Open RELIANCE detail
+								1198 text Ultra scalp
+								1199 text 1,184.50
+								1200 text 4
+								1201 text  contract
+								1202 text s
+								1203 text 22 Oct 2026 04:13 PM
+								1204 text 5 h ago
+							1205 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								1206 container RELIANCE OCT 1210 CE
+									1207 text RELIANCE OCT 1210 CE
+								1208 text NFO
+								1209 text OTM2 (Δ0.28)
+								1210 text 6.90
+								1211 text (
+								1212 text +
+								1213 text 0.10
+								1214 text )
+								1215 text 6.56
+								1216 text 6.57
+								1217 text Stop hit 6.57
+								1218 text —
+								1219 text -7.40
+								1220 text -51.39%
+								1221 text 7.00
+								1222 text —
+								1223 text 16:13
+								1224 button (disabled) B, Help: trail breach (≤ 9.30)
+								1225 button Chart
+									1226 image
+							1227 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								1228 container RELIANCE NOV 1200 CE
+									1229 text RELIANCE NOV 1200 CE
+								1230 text ▲
+								1231 text NFO
+								1232 text OTM1 (Δ0.49)
+								1233 text 38.75
+								1234 text (
+								1235 text -0.40
+								1236 text )
+								1237 text 38.07
+								1238 text 38.20
+								1239 text Stop hit 38.20
+								1240 text —
+								1241 text -6.55
+								1242 text -14.59%
+								1243 text 38.35
+								1244 text —
+								1245 text 16:12
+								1246 button (disabled) B, Help: trail breach (≤ 9.30)
+								1247 button Chart
+									1248 image
+							1249 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								1250 container RELIANCE NOV 1210 CE
+									1251 text RELIANCE NOV 1210 CE
+								1252 text NFO
+								1253 text OTM2 (Δ0.45)
+								1254 text 34.40
+								1255 text (
+								1256 text -0.40
+								1257 text )
+								1258 text 33.65
+								1259 text 33.84
+								1260 text Stop hit 33.84
+								1261 text —
+								1262 text -6.00
+								1263 text -15.00%
+								1264 text 34.00
+								1265 text —
+								1266 text 16:12
+								1267 button (disabled) B, Help: trail breach (≤ 9.30)
+								1268 button Chart
+									1269 image
+							1270 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								1271 container RELIANCE OCT 1200 CE
+									1272 text RELIANCE OCT 1200 CE
+								1273 text NFO
+								1274 text OTM1 (Δ0.36)
+								1275 text 9.75
+								1276 text (
+								1277 text -0.35
+								1278 text )
+								1279 text 9.09
+								1280 text 9.30
+								1281 text Stop hit 9.30
+								1282 text —
+								1283 text -9.50
+								1284 text -50.26%
+								1285 text 9.40
+								1286 text —
+								1287 text 16:00
+								1288 button (disabled) B, Help: trail breach (≤ 9.30)
+								1289 button Chart
+									1290 image
+							1291 button (expanded) Description: LT long, 4 contracts, Open, Secondary Actions: Collapse
+								1292 button Open LT detail
+								1293 text Ultra scalp
+								1294 text 3,638.30
+								1295 text 4
+								1296 text  contract
+								1297 text s
+								1298 text 22 Oct 2026 04:12 PM
+								1299 text 5 h ago
+							1300 button (collapsed) Description: LT CE Open, Secondary Actions: Expand
+								1301 container LT OCT 3700 CE
+									1302 text LT OCT 3700 CE
+								1303 text NFO
+								1304 text OTM1 (Δ0.28)
+								1305 text 17.40
+								1306 text (
+								1307 text +
+								1308 text 0.05
+								1309 text )
+								1310 text 16.25
+								1311 text 16.30
+								1312 text 0/3 red
+								1313 text —
+								1314 text 4.45
+								1315 text 34.23%
+								1316 text 17.45
+								1317 text —
+								1318 text 16:12
+								1319 button (disabled) B, Help: This row is not execution eligible.
+								1320 button Chart
+									1321 image
+							1322 button (collapsed) Description: LT CE Open, Secondary Actions: Expand
+								1323 container LT OCT 3750 CE
+									1324 text LT OCT 3750 CE
+								1325 text NFO
+								1326 text OTM2 (Δ0.15)
+								1327 text 7.50
+								1328 text (
+								1329 text +
+								1330 text 0.20
+								1331 text )
+								1332 text 6.90
+								1333 text 6.95
+								1334 text 0/3 red
+								1335 text —
+								1336 text 1.55
+								1337 text 25.20%
+								1338 text 7.70
+								1339 text —
+								1340 text 16:12
+								1341 button (disabled) B, Help: This row is not execution eligible.
+								1342 button Chart
+									1343 image
+							1344 button (collapsed) Description: LT CE Open, Secondary Actions: Expand
+								1345 container LT NOV 3700 CE
+									1346 text LT NOV 3700 CE
+								1347 text ▲
+								1348 text NFO
+								1349 text OTM1 (Δ0.46)
+								1350 text 102.25
+								1351 text (
+								1352 text -1.00
+								1353 text )
+								1354 text 100.50
+								1355 text 100.60
+								1356 text 0/3 red
+								1357 text —
+								1358 text 5.90
+								1359 text 6.19%
+								1360 text 101.25
+								1361 text —
+								1362 text 16:12
+								1363 button (disabled) B, Help: This row is not execution eligible.
+								1364 button Chart
+									1365 image
+							1366 button (collapsed) Description: LT CE Open, Secondary Actions: Expand
+								1367 container LT NOV 3750 CE
+									1368 text LT NOV 3750 CE
+								1369 text NFO
+								1370 text OTM2 (Δ0.40)
+								1371 text 80.25
+								1372 text (
+								1373 text +
+								1374 text 0.65
+								1375 text )
+								1376 text 78.75
+								1377 text 78.85
+								1378 text 0/3 red
+								1379 text —
+								1380 text 4.90
+								1381 text 6.45%
+								1382 text 80.90
+								1383 text —
+								1384 text 16:12
+								1385 button (disabled) B, Help: This row is not execution eligible.
+								1386 button Chart
+									1387 image
+							1388 button (expanded) Description: INFY long, 4 contracts, Open, Secondary Actions: Collapse
+								1389 button Open INFY detail
+								1390 text Ultra scalp
+								1391 text 1,153.35
+								1392 text 4
+								1393 text  contract
+								1394 text s
+								1395 text 22 Oct 2026 04:12 PM
+								1396 text 5 h ago
+							1397 button (collapsed) Description: INFY CE Open, Secondary Actions: Expand
+								1398 container INFY OCT 1180 CE
+									1399 text INFY OCT 1180 CE
+								1400 text NFO
+								1401 text OTM1 (Δ0.35)
+								1402 text 14.00
+								1403 text (
+								1404 text +
+								1405 text 0.65
+								1406 text )
+								1407 text 13.00
+								1408 text 13.15
+								1409 text 0/3 red
+								1410 text —
+								1411 text -3.75
+								1412 text -20.38%
+								1413 text 14.65
+								1414 text —
+								1415 text 16:12
+								1416 button (disabled) B, Help: This row is not execution eligible.
+								1417 button Chart
+									1418 image
+							1419 button (collapsed) Description: INFY CE Open, Secondary Actions: Expand
+								1420 container INFY OCT 1200 CE
+									1421 text INFY OCT 1200 CE
+								1422 text NFO
+								1423 text OTM2 (Δ0.25)
+								1424 text 8.70
+								1425 text (
+								1426 text +
+								1427 text 0.50
+								1428 text )
+								1429 text 8.00
+								1430 text 8.10
+								1431 text 0/3 red
+								1432 text —
+								1433 text -2.50
+								1434 text -21.37%
+								1435 text 9.20
+								1436 text —
+								1437 text 16:12
+								1438 button (disabled) B, Help: This row is not execution eligible.
+								1439 button Chart
+									1440 image
+							1441 button (collapsed) Description: INFY CE Open, Secondary Actions: Expand
+								1442 container INFY NOV 1180 CE
+									1443 text INFY NOV 1180 CE
+								1444 text ▲
+								1445 text NFO
+								1446 text OTM1 (Δ0.46)
+								1447 text 38.60
+								1448 text (
+								1449 text +
+								1450 text 2.05
+								1451 text )
+								1452 text 37.30
+								1453 text 37.50
+								1454 text 0/3 red
+								1455 text —
+								1456 text -5.60
+								1457 text -12.11%
+								1458 text 40.65
+								1459 text —
+								1460 text 16:12
+								1461 button (disabled) B, Help: This row is not execution eligible.
+								1462 button Chart
+									1463 image
+							1464 button (collapsed) Description: INFY CE Open, Secondary Actions: Expand
+								1465 container INFY NOV 1200 CE
+									1466 text INFY NOV 1200 CE
+								1467 text NFO
+								1468 text OTM2 (Δ0.40)
+								1469 text 30.20
+								1470 text (
+								1471 text +
+								1472 text 2.70
+								1473 text )
+								1474 text 29.10
+								1475 text 29.30
+								1476 text 0/3 red
+								1477 text —
+								1478 text -4.50
+								1479 text -12.03%
+								1480 text 32.90
+								1481 text —
+								1482 text 16:12
+								1483 button (disabled) B, Help: This row is not execution eligible.
+								1484 button Chart
+									1485 image
+							1486 button (expanded) Description: TCS long, 4 contracts, Open, Secondary Actions: Collapse
+								1487 button Open TCS detail
+								1488 text Ultra scalp
+								1489 text 2,506.90
+								1490 text 4
+								1491 text  contract
+								1492 text s
+								1493 text 22 Oct 2026 04:12 PM
+								1494 text 5 h ago
+							1495 button (collapsed) Description: TCS CE Open, Secondary Actions: Expand
+								1496 container TCS OCT 2520 CE
+									1497 text TCS OCT 2520 CE
+								1498 text TSL HIT
+								1499 text NFO
+								1500 text OTM1 (Δ0.44)
+								1501 text 21.55
+								1502 text (
+								1503 text -0.80
+								1504 text )
+								1505 text 20.60
+								1506 text 20.80
+								1507 text 0/3 red
+								1508 text —
+								1509 text -10.40
+								1510 text -33.39%
+								1511 text 20.75
+								1512 text —
+								1513 text 16:12
+								1514 button (disabled) B, Help: This row is not execution eligible.
+								1515 button Chart
+									1516 image
+							1517 button (collapsed) Description: TCS CE Open, Secondary Actions: Expand
+								1518 container TCS OCT 2540 CE
+									1519 text TCS OCT 2540 CE
+								1520 text NFO
+								1521 text OTM2 (Δ0.33)
+								1522 text 14.65
+								1523 text (
+								1524 text -0.50
+								1525 text )
+								1526 text 13.95
+								1527 text 14.10
+								1528 text 0/3 red
+								1529 text —
+								1530 text -8.90
+								1531 text -38.61%
+								1532 text 14.15
+								1533 text —
+								1534 text 16:12
+								1535 button (disabled) B, Help: This row is not execution eligible.
+								1536 button Chart
+									1537 image
+							1538 button (collapsed) Description: TCS CE Open, Secondary Actions: Expand
+								1539 container TCS NOV 2520 CE
+									1540 text TCS NOV 2520 CE
+								1541 text ▲
+								1542 text NFO
+								1543 text OTM1 (Δ0.52)
+								1544 text 79.00
+								1545 text (
+								1546 text +
+								1547 text 2.30
+								1548 text )
+								1549 text 77.90
+								1550 text 78.10
+								1551 text 0/3 red
+								1552 text —
+								1553 text -8.60
+								1554 text -9.57%
+								1555 text 81.30
+								1556 text —
+								1557 text 16:12
+								1558 button (disabled) B, Help: This row is not execution eligible.
+								1559 button Chart
+									1560 image
+							1561 button (collapsed) Description: TCS CE Open, Secondary Actions: Expand
+								1562 container TCS NOV 2540 CE
+									1563 text TCS NOV 2540 CE
+								1564 text NFO
+								1565 text OTM2 (Δ0.48)
+								1566 text 70.80
+								1567 text (
+								1568 text +
+								1569 text 0.45
+								1570 text )
+								1571 text 69.75
+								1572 text 70.00
+								1573 text 0/3 red
+								1574 text —
+								1575 text -7.85
+								1576 text -9.92%
+								1577 text 71.25
+								1578 text —
+								1579 text 16:12
+								1580 button (disabled) B, Help: This row is not execution eligible.
+								1581 button Chart
+									1582 image
+							1583 button (expanded) Description: NIFTY FIN SERVICE long, 2 contracts, Open, Secondary Actions: Collapse
+								1584 button Open NIFTY FIN SERVICE detail
+								1585 text Ultra scalp
+								1586 text 24,657.70
+								1587 text 2
+								1588 text  contract
+								1589 text s
+								1590 text 22 Oct 2026 04:10 PM
+								1591 text 5 h ago
+							1592 button (collapsed) Description: NIFTY FIN SERVICE PE Open, Secondary Actions: Expand
+								1593 container FINNIFTY OCT 24550 PE
+									1594 text FINNIFTY OCT 24550 PE
+								1595 text ▲
+								1596 text NFO
+								1597 text OTM1 (Δ0.39)
+								1598 text 135.95
+								1599 text (
+								1600 text -1.75
+								1601 text )
+								1602 text 128.50
+								1603 text 133.75
+								1604 text 0/3 red
+								1605 text —
+								1606 text -8.80
+								1607 text -6.15%
+								1608 text 134.20
+								1609 text —
+								1610 text 16:10
+								1611 button (disabled) B, Help: This row is not execution eligible.
+								1612 button Chart
+									1613 image
+							1614 button (collapsed) Description: NIFTY FIN SERVICE PE Open, Secondary Actions: Expand
+								1615 container FINNIFTY OCT 24500 PE
+									1616 text FINNIFTY OCT 24500 PE
+								1617 text NFO
+								1618 text OTM2 (Δ0.36)
+								1619 text 118.75
+								1620 text (
+								1621 text +
+								1622 text 1.50
+								1623 text )
+								1624 text 111.09
+								1625 text 116.64
+								1626 text 0/3 red
+								1627 text —
+								1628 text -3.15
+								1629 text -2.55%
+								1630 text 120.25
+								1631 text —
+								1632 text 16:10
+								1633 button (disabled) B, Help: This row is not execution eligible.
+								1634 button Chart
+									1635 image
+							1636 button (expanded) Description: SENSEX long, 3 contracts, Closed, Secondary Actions: Collapse
+								1637 button Open SENSEX detail
+								1638 text Ultra scalp
+								1639 text 73,249.39
+								1640 text 3
+								1641 text  contract
+								1642 text s
+								1643 text 22 Oct 2026 04:10 PM
+								1644 text 5 h ago
+							1645 button (collapsed) Description: SENSEX PE Closed, Secondary Actions: Expand
+								1646 container SENSEX NOV 73000 PE
+									1647 text SENSEX NOV 73000 PE
+								1648 text BFO
+								1649 text OTM2 (Δ0.40)
+								1650 text 969.50
+								1651 text (
+								1652 text -24.50
+								1653 text )
+								1654 text 954.60
+								1655 text 956.62
+								1656 text Stop hit 956.62
+								1657 text —
+								1658 text 44.95
+								1659 text 4.99%
+								1660 text 945.00
+								1661 text —
+								1662 text 16:10
+								1663 button (disabled) B, Help: trail breach (≤ 462.62)
+								1664 button Chart
+									1665 image
+							1666 button (collapsed) Description: SENSEX PE Closed, Secondary Actions: Expand
+								1667 container SENSEX OCT 73000 PE
+									1668 text SENSEX OCT 73000 PE
+								1669 text BFO
+								1670 text OTM2 (Δ0.41)
+								1671 text 435.35
+								1672 text (
+								1673 text +
+								1674 text 5.65
+								1675 text )
+								1676 text 410.55
+								1677 text 423.13
+								1678 text Stop hit 423.13
+								1679 text —
+								1680 text 29.90
+								1681 text 7.27%
+								1682 text 441.00
+								1683 text —
+								1684 text 16:05
+								1685 button (disabled) B, Help: trail breach (≤ 462.62)
+								1686 button Chart
+									1687 image
+							1688 button (collapsed) Description: SENSEX PE Closed, Secondary Actions: Expand
+								1689 container SENSEX OCT 73100 PE
+									1690 text SENSEX OCT 73100 PE
+								1691 text ▲
+								1692 text BFO
+								1693 text OTM1 (Δ0.43)
+								1694 text 472.60
+								1695 text (
+								1696 text +
+								1697 text 6.35
+								1698 text )
+								1699 text 446.30
+								1700 text 462.62
+								1701 text Stop hit 462.62
+								1702 text —
+								1703 text 32.30
+								1704 text 7.23%
+								1705 text 478.95
+								1706 text —
+								1707 text 16:04
+								1708 button (disabled) B, Help: trail breach (≤ 462.62)
+								1709 button Chart
+									1710 image
+							1711 button (expanded) Description: BHARTIARTL long, 4 contracts, Open, Secondary Actions: Collapse
+								1712 button Open BHARTIARTL detail
+								1713 text Ultra scalp
+								1714 text 1,895.00
+								1715 text 4
+								1716 text  contract
+								1717 text s
+								1718 text 22 Oct 2026 04:10 PM
+								1719 text 5 h ago
+							1720 button (collapsed) Description: BHARTIARTL PE Open, Secondary Actions: Expand
+								1721 container BHARTIARTL OCT 1880 PE
+									1722 text BHARTIARTL OCT 1880 PE
+								1723 text NFO
+								1724 text OTM1 (Δ0.33)
+								1725 text 6.55
+								1726 text (
+								1727 text +
+								1728 text 1.80
+								1729 text )
+								1730 text 6.25
+								1731 text 6.25
+								1732 text 0/3 red
+								1733 text —
+								1734 text -8.65
+								1735 text -50.88%
+								1736 text 8.35
+								1737 text —
+								1738 text 16:10
+								1739 button (disabled) B, Help: This row is not execution eligible.
+								1740 button Chart
+									1741 image
+							1742 button (collapsed) Description: BHARTIARTL PE Open, Secondary Actions: Expand
+								1743 container BHARTIARTL NOV 1880 PE
+									1744 text BHARTIARTL NOV 1880 PE
+								1745 text ▲
+								1746 text NFO
+								1747 text OTM1 (Δ0.40)
+								1748 text 33.00
+								1749 text (
+								1750 text +
+								1751 text 1.70
+								1752 text )
+								1753 text 32.34
+								1754 text 32.83
+								1755 text 0/3 red
+								1756 text —
+								1757 text -8.75
+								1758 text -20.14%
+								1759 text 34.70
+								1760 text —
+								1761 text 16:08
+								1762 button (disabled) B, Help: This row is not execution eligible.
+								1763 button Chart
+									1764 image
+							1765 button (collapsed) Description: BHARTIARTL PE Open, Secondary Actions: Expand
+								1766 container BHARTIARTL OCT 1860 PE
+									1767 text BHARTIARTL OCT 1860 PE
+								1768 text NFO
+								1769 text OTM2 (Δ0.16)
+								1770 text 2.40
+								1771 text (
+								1772 text +
+								1773 text 0.70
+								1774 text )
+								1775 text 2.30
+								1776 text 2.38
+								1777 text 0/3 red
+								1778 text —
+								1779 text -5.30
+								1780 text -63.10%
+								1781 text 3.10
+								1782 text —
+								1783 text 16:06
+								1784 button (disabled) B, Help: This row is not execution eligible.
+								1785 button Chart
+									1786 image
+							1787 button (collapsed) Description: BHARTIARTL PE Open, Secondary Actions: Expand
+								1788 container BHARTIARTL NOV 1860 PE
+									1789 text BHARTIARTL NOV 1860 PE
+								1790 text NFO
+								1791 text OTM2 (Δ0.34)
+								1792 text 25.65
+								1793 text (
+								1794 text +
+								1795 text 1.95
+								1796 text )
+								1797 text 25.01
+								1798 text 25.96
+								1799 text 0/3 red
+								1800 text —
+								1801 text -7.15
+								1802 text -20.58%
+								1803 text 27.60
+								1804 text —
+								1805 text 16:04
+								1806 button (disabled) B, Help: This row is not execution eligible.
+								1807 button Chart
+									1808 image
+							1809 button (expanded) Description: AXISBANK long, 4 contracts, Open, Secondary Actions: Collapse
+								1810 button Open AXISBANK detail
+								1811 text Ultra scalp
+								1812 text 1,212.00
+								1813 text 4
+								1814 text  contract
+								1815 text s
+								1816 text 22 Oct 2026 04:09 PM
+								1817 text 5 h ago
+							1818 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								1819 container AXISBANK OCT 1230 CE
+									1820 text AXISBANK OCT 1230 CE
+								1821 text NFO
+								1822 text OTM2 (Δ0.28)
+								1823 text 4.65
+								1824 text (
+								1825 text +
+								1826 text 0.35
+								1827 text )
+								1828 text 4.40
+								1829 text 4.54
+								1830 text 0/3 red
+								1831 text —
+								1832 text -1.25
+								1833 text -20.00%
+								1834 text 5.00
+								1835 text —
+								1836 text 16:09
+								1837 button (disabled) B, Help: This row is not execution eligible.
+								1838 button Chart
+									1839 image
+							1840 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								1841 container AXISBANK OCT 1220 CE
+									1842 text AXISBANK OCT 1220 CE
+								1843 text NFO
+								1844 text OTM1 (Δ0.41)
+								1845 text 7.80
+								1846 text (
+								1847 text +
+								1848 text 0.35
+								1849 text )
+								1850 text 7.33
+								1851 text 7.66
+								1852 text 0/3 red
+								1853 text —
+								1854 text -1.70
+								1855 text -17.26%
+								1856 text 8.15
+								1857 text —
+								1858 text 16:08
+								1859 button (disabled) B, Help: This row is not execution eligible.
+								1860 button Chart
+									1861 image
+							1862 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								1863 container AXISBANK NOV 1230 CE
+									1864 text AXISBANK NOV 1230 CE
+								1865 text NFO
+								1866 text OTM2 (Δ0.45)
+								1867 text 23.75
+								1868 text (
+								1869 text +
+								1870 text 0.35
+								1871 text )
+								1872 text 23.26
+								1873 text 24.05
+								1874 text 0/3 red
+								1875 text —
+								1876 text -3.70
+								1877 text -13.31%
+								1878 text 24.10
+								1879 text —
+								1880 text 16:07
+								1881 button (disabled) B, Help: This row is not execution eligible.
+								1882 button Chart
+									1883 image
+							1884 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								1885 container AXISBANK NOV 1220 CE
+									1886 text AXISBANK NOV 1220 CE
+								1887 text ▲
+								1888 text NFO
+								1889 text OTM1 (Δ0.51)
+								1890 text 28.00
+								1891 text (
+								1892 text +
+								1893 text 1.00
+								1894 text )
+								1895 text 27.52
+								1896 text 28.78
+								1897 text 0/3 red
+								1898 text —
+								1899 text -3.80
+								1900 text -11.59%
+								1901 text 29.00
+								1902 text —
+								1903 text 16:06
+								1904 button (disabled) B, Help: This row is not execution eligible.
+								1905 button Chart
+									1906 image
+							1907 button (expanded) Description: BAJAJFINSV long, 4 contracts, Closed, Secondary Actions: Collapse
+								1908 button Open BAJAJFINSV detail
+								1909 text Ultra scalp
+								1910 text 1,678.00
+								1911 text 4
+								1912 text  contract
+								1913 text s
+								1914 text 22 Oct 2026 04:09 PM
+								1915 text 5 h ago
+							1916 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								1917 container BAJAJFINSV OCT 1700 CE
+									1918 text BAJAJFINSV OCT 1700 CE
+								1919 text NFO
+								1920 text OTM1 (Δ0.32)
+								1921 text 8.30
+								1922 text (
+								1923 text +
+								1924 text 0.40
+								1925 text )
+								1926 text 7.75
+								1927 text 7.77
+								1928 text Stop hit 7.77
+								1929 text —
+								1930 text -0.10
+								1931 text -1.14%
+								1932 text 8.70
+								1933 text —
+								1934 text 16:09
+								1935 button (disabled) B, Help: trail breach (≤ 7.77)
+								1936 button Chart
+									1937 image
+							1938 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								1939 container BAJAJFINSV NOV 1720 CE
+									1940 text BAJAJFINSV NOV 1720 CE
+								1941 text NFO
+								1942 text OTM2 (Δ0.42)
+								1943 text 38.00
+								1944 text (
+								1945 text +
+								1946 text 1.40
+								1947 text )
+								1948 text 37.61
+								1949 text 37.79
+								1950 text Stop hit 37.79
+								1951 text —
+								1952 text 1.45
+								1953 text 3.82%
+								1954 text 39.40
+								1955 text —
+								1956 text 16:08
+								1957 button (disabled) B, Help: trail breach (≤ 7.77)
+								1958 button Chart
+									1959 image
+							1960 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								1961 container BAJAJFINSV OCT 1720 CE
+									1962 text BAJAJFINSV OCT 1720 CE
+								1963 text NFO
+								1964 text OTM2 (Δ0.18)
+								1965 text 4.05
+								1966 text (
+								1967 text +
+								1968 text 0.15
+								1969 text )
+								1970 text 3.82
+								1971 text 3.82
+								1972 text Stop hit 3.82
+								1973 text —
+								1974 text -0.45
+								1975 text -9.68%
+								1976 text 4.20
+								1977 text —
+								1978 text 16:01
+								1979 button (disabled) B, Help: trail breach (≤ 7.77)
+								1980 button Chart
+									1981 image
+							1982 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								1983 container BAJAJFINSV NOV 1700 CE
+									1984 text BAJAJFINSV NOV 1700 CE
+								1985 text ▲
+								1986 text NFO
+								1987 text OTM1 (Δ0.48)
+								1988 text 45.80
+								1989 text (
+								1990 text +
+								1991 text 2.05
+								1992 text )
+								1993 text 45.16
+								1994 text 45.87
+								1995 text Stop hit 45.87
+								1996 text —
+								1997 text 1.90
+								1998 text 4.13%
+								1999 text 47.85
+								2000 text —
+								2001 text 15:56
+								2002 button (disabled) B, Help: trail breach (≤ 7.77)
+								2003 button Chart
+									2004 image
+							2005 button (expanded) Description: HDFCBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								2006 button Open HDFCBANK detail
+								2007 text Ultra scalp
+								2008 text 694.05
+								2009 text 4
+								2010 text  contract
+								2011 text s
+								2012 text 22 Oct 2026 04:09 PM
+								2013 text 5 h ago
+							2014 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2015 container HDFCBANK NOV 700 CE
+									2016 text HDFCBANK NOV 700 CE
+								2017 text ▲
+								2018 text NFO
+								2019 text OTM1 (Δ0.50)
+								2020 text 18.30
+								2021 text (
+								2022 text +
+								2023 text 0.05
+								2024 text )
+								2025 text 17.94
+								2026 text 17.97
+								2027 text Stop hit 17.97
+								2028 text —
+								2029 text -6.15
+								2030 text -25.10%
+								2031 text 18.35
+								2032 text —
+								2033 text 16:09
+								2034 button (disabled) B, Help: trail breach (≤ 4.62)
+								2035 button Chart
+									2036 image
+							2037 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2038 container HDFCBANK NOV 710 CE
+									2039 text HDFCBANK NOV 710 CE
+								2040 text NFO
+								2041 text OTM2 (Δ0.41)
+								2042 text 13.95
+								2043 text (
+								2044 text -0.30
+								2045 text )
+								2046 text 13.57
+								2047 text 13.75
+								2048 text Stop hit 13.75
+								2049 text —
+								2050 text -5.50
+								2051 text -28.72%
+								2052 text 13.65
+								2053 text —
+								2054 text 15:44
+								2055 button (disabled) B, Help: trail breach (≤ 4.62)
+								2056 button Chart
+									2057 image
+							2058 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2059 container HDFCBANK OCT 700 CE
+									2060 text HDFCBANK OCT 700 CE
+								2061 text NFO
+								2062 text OTM1 (Δ0.38)
+								2063 text 4.70
+								2064 text (
+								2065 text -0.30
+								2066 text )
+								2067 text 4.62
+								2068 text 4.62
+								2069 text Stop hit 4.62
+								2070 text —
+								2071 text -6.10
+								2072 text -58.10%
+								2073 text 4.40
+								2074 text —
+								2075 text 15:20
+								2076 button (disabled) B, Help: trail breach (≤ 4.62)
+								2077 button Chart
+									2078 image
+							2079 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2080 container HDFCBANK OCT 710 CE
+									2081 text HDFCBANK OCT 710 CE
+								2082 text NFO
+								2083 text OTM2 (Δ0.20)
+								2084 text 2.40
+								2085 text (
+								2086 text -0.45
+								2087 text )
+								2088 text 2.28
+								2089 text 2.29
+								2090 text Stop hit 2.29
+								2091 text —
+								2092 text -2.85
+								2093 text -59.38%
+								2094 text 1.95
+								2095 text —
+								2096 text 14:59
+								2097 button (disabled) B, Help: trail breach (≤ 4.62)
+								2098 button Chart
+									2099 image
+							2100 button (expanded) Description: NIFTY BANK long, 4 contracts, Open, Secondary Actions: Collapse
+								2101 button Open NIFTY BANK detail
+								2102 text Ultra scalp
+								2103 text 54,925.70
+								2104 text 4
+								2105 text  contract
+								2106 text s
+								2107 text 22 Oct 2026 04:08 PM
+								2108 text 5 h ago
+							2109 button (collapsed) Description: NIFTY BANK CE Open, Secondary Actions: Expand
+								2110 container BANKNIFTY OCT 55000 CE
+									2111 text BANKNIFTY OCT 55000 CE
+								2112 text NFO
+								2113 text OTM1 (Δ0.49)
+								2114 text 372.90
+								2115 text (
+								2116 text +
+								2117 text 1.10
+								2118 text )
+								2119 text 346.30
+								2120 text 348.65
+								2121 text 0/3 red
+								2122 text —
+								2123 text -47.50
+								2124 text -11.27%
+								2125 text 374.00
+								2126 text —
+								2127 text 16:08
+								2128 button (disabled) B, Help: This row is not execution eligible.
+								2129 button Chart
+									2130 image
+							2131 button (collapsed) Description: NIFTY BANK CE Open, Secondary Actions: Expand
+								2132 container BANKNIFTY OCT 55100 CE
+									2133 text BANKNIFTY OCT 55100 CE
+								2134 text NFO
+								2135 text OTM2 (Δ0.45)
+								2136 text 326.70
+								2137 text (
+								2138 text -4.20
+								2139 text )
+								2140 text 302.25
+								2141 text 304.40
+								2142 text 0/3 red
+								2143 text —
+								2144 text -49.85
+								2145 text -13.39%
+								2146 text 322.50
+								2147 text —
+								2148 text 16:08
+								2149 button (disabled) B, Help: This row is not execution eligible.
+								2150 button Chart
+									2151 image
+							2152 button (collapsed) Description: NIFTY BANK CE Open, Secondary Actions: Expand
+								2153 container BANKNIFTY NOV 55000 CE
+									2154 text BANKNIFTY NOV 55000 CE
+								2155 text ▲
+								2156 text NFO
+								2157 text OTM1 (Δ0.55)
+								2158 text 1124.45
+								2159 text (
+								2160 text -9.45
+								2161 text )
+								2162 text 1,094.00
+								2163 text 1,096.70
+								2164 text 0/3 red
+								2165 text —
+								2166 text -34.55
+								2167 text -3.01%
+								2168 text 1,115.00
+								2169 text —
+								2170 text 16:08
+								2171 button (disabled) B, Help: This row is not execution eligible.
+								2172 button Chart
+									2173 image
+							2174 button (collapsed) Description: NIFTY BANK CE Open, Secondary Actions: Expand
+								2175 container BANKNIFTY NOV 55100 CE
+									2176 text BANKNIFTY NOV 55100 CE
+								2177 text NFO
+								2178 text OTM2 (Δ0.53)
+								2179 text 1058.80
+								2180 text (
+								2181 text +
+								2182 text 6.85
+								2183 text )
+								2184 text 1,029.20
+								2185 text 1,031.85
+								2186 text 0/3 red
+								2187 text —
+								2188 text -33.40
+								2189 text -3.04%
+								2190 text 1,065.65
+								2191 text —
+								2192 text 16:08
+								2193 button (disabled) B, Help: This row is not execution eligible.
+								2194 button Chart
+									2195 image
+							2196 button (expanded) Description: AXISBANK long, 4 contracts, Open, Secondary Actions: Collapse
+								2197 button Open AXISBANK detail
+								2198 text Ultra scalp
+								2199 text 1,212.00
+								2200 text 4
+								2201 text  contract
+								2202 text s
+								2203 text 22 Oct 2026 04:08 PM
+								2204 text 5 h ago
+							2205 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								2206 container AXISBANK OCT 1220 CE
+									2207 text AXISBANK OCT 1220 CE
+								2208 text NFO
+								2209 text OTM1 (Δ0.41)
+								2210 text 7.80
+								2211 text (
+								2212 text +
+								2213 text 0.35
+								2214 text )
+								2215 text 7.00
+								2216 text 7.60
+								2217 text 0/3 red
+								2218 text —
+								2219 text -1.70
+								2220 text -17.26%
+								2221 text 8.15
+								2222 text —
+								2223 text 16:08
+								2224 button (disabled) B, Help: This row is not execution eligible.
+								2225 button Chart
+									2226 image
+							2227 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								2228 container AXISBANK OCT 1230 CE
+									2229 text AXISBANK OCT 1230 CE
+								2230 text NFO
+								2231 text OTM2 (Δ0.28)
+								2232 text 4.70
+								2233 text (
+								2234 text +
+								2235 text 0.30
+								2236 text )
+								2237 text 4.15
+								2238 text 4.55
+								2239 text 0/3 red
+								2240 text —
+								2241 text -1.25
+								2242 text -20.00%
+								2243 text 5.00
+								2244 text —
+								2245 text 16:08
+								2246 button (disabled) B, Help: This row is not execution eligible.
+								2247 button Chart
+									2248 image
+							2249 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								2250 container AXISBANK NOV 1220 CE
+									2251 text AXISBANK NOV 1220 CE
+								2252 text ▲
+								2253 text NFO
+								2254 text OTM1 (Δ0.51)
+								2255 text 29.00
+								2256 text 27.95
+								2257 text 28.70
+								2258 text 0/3 red
+								2259 text —
+								2260 text -3.80
+								2261 text -11.59%
+								2262 text 29.00
+								2263 text —
+								2264 text 16:08
+								2265 button (disabled) B, Help: This row is not execution eligible.
+								2266 button Chart
+									2267 image
+							2268 button (collapsed) Description: AXISBANK CE Open, Secondary Actions: Expand
+								2269 container AXISBANK NOV 1230 CE
+									2270 text AXISBANK NOV 1230 CE
+								2271 text NFO
+								2272 text OTM2 (Δ0.45)
+								2273 text 23.75
+								2274 text (
+								2275 text +
+								2276 text 0.35
+								2277 text )
+								2278 text 22.80
+								2279 text 23.50
+								2280 text 0/3 red
+								2281 text —
+								2282 text -3.70
+								2283 text -13.31%
+								2284 text 24.10
+								2285 text —
+								2286 text 16:08
+								2287 button (disabled) B, Help: This row is not execution eligible.
+								2288 button Chart
+									2289 image
+							2290 button (expanded) Description: HDFCBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								2291 button Open HDFCBANK detail
+								2292 text Ultra scalp
+								2293 text 694.05
+								2294 text 4
+								2295 text  contract
+								2296 text s
+								2297 text 22 Oct 2026 04:08 PM
+								2298 text 5 h ago
+							2299 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2300 container HDFCBANK OCT 700 CE
+									2301 text HDFCBANK OCT 700 CE
+								2302 text NFO
+								2303 text OTM1 (Δ0.38)
+								2304 text 4.45
+								2305 text (
+								2306 text -0.05
+								2307 text )
+								2308 text 4.00
+								2309 text 4.05
+								2310 text Stop hit 4.05
+								2311 text —
+								2312 text -6.10
+								2313 text -58.10%
+								2314 text 4.40
+								2315 text —
+								2316 text 16:08
+								2317 button (disabled) B, Help: trail breach (≤ 693.45)
+								2318 button Chart
+									2319 image
+							2320 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2321 container HDFCBANK OCT 710 CE
+									2322 text HDFCBANK OCT 710 CE
+								2323 text NFO
+								2324 text OTM2 (Δ0.20)
+								2325 text 2.00
+								2326 text (
+								2327 text -0.05
+								2328 text )
+								2329 text 1.75
+								2330 text 1.80
+								2331 text Stop hit 1.80
+								2332 text —
+								2333 text -2.85
+								2334 text -59.38%
+								2335 text 1.95
+								2336 text —
+								2337 text 16:08
+								2338 button (disabled) B, Help: trail breach (≤ 693.45)
+								2339 button Chart
+									2340 image
+							2341 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2342 container HDFCBANK NOV 700 CE
+									2343 text HDFCBANK NOV 700 CE
+								2344 text ▲
+								2345 text NFO
+								2346 text OTM1 (Δ0.50)
+								2347 text 18.30
+								2348 text (
+								2349 text +
+								2350 text 0.05
+								2351 text )
+								2352 text 17.70
+								2353 text 17.80
+								2354 text Stop hit 17.80
+								2355 text —
+								2356 text -6.15
+								2357 text -25.10%
+								2358 text 18.35
+								2359 text —
+								2360 text 16:08
+								2361 button (disabled) B, Help: trail breach (≤ 693.45)
+								2362 button Chart
+									2363 image
+							2364 button (collapsed) Description: HDFCBANK CE Closed, Secondary Actions: Expand
+								2365 container HDFCBANK NOV 710 CE
+									2366 text HDFCBANK NOV 710 CE
+								2367 text NFO
+								2368 text OTM2 (Δ0.41)
+								2369 text 13.80
+								2370 text (
+								2371 text -0.15
+								2372 text )
+								2373 text 13.30
+								2374 text 13.40
+								2375 text Stop hit 13.40
+								2376 text —
+								2377 text -5.50
+								2378 text -28.72%
+								2379 text 13.65
+								2380 text —
+								2381 text 16:08
+								2382 button (disabled) B, Help: trail breach (≤ 693.45)
+								2383 button Chart
+									2384 image
+							2385 button (expanded) Description: SBIN long, 4 contracts, Open, Secondary Actions: Collapse
+								2386 button Open SBIN detail
+								2387 text Ultra scalp
+								2388 text 970.00
+								2389 text 4
+								2390 text  contract
+								2391 text s
+								2392 text 22 Oct 2026 04:08 PM
+								2393 text 5 h ago
+							2394 button (collapsed) Description: SBIN CE Open, Secondary Actions: Expand
+								2395 container SBIN OCT 980 CE
+									2396 text SBIN OCT 980 CE
+								2397 text TSL HIT
+								2398 text NFO
+								2399 text OTM1 (Δ0.33)
+								2400 text 4.15
+								2401 text (
+								2402 text +
+								2403 text 0.05
+								2404 text )
+								2405 text 3.95
+								2406 text 4.20
+								2407 text 0/3 red
+								2408 text —
+								2409 text 0.00
+								2410 text 0.00%
+								2411 text 4.20
+								2412 text —
+								2413 text 16:08
+								2414 button (disabled) B, Help: This row is not execution eligible.
+								2415 button Chart
+									2416 image
+							2417 button (collapsed) Description: SBIN CE Open, Secondary Actions: Expand
+								2418 container SBIN OCT 990 CE
+									2419 text SBIN OCT 990 CE
+								2420 text TSL HIT
+								2421 text NFO
+								2422 text OTM2 (Δ0.19)
+								2423 text 2.05
+								2424 text (
+								2425 text +
+								2426 text 0.05
+								2427 text )
+								2428 text 1.95
+								2429 text 2.10
+								2430 text 0/3 red
+								2431 text —
+								2432 text -0.30
+								2433 text -12.50%
+								2434 text 2.10
+								2435 text —
+								2436 text 16:08
+								2437 button (disabled) B, Help: This row is not execution eligible.
+								2438 button Chart
+									2439 image
+							2440 button (collapsed) Description: SBIN CE Open, Secondary Actions: Expand
+								2441 container SBIN NOV 980 CE
+									2442 text SBIN NOV 980 CE
+								2443 text ▲
+								2444 text NFO
+								2445 text OTM1 (Δ0.49)
+								2446 text 24.85
+								2447 text (
+								2448 text +
+								2449 text 0.35
+								2450 text )
+								2451 text 24.55
+								2452 text 24.95
+								2453 text 0/3 red
+								2454 text —
+								2455 text 0.55
+								2456 text 2.23%
+								2457 text 25.20
+								2458 text —
+								2459 text 16:08
+								2460 button (disabled) B, Help: This row is not execution eligible.
+								2461 button Chart
+									2462 image
+							2463 button (collapsed) Description: SBIN CE Open, Secondary Actions: Expand
+								2464 container SBIN NOV 990 CE
+									2465 text SBIN NOV 990 CE
+								2466 text NFO
+								2467 text OTM2 (Δ0.43)
+								2468 text 20.75
+								2469 text (
+								2470 text +
+								2471 text 0.25
+								2472 text )
+								2473 text 20.50
+								2474 text 20.80
+								2475 text 0/3 red
+								2476 text —
+								2477 text 0.20
+								2478 text 0.96%
+								2479 text 21.00
+								2480 text —
+								2481 text 16:08
+								2482 button (disabled) B, Help: This row is not execution eligible.
+								2483 button Chart
+									2484 image
+							2485 button (expanded) Description: NIFTY FIN SERVICE long, 2 contracts, Open, Secondary Actions: Collapse
+								2486 button Open NIFTY FIN SERVICE detail
+								2487 text Ultra scalp
+								2488 text 24,657.70
+								2489 text 2
+								2490 text  contract
+								2491 text s
+								2492 text 22 Oct 2026 04:08 PM
+								2493 text 5 h ago
+							2494 button (collapsed) Description: NIFTY FIN SERVICE CE Open, Secondary Actions: Expand
+								2495 container FINNIFTY OCT 24650 CE
+									2496 text FINNIFTY OCT 24650 CE
+								2497 text ▲
+								2498 text NFO
+								2499 text OTM1 (Δ0.53)
+								2500 text 204.30
+								2501 text (
+								2502 text +
+								2503 text 4.55
+								2504 text )
+								2505 text 190.55
+								2506 text 196.83
+								2507 text 0/3 red
+								2508 text —
+								2509 text -37.10
+								2510 text -15.08%
+								2511 text 208.85
+								2512 text —
+								2513 text 16:08
+								2514 button (disabled) B, Help: This row is not execution eligible.
+								2515 button Chart
+									2516 image
+							2517 button (collapsed) Description: NIFTY FIN SERVICE CE Closed, Secondary Actions: Expand
+								2518 container FINNIFTY OCT 24700 CE
+									2519 text FINNIFTY OCT 24700 CE
+								2520 text NFO
+								2521 text OTM2 (Δ0.49)
+								2522 text 178.00
+								2523 text (
+								2524 text +
+								2525 text 2.95
+								2526 text )
+								2527 text 168.42
+								2528 text 185.30
+								2529 text Stop hit 185.30
+								2530 text —
+								2531 text -36.05
+								2532 text -16.61%
+								2533 text 180.95
+								2534 text —
+								2535 text 15:41
+								2536 button (disabled) B, Help: This row is not execution eligible.
+								2537 button Chart
+									2538 image
+							2539 button (expanded) Description: LT long, 4 contracts, Closed, Secondary Actions: Collapse
+								2540 button Open LT detail
+								2541 text Ultra scalp
+								2542 text 3,638.30
+								2543 text 4
+								2544 text  contract
+								2545 text s
+								2546 text 22 Oct 2026 04:08 PM
+								2547 text 5 h ago
+							2548 button (collapsed) Description: LT PE Closed, Secondary Actions: Expand
+								2549 container LT NOV 3550 PE
+									2550 text LT NOV 3550 PE
+								2551 text NFO
+								2552 text OTM2 (Δ0.33)
+								2553 text 60.50
+								2554 text (
+								2555 text -0.70
+								2556 text )
+								2557 text 58.49
+								2558 text 59.63
+								2559 text Stop hit 59.63
+								2560 text —
+								2561 text -13.80
+								2562 text -18.75%
+								2563 text 59.80
+								2564 text —
+								2565 text 16:08
+								2566 button (disabled) B, Help: trail breach (≤ 17.98)
+								2567 button Chart
+									2568 image
+							2569 button (collapsed) Description: LT PE Closed, Secondary Actions: Expand
+								2570 container LT NOV 3600 PE
+									2571 text LT NOV 3600 PE
+								2572 text ▲
+								2573 text NFO
+								2574 text OTM1 (Δ0.40)
+								2575 text 77.55
+								2576 text (
+								2577 text -0.55
+								2578 text )
+								2579 text 75.75
+								2580 text 76.96
+								2581 text Stop hit 76.96
+								2582 text —
+								2583 text -16.95
+								2584 text -18.04%
+								2585 text 77.00
+								2586 text —
+								2587 text 16:04
+								2588 button (disabled) B, Help: trail breach (≤ 17.98)
+								2589 button Chart
+									2590 image
+							2591 button (collapsed) Description: LT PE Closed, Secondary Actions: Expand
+								2592 container LT OCT 3600 PE
+									2593 text LT OCT 3600 PE
+								2594 text NFO
+								2595 text OTM1 (Δ0.30)
+								2596 text 18.95
+								2597 text (
+								2598 text -3.30
+								2599 text )
+								2600 text 17.65
+								2601 text 17.98
+								2602 text Stop hit 17.98
+								2603 text —
+								2604 text -10.85
+								2605 text -40.94%
+								2606 text 15.65
+								2607 text —
+								2608 text 15:25
+								2609 button (disabled) B, Help: trail breach (≤ 17.98)
+								2610 button Chart
+									2611 image
+							2612 button (collapsed) Description: LT PE Closed, Secondary Actions: Expand
+								2613 container LT OCT 3550 PE
+									2614 text LT OCT 3550 PE
+								2615 text NFO
+								2616 text OTM2 (Δ0.14)
+								2617 text 8.40
+								2618 text (
+								2619 text -1.75
+								2620 text )
+								2621 text 7.85
+								2622 text 8.09
+								2623 text Stop hit 8.09
+								2624 text —
+								2625 text -5.60
+								2626 text -45.71%
+								2627 text 6.65
+								2628 text —
+								2629 text 15:25
+								2630 button (disabled) B, Help: trail breach (≤ 17.98)
+								2631 button Chart
+									2632 image
+							2633 button (expanded) Description: NIFTY FIN SERVICE long, 4 contracts, Closed, Secondary Actions: Collapse
+								2634 button Open NIFTY FIN SERVICE detail
+								2635 text Ultra scalp
+								2636 text 24,657.70
+								2637 text 4
+								2638 text  contract
+								2639 text s
+								2640 text 22 Oct 2026 04:07 PM
+								2641 text 5 h ago
+							2642 button (collapsed) Description: NIFTY FIN SERVICE CE Closed, Secondary Actions: Expand
+								2643 container FINNIFTY OCT 24650 CE
+									2644 text FINNIFTY OCT 24650 CE
+								2645 text NFO
+								2646 text OTM1 (Δ0.53)
+								2647 text 199.15
+								2648 text (
+								2649 text +
+								2650 text 9.70
+								2651 text )
+								2652 text 186.30
+								2653 text 193.25
+								2654 text Stop hit 193.25
+								2655 text —
+								2656 text -37.10
+								2657 text -15.08%
+								2658 text 208.85
+								2659 text —
+								2660 text 16:07
+								2661 button (disabled) B, Help: trail breach (≤ 24609.21)
+								2662 button Chart
+									2663 image
+							2664 button (collapsed) Description: NIFTY FIN SERVICE CE Closed, Secondary Actions: Expand
+								2665 container FINNIFTY OCT 24700 CE
+									2666 text FINNIFTY OCT 24700 CE
+								2667 text NFO
+								2668 text OTM2 (Δ0.49)
+								2669 text 167.80
+								2670 text (
+								2671 text +
+								2672 text 13.15
+								2673 text )
+								2674 text 156.00
+								2675 text 162.40
+								2676 text Stop hit 162.40
+								2677 text —
+								2678 text -36.05
+								2679 text -16.61%
+								2680 text 180.95
+								2681 text —
+								2682 text 16:07
+								2683 button (disabled) B, Help: trail breach (≤ 24609.21)
+								2684 button Chart
+									2685 image
+							2686 button (collapsed) Description: NIFTY FIN SERVICE CE Closed, Secondary Actions: Expand
+								2687 container FINNIFTY NOV 24700 CE
+									2688 text FINNIFTY NOV 24700 CE
+								2689 text ▲
+								2690 text NFO
+								2691 text OTM1 (Δ0.55)
+								2692 text 960.16
+								2693 text (
+								2694 text +
+								2695 text 1296.64
+								2696 text )
+								2697 text 946.50
+								2698 text 953.90
+								2699 text Stop hit 953.90
+								2700 text —
+								2701 text 0.00
+								2702 text 0.00%
+								2703 text 2,256.80
+								2704 text —
+								2705 text 16:07
+								2706 button (disabled) B, Help: trail breach (≤ 24609.21)
+								2707 button Chart
+									2708 image
+							2709 button (collapsed) Description: NIFTY FIN SERVICE CE Closed, Secondary Actions: Expand
+								2710 container FINNIFTY NOV 24800 CE
+									2711 text FINNIFTY NOV 24800 CE
+								2712 text NFO
+								2713 text OTM2 (Δ0.54)
+								2714 text 912.12
+								2715 text (
+								2716 text +
+								2717 text 1271.83
+								2718 text )
+								2719 text 898.90
+								2720 text 906.10
+								2721 text Stop hit 906.10
+								2722 text —
+								2723 text 0.00
+								2724 text 0.00%
+								2725 text 2,183.95
+								2726 text —
+								2727 text 16:07
+								2728 button (disabled) B, Help: trail breach (≤ 24609.21)
+								2729 button Chart
+									2730 image
+							2731 button (expanded) Description: KOTAKBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								2732 button Open KOTAKBANK detail
+								2733 text Ultra scalp
+								2734 text 437.00
+								2735 text 4
+								2736 text  contract
+								2737 text s
+								2738 text 22 Oct 2026 04:07 PM
+								2739 text 5 h ago
+							2740 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2741 container KOTAKBANK OCT 445 CE
+									2742 text KOTAKBANK OCT 445 CE
+								2743 text NFO
+								2744 text OTM1 (Δ0.34)
+								2745 text 4.10
+								2746 text (
+								2747 text -0.20
+								2748 text )
+								2749 text 3.85
+								2750 text 4.05
+								2751 text Stop hit 4.05
+								2752 text —
+								2753 text -0.20
+								2754 text -4.88%
+								2755 text 3.90
+								2756 text —
+								2757 text 16:07
+								2758 button (disabled) B, Help: trail breach (≤ 437.86)
+								2759 button Chart
+									2760 image
+							2761 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2762 container KOTAKBANK OCT 450 CE
+									2763 text KOTAKBANK OCT 450 CE
+								2764 text NFO
+								2765 text OTM2 (Δ0.25)
+								2766 text 2.60
+								2767 text (
+								2768 text -0.05
+								2769 text )
+								2770 text 2.40
+								2771 text 2.55
+								2772 text Stop hit 2.55
+								2773 text —
+								2774 text -0.20
+								2775 text -7.27%
+								2776 text 2.55
+								2777 text —
+								2778 text 16:07
+								2779 button (disabled) B, Help: trail breach (≤ 437.86)
+								2780 button Chart
+									2781 image
+							2782 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2783 container KOTAKBANK NOV 445 CE
+									2784 text KOTAKBANK NOV 445 CE
+								2785 text ▲
+								2786 text NFO
+								2787 text OTM1 (Δ0.45)
+								2788 text 10.15
+								2789 text (
+								2790 text +
+								2791 text 0.05
+								2792 text )
+								2793 text 9.85
+								2794 text 10.05
+								2795 text Stop hit 10.05
+								2796 text —
+								2797 text 0.05
+								2798 text 0.49%
+								2799 text 10.20
+								2800 text —
+								2801 text 16:07
+								2802 button (disabled) B, Help: trail breach (≤ 437.86)
+								2803 button Chart
+									2804 image
+							2805 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2806 container KOTAKBANK NOV 450 CE
+									2807 text KOTAKBANK NOV 450 CE
+								2808 text NFO
+								2809 text OTM2 (Δ0.39)
+								2810 text 8.35
+								2811 text (
+								2812 text -0.05
+								2813 text )
+								2814 text 8.10
+								2815 text 8.30
+								2816 text Stop hit 8.30
+								2817 text —
+								2818 text 0.10
+								2819 text 1.22%
+								2820 text 8.30
+								2821 text —
+								2822 text 16:07
+								2823 button (disabled) B, Help: trail breach (≤ 437.86)
+								2824 button Chart
+									2825 image
+							2826 button (expanded) Description: KOTAKBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								2827 button Open KOTAKBANK detail
+								2828 text Ultra scalp
+								2829 text 437.00
+								2830 text 4
+								2831 text  contract
+								2832 text s
+								2833 text 22 Oct 2026 04:06 PM
+								2834 text 5 h ago
+							2835 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2836 container KOTAKBANK OCT 445 CE
+									2837 text KOTAKBANK OCT 445 CE
+								2838 text NFO
+								2839 text OTM2 (Δ0.34)
+								2840 text 4.15
+								2841 text (
+								2842 text -0.25
+								2843 text )
+								2844 text 3.98
+								2845 text 4.01
+								2846 text Stop hit 4.01
+								2847 text —
+								2848 text -0.20
+								2849 text -4.88%
+								2850 text 3.90
+								2851 text —
+								2852 text 16:06
+								2853 button (disabled) B, Help: trail breach (≤ 6.04)
+								2854 button Chart
+									2855 image
+							2856 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2857 container KOTAKBANK OCT 440 CE
+									2858 text KOTAKBANK OCT 440 CE
+								2859 text NFO
+								2860 text OTM1 (Δ0.45)
+								2861 text 6.10
+								2862 text (
+								2863 text -0.45
+								2864 text )
+								2865 text 5.87
+								2866 text 6.04
+								2867 text Stop hit 6.04
+								2868 text —
+								2869 text -0.25
+								2870 text -4.24%
+								2871 text 5.65
+								2872 text —
+								2873 text 15:42
+								2874 button (disabled) B, Help: trail breach (≤ 6.04)
+								2875 button Chart
+									2876 image
+							2877 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2878 container KOTAKBANK NOV 440 CE
+									2879 text KOTAKBANK NOV 440 CE
+								2880 text ▲
+								2881 text NFO
+								2882 text OTM1 (Δ0.51)
+								2883 text 12.70
+								2884 text (
+								2885 text -0.10
+								2886 text )
+								2887 text 12.40
+								2888 text 12.85
+								2889 text Stop hit 12.85
+								2890 text —
+								2891 text 0.00
+								2892 text 0.00%
+								2893 text 12.60
+								2894 text —
+								2895 text 15:35
+								2896 button (disabled) B, Help: trail breach (≤ 6.04)
+								2897 button Chart
+									2898 image
+							2899 button (collapsed) Description: KOTAKBANK CE Closed, Secondary Actions: Expand
+								2900 container KOTAKBANK NOV 445 CE
+									2901 text KOTAKBANK NOV 445 CE
+								2902 text NFO
+								2903 text OTM2 (Δ0.45)
+								2904 text 10.40
+								2905 text (
+								2906 text -0.20
+								2907 text )
+								2908 text 10.21
+								2909 text 10.55
+								2910 text Stop hit 10.55
+								2911 text —
+								2912 text 0.05
+								2913 text 0.49%
+								2914 text 10.20
+								2915 text —
+								2916 text 15:33
+								2917 button (disabled) B, Help: trail breach (≤ 6.04)
+								2918 button Chart
+									2919 image
+							2920 button (expanded) Description: RELIANCE long, 4 contracts, Closed, Secondary Actions: Collapse
+								2921 button Open RELIANCE detail
+								2922 text Ultra scalp
+								2923 text 1,184.50
+								2924 text 4
+								2925 text  contract
+								2926 text s
+								2927 text 22 Oct 2026 04:06 PM
+								2928 text 5 h ago
+							2929 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								2930 container RELIANCE NOV 1170 PE
+									2931 text RELIANCE NOV 1170 PE
+								2932 text NFO
+								2933 text OTM2 (Δ0.39)
+								2934 text 26.05
+								2935 text (
+								2936 text +
+								2937 text 0.25
+								2938 text )
+								2939 text 25.47
+								2940 text 25.60
+								2941 text Stop hit 25.60
+								2942 text —
+								2943 text 5.70
+								2944 text 27.67%
+								2945 text 26.30
+								2946 text —
+								2947 text 16:06
+								2948 button (disabled) B, Help: trail breach (≤ 7.98)
+								2949 button Chart
+									2950 image
+							2951 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								2952 container RELIANCE NOV 1180 PE
+									2953 text RELIANCE NOV 1180 PE
+								2954 text ▲
+								2955 text NFO
+								2956 text OTM1 (Δ0.44)
+								2957 text 30.40
+								2958 text (
+								2959 text +
+								2960 text 0.05
+								2961 text )
+								2962 text 29.49
+								2963 text 29.99
+								2964 text Stop hit 29.99
+								2965 text —
+								2966 text 6.25
+								2967 text 25.83%
+								2968 text 30.45
+								2969 text —
+								2970 text 16:04
+								2971 button (disabled) B, Help: trail breach (≤ 7.98)
+								2972 button Chart
+									2973 image
+							2974 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								2975 container RELIANCE OCT 1180 PE
+									2976 text RELIANCE OCT 1180 PE
+								2977 text NFO
+								2978 text OTM1 (Δ0.40)
+								2979 text 8.55
+								2980 text (
+								2981 text -1.80
+								2982 text )
+								2983 text 7.90
+								2984 text 7.98
+								2985 text Stop hit 7.98
+								2986 text —
+								2987 text 1.30
+								2988 text 23.85%
+								2989 text 6.75
+								2990 text —
+								2991 text 15:04
+								2992 button (disabled) B, Help: trail breach (≤ 7.98)
+								2993 button Chart
+									2994 image
+							2995 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								2996 container RELIANCE OCT 1170 PE
+									2997 text RELIANCE OCT 1170 PE
+								2998 text NFO
+								2999 text OTM2 (Δ0.25)
+								3000 text 5.00
+								3001 text (
+								3002 text -1.40
+								3003 text )
+								3004 text 4.65
+								3005 text 4.70
+								3006 text Stop hit 4.70
+								3007 text —
+								3008 text 0.20
+								3009 text 5.88%
+								3010 text 3.60
+								3011 text —
+								3012 text 15:04
+								3013 button (disabled) B, Help: trail breach (≤ 7.98)
+								3014 button Chart
+									3015 image
+							3016 button (expanded) Description: NIFTY 50 long, 4 contracts, Closed, Secondary Actions: Collapse
+								3017 button Open NIFTY 50 detail
+								3018 text Ultra scalp
+								3019 text 22,687.65
+								3020 text 4
+								3021 text  contract
+								3022 text s
+								3023 text 22 Oct 2026 04:05 PM
+								3024 text 5 h ago
+							3025 button (collapsed) Description: NIFTY 50 PE Closed, Secondary Actions: Expand
+								3026 container NIFTY NOV 22550 PE
+									3027 text NIFTY NOV 22550 PE
+								3028 text NFO
+								3029 text OTM2 (Δ0.39)
+								3030 text 312.80
+								3031 text (
+								3032 text -14.20
+								3033 text )
+								3034 text 304.22
+								3035 text 306.18
+								3036 text Stop hit 306.18
+								3037 text —
+								3038 text 11.60
+								3039 text 4.04%
+								3040 text 298.60
+								3041 text —
+								3042 text 16:05
+								3043 button (disabled) B, Help: trail breach (≤ 125.45)
+								3044 button Chart
+									3045 image
+							3046 button (collapsed) Description: NIFTY 50 PE Closed, Secondary Actions: Expand
+								3047 container NIFTY NOV 22600 PE
+									3048 text NIFTY NOV 22600 PE
+								3049 text ▲
+								3050 text NFO
+								3051 text OTM1 (Δ0.41)
+								3052 text 330.85
+								3053 text (
+								3054 text -13.40
+								3055 text )
+								3056 text 320.84
+								3057 text 323.40
+								3058 text Stop hit 323.40
+								3059 text —
+								3060 text 12.50
+								3061 text 4.10%
+								3062 text 317.45
+								3063 text —
+								3064 text 16:04
+								3065 button (disabled) B, Help: trail breach (≤ 125.45)
+								3066 button Chart
+									3067 image
+							3068 button (collapsed) Description: NIFTY 50 PE Closed, Secondary Actions: Expand
+								3069 container NIFTY OCT 22600 PE
+									3070 text NIFTY OCT 22600 PE
+								3071 text NFO
+								3072 text OTM1 (Δ0.39)
+								3073 text 136.70
+								3074 text (
+								3075 text -31.70
+								3076 text )
+								3077 text 122.79
+								3078 text 125.45
+								3079 text Stop hit 125.45
+								3080 text —
+								3081 text 0.80
+								3082 text 0.77%
+								3083 text 105.00
+								3084 text —
+								3085 text 14:37
+								3086 button (disabled) B, Help: trail breach (≤ 125.45)
+								3087 button Chart
+									3088 image
+							3089 button (collapsed) Description: NIFTY 50 PE Closed, Secondary Actions: Expand
+								3090 container NIFTY OCT 22550 PE
+									3091 text NIFTY OCT 22550 PE
+								3092 text NFO
+								3093 text OTM2 (Δ0.34)
+								3094 text 116.15
+								3095 text (
+								3096 text -28.15
+								3097 text )
+								3098 text 103.39
+								3099 text 105.98
+								3100 text Stop hit 105.98
+								3101 text —
+								3102 text -0.25
+								3103 text -0.28%
+								3104 text 88.00
+								3105 text —
+								3106 text 14:37
+								3107 button (disabled) B, Help: trail breach (≤ 125.45)
+								3108 button Chart
+									3109 image
+							3110 button (expanded) Description: BAJAJFINSV long, 4 contracts, Closed, Secondary Actions: Collapse
+								3111 button Open BAJAJFINSV detail
+								3112 text Ultra scalp
+								3113 text 1,678.00
+								3114 text 4
+								3115 text  contract
+								3116 text s
+								3117 text 22 Oct 2026 04:05 PM
+								3118 text 5 h ago
+							3119 button (collapsed) Description: BAJAJFINSV PE Closed, Secondary Actions: Expand
+								3120 container BAJAJFINSV NOV 1660 PE
+									3121 text BAJAJFINSV NOV 1660 PE
+								3122 text ▲
+								3123 text NFO
+								3124 text OTM1 (Δ0.41)
+								3125 text 42.70
+								3126 text (
+								3127 text +
+								3128 text 0.05
+								3129 text )
+								3130 text 42.48
+								3131 text 42.62
+								3132 text Stop hit 42.62
+								3133 text —
+								3134 text -1.30
+								3135 text -2.95%
+								3136 text 42.75
+								3137 text —
+								3138 text 16:05
+								3139 button (disabled) B, Help: trail breach (≤ 12.10)
+								3140 button Chart
+									3141 image
+							3142 button (collapsed) Description: BAJAJFINSV PE Closed, Secondary Actions: Expand
+								3143 container BAJAJFINSV OCT 1640 PE
+									3144 text BAJAJFINSV OCT 1640 PE
+								3145 text NFO
+								3146 text OTM2 (Δ0.19)
+								3147 text 6.15
+								3148 text (
+								3149 text -1.15
+								3150 text )
+								3151 text 5.87
+								3152 text 6.29
+								3153 text Stop hit 6.29
+								3154 text —
+								3155 text -2.45
+								3156 text -32.89%
+								3157 text 5.00
+								3158 text —
+								3159 text 15:22
+								3160 button (disabled) B, Help: trail breach (≤ 12.10)
+								3161 button Chart
+									3162 image
+							3163 button (collapsed) Description: BAJAJFINSV PE Closed, Secondary Actions: Expand
+								3164 container BAJAJFINSV OCT 1660 PE
+									3165 text BAJAJFINSV OCT 1660 PE
+								3166 text NFO
+								3167 text OTM1 (Δ0.33)
+								3168 text 11.75
+								3169 text (
+								3170 text -1.85
+								3171 text )
+								3172 text 11.14
+								3173 text 12.10
+								3174 text Stop hit 12.10
+								3175 text —
+								3176 text -3.35
+								3177 text -25.28%
+								3178 text 9.90
+								3179 text —
+								3180 text 15:21
+								3181 button (disabled) B, Help: trail breach (≤ 12.10)
+								3182 button Chart
+									3183 image
+							3184 button (collapsed) Description: BAJAJFINSV PE Closed, Secondary Actions: Expand
+								3185 container BAJAJFINSV NOV 1640 PE
+									3186 text BAJAJFINSV NOV 1640 PE
+								3187 text NFO
+								3188 text OTM2 (Δ0.35)
+								3189 text 33.20
+								3190 text (
+								3191 text +
+								3192 text 0.95
+								3193 text )
+								3194 text 32.19
+								3195 text 35.12
+								3196 text Stop hit 35.12
+								3197 text —
+								3198 text -1.60
+								3199 text -4.48%
+								3200 text 34.15
+								3201 text —
+								3202 text 14:12
+								3203 button (disabled) B, Help: trail breach (≤ 12.10)
+								3204 button Chart
+									3205 image
+							3206 button (expanded) Description: ICICIBANK long, 4 contracts, Open, Secondary Actions: Collapse
+								3207 button Open ICICIBANK detail
+								3208 text Ultra scalp
+								3209 text 1,398.50
+								3210 text 4
+								3211 text  contract
+								3212 text s
+								3213 text 22 Oct 2026 04:03 PM
+								3214 text 5 h ago
+							3215 button (collapsed) Description: ICICIBANK PE Open, Secondary Actions: Expand
+								3216 container ICICIBANK OCT 1390 PE
+									3217 text ICICIBANK OCT 1390 PE
+								3218 text NFO
+								3219 text OTM1 (Δ0.38)
+								3220 text 8.35
+								3221 text (
+								3222 text +
+								3223 text 0.40
+								3224 text )
+								3225 text 7.80
+								3226 text 7.93
+								3227 text 0/3 red
+								3228 text —
+								3229 text -4.75
+								3230 text -35.19%
+								3231 text 8.75
+								3232 text —
+								3233 text 16:03
+								3234 button (disabled) B, Help: This row is not execution eligible.
+								3235 button Chart
+									3236 image
+							3237 button (collapsed) Description: ICICIBANK PE Closed, Secondary Actions: Expand
+								3238 container ICICIBANK NOV 1380 PE
+									3239 text ICICIBANK NOV 1380 PE
+								3240 text NFO
+								3241 text OTM2 (Δ0.36)
+								3242 text 20.25
+								3243 text (
+								3244 text -0.35
+								3245 text )
+								3246 text 19.71
+								3247 text 19.94
+								3248 text Stop hit 19.94
+								3249 text —
+								3250 text -4.65
+								3251 text -18.94%
+								3252 text 19.90
+								3253 text —
+								3254 text 15:55
+								3255 button (disabled) B, Help: This row is not execution eligible.
+								3256 button Chart
+									3257 image
+							3258 button (collapsed) Description: ICICIBANK PE Closed, Secondary Actions: Expand
+								3259 container ICICIBANK NOV 1390 PE
+									3260 text ICICIBANK NOV 1390 PE
+								3261 text ▲
+								3262 text NFO
+								3263 text OTM1 (Δ0.41)
+								3264 text 24.05
+								3265 text 23.18
+								3266 text 24.11
+								3267 text Stop hit 24.11
+								3268 text —
+								3269 text -4.70
+								3270 text -16.35%
+								3271 text 24.05
+								3272 text —
+								3273 text 15:51
+								3274 button (disabled) B, Help: This row is not execution eligible.
+								3275 button Chart
+									3276 image
+							3277 button (collapsed) Description: ICICIBANK PE Closed, Secondary Actions: Expand
+								3278 container ICICIBANK OCT 1380 PE
+									3279 text ICICIBANK OCT 1380 PE
+								3280 text NFO
+								3281 text OTM2 (Δ0.26)
+								3282 text 5.45
+								3283 text (
+								3284 text -0.30
+								3285 text )
+								3286 text 4.82
+								3287 text 5.26
+								3288 text Stop hit 5.26
+								3289 text —
+								3290 text -3.50
+								3291 text -40.46%
+								3292 text 5.15
+								3293 text —
+								3294 text 14:26
+								3295 button (disabled) B, Help: This row is not execution eligible.
+								3296 button Chart
+									3297 image
+							3298 button (expanded) Description: TCS long, 4 contracts, Closed, Secondary Actions: Collapse
+								3299 button Open TCS detail
+								3300 text Ultra scalp
+								3301 text 2,506.90
+								3302 text 4
+								3303 text  contract
+								3304 text s
+								3305 text 22 Oct 2026 04:03 PM
+								3306 text 5 h ago
+							3307 button (collapsed) Description: TCS PE Closed, Secondary Actions: Expand
+								3308 container TCS OCT 2480 PE
+									3309 text TCS OCT 2480 PE
+								3310 text NFO
+								3311 text OTM1 (Δ0.35)
+								3312 text 19.40
+								3313 text (
+								3314 text -0.60
+								3315 text )
+								3316 text 18.27
+								3317 text 18.62
+								3318 text Stop hit 18.62
+								3319 text —
+								3320 text -0.65
+								3321 text -3.34%
+								3322 text 18.80
+								3323 text —
+								3324 text 16:03
+								3325 button (disabled) B, Help: trail breach (≤ 18.62)
+								3326 button Chart
+									3327 image
+							3328 button (collapsed) Description: TCS PE Closed, Secondary Actions: Expand
+								3329 container TCS NOV 2460 PE
+									3330 text TCS NOV 2460 PE
+								3331 text NFO
+								3332 text OTM2 (Δ0.38)
+								3333 text 62.40
+								3334 text (
+								3335 text -0.60
+								3336 text )
+								3337 text 62.03
+								3338 text 62.03
+								3339 text Stop hit 62.03
+								3340 text —
+								3341 text 0.75
+								3342 text 1.23%
+								3343 text 61.80
+								3344 text —
+								3345 text 15:58
+								3346 button (disabled) B, Help: trail breach (≤ 18.62)
+								3347 button Chart
+									3348 image
+							3349 button (collapsed) Description: TCS PE Closed, Secondary Actions: Expand
+								3350 container TCS NOV 2480 PE
+									3351 text TCS NOV 2480 PE
+								3352 text ▲
+								3353 text NFO
+								3354 text OTM1 (Δ0.41)
+								3355 text 70.45
+								3356 text (
+								3357 text +
+								3358 text 0.10
+								3359 text )
+								3360 text 69.54
+								3361 text 70.15
+								3362 text Stop hit 70.15
+								3363 text —
+								3364 text 1.10
+								3365 text 1.58%
+								3366 text 70.55
+								3367 text —
+								3368 text 15:56
+								3369 button (disabled) B, Help: trail breach (≤ 18.62)
+								3370 button Chart
+									3371 image
+							3372 button (collapsed) Description: TCS PE Closed, Secondary Actions: Expand
+								3373 container TCS OCT 2460 PE
+									3374 text TCS OCT 2460 PE
+								3375 text NFO
+								3376 text OTM2 (Δ0.26)
+								3377 text 12.95
+								3378 text (
+								3379 text +
+								3380 text 0.15
+								3381 text )
+								3382 text 12.19
+								3383 text 12.50
+								3384 text Stop hit 12.50
+								3385 text —
+								3386 text -0.95
+								3387 text -6.76%
+								3388 text 13.10
+								3389 text —
+								3390 text 15:55
+								3391 button (disabled) B, Help: trail breach (≤ 18.62)
+								3392 button Chart
+									3393 image
+							3394 button (expanded) Description: BAJFINANCE long, 4 contracts, Open, Secondary Actions: Collapse
+								3395 button Open BAJFINANCE detail
+								3396 text Ultra scalp
+								3397 text 942.10
+								3398 text 4
+								3399 text  contract
+								3400 text s
+								3401 text 22 Oct 2026 04:01 PM
+								3402 text 5 h ago
+							3403 button (collapsed) Description: BAJFINANCE CE Open, Secondary Actions: Expand
+								3404 container BAJFINANCE OCT 950 CE
+									3405 text BAJFINANCE OCT 950 CE
+								3406 text NFO
+								3407 text OTM1 (Δ0.40)
+								3408 text 6.00
+								3409 text (
+								3410 text +
+								3411 text 1.25
+								3412 text )
+								3413 text 5.68
+								3414 text 6.04
+								3415 text 0/3 red
+								3416 text —
+								3417 text 3.60
+								3418 text 98.63%
+								3419 text 7.25
+								3420 text —
+								3421 text 16:01
+								3422 button (disabled) B, Help: This row is not execution eligible.
+								3423 button Chart
+									3424 image
+							3425 button (collapsed) Description: BAJFINANCE CE Closed, Secondary Actions: Expand
+								3426 container BAJFINANCE OCT 960 CE
+									3427 text BAJFINANCE OCT 960 CE
+								3428 text NFO
+								3429 text OTM2 (Δ0.27)
+								3430 text 3.40
+								3431 text (
+								3432 text +
+								3433 text 0.90
+								3434 text )
+								3435 text 3.14
+								3436 text 3.29
+								3437 text Closed
+								3438 text —
+								3439 text 1.95
+								3440 text 82.98%
+								3441 text 4.30
+								3442 text —
+								3443 text 16:00
+								3444 button (disabled) B, Help: This row is not execution eligible.
+								3445 button Chart
+									3446 image
+							3447 button (collapsed) Description: BAJFINANCE CE Open, Secondary Actions: Expand
+								3448 container BAJFINANCE NOV 950 CE
+									3449 text BAJFINANCE NOV 950 CE
+								3450 text ▲
+								3451 text NFO
+								3452 text OTM1 (Δ0.50)
+								3453 text 25.55
+								3454 text (
+								3455 text +
+								3456 text 1.45
+								3457 text )
+								3458 text 25.02
+								3459 text 25.73
+								3460 text 0/3 red
+								3461 text —
+								3462 text 5.40
+								3463 text 25.00%
+								3464 text 27.00
+								3465 text —
+								3466 text 15:59
+								3467 button (disabled) B, Help: This row is not execution eligible.
+								3468 button Chart
+									3469 image
+							3470 button (collapsed) Description: BAJFINANCE CE Closed, Secondary Actions: Expand
+								3471 container BAJFINANCE NOV 960 CE
+									3472 text BAJFINANCE NOV 960 CE
+								3473 text NFO
+								3474 text OTM2 (Δ0.44)
+								3475 text 20.60
+								3476 text (
+								3477 text +
+								3478 text 1.90
+								3479 text )
+								3480 text 19.70
+								3481 text 21.03
+								3482 text Closed
+								3483 text —
+								3484 text 4.60
+								3485 text 25.70%
+								3486 text 22.50
+								3487 text —
+								3488 text 15:35
+								3489 button (disabled) B, Help: This row is not execution eligible.
+								3490 button Chart
+									3491 image
+							3492 button (expanded) Description: BHARTIARTL long, 4 contracts, Closed, Secondary Actions: Collapse
+								3493 button Open BHARTIARTL detail
+								3494 text Ultra scalp
+								3495 text 1,895.00
+								3496 text 4
+								3497 text  contract
+								3498 text s
+								3499 text 22 Oct 2026 04:01 PM
+								3500 text 5 h ago
+							3501 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								3502 container BHARTIARTL OCT 1920 CE
+									3503 text BHARTIARTL OCT 1920 CE
+								3504 text NFO
+								3505 text OTM1 (Δ0.29)
+								3506 text 9.85
+								3507 text (
+								3508 text -2.15
+								3509 text )
+								3510 text 9.35
+								3511 text 9.35
+								3512 text Stop hit 9.35
+								3513 text —
+								3514 text 2.95
+								3515 text 62.11%
+								3516 text 7.70
+								3517 text —
+								3518 text 16:01
+								3519 button (disabled) B, Help: trail breach (≤ 9.35)
+								3520 button Chart
+									3521 image
+							3522 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								3523 container BHARTIARTL NOV 1920 CE
+									3524 text BHARTIARTL NOV 1920 CE
+								3525 text ▲
+								3526 text NFO
+								3527 text OTM1 (Δ0.47)
+								3528 text 46.15
+								3529 text (
+								3530 text -3.65
+								3531 text )
+								3532 text 45.14
+								3533 text 45.14
+								3534 text Stop hit 45.14
+								3535 text —
+								3536 text 7.10
+								3537 text 20.06%
+								3538 text 42.50
+								3539 text —
+								3540 text 16:01
+								3541 button (disabled) B, Help: trail breach (≤ 9.35)
+								3542 button Chart
+									3543 image
+							3544 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								3545 container BHARTIARTL NOV 1940 CE
+									3546 text BHARTIARTL NOV 1940 CE
+								3547 text NFO
+								3548 text OTM2 (Δ0.40)
+								3549 text 37.20
+								3550 text (
+								3551 text -2.65
+								3552 text )
+								3553 text 36.86
+								3554 text 36.89
+								3555 text Stop hit 36.89
+								3556 text —
+								3557 text 6.20
+								3558 text 21.87%
+								3559 text 34.55
+								3560 text —
+								3561 text 15:52
+								3562 button (disabled) B, Help: trail breach (≤ 9.35)
+								3563 button Chart
+									3564 image
+							3565 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								3566 container BHARTIARTL OCT 1940 CE
+									3567 text BHARTIARTL OCT 1940 CE
+								3568 text NFO
+								3569 text OTM2 (Δ0.17)
+								3570 text 5.50
+								3571 text (
+								3572 text -1.50
+								3573 text )
+								3574 text 5.02
+								3575 text 5.09
+								3576 text Stop hit 5.09
+								3577 text —
+								3578 text 1.25
+								3579 text 45.45%
+								3580 text 4.00
+								3581 text —
+								3582 text 15:43
+								3583 button (disabled) B, Help: trail breach (≤ 9.35)
+								3584 button Chart
+									3585 image
+							3586 button (expanded) Description: BAJFINANCE long, 4 contracts, Open, Secondary Actions: Collapse
+								3587 button Open BAJFINANCE detail
+								3588 text Ultra scalp
+								3589 text 942.10
+								3590 text 4
+								3591 text  contract
+								3592 text s
+								3593 text 22 Oct 2026 03:58 PM
+								3594 text 6 h ago
+							3595 button (collapsed) Description: BAJFINANCE CE Open, Secondary Actions: Expand
+								3596 container BAJFINANCE OCT 950 CE
+									3597 text BAJFINANCE OCT 950 CE
+								3598 text NFO
+								3599 text OTM1 (Δ0.40)
+								3600 text 5.60
+								3601 text (
+								3602 text +
+								3603 text 1.65
+								3604 text )
+								3605 text 4.90
+								3606 text 6.05
+								3607 text 0/3 red
+								3608 text —
+								3609 text 3.60
+								3610 text 98.63%
+								3611 text 7.25
+								3612 text —
+								3613 text 15:58
+								3614 button (disabled) B, Help: This row is not execution eligible.
+								3615 button Chart
+									3616 image
+							3617 button (collapsed) Description: BAJFINANCE CE Open, Secondary Actions: Expand
+								3618 container BAJFINANCE OCT 960 CE
+									3619 text BAJFINANCE OCT 960 CE
+								3620 text NFO
+								3621 text OTM2 (Δ0.27)
+								3622 text 3.25
+								3623 text (
+								3624 text +
+								3625 text 1.05
+								3626 text )
+								3627 text 2.80
+								3628 text 3.55
+								3629 text 0/3 red
+								3630 text —
+								3631 text 1.95
+								3632 text 82.98%
+								3633 text 4.30
+								3634 text —
+								3635 text 15:58
+								3636 button (disabled) B, Help: This row is not execution eligible.
+								3637 button Chart
+									3638 image
+							3639 button (collapsed) Description: BAJFINANCE CE Open, Secondary Actions: Expand
+								3640 container BAJFINANCE NOV 950 CE
+									3641 text BAJFINANCE NOV 950 CE
+								3642 text ▲
+								3643 text NFO
+								3644 text OTM1 (Δ0.50)
+								3645 text 25.10
+								3646 text (
+								3647 text +
+								3648 text 1.90
+								3649 text )
+								3650 text 24.10
+								3651 text 25.75
+								3652 text 0/3 red
+								3653 text —
+								3654 text 5.40
+								3655 text 25.00%
+								3656 text 27.00
+								3657 text —
+								3658 text 15:58
+								3659 button (disabled) B, Help: This row is not execution eligible.
+								3660 button Chart
+									3661 image
+							3662 button (collapsed) Description: BAJFINANCE CE Open, Secondary Actions: Expand
+								3663 container BAJFINANCE NOV 960 CE
+									3664 text BAJFINANCE NOV 960 CE
+								3665 text NFO
+								3666 text OTM2 (Δ0.44)
+								3667 text 21.10
+								3668 text (
+								3669 text +
+								3670 text 1.40
+								3671 text )
+								3672 text 20.20
+								3673 text 21.70
+								3674 text 0/3 red
+								3675 text —
+								3676 text 4.60
+								3677 text 25.70%
+								3678 text 22.50
+								3679 text —
+								3680 text 15:58
+								3681 button (disabled) B, Help: This row is not execution eligible.
+								3682 button Chart
+									3683 image
+							3684 button (expanded) Description: NIFTY BANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								3685 button Open NIFTY BANK detail
+								3686 text Ultra scalp
+								3687 text 54,925.70
+								3688 text 4
+								3689 text  contract
+								3690 text s
+								3691 text 22 Oct 2026 03:56 PM
+								3692 text 6 h ago
+							3693 button (collapsed) Description: NIFTY BANK PE Closed, Secondary Actions: Expand
+								3694 container BANKNIFTY OCT 54700 PE
+									3695 text BANKNIFTY OCT 54700 PE
+								3696 text NFO
+								3697 text OTM1 (Δ0.39)
+								3698 text 301.55
+								3699 text (
+								3700 text -4.05
+								3701 text )
+								3702 text 281.63
+								3703 text 285.95
+								3704 text Stop hit 285.95
+								3705 text —
+								3706 text -12.85
+								3707 text -4.14%
+								3708 text 297.50
+								3709 text —
+								3710 text 15:56
+								3711 button (disabled) B, Help: trail breach (≤ 285.95)
+								3712 button Chart
+									3713 image
+							3714 button (collapsed) Description: NIFTY BANK PE Closed, Secondary Actions: Expand
+								3715 container BANKNIFTY OCT 54600 PE
+									3716 text BANKNIFTY OCT 54600 PE
+								3717 text NFO
+								3718 text OTM2 (Δ0.36)
+								3719 text 266.35
+								3720 text (
+								3721 text -2.35
+								3722 text )
+								3723 text 247.48
+								3724 text 251.13
+								3725 text Stop hit 251.13
+								3726 text —
+								3727 text -9.70
+								3728 text -3.54%
+								3729 text 264.00
+								3730 text —
+								3731 text 15:56
+								3732 button (disabled) B, Help: trail breach (≤ 285.95)
+								3733 button Chart
+									3734 image
+							3735 button (collapsed) Description: NIFTY BANK PE Closed, Secondary Actions: Expand
+								3736 container BANKNIFTY NOV 54700 PE
+									3737 text BANKNIFTY NOV 54700 PE
+								3738 text ▲
+								3739 text NFO
+								3740 text OTM1 (Δ0.41)
+								3741 text 746.60
+								3742 text (
+								3743 text -5.05
+								3744 text )
+								3745 text 725.55
+								3746 text 734.73
+								3747 text Stop hit 734.73
+								3748 text —
+								3749 text 31.40
+								3750 text 4.42%
+								3751 text 741.55
+								3752 text —
+								3753 text 15:55
+								3754 button (disabled) B, Help: trail breach (≤ 285.95)
+								3755 button Chart
+									3756 image
+							3757 button (collapsed) Description: NIFTY BANK PE Closed, Secondary Actions: Expand
+								3758 container BANKNIFTY NOV 54600 PE
+									3759 text BANKNIFTY NOV 54600 PE
+								3760 text NFO
+								3761 text OTM2 (Δ0.39)
+								3762 text 698.00
+								3763 text (
+								3764 text +
+								3765 text 7.60
+								3766 text )
+								3767 text 669.09
+								3768 text 701.98
+								3769 text Stop hit 701.98
+								3770 text —
+								3771 text 25.50
+								3772 text 3.75%
+								3773 text 705.60
+								3774 text —
+								3775 text 15:52
+								3776 button (disabled) B, Help: trail breach (≤ 285.95)
+								3777 button Chart
+									3778 image
+							3779 button (expanded) Description: AXISBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								3780 button Open AXISBANK detail
+								3781 text Ultra scalp
+								3782 text 1,212.00
+								3783 text 4
+								3784 text  contract
+								3785 text s
+								3786 text 22 Oct 2026 03:55 PM
+								3787 text 6 h ago
+							3788 button (collapsed) Description: AXISBANK PE Closed, Secondary Actions: Expand
+								3789 container AXISBANK OCT 1200 PE
+									3790 text AXISBANK OCT 1200 PE
+								3791 text NFO
+								3792 text OTM1 (Δ0.32)
+								3793 text 7.65
+								3794 text (
+								3795 text -1.80
+								3796 text )
+								3797 text 7.04
+								3798 text 7.11
+								3799 text Stop hit 7.11
+								3800 text —
+								3801 text -0.80
+								3802 text -12.03%
+								3803 text 5.85
+								3804 text —
+								3805 text 15:55
+								3806 button (disabled) B, Help: trail breach (≤ 7.11)
+								3807 button Chart
+									3808 image
+							3809 button (collapsed) Description: AXISBANK PE Closed, Secondary Actions: Expand
+								3810 container AXISBANK NOV 1200 PE
+									3811 text AXISBANK NOV 1200 PE
+								3812 text ▲
+								3813 text NFO
+								3814 text OTM1 (Δ0.39)
+								3815 text 22.80
+								3816 text (
+								3817 text -1.95
+								3818 text )
+								3819 text 22.07
+								3820 text 22.86
+								3821 text Stop hit 22.86
+								3822 text —
+								3823 text -1.30
+								3824 text -5.87%
+								3825 text 20.85
+								3826 text —
+								3827 text 15:50
+								3828 button (disabled) B, Help: trail breach (≤ 7.11)
+								3829 button Chart
+									3830 image
+							3831 button (collapsed) Description: AXISBANK PE Closed, Secondary Actions: Expand
+								3832 container AXISBANK OCT 1190 PE
+									3833 text AXISBANK OCT 1190 PE
+								3834 text NFO
+								3835 text OTM2 (Δ0.20)
+								3836 text 4.45
+								3837 text (
+								3838 text -1.15
+								3839 text )
+								3840 text 4.03
+								3841 text 4.33
+								3842 text Stop hit 4.33
+								3843 text —
+								3844 text -0.75
+								3845 text -18.52%
+								3846 text 3.30
+								3847 text —
+								3848 text 15:50
+								3849 button (disabled) B, Help: trail breach (≤ 7.11)
+								3850 button Chart
+									3851 image
+							3852 button (collapsed) Description: AXISBANK PE Closed, Secondary Actions: Expand
+								3853 container AXISBANK NOV 1190 PE
+									3854 text AXISBANK NOV 1190 PE
+								3855 text NFO
+								3856 text OTM2 (Δ0.34)
+								3857 text 18.50
+								3858 text (
+								3859 text -1.55
+								3860 text )
+								3861 text 18.37
+								3862 text 19.79
+								3863 text Stop hit 19.79
+								3864 text —
+								3865 text -1.60
+								3866 text -8.63%
+								3867 text 16.95
+								3868 text —
+								3869 text 14:19
+								3870 button (disabled) B, Help: trail breach (≤ 7.11)
+								3871 button Chart
+									3872 image
+							3873 button (expanded) Description: INFY long, 4 contracts, Closed, Secondary Actions: Collapse
+								3874 button Open INFY detail
+								3875 text Ultra scalp
+								3876 text 1,153.35
+								3877 text 4
+								3878 text  contract
+								3879 text s
+								3880 text 22 Oct 2026 03:49 PM
+								3881 text 6 h ago
+							3882 button (collapsed) Description: INFY PE Closed, Secondary Actions: Expand
+								3883 container INFY OCT 1140 PE
+									3884 text INFY OCT 1140 PE
+								3885 text NFO
+								3886 text OTM1 (Δ0.39)
+								3887 text 15.80
+								3888 text (
+								3889 text +
+								3890 text 0.55
+								3891 text )
+								3892 text 15.06
+								3893 text 16.51
+								3894 text Stop hit 16.51
+								3895 text —
+								3896 text 4.10
+								3897 text 33.47%
+								3898 text 16.35
+								3899 text —
+								3900 text 15:49
+								3901 button (disabled) B, Help: trail breach (≤ 16.51)
+								3902 button Chart
+									3903 image
+							3904 button (collapsed) Description: INFY PE Closed, Secondary Actions: Expand
+								3905 container INFY NOV 1140 PE
+									3906 text INFY NOV 1140 PE
+								3907 text ▲
+								3908 text NFO
+								3909 text OTM1 (Δ0.42)
+								3910 text 39.10
+								3911 text (
+								3912 text +
+								3913 text 1.00
+								3914 text )
+								3915 text 38.51
+								3916 text 40.61
+								3917 text Stop hit 40.61
+								3918 text —
+								3919 text 2.70
+								3920 text 7.22%
+								3921 text 40.10
+								3922 text —
+								3923 text 15:49
+								3924 button (disabled) B, Help: trail breach (≤ 16.51)
+								3925 button Chart
+									3926 image
+							3927 button (collapsed) Description: INFY PE Closed, Secondary Actions: Expand
+								3928 container INFY OCT 1120 PE
+									3929 text INFY OCT 1120 PE
+								3930 text NFO
+								3931 text OTM2 (Δ0.27)
+								3932 text 9.65
+								3933 text (
+								3934 text +
+								3935 text 0.70
+								3936 text )
+								3937 text 9.13
+								3938 text 10.60
+								3939 text Stop hit 10.60
+								3940 text —
+								3941 text 2.85
+								3942 text 38.00%
+								3943 text 10.35
+								3944 text —
+								3945 text 15:49
+								3946 button (disabled) B, Help: trail breach (≤ 16.51)
+								3947 button Chart
+									3948 image
+							3949 button (collapsed) Description: INFY PE Closed, Secondary Actions: Expand
+								3950 container INFY NOV 1120 PE
+									3951 text INFY NOV 1120 PE
+								3952 text NFO
+								3953 text OTM2 (Δ0.35)
+								3954 text 31.15
+								3955 text (
+								3956 text +
+								3957 text 0.90
+								3958 text )
+								3959 text 30.66
+								3960 text 32.95
+								3961 text Stop hit 32.95
+								3962 text —
+								3963 text 2.00
+								3964 text 6.66%
+								3965 text 32.05
+								3966 text —
+								3967 text 15:49
+								3968 button (disabled) B, Help: trail breach (≤ 16.51)
+								3969 button Chart
+									3970 image
+							3971 button (expanded) Description: ADANIENT long, 4 contracts, Closed, Secondary Actions: Collapse
+								3972 button Open ADANIENT detail
+								3973 text Ultra scalp
+								3974 text 2,550.00
+								3975 text 4
+								3976 text  contract
+								3977 text s
+								3978 text 22 Oct 2026 03:48 PM
+								3979 text 6 h ago
+							3980 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								3981 container ADANIENT NOV 2500 PE
+									3982 text ADANIENT NOV 2500 PE
+								3983 text ▲
+								3984 text NFO
+								3985 text OTM1 (Δ0.38)
+								3986 text 76.00
+								3987 text (
+								3988 text +
+								3989 text 1.05
+								3990 text )
+								3991 text 74.48
+								3992 text 76.94
+								3993 text Stop hit 76.94
+								3994 text —
+								3995 text 15.80
+								3996 text 25.80%
+								3997 text 77.05
+								3998 text —
+								3999 text 15:48
+								4000 button (disabled) B, Help: trail breach (≤ 13.76)
+								4001 button Chart
+									4002 image
+							4003 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								4004 container ADANIENT NOV 2450 PE
+									4005 text ADANIENT NOV 2450 PE
+								4006 text NFO
+								4007 text OTM2 (Δ0.32)
+								4008 text 59.20
+								4009 text 59.07
+								4010 text 59.16
+								4011 text Stop hit 59.16
+								4012 text —
+								4013 text 13.80
+								4014 text 30.40%
+								4015 text 59.20
+								4016 text —
+								4017 text 15:31
+								4018 button (disabled) B, Help: trail breach (≤ 13.76)
+								4019 button Chart
+									4020 image
+							4021 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								4022 container ADANIENT OCT 2500 PE
+									4023 text ADANIENT OCT 2500 PE
+								4024 text NFO
+								4025 text OTM1 (Δ0.25)
+								4026 text 14.00
+								4027 text (
+								4028 text -1.60
+								4029 text )
+								4030 text 13.29
+								4031 text 13.76
+								4032 text Stop hit 13.76
+								4033 text —
+								4034 text 2.45
+								4035 text 24.62%
+								4036 text 12.40
+								4037 text —
+								4038 text 15:18
+								4039 button (disabled) B, Help: trail breach (≤ 13.76)
+								4040 button Chart
+									4041 image
+							4042 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								4043 container ADANIENT OCT 2450 PE
+									4044 text ADANIENT OCT 2450 PE
+								4045 text NFO
+								4046 text OTM2 (Δ0.12)
+								4047 text 6.55
+								4048 text (
+								4049 text -0.90
+								4050 text )
+								4051 text 6.18
+								4052 text 6.45
+								4053 text Stop hit 6.45
+								4054 text —
+								4055 text 0.10
+								4056 text 1.80%
+								4057 text 5.65
+								4058 text —
+								4059 text 15:18
+								4060 button (disabled) B, Help: trail breach (≤ 13.76)
+								4061 button Chart
+									4062 image
+							4063 button (expanded) Description: ADANIENT long, 4 contracts, Closed, Secondary Actions: Collapse
+								4064 button Open ADANIENT detail
+								4065 text Ultra scalp
+								4066 text 2,550.00
+								4067 text 4
+								4068 text  contract
+								4069 text s
+								4070 text 22 Oct 2026 03:45 PM
+								4071 text 6 h ago
+							4072 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4073 container ADANIENT OCT 2650 CE
+									4074 text ADANIENT OCT 2650 CE
+								4075 text NFO
+								4076 text OTM2 (Δ0.14)
+								4077 text 6.70
+								4078 text (
+								4079 text -0.85
+								4080 text )
+								4081 text 6.38
+								4082 text 6.38
+								4083 text Stop hit 6.38
+								4084 text —
+								4085 text -9.20
+								4086 text -61.13%
+								4087 text 5.85
+								4088 text —
+								4089 text 15:45
+								4090 button (disabled) B, Help: trail breach (≤ 13.83)
+								4091 button Chart
+									4092 image
+							4093 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4094 container ADANIENT OCT 2600 CE
+									4095 text ADANIENT OCT 2600 CE
+								4096 text NFO
+								4097 text OTM1 (Δ0.27)
+								4098 text 13.95
+								4099 text (
+								4100 text -1.45
+								4101 text )
+								4102 text 13.31
+								4103 text 13.83
+								4104 text Stop hit 13.83
+								4105 text —
+								4106 text -19.25
+								4107 text -60.63%
+								4108 text 12.50
+								4109 text —
+								4110 text 15:44
+								4111 button (disabled) B, Help: trail breach (≤ 13.83)
+								4112 button Chart
+									4113 image
+							4114 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4115 container ADANIENT NOV 2650 CE
+									4116 text ADANIENT NOV 2650 CE
+								4117 text NFO
+								4118 text OTM2 (Δ0.40)
+								4119 text 71.00
+								4120 text (
+								4121 text -1.45
+								4122 text )
+								4123 text 69.75
+								4124 text 72.78
+								4125 text Stop hit 72.78
+								4126 text —
+								4127 text -16.70
+								4128 text -19.36%
+								4129 text 69.55
+								4130 text —
+								4131 text 15:43
+								4132 button (disabled) B, Help: trail breach (≤ 13.83)
+								4133 button Chart
+									4134 image
+							4135 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4136 container ADANIENT NOV 2600 CE
+									4137 text ADANIENT NOV 2600 CE
+								4138 text ▲
+								4139 text NFO
+								4140 text OTM1 (Δ0.47)
+								4141 text 91.25
+								4142 text (
+								4143 text -1.20
+								4144 text )
+								4145 text 89.79
+								4146 text 92.69
+								4147 text Stop hit 92.69
+								4148 text —
+								4149 text -19.70
+								4150 text -17.95%
+								4151 text 90.05
+								4152 text —
+								4153 text 15:41
+								4154 button (disabled) B, Help: trail breach (≤ 13.83)
+								4155 button Chart
+									4156 image
+							4157 button (expanded) Description: ADANIENT long, 4 contracts, Closed, Secondary Actions: Collapse
+								4158 button Open ADANIENT detail
+								4159 text Ultra scalp
+								4160 text 2,550.00
+								4161 text 4
+								4162 text  contract
+								4163 text s
+								4164 text 22 Oct 2026 03:44 PM
+								4165 text 6 h ago
+							4166 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4167 container ADANIENT OCT 2600 CE
+									4168 text ADANIENT OCT 2600 CE
+								4169 text NFO
+								4170 text OTM1 (Δ0.27)
+								4171 text 13.95
+								4172 text (
+								4173 text -1.45
+								4174 text )
+								4175 text 12.80
+								4176 text 13.75
+								4177 text Stop hit 13.75
+								4178 text —
+								4179 text -19.25
+								4180 text -60.63%
+								4181 text 12.50
+								4182 text —
+								4183 text 15:44
+								4184 button (disabled) B, Help: trail breach (≤ 2549.49)
+								4185 button Chart
+									4186 image
+							4187 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4188 container ADANIENT OCT 2650 CE
+									4189 text ADANIENT OCT 2650 CE
+								4190 text NFO
+								4191 text OTM2 (Δ0.14)
+								4192 text 6.50
+								4193 text (
+								4194 text -0.65
+								4195 text )
+								4196 text 5.90
+								4197 text 6.40
+								4198 text Stop hit 6.40
+								4199 text —
+								4200 text -9.20
+								4201 text -61.13%
+								4202 text 5.85
+								4203 text —
+								4204 text 15:44
+								4205 button (disabled) B, Help: trail breach (≤ 2549.49)
+								4206 button Chart
+									4207 image
+							4208 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4209 container ADANIENT NOV 2600 CE
+									4210 text ADANIENT NOV 2600 CE
+								4211 text ▲
+								4212 text NFO
+								4213 text OTM1 (Δ0.47)
+								4214 text 92.45
+								4215 text (
+								4216 text -2.40
+								4217 text )
+								4218 text 90.55
+								4219 text 92.10
+								4220 text Stop hit 92.10
+								4221 text —
+								4222 text -19.70
+								4223 text -17.95%
+								4224 text 90.05
+								4225 text —
+								4226 text 15:44
+								4227 button (disabled) B, Help: trail breach (≤ 2549.49)
+								4228 button Chart
+									4229 image
+							4230 button (collapsed) Description: ADANIENT CE Closed, Secondary Actions: Expand
+								4231 container ADANIENT NOV 2650 CE
+									4232 text ADANIENT NOV 2650 CE
+								4233 text NFO
+								4234 text OTM2 (Δ0.40)
+								4235 text 71.00
+								4236 text (
+								4237 text -1.45
+								4238 text )
+								4239 text 69.40
+								4240 text 70.70
+								4241 text Stop hit 70.70
+								4242 text —
+								4243 text -16.70
+								4244 text -19.36%
+								4245 text 69.55
+								4246 text —
+								4247 text 15:44
+								4248 button (disabled) B, Help: trail breach (≤ 2549.49)
+								4249 button Chart
+									4250 image
+							4251 button (expanded) Description: BHARTIARTL long, 4 contracts, Closed, Secondary Actions: Collapse
+								4252 button Open BHARTIARTL detail
+								4253 text Ultra scalp
+								4254 text 1,895.00
+								4255 text 4
+								4256 text  contract
+								4257 text s
+								4258 text 22 Oct 2026 03:44 PM
+								4259 text 6 h ago
+							4260 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								4261 container BHARTIARTL OCT 1920 CE
+									4262 text BHARTIARTL OCT 1920 CE
+								4263 text NFO
+								4264 text OTM1 (Δ0.29)
+								4265 text 10.25
+								4266 text (
+								4267 text -2.55
+								4268 text )
+								4269 text 9.35
+								4270 text 9.35
+								4271 text Stop hit 9.35
+								4272 text —
+								4273 text 2.95
+								4274 text 62.11%
+								4275 text 7.70
+								4276 text —
+								4277 text 15:44
+								4278 button (disabled) B, Help: trail breach (≤ 1904.31)
+								4279 button Chart
+									4280 image
+							4281 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								4282 container BHARTIARTL OCT 1940 CE
+									4283 text BHARTIARTL OCT 1940 CE
+								4284 text NFO
+								4285 text OTM2 (Δ0.17)
+								4286 text 5.50
+								4287 text (
+								4288 text -1.50
+								4289 text )
+								4290 text 4.95
+								4291 text 4.95
+								4292 text Stop hit 4.95
+								4293 text —
+								4294 text 1.25
+								4295 text 45.45%
+								4296 text 4.00
+								4297 text —
+								4298 text 15:44
+								4299 button (disabled) B, Help: trail breach (≤ 1904.31)
+								4300 button Chart
+									4301 image
+							4302 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								4303 container BHARTIARTL NOV 1920 CE
+									4304 text BHARTIARTL NOV 1920 CE
+								4305 text ▲
+								4306 text NFO
+								4307 text OTM1 (Δ0.47)
+								4308 text 46.00
+								4309 text (
+								4310 text -3.50
+								4311 text )
+								4312 text 44.80
+								4313 text 44.80
+								4314 text Stop hit 44.80
+								4315 text —
+								4316 text 7.10
+								4317 text 20.06%
+								4318 text 42.50
+								4319 text —
+								4320 text 15:44
+								4321 button (disabled) B, Help: trail breach (≤ 1904.31)
+								4322 button Chart
+									4323 image
+							4324 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								4325 container BHARTIARTL NOV 1940 CE
+									4326 text BHARTIARTL NOV 1940 CE
+								4327 text NFO
+								4328 text OTM2 (Δ0.40)
+								4329 text 37.00
+								4330 text (
+								4331 text -2.45
+								4332 text )
+								4333 text 35.95
+								4334 text 35.95
+								4335 text Stop hit 35.95
+								4336 text —
+								4337 text 6.20
+								4338 text 21.87%
+								4339 text 34.55
+								4340 text —
+								4341 text 15:44
+								4342 button (disabled) B, Help: trail breach (≤ 1904.31)
+								4343 button Chart
+									4344 image
+							4345 button (expanded) Description: ICICIBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								4346 button Open ICICIBANK detail
+								4347 text Ultra scalp
+								4348 text 1,398.50
+								4349 text 4
+								4350 text  contract
+								4351 text s
+								4352 text 22 Oct 2026 03:44 PM
+								4353 text 6 h ago
+							4354 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								4355 container ICICIBANK OCT 1420 CE
+									4356 text ICICIBANK OCT 1420 CE
+								4357 text NFO
+								4358 text OTM2 (Δ0.20)
+								4359 text 3.40
+								4360 text (
+								4361 text -0.70
+								4362 text )
+								4363 text 3.11
+								4364 text 3.16
+								4365 text Stop hit 3.16
+								4366 text —
+								4367 text -0.10
+								4368 text -3.57%
+								4369 text 2.70
+								4370 text —
+								4371 text 15:44
+								4372 button (disabled) B, Help: trail breach (≤ 5.51)
+								4373 button Chart
+									4374 image
+							4375 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								4376 container ICICIBANK OCT 1410 CE
+									4377 text ICICIBANK OCT 1410 CE
+								4378 text NFO
+								4379 text OTM1 (Δ0.33)
+								4380 text 5.80
+								4381 text (
+								4382 text -1.10
+								4383 text )
+								4384 text 5.27
+								4385 text 5.51
+								4386 text Stop hit 5.51
+								4387 text —
+								4388 text 0.35
+								4389 text 8.05%
+								4390 text 4.70
+								4391 text —
+								4392 text 15:43
+								4393 button (disabled) B, Help: trail breach (≤ 5.51)
+								4394 button Chart
+									4395 image
+							4396 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								4397 container ICICIBANK NOV 1410 CE
+									4398 text ICICIBANK NOV 1410 CE
+								4399 text ▲
+								4400 text NFO
+								4401 text OTM1 (Δ0.49)
+								4402 text 27.55
+								4403 text (
+								4404 text -2.30
+								4405 text )
+								4406 text 26.33
+								4407 text 27.36
+								4408 text Stop hit 27.36
+								4409 text —
+								4410 text 0.40
+								4411 text 1.61%
+								4412 text 25.25
+								4413 text —
+								4414 text 15:42
+								4415 button (disabled) B, Help: trail breach (≤ 5.51)
+								4416 button Chart
+									4417 image
+							4418 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								4419 container ICICIBANK NOV 1420 CE
+									4420 text ICICIBANK NOV 1420 CE
+								4421 text NFO
+								4422 text OTM2 (Δ0.43)
+								4423 text 22.00
+								4424 text (
+								4425 text -0.90
+								4426 text )
+								4427 text 21.34
+								4428 text 22.99
+								4429 text Stop hit 22.99
+								4430 text —
+								4431 text 0.05
+								4432 text 0.24%
+								4433 text 21.10
+								4434 text —
+								4435 text 15:32
+								4436 button (disabled) B, Help: trail breach (≤ 5.51)
+								4437 button Chart
+									4438 image
+							4439 button (expanded) Description: NIFTY BANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								4440 button Open NIFTY BANK detail
+								4441 text Ultra scalp
+								4442 text 54,925.70
+								4443 text 4
+								4444 text  contract
+								4445 text s
+								4446 text 22 Oct 2026 03:43 PM
+								4447 text 6 h ago
+							4448 button (collapsed) Description: NIFTY BANK CE Closed, Secondary Actions: Expand
+								4449 container BANKNIFTY OCT 54900 CE
+									4450 text BANKNIFTY OCT 54900 CE
+								4451 text NFO
+								4452 text OTM1 (Δ0.53)
+								4453 text 471.90
+								4454 text (
+								4455 text -51.80
+								4456 text )
+								4457 text 434.80
+								4458 text 455.88
+								4459 text Stop hit 455.88
+								4460 text —
+								4461 text -53.30
+								4462 text -11.26%
+								4463 text 420.10
+								4464 text —
+								4465 text 15:43
+								4466 button (disabled) B, Help: trail breach (≤ 455.88)
+								4467 button Chart
+									4468 image
+							4469 button (collapsed) Description: NIFTY BANK CE Closed, Secondary Actions: Expand
+								4470 container BANKNIFTY NOV 54900 CE
+									4471 text BANKNIFTY NOV 54900 CE
+								4472 text ▲
+								4473 text NFO
+								4474 text OTM1 (Δ0.56)
+								4475 text 1230.00
+								4476 text (
+								4477 text -57.95
+								4478 text )
+								4479 text 1,195.56
+								4480 text 1,223.33
+								4481 text Stop hit 1223.33
+								4482 text —
+								4483 text -57.10
+								4484 text -4.65%
+								4485 text 1,172.05
+								4486 text —
+								4487 text 15:43
+								4488 button (disabled) B, Help: trail breach (≤ 455.88)
+								4489 button Chart
+									4490 image
+							4491 button (collapsed) Description: NIFTY BANK CE Closed, Secondary Actions: Expand
+								4492 container BANKNIFTY OCT 55000 CE
+									4493 text BANKNIFTY OCT 55000 CE
+								4494 text NFO
+								4495 text OTM2 (Δ0.49)
+								4496 text 414.80
+								4497 text (
+								4498 text -40.80
+								4499 text )
+								4500 text 380.88
+								4501 text 401.06
+								4502 text Stop hit 401.06
+								4503 text —
+								4504 text -47.50
+								4505 text -11.27%
+								4506 text 374.00
+								4507 text —
+								4508 text 15:43
+								4509 button (disabled) B, Help: trail breach (≤ 455.88)
+								4510 button Chart
+									4511 image
+							4512 button (collapsed) Description: NIFTY BANK CE Closed, Secondary Actions: Expand
+								4513 container BANKNIFTY NOV 55000 CE
+									4514 text BANKNIFTY NOV 55000 CE
+								4515 text NFO
+								4516 text OTM2 (Δ0.55)
+								4517 text 1170.00
+								4518 text (
+								4519 text -55.00
+								4520 text )
+								4521 text 1,127.54
+								4522 text 1,146.97
+								4523 text Stop hit 1146.97
+								4524 text —
+								4525 text -34.55
+								4526 text -3.01%
+								4527 text 1,115.00
+								4528 text —
+								4529 text 15:43
+								4530 button (disabled) B, Help: trail breach (≤ 455.88)
+								4531 button Chart
+									4532 image
+							4533 button (expanded) Description: NIFTY 50 long, 4 contracts, Closed, Secondary Actions: Collapse
+								4534 button Open NIFTY 50 detail
+								4535 text Ultra scalp
+								4536 text 22,687.65
+								4537 text 4
+								4538 text  contract
+								4539 text s
+								4540 text 22 Oct 2026 03:43 PM
+								4541 text 6 h ago
+							4542 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								4543 container NIFTY NOV 22750 CE
+									4544 text NIFTY NOV 22750 CE
+								4545 text NFO
+								4546 text OTM2 (Δ0.54)
+								4547 text 430.00
+								4548 text (
+								4549 text -6.85
+								4550 text )
+								4551 text 414.78
+								4552 text 428.50
+								4553 text Stop hit 428.50
+								4554 text —
+								4555 text -26.45
+								4556 text -5.88%
+								4557 text 423.15
+								4558 text —
+								4559 text 15:43
+								4560 button (disabled) B, Help: trail breach (≤ 167.69)
+								4561 button Chart
+									4562 image
+							4563 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								4564 container NIFTY OCT 22700 CE
+									4565 text NIFTY OCT 22700 CE
+								4566 text NFO
+								4567 text OTM1 (Δ0.51)
+								4568 text 156.50
+								4569 text (
+								4570 text +
+								4571 text 3.80
+								4572 text )
+								4573 text 148.49
+								4574 text 167.69
+								4575 text Stop hit 167.69
+								4576 text —
+								4577 text -25.35
+								4578 text -13.65%
+								4579 text 160.30
+								4580 text —
+								4581 text 15:41
+								4582 button (disabled) B, Help: trail breach (≤ 167.69)
+								4583 button Chart
+									4584 image
+							4585 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								4586 container NIFTY NOV 22700 CE
+									4587 text NIFTY NOV 22700 CE
+								4588 text ▲
+								4589 text NFO
+								4590 text OTM1 (Δ0.56)
+								4591 text 452.75
+								4592 text (
+								4593 text -1.50
+								4594 text )
+								4595 text 441.79
+								4596 text 458.64
+								4597 text Stop hit 458.64
+								4598 text —
+								4599 text -24.65
+								4600 text -5.18%
+								4601 text 451.25
+								4602 text —
+								4603 text 15:41
+								4604 button (disabled) B, Help: trail breach (≤ 167.69)
+								4605 button Chart
+									4606 image
+							4607 button (collapsed) Description: NIFTY 50 CE Closed, Secondary Actions: Expand
+								4608 container NIFTY OCT 22750 CE
+									4609 text NIFTY OCT 22750 CE
+								4610 text NFO
+								4611 text OTM2 (Δ0.46)
+								4612 text 131.00
+								4613 text (
+								4614 text +
+								4615 text 4.30
+								4616 text )
+								4617 text 124.28
+								4618 text 141.22
+								4619 text Stop hit 141.22
+								4620 text —
+								4621 text -24.70
+								4622 text -15.44%
+								4623 text 135.30
+								4624 text —
+								4625 text 15:41
+								4626 button (disabled) B, Help: trail breach (≤ 167.69)
+								4627 button Chart
+									4628 image
+							4629 button (expanded) Description: SBIN long, 4 contracts, Closed, Secondary Actions: Collapse
+								4630 button Open SBIN detail
+								4631 text Ultra scalp
+								4632 text 970.00
+								4633 text 4
+								4634 text  contract
+								4635 text s
+								4636 text 22 Oct 2026 03:42 PM
+								4637 text 6 h ago
+							4638 button (collapsed) Description: SBIN CE Closed, Secondary Actions: Expand
+								4639 container SBIN OCT 980 CE
+									4640 text SBIN OCT 980 CE
+								4641 text NFO
+								4642 text OTM1 (Δ0.33)
+								4643 text 4.35
+								4644 text (
+								4645 text -0.15
+								4646 text )
+								4647 text 4.08
+								4648 text 4.44
+								4649 text Stop hit 4.44
+								4650 text —
+								4651 text 0.00
+								4652 text 0.00%
+								4653 text 4.20
+								4654 text —
+								4655 text 15:42
+								4656 button (disabled) B, Help: trail breach (≤ 4.44)
+								4657 button Chart
+									4658 image
+							4659 button (collapsed) Description: SBIN CE Closed, Secondary Actions: Expand
+								4660 container SBIN OCT 990 CE
+									4661 text SBIN OCT 990 CE
+								4662 text NFO
+								4663 text OTM2 (Δ0.19)
+								4664 text 2.15
+								4665 text (
+								4666 text -0.05
+								4667 text )
+								4668 text 2.03
+								4669 text 2.28
+								4670 text Stop hit 2.28
+								4671 text —
+								4672 text -0.30
+								4673 text -12.50%
+								4674 text 2.10
+								4675 text —
+								4676 text 15:41
+								4677 button (disabled) B, Help: trail breach (≤ 4.44)
+								4678 button Chart
+									4679 image
+							4680 button (collapsed) Description: SBIN CE Closed, Secondary Actions: Expand
+								4681 container SBIN NOV 980 CE
+									4682 text SBIN NOV 980 CE
+								4683 text ▲
+								4684 text NFO
+								4685 text OTM1 (Δ0.49)
+								4686 text 24.80
+								4687 text (
+								4688 text +
+								4689 text 0.40
+								4690 text )
+								4691 text 24.51
+								4692 text 25.20
+								4693 text Stop hit 25.20
+								4694 text —
+								4695 text 0.55
+								4696 text 2.23%
+								4697 text 25.20
+								4698 text —
+								4699 text 15:16
+								4700 button (disabled) B, Help: trail breach (≤ 4.44)
+								4701 button Chart
+									4702 image
+							4703 button (collapsed) Description: SBIN CE Closed, Secondary Actions: Expand
+								4704 container SBIN NOV 990 CE
+									4705 text SBIN NOV 990 CE
+								4706 text NFO
+								4707 text OTM2 (Δ0.43)
+								4708 text 20.40
+								4709 text (
+								4710 text +
+								4711 text 0.60
+								4712 text )
+								4713 text 20.11
+								4714 text 20.92
+								4715 text Stop hit 20.92
+								4716 text —
+								4717 text 0.20
+								4718 text 0.96%
+								4719 text 21.00
+								4720 text —
+								4721 text 15:11
+								4722 button (disabled) B, Help: trail breach (≤ 4.44)
+								4723 button Chart
+									4724 image
+							4725 button (expanded) Description: SENSEX long, 2 contracts, Closed, Secondary Actions: Collapse
+								4726 button Open SENSEX detail
+								4727 text Ultra scalp
+								4728 text 73,249.39
+								4729 text 2
+								4730 text  contract
+								4731 text s
+								4732 text 22 Oct 2026 03:41 PM
+								4733 text 6 h ago
+							4734 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								4735 container SENSEX OCT 73300 CE
+									4736 text SENSEX OCT 73300 CE
+								4737 text ▲
+								4738 text BFO
+								4739 text OTM1 (Δ0.51)
+								4740 text 731.40
+								4741 text (
+								4742 text -7.40
+								4743 text )
+								4744 text 709.70
+								4745 text 764.64
+								4746 text Stop hit 764.64
+								4747 text —
+								4748 text -99.70
+								4749 text -12.10%
+								4750 text 724.00
+								4751 text —
+								4752 text 15:41
+								4753 button (disabled) B, Help: trail breach (≤ 764.64)
+								4754 button Chart
+									4755 image
+							4756 button (collapsed) Description: SENSEX CE Closed, Secondary Actions: Expand
+								4757 container SENSEX OCT 73400 CE
+									4758 text SENSEX OCT 73400 CE
+								4759 text BFO
+								4760 text OTM2 (Δ0.49)
+								4761 text 679.10
+								4762 text (
+								4763 text -9.10
+								4764 text )
+								4765 text 656.05
+								4766 text 709.44
+								4767 text Stop hit 709.44
+								4768 text —
+								4769 text -90.90
+								4770 text -11.95%
+								4771 text 670.00
+								4772 text —
+								4773 text 15:41
+								4774 button (disabled) B, Help: trail breach (≤ 764.64)
+								4775 button Chart
+									4776 image
+							4777 button (expanded) Description: TCS long, 4 contracts, Closed, Secondary Actions: Collapse
+								4778 button Open TCS detail
+								4779 text Ultra scalp
+								4780 text 2,506.90
+								4781 text 4
+								4782 text  contract
+								4783 text s
+								4784 text 22 Oct 2026 03:35 PM
+								4785 text 6 h ago
+							4786 button (collapsed) Description: TCS CE Closed, Secondary Actions: Expand
+								4787 container TCS NOV 2540 CE
+									4788 text TCS NOV 2540 CE
+								4789 text NFO
+								4790 text OTM2 (Δ0.48)
+								4791 text 74.50
+								4792 text (
+								4793 text -3.25
+								4794 text )
+								4795 text 73.53
+								4796 text 73.53
+								4797 text Stop hit 73.53
+								4798 text —
+								4799 text -7.85
+								4800 text -9.92%
+								4801 text 71.25
+								4802 text —
+								4803 text 15:35
+								4804 button (disabled) B, Help: trail breach (≤ 23.72)
+								4805 button Chart
+									4806 image
+							4807 button (collapsed) Description: TCS CE Closed, Secondary Actions: Expand
+								4808 container TCS NOV 2520 CE
+									4809 text TCS NOV 2520 CE
+								4810 text ▲
+								4811 text NFO
+								4812 text OTM1 (Δ0.52)
+								4813 text 85.30
+								4814 text (
+								4815 text -4.00
+								4816 text )
+								4817 text 84.01
+								4818 text 84.51
+								4819 text Stop hit 84.51
+								4820 text —
+								4821 text -8.60
+								4822 text -9.57%
+								4823 text 81.30
+								4824 text —
+								4825 text 15:15
+								4826 button (disabled) B, Help: trail breach (≤ 23.72)
+								4827 button Chart
+									4828 image
+							4829 button (collapsed) Description: TCS CE Closed, Secondary Actions: Expand
+								4830 container TCS OCT 2520 CE
+									4831 text TCS OCT 2520 CE
+								4832 text NFO
+								4833 text OTM1 (Δ0.44)
+								4834 text 24.85
+								4835 text (
+								4836 text -4.10
+								4837 text )
+								4838 text 22.48
+								4839 text 23.72
+								4840 text Stop hit 23.72
+								4841 text —
+								4842 text -10.40
+								4843 text -33.39%
+								4844 text 20.75
+								4845 text —
+								4846 text 15:08
+								4847 button (disabled) B, Help: trail breach (≤ 23.72)
+								4848 button Chart
+									4849 image
+							4850 button (collapsed) Description: TCS CE Closed, Secondary Actions: Expand
+								4851 container TCS OCT 2540 CE
+									4852 text TCS OCT 2540 CE
+								4853 text NFO
+								4854 text OTM2 (Δ0.33)
+								4855 text 17.25
+								4856 text (
+								4857 text -3.10
+								4858 text )
+								4859 text 15.62
+								4860 text 16.50
+								4861 text Stop hit 16.50
+								4862 text —
+								4863 text -8.90
+								4864 text -38.61%
+								4865 text 14.15
+								4866 text —
+								4867 text 15:08
+								4868 button (disabled) B, Help: trail breach (≤ 23.72)
+								4869 button Chart
+									4870 image
+							4871 button (expanded) Description: LT long, 4 contracts, Closed, Secondary Actions: Collapse
+								4872 button Open LT detail
+								4873 text Ultra scalp
+								4874 text 3,638.30
+								4875 text 4
+								4876 text  contract
+								4877 text s
+								4878 text 22 Oct 2026 03:34 PM
+								4879 text 6 h ago
+							4880 button (collapsed) Description: LT CE Closed, Secondary Actions: Expand
+								4881 container LT OCT 3700 CE
+									4882 text LT OCT 3700 CE
+								4883 text NFO
+								4884 text OTM1 (Δ0.28)
+								4885 text 21.15
+								4886 text (
+								4887 text -3.70
+								4888 text )
+								4889 text 19.67
+								4890 text 19.99
+								4891 text Stop hit 19.99
+								4892 text —
+								4893 text 4.45
+								4894 text 34.23%
+								4895 text 17.45
+								4896 text —
+								4897 text 15:34
+								4898 button (disabled) B, Help: trail breach (≤ 19.99)
+								4899 button Chart
+									4900 image
+							4901 button (collapsed) Description: LT CE Closed, Secondary Actions: Expand
+								4902 container LT NOV 3700 CE
+									4903 text LT NOV 3700 CE
+								4904 text ▲
+								4905 text NFO
+								4906 text OTM1 (Δ0.46)
+								4907 text 104.40
+								4908 text (
+								4909 text -3.15
+								4910 text )
+								4911 text 102.13
+								4912 text 103.07
+								4913 text Stop hit 103.07
+								4914 text —
+								4915 text 5.90
+								4916 text 6.19%
+								4917 text 101.25
+								4918 text —
+								4919 text 15:34
+								4920 button (disabled) B, Help: trail breach (≤ 19.99)
+								4921 button Chart
+									4922 image
+							4923 button (collapsed) Description: LT CE Closed, Secondary Actions: Expand
+								4924 container LT OCT 3750 CE
+									4925 text LT OCT 3750 CE
+								4926 text NFO
+								4927 text OTM2 (Δ0.15)
+								4928 text 9.55
+								4929 text (
+								4930 text -1.85
+								4931 text )
+								4932 text 8.83
+								4933 text 9.00
+								4934 text Stop hit 9.00
+								4935 text —
+								4936 text 1.55
+								4937 text 25.20%
+								4938 text 7.70
+								4939 text —
+								4940 text 15:34
+								4941 button (disabled) B, Help: trail breach (≤ 19.99)
+								4942 button Chart
+									4943 image
+							4944 button (collapsed) Description: LT CE Closed, Secondary Actions: Expand
+								4945 container LT NOV 3750 CE
+									4946 text LT NOV 3750 CE
+								4947 text NFO
+								4948 text OTM2 (Δ0.40)
+								4949 text 82.15
+								4950 text (
+								4951 text -1.25
+								4952 text )
+								4953 text 80.09
+								4954 text 81.67
+								4955 text Stop hit 81.67
+								4956 text —
+								4957 text 4.90
+								4958 text 6.45%
+								4959 text 80.90
+								4960 text —
+								4961 text 15:34
+								4962 button (disabled) B, Help: trail breach (≤ 19.99)
+								4963 button Chart
+									4964 image
+							4965 button (expanded) Description: RELIANCE long, 4 contracts, Closed, Secondary Actions: Collapse
+								4966 button Open RELIANCE detail
+								4967 text Ultra scalp
+								4968 text 1,184.50
+								4969 text 4
+								4970 text  contract
+								4971 text s
+								4972 text 22 Oct 2026 03:33 PM
+								4973 text 6 h ago
+							4974 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								4975 container RELIANCE OCT 1200 CE
+									4976 text RELIANCE OCT 1200 CE
+								4977 text NFO
+								4978 text OTM1 (Δ0.36)
+								4979 text 8.90
+								4980 text (
+								4981 text +
+								4982 text 0.50
+								4983 text )
+								4984 text 8.15
+								4985 text 9.75
+								4986 text Stop hit 9.75
+								4987 text —
+								4988 text -9.50
+								4989 text -50.26%
+								4990 text 9.40
+								4991 text —
+								4992 text 15:33
+								4993 button (disabled) B, Help: trail breach (≤ 1192.01)
+								4994 button Chart
+									4995 image
+							4996 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								4997 container RELIANCE OCT 1210 CE
+									4998 text RELIANCE OCT 1210 CE
+								4999 text NFO
+								5000 text OTM2 (Δ0.28)
+								5001 text 6.00
+								5002 text (
+								5003 text +
+								5004 text 1.00
+								5005 text )
+								5006 text 5.45
+								5007 text 6.60
+								5008 text Stop hit 6.60
+								5009 text —
+								5010 text -7.40
+								5011 text -51.39%
+								5012 text 7.00
+								5013 text —
+								5014 text 15:33
+								5015 button (disabled) B, Help: trail breach (≤ 1192.01)
+								5016 button Chart
+									5017 image
+							5018 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								5019 container RELIANCE NOV 1200 CE
+									5020 text RELIANCE NOV 1200 CE
+								5021 text ▲
+								5022 text NFO
+								5023 text OTM1 (Δ0.49)
+								5024 text 37.70
+								5025 text (
+								5026 text +
+								5027 text 0.65
+								5028 text )
+								5029 text 36.75
+								5030 text 38.75
+								5031 text Stop hit 38.75
+								5032 text —
+								5033 text -6.55
+								5034 text -14.59%
+								5035 text 38.35
+								5036 text —
+								5037 text 15:33
+								5038 button (disabled) B, Help: trail breach (≤ 1192.01)
+								5039 button Chart
+									5040 image
+							5041 button (collapsed) Description: RELIANCE CE Closed, Secondary Actions: Expand
+								5042 container RELIANCE NOV 1210 CE
+									5043 text RELIANCE NOV 1210 CE
+								5044 text NFO
+								5045 text OTM2 (Δ0.45)
+								5046 text 32.80
+								5047 text (
+								5048 text +
+								5049 text 1.20
+								5050 text )
+								5051 text 31.90
+								5052 text 33.80
+								5053 text Stop hit 33.80
+								5054 text —
+								5055 text -6.00
+								5056 text -15.00%
+								5057 text 34.00
+								5058 text —
+								5059 text 15:33
+								5060 button (disabled) B, Help: trail breach (≤ 1192.01)
+								5061 button Chart
+									5062 image
+							5063 button (expanded) Description: ICICIBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								5064 button Open ICICIBANK detail
+								5065 text Ultra scalp
+								5066 text 1,398.50
+								5067 text 4
+								5068 text  contract
+								5069 text s
+								5070 text 22 Oct 2026 03:32 PM
+								5071 text 6 h ago
+							5072 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								5073 container ICICIBANK OCT 1410 CE
+									5074 text ICICIBANK OCT 1410 CE
+								5075 text NFO
+								5076 text OTM1 (Δ0.33)
+								5077 text 5.30
+								5078 text (
+								5079 text -0.60
+								5080 text )
+								5081 text 4.60
+								5082 text 5.35
+								5083 text Stop hit 5.35
+								5084 text —
+								5085 text 0.35
+								5086 text 8.05%
+								5087 text 4.70
+								5088 text —
+								5089 text 15:32
+								5090 button (disabled) B, Help: trail breach (≤ 1396.31)
+								5091 button Chart
+									5092 image
+							5093 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								5094 container ICICIBANK OCT 1420 CE
+									5095 text ICICIBANK OCT 1420 CE
+								5096 text NFO
+								5097 text OTM2 (Δ0.20)
+								5098 text 3.10
+								5099 text (
+								5100 text -0.40
+								5101 text )
+								5102 text 2.65
+								5103 text 3.10
+								5104 text Stop hit 3.10
+								5105 text —
+								5106 text -0.10
+								5107 text -3.57%
+								5108 text 2.70
+								5109 text —
+								5110 text 15:32
+								5111 button (disabled) B, Help: trail breach (≤ 1396.31)
+								5112 button Chart
+									5113 image
+							5114 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								5115 container ICICIBANK NOV 1410 CE
+									5116 text ICICIBANK NOV 1410 CE
+								5117 text ▲
+								5118 text NFO
+								5119 text OTM1 (Δ0.49)
+								5120 text 25.45
+								5121 text (
+								5122 text -0.20
+								5123 text )
+								5124 text 24.35
+								5125 text 25.50
+								5126 text Stop hit 25.50
+								5127 text —
+								5128 text 0.40
+								5129 text 1.61%
+								5130 text 25.25
+								5131 text —
+								5132 text 15:32
+								5133 button (disabled) B, Help: trail breach (≤ 1396.31)
+								5134 button Chart
+									5135 image
+							5136 button (collapsed) Description: ICICIBANK CE Closed, Secondary Actions: Expand
+								5137 container ICICIBANK NOV 1420 CE
+									5138 text ICICIBANK NOV 1420 CE
+								5139 text NFO
+								5140 text OTM2 (Δ0.43)
+								5141 text 22.00
+								5142 text (
+								5143 text -0.90
+								5144 text )
+								5145 text 21.05
+								5146 text 22.05
+								5147 text Stop hit 22.05
+								5148 text —
+								5149 text 0.05
+								5150 text 0.24%
+								5151 text 21.10
+								5152 text —
+								5153 text 15:32
+								5154 button (disabled) B, Help: trail breach (≤ 1396.31)
+								5155 button Chart
+									5156 image
+							5157 button (expanded) Description: SBIN long, 4 contracts, Closed, Secondary Actions: Collapse
+								5158 button Open SBIN detail
+								5159 text Ultra scalp
+								5160 text 970.00
+								5161 text 4
+								5162 text  contract
+								5163 text s
+								5164 text 22 Oct 2026 03:31 PM
+								5165 text 6 h ago
+							5166 button (collapsed) Description: SBIN PE Closed, Secondary Actions: Expand
+								5167 container SBIN NOV 960 PE
+									5168 text SBIN NOV 960 PE
+								5169 text ▲
+								5170 text NFO
+								5171 text OTM1 (Δ0.40)
+								5172 text 21.75
+								5173 text (
+								5174 text -1.25
+								5175 text )
+								5176 text 21.49
+								5177 text 21.49
+								5178 text Stop hit 21.49
+								5179 text —
+								5180 text -3.40
+								5181 text -14.23%
+								5182 text 20.50
+								5183 text —
+								5184 text 15:31
+								5185 button (disabled) B, Help: trail breach (≤ 5.71)
+								5186 button Chart
+									5187 image
+							5188 button (collapsed) Description: SBIN PE Closed, Secondary Actions: Expand
+								5189 container SBIN NOV 950 PE
+									5190 text SBIN NOV 950 PE
+								5191 text NFO
+								5192 text OTM2 (Δ0.34)
+								5193 text 17.60
+								5194 text (
+								5195 text -0.95
+								5196 text )
+								5197 text 17.36
+								5198 text 17.60
+								5199 text Stop hit 17.60
+								5200 text —
+								5201 text -3.05
+								5202 text -15.48%
+								5203 text 16.65
+								5204 text —
+								5205 text 15:24
+								5206 button (disabled) B, Help: trail breach (≤ 5.71)
+								5207 button Chart
+									5208 image
+							5209 button (collapsed) Description: SBIN PE Closed, Secondary Actions: Expand
+								5210 container SBIN OCT 950 PE
+									5211 text SBIN OCT 950 PE
+								5212 text NFO
+								5213 text OTM2 (Δ0.19)
+								5214 text 3.80
+								5215 text (
+								5216 text -1.20
+								5217 text )
+								5218 text 3.53
+								5219 text 3.56
+								5220 text Stop hit 3.56
+								5221 text —
+								5222 text -2.20
+								5223 text -45.83%
+								5224 text 2.60
+								5225 text —
+								5226 text 14:37
+								5227 button (disabled) B, Help: trail breach (≤ 5.71)
+								5228 button Chart
+									5229 image
+							5230 button (collapsed) Description: SBIN PE Closed, Secondary Actions: Expand
+								5231 container SBIN OCT 960 PE
+									5232 text SBIN OCT 960 PE
+								5233 text NFO
+								5234 text OTM1 (Δ0.31)
+								5235 text 6.20
+								5236 text (
+								5237 text -1.45
+								5238 text )
+								5239 text 5.60
+								5240 text 5.71
+								5241 text Stop hit 5.71
+								5242 text —
+								5243 text -3.40
+								5244 text -41.72%
+								5245 text 4.75
+								5246 text —
+								5247 text 14:20
+								5248 button (disabled) B, Help: trail breach (≤ 5.71)
+								5249 button Chart
+									5250 image
+							5251 button (expanded) Description: BAJFINANCE long, 4 contracts, Closed, Secondary Actions: Collapse
+								5252 button Open BAJFINANCE detail
+								5253 text Ultra scalp
+								5254 text 942.10
+								5255 text 4
+								5256 text  contract
+								5257 text s
+								5258 text 22 Oct 2026 03:25 PM
+								5259 text 6 h ago
+							5260 button (collapsed) Description: BAJFINANCE PE Closed, Secondary Actions: Expand
+								5261 container BAJFINANCE NOV 930 PE
+									5262 text BAJFINANCE NOV 930 PE
+								5263 text ▲
+								5264 text NFO
+								5265 text OTM1 (Δ0.39)
+								5266 text 25.70
+								5267 text (
+								5268 text -4.00
+								5269 text )
+								5270 text 25.30
+								5271 text 25.80
+								5272 text Stop hit 25.80
+								5273 text —
+								5274 text -9.05
+								5275 text -29.43%
+								5276 text 21.70
+								5277 text —
+								5278 text 15:25
+								5279 button (disabled) B, Help: trail breach (≤ 9.11)
+								5280 button Chart
+									5281 image
+							5282 button (collapsed) Description: BAJFINANCE PE Closed, Secondary Actions: Expand
+								5283 container BAJFINANCE NOV 920 PE
+									5284 text BAJFINANCE NOV 920 PE
+								5285 text NFO
+								5286 text OTM2 (Δ0.34)
+								5287 text 21.50
+								5288 text (
+								5289 text -3.50
+								5290 text )
+								5291 text 21.09
+								5292 text 21.24
+								5293 text Stop hit 21.24
+								5294 text —
+								5295 text -7.90
+								5296 text -30.50%
+								5297 text 18.00
+								5298 text —
+								5299 text 15:25
+								5300 button (disabled) B, Help: trail breach (≤ 9.11)
+								5301 button Chart
+									5302 image
+							5303 button (collapsed) Description: BAJFINANCE PE Closed, Secondary Actions: Expand
+								5304 container BAJFINANCE OCT 930 PE
+									5305 text BAJFINANCE OCT 930 PE
+								5306 text NFO
+								5307 text OTM1 (Δ0.32)
+								5308 text 9.30
+								5309 text (
+								5310 text -3.20
+								5311 text )
+								5312 text 9.11
+								5313 text 9.11
+								5314 text Stop hit 9.11
+								5315 text —
+								5316 text -9.55
+								5317 text -61.02%
+								5318 text 6.10
+								5319 text —
+								5320 text 15:22
+								5321 button (disabled) B, Help: trail breach (≤ 9.11)
+								5322 button Chart
+									5323 image
+							5324 button (collapsed) Description: BAJFINANCE PE Closed, Secondary Actions: Expand
+								5325 container BAJFINANCE OCT 920 PE
+									5326 text BAJFINANCE OCT 920 PE
+								5327 text NFO
+								5328 text OTM2 (Δ0.21)
+								5329 text 5.60
+								5330 text (
+								5331 text -2.10
+								5332 text )
+								5333 text 5.37
+								5334 text 5.37
+								5335 text Stop hit 5.37
+								5336 text —
+								5337 text -6.70
+								5338 text -65.69%
+								5339 text 3.50
+								5340 text —
+								5341 text 15:22
+								5342 button (disabled) B, Help: trail breach (≤ 9.11)
+								5343 button Chart
+									5344 image
+							5345 button (expanded) Description: ADANIPORTS long, 4 contracts, Closed, Secondary Actions: Collapse
+								5346 button Open ADANIPORTS detail
+								5347 text Ultra scalp
+								5348 text 1,750.00
+								5349 text 4
+								5350 text  contract
+								5351 text s
+								5352 text 22 Oct 2026 03:07 PM
+								5353 text 6 h ago
+							5354 button (collapsed) Description: ADANIPORTS PE Closed, Secondary Actions: Expand
+								5355 container ADANIPORTS NOV 1700 PE
+									5356 text ADANIPORTS NOV 1700 PE
+								5357 text NFO
+								5358 text OTM2 (Δ0.33)
+								5359 text 36.20
+								5360 text (
+								5361 text -2.35
+								5362 text )
+								5363 text 35.32
+								5364 text 36.58
+								5365 text Stop hit 36.58
+								5366 text —
+								5367 text -3.75
+								5368 text -9.97%
+								5369 text 33.85
+								5370 text —
+								5371 text 15:07
+								5372 button (disabled) B, Help: trail breach (≤ 12.12)
+								5373 button Chart
+									5374 image
+							5375 button (collapsed) Description: ADANIPORTS PE Closed, Secondary Actions: Expand
+								5376 container ADANIPORTS OCT 1700 PE
+									5377 text ADANIPORTS OCT 1700 PE
+								5378 text NFO
+								5379 text OTM2 (Δ0.17)
+								5380 text 7.90
+								5381 text (
+								5382 text -2.80
+								5383 text )
+								5384 text 7.26
+								5385 text 7.42
+								5386 text Stop hit 7.42
+								5387 text —
+								5388 text -4.50
+								5389 text -46.88%
+								5390 text 5.10
+								5391 text —
+								5392 text 14:37
+								5393 button (disabled) B, Help: trail breach (≤ 12.12)
+								5394 button Chart
+									5395 image
+							5396 button (collapsed) Description: ADANIPORTS PE Closed, Secondary Actions: Expand
+								5397 container ADANIPORTS NOV 1720 PE
+									5398 text ADANIPORTS NOV 1720 PE
+								5399 text ▲
+								5400 text NFO
+								5401 text OTM1 (Δ0.38)
+								5402 text 46.00
+								5403 text (
+								5404 text -5.35
+								5405 text )
+								5406 text 45.06
+								5407 text 46.15
+								5408 text Stop hit 46.15
+								5409 text —
+								5410 text -1.35
+								5411 text -3.21%
+								5412 text 40.65
+								5413 text —
+								5414 text 14:26
+								5415 button (disabled) B, Help: trail breach (≤ 12.12)
+								5416 button Chart
+									5417 image
+							5418 button (collapsed) Description: ADANIPORTS PE Closed, Secondary Actions: Expand
+								5419 container ADANIPORTS OCT 1720 PE
+									5420 text ADANIPORTS OCT 1720 PE
+								5421 text NFO
+								5422 text OTM1 (Δ0.27)
+								5423 text 12.35
+								5424 text (
+								5425 text -3.15
+								5426 text )
+								5427 text 11.22
+								5428 text 12.12
+								5429 text Stop hit 12.12
+								5430 text —
+								5431 text -6.80
+								5432 text -42.50%
+								5433 text 9.20
+								5434 text —
+								5435 text 14:14
+								5436 button (disabled) B, Help: trail breach (≤ 12.12)
+								5437 button Chart
+									5438 image
+							5439 button (expanded) Description: HDFCBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								5440 button Open HDFCBANK detail
+								5441 text Ultra scalp
+								5442 text 694.05
+								5443 text 4
+								5444 text  contract
+								5445 text s
+								5446 text 22 Oct 2026 02:21 PM
+								5447 text 7 h ago
+							5448 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								5449 container HDFCBANK OCT 680 PE
+									5450 text HDFCBANK OCT 680 PE
+								5451 text NFO
+								5452 text OTM1 (Δ0.16)
+								5453 text 2.25
+								5454 text (
+								5455 text -1.00
+								5456 text )
+								5457 text 2.13
+								5458 text 2.75
+								5459 text Stop hit 2.75
+								5460 text —
+								5461 text -0.25
+								5462 text -16.67%
+								5463 text 1.25
+								5464 text —
+								5465 text 14:21
+								5466 button (disabled) B, Help: trail breach (≤ 2.75)
+								5467 button Chart
+									5468 image
+							5469 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								5470 container HDFCBANK NOV 680 PE
+									5471 text HDFCBANK NOV 680 PE
+								5472 text ▲
+								5473 text NFO
+								5474 text OTM1 (Δ0.34)
+								5475 text 11.70
+								5476 text (
+								5477 text -1.00
+								5478 text )
+								5479 text 11.45
+								5480 text 12.28
+								5481 text Stop hit 12.28
+								5482 text —
+								5483 text 2.20
+								5484 text 25.88%
+								5485 text 10.70
+								5486 text —
+								5487 text 14:21
+								5488 button (disabled) B, Help: trail breach (≤ 2.75)
+								5489 button Chart
+									5490 image
+							5491 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								5492 container HDFCBANK OCT 670 PE
+									5493 text HDFCBANK OCT 670 PE
+								5494 text NFO
+								5495 text OTM2 (Δ0.09)
+								5496 text 1.35
+								5497 text (
+								5498 text -0.60
+								5499 text )
+								5500 text 1.26
+								5501 text 1.60
+								5502 text Stop hit 1.60
+								5503 text —
+								5504 text -0.15
+								5505 text -16.67%
+								5506 text 0.75
+								5507 text —
+								5508 text 14:21
+								5509 button (disabled) B, Help: trail breach (≤ 2.75)
+								5510 button Chart
+									5511 image
+							5512 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								5513 container HDFCBANK NOV 670 PE
+									5514 text HDFCBANK NOV 670 PE
+								5515 text NFO
+								5516 text OTM2 (Δ0.26)
+								5517 text 8.80
+								5518 text (
+								5519 text -0.95
+								5520 text )
+								5521 text 8.50
+								5522 text 8.56
+								5523 text Stop hit 8.56
+								5524 text —
+								5525 text 1.45
+								5526 text 22.66%
+								5527 text 7.85
+								5528 text —
+								5529 text 14:20
+								5530 button (disabled) B, Help: trail breach (≤ 2.75)
+								5531 button Chart
+									5532 image
+							5533 button (expanded) Description: ICICIBANK long, 4 contracts, Open, Secondary Actions: Collapse
+								5534 button Open ICICIBANK detail
+								5535 text Swing
+								5536 text 1,398.50
+								5537 text 4
+								5538 text  contract
+								5539 text s
+								5540 text 22 Oct 2026 02:15 PM
+								5541 text 7 h ago
+							5542 button (collapsed) Description: ICICIBANK CE Open, Secondary Actions: Expand
+								5543 container ICICIBANK OCT 1400 CE
+									5544 text ICICIBANK OCT 1400 CE
+								5545 text NFO
+								5546 text OTM1 (Δ0.50)
+								5547 text 8.55
+								5548 text (
+								5549 text -0.90
+								5550 text )
+								5551 text 3.10
+								5552 text 3.70
+								5553 text 0/3 red
+								5554 text —
+								5555 text 1.05
+								5556 text 15.91%
+								5557 text 7.65
+								5558 text —
+								5559 text 14:15
+								5560 button B, Help: Buy
+								5561 button Chart
+									5562 image
+							5563 button (collapsed) Description: ICICIBANK CE Open, Secondary Actions: Expand
+								5564 container ICICIBANK OCT 1410 CE
+									5565 text ICICIBANK OCT 1410 CE
+								5566 text NFO
+								5567 text OTM2 (Δ0.33)
+								5568 text 5.30
+								5569 text (
+								5570 text -0.60
+								5571 text )
+								5572 text 1.50
+								5573 text 1.95
+								5574 text 0/3 red
+								5575 text —
+								5576 text 0.35
+								5577 text 8.05%
+								5578 text 4.70
+								5579 text —
+								5580 text 14:15
+								5581 button B, Help: Buy
+								5582 button Chart
+									5583 image
+							5584 button (collapsed) Description: ICICIBANK CE Open, Secondary Actions: Expand
+								5585 container ICICIBANK NOV 1400 CE
+									5586 text ICICIBANK NOV 1400 CE
+								5587 text ▲
+								5588 text NFO
+								5589 text OTM1 (Δ0.55)
+								5590 text 31.05
+								5591 text (
+								5592 text -0.85
+								5593 text )
+								5594 text 24.60
+								5595 text 25.30
+								5596 text 0/3 red
+								5597 text —
+								5598 text 1.30
+								5599 text 4.50%
+								5600 text 30.20
+								5601 text —
+								5602 text 14:15
+								5603 button B, Help: Buy
+								5604 button Chart
+									5605 image
+							5606 button (collapsed) Description: ICICIBANK CE Open, Secondary Actions: Expand
+								5607 container ICICIBANK NOV 1410 CE
+									5608 text ICICIBANK NOV 1410 CE
+								5609 text NFO
+								5610 text OTM2 (Δ0.49)
+								5611 text 25.70
+								5612 text (
+								5613 text -0.45
+								5614 text )
+								5615 text 19.90
+								5616 text 20.55
+								5617 text 0/3 red
+								5618 text —
+								5619 text 0.40
+								5620 text 1.61%
+								5621 text 25.25
+								5622 text —
+								5623 text 14:15
+								5624 button B, Help: Buy
+								5625 button Chart
+									5626 image
+							5627 button (expanded) Description: BAJAJFINSV long, 4 contracts, Closed, Secondary Actions: Collapse
+								5628 button Open BAJAJFINSV detail
+								5629 text Ultra scalp
+								5630 text 1,678.00
+								5631 text 4
+								5632 text  contract
+								5633 text s
+								5634 text 22 Oct 2026 01:39 PM
+								5635 text 8 h ago
+							5636 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								5637 container BAJAJFINSV OCT 1700 CE
+									5638 text BAJAJFINSV OCT 1700 CE
+								5639 text NFO
+								5640 text OTM1 (Δ0.32)
+								5641 text 9.50
+								5642 text (
+								5643 text -0.80
+								5644 text )
+								5645 text 8.50
+								5646 text 12.15
+								5647 text Stop hit 12.15
+								5648 text —
+								5649 text -0.10
+								5650 text -1.14%
+								5651 text 8.70
+								5652 text —
+								5653 text 13:39
+								5654 button (disabled) B, Help: trail breach (≤ 1687.33)
+								5655 button Chart
+									5656 image
+							5657 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								5658 container BAJAJFINSV OCT 1720 CE
+									5659 text BAJAJFINSV OCT 1720 CE
+								5660 text NFO
+								5661 text OTM2 (Δ0.18)
+								5662 text 4.80
+								5663 text (
+								5664 text -0.60
+								5665 text )
+								5666 text 4.20
+								5667 text 6.35
+								5668 text Stop hit 6.35
+								5669 text —
+								5670 text -0.45
+								5671 text -9.68%
+								5672 text 4.20
+								5673 text —
+								5674 text 13:39
+								5675 button (disabled) B, Help: trail breach (≤ 1687.33)
+								5676 button Chart
+									5677 image
+							5678 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								5679 container BAJAJFINSV NOV 1700 CE
+									5680 text BAJAJFINSV NOV 1700 CE
+								5681 text ▲
+								5682 text NFO
+								5683 text OTM1 (Δ0.48)
+								5684 text 46.25
+								5685 text (
+								5686 text +
+								5687 text 1.60
+								5688 text )
+								5689 text 44.80
+								5690 text 50.05
+								5691 text Stop hit 50.05
+								5692 text —
+								5693 text 1.90
+								5694 text 4.13%
+								5695 text 47.85
+								5696 text —
+								5697 text 13:39
+								5698 button (disabled) B, Help: trail breach (≤ 1687.33)
+								5699 button Chart
+									5700 image
+							5701 button (collapsed) Description: BAJAJFINSV CE Closed, Secondary Actions: Expand
+								5702 container BAJAJFINSV NOV 1720 CE
+									5703 text BAJAJFINSV NOV 1720 CE
+								5704 text NFO
+								5705 text OTM2 (Δ0.42)
+								5706 text 36.75
+								5707 text (
+								5708 text +
+								5709 text 2.65
+								5710 text )
+								5711 text 35.50
+								5712 text 40.05
+								5713 text Stop hit 40.05
+								5714 text —
+								5715 text 1.45
+								5716 text 3.82%
+								5717 text 39.40
+								5718 text —
+								5719 text 13:39
+								5720 button (disabled) B, Help: trail breach (≤ 1687.33)
+								5721 button Chart
+									5722 image
+							5723 button (expanded) Description: KOTAKBANK long, 3 contracts, Closed, Secondary Actions: Collapse
+								5724 button Open KOTAKBANK detail
+								5725 text Swing
+								5726 text 437.00
+								5727 text 3
+								5728 text  contract
+								5729 text s
+								5730 text 22 Oct 2026 01:15 PM
+								5731 text 8 h ago
+							5732 button (collapsed) Description: KOTAKBANK PE Closed, Secondary Actions: Expand
+								5733 container KOTAKBANK NOV 430 PE
+									5734 text KOTAKBANK NOV 430 PE
+								5735 text ▲
+								5736 text NFO
+								5737 text OTM1 (Δ0.37)
+								5738 text 8.40
+								5739 text (
+								5740 text +
+								5741 text 0.30
+								5742 text )
+								5743 text 7.33
+								5744 text 7.73
+								5745 text Stop hit 7.73
+								5746 text —
+								5747 text 0.90
+								5748 text 11.54%
+								5749 text 8.70
+								5750 text —
+								5751 text 13:15
+								5752 button (disabled) B, Help: trail breach (≤ 3.25)
+								5753 button Chart
+									5754 image
+							5755 button (collapsed) Description: KOTAKBANK PE Closed, Secondary Actions: Expand
+								5756 container KOTAKBANK OCT 430 PE
+									5757 text KOTAKBANK OCT 430 PE
+								5758 text NFO
+								5759 text OTM1 (Δ0.33)
+								5760 text 4.70
+								5761 text (
+								5762 text -0.70
+								5763 text )
+								5764 text 2.95
+								5765 text 3.25
+								5766 text Stop hit 3.25
+								5767 text —
+								5768 text 0.30
+								5769 text 8.11%
+								5770 text 4.00
+								5771 text —
+								5772 text 13:15
+								5773 button (disabled) B, Help: trail breach (≤ 3.25)
+								5774 button Chart
+									5775 image
+							5776 button (collapsed) Description: KOTAKBANK PE Closed, Secondary Actions: Expand
+								5777 container KOTAKBANK OCT 425 PE
+									5778 text KOTAKBANK OCT 425 PE
+								5779 text NFO
+								5780 text OTM2 (Δ0.24)
+								5781 text 3.10
+								5782 text (
+								5783 text -0.45
+								5784 text )
+								5785 text 1.91
+								5786 text 2.13
+								5787 text Stop hit 2.13
+								5788 text —
+								5789 text 0.25
+								5790 text 10.42%
+								5791 text 2.65
+								5792 text —
+								5793 text 13:15
+								5794 button (disabled) B, Help: trail breach (≤ 3.25)
+								5795 button Chart
+									5796 image
+							5797 button (expanded) Description: RELIANCE long, 4 contracts, Closed, Secondary Actions: Collapse
+								5798 button Open RELIANCE detail
+								5799 text Swing
+								5800 text 1,184.50
+								5801 text 4
+								5802 text  contract
+								5803 text s
+								5804 text 22 Oct 2026 01:15 PM
+								5805 text 8 h ago
+							5806 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								5807 container RELIANCE NOV 1180 PE
+									5808 text RELIANCE NOV 1180 PE
+								5809 text ▲
+								5810 text NFO
+								5811 text OTM1 (Δ0.44)
+								5812 text 30.70
+								5813 text (
+								5814 text -0.25
+								5815 text )
+								5816 text 25.45
+								5817 text 26.62
+								5818 text Stop hit 26.62
+								5819 text —
+								5820 text 6.25
+								5821 text 25.83%
+								5822 text 30.45
+								5823 text —
+								5824 text 13:15
+								5825 button (disabled) B, Help: trail breach (≤ 20.37)
+								5826 button Chart
+									5827 image
+							5828 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								5829 container RELIANCE NOV 1170 PE
+									5830 text RELIANCE NOV 1170 PE
+								5831 text NFO
+								5832 text OTM2 (Δ0.39)
+								5833 text 26.20
+								5834 text (
+								5835 text +
+								5836 text 0.10
+								5837 text )
+								5838 text 21.82
+								5839 text 22.84
+								5840 text Stop hit 22.84
+								5841 text —
+								5842 text 5.70
+								5843 text 27.67%
+								5844 text 26.30
+								5845 text —
+								5846 text 13:15
+								5847 button (disabled) B, Help: trail breach (≤ 20.37)
+								5848 button Chart
+									5849 image
+							5850 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								5851 container RELIANCE OCT 1180 PE
+									5852 text RELIANCE OCT 1180 PE
+								5853 text NFO
+								5854 text OTM1 (Δ0.40)
+								5855 text 23.25
+								5856 text (
+								5857 text -16.50
+								5858 text )
+								5859 text 16.15
+								5860 text 20.37
+								5861 text Stop hit 20.37
+								5862 text —
+								5863 text 1.30
+								5864 text 23.85%
+								5865 text 6.75
+								5866 text —
+								5867 text 12:15
+								5868 button (disabled) B, Help: trail breach (≤ 20.37)
+								5869 button Chart
+									5870 image
+							5871 button (collapsed) Description: RELIANCE PE Closed, Secondary Actions: Expand
+								5872 container RELIANCE OCT 1170 PE
+									5873 text RELIANCE OCT 1170 PE
+								5874 text NFO
+								5875 text OTM2 (Δ0.25)
+								5876 text 18.50
+								5877 text (
+								5878 text -14.90
+								5879 text )
+								5880 text 12.05
+								5881 text 19.25
+								5882 text Stop hit 19.25
+								5883 text —
+								5884 text 0.20
+								5885 text 5.88%
+								5886 text 3.60
+								5887 text —
+								5888 text 12:15
+								5889 button (disabled) B, Help: trail breach (≤ 20.37)
+								5890 button Chart
+									5891 image
+							5892 button (expanded) Description: ADANIENT long, 3 contracts, Closed, Secondary Actions: Collapse
+								5893 button Open ADANIENT detail
+								5894 text Swing
+								5895 text 2,550.00
+								5896 text 3
+								5897 text  contract
+								5898 text s
+								5899 text 22 Oct 2026 12:15 PM
+								5900 text 9 h ago
+							5901 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								5902 container ADANIENT OCT 2500 PE
+									5903 text ADANIENT OCT 2500 PE
+								5904 text NFO
+								5905 text OTM1 (Δ0.25)
+								5906 text 19.45
+								5907 text (
+								5908 text -7.05
+								5909 text )
+								5910 text 12.14
+								5911 text 12.14
+								5912 text Stop hit 12.14
+								5913 text —
+								5914 text 2.45
+								5915 text 24.62%
+								5916 text 12.40
+								5917 text —
+								5918 text 12:15
+								5919 button (disabled) B, Help: trail breach (≤ 12.14)
+								5920 button Chart
+									5921 image
+							5922 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								5923 container ADANIENT OCT 2450 PE
+									5924 text ADANIENT OCT 2450 PE
+								5925 text NFO
+								5926 text OTM2 (Δ0.12)
+								5927 text 6.55
+								5928 text (
+								5929 text -0.90
+								5930 text )
+								5931 text 3.25
+								5932 text 5.07
+								5933 text Stop hit 5.07
+								5934 text —
+								5935 text 0.10
+								5936 text 1.80%
+								5937 text 5.65
+								5938 text —
+								5939 text 13:15
+								5940 button (disabled) B, Help: trail breach (≤ 12.14)
+								5941 button Chart
+									5942 image
+							5943 button (collapsed) Description: ADANIENT PE Closed, Secondary Actions: Expand
+								5944 container ADANIENT NOV 2500 PE
+									5945 text ADANIENT NOV 2500 PE
+								5946 text ▲
+								5947 text NFO
+								5948 text OTM1 (Δ0.38)
+								5949 text 57.15
+								5950 text (
+								5951 text +
+								5952 text 19.90
+								5953 text )
+								5954 text 43.55
+								5955 text 61.71
+								5956 text Stop hit 61.71
+								5957 text —
+								5958 text 15.80
+								5959 text 25.80%
+								5960 text 77.05
+								5961 text —
+								5962 text 12:15
+								5963 button (disabled) B, Help: trail breach (≤ 12.14)
+								5964 button Chart
+									5965 image
+							5966 button (expanded) Description: BHARTIARTL long, 4 contracts, Closed, Secondary Actions: Collapse
+								5967 button Open BHARTIARTL detail
+								5968 text Swing
+								5969 text 1,895.00
+								5970 text 4
+								5971 text  contract
+								5972 text s
+								5973 text 22 Oct 2026 11:15 AM
+								5974 text 10 h ago
+							5975 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								5976 container BHARTIARTL OCT 1920 CE
+									5977 text BHARTIARTL OCT 1920 CE
+								5978 text NFO
+								5979 text OTM1 (Δ0.29)
+								5980 text 13.65
+								5981 text (
+								5982 text -5.95
+								5983 text )
+								5984 text 6.56
+								5985 text 6.56
+								5986 text Stop hit 6.56
+								5987 text —
+								5988 text 2.95
+								5989 text 62.11%
+								5990 text 7.70
+								5991 text —
+								5992 text 11:15
+								5993 button (disabled) B, Help: trail breach (≤ 6.56)
+								5994 button Chart
+									5995 image
+							5996 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								5997 container BHARTIARTL NOV 1920 CE
+									5998 text BHARTIARTL NOV 1920 CE
+								5999 text ▲
+								6000 text NFO
+								6001 text OTM1 (Δ0.47)
+								6002 text 52.85
+								6003 text (
+								6004 text -10.35
+								6005 text )
+								6006 text 39.18
+								6007 text 39.86
+								6008 text Stop hit 39.86
+								6009 text —
+								6010 text 7.10
+								6011 text 20.06%
+								6012 text 42.50
+								6013 text —
+								6014 text 11:15
+								6015 button (disabled) B, Help: trail breach (≤ 6.56)
+								6016 button Chart
+									6017 image
+							6018 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								6019 container BHARTIARTL NOV 1940 CE
+									6020 text BHARTIARTL NOV 1940 CE
+								6021 text NFO
+								6022 text OTM2 (Δ0.40)
+								6023 text 44.00
+								6024 text (
+								6025 text -9.45
+								6026 text )
+								6027 text 32.06
+								6028 text 32.06
+								6029 text Stop hit 32.06
+								6030 text —
+								6031 text 6.20
+								6032 text 21.87%
+								6033 text 34.55
+								6034 text —
+								6035 text 11:15
+								6036 button (disabled) B, Help: trail breach (≤ 6.56)
+								6037 button Chart
+									6038 image
+							6039 button (collapsed) Description: BHARTIARTL CE Closed, Secondary Actions: Expand
+								6040 container BHARTIARTL OCT 1940 CE
+									6041 text BHARTIARTL OCT 1940 CE
+								6042 text NFO
+								6043 text OTM2 (Δ0.17)
+								6044 text 5.75
+								6045 text (
+								6046 text -1.75
+								6047 text )
+								6048 text 3.65
+								6049 text 7.02
+								6050 text Stop hit 7.02
+								6051 text —
+								6052 text 1.25
+								6053 text 45.45%
+								6054 text 4.00
+								6055 text —
+								6056 text 10:15
+								6057 button (disabled) B, Help: trail breach (≤ 6.56)
+								6058 button Chart
+									6059 image
+							6060 button (expanded) Description: BHARTIARTL long, 4 contracts, Open, Secondary Actions: Collapse
+								6061 button Open BHARTIARTL detail
+								6062 text Swing
+								6063 text 1,895.00
+								6064 text 4
+								6065 text  contract
+								6066 text s
+								6067 text 22 Oct 2026 10:15 AM
+								6068 text 11 h ago
+							6069 button (collapsed) Description: BHARTIARTL CE Open, Secondary Actions: Expand
+								6070 container BHARTIARTL OCT 1920 CE
+									6071 text BHARTIARTL OCT 1920 CE
+								6072 text NFO
+								6073 text OTM1 (Δ0.29)
+								6074 text 9.00
+								6075 text (
+								6076 text -1.30
+								6077 text )
+								6078 text —
+								6079 text 2.15
+								6080 text 0/3 red
+								6081 text —
+								6082 text 2.95
+								6083 text 62.11%
+								6084 text 7.70
+								6085 text —
+								6086 text 10:15
+								6087 button (disabled) B, Help: This row is not execution eligible.
+								6088 button Chart
+									6089 image
+							6090 button (collapsed) Description: BHARTIARTL CE Open, Secondary Actions: Expand
+								6091 container BHARTIARTL OCT 1940 CE
+									6092 text BHARTIARTL OCT 1940 CE
+								6093 text NFO
+								6094 text OTM2 (Δ0.17)
+								6095 text 4.95
+								6096 text (
+								6097 text -0.95
+								6098 text )
+								6099 text —
+								6100 text 0.90
+								6101 text 0/3 red
+								6102 text —
+								6103 text 1.25
+								6104 text 45.45%
+								6105 text 4.00
+								6106 text —
+								6107 text 10:15
+								6108 button (disabled) B, Help: This row is not execution eligible.
+								6109 button Chart
+									6110 image
+							6111 button (collapsed) Description: BHARTIARTL CE Open, Secondary Actions: Expand
+								6112 container BHARTIARTL NOV 1920 CE
+									6113 text BHARTIARTL NOV 1920 CE
+								6114 text ▲
+								6115 text NFO
+								6116 text OTM1 (Δ0.47)
+								6117 text 45.90
+								6118 text (
+								6119 text -3.40
+								6120 text )
+								6121 text 29.35
+								6122 text 36.35
+								6123 text 0/3 red
+								6124 text —
+								6125 text 7.10
+								6126 text 20.06%
+								6127 text 42.50
+								6128 text —
+								6129 text 10:15
+								6130 button (disabled) B, Help: This row is not execution eligible.
+								6131 button Chart
+									6132 image
+							6133 button (collapsed) Description: BHARTIARTL CE Open, Secondary Actions: Expand
+								6134 container BHARTIARTL NOV 1940 CE
+									6135 text BHARTIARTL NOV 1940 CE
+								6136 text NFO
+								6137 text OTM2 (Δ0.40)
+								6138 text 36.45
+								6139 text (
+								6140 text -1.90
+								6141 text )
+								6142 text 22.10
+								6143 text 28.20
+								6144 text 0/3 red
+								6145 text —
+								6146 text 6.20
+								6147 text 21.87%
+								6148 text 34.55
+								6149 text —
+								6150 text 10:15
+								6151 button (disabled) B, Help: This row is not execution eligible.
+								6152 button Chart
+									6153 image
+							6154 button (expanded) Description: HDFCBANK long, 4 contracts, Closed, Secondary Actions: Collapse
+								6155 button Open HDFCBANK detail
+								6156 text Swing
+								6157 text 694.05
+								6158 text 4
+								6159 text  contract
+								6160 text s
+								6161 text 22 Oct 2026 10:15 AM
+								6162 text 11 h ago
+							6163 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								6164 container HDFCBANK OCT 680 PE
+									6165 text HDFCBANK OCT 680 PE
+								6166 text NFO
+								6167 text OTM1 (Δ0.16)
+								6168 text 2.10
+								6169 text (
+								6170 text -0.85
+								6171 text )
+								6172 text 2.18
+								6173 text 2.18
+								6174 text Stop hit 2.18
+								6175 text —
+								6176 text -0.25
+								6177 text -16.67%
+								6178 text 1.25
+								6179 text —
+								6180 text 10:15
+								6181 button (disabled) B, Help: trail breach (≤ 2.18)
+								6182 button Chart
+									6183 image
+							6184 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								6185 container HDFCBANK NOV 680 PE
+									6186 text HDFCBANK NOV 680 PE
+								6187 text ▲
+								6188 text NFO
+								6189 text OTM1 (Δ0.34)
+								6190 text 8.70
+								6191 text (
+								6192 text +
+								6193 text 2.00
+								6194 text )
+								6195 text 6.37
+								6196 text 9.17
+								6197 text Stop hit 9.17
+								6198 text —
+								6199 text 2.20
+								6200 text 25.88%
+								6201 text 10.70
+								6202 text —
+								6203 text 12:15
+								6204 button (disabled) B, Help: trail breach (≤ 2.18)
+								6205 button Chart
+									6206 image
+							6207 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								6208 container HDFCBANK NOV 670 PE
+									6209 text HDFCBANK NOV 670 PE
+								6210 text NFO
+								6211 text OTM2 (Δ0.26)
+								6212 text 6.55
+								6213 text (
+								6214 text +
+								6215 text 1.30
+								6216 text )
+								6217 text 4.88
+								6218 text 6.89
+								6219 text Stop hit 6.89
+								6220 text —
+								6221 text 1.45
+								6222 text 22.66%
+								6223 text 7.85
+								6224 text —
+								6225 text 12:15
+								6226 button (disabled) B, Help: trail breach (≤ 2.18)
+								6227 button Chart
+									6228 image
+							6229 button (collapsed) Description: HDFCBANK PE Closed, Secondary Actions: Expand
+								6230 container HDFCBANK OCT 670 PE
+									6231 text HDFCBANK OCT 670 PE
+								6232 text NFO
+								6233 text OTM2 (Δ0.09)
+								6234 text 6.25
+								6235 text (
+								6236 text -5.50
+								6237 text )
+								6238 text 4.66
+								6239 text 5.43
+								6240 text Stop hit 5.43
+								6241 text —
+								6242 text -0.15
+								6243 text -16.67%
+								6244 text 0.75
+								6245 text —
+								6246 text 12:15
+								6247 button (disabled) B, Help: trail breach (≤ 2.18)
+								6248 button Chart
+									6249 image
+						6250 button (collapsed) YESTERDAY 14 SIGNALS, Secondary Actions: Expand
+							6251 image
+							6252 text YESTERDAY
+							6253 text 14
+							6254 text SIGNALS
+						6255 button (collapsed) OLDER 27 SIGNALS, Secondary Actions: Expand
+							6256 image
+							6257 text OLDER
+							6258 text 27
+							6259 text SIGNALS
+				153 container
+					154 button Description: Open basket, Help: Basket
+						155 image
+					156 container Minimized panes and Kite status
+						157 button LIVE, Help: Live trading. New entries allowed.
+						158 button KITE, Help: Connected · Madaram Nagesh · expires 06:00:00 IST
+						159 checkbox Description: Open replay dock, Help: Open the replay dock, Value: 0
+						160 button Watchlist, Help: Restore Watchlist
+							161 image
+							162 text Watchlist
+					163 container Workspace and engine status
+						164 button (collapsed) Layout, Help: Open workspace layouts, Secondary Actions: Expand
+							165 image
+							166 text Layout
+							167 image
+						6260 container 25 signals currently running
+							6261 text 25  live
+						168 text ALGO
+						169 text · Market closed
+		6262 container BUY order ticket
+			6263 container
+				6289 container ICICIBANK OCT 1400 CE
+					6290 text ICICIBANK OCT 1400 CE
+				6264 button Search instrument
+					6265 image
+				6291 text NFO  ₹7.65
+				6266 button Close order ticket
+					6267 image
+				6292 text Quick Regular
+				6293 text Iceberg
+				6268 button Market depth
+					6269 image
+				6294 text Qty.
+				6270 stepper (settable, integer) 700
+				6271 button
+					6272 image
+				6273 button
+					6274 image
+				6275 button Switch quantity / lots
+					6276 image
+				6295 text Price
+				6277 stepper (settable, float) Value: 7.650000095367432, Details: 7.65
+				6278 button Clear → Market order
+					6279 image
+				6280 checkbox (settable, integer) Description: Intraday, Value: 0
+				6296 text 1 lot
+				6281 image
+					6297 text GTT
+				6282 checkbox (settable, integer) Description: Stoploss, Value: 0
+				6298 text %
+				6283 checkbox (settable, integer) Description: Target, Value: 0
+				6299 text %
+				6300 text Stop  3.10  is placed at Zerodha automatically after the buy fills (from the signal plan). Tick "After Market Order" above to place it for the next session.
+				6285 checkbox (settable, integer) Description: Market is closed — this will be placed as an After Market Order (AMO) for the next session., Value: 0
+				6301 text Req.  ₹5,355.00  +  25.85 Avail.  ₹-6,342.10
+				6286 button Refresh funds & margin
+					6287 image
+				6302 button (disabled) Buy, Help: Tick "After Market Order" above to place it for the next session.
+				6288 button Cancel
+
+The focused UI element is 5560 button B, Help: Buy

@@ -225,52 +225,6 @@ async def get_series(
     return {"underlying": underlying, "points": rows}
 
 
-@router.get("/chart/{underlying}")
-async def get_chart_overlay(
-    underlying: str, bars: int = 320, user: UserContext = Depends(get_current_user),
-) -> dict:
-    """Per-bar Navigator evidence for the chart overlay.
-
-    Deliberately NOT gated on `enabled`: the point of the overlay is to let
-    someone see what Navigator would have made of these bars before trusting it
-    with anything, and `chart_series` labels a disabled/unconfigured read
-    honestly in `notes` rather than pretending it is a recorded decision.
-    """
-    from app.services.exchanges.kite import accounts as kite_accounts
-    from app.services.exchanges.kite.errors import KiteTokenError
-    from app.services.kite_engine.universe import load_cfg
-    from app.services.navigator import chart_series
-
-    bars = max(80, min(bars, 1000))
-    record = config_store.get(user.user_id, default_underlyings=_default_underlyings(user.user_id))
-    acct = kite_accounts.get_active(user.user_id)
-    if not acct:
-        raise HTTPException(409, "No active Kite account — add credentials and log in first.")
-    client = await kite_accounts.acquire_client(acct)
-
-    token = chart_series.resolve_underlying_token(load_cfg().get("indices", []), underlying)
-    if token is None:
-        for exchange in ("NSE", "BSE"):
-            try:
-                token = await client.resolve_token(underlying, exchange)
-                break
-            except Exception:  # noqa: BLE001 — try the next exchange, then give up
-                token = None
-    if not token:
-        raise HTTPException(404, f"Could not resolve a spot token for {underlying}.")
-
-    try:
-        return await chart_series.build_chart_series(
-            client, user.user_id, underlying, token=int(token), record=record, bars=bars,
-        )
-    except KiteTokenError as exc:
-        kite_accounts.clear_session(acct.user_id, acct.id)
-        await kite_accounts.release_client(acct.id)
-        raise HTTPException(409, f"KITE_SESSION_EXPIRED: {exc} — reconnect from the Connect tab.") from exc
-    except CandleValidationError as exc:
-        raise HTTPException(422, f"NAVIGATOR_CANDLES_INVALID: {exc}") from exc
-
-
 async def _resolve_chart_token(client, underlying: str) -> Optional[int]:
     """Spot token for the chart overlay: the static index config first (no
     network), then the NSE/BSE equity dumps for a stock."""
@@ -324,6 +278,8 @@ async def get_chart_overlay(
         kite_accounts.clear_session(acct.user_id, acct.id)
         await kite_accounts.release_client(acct.id)
         raise HTTPException(409, f"KITE_SESSION_EXPIRED: {exc} — reconnect from the Connect tab.") from exc
+    except CandleValidationError as exc:
+        raise HTTPException(422, f"NAVIGATOR_CANDLES_INVALID: {exc}") from exc
 
 
 @router.get("/signals")

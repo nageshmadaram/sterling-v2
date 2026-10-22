@@ -73,7 +73,8 @@ vi.mock('../../../hooks/useNavigator', () => ({
   useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
+vi.mock('../../../hooks/useKite', () => ({ useKiteStatus: () => ({ data: { connected: true }, isLoading: false }),
+  useKiteQuote: () => ({ data: {} }) }));
 
 // The shell reads every release engine to count its tab.
 vi.mock('../../../hooks/useGammaMove', () => ({

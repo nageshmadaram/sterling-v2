@@ -8,7 +8,7 @@ import type { EngineId } from './boardTypes';
 
 const WHAT: Partial<Record<EngineId | 'price_rules', string>> = {
   supertrend: 'Buys a call when three trend lines turn up together, or a put when they turn down. Sells when the lines turn against it or the trailing stop is hit.',
-  gamma_move: 'Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. Takes profit at +20% and +40%.',
+  gamma_move: 'Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. At +20%, moves the stop to entry without selling. At +40%, exits the remaining position.',
   snapback: 'Finds stocks that moved too far, too fast. Buys an option that gains when the price comes back toward its average.',
   ema_trend: 'Practice only, no real orders. Follows stocks trending above their 10- and 21-day averages.',
   intraday: 'Same-day trades on index options. Every position is closed before the market shuts.',

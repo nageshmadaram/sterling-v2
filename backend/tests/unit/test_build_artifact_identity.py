@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import pytest
 from pathlib import Path
 
 from app.core import build_artifact_identity as bai
@@ -92,3 +94,11 @@ def test_missing_artifact_metadata_is_unknown_not_clean(tmp_path: Path, monkeypa
 
     assert rm.release_tag_points_at("release-1", SHA) is None
     assert rm.working_tree_clean() is None
+
+
+@pytest.mark.parametrize("value", [[], None, "metadata", 42])
+def test_non_object_metadata_returns_invalid_identity(tmp_path, value):
+    (tmp_path / bai.METADATA_FILENAME).write_text(json.dumps(value))
+    identity = bai.artifact_identity(tmp_path)
+    assert identity.present is True and identity.valid is False
+    assert identity.reason == "build_metadata_not_object"

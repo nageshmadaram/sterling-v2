@@ -1,0 +1,135 @@
+vite v8.3.2 building client environment for production...
+transforming...
+✓ 439 modules transformed.
+rendering chunks...
+computing gzip size...
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-greek-400-normal-C190GLew.woff2          4.22 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-greek-500-normal-JpySY46c.woff2          4.28 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-cyrillic-400-normal-BEIGL1Tu.woff2       5.32 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-cyrillic-500-normal-DmUKJPL_.woff2       5.35 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-vietnamese-400-normal-CqNFfHCs.woff      5.37 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-vietnamese-500-normal-DNRqzVM1.woff      5.47 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-greek-400-normal-B9oWc5Lo.woff           5.66 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-greek-500-normal-D7SFKleX.woff           5.72 kB
+../../../../tmp/sterling-qa-build-x31e_skp/index.html                                                     5.84 kB │ gzip:   2.17 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-vietnamese-400-normal-fK1oJ5dG.woff       6.39 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-vietnamese-700-normal-BV5B8Are.woff       6.42 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-vietnamese-600-normal-DgdngZtN.woff       6.58 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-cyrillic-400-normal-ugxPyKxw.woff        6.97 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-cyrillic-500-normal-DJqRU3vO.woff        7.02 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-ext-400-normal-Bc8Ftmh3.woff2      7.33 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-ext-500-normal-Cut-4mMH.woff2      7.52 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-vietnamese-400-normal-DG4YqDda.woff2      8.20 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-vietnamese-700-normal-CkEo6LDy.woff2      8.22 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-vietnamese-600-normal-DpPYBSTl.woff2      8.46 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-greek-700-normal-CkZN0sRy.woff            8.74 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-greek-400-normal-D9ESIMu3.woff            8.76 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-greek-600-normal-D-CqTdkO.woff            9.22 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-greek-700-normal-wyJ6jzdA.woff2           9.92 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-greek-400-normal-_efipK4i.woff2           9.94 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-ext-400-normal-fXTG6kC5.woff      10.12 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-ext-700-normal-DCQwxkRk.woff    10.16 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-ext-400-normal-Dsrv2Tcn.woff    10.28 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-ext-500-normal-ckzbgY84.woff      10.33 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-greek-600-normal-DzTrcv_p.woff2          10.36 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-ext-600-normal-Bz0x94Yp.woff    10.61 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-ext-700-normal-BmRLXWpJ.woff2   12.05 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-ext-400-normal-g30qAdWV.woff2   12.14 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-ext-600-normal-DUMzJB7m.woff2   12.30 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-700-normal-RFb1v-CK.woff        13.32 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-400-normal-BTotfTJu.woff        13.51 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-600-normal-BGq0mW3O.woff        13.88 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-ext-400-normal-RBey6euL.woff       14.36 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-ext-700-normal-DZH6Xh-4.woff       14.42 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-700-normal-D_uavGvn.woff2       14.57 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-ext-600-normal-DIrixKbi.woff       14.77 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-400-normal-DZqxrq2p.woff2       14.80 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-cyrillic-600-normal-71GNu3SW.woff2       15.04 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-ext-400-normal-C5H60-Va.woff2      15.98 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-ext-700-normal-aMgXseD4.woff2      16.18 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-ext-600-normal-DOrvGEcy.woff2      16.44 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-400-normal-V6pRDFza.woff2         21.16 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-500-normal-BWZEU5yA.woff2         21.83 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-400-normal-CYLoc0-x.woff           22.10 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-700-normal-Bth3BMcD.woff           22.28 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-400-normal-CDDApCn2.woff2          22.58 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-700-normal-Bxkt5Cjx.woff2          22.83 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-600-normal-Cu4Hd6ag.woff           23.87 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ibm-plex-sans-latin-600-normal-CuJfVYMP.woff2          24.25 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-400-normal-6-qcROiO.woff          27.49 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/jetbrains-mono-latin-500-normal-CJOVTJB7.woff          28.20 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/InstrumentPane-DQkX4T50.css                             7.58 kB │ gzip:   2.08 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/Dashboard-B0xap88u.css                                 70.70 kB │ gzip:  24.00 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/index-UCET9jY4.css                                    129.68 kB │ gzip:  22.11 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/emaTrend-Cts94Qc1.js                                    0.10 kB │ gzip:   0.09 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useDebounced-CJyPNi8D.js                                0.26 kB │ gzip:   0.21 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/SterlingKiteEngineWithExpiry-BhA4uOGQ.js                0.28 kB │ gzip:   0.21 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useOrderWindowStore-BYJMvgzU.js                         0.30 kB │ gzip:   0.19 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useKiteOptionChain-097AkasQ.js                          0.32 kB │ gzip:   0.26 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useKiteBasketStore-CjrCx_iC.js                          0.47 kB │ gzip:   0.28 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/rolldown-runtime-CbXtAM7H.js                            0.58 kB │ gzip:   0.36 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/signalMarkerLogic-Cyx_UIyW.js                           0.74 kB │ gzip:   0.39 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/SimDeniedNote-WSEpTN5D.js                               0.81 kB │ gzip:   0.54 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/priceRulesStatus-AXXs1O0u.js                            0.98 kB │ gzip:   0.51 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/time-DoaR9ffD.js                                        1.15 kB │ gzip:   0.57 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/instrument-DtCutyLJ.js                                  1.50 kB │ gzip:   0.80 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/format-UYTq_uAQ.js                                      2.29 kB │ gzip:   0.91 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/signalRowSpec-DiVfRuXN.js                               2.82 kB │ gzip:   1.13 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/KiteActionButtons-CxBGUQLb.js                           2.83 kB │ gzip:   1.18 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/StatCard-Buq_j-0Z.js                                    3.08 kB │ gzip:   1.19 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/EmaTrendOperations-D5v-gjEY.js                          3.29 kB │ gzip:   1.51 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/orderTicket-DTxm812C.js                                 3.35 kB │ gzip:   1.28 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useBoardView-D7jw7Txz.js                                3.53 kB │ gzip:   1.63 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useBoardRowActions-HDTWWEZU.js                          3.68 kB │ gzip:   1.64 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/SetupChart-BLGjL4X1.js                                  3.98 kB │ gzip:   1.77 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/EmaTrendTicket-DW_lKYhT.js                              4.02 kB │ gzip:   1.81 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/PriceRulesBoard-BtNvEA27.js                             4.09 kB │ gzip:   1.64 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useSterlingKiteEngine-vhmR_T11.js                       4.27 kB │ gzip:   1.22 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/boardTypes-BViNol-m.js                                  4.99 kB │ gzip:   2.22 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/FundsPane-DgHmy3_g.js                                   5.05 kB │ gzip:   1.35 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/BasketPane-DhLBH7Cf.js                                  5.47 kB │ gzip:   2.15 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/kiteSettingsPrimitives-DOdUqdh3.js                      7.83 kB │ gzip:   2.67 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/kiteUI-Cq_FkGHs.js                                      8.33 kB │ gzip:   1.68 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/BoardDetailPane-BN_Z_Omb.js                             8.38 kB │ gzip:   3.04 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/BacktestPane-D9T7CTNg.js                                8.57 kB │ gzip:   3.11 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/api-CNRPvn86.js                                         8.79 kB │ gzip:   3.48 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/PriceRulesPanel-BjjAyavM.js                             9.00 kB │ gzip:   3.29 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/BidsPane-B3vDlORq.js                                    9.64 kB │ gzip:   2.38 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/HelpPane-CcJ3V1yl.js                                   10.02 kB │ gzip:   4.03 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/MutualFundsPane-jM2A7JzA.js                            10.40 kB │ gzip:   2.60 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/AlertsPane-Cwm-kEVK.js                                 10.58 kB │ gzip:   3.04 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/EmaTrendBoard-CIax_lcD.js                              11.29 kB │ gzip:   4.62 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/DataLakePane-D_Fu-2ZS.js                               11.29 kB │ gzip:   4.17 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/FolderPicker-CkQtZpLB.js                               11.95 kB │ gzip:   4.02 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/SnapbackBoard-DcKv4-RJ.js                              12.01 kB │ gzip:   4.63 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/AdaptiveEdgePositionCalculator-BJrVGCkf.js             13.25 kB │ gzip:   4.03 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/LiveOperationsPanel-BPXunPRo.js                        14.07 kB │ gzip:   4.45 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/MarketDataPane-z9XAcES6.js                             15.36 kB │ gzip:   3.67 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/PositionsPane-CCvJiTFC.js                              16.81 kB │ gzip:   5.09 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/KiteSettingsPopover-DzxilXE4.js                        16.98 kB │ gzip:   5.07 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/GammaMoveBoard-C04XndU0.js                             18.10 kB │ gzip:   5.82 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/useKite-DGbZeroG.js                                    24.64 kB │ gzip:   7.47 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/OrdersPane-CkBhHP3d.js                                 26.42 kB │ gzip:   6.14 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/PortfolioPane-CYfO9k8W.js                              27.07 kB │ gzip:   7.35 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/OrderWindow-Q-FD4_bl.js                                32.44 kB │ gzip:   9.39 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/SterlingKiteEnginePane-OL8n75fL.js                     38.18 kB │ gzip:  12.36 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/SignalDetailPane-Beuctpl_.js                           39.63 kB │ gzip:  11.70 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/PcrPane-C9BI9fpT.js                                    39.74 kB │ gzip:   9.67 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/StrategyBoardFooter-CbVl66LH.js                        40.90 kB │ gzip:  12.39 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/UnifiedBacktestPane-BGSYmumn.js                        45.30 kB │ gzip:  10.13 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/vendor-query-bfFVZ66-.js                               46.45 kB │ gzip:  13.99 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/JournalTab-C8rWw_Wu.js                                 65.14 kB │ gzip:  19.46 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/index-nI57UH0D.js                                     100.17 kB │ gzip:  33.72 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/AstroPane-CI1TMELk.js                                 113.93 kB │ gzip:  36.60 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/InstrumentPane-CqPaLTLe.js                            174.44 kB │ gzip:  45.97 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/vendor-charts-Cfxr0PDV.js                             180.00 kB │ gzip:  58.14 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/vendor-react-C1ccH43d.js                              181.74 kB │ gzip:  57.15 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/ConnectPane-BiPHKqyR.js                               350.49 kB │ gzip:  94.88 kB
+../../../../tmp/sterling-qa-build-x31e_skp/assets/Dashboard-BYqCnNUX.js                                 545.27 kB │ gzip: 151.46 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 1.55s

@@ -1,0 +1,6 @@
+{
+  "cwd": "/home/nageshmadaram/Sterling/backend",
+  "ENVIRONMENT": "production",
+  "STERLING_RUNTIME_SHA": "9e989dd910995deb5e77385b983e5992c58883c0",
+  "frontend_release_sha": "ff137155a083b2c52981545ff94400764ad6c188"
+}

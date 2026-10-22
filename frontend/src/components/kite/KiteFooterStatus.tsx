@@ -29,8 +29,8 @@ function LiveStateChip() {
 
   const engaged = safeModeEngaged(status);
   let tone: Tone = 'good';
-  let text = 'LIVE';
-  let hint = 'Live trading. New entries allowed.';
+  let text = 'LIVE ACCOUNT';
+  let hint = 'Live account mode. Each entry still requires session, strategy, signal and risk admission.';
   if (engaged === true) {
     tone = 'bad';
     text = 'SAFE MODE';
@@ -47,6 +47,10 @@ function LiveStateChip() {
     tone = 'warn';
     text = 'LIVE ?';
     hint = 'Safe-mode state could not be read.';
+  } else if (status.exposure.fresh !== true || status.exposure.observed !== true) {
+    tone = 'warn';
+    text = 'EXPOSURE ?';
+    hint = 'Broker exposure is stale or unverified. New entry readiness is unconfirmed.';
   }
   const t = TONES[tone];
 
@@ -60,7 +64,7 @@ function LiveStateChip() {
       style={{
         display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: '0 8px',
         border: `1px solid ${t.border}`, borderRadius: 6, background: t.bg, color: t.fg,
-        fontFamily: 'inherit', fontSize: 9.5, fontWeight: 850, letterSpacing: '.04em',
+        fontFamily: 'inherit', fontSize: 11, fontWeight: 850, letterSpacing: '.04em',
         cursor: 'pointer', whiteSpace: 'nowrap',
       }}
     >
@@ -107,7 +111,7 @@ export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void 
           boxShadow: connected ? '0 0 10px rgba(34, 197, 94, 0.22)' : 'none',
           color: brokerTone,
           fontFamily: 'inherit',
-          fontSize: 9.5,
+          fontSize: 11,
           fontWeight: 850,
           letterSpacing: '.04em',
           cursor: 'pointer',

@@ -31,7 +31,7 @@ from app.services.simulation import identity
 
 log = get_logger(__name__)
 
-MARKER_KEY = "trade_journal_backfill_v1"
+MARKER_KEY = "trade_journal_backfill_v2"
 SOURCE = "backfill"
 _FILL_RE = re.compile(r"fill @ ₹\s*([0-9][0-9,]*\.?[0-9]*)")
 
@@ -141,7 +141,7 @@ def _snapback_row(uid: str, pos: Any) -> str:
 def backfill(uids: Optional[Sequence[str]] = None) -> Dict[str, Any]:
     """Import the closed trades the journal has not seen. Returns ``{strategy: {imported, existing,
     skipped}, "errors": [...]}``. Never raises; one bad row or store never stops the rest."""
-    report: Dict[str, Any] = {ad.SUPERTREND: _tally(), ad.SNAPBACK: _tally(), "errors": []}
+    report: Dict[str, Any] = {ad.SUPERTREND: _tally(), ad.SNAPBACK: _tally(), "price_rules": _tally(), "errors": []}
 
     def run(strategy: str, uid: str, items: Callable[[], Sequence[Any]], one: Callable[[str, Any], str]) -> None:
         try:
@@ -171,6 +171,16 @@ def backfill(uids: Optional[Sequence[str]] = None) -> Dict[str, Any]:
 
         for uid in filter(real, _uids_with("kite_engine_positions_")):
             run(ad.SUPERTREND, uid, lambda uid=uid: _rows(f"kite_engine_positions_{uid}"), _supertrend_row)
+        from app.services import price_rules, price_rules_store
+        def price_rule_row(uid, row):
+            if not row.get("filled") or not row.get("entry_price") or not row.get("fill_ts_ms"):
+                return SKIPPED
+            tid = tj.trade_id_for("price_rules", uid, row["symbol"], f"{row['account_id']}:{row['id']}")
+            existing = tj.trade_status(tid) is not None
+            price_rules.project_journal(uid, row)
+            return EXISTING if existing else IMPORTED
+        for uid in filter(real, price_rules_store.known_uids()):
+            run("price_rules", uid, lambda uid=uid: list(price_rules_store.load(uid)["rules"].values()), price_rule_row)
         store = sbp.default_store()
         for uid in filter(real, store.known_uids()):
             run(ad.SNAPBACK, uid, lambda uid=uid: store.list(uid, statuses=("CLOSED",)), _snapback_row)

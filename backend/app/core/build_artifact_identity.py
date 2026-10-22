@@ -153,6 +153,9 @@ def artifact_identity(root: Path | None = None) -> ArtifactBuildIdentity:
             reason=f"build_metadata_unreadable:{type(exc).__name__}",
         )
 
+    if not isinstance(raw, dict):
+        return ArtifactBuildIdentity(present=True, valid=False, reason="build_metadata_not_object")
+
     if raw.get("schema_version") != SCHEMA_VERSION:
         return ArtifactBuildIdentity(
             present=True, valid=False, reason="build_metadata_schema_mismatch"

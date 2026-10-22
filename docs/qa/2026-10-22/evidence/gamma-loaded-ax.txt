@@ -1,0 +1,3053 @@
+Browser tab: 1, Title: "Sterling", URL: "http://127.0.0.1:5180/".
+0 AXWebArea Sterling, URL: 127.0.0.1:5180/
+	1 container
+		2 container
+			3 button Description: Sterling Home, Help: Open KITE
+				4 container Sterling
+				5 text STERLING
+			6 button Description: Toggle Spectrum: KITE, Help: Switch to next selected workspace
+			7 button Dashboard
+			8 button PCR
+			9 button Positions
+			10 pop up button (collapsed) Tools ▾, Secondary Actions: Expand
+			11 pop up button (collapsed) Description: Choose theme, Secondary Actions: Expand
+			12 button (collapsed) Description: Sterling account profile, Secondary Actions: Expand
+			13 button ⋮, Help: More options
+			14 container Description: KITE workspace, ID: sterling-kite-surface
+				15 container VS Code Activity Rail
+					16 button ⯵, Help: Search & Command Palette (Ctrl+K)
+					17 button Main Dashboard
+					18 button PCR Analytics
+					19 button Positions
+					20 button More
+					21 button Description: Customize Layout, Help: Customize Workspace Layout
+					22 button Description: Kite Account Status, Help: Zerodha Kite Account & Session
+				23 container Signals pane
+					24 container Double-click to restore workspace
+						25 image
+						26 text Signals Right dock
+						27 button Description: Restore Signals, Help: Restore workspace
+							28 image
+						29 container kw-pane-actions-signals
+							30 button Re-scan Gamma Unwind, SuperTrend, Snapback, EMA Trend
+							31 checkbox Description: Board settings, Value: 0
+								32 image
+						33 button Minimize Signals
+							34 image
+						35 checkbox Description: Half screen Signals, Value: 0
+							36 image
+						37 checkbox Description: Maximize Signals, Value: 1
+							38 image
+						39 checkbox Description: Full screen Signals, Value: 0
+							40 image
+					41 container
+						42 tab group Signal engine
+							43 tab (selectable, settable, boolean) Description: SuperTrend, 17 live of 102 scanned, Value: 0
+							44 tab (selected, settable, boolean) Description: Gamma Unwind, 0 live of 188 scanned, Value: 1
+							45 tab (selectable, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 0
+							46 tab (selectable, settable, boolean) Description: EMA Trend, 1 live of 1000 scanned, Value: 0
+						47 container How this strategy works
+							48 text Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. Takes profit at +20% and +40%.
+							49 container
+								50 text 1  Tap a row to see the plan · 2  Press  B  to buy it yourself · 3  To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
+							51 button Hide this guide
+						52 container
+							53 pop up button (collapsed) Description: Columns, Help: Choose which columns this table shows, Secondary Actions: Expand
+							54 switch Description: BEST PICK, Value: 0, Help: Show only the nearest-the-money leg of each underlying — the one whose premium tracks the thesis most directly. A local filter.
+							55 switch Description: TODAY ONLY, Help: Show only signals generated today. Hides historical setups from yesterday and older sessions., Value: 0
+							56 switch Description: CLOSED 0, Help: Include closed positions. They are kept for the record and are not calls to action., Value: 1
+							57 container Gamma Unwind status
+								58 container
+									59 text Scan could not read the market —  historical watchlist recovery incomplete: NHPC:
+						60 row
+							61 button (disabled) INSTRUMENT
+							62 button (disabled) EXC.
+							63 button (disabled) STRIKE
+							64 button (disabled) ENTRY
+							65 button (disabled) STOP
+							66 button (disabled) TRAIL
+							67 button (disabled) EXIT RULE
+							68 button (disabled) TARGET
+							69 button (disabled) DAY ±
+							70 button (disabled) DAY %
+							71 button (disabled) PRICE
+							72 button (disabled) P&L
+							73 button (disabled) TIME
+							74 button (disabled) TRADE
+							75 button (disabled) CHART
+						76 container
+							77 button (expanded) TODAY 132 SIGNALS, Secondary Actions: Collapse
+								78 image
+								79 text TODAY
+								80 text 132
+								81 text SIGNALS
+							82 button (collapsed) Description: BRITANNIA PE Watching, Secondary Actions: Expand
+								83 button Open BRITANNIA detail
+									84 container BRITANNIA OCT 4600 PE
+										85 text BRITANNIA OCT 4600 PE
+								86 text NFO
+								87 text HOI-2 (Δ0.40)
+								88 text 36.45
+								89 text (
+								90 text -0.25
+								91 text )
+								92 text U 4535.63
+								93 text at T1
+								94 text T2 · day 5
+								95 text 51.05
+								96 text 13.55
+								97 text 59.82%
+								98 text 36.20
+								99 text —
+								100 text 22 Oct 13:19
+								101 button (disabled) Description: Execute Gamma Unwind BRITANNIA26OCT4600PE, Help: Only ENTRY tier may execute.
+								102 button Chart
+									103 image
+							104 button (collapsed) Description: AMBER PE Watching, Secondary Actions: Expand
+								105 button Open AMBER detail
+									106 container AMBER OCT 6300 PE
+										107 text AMBER OCT 6300 PE
+								108 text NFO
+								109 text HOI-2 (Δ0.84)
+								110 text 98.40
+								111 text (
+								112 text +
+								113 text 26.25
+								114 text )
+								115 text U 6188.28
+								116 text at T1
+								117 text T2 · day 5
+								118 text 137.80
+								119 text 44.35
+								120 text 55.23%
+								121 text 124.65
+								122 text —
+								123 text 22 Oct 13:15
+								124 button (disabled) Description: Execute Gamma Unwind AMBER26OCT6300PE, Help: Only ENTRY tier may execute.
+								125 button Chart
+									126 image
+							127 button (collapsed) Description: AMBER PE Watching, Secondary Actions: Expand
+								128 button Open AMBER detail
+									129 container AMBER OCT 6200 PE
+										130 text AMBER OCT 6200 PE
+								131 text NFO
+								132 text HOI-1 (Δ0.53)
+								133 text 51.70
+								134 text (
+								135 text +
+								136 text 27.80
+								137 text )
+								138 text U 6188.28
+								139 text at T1
+								140 text T2 · day 5
+								141 text 72.40
+								142 text 33.75
+								143 text 73.77%
+								144 text 79.50
+								145 text —
+								146 text 22 Oct 13:15
+								147 button (disabled) Description: Execute Gamma Unwind AMBER26OCT6200PE, Help: Only ENTRY tier may execute.
+								148 button Chart
+									149 image
+							150 button (collapsed) Description: ANANDRATHI CE Watching, Secondary Actions: Expand
+								151 button Open ANANDRATHI detail
+									152 container ANANDRATHI OCT 2240 CE
+										153 text ANANDRATHI OCT 2240 CE
+								154 text NFO
+								155 text HOI-2 (Δ0.42)
+								156 text 14.30
+								157 text (
+								158 text +
+								159 text 7.55
+								160 text )
+								161 text U 2218.33
+								162 text at T1
+								163 text T2 · day 5
+								164 text 20.05
+								165 text 13.05
+								166 text 148.30%
+								167 text 21.85
+								168 text —
+								169 text 22 Oct 13:15
+								170 button (disabled) Description: Execute Gamma Unwind ANANDRATHI26OCT2240CE, Help: Only ENTRY tier may execute.
+								171 button Chart
+									172 image
+							173 button (collapsed) Description: AUBANK PE Watching, Secondary Actions: Expand
+								174 button Open AUBANK detail
+									175 container AUBANK OCT 950 PE
+										176 text AUBANK OCT 950 PE
+								177 text NFO
+								178 text HOI-1 (Δ0.45)
+								179 text 17.00
+								180 text (
+								181 text +
+								182 text 1.85
+								183 text )
+								184 text U 948.45
+								185 text at T1
+								186 text T2 · day 5
+								187 text 23.80
+								188 text 1.05
+								189 text 5.90%
+								190 text 18.85
+								191 text —
+								192 text 22 Oct 13:15
+								193 button (disabled) Description: Execute Gamma Unwind AUBANK26OCT950PE, Help: Only ENTRY tier may execute.
+								194 button Chart
+									195 image
+							196 button (collapsed) Description: AUBANK PE Watching, Secondary Actions: Expand
+								197 button Open AUBANK detail
+									198 container AUBANK OCT 940 PE
+										199 text AUBANK OCT 940 PE
+								200 text NFO
+								201 text HOI-2 (Δ0.37)
+								202 text 12.45
+								203 text (
+								204 text +
+								205 text 1.00
+								206 text )
+								207 text U 948.45
+								208 text at T1
+								209 text T2 · day 5
+								210 text 17.45
+								211 text 0.10
+								212 text 0.75%
+								213 text 13.45
+								214 text —
+								215 text 22 Oct 13:15
+								216 button (disabled) Description: Execute Gamma Unwind AUBANK26OCT940PE, Help: Only ENTRY tier may execute.
+								217 button Chart
+									218 image
+							219 button (collapsed) Description: AUBANK PE Watching, Secondary Actions: Expand
+								220 button Open AUBANK detail
+									221 container AUBANK NOV 950 PE
+										222 text AUBANK NOV 950 PE
+								223 text NFO
+								224 text HOI-1 (Δ0.44)
+								225 text 29.65
+								226 text (
+								227 text +
+								228 text 1.60
+								229 text )
+								230 text U 948.45
+								231 text at T1
+								232 text T2 · day 5
+								233 text 41.55
+								234 text 3.10
+								235 text 11.01%
+								236 text 31.25
+								237 text —
+								238 text 22 Oct 13:15
+								239 button (disabled) Description: Execute Gamma Unwind AUBANK26NOV950PE, Help: Only ENTRY tier may execute.
+								240 button Chart
+									241 image
+							242 button (collapsed) Description: BAJAJFINSV PE Watching, Secondary Actions: Expand
+								243 button Open BAJAJFINSV detail
+									244 container BAJAJFINSV OCT 1660 PE
+										245 text BAJAJFINSV OCT 1660 PE
+								246 text NFO
+								247 text HOI-1 (Δ0.33)
+								248 text 10.30
+								249 text (
+								250 text -0.40
+								251 text )
+								252 text U 1650.66
+								253 text at T1
+								254 text T2 · day 5
+								255 text 14.45
+								256 text -3.35
+								257 text -25.28%
+								258 text 9.90
+								259 text —
+								260 text 22 Oct 13:15
+								261 button (disabled) Description: Execute Gamma Unwind BAJAJFINSV26OCT1660PE, Help: Only ENTRY tier may execute.
+								262 button Chart
+									263 image
+							264 button (collapsed) Description: BAJAJFINSV PE Watching, Secondary Actions: Expand
+								265 button Open BAJAJFINSV detail
+									266 container BAJAJFINSV NOV 1660 PE
+										267 text BAJAJFINSV NOV 1660 PE
+								268 text NFO
+								269 text HOI-1 (Δ0.41)
+								270 text 41.60
+								271 text (
+								272 text +
+								273 text 1.15
+								274 text )
+								275 text U 1650.66
+								276 text at T1
+								277 text T2 · day 5
+								278 text 58.25
+								279 text -1.30
+								280 text -2.95%
+								281 text 42.75
+								282 text —
+								283 text 22 Oct 13:15
+								284 button (disabled) Description: Execute Gamma Unwind BAJAJFINSV26NOV1660PE, Help: Only ENTRY tier may execute.
+								285 button Chart
+									286 image
+							287 button (collapsed) Description: BAJAJFINSV PE Watching, Secondary Actions: Expand
+								288 button Open BAJAJFINSV detail
+									289 container BAJAJFINSV NOV 1640 PE
+										290 text BAJAJFINSV NOV 1640 PE
+								291 text NFO
+								292 text HOI-2 (Δ0.35)
+								293 text 33.85
+								294 text (
+								295 text +
+								296 text 0.30
+								297 text )
+								298 text U 1650.66
+								299 text at T1
+								300 text T2 · day 5
+								301 text 47.40
+								302 text -1.60
+								303 text -4.48%
+								304 text 34.15
+								305 text —
+								306 text 22 Oct 13:15
+								307 button (disabled) Description: Execute Gamma Unwind BAJAJFINSV26NOV1640PE, Help: Only ENTRY tier may execute.
+								308 button Chart
+									309 image
+							310 button (collapsed) Description: BEL PE Watching, Secondary Actions: Expand
+								311 button Open BEL detail
+									312 container BEL OCT 360 PE
+										313 text BEL OCT 360 PE
+								314 text NFO
+								315 text HOI-1 (Δ0.30)
+								316 text 2.00
+								317 text (
+								318 text -0.15
+								319 text )
+								320 text U 363.33
+								321 text at T1
+								322 text T2 · day 5
+								323 text 2.80
+								324 text 0.20
+								325 text 12.12%
+								326 text 1.85
+								327 text —
+								328 text 22 Oct 13:15
+								329 button (disabled) Description: Execute Gamma Unwind BEL26OCT360PE, Help: Only ENTRY tier may execute.
+								330 button Chart
+									331 image
+							332 button (collapsed) Description: BEL PE Watching, Secondary Actions: Expand
+								333 button Open BEL detail
+									334 container BEL NOV 360 PE
+										335 text BEL NOV 360 PE
+								336 text NFO
+								337 text HOI-1 (Δ0.39)
+								338 text 8.50
+								339 text (
+								340 text -0.15
+								341 text )
+								342 text U 363.33
+								343 text at T1
+								344 text T2 · day 5
+								345 text 11.90
+								346 text 0.45
+								347 text 5.70%
+								348 text 8.35
+								349 text —
+								350 text 22 Oct 13:15
+								351 button (disabled) Description: Execute Gamma Unwind BEL26NOV360PE, Help: Only ENTRY tier may execute.
+								352 button Chart
+									353 image
+							354 button (collapsed) Description: BIOCON PE Watching, Secondary Actions: Expand
+								355 button Open BIOCON detail
+									356 container BIOCON OCT 330 PE
+										357 text BIOCON OCT 330 PE
+								358 text NFO
+								359 text HOI-1 (Δ0.47)
+								360 text 3.85
+								361 text (
+								362 text -0.15
+								363 text )
+								364 text U 330.30
+								365 text at T1
+								366 text T2 · day 5
+								367 text 5.40
+								368 text 0.60
+								369 text 19.35%
+								370 text 3.70
+								371 text —
+								372 text 22 Oct 13:15
+								373 button (disabled) Description: Execute Gamma Unwind BIOCON26OCT330PE, Help: Only ENTRY tier may execute.
+								374 button Chart
+									375 image
+							376 button (collapsed) Description: BIOCON PE Watching, Secondary Actions: Expand
+								377 button Open BIOCON detail
+									378 container BIOCON OCT 325 PE
+										379 text BIOCON OCT 325 PE
+								380 text NFO
+								381 text HOI-2 (Δ0.28)
+								382 text 2.10
+								383 text (
+								384 text -0.40
+								385 text )
+								386 text U 330.30
+								387 text at T1
+								388 text T2 · day 5
+								389 text 2.95
+								390 text 0.10
+								391 text 6.25%
+								392 text 1.70
+								393 text —
+								394 text 22 Oct 13:15
+								395 button (disabled) Description: Execute Gamma Unwind BIOCON26OCT325PE, Help: Only ENTRY tier may execute.
+								396 button Chart
+									397 image
+							398 button (collapsed) Description: BIOCON PE Watching, Secondary Actions: Expand
+								399 button Open BIOCON detail
+									400 container BIOCON NOV 330 PE
+										401 text BIOCON NOV 330 PE
+								402 text NFO
+								403 text HOI-1 (Δ0.45)
+								404 text 10.70
+								405 text (
+								406 text -0.70
+								407 text )
+								408 text U 330.30
+								409 text at T1
+								410 text T2 · day 5
+								411 text 15.00
+								412 text 0.50
+								413 text 5.26%
+								414 text 10.00
+								415 text —
+								416 text 22 Oct 13:15
+								417 button (disabled) Description: Execute Gamma Unwind BIOCON26NOV330PE, Help: Only ENTRY tier may execute.
+								418 button Chart
+									419 image
+							420 button (collapsed) Description: COALINDIA PE Watching, Secondary Actions: Expand
+								421 button Open COALINDIA detail
+									422 container COALINDIA NOV 390 PE
+										423 text COALINDIA NOV 390 PE
+								424 text NFO
+								425 text HOI-1 (Δ0.29)
+								426 text 6.55
+								427 text (
+								428 text -1.20
+								429 text )
+								430 text U 397.97
+								431 text at T1
+								432 text T2 · day 5
+								433 text 9.20
+								434 text 0.50
+								435 text 10.31%
+								436 text 5.35
+								437 text —
+								438 text 22 Oct 13:15
+								439 button (disabled) Description: Execute Gamma Unwind COALINDIA26NOV390PE, Help: Only ENTRY tier may execute.
+								440 button Chart
+									441 image
+							442 button (collapsed) Description: CONCOR PE Watching, Secondary Actions: Expand
+								443 button Open CONCOR detail
+									444 container CONCOR OCT 420 PE
+										445 text CONCOR OCT 420 PE
+								446 text NFO
+								447 text HOI-1 (Δ0.35)
+								448 text 3.05
+								449 text (
+								450 text +
+								451 text 0.35
+								452 text )
+								453 text U 424.77
+								454 text at T1
+								455 text T2 · day 5
+								456 text 4.30
+								457 text 0.55
+								458 text 19.30%
+								459 text 3.40
+								460 text —
+								461 text 22 Oct 13:15
+								462 button (disabled) Description: Execute Gamma Unwind CONCOR26OCT420PE, Help: Only ENTRY tier may execute.
+								463 button Chart
+									464 image
+							465 button (collapsed) Description: CONCOR PE Watching, Secondary Actions: Expand
+								466 button Open CONCOR detail
+									467 container CONCOR OCT 425 PE
+										468 text CONCOR OCT 425 PE
+								469 text NFO
+								470 text HOI-2 (Δ0.50)
+								471 text 4.80
+								472 text (
+								473 text +
+								474 text 0.30
+								475 text )
+								476 text U 424.77
+								477 text at T1
+								478 text T2 · day 5
+								479 text 6.75
+								480 text 0.80
+								481 text 18.60%
+								482 text 5.10
+								483 text —
+								484 text 22 Oct 13:15
+								485 button (disabled) Description: Execute Gamma Unwind CONCOR26OCT425PE, Help: Only ENTRY tier may execute.
+								486 button Chart
+									487 image
+							488 button (collapsed) Description: CONCOR PE Watching, Secondary Actions: Expand
+								489 button Open CONCOR detail
+									490 container CONCOR NOV 420 PE
+										491 text CONCOR NOV 420 PE
+								492 text NFO
+								493 text HOI-1 (Δ0.41)
+								494 text 12.90
+								495 text (
+								496 text +
+								497 text 0.10
+								498 text )
+								499 text U 424.77
+								500 text at T1
+								501 text T2 · day 5
+								502 text 18.10
+								503 text 2.60
+								504 text 25.00%
+								505 text 13.00
+								506 text —
+								507 text 22 Oct 13:15
+								508 button (disabled) Description: Execute Gamma Unwind CONCOR26NOV420PE, Help: Only ENTRY tier may execute.
+								509 button Chart
+									510 image
+							511 button (collapsed) Description: CUMMINSIND PE Watching, Secondary Actions: Expand
+								512 button Open CUMMINSIND detail
+									513 container CUMMINSIND OCT 4400 PE
+										514 text CUMMINSIND OCT 4400 PE
+								515 text NFO
+								516 text HOI-1 (Δ0.34)
+								517 text 31.20
+								518 text (
+								519 text +
+								520 text 7.50
+								521 text )
+								522 text U 4429.04
+								523 text at T1
+								524 text T2 · day 5
+								525 text 43.70
+								526 text -7.35
+								527 text -15.96%
+								528 text 38.70
+								529 text —
+								530 text 22 Oct 13:15
+								531 button (disabled) Description: Execute Gamma Unwind CUMMINSIND26OCT4400PE, Help: Only ENTRY tier may execute.
+								532 button Chart
+									533 image
+							534 button (collapsed) Description: CUMMINSIND PE Watching, Secondary Actions: Expand
+								535 button Open CUMMINSIND detail
+									536 container CUMMINSIND NOV 4400 PE
+										537 text CUMMINSIND NOV 4400 PE
+								538 text NFO
+								539 text HOI-1 (Δ0.40)
+								540 text 131.00
+								541 text (
+								542 text -2.55
+								543 text )
+								544 text U 4429.04
+								545 text at T1
+								546 text T2 · day 5
+								547 text 183.40
+								548 text -8.55
+								549 text -6.24%
+								550 text 128.45
+								551 text —
+								552 text 22 Oct 13:15
+								553 button (disabled) Description: Execute Gamma Unwind CUMMINSIND26NOV4400PE, Help: Only ENTRY tier may execute.
+								554 button Chart
+									555 image
+							556 button (collapsed) Description: DABUR PE Watching, Secondary Actions: Expand
+								557 button Open DABUR detail
+									558 container DABUR OCT 370 PE
+										559 text DABUR OCT 370 PE
+								560 text NFO
+								561 text HOI-2 (Δ0.57)
+								562 text 4.30
+								563 text (
+								564 text +
+								565 text 0.25
+								566 text )
+								567 text U 370.12
+								568 text at T1
+								569 text T2 · day 5
+								570 text 6.05
+								571 text 2.65
+								572 text 139.47%
+								573 text 4.55
+								574 text —
+								575 text 22 Oct 13:15
+								576 button (disabled) Description: Execute Gamma Unwind DABUR26OCT370PE, Help: Only ENTRY tier may execute.
+								577 button Chart
+									578 image
+							579 button (collapsed) Description: DABUR PE Watching, Secondary Actions: Expand
+								580 button Open DABUR detail
+									581 container DABUR OCT 365 PE
+										582 text DABUR OCT 365 PE
+								583 text NFO
+								584 text HOI-1 (Δ0.36)
+								585 text 2.15
+								586 text (
+								587 text +
+								588 text 0.35
+								589 text )
+								590 text U 370.12
+								591 text at T1
+								592 text T2 · day 5
+								593 text 3.05
+								594 text 1.65
+								595 text 194.12%
+								596 text 2.50
+								597 text —
+								598 text 22 Oct 13:15
+								599 button (disabled) Description: Execute Gamma Unwind DABUR26OCT365PE, Help: Only ENTRY tier may execute.
+								600 button Chart
+									601 image
+							602 button (collapsed) Description: DABUR PE Watching, Secondary Actions: Expand
+								603 button Open DABUR detail
+									604 container DABUR NOV 370 PE
+										605 text DABUR NOV 370 PE
+								606 text NFO
+								607 text HOI-1 (Δ0.48)
+								608 text 12.35
+								609 text (
+								610 text +
+								611 text 0.05
+								612 text )
+								613 text U 370.12
+								614 text at T1
+								615 text T2 · day 5
+								616 text 17.30
+								617 text 3.45
+								618 text 38.55%
+								619 text 12.40
+								620 text —
+								621 text 22 Oct 13:15
+								622 button (disabled) Description: Execute Gamma Unwind DABUR26NOV370PE, Help: Only ENTRY tier may execute.
+								623 button Chart
+									624 image
+							625 button (collapsed) Description: DIVISLAB PE Watching, Secondary Actions: Expand
+								626 button Open DIVISLAB detail
+									627 container DIVISLAB OCT 9000 PE
+										628 text DIVISLAB OCT 9000 PE
+								629 text NFO
+								630 text HOI-1 (Δ0.27)
+								631 text 69.75
+								632 text (
+								633 text -20.25
+								634 text )
+								635 text U 8968.16
+								636 text at T1
+								637 text T2 · day 5
+								638 text 97.65
+								639 text -23.90
+								640 text -32.56%
+								641 text 49.50
+								642 text —
+								643 text 22 Oct 13:15
+								644 button (disabled) Description: Execute Gamma Unwind DIVISLAB26OCT9000PE, Help: Only ENTRY tier may execute.
+								645 button Chart
+									646 image
+							647 button (collapsed) Description: DIVISLAB PE Watching, Secondary Actions: Expand
+								648 button Open DIVISLAB detail
+									649 container DIVISLAB OCT 8900 PE
+										650 text DIVISLAB OCT 8900 PE
+								651 text NFO
+								652 text HOI-2 (Δ0.18)
+								653 text 41.00
+								654 text (
+								655 text -10.85
+								656 text )
+								657 text U 8968.16
+								658 text at T1
+								659 text T2 · day 5
+								660 text 57.40
+								661 text -12.55
+								662 text -29.39%
+								663 text 30.15
+								664 text —
+								665 text 22 Oct 13:15
+								666 button (disabled) Description: Execute Gamma Unwind DIVISLAB26OCT8900PE, Help: Only ENTRY tier may execute.
+								667 button Chart
+									668 image
+							669 button (collapsed) Description: DIVISLAB PE Watching, Secondary Actions: Expand
+								670 button Open DIVISLAB detail
+									671 container DIVISLAB NOV 9000 PE
+										672 text DIVISLAB NOV 9000 PE
+								673 text NFO
+								674 text HOI-1 (Δ0.39)
+								675 text 289.00
+								676 text (
+								677 text -13.40
+								678 text )
+								679 text U 8968.16
+								680 text at T1
+								681 text T2 · day 5
+								682 text 404.60
+								683 text -12.50
+								684 text -4.34%
+								685 text 275.60
+								686 text —
+								687 text 22 Oct 13:15
+								688 button (disabled) Description: Execute Gamma Unwind DIVISLAB26NOV9000PE, Help: Only ENTRY tier may execute.
+								689 button Chart
+									690 image
+							691 button (collapsed) Description: DIVISLAB PE Watching, Secondary Actions: Expand
+								692 button Open DIVISLAB detail
+									693 container DIVISLAB NOV 8800 PE
+										694 text DIVISLAB NOV 8800 PE
+								695 text NFO
+								696 text HOI-2 (Δ0.31)
+								697 text 210.00
+								698 text (
+								699 text -9.60
+								700 text )
+								701 text U 8968.16
+								702 text at T1
+								703 text T2 · day 5
+								704 text 294.00
+								705 text -8.60
+								706 text -4.11%
+								707 text 200.40
+								708 text —
+								709 text 22 Oct 13:15
+								710 button (disabled) Description: Execute Gamma Unwind DIVISLAB26NOV8800PE, Help: Only ENTRY tier may execute.
+								711 button Chart
+									712 image
+							713 button (collapsed) Description: DRREDDY CE Watching, Secondary Actions: Expand
+								714 button Open DRREDDY detail
+									715 container DRREDDY OCT 1250 CE
+										716 text DRREDDY OCT 1250 CE
+								717 text NFO
+								718 text HOI-1 (Δ0.45)
+								719 text 18.50
+								720 text (
+								721 text +
+								722 text 1.50
+								723 text )
+								724 text U 1246.11
+								725 text at T1
+								726 text T2 · day 5
+								727 text 25.90
+								728 text 0.90
+								729 text 4.71%
+								730 text 20.00
+								731 text —
+								732 text 22 Oct 13:15
+								733 button (disabled) Description: Execute Gamma Unwind DRREDDY26OCT1250CE, Help: Only ENTRY tier may execute.
+								734 button Chart
+									735 image
+							736 button (collapsed) Description: DRREDDY CE Watching, Secondary Actions: Expand
+								737 button Open DRREDDY detail
+									738 container DRREDDY NOV 1250 CE
+										739 text DRREDDY NOV 1250 CE
+								740 text NFO
+								741 text HOI-1 (Δ0.50)
+								742 text 35.50
+								743 text (
+								744 text +
+								745 text 2.90
+								746 text )
+								747 text U 1246.11
+								748 text at T1
+								749 text T2 · day 5
+								750 text 49.70
+								751 text 3.90
+								752 text 11.30%
+								753 text 38.40
+								754 text —
+								755 text 22 Oct 13:15
+								756 button (disabled) Description: Execute Gamma Unwind DRREDDY26NOV1250CE, Help: Only ENTRY tier may execute.
+								757 button Chart
+									758 image
+							759 button (collapsed) Description: FORCEMOT PE Watching, Secondary Actions: Expand
+								760 button Open FORCEMOT detail
+									761 container FORCEMOT OCT 16500 PE
+										762 text FORCEMOT OCT 16500 PE
+								763 text NFO
+								764 text HOI-1 (Δ0.36)
+								765 text 154.05
+								766 text (
+								767 text +
+								768 text 53.20
+								769 text )
+								770 text U 16733.83
+								771 text at T1
+								772 text T2 · day 5
+								773 text 215.70
+								774 text 52.20
+								775 text 33.67%
+								776 text 207.25
+								777 text —
+								778 text 22 Oct 13:15
+								779 button (disabled) Description: Execute Gamma Unwind FORCEMOT26OCT16500PE, Help: Only ENTRY tier may execute.
+								780 button Chart
+									781 image
+							782 button (collapsed) Description: FORCEMOT PE Watching, Secondary Actions: Expand
+								783 button Open FORCEMOT detail
+									784 container FORCEMOT OCT 16750 PE
+										785 text FORCEMOT OCT 16750 PE
+								786 text NFO
+								787 text HOI-2 (Δ0.47)
+								788 text 203.95
+								789 text (
+								790 text +
+								791 text 0.05
+								792 text )
+								793 text U 16733.83
+								794 text at T1
+								795 text T2 · day 5
+								796 text 285.55
+								797 text -6.45
+								798 text -3.06%
+								799 text 204.00
+								800 text —
+								801 text 22 Oct 13:15
+								802 button (disabled) Description: Execute Gamma Unwind FORCEMOT26OCT16750PE, Help: Only ENTRY tier may execute.
+								803 button Chart
+									804 image
+							805 button (collapsed) Description: FORCEMOT PE Watching, Secondary Actions: Expand
+								806 button Open FORCEMOT detail
+									807 container FORCEMOT NOV 16500 PE
+										808 text FORCEMOT NOV 16500 PE
+								809 text NFO
+								810 text HOI-1 (Δ0.41)
+								811 text 625.00
+								812 text (
+								813 text +
+								814 text 25.05
+								815 text )
+								816 text U 16733.83
+								817 text at T1
+								818 text T2 · day 5
+								819 text 875.00
+								820 text 97.95
+								821 text 17.74%
+								822 text 650.05
+								823 text —
+								824 text 22 Oct 13:15
+								825 button (disabled) Description: Execute Gamma Unwind FORCEMOT26NOV16500PE, Help: Only ENTRY tier may execute.
+								826 button Chart
+									827 image
+							828 button (collapsed) Description: HYUNDAI PE Watching, Secondary Actions: Expand
+								829 button Open HYUNDAI detail
+									830 container HYUNDAI OCT 1920 PE
+										831 text HYUNDAI OCT 1920 PE
+								832 text NFO
+								833 text HOI-1 (Δ0.65)
+								834 text 23.50
+								835 text (
+								836 text +
+								837 text 12.40
+								838 text )
+								839 text U 1896.30
+								840 text at T1
+								841 text T2 · day 5
+								842 text 32.90
+								843 text 19.25
+								844 text 115.62%
+								845 text 35.90
+								846 text —
+								847 text 22 Oct 13:15
+								848 button (disabled) Description: Execute Gamma Unwind HYUNDAI26OCT1920PE, Help: Only ENTRY tier may execute.
+								849 button Chart
+									850 image
+							851 button (collapsed) Description: MANKIND PE Watching, Secondary Actions: Expand
+								852 button Open MANKIND detail
+									853 container MANKIND OCT 2200 PE
+										854 text MANKIND OCT 2200 PE
+								855 text NFO
+								856 text HOI-1 (Δ0.17)
+								857 text 11.55
+								858 text (
+								859 text -3.40
+								860 text )
+								861 text U 2236.81
+								862 text at T1
+								863 text T2 · day 5
+								864 text 16.20
+								865 text -3.30
+								866 text -28.82%
+								867 text 8.15
+								868 text —
+								869 text 22 Oct 13:15
+								870 button (disabled) Description: Execute Gamma Unwind MANKIND26OCT2200PE, Help: Only ENTRY tier may execute.
+								871 button Chart
+									872 image
+							873 button (collapsed) Description: MANKIND PE Watching, Secondary Actions: Expand
+								874 button Open MANKIND detail
+									875 container MANKIND OCT 2280 PE
+										876 text MANKIND OCT 2280 PE
+								877 text NFO
+								878 text HOI-2 (Δ0.50)
+								879 text 46.35
+								880 text (
+								881 text -12.05
+								882 text )
+								883 text U 2236.81
+								884 text at T1
+								885 text T2 · day 5
+								886 text 64.90
+								887 text -6.70
+								888 text -16.34%
+								889 text 34.30
+								890 text —
+								891 text 22 Oct 13:15
+								892 button (disabled) Description: Execute Gamma Unwind MANKIND26OCT2280PE, Help: Only ENTRY tier may execute.
+								893 button Chart
+									894 image
+							895 button (collapsed) Description: MOTILALOFS PE Watching, Secondary Actions: Expand
+								896 button Open MOTILALOFS detail
+									897 container MOTILALOFS OCT 960 PE
+										898 text MOTILALOFS OCT 960 PE
+								899 text NFO
+								900 text HOI-1 (Δ0.33)
+								901 text 11.75
+								902 text (
+								903 text -2.35
+								904 text )
+								905 text U 970.98
+								906 text at T1
+								907 text T2 · day 5
+								908 text 16.45
+								909 text 0.70
+								910 text 8.05%
+								911 text 9.40
+								912 text —
+								913 text 22 Oct 13:15
+								914 button (disabled) Description: Execute Gamma Unwind MOTILALOFS26OCT960PE, Help: Only ENTRY tier may execute.
+								915 button Chart
+									916 image
+							917 button (collapsed) Description: NTPC PE Watching, Secondary Actions: Expand
+								918 button Open NTPC detail
+									919 container NTPC OCT 295 PE
+										920 text NTPC OCT 295 PE
+								921 text NFO
+								922 text HOI-1 (Δ0.14)
+								923 text 0.90
+								924 text (
+								925 text -0.35
+								926 text )
+								927 text U 299.26
+								928 text at T1
+								929 text T2 · day 5
+								930 text 1.30
+								931 text -0.30
+								932 text -35.29%
+								933 text 0.55
+								934 text —
+								935 text 22 Oct 13:15
+								936 button (disabled) Description: Execute Gamma Unwind NTPC26OCT295PE, Help: Only ENTRY tier may execute.
+								937 button Chart
+									938 image
+							939 button (collapsed) Description: NTPC PE Watching, Secondary Actions: Expand
+								940 button Open NTPC detail
+									941 container NTPC OCT 300 PE
+										942 text NTPC OCT 300 PE
+								943 text NFO
+								944 text HOI-2 (Δ0.35)
+								945 text 2.80
+								946 text (
+								947 text -1.00
+								948 text )
+								949 text U 299.26
+								950 text at T1
+								951 text T2 · day 5
+								952 text 3.95
+								953 text -0.35
+								954 text -16.28%
+								955 text 1.80
+								956 text —
+								957 text 22 Oct 13:15
+								958 button (disabled) Description: Execute Gamma Unwind NTPC26OCT300PE, Help: Only ENTRY tier may execute.
+								959 button Chart
+									960 image
+							961 button (collapsed) Description: NTPC PE Watching, Secondary Actions: Expand
+								962 button Open NTPC detail
+									963 container NTPC NOV 300 PE
+										964 text NTPC NOV 300 PE
+								965 text NFO
+								966 text HOI-1 (Δ0.41)
+								967 text 8.15
+								968 text (
+								969 text -1.40
+								970 text )
+								971 text U 299.26
+								972 text at T1
+								973 text T2 · day 5
+								974 text 11.45
+								975 text -0.70
+								976 text -9.40%
+								977 text 6.75
+								978 text —
+								979 text 22 Oct 13:15
+								980 button (disabled) Description: Execute Gamma Unwind NTPC26NOV300PE, Help: Only ENTRY tier may execute.
+								981 button Chart
+									982 image
+							983 button (collapsed) Description: OFSS PE Watching, Secondary Actions: Expand
+								984 button Open OFSS detail
+									985 container OFSS OCT 10000 PE
+										986 text OFSS OCT 10000 PE
+								987 text NFO
+								988 text HOI-1 (Δ0.59)
+								989 text 177.30
+								990 text (
+								991 text +
+								992 text 145.60
+								993 text )
+								994 text U 10023.42
+								995 text at T1
+								996 text T2 · day 5
+								997 text 248.25
+								998 text 176.05
+								999 text 119.88%
+								1000 text 322.90
+								1001 text —
+								1002 text 22 Oct 13:15
+								1003 button (disabled) Description: Execute Gamma Unwind OFSS26OCT10000PE, Help: Only ENTRY tier may execute.
+								1004 button Chart
+									1005 image
+							1006 button (collapsed) Description: OFSS PE Watching, Secondary Actions: Expand
+								1007 button Open OFSS detail
+									1008 container OFSS NOV 10000 PE
+										1009 text OFSS NOV 10000 PE
+								1010 text NFO
+								1011 text HOI-1 (Δ0.51)
+								1012 text 358.00
+								1013 text (
+								1014 text +
+								1015 text 205.00
+								1016 text )
+								1017 text U 10023.42
+								1018 text at T1
+								1019 text T2 · day 5
+								1020 text 501.20
+								1021 text 200.50
+								1022 text 55.31%
+								1023 text 563.00
+								1024 text —
+								1025 text 22 Oct 13:15
+								1026 button (disabled) Description: Execute Gamma Unwind OFSS26NOV10000PE, Help: Only ENTRY tier may execute.
+								1027 button Chart
+									1028 image
+							1029 button (collapsed) Description: PAGEIND PE Watching, Secondary Actions: Expand
+								1030 button Open PAGEIND detail
+									1031 container PAGEIND OCT 34000 PE
+										1032 text PAGEIND OCT 34000 PE
+								1033 text NFO
+								1034 text HOI-1 (Δ0.32)
+								1035 text 219.85
+								1036 text (
+								1037 text -0.95
+								1038 text )
+								1039 text U 34230.85
+								1040 text at T1
+								1041 text T2 · day 5
+								1042 text 307.80
+								1043 text 93.95
+								1044 text 75.19%
+								1045 text 218.90
+								1046 text —
+								1047 text 22 Oct 13:15
+								1048 button (disabled) Description: Execute Gamma Unwind PAGEIND26OCT34000PE, Help: Only ENTRY tier may execute.
+								1049 button Chart
+									1050 image
+							1051 button (collapsed) Description: PGEL PE Watching, Secondary Actions: Expand
+								1052 button Open PGEL detail
+									1053 container PGEL OCT 480 PE
+										1054 text PGEL OCT 480 PE
+								1055 text NFO
+								1056 text HOI-2 (Δ0.28)
+								1057 text 6.00
+								1058 text (
+								1059 text -2.80
+								1060 text )
+								1061 text U 480.59
+								1062 text at T1
+								1063 text T2 · day 5
+								1064 text 8.40
+								1065 text -0.40
+								1066 text -11.11%
+								1067 text 3.20
+								1068 text —
+								1069 text 22 Oct 13:15
+								1070 button (disabled) Description: Execute Gamma Unwind PGEL26OCT480PE, Help: Only ENTRY tier may execute.
+								1071 button Chart
+									1072 image
+							1073 button (collapsed) Description: PIDILITIND PE Watching, Secondary Actions: Expand
+								1074 button Open PIDILITIND detail
+									1075 container PIDILITIND OCT 1440 PE
+										1076 text PIDILITIND OCT 1440 PE
+								1077 text NFO
+								1078 text HOI-1 (Δ0.14)
+								1079 text 4.65
+								1080 text (
+								1081 text -1.85
+								1082 text )
+								1083 text U 1464.97
+								1084 text at T1
+								1085 text T2 · day 5
+								1086 text 6.55
+								1087 text -2.95
+								1088 text -51.30%
+								1089 text 2.80
+								1090 text —
+								1091 text 22 Oct 13:15
+								1092 button (disabled) Description: Execute Gamma Unwind PIDILITIND26OCT1440PE, Help: Only ENTRY tier may execute.
+								1093 button Chart
+									1094 image
+							1095 button (collapsed) Description: PREMIERENE PE Watching, Secondary Actions: Expand
+								1096 button Open PREMIERENE detail
+									1097 container PREMIERENE OCT 860 PE
+										1098 text PREMIERENE OCT 860 PE
+								1099 text NFO
+								1100 text HOI-1 (Δ0.42)
+								1101 text 10.45
+								1102 text (
+								1103 text -2.25
+								1104 text )
+								1105 text U 861.07
+								1106 text at T1
+								1107 text T2 · day 5
+								1108 text 14.65
+								1109 text 1.80
+								1110 text 28.12%
+								1111 text 8.20
+								1112 text —
+								1113 text 22 Oct 13:15
+								1114 button (disabled) Description: Execute Gamma Unwind PREMIERENE26OCT860PE, Help: Only ENTRY tier may execute.
+								1115 button Chart
+									1116 image
+							1117 button (collapsed) Description: RADICO PE Watching, Secondary Actions: Expand
+								1118 button Open RADICO detail
+									1119 container RADICO OCT 4200 PE
+										1120 text RADICO OCT 4200 PE
+								1121 text NFO
+								1122 text HOI-1 (Δ0.48)
+								1123 text 25.10
+								1124 text (
+								1125 text +
+								1126 text 33.85
+								1127 text )
+								1128 text U 4262.62
+								1129 text at T1
+								1130 text T2 · day 5
+								1131 text 35.15
+								1132 text 38.85
+								1133 text 193.28%
+								1134 text 58.95
+								1135 text —
+								1136 text 22 Oct 13:15
+								1137 button (disabled) Description: Execute Gamma Unwind RADICO26OCT4200PE, Help: Only ENTRY tier may execute.
+								1138 button Chart
+									1139 image
+							1140 button (collapsed) Description: SHRIRAMFIN PE Watching, Secondary Actions: Expand
+								1141 button Open SHRIRAMFIN detail
+									1142 container SHRIRAMFIN OCT 880 PE
+										1143 text SHRIRAMFIN OCT 880 PE
+								1144 text NFO
+								1145 text HOI-1 (Δ0.31)
+								1146 text 11.25
+								1147 text (
+								1148 text -1.25
+								1149 text )
+								1150 text U 886.92
+								1151 text at T1
+								1152 text T2 · day 5
+								1153 text 15.75
+								1154 text -0.40
+								1155 text -3.85%
+								1156 text 10.00
+								1157 text —
+								1158 text 22 Oct 13:15
+								1159 button (disabled) Description: Execute Gamma Unwind SHRIRAMFIN26OCT880PE, Help: Only ENTRY tier may execute.
+								1160 button Chart
+									1161 image
+							1162 button (collapsed) Description: SHRIRAMFIN PE Watching, Secondary Actions: Expand
+								1163 button Open SHRIRAMFIN detail
+									1164 container SHRIRAMFIN NOV 880 PE
+										1165 text SHRIRAMFIN NOV 880 PE
+								1166 text NFO
+								1167 text HOI-1 (Δ0.38)
+								1168 text 30.00
+								1169 text (
+								1170 text -1.25
+								1171 text )
+								1172 text U 886.92
+								1173 text at T1
+								1174 text T2 · day 5
+								1175 text 42.00
+								1176 text 1.40
+								1177 text 5.12%
+								1178 text 28.75
+								1179 text —
+								1180 text 22 Oct 13:15
+								1181 button (disabled) Description: Execute Gamma Unwind SHRIRAMFIN26NOV880PE, Help: Only ENTRY tier may execute.
+								1182 button Chart
+									1183 image
+							1184 button (collapsed) Description: SONACOMS PE Watching, Secondary Actions: Expand
+								1185 button Open SONACOMS detail
+									1186 container SONACOMS OCT 760 PE
+										1187 text SONACOMS OCT 760 PE
+								1188 text NFO
+								1189 text HOI-2 (Δ0.43)
+								1190 text 11.35
+								1191 text (
+								1192 text -0.15
+								1193 text )
+								1194 text U 764.39
+								1195 text at T1
+								1196 text T2 · day 5
+								1197 text 15.90
+								1198 text -2.60
+								1199 text -18.84%
+								1200 text 11.20
+								1201 text —
+								1202 text 22 Oct 13:15
+								1203 button (disabled) Description: Execute Gamma Unwind SONACOMS26OCT760PE, Help: Only ENTRY tier may execute.
+								1204 button Chart
+									1205 image
+							1206 button (collapsed) Description: SONACOMS PE Watching, Secondary Actions: Expand
+								1207 button Open SONACOMS detail
+									1208 container SONACOMS OCT 750 PE
+										1209 text SONACOMS OCT 750 PE
+								1210 text NFO
+								1211 text HOI-1 (Δ0.32)
+								1212 text 8.05
+								1213 text (
+								1214 text -0.40
+								1215 text )
+								1216 text U 764.39
+								1217 text at T1
+								1218 text T2 · day 5
+								1219 text 11.30
+								1220 text -2.25
+								1221 text -22.73%
+								1222 text 7.65
+								1223 text —
+								1224 text 22 Oct 13:15
+								1225 button (disabled) Description: Execute Gamma Unwind SONACOMS26OCT750PE, Help: Only ENTRY tier may execute.
+								1226 button Chart
+									1227 image
+							1228 button (collapsed) Description: WIPRO CE Watching, Secondary Actions: Expand
+								1229 button Open WIPRO detail
+									1230 container WIPRO OCT 190 CE
+										1231 text WIPRO OCT 190 CE
+								1232 text NFO
+								1233 text HOI-2 (Δ0.55)
+								1234 text 2.27
+								1235 text (
+								1236 text +
+								1237 text 0.29
+								1238 text )
+								1239 text U 190.25
+								1240 text at T1
+								1241 text T2 · day 5
+								1242 text 3.18
+								1243 text 0.82
+								1244 text 47.13%
+								1245 text 2.56
+								1246 text —
+								1247 text 22 Oct 13:15
+								1248 button (disabled) Description: Execute Gamma Unwind WIPRO26OCT190CE, Help: Only ENTRY tier may execute.
+								1249 button Chart
+									1250 image
+							1251 button (collapsed) Description: WIPRO CE Watching, Secondary Actions: Expand
+								1252 button Open WIPRO detail
+									1253 container WIPRO OCT 195 CE
+										1254 text WIPRO OCT 195 CE
+								1255 text NFO
+								1256 text HOI-1 (Δ0.27)
+								1257 text 0.74
+								1258 text (
+								1259 text +
+								1260 text 0.34
+								1261 text )
+								1262 text U 190.25
+								1263 text at T1
+								1264 text T2 · day 5
+								1265 text 1.04
+								1266 text 0.53
+								1267 text 96.36%
+								1268 text 1.08
+								1269 text —
+								1270 text 22 Oct 13:15
+								1271 button (disabled) Description: Execute Gamma Unwind WIPRO26OCT195CE, Help: Only ENTRY tier may execute.
+								1272 button Chart
+									1273 image
+							1274 button (collapsed) Description: WIPRO CE Watching, Secondary Actions: Expand
+								1275 button Open WIPRO detail
+									1276 container WIPRO NOV 190 CE
+										1277 text WIPRO NOV 190 CE
+								1278 text NFO
+								1279 text HOI-1 (Δ0.56)
+								1280 text 6.40
+								1281 text (
+								1282 text +
+								1283 text 0.10
+								1284 text )
+								1285 text U 190.25
+								1286 text at T1
+								1287 text T2 · day 5
+								1288 text 8.96
+								1289 text 0.95
+								1290 text 17.12%
+								1291 text 6.50
+								1292 text —
+								1293 text 22 Oct 13:15
+								1294 button (disabled) Description: Execute Gamma Unwind WIPRO26NOV190CE, Help: Only ENTRY tier may execute.
+								1295 button Chart
+									1296 image
+							1297 button (collapsed) Description: WIPRO CE Watching, Secondary Actions: Expand
+								1298 button Open WIPRO detail
+									1299 container WIPRO NOV 195 CE
+										1300 text WIPRO NOV 195 CE
+								1301 text NFO
+								1302 text HOI-2 (Δ0.42)
+								1303 text 4.10
+								1304 text (
+								1305 text +
+								1306 text 0.20
+								1307 text )
+								1308 text U 190.25
+								1309 text at T1
+								1310 text T2 · day 5
+								1311 text 5.74
+								1312 text 0.58
+								1313 text 15.59%
+								1314 text 4.30
+								1315 text —
+								1316 text 22 Oct 13:15
+								1317 button (disabled) Description: Execute Gamma Unwind WIPRO26NOV195CE, Help: Only ENTRY tier may execute.
+								1318 button Chart
+									1319 image
+							1320 button (collapsed) Description: YESBANK PE Watching, Secondary Actions: Expand
+								1321 button Open YESBANK detail
+									1322 container YESBANK OCT 16 PE
+										1323 text YESBANK OCT 16 PE
+								1324 text NFO
+								1325 text HOI-1 (Δ0.45)
+								1326 text 0.15
+								1327 text (
+								1328 text +
+								1329 text 0.06
+								1330 text )
+								1331 text U 16.15
+								1332 text at T1
+								1333 text T2 · day 5
+								1334 text 0.21
+								1335 text 0.05
+								1336 text 31.25%
+								1337 text 0.21
+								1338 text —
+								1339 text 22 Oct 13:15
+								1340 button (disabled) Description: Execute Gamma Unwind YESBANK26OCT16PE, Help: Only ENTRY tier may execute.
+								1341 button Chart
+									1342 image
+							1343 button (collapsed) Description: YESBANK PE Watching, Secondary Actions: Expand
+								1344 button Open YESBANK detail
+									1345 container YESBANK NOV 16 PE
+										1346 text YESBANK NOV 16 PE
+								1347 text NFO
+								1348 text HOI-1 (Δ0.45)
+								1349 text 0.58
+								1350 text (
+								1351 text +
+								1352 text 0.09
+								1353 text )
+								1354 text U 16.15
+								1355 text at T1
+								1356 text T2 · day 5
+								1357 text 0.82
+								1358 text 0.10
+								1359 text 17.54%
+								1360 text 0.67
+								1361 text —
+								1362 text 22 Oct 13:15
+								1363 button (disabled) Description: Execute Gamma Unwind YESBANK26NOV16PE, Help: Only ENTRY tier may execute.
+								1364 button Chart
+									1365 image
+							1366 button (collapsed) Description: ADANIGREEN PE Watching, Secondary Actions: Expand
+								1367 button Open ADANIGREEN detail
+									1368 container ADANIGREEN OCT 1200 PE
+										1369 text ADANIGREEN OCT 1200 PE
+								1370 text NFO
+								1371 text HOI-1 (Δ0.15)
+								1372 text 5.00
+								1373 text (
+								1374 text -1.10
+								1375 text )
+								1376 text U 1225.74
+								1377 text at T1
+								1378 text T2 · day 5
+								1379 text 7.00
+								1380 text -3.05
+								1381 text -43.88%
+								1382 text 3.90
+								1383 text —
+								1384 text 22 Oct 13:15
+								1385 button (disabled) Description: Execute Gamma Unwind ADANIGREEN26OCT1200PE, Help: Only ENTRY tier may execute.
+								1386 button Chart
+									1387 image
+							1388 button (collapsed) Description: ADANIGREEN PE Watching, Secondary Actions: Expand
+								1389 button Open ADANIGREEN detail
+									1390 container ADANIGREEN OCT 1240 PE
+										1391 text ADANIGREEN OCT 1240 PE
+								1392 text NFO
+								1393 text HOI-2 (Δ0.40)
+								1394 text 15.25
+								1395 text (
+								1396 text -1.60
+								1397 text )
+								1398 text U 1225.74
+								1399 text at T1
+								1400 text T2 · day 5
+								1401 text 21.35
+								1402 text -3.90
+								1403 text -22.22%
+								1404 text 13.65
+								1405 text —
+								1406 text 22 Oct 13:15
+								1407 button (disabled) Description: Execute Gamma Unwind ADANIGREEN26OCT1240PE, Help: Only ENTRY tier may execute.
+								1408 button Chart
+									1409 image
+							1410 button (collapsed) Description: ADANIGREEN PE Watching, Secondary Actions: Expand
+								1411 button Open ADANIGREEN detail
+									1412 container ADANIGREEN NOV 1200 PE
+										1413 text ADANIGREEN NOV 1200 PE
+								1414 text NFO
+								1415 text HOI-1 (Δ0.31)
+								1416 text 28.00
+								1417 text (
+								1418 text -1.85
+								1419 text )
+								1420 text U 1225.74
+								1421 text at T1
+								1422 text T2 · day 5
+								1423 text 39.20
+								1424 text -2.05
+								1425 text -7.27%
+								1426 text 26.15
+								1427 text —
+								1428 text 22 Oct 13:15
+								1429 button (disabled) Description: Execute Gamma Unwind ADANIGREEN26NOV1200PE, Help: Only ENTRY tier may execute.
+								1430 button Chart
+									1431 image
+							1432 button (collapsed) Description: ADANIGREEN PE Watching, Secondary Actions: Expand
+								1433 button Open ADANIGREEN detail
+									1434 container ADANIGREEN NOV 1240 PE
+										1435 text ADANIGREEN NOV 1240 PE
+								1436 text NFO
+								1437 text HOI-2 (Δ0.42)
+								1438 text 41.10
+								1439 text (
+								1440 text -1.95
+								1441 text )
+								1442 text U 1225.74
+								1443 text at T1
+								1444 text T2 · day 5
+								1445 text 57.55
+								1446 text -1.95
+								1447 text -4.74%
+								1448 text 39.15
+								1449 text —
+								1450 text 22 Oct 13:15
+								1451 button (disabled) Description: Execute Gamma Unwind ADANIGREEN26NOV1240PE, Help: Only ENTRY tier may execute.
+								1452 button Chart
+									1453 image
+							1454 button (collapsed) Description: AMBER PE Watching, Secondary Actions: Expand
+								1455 button Open AMBER detail
+									1456 container AMBER NOV 6300 PE
+										1457 text AMBER NOV 6300 PE
+								1458 text NFO
+								1459 text HOI-1 (Δ0.53)
+								1460 text 259.45
+								1461 text (
+								1462 text +
+								1463 text 38.65
+								1464 text )
+								1465 text U 6188.28
+								1466 text at T1
+								1467 text T2 · day 5
+								1468 text 363.25
+								1469 text 65.05
+								1470 text 27.91%
+								1471 text 298.10
+								1472 text —
+								1473 text 22 Oct 13:15
+								1474 button (disabled) Description: Execute Gamma Unwind AMBER26NOV6300PE, Help: Only ENTRY tier may execute.
+								1475 button Chart
+									1476 image
+							1477 button (collapsed) Description: ANANDRATHI CE Watching, Secondary Actions: Expand
+								1478 button Open ANANDRATHI detail
+									1479 container ANANDRATHI OCT 2260 CE
+										1480 text ANANDRATHI OCT 2260 CE
+								1481 text NFO
+								1482 text HOI-1 (Δ0.32)
+								1483 text 8.75
+								1484 text (
+								1485 text +
+								1486 text 5.75
+								1487 text )
+								1488 text U 2218.33
+								1489 text at T1
+								1490 text T2 · day 5
+								1491 text 12.25
+								1492 text 8.65
+								1493 text 147.86%
+								1494 text 14.50
+								1495 text —
+								1496 text 22 Oct 13:15
+								1497 button (disabled) Description: Execute Gamma Unwind ANANDRATHI26OCT2260CE, Help: Only ENTRY tier may execute.
+								1498 button Chart
+									1499 image
+							1500 button (collapsed) Description: BAJAJFINSV PE Watching, Secondary Actions: Expand
+								1501 button Open BAJAJFINSV detail
+									1502 container BAJAJFINSV OCT 1620 PE
+										1503 text BAJAJFINSV OCT 1620 PE
+								1504 text NFO
+								1505 text HOI-2 (Δ0.11)
+								1506 text 2.55
+								1507 text (
+								1508 text -0.05
+								1509 text )
+								1510 text U 1650.66
+								1511 text at T1
+								1512 text T2 · day 5
+								1513 text 3.60
+								1514 text -1.70
+								1515 text -40.48%
+								1516 text 2.50
+								1517 text —
+								1518 text 22 Oct 13:15
+								1519 button (disabled) Description: Execute Gamma Unwind BAJAJFINSV26OCT1620PE, Help: Only ENTRY tier may execute.
+								1520 button Chart
+									1521 image
+							1522 button (collapsed) Description: BEL PE Watching, Secondary Actions: Expand
+								1523 button Open BEL detail
+									1524 container BEL OCT 355 PE
+										1525 text BEL OCT 355 PE
+								1526 text NFO
+								1527 text HOI-2 (Δ0.16)
+								1528 text 1.05
+								1529 text (
+								1530 text -0.15
+								1531 text )
+								1532 text U 363.33
+								1533 text at T1
+								1534 text T2 · day 5
+								1535 text 1.50
+								1536 text 0.05
+								1537 text 5.88%
+								1538 text 0.90
+								1539 text —
+								1540 text 22 Oct 13:15
+								1541 button (disabled) Description: Execute Gamma Unwind BEL26OCT355PE, Help: Only ENTRY tier may execute.
+								1542 button Chart
+									1543 image
+							1544 button (collapsed) Description: BEL PE Watching, Secondary Actions: Expand
+								1545 button Open BEL detail
+									1546 container BEL NOV 365 PE
+										1547 text BEL NOV 365 PE
+								1548 text NFO
+								1549 text HOI-2 (Δ0.46)
+								1550 text 10.60
+								1551 text (
+								1552 text +
+								1553 text 0.05
+								1554 text )
+								1555 text U 363.33
+								1556 text at T1
+								1557 text T2 · day 5
+								1558 text 14.85
+								1559 text 0.85
+								1560 text 8.67%
+								1561 text 10.65
+								1562 text —
+								1563 text 22 Oct 13:15
+								1564 button (disabled) Description: Execute Gamma Unwind BEL26NOV365PE, Help: Only ENTRY tier may execute.
+								1565 button Chart
+									1566 image
+							1567 button (collapsed) Description: BHEL PE Watching, Secondary Actions: Expand
+								1568 button Open BHEL detail
+									1569 container BHEL OCT 400 PE
+										1570 text BHEL OCT 400 PE
+								1571 text NFO
+								1572 text HOI-1 (Δ0.52)
+								1573 text 4.80
+								1574 text (
+								1575 text +
+								1576 text 0.70
+								1577 text )
+								1578 text U 398.68
+								1579 text at T1
+								1580 text T2 · day 5
+								1581 text 6.75
+								1582 text 3.90
+								1583 text 243.75%
+								1584 text 5.50
+								1585 text —
+								1586 text 22 Oct 13:15
+								1587 button (disabled) Description: Execute Gamma Unwind BHEL26OCT400PE, Help: Only ENTRY tier may execute.
+								1588 button Chart
+									1589 image
+							1590 button (collapsed) Description: BHEL PE Watching, Secondary Actions: Expand
+								1591 button Open BHEL detail
+									1592 container BHEL OCT 390 PE
+										1593 text BHEL OCT 390 PE
+								1594 text NFO
+								1595 text HOI-2 (Δ0.23)
+								1596 text 1.65
+								1597 text (
+								1598 text +
+								1599 text 0.15
+								1600 text )
+								1601 text U 398.68
+								1602 text at T1
+								1603 text T2 · day 5
+								1604 text 2.35
+								1605 text 1.20
+								1606 text 200.00%
+								1607 text 1.80
+								1608 text —
+								1609 text 22 Oct 13:15
+								1610 button (disabled) Description: Execute Gamma Unwind BHEL26OCT390PE, Help: Only ENTRY tier may execute.
+								1611 button Chart
+									1612 image
+							1613 button (collapsed) Description: BHEL PE Watching, Secondary Actions: Expand
+								1614 button Open BHEL detail
+									1615 container BHEL NOV 400 PE
+										1616 text BHEL NOV 400 PE
+								1617 text NFO
+								1618 text HOI-1 (Δ0.47)
+								1619 text 14.70
+								1620 text (
+								1621 text +
+								1622 text 0.75
+								1623 text )
+								1624 text U 398.68
+								1625 text at T1
+								1626 text T2 · day 5
+								1627 text 20.60
+								1628 text 5.60
+								1629 text 56.85%
+								1630 text 15.45
+								1631 text —
+								1632 text 22 Oct 13:15
+								1633 button (disabled) Description: Execute Gamma Unwind BHEL26NOV400PE, Help: Only ENTRY tier may execute.
+								1634 button Chart
+									1635 image
+							1636 button (collapsed) Description: BHEL PE Watching, Secondary Actions: Expand
+								1637 button Open BHEL detail
+									1638 container BHEL NOV 390 PE
+										1639 text BHEL NOV 390 PE
+								1640 text NFO
+								1641 text HOI-2 (Δ0.37)
+								1642 text 10.45
+								1643 text (
+								1644 text +
+								1645 text 0.50
+								1646 text )
+								1647 text U 398.68
+								1648 text at T1
+								1649 text T2 · day 5
+								1650 text 14.65
+								1651 text 4.15
+								1652 text 61.03%
+								1653 text 10.95
+								1654 text —
+								1655 text 22 Oct 13:15
+								1656 button (disabled) Description: Execute Gamma Unwind BHEL26NOV390PE, Help: Only ENTRY tier may execute.
+								1657 button Chart
+									1658 image
+							1659 button (collapsed) Description: BRITANNIA PE Watching, Secondary Actions: Expand
+								1660 button Open BRITANNIA detail
+									1661 container BRITANNIA OCT 4500 PE
+										1662 text BRITANNIA OCT 4500 PE
+								1663 text NFO
+								1664 text HOI-1 (Δ0.14)
+								1665 text 9.75
+								1666 text (
+								1667 text -1.05
+								1668 text )
+								1669 text U 4535.63
+								1670 text at T1
+								1671 text T2 · day 5
+								1672 text 13.65
+								1673 text 3.35
+								1674 text 62.62%
+								1675 text 8.70
+								1676 text —
+								1677 text 22 Oct 13:15
+								1678 button (disabled) Description: Execute Gamma Unwind BRITANNIA26OCT4500PE, Help: Only ENTRY tier may execute.
+								1679 button Chart
+									1680 image
+							1681 button (collapsed) Description: BRITANNIA PE Watching, Secondary Actions: Expand
+								1682 button Open BRITANNIA detail
+									1683 container BRITANNIA NOV 4500 PE
+										1684 text BRITANNIA NOV 4500 PE
+								1685 text NFO
+								1686 text HOI-1 (Δ0.33)
+								1687 text 85.55
+								1688 text (
+								1689 text -0.75
+								1690 text )
+								1691 text U 4535.63
+								1692 text at T1
+								1693 text T2 · day 5
+								1694 text 119.80
+								1695 text 21.20
+								1696 text 33.33%
+								1697 text 84.80
+								1698 text —
+								1699 text 22 Oct 13:15
+								1700 button (disabled) Description: Execute Gamma Unwind BRITANNIA26NOV4500PE, Help: Only ENTRY tier may execute.
+								1701 button Chart
+									1702 image
+							1703 button (collapsed) Description: BRITANNIA PE Watching, Secondary Actions: Expand
+								1704 button Open BRITANNIA detail
+									1705 container BRITANNIA NOV 4600 PE
+										1706 text BRITANNIA NOV 4600 PE
+								1707 text NFO
+								1708 text HOI-2 (Δ0.43)
+								1709 text 126.95
+								1710 text (
+								1711 text -1.60
+								1712 text )
+								1713 text U 4535.63
+								1714 text at T1
+								1715 text T2 · day 5
+								1716 text 177.75
+								1717 text 29.05
+								1718 text 30.17%
+								1719 text 125.35
+								1720 text —
+								1721 text 22 Oct 13:15
+								1722 button (disabled) Description: Execute Gamma Unwind BRITANNIA26NOV4600PE, Help: Only ENTRY tier may execute.
+								1723 button Chart
+									1724 image
+							1725 button (collapsed) Description: CANBK PE Watching, Secondary Actions: Expand
+								1726 button Open CANBK detail
+									1727 container CANBK OCT 120 PE
+										1728 text CANBK OCT 120 PE
+								1729 text NFO
+								1730 text HOI-1 (Δ0.40)
+								1731 text 1.83
+								1732 text (
+								1733 text -0.45
+								1734 text )
+								1735 text U 117.27
+								1736 text at T1
+								1737 text T2 · day 5
+								1738 text 2.57
+								1739 text -0.16
+								1740 text -10.39%
+								1741 text 1.38
+								1742 text —
+								1743 text 22 Oct 13:15
+								1744 button (disabled) Description: Execute Gamma Unwind CANBK26OCT120PE, Help: Only ENTRY tier may execute.
+								1745 button Chart
+									1746 image
+							1747 button (collapsed) Description: CANBK PE Watching, Secondary Actions: Expand
+								1748 button Open CANBK detail
+									1749 container CANBK OCT 115 PE
+										1750 text CANBK OCT 115 PE
+								1751 text NFO
+								1752 text HOI-2 (Δ0.10)
+								1753 text 0.31
+								1754 text (
+								1755 text -0.08
+								1756 text )
+								1757 text U 117.27
+								1758 text at T1
+								1759 text T2 · day 5
+								1760 text 0.44
+								1761 text -0.06
+								1762 text -20.69%
+								1763 text 0.23
+								1764 text —
+								1765 text 22 Oct 13:15
+								1766 button (disabled) Description: Execute Gamma Unwind CANBK26OCT115PE, Help: Only ENTRY tier may execute.
+								1767 button Chart
+									1768 image
+							1769 button (collapsed) Description: CANBK PE Watching, Secondary Actions: Expand
+								1770 button Open CANBK detail
+									1771 container CANBK NOV 120 PE
+										1772 text CANBK NOV 120 PE
+								1773 text NFO
+								1774 text HOI-1 (Δ0.42)
+								1775 text 3.73
+								1776 text (
+								1777 text -0.28
+								1778 text )
+								1779 text U 117.27
+								1780 text at T1
+								1781 text T2 · day 5
+								1782 text 5.23
+								1783 text -0.21
+								1784 text -5.74%
+								1785 text 3.45
+								1786 text —
+								1787 text 22 Oct 13:15
+								1788 button (disabled) Description: Execute Gamma Unwind CANBK26NOV120PE, Help: Only ENTRY tier may execute.
+								1789 button Chart
+									1790 image
+							1791 button (collapsed) Description: CANBK PE Watching, Secondary Actions: Expand
+								1792 button Open CANBK detail
+									1793 container CANBK NOV 115 PE
+										1794 text CANBK NOV 115 PE
+								1795 text NFO
+								1796 text HOI-2 (Δ0.25)
+								1797 text 1.82
+								1798 text (
+								1799 text -0.22
+								1800 text )
+								1801 text U 117.27
+								1802 text at T1
+								1803 text T2 · day 5
+								1804 text 2.55
+								1805 text -0.19
+								1806 text -10.61%
+								1807 text 1.60
+								1808 text —
+								1809 text 22 Oct 13:15
+								1810 button (disabled) Description: Execute Gamma Unwind CANBK26NOV115PE, Help: Only ENTRY tier may execute.
+								1811 button Chart
+									1812 image
+							1813 button (collapsed) Description: COALINDIA PE Watching, Secondary Actions: Expand
+								1814 button Open COALINDIA detail
+									1815 container COALINDIA OCT 395 PE
+										1816 text COALINDIA OCT 395 PE
+								1817 text NFO
+								1818 text HOI-1 (Δ0.23)
+								1819 text 2.65
+								1820 text (
+								1821 text -1.10
+								1822 text )
+								1823 text U 397.97
+								1824 text at T1
+								1825 text T2 · day 5
+								1826 text 3.75
+								1827 text 0.35
+								1828 text 29.17%
+								1829 text 1.55
+								1830 text —
+								1831 text 22 Oct 13:15
+								1832 button (disabled) Description: Execute Gamma Unwind COALINDIA26OCT395PE, Help: Only ENTRY tier may execute.
+								1833 button Chart
+									1834 image
+							1835 button (collapsed) Description: COALINDIA PE Watching, Secondary Actions: Expand
+								1836 button Open COALINDIA detail
+									1837 container COALINDIA OCT 390 PE
+										1838 text COALINDIA OCT 390 PE
+								1839 text NFO
+								1840 text HOI-2 (Δ0.13)
+								1841 text 1.35
+								1842 text (
+								1843 text -0.60
+								1844 text )
+								1845 text U 397.97
+								1846 text at T1
+								1847 text T2 · day 5
+								1848 text 1.90
+								1849 text 0.10
+								1850 text 15.38%
+								1851 text 0.75
+								1852 text —
+								1853 text 22 Oct 13:15
+								1854 button (disabled) Description: Execute Gamma Unwind COALINDIA26OCT390PE, Help: Only ENTRY tier may execute.
+								1855 button Chart
+									1856 image
+							1857 button (collapsed) Description: COALINDIA PE Watching, Secondary Actions: Expand
+								1858 button Open COALINDIA detail
+									1859 container COALINDIA NOV 395 PE
+										1860 text COALINDIA NOV 395 PE
+								1861 text NFO
+								1862 text HOI-2 (Δ0.35)
+								1863 text 8.55
+								1864 text (
+								1865 text -1.55
+								1866 text )
+								1867 text U 397.97
+								1868 text at T1
+								1869 text T2 · day 5
+								1870 text 12.00
+								1871 text 0.65
+								1872 text 10.24%
+								1873 text 7.00
+								1874 text —
+								1875 text 22 Oct 13:15
+								1876 button (disabled) Description: Execute Gamma Unwind COALINDIA26NOV395PE, Help: Only ENTRY tier may execute.
+								1877 button Chart
+									1878 image
+							1879 button (collapsed) Description: CUMMINSIND PE Watching, Secondary Actions: Expand
+								1880 button Open CUMMINSIND detail
+									1881 container CUMMINSIND OCT 4450 PE
+										1882 text CUMMINSIND OCT 4450 PE
+								1883 text NFO
+								1884 text HOI-2 (Δ0.45)
+								1885 text 53.30
+								1886 text (
+								1887 text -9.30
+								1888 text )
+								1889 text U 4429.04
+								1890 text at T1
+								1891 text T2 · day 5
+								1892 text 74.65
+								1893 text -25.80
+								1894 text -36.96%
+								1895 text 44.00
+								1896 text —
+								1897 text 22 Oct 13:15
+								1898 button (disabled) Description: Execute Gamma Unwind CUMMINSIND26OCT4450PE, Help: Only ENTRY tier may execute.
+								1899 button Chart
+									1900 image
+							1901 button (collapsed) Description: DRREDDY CE Watching, Secondary Actions: Expand
+								1902 button Open DRREDDY detail
+									1903 container DRREDDY OCT 1240 CE
+										1904 text DRREDDY OCT 1240 CE
+								1905 text NFO
+								1906 text HOI-2 (Δ0.51)
+								1907 text 23.10
+								1908 text (
+								1909 text +
+								1910 text 0.95
+								1911 text )
+								1912 text U 1246.11
+								1913 text at T1
+								1914 text T2 · day 5
+								1915 text 32.35
+								1916 text 0.20
+								1917 text 0.84%
+								1918 text 24.05
+								1919 text —
+								1920 text 22 Oct 13:15
+								1921 button (disabled) Description: Execute Gamma Unwind DRREDDY26OCT1240CE, Help: Only ENTRY tier may execute.
+								1922 button Chart
+									1923 image
+							1924 button (collapsed) Description: DRREDDY CE Watching, Secondary Actions: Expand
+								1925 button Open DRREDDY detail
+									1926 container DRREDDY NOV 1240 CE
+										1927 text DRREDDY NOV 1240 CE
+								1928 text NFO
+								1929 text HOI-2 (Δ0.54)
+								1930 text 38.25
+								1931 text (
+								1932 text +
+								1933 text 5.80
+								1934 text )
+								1935 text U 1246.11
+								1936 text at T1
+								1937 text T2 · day 5
+								1938 text 53.55
+								1939 text 5.45
+								1940 text 14.12%
+								1941 text 44.05
+								1942 text —
+								1943 text 22 Oct 13:15
+								1944 button (disabled) Description: Execute Gamma Unwind DRREDDY26NOV1240CE, Help: Only ENTRY tier may execute.
+								1945 button Chart
+									1946 image
+							1947 button (collapsed) Description: GODREJCP CE Watching, Secondary Actions: Expand
+								1948 button Open GODREJCP detail
+									1949 container GODREJCP OCT 900 CE
+										1950 text GODREJCP OCT 900 CE
+								1951 text NFO
+								1952 text HOI-1 (Δ0.06)
+								1953 text 0.95
+								1954 text (
+								1955 text -0.35
+								1956 text )
+								1957 text U 885.36
+								1958 text at T1
+								1959 text T2 · day 5
+								1960 text 1.35
+								1961 text -0.25
+								1962 text -29.41%
+								1963 text 0.60
+								1964 text —
+								1965 text 22 Oct 13:15
+								1966 button (disabled) Description: Execute Gamma Unwind GODREJCP26OCT900CE, Help: Only ENTRY tier may execute.
+								1967 button Chart
+									1968 image
+							1969 button (collapsed) Description: GODREJCP CE Watching, Secondary Actions: Expand
+								1970 button Open GODREJCP detail
+									1971 container GODREJCP OCT 870 CE
+										1972 text GODREJCP OCT 870 CE
+								1973 text NFO
+								1974 text HOI-2 (Δ0.33)
+								1975 text 6.50
+								1976 text (
+								1977 text -2.20
+								1978 text )
+								1979 text U 885.36
+								1980 text at T1
+								1981 text T2 · day 5
+								1982 text 9.10
+								1983 text -0.35
+								1984 text -7.53%
+								1985 text 4.30
+								1986 text —
+								1987 text 22 Oct 13:15
+								1988 button (disabled) Description: Execute Gamma Unwind GODREJCP26OCT870CE, Help: Only ENTRY tier may execute.
+								1989 button Chart
+									1990 image
+							1991 button (collapsed) Description: GODREJCP CE Watching, Secondary Actions: Expand
+								1992 button Open GODREJCP detail
+									1993 container GODREJCP NOV 870 CE
+										1994 text GODREJCP NOV 870 CE
+								1995 text NFO
+								1996 text HOI-1 (Δ0.48)
+								1997 text 23.10
+								1998 text (
+								1999 text -0.05
+								2000 text )
+								2001 text U 885.36
+								2002 text at T1
+								2003 text T2 · day 5
+								2004 text 32.35
+								2005 text 0.70
+								2006 text 3.13%
+								2007 text 23.05
+								2008 text —
+								2009 text 22 Oct 13:15
+								2010 button (disabled) Description: Execute Gamma Unwind GODREJCP26NOV870CE, Help: Only ENTRY tier may execute.
+								2011 button Chart
+									2012 image
+							2013 button (collapsed) Description: GODREJCP CE Watching, Secondary Actions: Expand
+								2014 button Open GODREJCP detail
+									2015 container GODREJCP NOV 900 CE
+										2016 text GODREJCP NOV 900 CE
+								2017 text NFO
+								2018 text HOI-2 (Δ0.32)
+								2019 text 15.00
+								2020 text (
+								2021 text -1.95
+								2022 text )
+								2023 text U 885.36
+								2024 text at T1
+								2025 text T2 · day 5
+								2026 text 21.00
+								2027 text 0.50
+								2028 text 3.98%
+								2029 text 13.05
+								2030 text —
+								2031 text 22 Oct 13:15
+								2032 button (disabled) Description: Execute Gamma Unwind GODREJCP26NOV900CE, Help: Only ENTRY tier may execute.
+								2033 button Chart
+									2034 image
+							2035 button (collapsed) Description: HDFCAMC PE Watching, Secondary Actions: Expand
+								2036 button Open HDFCAMC detail
+									2037 container HDFCAMC OCT 2200 PE
+										2038 text HDFCAMC OCT 2200 PE
+								2039 text NFO
+								2040 text HOI-1 (Δ0.13)
+								2041 text 7.65
+								2042 text (
+								2043 text -3.25
+								2044 text )
+								2045 text U 2238.87
+								2046 text at T1
+								2047 text T2 · day 5
+								2048 text 10.75
+								2049 text -0.40
+								2050 text -8.33%
+								2051 text 4.40
+								2052 text —
+								2053 text 22 Oct 13:15
+								2054 button (disabled) Description: Execute Gamma Unwind HDFCAMC26OCT2200PE, Help: Only ENTRY tier may execute.
+								2055 button Chart
+									2056 image
+							2057 button (collapsed) Description: HDFCAMC PE Watching, Secondary Actions: Expand
+								2058 button Open HDFCAMC detail
+									2059 container HDFCAMC OCT 2250 PE
+										2060 text HDFCAMC OCT 2250 PE
+								2061 text NFO
+								2062 text HOI-2 (Δ0.34)
+								2063 text 20.40
+								2064 text (
+								2065 text -5.50
+								2066 text )
+								2067 text U 2238.87
+								2068 text at T1
+								2069 text T2 · day 5
+								2070 text 28.60
+								2071 text 2.50
+								2072 text 20.16%
+								2073 text 14.90
+								2074 text —
+								2075 text 22 Oct 13:15
+								2076 button (disabled) Description: Execute Gamma Unwind HDFCAMC26OCT2250PE, Help: Only ENTRY tier may execute.
+								2077 button Chart
+									2078 image
+							2079 button (collapsed) Description: HDFCAMC PE Watching, Secondary Actions: Expand
+								2080 button Open HDFCAMC detail
+									2081 container HDFCAMC NOV 2200 PE
+										2082 text HDFCAMC NOV 2200 PE
+								2083 text NFO
+								2084 text HOI-1 (Δ0.29)
+								2085 text 34.40
+								2086 text (
+								2087 text -4.10
+								2088 text )
+								2089 text U 2238.87
+								2090 text at T1
+								2091 text T2 · day 5
+								2092 text 48.20
+								2093 text 3.50
+								2094 text 13.06%
+								2095 text 30.30
+								2096 text —
+								2097 text 22 Oct 13:15
+								2098 button (disabled) Description: Execute Gamma Unwind HDFCAMC26NOV2200PE, Help: Only ENTRY tier may execute.
+								2099 button Chart
+									2100 image
+							2101 button (collapsed) Description: HDFCBANK PE Watching, Secondary Actions: Expand
+								2102 button Open HDFCBANK detail
+									2103 container HDFCBANK OCT 690 PE
+										2104 text HDFCBANK OCT 690 PE
+								2105 text NFO
+								2106 text HOI-1 (Δ0.36)
+								2107 text 5.45
+								2108 text (
+								2109 text -1.95
+								2110 text )
+								2111 text U 685.48
+								2112 text at T1
+								2113 text T2 · day 5
+								2114 text 7.65
+								2115 text 0.85
+								2116 text 32.08%
+								2117 text 3.50
+								2118 text —
+								2119 text 22 Oct 13:15
+								2120 button (disabled) Description: Execute Gamma Unwind HDFCBANK26OCT690PE, Help: Only ENTRY tier may execute.
+								2121 button Chart
+									2122 image
+							2123 button (collapsed) Description: HDFCBANK PE Watching, Secondary Actions: Expand
+								2124 button Open HDFCBANK detail
+									2125 container HDFCBANK OCT 670 PE
+										2126 text HDFCBANK OCT 670 PE
+								2127 text NFO
+								2128 text HOI-2 (Δ0.09)
+								2129 text 1.50
+								2130 text (
+								2131 text -0.75
+								2132 text )
+								2133 text U 685.48
+								2134 text at T1
+								2135 text T2 · day 5
+								2136 text 2.10
+								2137 text -0.15
+								2138 text -16.67%
+								2139 text 0.75
+								2140 text —
+								2141 text 22 Oct 13:15
+								2142 button (disabled) Description: Execute Gamma Unwind HDFCBANK26OCT670PE, Help: Only ENTRY tier may execute.
+								2143 button Chart
+									2144 image
+							2145 button (collapsed) Description: HDFCBANK PE Watching, Secondary Actions: Expand
+								2146 button Open HDFCBANK detail
+									2147 container HDFCBANK NOV 680 PE
+										2148 text HDFCBANK NOV 680 PE
+								2149 text NFO
+								2150 text HOI-1 (Δ0.34)
+								2151 text 12.20
+								2152 text (
+								2153 text -1.50
+								2154 text )
+								2155 text U 685.48
+								2156 text at T1
+								2157 text T2 · day 5
+								2158 text 17.10
+								2159 text 2.20
+								2160 text 25.88%
+								2161 text 10.70
+								2162 text —
+								2163 text 22 Oct 13:15
+								2164 button (disabled) Description: Execute Gamma Unwind HDFCBANK26NOV680PE, Help: Only ENTRY tier may execute.
+								2165 button Chart
+									2166 image
+							2167 button (collapsed) Description: HDFCBANK PE Watching, Secondary Actions: Expand
+								2168 button Open HDFCBANK detail
+									2169 container HDFCBANK NOV 670 PE
+										2170 text HDFCBANK NOV 670 PE
+								2171 text NFO
+								2172 text HOI-2 (Δ0.26)
+								2173 text 9.05
+								2174 text (
+								2175 text -1.20
+								2176 text )
+								2177 text U 685.48
+								2178 text at T1
+								2179 text T2 · day 5
+								2180 text 12.70
+								2181 text 1.45
+								2182 text 22.66%
+								2183 text 7.85
+								2184 text —
+								2185 text 22 Oct 13:15
+								2186 button (disabled) Description: Execute Gamma Unwind HDFCBANK26NOV670PE, Help: Only ENTRY tier may execute.
+								2187 button Chart
+									2188 image
+							2189 button (collapsed) Description: HYUNDAI PE Watching, Secondary Actions: Expand
+								2190 button Open HYUNDAI detail
+									2191 container HYUNDAI OCT 1900 PE
+										2192 text HYUNDAI OCT 1900 PE
+								2193 text NFO
+								2194 text HOI-2 (Δ0.52)
+								2195 text 14.65
+								2196 text (
+								2197 text +
+								2198 text 6.90
+								2199 text )
+								2200 text U 1896.30
+								2201 text at T1
+								2202 text T2 · day 5
+								2203 text 20.55
+								2204 text 11.40
+								2205 text 112.32%
+								2206 text 21.55
+								2207 text —
+								2208 text 22 Oct 13:15
+								2209 button (disabled) Description: Execute Gamma Unwind HYUNDAI26OCT1900PE, Help: Only ENTRY tier may execute.
+								2210 button Chart
+									2211 image
+							2212 button (collapsed) Description: HYUNDAI PE Watching, Secondary Actions: Expand
+								2213 button Open HYUNDAI detail
+									2214 container HYUNDAI NOV 1900 PE
+										2215 text HYUNDAI NOV 1900 PE
+								2216 text NFO
+								2217 text HOI-1 (Δ0.46)
+								2218 text 87.50
+								2219 text (
+								2220 text +
+								2221 text 7.50
+								2222 text )
+								2223 text U 1896.30
+								2224 text at T1
+								2225 text T2 · day 5
+								2226 text 122.50
+								2227 text 29.20
+								2228 text 44.38%
+								2229 text 95.00
+								2230 text —
+								2231 text 22 Oct 13:15
+								2232 button (disabled) Description: Execute Gamma Unwind HYUNDAI26NOV1900PE, Help: Only ENTRY tier may execute.
+								2233 button Chart
+									2234 image
+							2235 button (collapsed) Description: KALYANKJIL PE Watching, Secondary Actions: Expand
+								2236 button Open KALYANKJIL detail
+									2237 container KALYANKJIL OCT 530 PE
+										2238 text KALYANKJIL OCT 530 PE
+								2239 text NFO
+								2240 text HOI-1 (Δ0.47)
+								2241 text 6.90
+								2242 text (
+								2243 text -0.60
+								2244 text )
+								2245 text U 527.40
+								2246 text at T1
+								2247 text T2 · day 5
+								2248 text 9.70
+								2249 text 4.40
+								2250 text 231.58%
+								2251 text 6.30
+								2252 text —
+								2253 text 22 Oct 13:15
+								2254 button (disabled) Description: Execute Gamma Unwind KALYANKJIL26OCT530PE, Help: Only ENTRY tier may execute.
+								2255 button Chart
+									2256 image
+							2257 button (collapsed) Description: KALYANKJIL PE Watching, Secondary Actions: Expand
+								2258 button Open KALYANKJIL detail
+									2259 container KALYANKJIL OCT 520 PE
+										2260 text KALYANKJIL OCT 520 PE
+								2261 text NFO
+								2262 text HOI-2 (Δ0.28)
+								2263 text 3.80
+								2264 text (
+								2265 text -0.50
+								2266 text )
+								2267 text U 527.40
+								2268 text at T1
+								2269 text T2 · day 5
+								2270 text 5.35
+								2271 text 2.00
+								2272 text 153.85%
+								2273 text 3.30
+								2274 text —
+								2275 text 22 Oct 13:15
+								2276 button (disabled) Description: Execute Gamma Unwind KALYANKJIL26OCT520PE, Help: Only ENTRY tier may execute.
+								2277 button Chart
+									2278 image
+							2279 button (collapsed) Description: KALYANKJIL PE Watching, Secondary Actions: Expand
+								2280 button Open KALYANKJIL detail
+									2281 container KALYANKJIL NOV 530 PE
+										2282 text KALYANKJIL NOV 530 PE
+								2283 text NFO
+								2284 text HOI-1 (Δ0.45)
+								2285 text 25.40
+								2286 text (
+								2287 text +
+								2288 text 0.20
+								2289 text )
+								2290 text U 527.40
+								2291 text at T1
+								2292 text T2 · day 5
+								2293 text 35.60
+								2294 text 10.70
+								2295 text 71.81%
+								2296 text 25.60
+								2297 text —
+								2298 text 22 Oct 13:15
+								2299 button (disabled) Description: Execute Gamma Unwind KALYANKJIL26NOV530PE, Help: Only ENTRY tier may execute.
+								2300 button Chart
+									2301 image
+							2302 button (collapsed) Description: LICHSGFIN PE Watching, Secondary Actions: Expand
+								2303 button Open LICHSGFIN detail
+									2304 container LICHSGFIN OCT 500 PE
+										2305 text LICHSGFIN OCT 500 PE
+								2306 text NFO
+								2307 text HOI-1 (Δ0.42)
+								2308 text 6.00
+								2309 text (
+								2310 text -2.00
+								2311 text )
+								2312 text U 488.72
+								2313 text at T1
+								2314 text T2 · day 5
+								2315 text 8.40
+								2316 text 0.00
+								2317 text 0.00%
+								2318 text 4.00
+								2319 text —
+								2320 text 22 Oct 13:15
+								2321 button (disabled) Description: Execute Gamma Unwind LICHSGFIN26OCT500PE, Help: Only ENTRY tier may execute.
+								2322 button Chart
+									2323 image
+							2324 button (collapsed) Description: LICHSGFIN PE Watching, Secondary Actions: Expand
+								2325 button Open LICHSGFIN detail
+									2326 container LICHSGFIN OCT 490 PE
+										2327 text LICHSGFIN OCT 490 PE
+								2328 text NFO
+								2329 text HOI-2 (Δ0.18)
+								2330 text 2.35
+								2331 text (
+								2332 text -1.00
+								2333 text )
+								2334 text U 488.72
+								2335 text at T1
+								2336 text T2 · day 5
+								2337 text 3.30
+								2338 text -0.25
+								2339 text -15.63%
+								2340 text 1.35
+								2341 text —
+								2342 text 22 Oct 13:15
+								2343 button (disabled) Description: Execute Gamma Unwind LICHSGFIN26OCT490PE, Help: Only ENTRY tier may execute.
+								2344 button Chart
+									2345 image
+							2346 button (collapsed) Description: LICHSGFIN PE Watching, Secondary Actions: Expand
+								2347 button Open LICHSGFIN detail
+									2348 container LICHSGFIN NOV 480 PE
+										2349 text LICHSGFIN NOV 480 PE
+								2350 text NFO
+								2351 text HOI-1 (Δ0.28)
+								2352 text 9.35
+								2353 text (
+								2354 text -0.65
+								2355 text )
+								2356 text U 488.72
+								2357 text at T1
+								2358 text T2 · day 5
+								2359 text 13.10
+								2360 text 1.65
+								2361 text 23.40%
+								2362 text 8.70
+								2363 text —
+								2364 text 22 Oct 13:15
+								2365 button (disabled) Description: Execute Gamma Unwind LICHSGFIN26NOV480PE, Help: Only ENTRY tier may execute.
+								2366 button Chart
+									2367 image
+							2368 button (collapsed) Description: LICHSGFIN PE Watching, Secondary Actions: Expand
+								2369 button Open LICHSGFIN detail
+									2370 container LICHSGFIN NOV 500 PE
+										2371 text LICHSGFIN NOV 500 PE
+								2372 text NFO
+								2373 text HOI-2 (Δ0.44)
+								2374 text 17.70
+								2375 text (
+								2376 text -1.75
+								2377 text )
+								2378 text U 488.72
+								2379 text at T1
+								2380 text T2 · day 5
+								2381 text 24.80
+								2382 text 1.95
+								2383 text 13.93%
+								2384 text 15.95
+								2385 text —
+								2386 text 22 Oct 13:15
+								2387 button (disabled) Description: Execute Gamma Unwind LICHSGFIN26NOV500PE, Help: Only ENTRY tier may execute.
+								2388 button Chart
+									2389 image
+							2390 button (collapsed) Description: LICI PE Watching, Secondary Actions: Expand
+								2391 button Open LICI detail
+									2392 container LICI OCT 380 PE
+										2393 text LICI OCT 380 PE
+								2394 text NFO
+								2395 text HOI-1 (Δ0.22)
+								2396 text 1.85
+								2397 text (
+								2398 text -0.50
+								2399 text )
+								2400 text U 381.41
+								2401 text at T1
+								2402 text T2 · day 5
+								2403 text 2.60
+								2404 text 0.15
+								2405 text 12.50%
+								2406 text 1.35
+								2407 text —
+								2408 text 22 Oct 13:15
+								2409 button (disabled) Description: Execute Gamma Unwind LICI26OCT380PE, Help: Only ENTRY tier may execute.
+								2410 button Chart
+									2411 image
+							2412 button (collapsed) Description: LICI PE Watching, Secondary Actions: Expand
+								2413 button Open LICI detail
+									2414 container LICI OCT 385 PE
+										2415 text LICI OCT 385 PE
+								2416 text NFO
+								2417 text HOI-2 (Δ0.38)
+								2418 text 3.35
+								2419 text (
+								2420 text -0.70
+								2421 text )
+								2422 text U 381.41
+								2423 text at T1
+								2424 text T2 · day 5
+								2425 text 4.70
+								2426 text 0.20
+								2427 text 8.16%
+								2428 text 2.65
+								2429 text —
+								2430 text 22 Oct 13:15
+								2431 button (disabled) Description: Execute Gamma Unwind LICI26OCT385PE, Help: Only ENTRY tier may execute.
+								2432 button Chart
+									2433 image
+							2434 button (collapsed) Description: LICI PE Watching, Secondary Actions: Expand
+								2435 button Open LICI detail
+									2436 container LICI NOV 380 PE
+										2437 text LICI NOV 380 PE
+								2438 text NFO
+								2439 text HOI-1 (Δ0.34)
+								2440 text 6.70
+								2441 text (
+								2442 text -0.55
+								2443 text )
+								2444 text U 381.41
+								2445 text at T1
+								2446 text T2 · day 5
+								2447 text 9.40
+								2448 text -0.45
+								2449 text -6.82%
+								2450 text 6.15
+								2451 text —
+								2452 text 22 Oct 13:15
+								2453 button (disabled) Description: Execute Gamma Unwind LICI26NOV380PE, Help: Only ENTRY tier may execute.
+								2454 button Chart
+									2455 image
+							2456 button (collapsed) Description: MAHABANK PE Watching, Secondary Actions: Expand
+								2457 button Open MAHABANK detail
+									2458 container MAHABANK OCT 75 PE
+										2459 text MAHABANK OCT 75 PE
+								2460 text NFO
+								2461 text HOI-1 (Δ0.23)
+								2462 text 0.71
+								2463 text (
+								2464 text -0.01
+								2465 text )
+								2466 text U 76.81
+								2467 text at T1
+								2468 text T2 · day 5
+								2469 text 1.00
+								2470 text 0.33
+								2471 text 89.19%
+								2472 text 0.70
+								2473 text —
+								2474 text 22 Oct 13:15
+								2475 button (disabled) Description: Execute Gamma Unwind MAHABANK26OCT75PE, Help: Only ENTRY tier may execute.
+								2476 button Chart
+									2477 image
+							2478 button (collapsed) Description: MAHABANK PE Watching, Secondary Actions: Expand
+								2479 button Open MAHABANK detail
+									2480 container MAHABANK OCT 76 PE
+										2481 text MAHABANK OCT 76 PE
+								2482 text NFO
+								2483 text HOI-2 (Δ0.29)
+								2484 text 1.00
+								2485 text (
+								2486 text -0.04
+								2487 text )
+								2488 text U 76.81
+								2489 text at T1
+								2490 text T2 · day 5
+								2491 text 1.40
+								2492 text 0.38
+								2493 text 65.52%
+								2494 text 0.96
+								2495 text —
+								2496 text 22 Oct 13:15
+								2497 button (disabled) Description: Execute Gamma Unwind MAHABANK26OCT76PE, Help: Only ENTRY tier may execute.
+								2498 button Chart
+									2499 image
+							2500 button (collapsed) Description: MAHABANK PE Watching, Secondary Actions: Expand
+								2501 button Open MAHABANK detail
+									2502 container MAHABANK NOV 75 PE
+										2503 text MAHABANK NOV 75 PE
+								2504 text NFO
+								2505 text HOI-1 (Δ0.30)
+								2506 text 1.92
+								2507 text (
+								2508 text -0.24
+								2509 text )
+								2510 text U 76.81
+								2511 text at T1
+								2512 text T2 · day 5
+								2513 text 2.69
+								2514 text 0.23
+								2515 text 15.86%
+								2516 text 1.68
+								2517 text —
+								2518 text 22 Oct 13:15
+								2519 button (disabled) Description: Execute Gamma Unwind MAHABANK26NOV75PE, Help: Only ENTRY tier may execute.
+								2520 button Chart
+									2521 image
+							2522 button (collapsed) Description: NYKAA PE Watching, Secondary Actions: Expand
+								2523 button Open NYKAA detail
+									2524 container NYKAA OCT 320 PE
+										2525 text NYKAA OCT 320 PE
+								2526 text NFO
+								2527 text HOI-1 (Δ0.40)
+								2528 text 2.70
+								2529 text U 319.05
+								2530 text at T1
+								2531 text T2 · day 5
+								2532 text 3.80
+								2533 text 0.30
+								2534 text 12.50%
+								2535 text 2.70
+								2536 text —
+								2537 text 22 Oct 13:15
+								2538 button (disabled) Description: Execute Gamma Unwind NYKAA26OCT320PE, Help: Only ENTRY tier may execute.
+								2539 button Chart
+									2540 image
+							2541 button (collapsed) Description: NYKAA PE Watching, Secondary Actions: Expand
+								2542 button Open NYKAA detail
+									2543 container NYKAA OCT 315 PE
+										2544 text NYKAA OCT 315 PE
+								2545 text NFO
+								2546 text HOI-2 (Δ0.23)
+								2547 text 1.40
+								2548 text (
+								2549 text -0.10
+								2550 text )
+								2551 text U 319.05
+								2552 text at T1
+								2553 text T2 · day 5
+								2554 text 2.00
+								2555 text 0.10
+								2556 text 8.33%
+								2557 text 1.30
+								2558 text —
+								2559 text 22 Oct 13:15
+								2560 button (disabled) Description: Execute Gamma Unwind NYKAA26OCT315PE, Help: Only ENTRY tier may execute.
+								2561 button Chart
+									2562 image
+							2563 button (collapsed) Description: NYKAA PE Watching, Secondary Actions: Expand
+								2564 button Open NYKAA detail
+									2565 container NYKAA NOV 320 PE
+										2566 text NYKAA NOV 320 PE
+								2567 text NFO
+								2568 text HOI-1 (Δ0.43)
+								2569 text 10.65
+								2570 text (
+								2571 text -0.30
+								2572 text )
+								2573 text U 319.05
+								2574 text at T1
+								2575 text T2 · day 5
+								2576 text 14.95
+								2577 text 0.25
+								2578 text 2.48%
+								2579 text 10.35
+								2580 text —
+								2581 text 22 Oct 13:15
+								2582 button (disabled) Description: Execute Gamma Unwind NYKAA26NOV320PE, Help: Only ENTRY tier may execute.
+								2583 button Chart
+									2584 image
+							2585 button (collapsed) Description: OBEROIRLTY PE Watching, Secondary Actions: Expand
+								2586 button Open OBEROIRLTY detail
+									2587 container OBEROIRLTY OCT 1580 PE
+										2588 text OBEROIRLTY OCT 1580 PE
+								2589 text NFO
+								2590 text HOI-1 (Δ0.17)
+								2591 text 6.30
+								2592 text (
+								2593 text -1.45
+								2594 text )
+								2595 text U 1582.97
+								2596 text at T1
+								2597 text T2 · day 5
+								2598 text 8.85
+								2599 text 0.75
+								2600 text 18.29%
+								2601 text 4.85
+								2602 text —
+								2603 text 22 Oct 13:15
+								2604 button (disabled) Description: Execute Gamma Unwind OBEROIRLTY26OCT1580PE, Help: Only ENTRY tier may execute.
+								2605 button Chart
+									2606 image
+							2607 button (collapsed) Description: OBEROIRLTY PE Watching, Secondary Actions: Expand
+								2608 button Open OBEROIRLTY detail
+									2609 container OBEROIRLTY OCT 1560 PE
+										2610 text OBEROIRLTY OCT 1560 PE
+								2611 text NFO
+								2612 text HOI-2 (Δ0.09)
+								2613 text 3.35
+								2614 text (
+								2615 text -1.15
+								2616 text )
+								2617 text U 1582.97
+								2618 text at T1
+								2619 text T2 · day 5
+								2620 text 4.70
+								2621 text -0.05
+								2622 text -2.22%
+								2623 text 2.20
+								2624 text —
+								2625 text 22 Oct 13:15
+								2626 button (disabled) Description: Execute Gamma Unwind OBEROIRLTY26OCT1560PE, Help: Only ENTRY tier may execute.
+								2627 button Chart
+									2628 image
+							2629 button (collapsed) Description: OBEROIRLTY PE Watching, Secondary Actions: Expand
+								2630 button Open OBEROIRLTY detail
+									2631 container OBEROIRLTY NOV 1600 PE
+										2632 text OBEROIRLTY NOV 1600 PE
+								2633 text NFO
+								2634 text HOI-1 (Δ0.38)
+								2635 text 39.95
+								2636 text (
+								2637 text -2.40
+								2638 text )
+								2639 text U 1582.97
+								2640 text at T1
+								2641 text T2 · day 5
+								2642 text 55.95
+								2643 text 4.95
+								2644 text 15.18%
+								2645 text 37.55
+								2646 text —
+								2647 text 22 Oct 13:15
+								2648 button (disabled) Description: Execute Gamma Unwind OBEROIRLTY26NOV1600PE, Help: Only ENTRY tier may execute.
+								2649 button Chart
+									2650 image
+							2651 button (collapsed) Description: OFSS PE Watching, Secondary Actions: Expand
+								2652 button Open OFSS detail
+									2653 container OFSS OCT 9800 PE
+										2654 text OFSS OCT 9800 PE
+								2655 text NFO
+								2656 text HOI-2 (Δ0.45)
+								2657 text 108.00
+								2658 text (
+								2659 text +
+								2660 text 120.45
+								2661 text )
+								2662 text U 10023.42
+								2663 text at T1
+								2664 text T2 · day 5
+								2665 text 151.20
+								2666 text 137.00
+								2667 text 149.81%
+								2668 text 228.45
+								2669 text —
+								2670 text 22 Oct 13:15
+								2671 button (disabled) Description: Execute Gamma Unwind OFSS26OCT9800PE, Help: Only ENTRY tier may execute.
+								2672 button Chart
+									2673 image
+							2674 button (collapsed) Description: PAGEIND PE Watching, Secondary Actions: Expand
+								2675 button Open PAGEIND detail
+									2676 container PAGEIND OCT 33500 PE
+										2677 text PAGEIND OCT 33500 PE
+								2678 text NFO
+								2679 text HOI-2 (Δ0.18)
+								2680 text 105.90
+								2681 text (
+								2682 text +
+								2683 text 0.60
+								2684 text )
+								2685 text U 34230.85
+								2686 text at T1
+								2687 text T2 · day 5
+								2688 text 148.30
+								2689 text 45.70
+								2690 text 75.16%
+								2691 text 106.50
+								2692 text —
+								2693 text 22 Oct 13:15
+								2694 button (disabled) Description: Execute Gamma Unwind PAGEIND26OCT33500PE, Help: Only ENTRY tier may execute.
+								2695 button Chart
+									2696 image
+							2697 button (collapsed) Description: PGEL PE Watching, Secondary Actions: Expand
+								2698 button Open PGEL detail
+									2699 container PGEL OCT 470 PE
+										2700 text PGEL OCT 470 PE
+								2701 text NFO
+								2702 text HOI-1 (Δ0.14)
+								2703 text 2.80
+								2704 text (
+								2705 text -1.35
+								2706 text )
+								2707 text U 480.59
+								2708 text at T1
+								2709 text T2 · day 5
+								2710 text 3.95
+								2711 text -0.35
+								2712 text -19.44%
+								2713 text 1.45
+								2714 text —
+								2715 text 22 Oct 13:15
+								2716 button (disabled) Description: Execute Gamma Unwind PGEL26OCT470PE, Help: Only ENTRY tier may execute.
+								2717 button Chart
+									2718 image
+							2719 button (collapsed) Description: PIDILITIND PE Watching, Secondary Actions: Expand
+								2720 button Open PIDILITIND detail
+									2721 container PIDILITIND OCT 1460 PE
+										2722 text PIDILITIND OCT 1460 PE
+								2723 text NFO
+								2724 text HOI-2 (Δ0.27)
+								2725 text 9.80
+								2726 text (
+								2727 text -3.80
+								2728 text )
+								2729 text U 1464.97
+								2730 text at T1
+								2731 text T2 · day 5
+								2732 text 13.75
+								2733 text -4.15
+								2734 text -40.89%
+								2735 text 6.00
+								2736 text —
+								2737 text 22 Oct 13:15
+								2738 button (disabled) Description: Execute Gamma Unwind PIDILITIND26OCT1460PE, Help: Only ENTRY tier may execute.
+								2739 button Chart
+									2740 image
+							2741 button (collapsed) Description: PREMIERENE PE Watching, Secondary Actions: Expand
+								2742 button Open PREMIERENE detail
+									2743 container PREMIERENE OCT 840 PE
+										2744 text PREMIERENE OCT 840 PE
+								2745 text NFO
+								2746 text HOI-2 (Δ0.19)
+								2747 text 3.95
+								2748 text (
+								2749 text -0.80
+								2750 text )
+								2751 text U 861.07
+								2752 text at T1
+								2753 text T2 · day 5
+								2754 text 5.55
+								2755 text 0.55
+								2756 text 21.15%
+								2757 text 3.15
+								2758 text —
+								2759 text 22 Oct 13:15
+								2760 button (disabled) Description: Execute Gamma Unwind PREMIERENE26OCT840PE, Help: Only ENTRY tier may execute.
+								2761 button Chart
+									2762 image
+							2763 button (collapsed) Description: RADICO PE Watching, Secondary Actions: Expand
+								2764 button Open RADICO detail
+									2765 container RADICO OCT 4250 PE
+										2766 text RADICO OCT 4250 PE
+								2767 text NFO
+								2768 text HOI-2 (Δ0.61)
+								2769 text 43.45
+								2770 text (
+								2771 text +
+								2772 text 42.80
+								2773 text )
+								2774 text U 4262.62
+								2775 text at T1
+								2776 text T2 · day 5
+								2777 text 60.85
+								2778 text 55.15
+								2779 text 177.33%
+								2780 text 86.25
+								2781 text —
+								2782 text 22 Oct 13:15
+								2783 button (disabled) Description: Execute Gamma Unwind RADICO26OCT4250PE, Help: Only ENTRY tier may execute.
+								2784 button Chart
+									2785 image
+							2786 button (collapsed) Description: RELIANCE PE Watching, Secondary Actions: Expand
+								2787 button Open RELIANCE detail
+									2788 container RELIANCE OCT 1160 PE
+										2789 text RELIANCE OCT 1160 PE
+								2790 text NFO
+								2791 text HOI-1 (Δ0.14)
+								2792 text 2.25
+								2793 text (
+								2794 text -0.50
+								2795 text )
+								2796 text U 1162.05
+								2797 text at T1
+								2798 text T2 · day 5
+								2799 text 3.15
+								2800 text -0.15
+								2801 text -7.89%
+								2802 text 1.75
+								2803 text —
+								2804 text 22 Oct 13:15
+								2805 button (disabled) Description: Execute Gamma Unwind RELIANCE26OCT1160PE, Help: Only ENTRY tier may execute.
+								2806 button Chart
+									2807 image
+							2808 button (collapsed) Description: RELIANCE PE Watching, Secondary Actions: Expand
+								2809 button Open RELIANCE detail
+									2810 container RELIANCE OCT 1150 PE
+										2811 text RELIANCE OCT 1150 PE
+								2812 text NFO
+								2813 text HOI-2 (Δ0.09)
+								2814 text 1.40
+								2815 text (
+								2816 text -0.35
+								2817 text )
+								2818 text U 1162.05
+								2819 text at T1
+								2820 text T2 · day 5
+								2821 text 2.00
+								2822 text -0.30
+								2823 text -22.22%
+								2824 text 1.05
+								2825 text —
+								2826 text 22 Oct 13:15
+								2827 button (disabled) Description: Execute Gamma Unwind RELIANCE26OCT1150PE, Help: Only ENTRY tier may execute.
+								2828 button Chart
+									2829 image
+							2830 button (collapsed) Description: RELIANCE PE Watching, Secondary Actions: Expand
+								2831 button Open RELIANCE detail
+									2832 container RELIANCE NOV 1150 PE
+										2833 text RELIANCE NOV 1150 PE
+								2834 text NFO
+								2835 text HOI-1 (Δ0.31)
+								2836 text 19.45
+								2837 text (
+								2838 text -0.25
+								2839 text )
+								2840 text U 1162.05
+								2841 text at T1
+								2842 text T2 · day 5
+								2843 text 27.25
+								2844 text 4.50
+								2845 text 30.61%
+								2846 text 19.20
+								2847 text —
+								2848 text 22 Oct 13:15
+								2849 button (disabled) Description: Execute Gamma Unwind RELIANCE26NOV1150PE, Help: Only ENTRY tier may execute.
+								2850 button Chart
+									2851 image
+							2852 button (collapsed) Description: RELIANCE PE Watching, Secondary Actions: Expand
+								2853 button Open RELIANCE detail
+									2854 container RELIANCE NOV 1180 PE
+										2855 text RELIANCE NOV 1180 PE
+								2856 text NFO
+								2857 text HOI-2 (Δ0.44)
+								2858 text 31.00
+								2859 text (
+								2860 text -0.55
+								2861 text )
+								2862 text U 1162.05
+								2863 text at T1
+								2864 text T2 · day 5
+								2865 text 43.40
+								2866 text 6.25
+								2867 text 25.83%
+								2868 text 30.45
+								2869 text —
+								2870 text 22 Oct 13:15
+								2871 button (disabled) Description: Execute Gamma Unwind RELIANCE26NOV1180PE, Help: Only ENTRY tier may execute.
+								2872 button Chart
+									2873 image
+							2874 button (collapsed) Description: SOLARINDS PE Watching, Secondary Actions: Expand
+								2875 button Open SOLARINDS detail
+									2876 container SOLARINDS OCT 18500 PE
+										2877 text SOLARINDS OCT 18500 PE
+								2878 text NFO
+								2879 text HOI-1 (Δ0.22)
+								2880 text 116.60
+								2881 text (
+								2882 text -28.90
+								2883 text )
+								2884 text U 18635.05
+								2885 text at T1
+								2886 text T2 · day 5
+								2887 text 163.25
+								2888 text -12.25
+								2889 text -12.26%
+								2890 text 87.70
+								2891 text —
+								2892 text 22 Oct 13:15
+								2893 button (disabled) Description: Execute Gamma Unwind SOLARINDS26OCT18500PE, Help: Only ENTRY tier may execute.
+								2894 button Chart
+									2895 image
+							2896 button (collapsed) Description: SOLARINDS PE Watching, Secondary Actions: Expand
+								2897 button Open SOLARINDS detail
+									2898 container SOLARINDS OCT 18750 PE
+										2899 text SOLARINDS OCT 18750 PE
+								2900 text NFO
+								2901 text HOI-2 (Δ0.33)
+								2902 text 189.80
+								2903 text (
+								2904 text -39.80
+								2905 text )
+								2906 text U 18635.05
+								2907 text at T1
+								2908 text T2 · day 5
+								2909 text 265.75
+								2910 text -11.10
+								2911 text -6.89%
+								2912 text 150.00
+								2913 text —
+								2914 text 22 Oct 13:15
+								2915 button (disabled) Description: Execute Gamma Unwind SOLARINDS26OCT18750PE, Help: Only ENTRY tier may execute.
+								2916 button Chart
+									2917 image
+							2918 button (collapsed) Description: SONACOMS PE Watching, Secondary Actions: Expand
+								2919 button Open SONACOMS detail
+									2920 container SONACOMS NOV 750 PE
+										2921 text SONACOMS NOV 750 PE
+								2922 text NFO
+								2923 text HOI-1 (Δ0.39)
+								2924 text 29.00
+								2925 text (
+								2926 text -0.50
+								2927 text )
+								2928 text U 764.39
+								2929 text at T1
+								2930 text T2 · day 5
+								2931 text 40.60
+								2932 text -2.45
+								2933 text -7.92%
+								2934 text 28.50
+								2935 text —
+								2936 text 22 Oct 13:15
+								2937 button (disabled) Description: Execute Gamma Unwind SONACOMS26NOV750PE, Help: Only ENTRY tier may execute.
+								2938 button Chart
+									2939 image
+							2940 button (collapsed) Description: TATACONSUM PE Watching, Secondary Actions: Expand
+								2941 button Open TATACONSUM detail
+									2942 container TATACONSUM OCT 930 PE
+										2943 text TATACONSUM OCT 930 PE
+								2944 text NFO
+								2945 text HOI-1 (Δ0.19)
+								2946 text 4.75
+								2947 text (
+								2948 text -0.80
+								2949 text )
+								2950 text U 935.79
+								2951 text at T1
+								2952 text T2 · day 5
+								2953 text 6.65
+								2954 text 1.80
+								2955 text 83.72%
+								2956 text 3.95
+								2957 text —
+								2958 text 22 Oct 13:15
+								2959 button (disabled) Description: Execute Gamma Unwind TATACONSUM26OCT930PE, Help: Only ENTRY tier may execute.
+								2960 button Chart
+									2961 image
+							2962 button (collapsed) Description: TATACONSUM PE Watching, Secondary Actions: Expand
+								2963 button Open TATACONSUM detail
+									2964 container TATACONSUM OCT 940 PE
+										2965 text TATACONSUM OCT 940 PE
+								2966 text NFO
+								2967 text HOI-2 (Δ0.28)
+								2968 text 7.75
+								2969 text (
+								2970 text -1.00
+								2971 text )
+								2972 text U 935.79
+								2973 text at T1
+								2974 text T2 · day 5
+								2975 text 10.85
+								2976 text 3.10
+								2977 text 84.93%
+								2978 text 6.75
+								2979 text —
+								2980 text 22 Oct 13:15
+								2981 button (disabled) Description: Execute Gamma Unwind TATACONSUM26OCT940PE, Help: Only ENTRY tier may execute.
+								2982 button Chart
+									2983 image
+							2984 button (collapsed) Description: TATACONSUM PE Watching, Secondary Actions: Expand
+								2985 button Open TATACONSUM detail
+									2986 container TATACONSUM NOV 950 PE
+										2987 text TATACONSUM NOV 950 PE
+								2988 text NFO
+								2989 text HOI-1 (Δ0.41)
+								2990 text 25.65
+								2991 text (
+								2992 text -2.35
+								2993 text )
+								2994 text U 935.79
+								2995 text at T1
+								2996 text T2 · day 5
+								2997 text 35.95
+								2998 text 5.10
+								2999 text 28.02%
+								3000 text 23.30
+								3001 text —
+								3002 text 22 Oct 13:15
+								3003 button (disabled) Description: Execute Gamma Unwind TATACONSUM26NOV950PE, Help: Only ENTRY tier may execute.
+								3004 button Chart
+									3005 image
+							3006 button (collapsed) Description: TATACONSUM PE Watching, Secondary Actions: Expand
+								3007 button Open TATACONSUM detail
+									3008 container TATACONSUM NOV 920 PE
+										3009 text TATACONSUM NOV 920 PE
+								3010 text NFO
+								3011 text HOI-2 (Δ0.27)
+								3012 text 14.65
+								3013 text (
+								3014 text -1.40
+								3015 text )
+								3016 text U 935.79
+								3017 text at T1
+								3018 text T2 · day 5
+								3019 text 20.55
+								3020 text 3.55
+								3021 text 36.60%
+								3022 text 13.25
+								3023 text —
+								3024 text 22 Oct 13:15
+								3025 button (disabled) Description: Execute Gamma Unwind TATACONSUM26NOV920PE, Help: Only ENTRY tier may execute.
+								3026 button Chart
+									3027 image
+						3028 button (collapsed) YESTERDAY 56 SIGNALS, Secondary Actions: Expand
+							3029 image
+							3030 text YESTERDAY
+							3031 text 56
+							3032 text SIGNALS
+				3033 container
+					3034 button Description: Open basket, Help: Basket
+						3035 image
+					3036 container Minimized panes and Kite status
+						3037 button LIVE, Help: Live trading. New entries allowed.
+						3038 button KITE, Help: Connected · Madaram Nagesh · expires 06:00:00 IST
+						3039 checkbox Description: Open replay dock, Help: Open the replay dock, Value: 0
+						3040 button Watchlist, Help: Restore Watchlist
+							3041 image
+							3042 text Watchlist
+					3043 container Workspace and engine status
+						3044 button (collapsed) Layout, Help: Open workspace layouts, Secondary Actions: Expand
+							3045 image
+							3046 text Layout
+							3047 image
+						3048 text ALGO
+						3049 text · Market closed
+
+The focused UI element is 0 AXWebArea Sterling, URL: 127.0.0.1:5180/

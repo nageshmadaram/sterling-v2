@@ -1,0 +1,37 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_____________________ test_chart_has_one_unambiguous_route _____________________
+
+    def test_chart_has_one_unambiguous_route():
+        routes=[r for r in navigator.router.routes if r.path.endswith('/chart/{underlying}')]
+>       assert len(routes)==1
+E       AssertionError: assert 2 == 1
+E        +  where 2 = len([APIRoute(path='/kite/navigator/chart/{underlying}', name='get_chart_overlay', methods=['GET']), APIRoute(path='/kite/navigator/chart/{underlying}', name='get_chart_overlay', methods=['GET'])])
+
+/tmp/sterling-followup-review/test_chart_route.py:13: AssertionError
+______________ test_chart_candle_errors_are_validation_responses _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x772e4a7f4890>
+
+    @pytest.mark.asyncio
+    async def test_chart_candle_errors_are_validation_responses(monkeypatch):
+        monkeypatch.setattr(navigator,'_default_underlyings',lambda uid:['NIFTY 50'])
+        monkeypatch.setattr(navigator.config_store,'get',lambda *a,**kw:SimpleNamespace())
+        monkeypatch.setattr(accounts,'get_active',lambda uid:SimpleNamespace(id='fake',user_id=uid))
+        monkeypatch.setattr(accounts,'acquire_client',AsyncMock(return_value=SimpleNamespace()))
+        monkeypatch.setattr(navigator,'_resolve_chart_token',AsyncMock(return_value=123))
+        build=AsyncMock(side_effect=CandleValidationError('malformed candles'))
+        monkeypatch.setattr(navigator.chart_series,'build_chart_series',build)
+        route=next(r for r in navigator.router.routes if r.path.endswith('/chart/{underlying}'))
+        with pytest.raises(HTTPException) as result:
+            await route.endpoint('NIFTY 50',bars=1,user=SimpleNamespace(user_id='qa'))
+        assert result.value.status_code==422
+        assert 'NAVIGATOR_CANDLES_INVALID' in result.value.detail
+>       assert build.await_args.kwargs['bars']==60
+E       assert 80 == 60
+
+/tmp/sterling-followup-review/test_chart_route.py:31: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../tmp/sterling-followup-review/test_chart_route.py::test_chart_has_one_unambiguous_route
+FAILED ../../../tmp/sterling-followup-review/test_chart_route.py::test_chart_candle_errors_are_validation_responses
+2 failed in 2.23s

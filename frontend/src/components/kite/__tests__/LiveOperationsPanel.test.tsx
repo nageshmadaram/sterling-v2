@@ -358,7 +358,7 @@ describe('LiveOperationsPanel', () => {
     get.mockResolvedValue(payload());
     renderPanel();
     await waitFor(() => expect(get).toHaveBeenCalled());
-    expect(get.mock.calls.every((call) => call[0] === '/api/v1/operations/family')).toBe(true);
+    expect(get.mock.calls.every((call) => call[0] === '/api/v1/operations/family' || call[0].startsWith('/api/v1/ops/runtime-identity?'))).toBe(true);
   });
 });
 

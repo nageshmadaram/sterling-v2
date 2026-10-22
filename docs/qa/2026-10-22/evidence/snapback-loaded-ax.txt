@@ -1,0 +1,125 @@
+Browser tab: 1, Title: "Sterling", URL: "http://127.0.0.1:5180/".
+0 AXWebArea Sterling, URL: 127.0.0.1:5180/
+	1 container
+		2 container root
+			3 container
+				4 button Description: Sterling Home, Help: Open KITE
+					5 container Sterling
+					6 text STERLING
+				7 button Description: Toggle Spectrum: KITE, Help: Switch to next selected workspace
+				8 button Dashboard
+				9 button PCR
+				10 button Positions
+				11 pop up button (collapsed) Tools ▾, Secondary Actions: Expand
+				12 pop up button (collapsed) Description: Choose theme, Secondary Actions: Expand
+				13 button (collapsed) Description: Sterling account profile, Secondary Actions: Expand
+				14 button ⋮, Help: More options
+				15 container Description: KITE workspace, ID: sterling-kite-surface
+					16 container VS Code Activity Rail
+						17 button ⯵, Help: Search & Command Palette (Ctrl+K)
+						18 button Main Dashboard
+						19 button PCR Analytics
+						20 button Positions
+						21 button More
+						22 button Description: Customize Layout, Help: Customize Workspace Layout
+						23 button Description: Kite Account Status, Help: Zerodha Kite Account & Session
+					24 container Signals pane
+						25 container Double-click to restore workspace
+							26 image
+							27 text Signals Right dock
+							28 button Description: Restore Signals, Help: Restore workspace
+								29 image
+							30 container kw-pane-actions-signals
+								31 button Re-scan Snapback, SuperTrend, Gamma Unwind, EMA Trend
+								32 checkbox Description: Board settings, Value: 0
+									33 image
+							34 button Minimize Signals
+								35 image
+							36 checkbox Description: Half screen Signals, Value: 0
+								37 image
+							38 checkbox Description: Maximize Signals, Value: 1
+								39 image
+							40 checkbox Description: Full screen Signals, Value: 0
+								41 image
+						42 container
+							43 tab group Signal engine
+								44 tab (selectable, settable, boolean) Description: SuperTrend, 17 live of 102 scanned, Value: 0
+								45 tab (selectable, settable, boolean) Description: Gamma Unwind, 0 live of 188 scanned, Value: 0
+								46 tab (selected, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 1
+								47 tab (selectable, settable, boolean) Description: EMA Trend, 0 live of 1000 scanned, Value: 0
+							48 container How this strategy works
+								49 text Finds stocks that moved too far, too fast. Buys an option that gains when the price comes back toward its average.
+								50 container
+									51 text 1  Tap a row to see the plan · 2  Press  B  to buy it yourself · 3  To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
+								52 button Hide this guide
+							53 pop up button (collapsed) Description: Columns, Help: Choose which columns this table shows, Secondary Actions: Expand
+							54 pop up button (collapsed) Description: MODES, Help: Show only some trading modes. Does not change scanning or orders., Secondary Actions: Expand
+							55 switch Description: BEST PICK, Value: 0, Help: Show only the nearest-the-money leg of each underlying — the one whose premium tracks the thesis most directly. A local filter.
+							56 switch Description: TODAY ONLY, Help: Show only signals generated today. Hides historical setups from yesterday and older sessions., Value: 0
+							57 switch Description: CLOSED 0, Help: Include closed positions. They are kept for the record and are not calls to action., Value: 1
+							58 container Snapback status
+								59 text 200  instruments ·  daily bars  · 
+								60 text MARKET CLOSED
+								61 text  · you can still place an after-market order
+							62 row
+								63 button (disabled) INSTRUMENT
+								64 button (disabled) EXC.
+								65 button (disabled) STRIKE
+								66 button (disabled) ENTRY
+								67 button (disabled) STOP
+								68 button (disabled) TRAIL
+								69 button (disabled) EXIT RULE
+								70 button (disabled) TARGET
+								71 button (disabled) DAY ±
+								72 button (disabled) DAY %
+								73 button (disabled) PRICE
+								74 button (disabled) P&L
+								75 button (disabled) TIME
+								76 button (disabled) TRADE
+								77 button (disabled) CHART
+							78 button (expanded) OLDER 1 SIGNAL, Secondary Actions: Collapse
+								79 image
+								80 text OLDER
+								81 text 1
+								82 text SIGNAL
+							83 button (collapsed) Description: FEDERALBNK Watching, Secondary Actions: Expand
+								84 button Open FEDERALBNK detail
+								85 text Swing
+								86 text NSE
+								87 text —
+								88 text U 344.80
+								89 text n/a
+								90 text —
+								91 text Not in trade
+								92 text U 332.23
+								93 text —
+								94 text —
+								95 text U 348.85
+								96 text —
+								97 text 19 Oct · day close
+								98 button (disabled) Description: Execute Snapback FEDERALBNK, Help: The signal is not armed.; No live quote for the contract.; No listed contract was resolved for the signal.; The swing signal's entry session is not today.
+								99 button Chart
+									100 image
+					101 container
+						102 button Description: Open basket, Help: Basket
+							103 image
+						104 container Minimized panes and Kite status
+							105 button LIVE, Help: Live trading. New entries allowed.
+							106 button KITE, Help: Connected · Madaram Nagesh · expires 06:00:00 IST
+							107 checkbox Description: Open replay dock, Help: Open the replay dock, Value: 0
+							108 button Watchlist, Help: Restore Watchlist
+								109 image
+								110 text Watchlist
+						111 container Workspace and engine status
+							112 button (collapsed) Layout, Help: Open workspace layouts, Secondary Actions: Expand
+								113 image
+								114 text Layout
+								115 image
+							116 text ALGO
+							117 text · Market closed
+			118 container The live stream has been silent for 24s. Data on screen may be out of date.
+				119 text STALE 24s
+				120 text The live stream has been silent for 24s. Data on screen may be out of date.
+				121 button Dismiss live feed warning
+
+The focused UI element is 46 tab (selected, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 1

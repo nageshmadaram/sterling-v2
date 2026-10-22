@@ -1,0 +1,6 @@
+{
+  "status": "PASS",
+  "output": "/tmp/sterling-checkout-build-9px128tp",
+  "git_sha": "ff137155a083b2c52981545ff94400764ad6c188",
+  "scope": "Real checkout build prefers Git over an unknown build input; uncommitted source validation, not release certification"
+}

@@ -11,7 +11,8 @@
  * green is shown. Cached data is demoted to a muted "last known" line, never
  * presented as current state.
  */
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '../../utils/api';
 import {
   LIVE_OPERATIONS_KEY,
   dataAgeSeconds,
@@ -30,6 +31,11 @@ import { EmaTrendOperations } from './board/EmaTrendOperations';
 import { useSimNowMs } from '../../hooks/useReplayStore';
 
 export function LiveOperationsPanel() {
+  const identity = useQuery<{ compatible: boolean; blockers: string[]; checkout_sha_at_start?: string; source_sha256_at_start?: string }>({
+    queryKey: ['runtime-identity'],
+    queryFn: () => api.get('/api/v1/ops/runtime-identity?frontend_sha=' + encodeURIComponent(import.meta.env.VITE_BUILD_SHA || 'UNKNOWN') + '&frontend_contract=' + encodeURIComponent(import.meta.env.VITE_API_CONTRACT || 'UNKNOWN')),
+    refetchInterval: 60000,
+  });
   const sim = useIsSimulation();
   const historical = useSimNowMs() !== null;
   const query = useLiveOperations();
@@ -48,6 +54,11 @@ export function LiveOperationsPanel() {
 
   return (
     <div data-testid="live-operations" style={{ padding: 10, minWidth: 0 }}>
+      <div role={identity.data?.compatible ? 'status' : 'alert'} style={{ padding: 8, fontSize: 12 }}>
+        Release compatibility: {identity.isError ? 'UNKNOWN — backend identity unavailable' : !identity.data ? 'checking' : identity.data.compatible ? 'matched' : identity.data.blockers?.join(', ') || 'UNKNOWN — incomplete identity response'}
+        <div>Backend startup: {identity.data?.checkout_sha_at_start || 'unknown'} · Frontend: {import.meta.env.VITE_BUILD_SHA || 'unknown'}</div>
+        <div>Backend source fingerprint: {identity.data?.source_sha256_at_start || 'unknown'}</div>
+      </div>
       <ModeBanner mode={payload?.production_mode ?? 'UNKNOWN'} unreachable={unreachable} />
 
       {unreachable && (

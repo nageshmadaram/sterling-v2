@@ -1,0 +1,42 @@
+[
+  {
+    "artifact": "backend-contracts.xml",
+    "tests": 251,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 251
+  },
+  {
+    "artifact": "backend-lifecycle.xml",
+    "tests": 296,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 296
+  },
+  {
+    "artifact": "backend-simulation-recovery.xml",
+    "tests": 728,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 5,
+    "passed": 723
+  },
+  {
+    "artifact": "backend-targeted.xml",
+    "tests": 222,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 222
+  },
+  {
+    "artifact": "defect-reproductions.xml",
+    "tests": 13,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "passed": 13
+  }
+]

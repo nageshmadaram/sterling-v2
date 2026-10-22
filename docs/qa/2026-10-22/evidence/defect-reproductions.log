@@ -1,0 +1,15 @@
+FRESH_CLOSED_BAR mode=ultra_scalping timeframe=1m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=scalping timeframe=1m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=scalping timeframe=3m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=scalping timeframe=5m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=intraday timeframe=5m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=intraday timeframe=15m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=intraday timeframe=30m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=overnight timeframe=30m observed=stale_or_unclosed_signal
+.FRESH_CLOSED_BAR mode=overnight timeframe=60m observed=ACCEPTED
+.FRESH_CLOSED_BAR mode=swing timeframe=60m observed=ACCEPTED
+.STALE_SIGNAL requested=regular result=ok sent_variety=amo quantity=50
+.STALE_SIGNAL requested=amo result=ok sent_variety=amo quantity=50
+.OFFLINE_AMO_WIRE [{"body": {"exchange": "NFO", "order_type": "LIMIT", "price": "100.05", "product": "NRML", "quantity": "75", "tradingsymbol": "NIFTY26OCT25000CE", "transaction_type": "BUY", "validity": "DAY"}, "method": "POST", "path": "/orders/amo"}, {"body": {}, "method": "DELETE", "path": "/orders/amo/QA-AMO-1"}]
+.
+13 passed in 2.12s

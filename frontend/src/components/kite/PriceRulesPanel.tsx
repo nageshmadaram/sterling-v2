@@ -59,12 +59,7 @@ export function PriceRulesPanel() {
       if (simulation || busy || query.isError || e.repeat || e.ctrlKey || e.altKey || e.metaKey || element?.isContentEditable ||
           ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(element?.tagName)) return;
       if (['1', '2', '3'].includes(e.key)) setLots(Number(e.key));
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        const open = query.data?.rules.filter(r => r.filled > Object.values(r.exits).reduce((n, o) => n + o.filled, 0)) || [];
-        // Requests remain bounded and serialized by the backend, including keyboard exits.
-        void (async () => { for (const r of open) { try { await exit.mutateAsync({ id: r.id, size: 100 }); } catch { break; } } })();
-      }
+
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -105,7 +100,7 @@ export function PriceRulesPanel() {
       <button disabled={busy || !symbol || !ready} onClick={() => publish.mutate()}>Publish entry plan</button>
       <label>Exit size <select value={percent} onChange={e => setPercent(Number(e.target.value))}>{[25, 50, 75, 100].map(v => <option key={v} value={v}>{v}%</option>)}</select></label>
     </div>
-    <p>Plans fire once. Conditions use fresh server prices. Account limits and entry brakes apply. Keys 1/2/3 select lots; Escape requests full owned exits outside input fields.</p>
+    <p>Plans fire once. Conditions use fresh server prices. Account limits and entry brakes apply. Keys 1/2/3 select lots. Use an explicit Exit action to close a position.</p>
     <div className="responsive-table"><table><thead><tr><th>Exact contract / account</th><th>Condition / state</th><th>Requested / filled / remaining</th><th>Broker protection</th><th>Actions</th></tr></thead><tbody>
       {query.data?.rules.map(r => { const left = r.filled - Object.values(r.exits).reduce((n, o) => n + o.filled, 0); return <tr key={r.id}>
         <td>{formatInstrument(r.symbol)}<br />{r.account_id}</td><td>{r.comparison === 'MANUAL' ? 'Manual' : `${r.watch} ${r.comparison} ${r.level}`}<br />{r.state}{r.error && <p role="alert">{r.error}</p>}</td>

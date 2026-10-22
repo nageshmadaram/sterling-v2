@@ -1155,28 +1155,21 @@ async def auctions(user: UserContext = Depends(get_current_user)):
     return await _run(user, lambda c: c.get_auctions())
 
 @router.get("/ipos")
-async def ipos(user: UserContext = Depends(get_current_user)):
-    """Fetch active IPOs."""
-    return [
-        {"name": "Susan Electricals India", "symbol": "SUSAN SME", "dates": "11th — 15th Jun", "price": "120 - 127", "qty": "2000 Qty.", "minAmount": "254000", "status": "Apply"},
-        {"name": "Horizon Reclaim (India)", "symbol": "HORIZON SME", "dates": "12th — 16th Jun", "price": "98 - 103", "qty": "2400 Qty.", "minAmount": "247200", "status": "Apply"},
-        {"name": "Cmr Green Technologies", "symbol": "CMRGREEN", "dates": "3rd — 5th Jun", "price": "182 - 192", "qty": "78 Qty.", "minAmount": "14976", "status": "closed"},
-        {"name": "Hexagon Nutrition", "symbol": "HEXAGON", "dates": "5th — 9th Jun", "price": "42 - 45", "qty": "333 Qty.", "minAmount": "14985", "status": "closed"},
-        {"name": "Rajnandini Fashion India", "symbol": "RFIL SME", "dates": "26th — 29th May", "price": "59 - 63", "qty": "4000 Qty.", "minAmount": "252000", "status": "closed"},
-        {"name": "Smr Jewels", "symbol": "SMR SME", "dates": "26th May — 3rd Jun", "price": "125 - 128", "qty": "2000 Qty.", "minAmount": "256000", "status": "closed"},
-        {"name": "Aureate Tradde", "symbol": "AUREATE SME", "dates": "29th May — 2nd Jun", "price": "70", "qty": "4000 Qty.", "minAmount": "280000", "status": "closed"},
-        {"name": "Merritronix", "symbol": "MRTX SME", "dates": "1st — 3rd Jun", "price": "141 - 149", "qty": "2000 Qty.", "minAmount": "298000", "status": "closed"},
-        {"name": "Vahh Chemicals", "symbol": "VAHH SME", "dates": "4th — 8th Jun", "price": "60", "qty": "4000 Qty.", "minAmount": "240000", "status": "closed"}
-    ]
+async def ipos(response: Response, user: UserContext = Depends(get_current_user)):
+    """No verified IPO feed is configured; never publish demonstration listings."""
+    response.headers["X-Data-Status"] = "unavailable"
+    response.headers["X-Data-As-Of"] = "unknown"
+    return []
+
 
 @router.get("/corporate-actions")
-async def corporate_actions(user: UserContext = Depends(get_current_user)):
-    """Fetch active corporate actions."""
-    return [
-        {"type": "BUYBACK", "symbol": "WIPRO", "startsAt": "Thu, 11 Jun 2026, 08:00", "endsOn": "Tue, 16 Jun 2026, 18:00", "offerPrice": "250.00"},
-        {"type": "TAKEOVER", "symbol": "SRDAPRT", "startsAt": "Thu, 11 Jun 2026, 08:10", "endsOn": "Wed, 24 Jun 2026, 13:00", "offerPrice": "115.00"},
-        {"type": "TAKEOVER", "symbol": "FBA", "startsAt": "Mon, 08 Jun 2026, 14:20", "endsOn": "Fri, 19 Jun 2026, 13:00", "offerPrice": "70.39"}
-    ]
+async def corporate_actions(response: Response, user: UserContext = Depends(get_current_user)):
+    """No verified corporate-action feed is configured."""
+    response.headers["X-Data-Status"] = "unavailable"
+    response.headers["X-Data-As-Of"] = "unknown"
+    return []
+
+
 @router.post("/holdings/authorise")
 async def authorise_holdings(body: InitiateHoldingsAuthRequest,
                              user: UserContext = Depends(get_current_user)):

@@ -1,0 +1,20 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_favorable_partial_fill_never_lowers_approved_stop ____________
+
+env = <tests.services.test_price_rules.env.<locals>.Client object at 0x75fe9c96a0c0>
+
+    @pytest.mark.asyncio
+    async def test_favorable_partial_fill_never_lowers_approved_stop(env):
+        r=await armed();await runtime.cycle(UID)
+        approved=store.load(UID)['rules'][r['id']]['stop']
+        env.qty=50;env.orders['O1'].update(filled_quantity=50,average_price=90,status='OPEN')
+        await runtime.cycle(UID)
+        first=store.load(UID)['rules'][r['id']]
+>       assert first['stop']>=approved
+E       assert 70.0 >= 80.0
+
+/tmp/sterling-followup-review/test_price_rule_risk_draft.py:11: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../tmp/sterling-followup-review/test_price_rule_risk_draft.py::test_favorable_partial_fill_never_lowers_approved_stop
+1 failed in 0.76s

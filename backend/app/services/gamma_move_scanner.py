@@ -256,11 +256,21 @@ def _to_candles(rows, *, oi: bool = False) -> list[Candle]:
 
 async def _historical(client, pacer: Pacer, token: int, interval: str,
                       frm: str, to: str, oi: bool) -> list:
-    await pacer.wait()
-    raw = await client.get_historical(
-        int(token), interval, frm, to, False, oi
-    )
-    return (raw.get("candles") if isinstance(raw, dict) else raw) or []
+    # These are idempotent market-data GETs; order writes never enter this retry.
+    import httpx
+    from app.services.exchanges.kite.errors import KiteNetworkError
+    for attempt in range(1, 4):
+        await pacer.wait()
+        try:
+            raw = await client.get_historical(int(token), interval, frm, to, False, oi)
+        except (TimeoutError, httpx.TransportError, KiteNetworkError) as exc:
+            if attempt == 3:
+                exc.add_note(f"historical_read attempts=3 token={token} interval={interval}")
+                raise
+            await asyncio.sleep(0.25 * (2 ** (attempt - 1)))
+            continue
+        return (raw.get("candles") if isinstance(raw, dict) else raw) or []
+
 
 
 async def _quote_batched(client, keys: list[str]) -> dict:
@@ -1064,6 +1074,20 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
     if not watches:
         return []
     fallback = int(datetime.now(IST).timestamp() * 1000)
+    # Receipt time is diagnostic only: it must never invent an exchange bar.
+    verified_ticks = []
+    for tick in ticks or []:
+        stamp = _tick_ts_ms(tick, 0)
+        local = datetime.fromtimestamp(stamp / 1000, IST) if stamp > 0 else None
+        if local is None or not dtime(9, 15) <= local.time() < dtime(15, 30):
+            diagnostics = _stats.setdefault(uid, {}).setdefault("tick_diagnostics", [])
+            diagnostics.append({"token": tick.get("instrument_token"),
+                                "source_timestamp_ms": stamp or None, "received_at_ms": fallback,
+                                "reason": "timestamp_missing" if local is None else "outside_continuous_session"})
+            del diagnostics[:-20]
+            continue
+        verified_ticks.append(tick)
+    ticks = verified_ticks
     signals = []
     changed_days: set[date] = set()
 

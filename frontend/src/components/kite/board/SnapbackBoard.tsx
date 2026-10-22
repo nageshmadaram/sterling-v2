@@ -174,7 +174,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const enabled = data?.config?.enabled === true;
   const manualCapability = data?.capabilities?.manual_execution;
   const autoCapability = data?.capabilities?.auto_execution;
-  const manualExecutable = manualCapability?.single_leg === true;
+  const manualExecutable = manualCapability?.single_leg === true && !(autoCapability?.session?.length);
   const autoExecutable = autoCapability?.available === true;
   const explainReason = (reason?: string | null) => reason?.replace(
     'external_exposure_unreadable', 'Broker inventory could not be verified',
@@ -225,7 +225,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
             : researchOnly
             ? <> · <strong style={{ color: k.amber }}>TEST MODE · NO REAL ORDERS</strong></>
             : (autoCapability?.session?.length ?? 0) > 0
-              ? <> · <strong style={{ color: k.amber }}>MARKET CLOSED</strong>{manualExecutable && !researchOnly ? <span style={{ color: k.dim }}> · you can still place an after-market order</span> : null}</>
+              ? <> · <strong style={{ color: k.amber }}>MARKET CLOSED</strong><span style={{ color: k.dim }}> · entries require an open session and a fresh plan</span></>
             : autoExecutable
               ? <> · <strong style={{ color: k.green }}>AUTO TRADING READY</strong></>
               : manualExecutable

@@ -57,3 +57,21 @@ def test_env_seed_ignores_placeholder_keys(monkeypatch, key):
     monkeypatch.setenv("KITE_API_KEY", key)
     monkeypatch.setenv("KITE_API_SECRET", "secret")
     assert auth.seed_from_env() is None
+
+
+def test_checkout_database_is_not_disposable_even_inside_temp(tmp_path, monkeypatch):
+    backend = tmp_path / 'checkout' / 'backend'
+    live = backend / 'sterling_paper.db'
+    monkeypatch.setattr(db, '_CHECKOUT_DB_PATH', str(live))
+    assert not db.is_disposable_path(str(live))
+    monkeypatch.setattr(db, '_DB_PATH', str(live))
+    with pytest.raises(RuntimeError, match='refusing to open'):
+        with db._conn():
+            pass
+    assert not live.exists()
+
+
+def test_temporary_fixture_database_remains_disposable(tmp_path, monkeypatch):
+    backend = tmp_path / 'checkout' / 'backend'
+    monkeypatch.setattr(db, '_CHECKOUT_DB_PATH', str(backend / 'sterling_paper.db'))
+    assert db.is_disposable_path(str(backend / 'fixture_test.db'))

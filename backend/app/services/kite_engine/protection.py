@@ -121,7 +121,7 @@ def _signed_delta(option_type: str, spot: float, strike: float, expiry: str) -> 
     return delta if delta != 0.0 else (0.5 if is_call else -0.5)
 
 
-def plan_for_symbol(uid: str, option_symbol: str) -> Optional[LegPlan]:
+def plan_for_symbol(uid: str, option_symbol: str, *, rows=None) -> Optional[LegPlan]:
     """The plan the board is displaying for ``option_symbol``, or None.
 
     The stop is the leg's CURRENT trail (`premium_sl`) — the number under the
@@ -140,7 +140,7 @@ def plan_for_symbol(uid: str, option_symbol: str) -> Optional[LegPlan]:
     if not want:
         return None
     fallback: Optional[LegPlan] = None
-    for row in _rows_for(uid):
+    for row in (_rows_for(uid) if rows is None else rows):
         for leg in (row.legs or []):
             if str(getattr(leg, "option_symbol", "")).upper() != want:
                 continue

@@ -16,8 +16,9 @@ cd backend
 PYTHONWARNINGS=ignore .venv/bin/pytest tests/ -q -p no:cacheprovider
 ```
 
-This runs the full ~1250-test suite in well under a minute (vs many minutes with
-warning capture).
+The backend suite now contains more than 11,000 cases. A full local run can take
+around 20 minutes; do not infer completion from an old test count or timing.
+Warning suppression reduces logging overhead without changing assertions.
 
 ## Known suite characteristics
 
@@ -26,9 +27,10 @@ warning capture).
   fail in the full run due to shared module-level state. `tests/conftest.py`
   resets a lot of global state between tests, but not all. Treat the **failure
   set diff vs `main`** (not the absolute count) as the regression signal.
-- **One live-socket test** (`test_delta_iv_socket.py::test_lifespan_starts_iv_stream_only_when_env_set`)
-  can hang on a real socket; deselect it for unattended runs:
-  `--deselect "tests/test_delta_iv_socket.py::test_lifespan_starts_iv_stream_only_when_env_set"`.
+- **Skip reporting.** Use `-rs` to record actual skipped cases. Historical
+  instructions referenced a removed Delta socket test; that selector no longer
+  excludes a current test. Keep broker fixtures isolated and do not introduce
+  blanket exclusions to make a run green.
 
 ## Test types in this codebase
 

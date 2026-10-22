@@ -133,3 +133,10 @@ async def resume_safe_mode(
         )
     except live_runtime.SafeModeResumeRefused as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.get("/runtime-identity")
+def runtime_identity(frontend_sha: str = "", frontend_contract: str = "",
+                     _user: UserContext = Depends(get_current_user)) -> dict:
+    from app.core.runtime_identity import diagnostics
+    return diagnostics(frontend_sha[:64], frontend_contract[:64])

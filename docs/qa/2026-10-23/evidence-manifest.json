@@ -1,0 +1,135 @@
+{
+  "generated_at": "2026-10-23T02:51:01.222782+05:30",
+  "files": [
+    {
+      "path": "SYNC_AND_FOLLOWUP.md",
+      "bytes": 9993,
+      "sha256": "363df16c4b2f6eeb5b896a5eff644d0befad2e635db1eef89860bf0e9894e27e"
+    },
+    {
+      "path": "evidence/archive-build-result.json",
+      "bytes": 243,
+      "sha256": "d2312d39f43c38248c10958841d1280744293ddb85eb0c200014349ed9e63c43"
+    },
+    {
+      "path": "evidence/artifact-metadata-before.log",
+      "bytes": 7596,
+      "sha256": "d63806e355a372d4eccea0188e715fce433e29d4bfbb0ca22074a87362b27644"
+    },
+    {
+      "path": "evidence/backend-full.log",
+      "bytes": 16189,
+      "sha256": "1d36fbd0bbf79ae0ef1d0f104d5f9010eef60fb75c45a8f9245e92e6f01ae49c"
+    },
+    {
+      "path": "evidence/baseline-failures.txt",
+      "bytes": 76,
+      "sha256": "214544942a1e993c247a0aaeed887d33a8809ad19b4e75e3316f2d65c11be574"
+    },
+    {
+      "path": "evidence/checkout-build-result.json",
+      "bytes": 265,
+      "sha256": "db345458d920e56a7c17f4fb0f0df17769775a4e1fb3420db43d67bd6f7bc9de"
+    },
+    {
+      "path": "evidence/database-guard-before.log",
+      "bytes": 1569,
+      "sha256": "8664b155c2d55d3fda781604ce4b0e430c8861e2f918ac52b69c4c7feae245c6"
+    },
+    {
+      "path": "evidence/database-safety-tests.log",
+      "bytes": 181,
+      "sha256": "64d489940da468c298b7d2d2f919b6095fb77a7dbcdb54ffc1959aee7efa246d"
+    },
+    {
+      "path": "evidence/final-failure-comparison.json",
+      "bytes": 357,
+      "sha256": "922fc331b3a5f6121431317a59c7de1918c962b216063f48143924e7e07528d4"
+    },
+    {
+      "path": "evidence/followup-backend.log",
+      "bytes": 180,
+      "sha256": "9a4bb70f95bc1c5d131c44736df4d73205a526c8b76def2fe3c20ab3b0299ee4"
+    },
+    {
+      "path": "evidence/followup-frontend.log",
+      "bytes": 425,
+      "sha256": "244d5e21f6afd5b13b684657a6784be575496bff2e9c36746c1c1b61b95b3959"
+    },
+    {
+      "path": "evidence/frontend-full.log",
+      "bytes": 2048,
+      "sha256": "529d2c311b04b53a9cff28b07a28d8c44902f1cbe5856bd61632b81ce84fca24"
+    },
+    {
+      "path": "evidence/github-baseline-ci-annotations.json",
+      "bytes": 864,
+      "sha256": "12c0b7985cb6a3eb54a5cff09f97deb9da3c0dec5d2ca717eede31d7a960ddd2"
+    },
+    {
+      "path": "evidence/gitless-build-result.json",
+      "bytes": 219,
+      "sha256": "e075275006070f28434b96e502338fc828a5912e0550d03c1789b481244ef90a"
+    },
+    {
+      "path": "evidence/gitless-build.log",
+      "bytes": 12328,
+      "sha256": "83de68bac7126a5b1e328a4a5f80c4fd50ff69b40ac48de1bd921d016b607fa7"
+    },
+    {
+      "path": "evidence/history-retry-before.log",
+      "bytes": 3542,
+      "sha256": "bde8fb56e9b64530bfc3a1b0182ebb6bca0e9ac06c7b571cc9cec94551d12e42"
+    },
+    {
+      "path": "evidence/missing-target-before.log",
+      "bytes": 1610,
+      "sha256": "40bc8014ae92b581a42a0b8a222733e4206fc0b5c42a9c31faebd3776287c839"
+    },
+    {
+      "path": "evidence/navigator-route-before.log",
+      "bytes": 2437,
+      "sha256": "69d16431474ee994af649fd578e66bd3838bdb9df3dde12f54440a0a8f909bad"
+    },
+    {
+      "path": "evidence/original-head-failures.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/partial-fill-risk-before.log",
+      "bytes": 1089,
+      "sha256": "4572987bf928e4a7e990fab9c707185ff71097e6ea38636446a2eeb42e992f9e"
+    },
+    {
+      "path": "evidence/publisher-before.log",
+      "bytes": 3121,
+      "sha256": "b9a7ed9b65fc01f371bc39d5dcac878bd81c58d2bf1378804db8392c80318d77"
+    },
+    {
+      "path": "evidence/publisher-tests.log",
+      "bytes": 179,
+      "sha256": "75fcb27cec3c96f676329799accd1fe58b6d240e1d2517bd0f4252c32599b8bc"
+    },
+    {
+      "path": "evidence/regression-gate.log",
+      "bytes": 255,
+      "sha256": "2c01b09e899285c8f5895c0cc3ca1d49751648089484ca8ebff40f06769a7a5f"
+    },
+    {
+      "path": "evidence/runtime-identity-before.log",
+      "bytes": 2828,
+      "sha256": "b772f14d490b424dc52a4bba091dfbae4da4b85fd43c55a43248f275ff89dac6"
+    },
+    {
+      "path": "evidence/secret-scan-final.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "evidence/secret-scan.log",
+      "bytes": 32,
+      "sha256": "c2d56a8f417b06f100be4cd3774762ad94861000892b6467e0c8227f8a05402f"
+    }
+  ]
+}

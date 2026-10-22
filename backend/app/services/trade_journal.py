@@ -51,7 +51,7 @@ log = get_logger(__name__)
 IST = timezone(timedelta(hours=5, minutes=30))
 MODE_LIVE, MODE_SIMULATION = identity.MODE_LIVE, identity.MODE_SIMULATION
 
-STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend")
+STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend", "price_rules")
 _ID_PREFIX = {"supertrend": "ST", "snapback": "SB", "gamma": "GU"}
 
 PENDING, OPEN, CLOSED, REJECTED = "PENDING", "OPEN", "CLOSED", "REJECTED"
@@ -683,7 +683,8 @@ def trade_status(trade_id: str) -> Optional[str]:
 def record_event(*, event_type: str, trade_id: Optional[str] = None, uid: str = "", strategy: str = "",
                  symbol: str = "", key: object = "", ts_ms: Optional[int] = None, detail: str = "",
                  price: Optional[float] = None, qty: Optional[int] = None, pnl: Optional[float] = None,
-                 data: Optional[Dict[str, Any]] = None, event_key: Optional[str] = None) -> Optional[str]:
+                 data: Optional[Dict[str, Any]] = None, event_key: Optional[str] = None,
+                 cumulative: bool = False) -> Optional[str]:
     """Append one timeline event; a repeat of the same ``event_key`` is ignored.
 
     The trade is named by ``trade_id`` or by ``(uid, strategy, symbol, key)``. An event for a trade
@@ -700,7 +701,7 @@ def record_event(*, event_type: str, trade_id: Optional[str] = None, uid: str = 
             return None
         ekey = event_key or _default_event_key(event_type, now, detail, price)
         fresh = _insert_event(conn, tid, event_type, now, ekey, price=price, qty=qty, pnl=pnl,
-                              detail=detail, data=data)
+                              detail=detail, data=data, cumulative=cumulative)
         if fresh:
             _after_event(t, event_type, now, _num(price), data)
             t["updated_ms"] = now

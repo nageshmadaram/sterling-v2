@@ -28,10 +28,10 @@ _UNDERLYINGS = ["NIFTY 50"]
 
 
 @pytest.fixture(autouse=True)
-def isolated_db():
+def isolated_db(monkeypatch):
     fd, path = tempfile.mkstemp()
     os.close(fd)
-    db._DB_PATH = path
+    monkeypatch.setattr(db, "_DB_PATH", path)
     db.init()
     nav_service.clear_cache(_UID)
     yield

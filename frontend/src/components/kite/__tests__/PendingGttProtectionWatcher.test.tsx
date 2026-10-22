@@ -61,3 +61,11 @@ describe('PendingGttProtectionWatcher', () => {
     expect(pending[0].orderId).toBe('o2');
   });
 });
+
+it('quarantines a legacy option GTT instead of duplicating engine protection', async () => {
+  useKitePendingProtectionStore.getState().add({ orderId: 'option-1', gtt: { ...gtt(), exchange: 'NFO' } });
+  mockOrders = [{ order_id: 'option-1', status: 'COMPLETE' }];
+  render(<PendingGttProtectionWatcher />);
+  await waitFor(() => expect(useKitePendingProtectionStore.getState().pending).toHaveLength(0));
+  expect(mockGttMutate).not.toHaveBeenCalled();
+});

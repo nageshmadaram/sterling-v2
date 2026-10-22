@@ -32,14 +32,16 @@ import {
 export function explainOrderOutcome(raw: string): { title: string; detail: string; tone: 'info' | 'error' } {
   const m = String(raw || '').trim();
   const l = m.toLowerCase();
+  if (/uncertain|unknown.*outcome|reconciliation required/.test(l))
+    return { title: 'Order outcome unknown', detail: `Check Orders and reconciliation before submitting again. Reply: ${m}`, tone: 'info' };
   if (/insufficient|margin|funds|capital_unavailable|capital/.test(l))
     return { title: 'Not bought: not enough funds', detail: `Zerodha or Sterling checked the account and the funds do not cover this order. Reply: ${m}`, tone: 'info' };
   if (/\bip\b|whitelist|static ip|ip address|egress/.test(l))
     return { title: 'Zerodha refused: IP not registered', detail: `This server's IP is not registered for API orders on your Zerodha account. Reply: ${m}`, tone: 'info' };
+  if (/market is closed|market_session_closed|after market|amo|stale_or_closed_manual_signal/.test(l))
+    return { title: 'Entry not authorized for this session', detail: `Wait for an open session and review a fresh strategy plan. Reply: ${m}`, tone: 'info' };
   if (/token|session|log ?in|access_token|api_key/.test(l))
     return { title: 'Kite session expired', detail: `Log in to Kite again, then place the order. Reply: ${m}`, tone: 'info' };
-  if (/market is closed|after market|amo/.test(l))
-    return { title: 'Market closed', detail: `Place it as an After Market Order, or wait for the open. Reply: ${m}`, tone: 'info' };
   if (/daily.?loss|halt|kill switch|safe mode|admission|blocked|refus/.test(l))
     return { title: 'Stopped by a safety check', detail: m, tone: 'info' };
   return { title: 'Order failed', detail: m || 'No reply from the broker.', tone: 'error' };
@@ -85,6 +87,7 @@ export function OrderWindow({ options, onClose }: Props) {
     symbol: options.symbol, exchange: options.exchange,
     lotSize: options.lotSize, lastPrice: options.lastPrice || 0,
   });
+  const engineOwnedProtection = ['NFO', 'BFO'].includes(instr.exchange) && /(?:CE|PE)$/.test(instr.symbol);
   const lot = effectiveLot(instr.lotSize);
   const carryProduct = defaultProduct(instr.exchange);
 
@@ -281,7 +284,7 @@ export function OrderWindow({ options, onClose }: Props) {
         // order actually fills (see PendingGttProtectionWatcher), not fired
         // on mere submission-acceptance.
         // Carry + Astro MIS lots attach a protective GTT once the order fills.
-        if ((product !== 'MIS' || options.tag === 'ASTRO') && (slOn || tgtOn)) {
+        if (!engineOwnedProtection && res?.protection_owner !== 'engine' && (product !== 'MIS' || options.tag === 'ASTRO') && (slOn || tgtOn)) {
           const base = needsPrice(orderType) ? price : instr.lastPrice;
           const gtt = buildProtectionGtt({
             tradingsymbol: instr.symbol, exchange: instr.exchange, entrySide: side, quantity: qty,
@@ -310,8 +313,9 @@ export function OrderWindow({ options, onClose }: Props) {
         ? `This plan's stop (${planStop.toFixed(2)}) is at or above the price (${entryPx.toFixed(2)}), so it would sell at once. Skip this leg.`
         : null)
     : null;
-  const buyDisabled = placing || !!nudge?.blocked || (amoConfirmNeeded && !amoConfirmed) || !!planBlock;
-  const buyHint = planBlock
+  const amoPolicyBlocked = engineOwnedProtection && side === 'BUY' && amoConfirmNeeded;
+  const buyDisabled = amoPolicyBlocked || placing || !!nudge?.blocked || (amoConfirmNeeded && !amoConfirmed) || !!planBlock;
+  const buyHint = (amoPolicyBlocked ? 'Strategy AMO is unavailable. Review a fresh plan during an open session.' : null) || planBlock
     || (amoConfirmNeeded && !amoConfirmed ? 'Tick "After Market Order" above to place it for the next session.' : '');
 
   const addToBasket = useKiteBasketStore((s) => s.add);
@@ -414,7 +418,7 @@ export function OrderWindow({ options, onClose }: Props) {
                 </div>
 
                 {/* Protective GTT — carry always; Astro MIS lots too */}
-                {(product !== 'MIS' || options.tag === 'ASTRO') && (
+                {!engineOwnedProtection && (product !== 'MIS' || options.tag === 'ASTRO') && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderTop: `1px solid ${k.border}`, paddingTop: 12, fontSize: 12 }}>
                     <GttIcon />
                     <PctToggle accent={accent} label="Stoploss" on={slOn} setOn={setSlOn} pct={slPct} setPct={setSlPct} defaultPct={-5} />
@@ -489,7 +493,7 @@ export function OrderWindow({ options, onClose }: Props) {
                 )}
 
                 {/* Protective GTT — carry always; Astro MIS lots too */}
-                {(product !== 'MIS' || options.tag === 'ASTRO') && (
+                {!engineOwnedProtection && (product !== 'MIS' || options.tag === 'ASTRO') && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, borderTop: `1px solid ${k.border}`, paddingTop: 14 }}>
                     <GttIcon />
                     <PctToggle accent={accent} label="Stoploss" on={slOn} setOn={setSlOn} pct={slPct} setPct={setSlPct} defaultPct={-5} />
@@ -511,7 +515,8 @@ export function OrderWindow({ options, onClose }: Props) {
               </div>); })()}
             {!error && buyHint && <div style={{ padding: '6px 16px', color: k.dim, fontSize: 11.5 }}>{buyHint}</div>}
 
-            {amoConfirmNeeded && (
+            {engineOwnedProtection && <p role="status" style={{ padding: '0 16px', fontSize: 12 }}>The engine owns protection from the admitted server plan; ticket percentages do not change it. {amoPolicyBlocked ? 'Strategy AMO entries are unavailable; review a fresh plan during an open session.' : ''}</p>}
+            {amoConfirmNeeded && !amoPolicyBlocked && (
               <div style={{ padding: '8px 16px', background: tint(k.amber, 12), color: 'var(--k-warn-ink)', fontSize: 12 }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
                   <input type="checkbox" checked={amoConfirmed} onChange={(e) => setAmoConfirmed(e.target.checked)} style={{ accentColor: k.amber, width: 14, height: 14, flexShrink: 0 }} />

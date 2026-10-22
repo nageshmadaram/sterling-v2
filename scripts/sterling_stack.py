@@ -647,7 +647,7 @@ class CommittedFrontend:
             with (STATE/'release-build.log').open('a') as log:
                 subprocess.run(['npm','run','build'],
                                cwd=self.frontend,
-                               env={**clean_env(),'VITE_API_BASE_URL':''},
+                               env={**clean_env(),'VITE_API_BASE_URL':'','STERLING_BUILD_SHA':sha},
                                stdout=log,stderr=log,
                                timeout=360,check=True)
             built=self.frontend/'dist'

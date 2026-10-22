@@ -40,10 +40,10 @@ daily-loss halt at -1,500 INR by default.
 
 ## 3. Your first session
 
-1. Start the backend (`./sterlingctl start`, or the systemd service) and log in to
+1. Start the backend (`scripts/sterlingctl start`, or the systemd service) and log in to
    Kite from the Sterling UI before 09:15 IST. The first login binds the account to
    your Zerodha identity.
-2. Check `./sterlingctl status`: NORMAL, broker connected, no unresolved orders.
+2. Check `scripts/sterlingctl status`: NORMAL, broker connected, no unresolved orders.
 3. Confirm the caps in your environment file: `STERLING_LIVE_EXECUTION=true`,
    `STERLING_LIVE_MINIMUM_MAX_LOTS=1`.
 4. Watch the first entry of each strategy in the Kite app: the order, the fill and
@@ -56,15 +56,15 @@ daily-loss halt at -1,500 INR by default.
 Everything is one command. Run them from the Sterling folder.
 
 ```bash
-./sterlingctl status          # what Sterling is doing right now
-./sterlingctl doctor          # configuration and safety checks; read every FAIL
-./sterlingctl start           # runs the start sequence, stops at the first failed step
-./sterlingctl stop
-./sterlingctl safe on         # block new trades immediately
-./sterlingctl safe off --ack  # allow them again (only after you fixed the cause)
-./sterlingctl reconcile       # compare Sterling's view against the broker's
-./sterlingctl backup          # checksummed backup with a manifest
-./sterlingctl restore-check   # prove the latest backup actually restores
+scripts/sterlingctl status          # what Sterling is doing right now
+scripts/sterlingctl doctor          # configuration and safety checks; read every FAIL
+scripts/sterlingctl start           # runs the start sequence, stops at the first failed step
+scripts/sterlingctl stop
+scripts/sterlingctl safe on         # block new trades immediately
+scripts/sterlingctl safe off --ack  # allow them again (only after you fixed the cause)
+scripts/sterlingctl reconcile       # compare Sterling's view against the broker's
+scripts/sterlingctl backup          # checksummed backup with a manifest
+scripts/sterlingctl restore-check   # prove the latest backup actually restores
 ```
 
 A `doctor` exit code of **2** means a check could not be run at all. That is not

@@ -31,7 +31,7 @@ function NothingYet({ filters }: { filters: JournalFilters }) {
         <div style={{ fontWeight: 600, color: 'var(--k-ink-1)', marginBottom: 4 }}>What this page will show once trades happen</div>
         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
           <li>How it is going: profit or loss, how often trades win, and the biggest win and loss.</li>
-          <li>Which strategy is earning: Supertrend, Snapback and Gamma Unwind side by side.</li>
+          <li>Which strategy is earning: Supertrend, Snapback, Gamma Unwind, EMA Trend and Price Rules side by side.</li>
           <li>Profit over time, and how each day ended.</li>
           <li>Every trade, with the full story of why it entered and how it ended.</li>
           <li>Signals the app skipped, with the reason (listed below when there are any).</li>

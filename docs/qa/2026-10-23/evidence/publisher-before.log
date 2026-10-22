@@ -1,0 +1,58 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_committed_publish_is_atomic_and_failed_build_keeps_last_success _____
+
+tmp_path = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-30/test_committed_publish_is_atom0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7cf6c965e840>
+
+    def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_path,monkeypatch):
+     from types import SimpleNamespace
+     state=tmp_path/'release-state'
+     state.mkdir()
+     monkeypatch.setattr(stack,'STATE',state)
+     publisher=stack.CommittedFrontend()
+     current=['a'*40]
+     monkeypatch.setattr(publisher,'resolve_commit',lambda:current[0])
+     def committed_extract(sha):
+      publisher.frontend.mkdir(parents=True,exist_ok=True)
+      (publisher.frontend/'package-lock.json').write_text('{"lockfileVersion":3}')
+      # Deliberately leave stale contents: promotion must clear them before build.
+      (publisher.frontend/'dist').mkdir(exist_ok=True)
+      (publisher.frontend/'dist/leftover.js').write_text('STALE')
+     monkeypatch.setattr(publisher,'_extract',committed_extract)
+     monkeypatch.setattr(publisher,'_dependencies',lambda:None)
+     fail=[False]
+     def simulated_build(command,**kwargs):
+      assert command==['npm','run','build']
+      assert kwargs['env']['STERLING_BUILD_SHA']==current[0]
+      assert not (publisher.frontend/'dist/leftover.js').exists()
+      if fail[0]:
+       raise subprocess.CalledProcessError(1,command)
+      (publisher.frontend/'dist').mkdir(exist_ok=True)
+      (publisher.frontend/'dist/index.html').write_text(f'BUILD {current[0]}')
+      (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
+      (publisher.frontend/'dist/assets/old.js').write_text('OLD HASHED ASSET')
+      return SimpleNamespace(returncode=0)
+     monkeypatch.setattr(stack.subprocess,'run',simulated_build)
+>    sha,changed=publisher.publish()
+                 ^^^^^^^^^^^^^^^^^^^
+
+tests/test_public_access_stack.py:780: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../scripts/sterling_stack.py:648: in publish
+    subprocess.run(['npm','run','build'],
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+command = ['npm', 'run', 'build']
+kwargs = {'cwd': PosixPath('/tmp/pytest-of-nageshmadaram/pytest-30/test_committed_publish_is_atom0/release-state/committed-sour...geshmadaram/pytest-30/test_committed_publish_is_atom0/release-state/release-build.log' mode='a' encoding='UTF-8'>, ...}
+
+    def simulated_build(command,**kwargs):
+     assert command==['npm','run','build']
+>    assert kwargs['env']['STERLING_BUILD_SHA']==current[0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E    KeyError: 'STERLING_BUILD_SHA'
+
+tests/test_public_access_stack.py:770: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_public_access_stack.py::test_committed_publish_is_atomic_and_failed_build_keeps_last_success
+1 failed in 1.02s

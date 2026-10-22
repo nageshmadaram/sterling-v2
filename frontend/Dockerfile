@@ -2,6 +2,9 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+ARG STERLING_BUILD_SHA=UNKNOWN
+ENV STERLING_BUILD_SHA=$STERLING_BUILD_SHA
+
 # Accept optional VITE_API_BASE_URL build arg
 # Empty string = use nginx proxy (recommended for Docker deployment)
 # Set to http://your-backend-host:8000 for custom deployments

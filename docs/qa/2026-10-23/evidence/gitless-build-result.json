@@ -1,0 +1,6 @@
+{
+  "status": "PASS",
+  "context": "/tmp/sterling-gitless-build-4lt4jgdd",
+  "identity": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scope": "synthetic Git-less build identity propagation; not a deployed artifact"
+}

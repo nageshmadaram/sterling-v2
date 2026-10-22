@@ -576,30 +576,24 @@ export function usePlaceKiteOrder() {
     onSuccess: (data, body) => {
       qc.invalidateQueries({ queryKey: ['kite-orders'] });
       qc.invalidateQueries({ queryKey: ['kite-engine-open-positions'] });
-      const amo = !!data?.amo;  // backend auto-converted a market-closed order to AMO
-      // An F&O option BUY placed here is registered and armed by the engine (this is
-      // the endpoint the signal board's Buy reaches). Whether that succeeded is the
-      // single most important thing to say afterwards: the board renders an SL, a TSL
-      // and a Target beside the position either way, so an entry with nothing guarding
-      // it has to be named here rather than left looking protected.
-      const unprotected = data?.protected === false;
+      const amo = data?.variety === 'amo' || data?.amo === true;
+      const awaitingFill = data?.execution_state === 'ACKNOWLEDGED';
+      const unprotected = data?.protected === false && !awaitingFill;
       notifyOrder({
-        kind: amo ? 'open' : unprotected ? 'info' : 'placed',
-        title: amo ? 'Placed as AMO'
-          : unprotected ? 'Order placed — UNPROTECTED' : 'Order placed',
-        message: (amo
-          ? `${body.transaction_type} ${body.quantity} ${body.tradingsymbol} — market closed, queued as an AMO for the next open.`
-          : `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}.`)
-          + (data?.protection
-            ? ` ${unprotected ? 'No automatic exit' : 'Protected'}: ${data.protection}.`
-            : ''),
+        kind: unprotected ? 'info' : 'open',
+        title: amo ? 'AMO acknowledged — awaiting session'
+          : awaitingFill ? 'Entry acknowledged — fill pending'
+          : unprotected ? 'Order submitted — protection unverified' : 'Order submitted',
+        message: `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}.`
+          + (data?.protection ? ` ${data.protection}.` : ' Check the order book for confirmed fills.'),
         orderId: data?.order_id,
       });
     },
     onError: (err, body) => {
+      const unknown = /uncertain|unknown.*outcome|reconciliation required/i.test(err.message);
       notifyOrder({
-        kind: 'rejected',
-        title: 'Order rejected',
+        kind: unknown ? 'info' : 'rejected',
+        title: unknown ? 'Order outcome unknown — reconcile before retrying' : 'Order rejected',
         message: `${body.transaction_type} ${body.tradingsymbol} — ${err.message}`,
       });
     },

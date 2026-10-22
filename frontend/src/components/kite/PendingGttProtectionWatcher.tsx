@@ -26,6 +26,14 @@ export function PendingGttProtectionWatcher() {
   useEffect(() => {
     if (!orders || pending.length === 0) return;
     for (const entry of pending) {
+      if (['NFO', 'BFO'].includes(entry.gtt.exchange)) {
+        // Legacy option tickets must not create a second stop alongside the
+        // canonical engine. Quarantine the old request and surface ownership.
+        remove(entry.orderId);
+        notifyOrder({ kind: 'info', title: 'Engine protection owns this option',
+          message: `Legacy browser GTT request for ${entry.orderId} removed. Verify engine protection in Positions.` });
+        continue;
+      }
       if (firing.current.has(entry.orderId)) continue;
       const order = orders.find((o: any) => o.order_id === entry.orderId);
       if (!order) continue;

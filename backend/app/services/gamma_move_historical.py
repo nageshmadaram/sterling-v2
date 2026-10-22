@@ -178,7 +178,8 @@ async def _underlyings(uid: str, cfg: GammaMoveConfig, client, day: date):
                 atr_pct=daily_atr_pct(daily),
             )
         except Exception as exc:  # noqa: BLE001
-            errors.append(f"{name}: {exc}")
+            notes = "; ".join(map(str, getattr(exc, "__notes__", [])[:2]))[:160]
+            errors.append(f"{name}: historical_underlyings {type(exc).__name__}: {str(exc)[:240] or 'no error detail'} (session={day}; {notes})")
     return dump, out, errors, master_notes
 
 

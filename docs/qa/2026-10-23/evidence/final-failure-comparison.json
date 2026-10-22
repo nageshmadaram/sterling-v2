@@ -1,0 +1,10 @@
+{
+  "base_commit": "ff137155a083b2c52981545ff94400764ad6c188",
+  "final_full_failures": [],
+  "baseline_failures": [
+    "tests/unit/test_live_db_guard.py::test_a_spawned_process_inherits_the_guard"
+  ],
+  "new_failures": [],
+  "result": "PASS",
+  "scope": "Final trading-backend full suite plus separately recorded late test-safety and publisher checks"
+}
