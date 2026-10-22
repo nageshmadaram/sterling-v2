@@ -26,20 +26,20 @@ export interface SignalColumnDef {
 /** Flows next to the instrument name, which is the only flexible cell. */
 export const SIGNAL_LEFT_COLUMNS: Record<string, SignalColumnDef> = {
   exc: { key: 'exc', label: 'Exc.', width: 40, align: 'left', sortKey: 'exc', visibleWhen: 'exchange' },
-  leg: { key: 'leg', label: 'Leg (Δ)', width: 78, align: 'right', sortKey: 'leg', visibleWhen: 'leg' },
-  entry: { key: 'entry', label: 'Entry (Δpts)', width: 96, align: 'right', sortKey: 'entry', visibleWhen: 'premium' },
-  sl: { key: 'sl', label: 'SL', width: 56, align: 'right', sortKey: 'sl', visibleWhen: 'premium' },
-  tsl: { key: 'tsl', label: 'TSL', width: 56, align: 'right', sortKey: 'stop', visibleWhen: 'premium' },
-  exit: { key: 'exit', label: 'Exit', width: 58, align: 'right', visibleWhen: 'always', tooltip: 'Progress toward the rule that closes the position' },
-  target: { key: 'target', label: 'Target', width: 44, align: 'right', visibleWhen: 'premium', tooltip: 'Where the plan gets out, for an engine that quotes one' },
+  leg: { key: 'leg', label: 'Strike', width: 78, align: 'right', sortKey: 'leg', visibleWhen: 'leg', tooltip: 'Which option to buy: ITM, ATM or OTM. Δ is how much it moves for each 1-point move in the index.' },
+  entry: { key: 'entry', label: 'Entry', width: 96, align: 'right', sortKey: 'entry', visibleWhen: 'premium', tooltip: 'Price to buy at. The small number is how far the live price is from it.' },
+  sl: { key: 'sl', label: 'Stop', width: 56, align: 'right', sortKey: 'sl', visibleWhen: 'premium', tooltip: 'Stop loss: the trade is sold if the price falls to this.' },
+  tsl: { key: 'tsl', label: 'Trail', width: 56, align: 'right', sortKey: 'stop', visibleWhen: 'premium', tooltip: 'Trailing stop: it moves up as the price rises, to lock in profit.' },
+  exit: { key: 'exit', label: 'Exit rule', width: 58, align: 'right', visibleWhen: 'always', tooltip: 'What closes the trade, and how close it is.' },
+  target: { key: 'target', label: 'Target', width: 44, align: 'right', visibleWhen: 'premium', tooltip: 'Price where the plan takes profit.' },
 };
 
 /** Pinned to the far end, after the action buttons. */
 export const SIGNAL_RIGHT_COLUMNS: Record<string, SignalColumnDef> = {
-  chg: { key: 'chg', label: 'Chg.', width: 50, align: 'right', sortKey: 'chg', visibleWhen: 'chg' },
-  chgPct: { key: 'chgPct', label: 'Chg. %', width: 60, align: 'right', sortKey: 'chgPct', visibleWhen: 'chgPct' },
+  chg: { key: 'chg', label: 'Day ±', width: 50, align: 'right', sortKey: 'chg', visibleWhen: 'chg', tooltip: 'Change in price today.' },
+  chgPct: { key: 'chgPct', label: 'Day %', width: 60, align: 'right', sortKey: 'chgPct', visibleWhen: 'chgPct', tooltip: 'Change in price today, in percent.' },
   dir: { key: 'dir', label: '', width: 14, align: 'right', visibleWhen: 'dir' },
-  ltp: { key: 'ltp', label: 'LTP', width: 70, align: 'right', sortKey: 'ltp', visibleWhen: 'always' },
+  ltp: { key: 'ltp', label: 'Price', width: 70, align: 'right', sortKey: 'ltp', visibleWhen: 'always', tooltip: 'Last traded price.' },
   /** Rupee P&L of an open or closed position. A setup never entered shows a dash. */
   pnl: { key: 'pnl', label: 'P&L', width: 70, align: 'right', visibleWhen: 'always' },
   /**

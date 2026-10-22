@@ -303,7 +303,7 @@ describe('the board renderer', () => {
  * The shared renderer draws its own header. The first version of this wiring
  * replaced only the ROWS and left the bespoke heading strip in place, so both
  * rendered and every column label appeared twice. It surfaced as "Found multiple
- * elements with the text: Entry (Δpts)" while trial-flipping the default — the
+ * elements with the text: Entry" while trial-flipping the default — the
  * kind of thing that is obvious in a test and easy to miss on a screen, because
  * two identical strips stacked read as one slightly tall one.
  */
@@ -369,7 +369,7 @@ describe('the shared renderer asks for this engine’s columns', () => {
     const heads = headings();
     expect(heads[0]).toBe('Instrument');
     // Its own set, matching the persisted left-then-right order.
-    for (const own of ['Exc.', 'Leg (Δ)', 'Entry (Δpts)', 'LTP', 'Time']) {
+    for (const own of ['Exc.', 'Strike', 'Entry', 'Price', 'Time']) {
       expect(heads, own).toContain(own);
     }
   });

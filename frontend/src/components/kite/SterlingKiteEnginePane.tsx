@@ -2534,7 +2534,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               <ModeFilter modes={stModes} onChange={(next) => setStModesRaw(next.join(','))} />
               <FilterToggle
                 on={bestOnly}
-                label="BEST LEG"
+                label="BEST PICK"
                 hint="Show only the nearest-the-money leg of each underlying — the one whose premium tracks the thesis most directly. A local filter; it never changes what is scanned."
                 onChange={() => changeBestOnly(!bestOnly)}
               />
@@ -2546,7 +2546,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
               />
               <FilterToggle
                 on={showEnded}
-                label="ENDED"
+                label="CLOSED"
                 hint="Include closed positions. They are kept for the record and are not calls to action."
                 onChange={() => changeShowEnded(!showEnded)}
               />

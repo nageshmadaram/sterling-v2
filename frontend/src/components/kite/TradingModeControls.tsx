@@ -296,8 +296,8 @@ export function TradingModeControls() {
           <div style={S.modeLabel}>AUTOMATIC ENTRY</div>
           <div style={S.modeDesc}>
             {auto
-              ? 'ALGO on. Strategies can trade; safety checks still apply.'
-              : 'MANUAL. No automatic entries are requested.'}
+              ? 'ALGO is on: Sterling places trades for you. Safety checks still apply.'
+              : 'MANUAL: you place every trade yourself.'}
           </div>
         </div>
         <ModeToggle
@@ -311,7 +311,7 @@ export function TradingModeControls() {
 
       {auto && autoBlocked && (
         <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 7, background: '#fff7f0', border: '1px solid #edd6c6', fontSize: 11.5, color: '#9a4b16', lineHeight: 1.5 }}>
-          <strong>ALGO armed but BLOCKED.</strong>
+          <strong>ALGO is on but blocked. Fix these first:</strong>
           <ul style={{ margin: '4px 0 0', paddingLeft: 16 }}>
             {blockers.map((b, i) => <li key={i}>{b}</li>)}
           </ul>
@@ -319,7 +319,7 @@ export function TradingModeControls() {
       )}
       {auto && !connected && (
         <div style={{ marginTop: 8, ...S.hint }}>
-          ALGO is armed but the broker is not connected. Log in to allow entries.
+          ALGO is on, but Kite is not connected. Log in to Kite so trades can be placed.
         </div>
       )}
 
@@ -327,7 +327,7 @@ export function TradingModeControls() {
       <div style={{ marginTop: 16 }}>
         <div style={S.modeLabel}>STRATEGY MODE</div>
         <div style={{ ...S.modeDesc, marginBottom: 4 }}>
-          Per strategy: MANUAL (you place orders) or ALGO (Sterling places real-money orders).
+          For each strategy: MANUAL means you place trades. ALGO means Sterling places real-money trades for you.
         </div>
         <StrategyModeSelector />
       </div>

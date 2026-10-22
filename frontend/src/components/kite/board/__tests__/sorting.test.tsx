@@ -92,20 +92,20 @@ describe('sorting on the rendered board', () => {
 
   it('reports the sorted column to assistive tech', () => {
     show({ sort: { column: 'ltp', direction: 'asc' }, onSortChange: vi.fn() });
-    expect(screen.getByRole('button', { name: /^LTP/ })).toHaveAttribute('aria-sort', 'ascending');
+    expect(screen.getByRole('button', { name: /^Price/ })).toHaveAttribute('aria-sort', 'ascending');
     expect(screen.getByRole('button', { name: /^Entry/ })).toHaveAttribute('aria-sort', 'none');
   });
 
   it('asks the caller to change sort rather than owning it', () => {
     const onSortChange = vi.fn();
     show({ onSortChange });
-    fireEvent.click(screen.getByRole('button', { name: /^LTP/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Price/ }));
     expect(onSortChange).toHaveBeenCalledWith({ column: 'ltp', direction: 'desc' });
   });
 
   it('leaves the header inert when the board is not sortable', () => {
     show();
-    expect(screen.getByRole('button', { name: /^LTP/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^Price/ })).toBeDisabled();
   });
 
   it('keeps sorting inside a trading day', () => {

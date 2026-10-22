@@ -165,7 +165,7 @@ describe('actual strategy components share persisted layout and actions', () => 
       expect(headers).toHaveLength(3);
       expect(headers[1]).toEqual(headers[0]);
       expect(headers[2]).toEqual(headers[0]);
-      expect(headers[0].map(h => h.text)).not.toContain('LTP');
+      expect(headers[0].map(h => h.text)).not.toContain('Price');
       view.unmount();
     } finally {
       useKiteSettings.setState({ signalLeftColumnOrder: before.signalLeftColumnOrder, hiddenSignalCols: before.hiddenSignalCols });
@@ -187,12 +187,12 @@ describe('column parity across engines', () => {
     // The standard collapsed row: what a trader acts on. The rest is in the
     // expanded row and the column picker.
     expect(headersOf(boards.supertrend, DEFAULTS)).toEqual([
-      'Instrument', 'Status', 'LTP', 'Entry (Δpts)', 'SL', 'TSL', 'P&L', 'Time', 'Trade',
+      'Instrument', 'Status', 'Price', 'Entry', 'Stop', 'Trail', 'P&L', 'Time', 'Trade',
     ]);
   });
 
   it('keeps a column an engine cannot fill, rather than differing', () => {
-    expect(headersOf(boards.supertrend, new Set<ColumnId>())).toContain('TSL');
+    expect(headersOf(boards.supertrend, new Set<ColumnId>())).toContain('Trail');
   });
 
   it('offers the same extras to every board', () => {

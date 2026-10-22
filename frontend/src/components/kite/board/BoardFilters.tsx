@@ -298,7 +298,7 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
       {(view.offers.best || alwaysChips) && (
         <FilterToggle
           on={view.bestOnly}
-          label="BEST LEG"
+          label="BEST PICK"
           hint="Show only the nearest-the-money leg of each underlying — the one whose premium tracks the thesis most directly. A local filter."
           onChange={() => view.setBestOnly(!view.bestOnly)}
         />
@@ -314,7 +314,7 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
       {(view.offers.ended || alwaysChips) && (
         <FilterToggle
           on={view.showEnded}
-          label={`ENDED ${counts.ended}`}
+          label={`CLOSED ${counts.ended}`}
           hint="Include closed positions. They are kept for the record and are not calls to action."
           onChange={() => view.setShowEnded(!view.showEnded)}
         />

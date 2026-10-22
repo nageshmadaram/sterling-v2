@@ -45,7 +45,7 @@ const show = (signals: BoardSignal[], props: Partial<React.ComponentProps<typeof
 describe('SignalBoard rendering', () => {
   it('names the columns a trader asked for', () => {
     show([sig()]);
-    for (const label of ['Instrument', 'Status', 'Exc.', 'Leg (Δ)', 'LTP', 'Entry (Δpts)', 'SL', 'Target', 'Qty', 'Risk', 'Time']) {
+    for (const label of ['Instrument', 'Status', 'Exc.', 'Strike', 'Price', 'Entry', 'Stop', 'Target', 'Qty', 'Risk', 'Time']) {
       expect(screen.getByText(label), label).toBeInTheDocument();
     }
   });
@@ -64,7 +64,7 @@ describe('SignalBoard rendering', () => {
     // engine does not trail, and every board keeps the same columns so moving
     // between them never means re-finding the stop.
     show([sig()]);
-    expect(screen.getByText('TSL')).toBeInTheDocument();
+    expect(screen.getByText('Trail')).toBeInTheDocument();
   });
 
 
@@ -84,7 +84,7 @@ describe('SignalBoard rendering', () => {
   it('renders a missing level as a dash, never as zero', () => {
     // A fabricated 0 in a stop column is a trade-destroying lie.
     show([sig({ levels: { ltp: 20, entry: 20, stop: null, trail: null, target: null, exit: null } })]);
-    expect(screen.getByText('SL')).toBeInTheDocument();
+    expect(screen.getByText('Stop')).toBeInTheDocument();
     const row = document.querySelector('.sb-row') as HTMLElement;
     expect(within(row).getAllByText('—').length).toBeGreaterThan(0);
     expect(within(row).queryByText('0.00')).not.toBeInTheDocument();
@@ -104,7 +104,7 @@ describe('how much colour a row spends', () => {
   it('leaves the level columns in plain ink', () => {
     const { container } = show([sig({ levels: { ltp: 18, entry: 18, stop: 14, trail: 16, target: 26, exit: null } })]);
     const row = container.querySelector('.sb-row') as HTMLElement;
-    for (const label of ['SL', 'TSL', 'Exit']) {
+    for (const label of ['Stop', 'Trail', 'Exit rule']) {
       // Not red / amber / green just for being that column.
       expect(cell(row, label).style.color, label).not.toMatch(/--k-(red|amber|green)\)/);
     }

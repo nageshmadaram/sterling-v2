@@ -86,7 +86,7 @@ describe('draggable column headings', () => {
   it('still sort when clicked — dragging must not swallow the click', () => {
     const onSortChange = vi.fn();
     board({ onReorderColumn: vi.fn(), onSortChange });
-    fireEvent.click(screen.getByRole('button', { name: /LTP/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Price/i }));
     expect(onSortChange).toHaveBeenCalled();
   });
 });

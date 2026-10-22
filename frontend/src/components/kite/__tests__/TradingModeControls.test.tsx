@@ -288,7 +288,7 @@ describe('arming AUTO', () => {
     autoExecute = true;
     readinessBlockers = ['Broker session is not connected.'];
     render(<TradingModeControls />);
-    expect(screen.getByText(/ALGO armed but BLOCKED/)).toBeInTheDocument();
+    expect(screen.getByText(/ALGO is on but blocked/)).toBeInTheDocument();
   });
 });
 

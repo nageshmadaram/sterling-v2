@@ -69,9 +69,9 @@ describe('SterlingKiteEnginePane — both-mode spot row keeps its columns aligne
   it('renders premium-column placeholders for a spot row so Exit stays in its column', () => {
     renderPane();
     // Header shows the premium columns (scan_source='both' !== 'spot').
-    expect(screen.getByText('Entry (Δpts)')).toBeInTheDocument();
-    expect(screen.getByText('SL')).toBeInTheDocument();
-    expect(screen.getByText('TSL')).toBeInTheDocument();
+    expect(screen.getByText('Entry')).toBeInTheDocument();
+    expect(screen.getByText('Stop')).toBeInTheDocument();
+    expect(screen.getByText('Trail')).toBeInTheDocument();
     expect(screen.getByText('Target')).toBeInTheDocument();
     // The spot row (no per-leg premium) still renders the SL/TSL placeholder cells —
     // BEFORE the fix these were gated on per-row hasPremium and absent, collapsing the

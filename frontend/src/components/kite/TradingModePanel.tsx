@@ -393,7 +393,7 @@ export function TradingModePanel() {
           padding: '12px 18px', background: SOFT, borderTop: `1px solid ${BORDER}`,
           color: DIM, fontSize: 10.5, lineHeight: 1.5,
         }}>
-          ALGO must be on here and on each strategy. Safety checks still apply.
+          To auto trade, turn ALGO on here and on each strategy you want. Safety checks still apply.
         </div>
       </PanelCard>
 

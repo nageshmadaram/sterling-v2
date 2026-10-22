@@ -70,12 +70,12 @@ describe('SterlingKiteEnginePane — confluence source + signal-table columns', 
     expect(screen.getByText('Confluence')).toBeInTheDocument();
     // Column header carries all seven columns (Entry/SL/TSL/Exit/Target new-or-relabelled;
     // Chg./LTP existing).
-    expect(screen.getByText('Entry (Δpts)')).toBeInTheDocument();
-    expect(screen.getByText('SL')).toBeInTheDocument();
-    expect(screen.getByText('TSL')).toBeInTheDocument();
-    expect(screen.getByText('Exit')).toBeInTheDocument();
+    expect(screen.getByText('Entry')).toBeInTheDocument();
+    expect(screen.getByText('Stop')).toBeInTheDocument();
+    expect(screen.getByText('Trail')).toBeInTheDocument();
+    expect(screen.getByText('Exit rule')).toBeInTheDocument();
     expect(screen.getByText('Target')).toBeInTheDocument();
-    expect(screen.getByText('LTP')).toBeInTheDocument();
+    expect(screen.getByText('Price')).toBeInTheDocument();
   });
 
   it('renders the confirmed leg with its premium entry/SL/TSL and the red-counter exit state', () => {

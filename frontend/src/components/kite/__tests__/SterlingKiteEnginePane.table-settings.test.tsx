@@ -127,7 +127,7 @@ describe('SterlingKiteEnginePane — table-only settings', () => {
     });
     renderPane();
 
-    fireEvent.click(screen.getByRole('switch', { name: 'BEST LEG' }));
+    fireEvent.click(screen.getByRole('switch', { name: 'BEST PICK' }));
     expect(localStorage.getItem('kite_st_best_only')).toBe('false');
 
     expect(screen.queryByRole('checkbox', { name: 'Best signal per instrument' })).not.toBeInTheDocument();
@@ -262,9 +262,9 @@ describe('SterlingKiteEnginePane — table-only settings', () => {
 
     renderPane();
 
-    expect(screen.getByText('Entry (Δpts)')).toBeInTheDocument();
-    expect(screen.getByText('SL')).toBeInTheDocument();
-    expect(screen.getByText('TSL')).toBeInTheDocument();
+    expect(screen.getByText('Entry')).toBeInTheDocument();
+    expect(screen.getByText('Stop')).toBeInTheDocument();
+    expect(screen.getByText('Trail')).toBeInTheDocument();
     expect(screen.getAllByText('123.45').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('101.20')).toBeInTheDocument();
     expect(screen.getByText('111.30')).toBeInTheDocument();

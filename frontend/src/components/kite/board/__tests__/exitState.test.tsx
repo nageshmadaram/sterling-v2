@@ -1,5 +1,5 @@
 /**
- * "Exit" and "Exited" are two different questions.
+ * "Exit rule" and "Exited" are two different questions.
  *
  * SuperTrend's exit column is a COUNTER — three SuperTrend lines must turn red
  * before it closes, and the count in between ("0/3 red") is the single most
@@ -81,9 +81,9 @@ describe('the exit counter and the exit price are separate columns', () => {
     // other is a fill.
     expect(screen.getByText('0/3 red')).toBeInTheDocument();
     expect(screen.getByText(/205\.50/)).toBeInTheDocument();
-    // Two headings, two elements. `getByText` is an exact match, so 'Exit'
+    // Two headings, two elements. `getByText` is an exact match, so 'Exit rule'
     // cannot resolve to the 'Exited' header.
-    expect(screen.getByText('Exit')).not.toBe(screen.getByText('Exited'));
+    expect(screen.getByText('Exit rule')).not.toBe(screen.getByText('Exited'));
   });
 
   it('shows the confirmed exit price when the engine has no counter', () => {

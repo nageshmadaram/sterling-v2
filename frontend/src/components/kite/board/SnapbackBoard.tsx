@@ -221,17 +221,17 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
           {data?.scanned ?? 0} instruments · {selectedModes.length>1 ? selectedModes.join(' + ') : shortHorizon
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
           {replay
-            ? <> · <strong style={{ color: k.blue }}>REPLAY · READ-ONLY</strong></>
+            ? <> · <strong style={{ color: k.blue }}>REPLAY · VIEW ONLY</strong></>
             : researchOnly
-            ? <> · <strong style={{ color: k.amber }}>RESEARCH ONLY</strong></>
+            ? <> · <strong style={{ color: k.amber }}>TEST MODE · NO REAL ORDERS</strong></>
             : (autoCapability?.session?.length ?? 0) > 0
-              ? <> · <strong style={{ color: k.amber }}>SESSION PAUSED</strong>{manualExecutable && !researchOnly ? <span style={{ color: k.dim }}> · MANUAL / AMO AVAILABLE</span> : null}</>
+              ? <> · <strong style={{ color: k.amber }}>MARKET CLOSED</strong>{manualExecutable && !researchOnly ? <span style={{ color: k.dim }}> · you can still place an after-market order</span> : null}</>
             : autoExecutable
-              ? <> · <strong style={{ color: k.green }}>ALGO AVAILABLE</strong></>
+              ? <> · <strong style={{ color: k.green }}>AUTO TRADING READY</strong></>
               : manualExecutable
-                ? <> · <strong style={{ color: k.amber }}>MANUAL ONLY</strong></>
-                : <> · <strong style={{ color: k.red }}>EXECUTION BLOCKED</strong></>}
-          {enabled ? '' : ' · disabled'}
+                ? <> · <strong style={{ color: k.amber }}>BUY BY HAND ONLY</strong></>
+                : <> · <strong style={{ color: k.red }}>TRADING BLOCKED · open a row to see why</strong></>}
+          {enabled ? '' : ' · strategy off'}
         </span>
         {armed.length > 0 && (
           <span style={{
