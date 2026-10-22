@@ -647,7 +647,10 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
   <script defer src="/media/comfort.js"></script>
 </head>
 
-<body class="theme-youtube flex flex-col overflow-hidden">
+<script>document.documentElement.classList.add('tv-booting');setTimeout(()=>document.documentElement.classList.remove('tv-booting'),2500);</script>
+<style>/* Hidden until the saved player style and screen are applied, so a reload does not flash a different layout. */
+html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-out;}</style>
+<body class="theme-spotify flex flex-col overflow-hidden">
   <button id="tv-tools-reveal" type="button" aria-label="Toggle TV tools" aria-expanded="false" onclick="toggleEmbeddedTvTools()" class="fixed top-2 right-2 z-[120] text-xs bg-black/80 text-white rounded-lg px-2 py-1">TV tools</button>
 
 
@@ -2776,7 +2779,7 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     let playStats = readTvStoredJson('streamos_stats_v14',{});
     let recentHistory = readTvStoredJson('streamos_history_v14',[]);
 
-    let currentTheme = tvStorage.getItem('streamos_theme_v14') || 'youtube';
+    let currentTheme = tvStorage.getItem('streamos_theme_v14') || 'spotify';
     let isTheatreMode = false;
     let isCcEnabled = false;
     let isManualPipOpen = false;
@@ -4426,6 +4429,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       updateSourceBadgesUI();
       renderCatalogControls();
       switchTheme(currentTheme);
+      // Reveal once the saved style and restored screen have painted (see tv-booting).
+      requestAnimationFrame(()=>requestAnimationFrame(()=>document.documentElement.classList.remove('tv-booting')));
       renderSourcesManagerList();
       updateStartupChannelUI();
       playStream(getStartupChannelObject(),0);
