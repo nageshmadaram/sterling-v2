@@ -150,8 +150,10 @@ describe('Sterling Spectrum navigation and Home', () => {
     useExperienceOptions.getState().update({spectrumHome:'radio',spectrumLayout:'separate'});
     render(<SimpleTerminal />);
     expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
+    // The STERLING logo always opens KITE while KITE is enabled, whatever Home is set to.
     fireEvent.click(screen.getByRole('button',{name:'Sterling Home'}));
+    expect(screen.getByTestId('kite-trading-docks')).toBeVisible();
+    fireEvent.click(screen.getByTestId('spectrum-radio-tab'));
     expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Radio display settings'})).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Search radio stations'})).toBeInTheDocument();
@@ -177,9 +179,9 @@ describe('Sterling Spectrum navigation and Home', () => {
     useExperienceOptions.getState().update({spectrumHome:'tv',spectrumLayout:'separate'});
     render(<SimpleTerminal />);
     expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId('spectrum-kite-tab'));
+    // TV is where the app starts; the STERLING logo opens KITE from TV.
     fireEvent.click(screen.getByRole('button',{name:'Sterling Home'}));
-    expect(screen.getByTestId('fake-tv-content')).toBeInTheDocument();
+    expect(screen.getByTestId('kite-trading-docks')).toBeVisible();
   });
 
   it('routes mobile Home events to the same setting', () => {

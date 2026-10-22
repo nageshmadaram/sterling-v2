@@ -124,6 +124,22 @@ export function SimpleTerminal() {
       window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: section }));
     }
   };
+  // The STERLING logo opens KITE whenever KITE is enabled; the configured Home (which may be
+  // TV or Radio) still decides where the app starts and where the page close control returns.
+  const openFromLogo = () => {
+    if (!navOptions.spectrumVisible.kite) { goHome(); return; }
+    initialHomePendingRef.current = false;
+    window.dispatchEvent(new Event('sterling-home'));
+    tvCommand('collapse');radioCommand('minimize');
+    setTvPlayerExpanded(false);setRadioPlayerExpanded(false);
+    setToolsOpen(false);
+    setShowSettings(false);
+    if (!chooseSpectrum('kite', 'live')) return;
+    userNavigatedRef.current = true;
+    const section = useKiteSettings.getState().defaultSection || 'dashboard';
+    setKiteNav(section);
+    window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: section }));
+  };
   useEffect(() => {
     window.addEventListener('sterling-go-home', goHome);
     return () => window.removeEventListener('sterling-go-home', goHome);
@@ -253,8 +269,8 @@ export function SimpleTerminal() {
           display: 'flex', alignItems: 'center', gap: 0,
           height: 44, padding: '0 20px',
         }}>
-          <button type="button" className="sterling-home-button" aria-label="Sterling Home" title="Open configured Home workspace"
-            onClick={goHome} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none',
+          <button type="button" className="sterling-home-button" aria-label="Sterling Home" title="Open KITE"
+            onClick={openFromLogo} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none',
               background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit', flexShrink: 0 }}>
             <SterlingLogo size={24} />
             <span style={{
