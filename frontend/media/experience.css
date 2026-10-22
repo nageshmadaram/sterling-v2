@@ -161,8 +161,18 @@ html[data-radio-view=library] #sp-cards-grid button.btn-circle {display:none!imp
 }
 
 .radio-playing-context {display:flex;flex-direction:column;align-items:center;gap:4px;}
-.radio-playing-context small {font-size:9px;font-weight:500;letter-spacing:1px;opacity:.8;}
-.radio-playing-context strong {font-size:12px;font-weight:650;}
+.radio-playing-context small {font-size:9px;font-weight:600;letter-spacing:1.5px;}
+.radio-playing-context strong {font-size:11px;font-weight:700;}
+/* Radio Now Playing mirrors TV's (tv-mobile/mobile.css .tm-now-*): same type scale and spacing. */
+.radio-np-head {min-height:62px;}
+#sheet-title {font-size:25px!important;font-weight:800;letter-spacing:-.9px;line-height:1.2;}
+#sheet-sub {font-size:13px!important;color:#c3d1c9!important;margin-top:7px!important;}
+.radio-np-timeline {font-size:10px;color:#c4cdc7;}
+.radio-live-dot {display:inline-block;width:6px;height:6px;border-radius:50%;background:#1ed760;margin-right:5px;vertical-align:1px;}
+.radio-np-controls {gap:12px;}
+.radio-np-controls [data-radio-click="56"] {width:68px!important;height:68px!important;}
+.radio-np-actions {padding-bottom:8px;color:#d0dfd6;font-size:10px;}
+.radio-np-actions>div {gap:12px;}
 
 /* A quiet, shared comfort sheet; native dialog supplies focus containment. */
 .media-comfort {color:#f7f7f7;background:linear-gradient(155deg,#25332e,#181b1a 55%);border:1px solid #ffffff18;border-radius:24px;padding:24px;width:min(440px,calc(100vw - 32px));max-height:85dvh;overflow:auto;margin:auto;box-shadow:0 28px 100px #0008;font-family:Inter,system-ui,sans-serif;}

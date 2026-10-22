@@ -101,7 +101,7 @@
       triggers.add(button);button.addEventListener('click',()=>{returnFocus=button;refresh();dialog.showModal();});
       container.append(button);refresh();
     }
-    attach(document.querySelector('#mobile-player-sheet>div:first-child>div'));
+    attach(document.querySelector('#mobile-player-sheet .radio-np-actions>div'));
     attach(document.querySelector('.tm-now-footer>div'));
     // SW/AM is constructed lazily. Observe only direct body additions.
     const receiverObserver=new MutationObserver(()=>attach(document.querySelector('#sw-player-window header')));

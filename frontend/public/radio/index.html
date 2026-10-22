@@ -1020,25 +1020,20 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
        ========================================================================= -->
   <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[90] solid-mobile-sheet flex flex-col justify-between p-5 overflow-y-auto">
     <div class="rnp-main">
-    <div class="flex items-center justify-between shrink-0">
-      <button data-radio-click="70" class="w-9 h-9 btn-circle text-white">
-        <i class="fa-solid fa-chevron-down text-base"></i>
+    <!-- Same layout as TV's Now Playing: header, artwork, title, live timeline, five controls, footer. -->
+    <div class="radio-np-head flex items-center justify-between shrink-0">
+      <button data-radio-click="70" class="w-10 h-10 btn-circle text-white" aria-label="Close Now Playing">
+        <i class="fa-solid fa-chevron-down text-lg"></i>
       </button>
-      <span class="radio-playing-context"><small>PLAYING FROM LIVE RADIO</small><strong id="sheet-context">Your station</strong></span>
-      <div class="flex items-center gap-1">
-        <button data-radio-click="29" class="w-10 h-10 btn-circle text-white" title="More options" aria-label="More options">
-          <i class="fa-solid fa-ellipsis-vertical text-lg"></i>
-        </button>
-      </div>
+      <span class="radio-playing-context"><small>PLAYING FROM</small><strong id="sheet-context">Your station</strong></span>
+      <button data-radio-click="29" class="w-10 h-10 btn-circle text-white" title="More options" aria-label="More options">
+        <i class="fa-solid fa-ellipsis text-lg"></i>
+      </button>
     </div>
 
     <div class="my-auto flex flex-col items-center py-4">
       <div class="radio-mobile-art relative w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
         <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
-        <button type="button" data-radio-click="75" aria-label="Check current song and album artwork" title="Check what is playing"
-          class="absolute top-2 right-2 w-11 h-11 btn-circle bg-black/65 text-white flex items-center justify-center">
-          <i class="fa-solid fa-rotate text-sm"></i>
-        </button>
       </div>
 
       <div class="w-full flex items-center justify-between gap-3">
@@ -1046,7 +1041,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           <h2 id="sheet-title" class="text-xl font-bold text-white truncate">Select a Station</h2>
           <p id="sheet-sub" class="text-sm text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
         </div>
-        <button data-radio-click="53" id="sheet-like" class="w-10 h-10 btn-circle text-white text-xl">
+        <button data-radio-click="53" id="sheet-like" class="w-10 h-10 btn-circle text-white text-xl" aria-label="Save station to your library">
           <i class="fa-regular fa-heart"></i>
         </button>
       </div>
@@ -1054,29 +1049,28 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     <div class="w-full space-y-5">
       <div>
-        <input id="sheet-range" type="range" min="0" max="100" value="100" data-radio-input="59" class="pro-slider w-full accent-white" />
-        <div class="flex justify-between text-[11px] text-[#b3b3b3] font-mono-num mt-1.5">
-          <span id="sheet-cur">LIVE</span>
-          <span id="sheet-dur">STREAM</span>
+        <input id="sheet-range" type="range" min="0" max="100" value="100" data-radio-input="59" class="pro-slider w-full accent-white" aria-label="Playback position" />
+        <div class="radio-np-timeline flex justify-between mt-2">
+          <span id="sheet-cur">Live broadcast</span>
+          <span id="sheet-dur"><span class="radio-live-dot"></span>LIVE</span>
         </div>
       </div>
 
-      <!-- Strictly Circular 64px Main Play/Pause Button -->
-      <div class="flex items-center justify-between px-4">
-        <button data-radio-click="54" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg"><i class="fa-solid fa-shuffle"></i></button>
-        <button data-radio-click="55" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-backward-step"></i></button>
-        <button data-radio-click="56" class="w-16 h-16 btn-circle bg-white text-black text-2xl shadow-xl active:scale-95 transition">
+      <div class="radio-np-controls flex items-center justify-between">
+        <button data-radio-click="60" id="sheet-mute" class="w-11 h-11 btn-circle text-white text-xl" aria-label="Mute or unmute radio"><i class="fa-solid fa-volume-high"></i></button>
+        <button data-radio-click="55" class="w-11 h-11 btn-circle text-white text-2xl" aria-label="Previous station"><i class="fa-solid fa-backward-step"></i></button>
+        <button data-radio-click="56" class="w-16 h-16 btn-circle bg-white text-black text-2xl shadow-xl active:scale-95 transition" aria-label="Play or pause radio">
           <i id="sheet-play" class="fa-solid fa-play ml-0.5"></i>
         </button>
-        <button data-radio-click="57" class="w-11 h-11 btn-circle text-white text-2xl"><i class="fa-solid fa-forward-step"></i></button>
-        <button data-radio-click="58" class="w-10 h-10 btn-circle text-[#b3b3b3] hover:text-white text-lg" title="Switch Backup Stream"><i class="fa-solid fa-rotate"></i></button>
+        <button data-radio-click="57" class="w-11 h-11 btn-circle text-white text-2xl" aria-label="Next station"><i class="fa-solid fa-forward-step"></i></button>
+        <button data-radio-click="29" class="w-11 h-11 btn-circle text-white text-xl" aria-label="Equalizer and audio settings" title="Equalizer"><i class="fa-solid fa-sliders"></i></button>
       </div>
 
-      <div class="radio-np-actions flex items-center justify-between px-1">
-        <button type="button" data-radio-click="29" class="w-10 h-10 btn-circle text-white text-lg" aria-label="Audio output and settings" title="Audio output and settings"><i class="fa-solid fa-tablet-screen-button"></i></button>
-        <div class="flex items-center gap-4">
-          <button type="button" id="sheet-share" class="w-10 h-10 btn-circle text-white text-lg" aria-label="Share station" title="Share station"><i class="fa-solid fa-share-nodes"></i></button>
-          <button type="button" id="sheet-queue" class="w-10 h-10 btn-circle text-white text-lg" aria-label="Show similar stations" title="Up next"><i class="fa-solid fa-bars-staggered"></i></button>
+      <div class="radio-np-actions flex items-center justify-between">
+        <span class="radio-np-device">Listening on this device</span>
+        <div class="flex items-center gap-3">
+          <button type="button" data-radio-click="75" class="w-10 h-10 btn-circle text-white text-lg" aria-label="What is playing now" title="What is playing now"><i class="fa-solid fa-circle-info"></i></button>
+          <button type="button" id="sheet-queue" class="w-10 h-10 btn-circle text-white text-lg" aria-label="Open the queue" title="Up next"><i class="fa-solid fa-bars-staggered"></i></button>
         </div>
       </div>
 
@@ -3963,6 +3957,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sp-mute-icon').innerHTML = audio.muted
         ? '<i class="fa-solid fa-volume-xmark text-red-400"></i>'
         : '<i class="fa-solid fa-volume-high"></i>';
+      const sheetMute=document.getElementById('sheet-mute');
+      if(sheetMute)sheetMute.innerHTML=audio.muted?'<i class="fa-solid fa-volume-xmark"></i>':'<i class="fa-solid fa-volume-high"></i>';
     }
 
     function toggleLikeCurrent() {
