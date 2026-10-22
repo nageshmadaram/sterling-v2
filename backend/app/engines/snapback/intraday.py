@@ -32,6 +32,17 @@ from ..indicators.ema import compute_ema
 _SESSION_START = 9 * 60 + 15
 _SESSION_END = 15 * 60 + 30
 _WARMUP = 30
+#: Overnight holds a position across at most this many sessions and never into a weekend; the live
+#: policy (``core.mode_execution``) uses the same three-session ceiling.
+OVERNIGHT_MAX_SESSIONS = 3
+#: Bars of earlier sessions the replay hands the signal in multi-session modes (intraday >= 15m,
+#: overnight), as the live scanner's multi-session mask does. A single 15-minute session has 25 bars
+#: and an hourly one 7, below the 30-bar warmup, so same-session-only history never signalled.
+_MULTI_SESSION_HISTORY_BARS = 400
+
+
+def _multi_session(cfg: SnapbackConfig) -> bool:
+    return cfg.trading_mode in ('intraday', 'overnight') and cfg.scalp_timeframe_minutes >= 15
 _TICK = 0.05
 
 
@@ -257,6 +268,9 @@ class PremiumTradeState:
     exit_price: float | None = None
     exit_reason: str | None = None
     net_pnl_inr: float | None = None
+    #: Overnight only: sessions seen since entry and the last candle consumed.
+    sessions: int = 1
+    last_time: float = 0.0
 
 
 def open_trade(plan: dict[str, Any], timestamp: float, *, symbol: str = "",
@@ -294,18 +308,28 @@ def advance_trade(state: PremiumTradeState, *, timestamp: float, open: float,
     if (not all(math.isfinite(float(x)) for x in vals) or min(open, high, low, close) <= 0
             or high < max(open, low, close) or low > min(open, high, close)):
         raise ValueError("Invalid option candle")
+    carry = cfg.trading_mode == 'overnight'
     expected = state.entry_time + state.bars_held * cfg.scalp_timeframe_minutes * 60
-    if not math.isclose(timestamp, expected, abs_tol=1e-6):
+    if carry and state.bars_held:
+        # Overnight crosses session gaps: candles must still be chronological and consumed once.
+        if timestamp <= state.last_time:
+            raise ValueError("Trade candles must be contiguous, chronological and consumed once")
+    elif not math.isclose(timestamp, expected, abs_tol=1e-6):
         raise ValueError("Trade candles must be contiguous, chronological and consumed once")
-    state = replace(state, bars_held=state.bars_held + 1)
+    sessions = state.sessions + (1 if carry and state.last_time and ist_day(timestamp) != ist_day(state.last_time) else 0)
+    state = replace(state, bars_held=state.bars_held + 1, sessions=sessions, last_time=timestamp)
     end = timestamp + cfg.scalp_timeframe_minutes * 60
     if open <= state.stop:
         return _exit(state, open, timestamp, "gap_stop")
-    if _minute(timestamp) >= cfg.scalp_square_off_minute or ist_day(timestamp) != ist_day(state.entry_time):
+    # Overnight squares off only on its last allowed session, or on a Friday (no weekend carry).
+    final_session = (not carry or sessions >= OVERNIGHT_MAX_SESSIONS
+                     or datetime.fromtimestamp(timestamp, IST).weekday() >= 4)
+    if final_session and (_minute(timestamp) >= cfg.scalp_square_off_minute
+                          or (not carry and ist_day(timestamp) != ist_day(state.entry_time))):
         return _exit(state, open, timestamp, "session_exit")
     if low <= state.stop:
         return _exit(state, state.stop, end, "trailing_stop" if state.stop > state.entry else "stop")
-    if _minute(end) >= cfg.scalp_square_off_minute:
+    if final_session and _minute(end) >= cfg.scalp_square_off_minute:
         return _exit(state, close, end, "session_exit")
     if not state.runner and high >= state.target:
         strong_close = close >= state.target and close >= low + 0.65 * (high - low)
@@ -364,7 +388,7 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
         ts = float(ts_raw)
         current_day = ist_day(ts)
         if current_day != day:
-            if position is not None:
+            if position is not None and cfg.trading_mode != 'overnight':
                 unresolved_reason = "Previous session ended before position could be squared off"
                 break
             day, day_start, day_pnl, entries_today = current_day, capital, 0.0, 0
@@ -404,7 +428,8 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                 last_exit_index = i
                 position = None
         if position is None:
-            signals = evaluate_intraday(_slice(underlying, slice(session_start_index, i + 1)), cfg, symbol,
+            start = max(0, i + 1 - _MULTI_SESSION_HISTORY_BARS) if _multi_session(cfg) else session_start_index
+            signals = evaluate_intraday(_slice(underlying, slice(start, i + 1)), cfg, symbol,
                                          asof=ts + tf * 60)
             pending = signals[-1] if signals else None
     if position is not None and unresolved_reason is None:
