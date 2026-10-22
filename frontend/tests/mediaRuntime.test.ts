@@ -100,7 +100,8 @@ describe('Actual sandboxed media documents on mobile',()=>{
     await new Promise(resolve=>setTimeout(resolve,0));
     expect(video.muted).toBe(false);
     expect(w.eval('preferredTvMuted')).toBe(false);
-    expect(w.document.getElementById('tv-mobile-play')?.classList.contains('hidden')).toBe(false);
+    // No 'Tap to play' overlay; the next gesture anywhere resumes with sound.
+    expect(w.document.getElementById('tv-mobile-play')?.classList.contains('hidden')).toBe(true);
     w.HTMLMediaElement.prototype.play=()=>Promise.resolve();
     w.eval('resumeTvPlayback()');await Promise.resolve();
     expect(video.muted).toBe(false);

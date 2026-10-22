@@ -4469,6 +4469,14 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     // User gesture is required by mobile browsers inside embedded iframes.
     // Do not start with sound on mobile and then hope autoplay rejects: a
     // failed promise otherwise leaves the spinner/player apparently frozen.
+    let gestureResumeArmed=false;
+    function resumeOnNextGesture() {
+      if(gestureResumeArmed)return;gestureResumeArmed=true;
+      const go=()=>{gestureResumeArmed=false;['pointerdown','keydown'].forEach(t=>document.removeEventListener(t,go,true));
+        const video=document.getElementById('video-player');if(activeChannel&&video?.paused&&!tvUserPaused)resumeTvPlayback();};
+      ['pointerdown','keydown'].forEach(t=>document.addEventListener(t,go,true));
+    }
+
     function showTvPlaybackPrompt(label = 'Tap to play live TV') {
       const button = document.getElementById('tv-mobile-play');
       if (button) {
@@ -4520,8 +4528,11 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
         if (playButton) playButton.classList.add('hidden');
       }).catch(() => {
         if(generation !== playbackGeneration||tvUserPaused){if(tvUserPaused)video.pause();return;}
+        // No overlay: the browser wants a gesture before sound, so the next tap or key
+        // anywhere starts playback (with sound) and the play button shows paused meanwhile.
         syncPlayPauseIcons(true);
-        showTvPlaybackPrompt('Tap to play live TV');
+        if (playButton) playButton.classList.add('hidden');
+        resumeOnNextGesture();
       });
     }
 
