@@ -374,6 +374,9 @@ function contractLabel(signal: BoardSignal): string | null {
 }
 
 /** The value of one column for one signal, plus how to colour it. */
+/** Trading modes belong to SuperTrend and Snapback only; other strategies run their original settings. */
+const MODE_ENGINES: ReadonlySet<string> = new Set(['supertrend', 'snapback']);
+
 function cellContent(
   signal: BoardSignal,
   id: ColumnId,
@@ -396,6 +399,11 @@ function cellContent(
     && signal.levels[id] == null && signal.levelNotes?.[id]) {
     const note = signal.levelNotes[id]!;
     return { node: <span title={note.hint}>{note.text}</span>, color: k.dim };
+  }
+  // A row still waiting for its setup has no prices yet: say so instead of a row of dashes.
+  const waiting = !signal.held && (signal.status === 'watching' || signal.status === 'error');
+  if (id === 'entry' && signal.levels.entry == null && waiting) {
+    return { node: <span title={signal.reason || 'No entry yet: the setup has not formed.'}>Waiting</span>, color: k.dim };
   }
   switch (id) {
     case 'instrument': {
@@ -468,7 +476,7 @@ function cellContent(
             {!detailsOnly && <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
             </Pill>}
-            {signal.mode && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
+            {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
             
             {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
@@ -603,7 +611,7 @@ function cellContent(
     case 'exitState':
       // Plain ink: this is a state, and colouring it would compete with the
       // status pill that already carries how the row is doing.
-      return { node: signal.exitProgress || (signal.levels.exit != null ? fmtPx(signal.levels.exit) : signal.status === 'ended' ? 'Closed' : '—'), color: k.dim };
+      return { node: signal.exitProgress || (signal.levels.exit != null ? fmtPx(signal.levels.exit) : signal.status === 'ended' ? 'Closed' : waiting ? 'Not in trade' : '—'), color: k.dim };
     case 'chg':
     case 'chgPct': {
       const move = signal.dayMove;
@@ -813,7 +821,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
           )}
         </span>
 
-        {signal.mode && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
+        {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
         {/* Right-aligned and tabular so the decimal points line up down the
             column, the same rule the leg cells follow. */}
         <span style={{

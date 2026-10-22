@@ -128,6 +128,9 @@ class EngineSignalRow(BaseModel):
     # without this a trader cannot tell a recording from the market. Defaults
     # to False, so every live and cached row is unaffected.
     is_replay: bool = False
+    #: A row from a mode SuperTrend is not set to trade in: shown so the board can filter by
+    #: mode, never offered for entry (switch the strategy's mode to trade it).
+    view_only: bool = False
 
 
 class SignalsResponse(BaseModel):

@@ -191,7 +191,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   return (
     <div className="sb-strategy-layout" style={{fontFamily:k.fontFamily}}>
       <div className="sb-strategy-rows">
-      <BoardFilters hideSearch view={{ ...view, ...commonColumns }} columns={commonColumns.columns}>
+      <BoardFilters hideSearch showModes view={{ ...view, ...commonColumns }} columns={commonColumns.columns}>
         <StrategyBoardFooter name="Snapback" onReset={()=>{setSavedModes('');setOpenId(null);}}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',

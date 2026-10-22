@@ -304,6 +304,7 @@ export function supertrendLegToBoard(
     score: row.score ?? null,
     executionEligible: (
       row.is_replay !== true
+      && row.view_only !== true
       && (leg.is_active ?? row.is_active ?? false) === true
       && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
     ),
@@ -501,6 +502,7 @@ export function supertrendToBoard(
 ): BoardSignal[] {
   return rows.map((row, i) => {
     const legs = (row.legs ?? []).map((leg, j) => supertrendLegToBoard(row, leg, j, opts));
-    return withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(opts.mode));
+    // Each row carries its own mode: other modes' rows are on the board too (view-only).
+    return withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(row.horizon_mode ?? opts.mode));
   });
 }

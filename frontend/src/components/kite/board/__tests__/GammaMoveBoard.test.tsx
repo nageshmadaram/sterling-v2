@@ -488,7 +488,8 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(document.body.textContent).toContain('RELIANCE');
     expect(document.body.textContent).toContain('OCT3000CE');
     fireEvent.click(screen.getAllByText(/RELIANCE/)[0]);
-    expect(document.body.textContent).toContain('Swing');
+    // Gamma runs its original rules: no trading-mode tag on its rows (modes are SuperTrend and Snapback only).
+    expect(screen.queryByTitle('Trading mode')).toBeNull();
   });
 
   it('surfaces a refused entry and network error', () => {

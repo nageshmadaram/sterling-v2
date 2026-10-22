@@ -254,7 +254,7 @@ export function ModeFilter({ modes, onChange }: { modes: readonly TradeMode[]; o
     onShowAll={() => onChange([])} />;
 }
 
-export function BoardFilters({ view, columns, columnLabels, children, hideSearch = false, alwaysChips = true }: {
+export function BoardFilters({ view, columns, columnLabels, children, hideSearch = false, alwaysChips = true, showModes = false }: {
   view: BoardView;
   /** The columns this board asks for, so the picker offers only those. */
   columns?: readonly ColumnId[];
@@ -264,6 +264,8 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
   hideSearch?: boolean;
   /** Show Best leg / Today only / Ended on every board, even when they would change nothing. */
   alwaysChips?: boolean;
+  /** Trading modes exist only for SuperTrend and Snapback; other strategies run their original settings. */
+  showModes?: boolean;
 }) {
   React.useEffect(() => { if (hideSearch && view.query) view.setQuery(''); }, [hideSearch, view.query, view.setQuery]);
   const { counts } = view;
@@ -294,7 +296,7 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
 
       {/* Columns first, as on SuperTrend's toolbar, so every strategy reads the same left to right. */}
       {columns && <ColumnPicker view={view} available={columns} columnLabels={columnLabels} />}
-      {view.setModes && <ModeFilter modes={view.modes ?? []} onChange={view.setModes} />}
+      {showModes && view.setModes && <ModeFilter modes={view.modes ?? []} onChange={view.setModes} />}
       {(view.offers.best || alwaysChips) && (
         <FilterToggle
           on={view.bestOnly}

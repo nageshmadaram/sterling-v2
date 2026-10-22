@@ -23,6 +23,24 @@ const INITIAL_RENDER_ROWS = 80;
 const ROW_INCREMENT = 80;
 
 /** Completed-bar evidence view; selecting profiles never arms a broker order. */
+/**
+ * EMA Trend checks each stock under several internal profiles. The board shows one row per
+ * stock: the one closest to a trade (ready first, then the newest), so a stock is not listed
+ * three times. Open campaigns are listed separately and are never merged away.
+ */
+const RANK: Record<string, number> = { armed: 0, running: 1, weakening: 2, watching: 3, error: 4, ended: 5 };
+function oneRowPerStock<T extends { underlying: string; status: string; atMs: number | null; executionEligible?: boolean }>(rows: T[]): T[] {
+  const best = new Map<string, T>();
+  for (const row of rows) {
+    const cur = best.get(row.underlying);
+    const score = (r: T) => [r.executionEligible ? 0 : 1, RANK[r.status] ?? 9, -(r.atMs ?? 0)];
+    if (!cur) { best.set(row.underlying, row); continue; }
+    const a = score(row), b = score(cur);
+    if (a[0] < b[0] || (a[0] === b[0] && (a[1] < b[1] || (a[1] === b[1] && a[2] < b[2])))) best.set(row.underlying, row);
+  }
+  return [...best.values()];
+}
+
 export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   onOpenDetail?: (signal: BoardSignal) => void;
   onOpenChart?: (quoteKey: string, mode: EmaTrendMode, signal: BoardSignal) => void;
@@ -78,13 +96,13 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
 
   const signals = React.useMemo(() => historical ? [] : [
     ...emaTrendCampaignsToBoard(snapshot.data?.campaigns || []),
-    ...emaTrendSetupsToBoard(snapshot.data?.rows || []).map(row => ({
+    ...oneRowPerStock(emaTrendSetupsToBoard(snapshot.data?.rows || []).map(row => ({
       ...row,
       executionEligible: row.executionEligible &&
         row.emaTrend?.configRevision === snapshot.data?.revision &&
         snapshot.data?.config.enabled === true &&
         snapshot.data.paused !== true && snapshot.data.capabilities?.paper === true,
-    })),
+    }))),
   ], [snapshot.data, historical]);
   // v4 starts with an unrestricted view; stale TODAY/ENDED preferences must
   // not make genuine older saved signals look like a broken scanner.
@@ -235,7 +253,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
               : 'No signals yet. Checked on each finished candle.'}
         </p>}
       {snapshot.data?.truncatedModes?.length ? <p role="status" style={{ padding: 12 }}>
-        Showing the newest ${fetchLimit} rows per profile for {snapshot.data.truncatedModes.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Historical rows remain in the server archive.
+        Showing the newest {fetchLimit} signals. Older ones are kept in the history.
       </p> : null}
       {unavailableSelected.length > 0 && signals.length > 0 &&
         <p role="status" style={{ padding: '4px 12px', fontSize: 11 }}>

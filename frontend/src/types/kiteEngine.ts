@@ -92,6 +92,10 @@ export interface EngineSignalRow {
   // holds the session view the two are merged into one table, and without this
   // a trader cannot tell a recording from the market.
   is_replay?: boolean;
+  // Another mode's signal, shown so the board can filter by mode; switch SuperTrend's mode to trade it.
+  view_only?: boolean;
+  horizon_mode?: 'ultra_scalping' | 'scalping' | 'intraday' | 'overnight' | 'swing';
+  signal_timeframe_minutes?: number;
 }
 
 export interface SignalsResponse {

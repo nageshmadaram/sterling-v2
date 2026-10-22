@@ -30,7 +30,7 @@ export const SIGNAL_LEFT_COLUMNS: Record<string, SignalColumnDef> = {
   entry: { key: 'entry', label: 'Entry', width: 96, align: 'right', sortKey: 'entry', visibleWhen: 'premium', tooltip: 'Price to buy at. The small number is how far the live price is from it.' },
   sl: { key: 'sl', label: 'Stop', width: 56, align: 'right', sortKey: 'sl', visibleWhen: 'premium', tooltip: 'Stop loss: the trade is sold if the price falls to this.' },
   tsl: { key: 'tsl', label: 'Trail', width: 56, align: 'right', sortKey: 'stop', visibleWhen: 'premium', tooltip: 'Trailing stop: it moves up as the price rises, to lock in profit.' },
-  exit: { key: 'exit', label: 'Exit rule', width: 58, align: 'right', visibleWhen: 'always', tooltip: 'What closes the trade, and how close it is.' },
+  exit: { key: 'exit', label: 'Exit rule', width: 80, align: 'right', visibleWhen: 'always', tooltip: 'What closes the trade, and how close it is.' },
   target: { key: 'target', label: 'Target', width: 44, align: 'right', visibleWhen: 'premium', tooltip: 'Price where the plan takes profit.' },
 };
 

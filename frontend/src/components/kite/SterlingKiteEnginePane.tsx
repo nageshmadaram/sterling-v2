@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ToolbarButton } from './board/EngineToolbar';
 import { ColumnsMenu, FilterToggle, ModeFilter } from './board/BoardFilters';
-import { normalizeMode, type TradeMode } from './board/boardTypes';
+import { normalizeMode, MODE_LABEL, type TradeMode } from './board/boardTypes';
 import { useSavedSelection } from '../../hooks/useSavedSelection';
 // The row's geometry and columns now live beside the shared board, so every
 // engine renders against the same table rather than a copy of it.
@@ -88,6 +88,21 @@ function readTableFlag(key: string, fallback: boolean): boolean {
 }
 function saveTableFlag(key: string, value: boolean): void {
   try { localStorage.setItem(key, String(value)); } catch { /* storage may be unavailable */ }
+}
+
+/** Each row's mode and timeframe. Rows from a mode SuperTrend is not set to are view-only. */
+function StModeTag({ row }: { row: EngineSignalRow }) {
+  const mode = normalizeMode(row.horizon_mode);
+  if (!mode) return null;
+  const label = `${MODE_LABEL[mode]} · ${row.signal_timeframe_minutes ?? 60}m`;
+  const viewOnly = row.view_only === true;
+  return (
+    <Tip text={viewOnly ? `${MODE_LABEL[mode]} signal, view only. To trade it, set SuperTrend's mode to ${MODE_LABEL[mode]} in Settings.` : `${MODE_LABEL[mode]} signal on ${row.signal_timeframe_minutes ?? 60}-minute candles. This is the mode SuperTrend trades.`}>
+      <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 5px', borderRadius: 3, border: `1px solid ${k.border}`, color: viewOnly ? k.dim : k.text, whiteSpace: 'nowrap' }}>
+        {viewOnly ? `${label} · view only` : label}
+      </span>
+    </Tip>
+  );
 }
 
 export function Arrow({ v }: { v: number }) {
@@ -341,6 +356,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
   const rowRunning = rowIsRunning(row, quotes);
   const rowTradeAllowed = (
     row.is_replay !== true
+    && row.view_only !== true
     && rowRunning
     && sessionDayKey(row.timestamp_ms) === sessionDayKey(nowMs)
   );
@@ -496,7 +512,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
           {isDeriv ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: uColor }}>{row.underlying}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: uColor }}>{row.underlying}</span><StModeTag row={row} />
                 {/* Underlying spot LTP next to the name. Derivatives parents carry
                     row.spot=0 (the premium lives on each leg), so only show when the
                     live index/stock quote resolved — no misleading "0.00" fallback. */}
@@ -517,7 +533,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
             </div>
           ) : (
             <>
-              <span style={{ fontSize: 12, fontWeight: 600, color: uColor }}>{row.underlying}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: uColor }}>{row.underlying}</span><StModeTag row={row} />
 
               <span className="st-prices-parent" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: uColor }}>
                 <span style={{ fontWeight: 500 }}>{uLastPx != null ? uLastPx.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : row.spot.toFixed(2)}</span>
@@ -2007,14 +2023,14 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     saveTableFlag('kite_st_today_only', next);
   };
 
-  // Same Modes filter as every other strategy. SuperTrend runs one mode at a
-  // time, so the filter either shows that mode's rows or none.
+  // Modes filter: SuperTrend trades one mode, and the board also lists the other modes'
+  // signals (view-only), so filtering shows exactly the modes the user picks.
   const [stModesRaw, setStModesRaw] = useSavedSelection<string>('supertrend.board.modes', '');
   const stModes = React.useMemo(() => (stModesRaw ? stModesRaw.split(',') : []) as TradeMode[], [stModesRaw]);
   const stMode = normalizeMode(cfg?.horizon_mode);
   const filteredRows = React.useMemo(() => {
     let result = [...rows];
-    if (stModes.length && stMode && !stModes.includes(stMode)) result = [];
+    if (stModes.length) result = result.filter((r) => stModes.includes((normalizeMode(r.horizon_mode) ?? stMode) as TradeMode));
     if (signalMode === 'navigator') {
       result = result.filter((r) => r.navigator != null);
     } else if (signalMode === 'common') {

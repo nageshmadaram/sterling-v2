@@ -64,6 +64,7 @@ def _signal_row_key(row: EngineSignalRow) -> tuple:
     leg = row.legs[0].option_symbol if row.legs else ""
     return (
         row.source or "spot",
+        getattr(row, "horizon_mode", "swing"),
         row.underlying,
         row.token,
         row.direction,
@@ -95,6 +96,9 @@ def _signals_response(uid: str) -> SignalsResponse:
     us = scanner.snapshot(uid)
     st = state.status(uid)
     live_rows = list(us.rows if cfg.engine_enabled else [])
+    if cfg.engine_enabled:
+        # Other modes' signals, view-only, so the board can filter by mode (service.PREVIEW_MODES).
+        live_rows += service.preview_rows(uid, cfg.horizon_mode)
     generated_ms = us.generated_ms if cfg.engine_enabled else 0
     scanning = bool(us.scanning and cfg.engine_enabled)
     scanning_label = us.scanning_label if scanning else ""

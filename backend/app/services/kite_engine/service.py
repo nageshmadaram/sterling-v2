@@ -8,12 +8,13 @@ places gated option BUYs through the Kite order path. No other-engine imports.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import math
 import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.core.logging import get_logger
 from app.engines.sterling_kite_engine.config import SterlingKiteEngineConfig
@@ -2442,6 +2443,55 @@ async def _maintain_after_failed_scan(client, uid: str, *, done: set) -> None:
             log.warning("post-failure maintenance %s failed for %s: %s", step.__name__, uid, exc)
 
 
+#: SuperTrend trades in ONE mode (the strategy's horizon_mode). The board also shows the
+#: signals the other modes would give, so a user can filter by mode: after each live scan,
+#: one other mode is scanned in turn, with no order callback and into its own scanner slot,
+#: so open positions, trails and exits only ever read the live mode's rows.
+PREVIEW_MODES = ("ultra_scalping", "scalping", "intraday", "overnight", "swing")
+_preview_turn: Dict[str, int] = {}
+
+
+def preview_key(uid: str, mode: str) -> str:
+    return f"{uid}|view:{mode}"
+
+
+async def _preview_next_mode(client, uid: str, cfg_model, *, spot_universe, nfo, bfo,
+                             deriv_universe, confluence_universe) -> None:
+    others = [m for m in PREVIEW_MODES if m != cfg_model.horizon_mode]
+    if not others:
+        return
+    turn = _preview_turn.get(uid, 0) % len(others)
+    _preview_turn[uid] = turn + 1
+    mode = others[turn]
+    try:
+        preview_cfg = dataclasses.replace(_ts_cfg(cfg_model), horizon_mode=mode, signal_timeframe_minutes=None)
+        await scanner.scan(
+            uid=preview_key(uid, mode), client=client, universe=spot_universe, nfo_rows=nfo, bfo_rows=bfo,
+            cfg=preview_cfg, moneyness=cfg_model.strike_moneyness,
+            expiry_types=cfg_model.scan_expiries,
+            expiry_types_indices=cfg_model.scan_expiries_indices,
+            expiry_types_stocks=cfg_model.scan_expiries_stocks,
+            expiry_types_derivatives=cfg_model.deriv_expiries,
+            place_cb=None, deriv_universe=deriv_universe, confluence_universe=confluence_universe,
+            log_cb=None, close_feed=None)
+        state.log(uid, "info", f"View-only {mode} scan refreshed ({len(scanner.snapshot(preview_key(uid, mode)).rows)} rows)")
+    except Exception as exc:  # noqa: BLE001 - a preview must never break the live cycle
+        log.warning("SuperTrend view-only %s scan failed for %s: %s", mode, uid, exc)
+
+
+def preview_rows(uid: str, active_mode: str) -> list:
+    """Rows the other modes produced, marked view-only, for the board's mode filter."""
+    out = []
+    for mode in PREVIEW_MODES:
+        if mode == active_mode:
+            continue
+        us = scanner._users.get(preview_key(uid, mode))
+        if us is None:
+            continue
+        out.extend(r.model_copy(update={"view_only": True}) for r in us.rows)
+    return out
+
+
 async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) -> int:
     """Run one SuperTrend cycle for ``uid``. Return the active signal count."""
     cfg_model = state.get_effective_config(uid)
@@ -2575,6 +2625,8 @@ async def scan_user(client, uid: str, *, interval_s: float = SCAN_INTERVAL_S) ->
         done.add(_square_off_expiring)
         await _time_stop_positions(client, uid)
         done.add(_time_stop_positions)
+        await _preview_next_mode(client, uid, cfg_model, spot_universe=spot_universe, nfo=nfo, bfo=bfo,
+                                 deriv_universe=deriv_universe, confluence_universe=confluence_universe)
         board = f"{live} live signal(s)" + (f" + {ended} ended" if ended else "")
         state.log(uid, "scan_done",
                   f"Scan complete — {board} / {len(selected)} instruments "
