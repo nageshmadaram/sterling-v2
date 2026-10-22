@@ -176,7 +176,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
     render(<TradingModePanel />);
 
     expect(screen.getByText('Maximum lots per automatic entry')).toBeInTheDocument();
-    expect(screen.getByText(/Does not size manual orders/i)).toBeInTheDocument();
+    expect(screen.getByText(/Manual quantity must fit this limit/i)).toBeInTheDocument();
   });
 
   it('shows the spread gate as Off when the backend value is null', () => {

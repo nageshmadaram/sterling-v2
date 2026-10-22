@@ -171,3 +171,31 @@ it('does not invent a target for a strategy that supplies none', () => {
   render(<AdaptiveEdgePositionCalculator symbol="NIFTY26O0925000CE" lotSize={75} defaultEntryPrice={100} defaultSl={80} />);
   expect(screen.getByText('No fixed target supplied')).toBeInTheDocument();
 });
+
+it('locks all strategy-owned plan inputs and follows a new server snapshot', () => {
+  const view = render(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={2}
+    defaultEntryPrice={100} defaultSl={80} allowOrder={false} />);
+  for (const input of screen.getAllByRole('spinbutton')) expect(input).toHaveAttribute('readonly');
+  view.rerender(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={3}
+    defaultEntryPrice={120} defaultSl={90} allowOrder={false} />);
+  expect(screen.getAllByRole('spinbutton')[0]).toHaveValue(3);
+  expect(screen.getAllByRole('spinbutton')[1]).toHaveValue(120);
+});
+
+it('does not substitute a quote for a missing authoritative entry', () => {
+  render(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={2}
+    currentLtp={100} allowOrder={false} />);
+  expect(screen.getAllByRole('spinbutton')[1]).toHaveValue(null);
+  expect(screen.getByText('Entry / capital').parentElement).not.toHaveTextContent('₹0.00');
+  expect(screen.getByText('Gross MTM estimate').parentElement).not.toHaveTextContent('₹');
+});
+
+it('does not copy an invented zero reward multiple when the target is missing', () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  render(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={1}
+    defaultEntryPrice={100} defaultSl={80} allowOrder={false} />);
+  fireEvent.click(screen.getByRole('button', { name: /Copy Plan/ }));
+  expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Risk/Reward: Unknown'));
+  expect(writeText.mock.calls[0][0]).not.toContain('1 : 0.00 R');
+});

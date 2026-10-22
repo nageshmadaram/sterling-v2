@@ -767,6 +767,7 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
  fail=[False]
  def simulated_build(command,**kwargs):
   assert command==['npm','run','build']
+  assert kwargs['env']['STERLING_BUILD_SHA']==current[0]
   assert not (publisher.frontend/'dist/leftover.js').exists()
   if fail[0]:
    raise subprocess.CalledProcessError(1,command)

@@ -45,7 +45,8 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
   useCancelScan: () => ({ mutate: vi.fn(), isPending: false }),
   useStockRegistry: () => ({ data: [] }),
 }));
-vi.mock('../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
+vi.mock('../../../hooks/useKite', () => ({ useKiteStatus: () => ({ data: { connected: true }, isLoading: false }),
+  useKiteQuote: () => ({ data: {} }) }));
 vi.mock('../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: () => ({ data: null }),
   useGammaMoveConfig: () => ({ data: { config: { enabled: gmEnabled } } }),

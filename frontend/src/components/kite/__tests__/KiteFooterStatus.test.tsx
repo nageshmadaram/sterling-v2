@@ -98,7 +98,7 @@ function setLive(over: Record<string, unknown> = {}) {
       safe_mode: { state: 'NORMAL', reason: null, triggers: [] },
       live_execution: true,
       recovery_state: 'NORMAL',
-      exposure_observation: { fresh: true, age_s: 3 },
+      exposure_observation: { observed: true, fresh: true, age_s: 3 },
       ...over,
     }),
   };

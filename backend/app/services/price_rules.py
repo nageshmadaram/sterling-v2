@@ -145,6 +145,41 @@ def remaining(r):
     return qty
 
 
+def project_journal(uid, r):
+    """Replay-safe projection of confirmed durable facts, including partial fills."""
+    from app.services import trade_journal as journal
+    qty = int(r.get("filled", 0))
+    if qty <= 0:
+        return  # acknowledgement is not a fill
+    tid = journal.record_entry(uid=uid, strategy=STRATEGY_ID, symbol=r["symbol"],
+        key=f"{r['account_id']}:{r['id']}", status="OPEN", account_id=r["account_id"],
+        side="BUY", qty=qty, lot_size=r["lot_size"], lots=qty/r["lot_size"],
+        expiry=r.get("expiry"), option_type=r.get("option_type"),
+        entry_order_id=r.get("order_id"), entry_price=r.get("entry_price"),
+        initial_sl=r.get("stop"), target=r.get("target"),
+        signal_ts_ms=r.get("created_ms"), entry_ts_ms=r.get("fill_ts_ms"),
+        source="price_rules_confirmed", extra={"exchange":r["exchange"], "rule_id":r["id"]})
+    if not tid:
+        raise RuntimeError("price_rules_journal_projection_failed")
+    journal.record_event(trade_id=tid, event_type=journal.FILLED,
+        event_key=f"fill:{r.get('order_id')}", qty=qty, price=r.get("entry_price"), cumulative=True,
+        ts_ms=r.get("fill_ts_ms"), detail="Confirmed cumulative entry fill")
+    if r.get("gtt_id") and not r.get("protection_pending"):
+        journal.record_event(trade_id=tid, event_type=journal.PROTECTION_PLACED,
+            event_key=f"gtt:{r['gtt_id']}:{r.get('gtt_qty')}", price=r.get("stop"),
+            qty=r.get("gtt_qty"), detail="Broker protection verified")
+    sold = 0
+    for oid, leg in r["exits"].items():
+        filled = int(leg.get("filled", 0))
+        if filled <= 0:
+            continue
+        sold += filled
+        journal.record_exit(trade_id=tid, exit_price=leg.get("price"), qty=filled,
+            ts_ms=leg.get("fill_ts_ms"), fill_key=f"exit:{oid}", cumulative=True,
+            partial=sold < qty or r.get("entry_status") not in TERMINAL,
+            reason=leg.get("reason", "broker_exit"), trailed=False)
+
+
 async def submit(uid, r, client):
     source = QuoteSource(lambda: client, owner=uid)
     margins = await client.get_margins()
@@ -197,7 +232,7 @@ def verify_order(r, row, oid, side, max_qty):
     return qty, price, str(row.get("status","")).upper()
 
 
-async def observe(uid,r,client,oid,side,max_qty,intent=""):
+async def observe(uid,r,client,oid,side,max_qty,intent="",reason=""):
     history = await client.get_order_history(oid)
     if not isinstance(history,list) or not history:
         raise RuntimeError("order_history_unavailable")
@@ -218,14 +253,19 @@ async def observe(uid,r,client,oid,side,max_qty,intent=""):
         p=doc["rules"][r["id"]]
         if side=="BUY":
             if qty and not p["filled"]:
-                p["stop"]=snap(price-p["stop_points"],p["tick"],"down")
+                p["stop"]=max(p.get("stop", 0), snap(price-p["stop_points"],p["tick"],"down"))
                 p["target"]=snap(price+p["target_points"],p["tick"],"up") if p["target_points"] else 0
             p["filled"]=max(p["filled"],qty);p["entry_status"]=status;p["entry_price"]=price
+            if qty: p.setdefault("fill_ts_ms", int(ts*1000))
         else:
             old=p["exits"].setdefault(str(oid),{"filled":0,"quantity":max_qty,"intent_key":intent})
             old["filled"]=max(old["filled"],qty);old["status"]=status;old["price"]=price
+            if reason: old["reason"]=reason
+            elif intent: old.setdefault("reason", "manual_exit")
+            if qty: old.setdefault("fill_ts_ms", int(ts*1000))
         p["revision"]+=1
     store.mutate(uid,project)
+    project_journal(uid, store.load(uid)["rules"][r["id"]])
     if observation and observation.intent.projection_pending and not order_journal.mark_projected(intent,observation.intent.projection_version):
         raise RuntimeError("projection_ack_conflict")
     return status
@@ -304,7 +344,8 @@ async def protect(uid,r,client):
     r=update(uid,r["id"],gtt_id=gid,gtt_qty=qty)
     trigger=verify_trigger(r,await client.get_gtt(gid),qty)
     if trigger.get("status")!="active":raise RuntimeError("protection_not_active")
-    update(uid,r["id"],state="OPEN",protection_pending=False,protection_claim="",error="")
+    protected = update(uid,r["id"],state="OPEN",protection_pending=False,protection_claim="",error="")
+    project_journal(uid, protected)
 
 
 async def manage(uid,r,client,*,repair_protection=True):
@@ -331,14 +372,14 @@ async def manage(uid,r,client,*,repair_protection=True):
         verify_trigger(r,g,r["gtt_qty"])
         if g.get("status")=="triggered":
             children=[]
-            for leg in g["orders"]:
+            for leg_index, leg in enumerate(g["orders"]):
                 result=leg.get("result")
                 if result:
                     result=result.get("order_result",result)
                     oid=result.get("order_id")
                     if not oid:raise RuntimeError("trigger_child_unconfirmed")
                     children.append(str(oid))
-                    await observe(uid,r,client,str(oid),"SELL",r["gtt_qty"])
+                    await observe(uid,r,client,str(oid),"SELL",r["gtt_qty"],reason="SL" if leg_index == 0 else "TARGET")
             if not children:raise RuntimeError("trigger_child_missing")
             r=store.load(uid)["rules"][r["id"]]
             if any(r["exits"][oid]["status"] not in TERMINAL for oid in children):

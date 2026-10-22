@@ -287,19 +287,30 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             raise ValueError("live_manual_protection_required")
         if cfg.stop_mode not in {"broker", "both"}:
             raise ValueError("live_manual_broker_stop_required")
-        plan = protection.plan_for_symbol(uid, symbol)
-        if not plan or not plan.live or not plan.protectable or plan.exchange != exchange:
-            raise ValueError("fresh_protectable_plan_required")
         # Manual requests use the same completed-bar freshness/session gate as auto entries.
-        rows = [r for r in protection._rows_for(uid)
-                if any(getattr(l, "option_symbol", "") == symbol for l in (r.legs or []))]
+        rows = []
+        for candidate in protection._rows_for(uid):
+            leg = next((l for l in (candidate.legs or [])
+                        if getattr(l, "option_symbol", "") == symbol), None)
+            if leg is None:
+                continue
+            # Merged parent rows carry the newest timestamp across all legs.
+            # Entry authority belongs to this contract's own signal generation.
+            leg_stamp = getattr(leg, "signal_timestamp_ms", None)
+            if leg_stamp:
+                from copy import copy
+                candidate = copy(candidate)
+                candidate.timestamp_ms = leg_stamp
+            rows.append(candidate)
         row = next((r for r in rows if not entry_data_block_reason(
             r, exchange=exchange, buffer_minutes=cfg.block_entry_minutes_before_close)), None)
         if row is None:
-            # If variety == "amo" or placing manual order after hours, allow matching board row
-            row = next((r for r in rows), None)
-        if row is None:
             raise ValueError("stale_or_closed_manual_signal")
+        # Resolve the stop from the exact admitted row, never a duplicate symbol
+        # in another mode, source, interval or historical generation.
+        plan = protection.plan_for_symbol(uid, symbol, rows=[row])
+        if not plan or not plan.live or not plan.protectable or plan.exchange != exchange:
+            raise ValueError("fresh_protectable_plan_required")
         from app.core.mode_execution import freeze_policy, carry_entry_refusal, timeframe_minutes
         mode = getattr(cfg, "horizon_mode", "swing")
         timeframe = timeframe_minutes(mode, getattr(cfg, "signal_timeframe_minutes", None))
@@ -343,12 +354,14 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             day_pnl = state.daily_realized_pnl(uid)
             if day_pnl < 0 and -day_pnl >= daily_loss_limit(uid, available, cfg.max_daily_loss_pct):
                 raise ValueError("daily_loss_limit")
-        if variety != "amo":
-            reason = entry_data_block_reason(row, exchange=exchange,
-                                             buffer_minutes=cfg.block_entry_minutes_before_close)
-            if reason:
-                # Outside continuous hours, fallback to AMO rather than blocking manual click
-                variety = "amo"
+        # A strategy signal authorizes this session only. Queuing next-session
+        # exposure requires a separately reviewed, persisted AMO policy.
+        if variety == "amo":
+            raise ValueError("strategy_amo_policy_unavailable")
+        reason = entry_data_block_reason(row, exchange=exchange,
+                                         buffer_minutes=cfg.block_entry_minutes_before_close)
+        if reason:
+            raise ValueError(reason)
         from app.services.exchanges.kite import accounts
         if not accounts.client_is_current(client, user_id=uid):
             raise ValueError("account_changed_before_submission")
@@ -388,7 +401,13 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
     if intent is not None:
         register_pending(intent, result.order_id)
     return {"status": "ok", "order_id": result.order_id, "protected": False,
-            "protection": "awaiting confirmed fill", "message": "Entry submitted; fill pending"}
+            "execution_state": "ACKNOWLEDGED", "variety": variety, "amo": variety == "amo",
+            "protection_owner": "engine", "intent_key": getattr(intent, "intent_key", None),
+            "protection_state": "AWAITING_FILL",
+            "protection": "Engine protection will be verified after confirmed fill",
+            "plan": {"stop_premium": plan.stop_premium, "target_premium": plan.target_premium,
+                     "quantity": quantity, "mode_policy": mode_policy},
+            "message": "Entry submitted; fill pending"}
 
 
 async def arm_manual_option_buy(client, uid: str, *, option_symbol: str, exchange: str,
@@ -749,10 +768,25 @@ def entry_data_block_reason(row, *, exchange: str, buffer_minutes: int) -> str:
         exchange=exchange, cash_signal=row.source != "derivatives", buffer_minutes=buffer_minutes)
     if reason:
         return reason
-    signal_at = datetime.fromtimestamp(row.timestamp_ms / 1000, _IST)
-    now = datetime.now(_IST)
-    if signal_at.date() != now.date() or not (0 <= (now - signal_at).total_seconds() - 3600 <= 600):
-        return "stale_or_unclosed_signal"
+    from app.core.mode_execution import timeframe_minutes
+    try:
+        minutes = timeframe_minutes(getattr(row, "horizon_mode", "swing"),
+                                    getattr(row, "signal_timeframe_minutes", None))
+        signal_at = datetime.fromtimestamp(row.timestamp_ms / 1000, _IST)
+        now = datetime.now(_IST)
+        age_after_close = (now - signal_at).total_seconds() - minutes * 60
+        # Smaller intervals expire at the next bar; hourly retains its 10m TTL.
+        ttl = min(minutes * 60, 600)
+        if signal_at.date() != now.date() or not (0 <= age_after_close <= ttl):
+            return "stale_or_unclosed_signal"
+        # Signal timestamps are bar opens, never after the continuous session.
+        if exchange in {"NFO", "BFO", "NSE", "BSE"}:
+            from datetime import time
+            if (not time(9, 15) <= signal_at.time() < time(15, 30)
+                    or (signal_at + timedelta(minutes=minutes)).time() > time(15, 30)):
+                return "signal_outside_continuous_session"
+    except (ValueError, TypeError, OverflowError, AttributeError):
+        return "invalid_signal_timeframe_or_timestamp"
     return ""
 
 

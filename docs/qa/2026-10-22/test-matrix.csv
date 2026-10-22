@@ -1,0 +1,92 @@
+id,stage,strategy,mode,scenario,status,evidence,limits
+T001,startup,all,live,Frontend checkout and published release agree,PASS_OBSERVED,evidence/release-identity.json,
+T002,startup,all,live,Loaded backend matches certified release,BLOCKED,QA-01,Backend reports unresolved older SHA
+T003,startup,all,live,Health endpoint reachable,PASS_OBSERVED,evidence/api-observations.json,
+T004,startup,all,live,Anonymous privileged reads denied,PASS_OBSERVED,evidence/api-observations.json,401 for status/readiness/live-status without auth
+T005,startup,all,live,Browser login from logged-out state,NOT_RUN,Existing authenticated browser,Fresh boot/login covered offline; browser used existing session
+T006,startup,all,live,Fresh machine boot and broker login lifecycle,PASS_OFFLINE,backend-targeted.xml,
+T007,readiness,all,manual,Running scanner versus manual execution states readable,ISSUE,QA-15;16-trading-config.jpg,ALGO label remains next to manual/off configuration
+T008,signal admission,SuperTrend,ultra_scalping/1m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T009,signal admission,SuperTrend,scalping/1m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T010,signal admission,SuperTrend,scalping/3m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T011,signal admission,SuperTrend,scalping/5m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T012,signal admission,SuperTrend,intraday/5m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T013,signal admission,SuperTrend,intraday/15m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T014,signal admission,SuperTrend,intraday/30m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T015,signal admission,SuperTrend,overnight/30m,Completed candle 30 seconds old,FAIL_REPRODUCED,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T016,signal admission,SuperTrend,overnight/60m,Completed candle 30 seconds old,PASS_OFFLINE,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T017,signal admission,SuperTrend,swing/60m,Completed candle 30 seconds old,PASS_OFFLINE,defect-reproductions.xml;QA-02,Isolates freshness helper; not full broker-entry approval
+T018,manual entry,SuperTrend,regular,Stale signal must not submit,FAIL_REPRODUCED,defect-reproductions.log;QA-03,Both varieties reached mocked broker as AMO
+T019,manual entry,SuperTrend,amo,Stale signal must not submit,FAIL_REPRODUCED,defect-reproductions.log;QA-03,Both varieties reached mocked broker as AMO
+T020,mode policy,SuperTrend/Snapback,ultra_scalping,Finite immutable mode deadline,PASS_OFFLINE,backend-lifecycle.xml,Not independent live-day certification
+T021,mode policy,SuperTrend/Snapback,scalping,Finite immutable mode deadline,PASS_OFFLINE,backend-lifecycle.xml,Not independent live-day certification
+T022,mode policy,SuperTrend/Snapback,intraday,Finite immutable mode deadline,PASS_OFFLINE,backend-lifecycle.xml,Not independent live-day certification
+T023,mode policy,SuperTrend/Snapback,overnight,Finite immutable mode deadline,PASS_OFFLINE,backend-lifecycle.xml,Not independent live-day certification
+T024,mode policy,SuperTrend/Snapback,swing,Finite immutable mode deadline,PASS_OFFLINE,backend-lifecycle.xml,Not independent live-day certification
+T025,entry/protection/exit,Snapback,ultra_scalping,Owned position opens protects and exits at frozen deadline,PASS_OFFLINE,test_mode_execution.py;backend-lifecycle.xml,Candidate gates explicitly satisfied by fixtures
+T026,entry/protection/exit,Snapback,intraday,Owned position opens protects and exits at frozen deadline,PASS_OFFLINE,test_mode_execution.py;backend-lifecycle.xml,Candidate gates explicitly satisfied by fixtures
+T027,entry/protection/exit,Snapback,overnight,Owned position opens protects and exits at frozen deadline,PASS_OFFLINE,test_mode_execution.py;backend-lifecycle.xml,Candidate gates explicitly satisfied by fixtures
+T028,entry/protection/exit,Snapback,scalp,Premium target lock trail and lifecycle cases,PASS_OFFLINE,backend-targeted.xml,Synthetic candles/broker
+T029,entry/protection/exit,Snapback,swing,Entry option and hedge stop-out complete journal,PASS_OFFLINE,backend-targeted.xml,Fake Kite exchange
+T030,manual entry,Snapback,manual,Publish signal then arm exact plan with AUTO off,PASS_OFFLINE,backend-targeted.xml;frontend-tests.log,Real browser publish/arm not submitted
+T031,manual entry,Snapback,closed market,Displayed AMO support agrees with server,FAIL_CONTRACT,QA-09;09-snapback-loaded.jpg,Caption promises unavailable mode
+T032,signal board,Snapback,historical,Historical or unresolved contract disabled,PASS_OBSERVED,snapback-loaded-ax.txt,Current session had no eligible live entry
+T033,signal board,Gamma Unwind,watch,Four-gate WATCH cannot execute,PASS_OBSERVED,gamma-loaded-ax.txt;07-gamma-plan.jpg,
+T034,manual entry,Gamma Unwind,intraday,Arm valid ENTRY with broker stop,PASS_OFFLINE,backend-targeted.xml;backend-contracts.xml,No eligible actual current candidate used
+T035,manual entry,Gamma Unwind,swing live,Refuse missing broker pre-T1 protection,PASS_OFFLINE,backend-contracts.xml,Intentional unsupported live combination
+T036,capabilities,Gamma Unwind,ultra_scalping,Dedicated production mode,NOT_SUPPORTED,gamma_move_runner.py;README.md,Historical what-if labels do not add runtime support
+T037,capabilities,Gamma Unwind,scalping,Dedicated production mode,NOT_SUPPORTED,gamma_move_runner.py;README.md,Historical what-if labels do not add runtime support
+T038,capabilities,Gamma Unwind,overnight,Dedicated production mode,NOT_SUPPORTED,gamma_move_runner.py;README.md,Historical what-if labels do not add runtime support
+T039,trade plan,Gamma Unwind,swing/watch,Missing strategy SL remains absent in calculator and copy,FAIL_REPRODUCED,frontend-reproductions.log;QA-05,
+T040,trade plan,Gamma/Snapback,manual,Displayed edited quantity/SL matches executable revision,FAIL_CONTRACT,QA-06,Execution uses candidate/signal identity; calculator edits local
+T041,exit explanation,Gamma Unwind,T1,Guide promises only implemented realized/stop behavior,FAIL_CONTRACT,QA-17,T1 ratchets stop; guide promises profit booking
+T042,data readiness,Gamma Unwind,current,Historical recovery complete,PARTIAL,gamma-loaded-ax.txt;QA-16,NHPC recovery error displayed; cause not diagnosed
+T043,manual ticket,SuperTrend,AMO,Exact contract lot price stop and AMO consent displayed,PASS_OBSERVED,manual-ticket-loaded-ax.txt;15-manual-amo-loaded.jpg,Opened then closed; never submitted
+T044,transport,SuperTrend,AMO,Serialize valid AMO and cancel route,PASS_OFFLINE,defect-reproductions.log,Socket blocked; synthetic broker response
+T045,transport,all,live,Actual broker accepts a real AMO,NOT_RUN,README.md,No real financial instruction sent
+T046,transport,all,live,Account has sufficient funds,EXCLUDED,User scope,No production funds gate bypass
+T047,transport,all,live,Whitelisted outbound IP,EXCLUDED,User scope,No production network gate bypass
+T048,draft/arm,Price Rules,manual/conditions,Revision checks one-shot arm pause cancel tenant ownership,PASS_OFFLINE,backend-targeted.xml,
+T049,entry,Price Rules,manual/conditions,Canonical request and confirmed-fill quantity,PASS_OFFLINE,backend-targeted.xml,
+T050,protection,Price Rules,partial,Protect confirmed partial entry only,PASS_OFFLINE,backend-targeted.xml,
+T051,exit,Price Rules,25/50/75/100,Owned partial exits and residual stop repair,PASS_OFFLINE,backend-targeted.xml,Some lifecycle cases exercise representative fractions; all menu choices inspected
+T052,exit,Price Rules,keyboard,Escape never sends accidental full exits,FAIL_REPRODUCED,frontend-reproductions.log;QA-04,
+T053,capabilities,Price Rules,five horizons,Five independent holding policies,NOT_SUPPORTED,price_rules.py;SESSION_RUNBOOK.md,Rule expiry is not holding deadline; no TSL selector
+T054,UI,Price Rules,disabled,Plan publish blocked while off; exit remains separate,PASS_OBSERVED,12-price-rules.jpg,Strategy not enabled during audit
+T055,export,Price Rules,CSV,Actual download valid header and gross label,PASS_OBSERVED,price-rules-export.csv,Header-only because no rule records
+T056,export,Price Rules,CSV,Actual populated live rows reconcile fills and fees,NOT_RUN,No real history,Gross labelled; populated rows covered only by mocked/source checks
+T057,lifecycle,all applicable,supported,Partial entry protection,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T058,lifecycle,all applicable,supported,Stop gap and resting child,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T059,lifecycle,all applicable,supported,SL stop-out,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T060,lifecycle,all applicable,supported,TSL ratchet and exit,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T061,lifecycle,all applicable,supported,Manual exit racing stop,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T062,lifecycle,all applicable,supported,Unknown response no resend,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T063,lifecycle,all applicable,supported,Restart rehydrates ownership,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T064,lifecycle,all applicable,supported,Emergency halt retains exits,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T065,lifecycle,all applicable,supported,Exact tracked exit cannot open short,PASS_OFFLINE,backend-targeted.xml;backend-lifecycle.xml;backend-contracts.xml,"Scope per actual test, not every unsupported strategy/mode Cartesian combination"
+T066,protection UI,SuperTrend,manual,Single canonical protection owner,FAIL_CONTRACT,QA-07,Client GTT watcher conflicts with live generic refusal
+T067,notification,SuperTrend,manual/AMO,Queued/pending/protected words match authority,FAIL_CONTRACT,QA-08,Pending false-protected mislabelled; AMO flag omitted
+T068,journal,SuperTrend,E2E,Signal fill stop-out and API journal join,PASS_OFFLINE,backend-targeted.xml,
+T069,journal,Gamma Unwind,E2E,Signal fill stop-out and API journal join,PASS_OFFLINE,backend-targeted.xml,
+T070,journal,Snapback,E2E,Signal fill stop-out and API journal join,PASS_OFFLINE,backend-targeted.xml,
+T071,journal,all,live,Actual session export reconciles broker trades,NOT_RUN,No actual fills,Do not infer from mock journal
+T072,alerts,Snapback/Gamma,outbox/sink,Dedupe persistence and lifecycle sink behavior,PASS_OFFLINE,backend-lifecycle.xml;backend-targeted.xml,
+T073,alerts,all,Telegram,Configuration visible,PASS_OBSERVED,17-notifications.jpg,No real test message sent
+T074,alerts,all,mobile/browser,Push sound background and phone receipt,NOT_RUN,SESSION_RUNBOOK.md,No permission/subscription or delivery action
+T075,replay,all supported,API,Virtual replay clock and API isolation,PASS_OFFLINE,backend-simulation-recovery.xml,Five real-data-dependent tests skipped
+T076,replay,all supported,real fixtures,Recorded September fixtures and hourly cache cases,SKIPPED,skipped-tests.json,Missing actual snapshots/cache; no fabricated replacements
+T077,simulation,all supported,UI,Fresh live owner can enter Simulation,UNAVAILABLE_UI,QA-13,Choice intentionally filtered; ViewSwitch unmounted
+T078,simulation,all supported,backend,Separate real and virtual books no real writes,PASS_OFFLINE,backend-targeted.xml;backend-simulation-recovery.xml,
+T079,scope,EMA Trend,paper/research,API ownership and live refusal/readiness,PASS_OFFLINE,backend-simulation-recovery.xml,Extra UI strategy; not primary live release originator
+T080,layout,all,desktop,Maximized Signals reveals chosen main destination,FAIL_OBSERVED,QA-10,Restore required to reveal Connect
+T081,layout,all,desktop,Readable exact contract action and risk columns,PARTIAL,01-dashboard.jpg;07-gamma-plan.jpg,Expanded readable; saved narrow dock clipped
+T082,layout,all,mobile/tablet,Responsive controls keyboard screen reader coverage,NOT_RUN,SESSION_RUNBOOK.md,No mobile-device certification
+T083,market information,dashboard,live,Only verified current events labelled LIVE,FAIL_OBSERVED,02-dashboard-main.jpg;QA-11,Static source literals
+T084,documentation,all,operator,Live-entry default and launcher paths correct,FAIL_SOURCE,QA-14,
+T085,QA gate,frontend,unit,Existing full suite green,FAIL_TEST_HARNESS,frontend-tests.log;QA-12,18 missing-hook-mock failures
+T086,QA gate,frontend,typecheck/build,Current source compiles and builds,PASS_LOCAL,build-results.json,Temporary output; not deployed
+T087,end session,all,market close,Real end-of-day flatness/carry and AMO cleanup,NOT_RUN,SESSION_RUNBOOK.md,Market already closed; automated EOD lifecycle cases passed
+T088,session closure,all,live,Actual Orders screen shows no orders today,PASS_OBSERVED,orders-loaded-ax.txt;23-orders-loaded.jpg,Read only; not all-time exposure certification
+T089,session closure,all,live,Actual GTT screen shows no triggers,PASS_OBSERVED,24-gtt.jpg,Generic Create GTT affordance still conflicts with live refusal
+T090,journal,all,live,Actual journal source/filter/empty state,PASS_OBSERVED,journal-ax.txt;25-journal.jpg,No trades in selected 30-day window
+T091,journal,Price Rules,global,Fourth primary strategy included in unified journal,FAIL_CONTRACT,QA-18,Dedicated rule CSV is separate from global journal

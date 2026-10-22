@@ -1,0 +1,7 @@
+{
+  "context": "/home/nageshmadaram/Sterling/.runtime/qa-archive-identity-nwhq8wuc/frontend",
+  "expected": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "before_identity_present": false,
+  "after_identity_present": true,
+  "status": "PASS"
+}

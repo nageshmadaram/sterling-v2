@@ -31,6 +31,7 @@ def _resolve_default_db_path() -> str:
 
 _DB_PATH = _resolve_default_db_path()
 _available = False
+_CHECKOUT_DB_PATH = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "sterling_paper.db"))
 
 
 def under_test() -> bool:
@@ -39,10 +40,12 @@ def under_test() -> bool:
 
 
 def is_disposable_path(path: str) -> bool:
-    """A database a test may create, fill and wipe: in memory, under the temp dir, or named *test*."""
+    """Fixture databases are disposable; the checkout's operator database never is."""
     if not path or path == ":memory:" or path.startswith("file::memory:"):
         return True
     real = os.path.realpath(path)
+    if real == _CHECKOUT_DB_PATH:
+        return False
     tmp = os.path.realpath(tempfile.gettempdir())
     return real.startswith(tmp + os.sep) or "test" in os.path.basename(real).lower()
 

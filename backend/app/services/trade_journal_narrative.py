@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
-STRATEGY_LABELS = {"supertrend": "Supertrend", "snapback": "Snapback", "gamma": "Gamma Unwind"}
+STRATEGY_LABELS = {"supertrend": "Supertrend", "snapback": "Snapback", "gamma": "Gamma Unwind", "ema_trend": "EMA Trend", "price_rules": "Price Rules"}
 
 # --------------------------------------------------------------------------
 # Exit reasons

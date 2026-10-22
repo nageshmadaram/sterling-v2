@@ -1,0 +1,9 @@
+{
+  "frontend-typecheck": {
+    "exit_code": 0
+  },
+  "frontend-build": {
+    "exit_code": 0
+  },
+  "build_output": "/tmp/sterling-qa-build-x31e_skp"
+}

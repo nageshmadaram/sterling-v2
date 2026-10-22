@@ -1,0 +1,164 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+____________ test_non_object_artifact_metadata_fails_closed[value0] ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad0')
+value = []
+
+    @pytest.mark.parametrize('value',[[],None,'metadata',42])
+    def test_non_object_artifact_metadata_fails_closed(tmp_path,value):
+        (tmp_path / identity.METADATA_FILENAME).write_text(json.dumps(value))
+>       report=identity.artifact_identity(tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/tmp/sterling-followup-review/test_artifact_draft.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad0')
+
+    def artifact_identity(root: Path | None = None) -> ArtifactBuildIdentity:
+        """Read and independently verify build metadata against executing source."""
+        base = (root or backend_root()).resolve()
+        path = metadata_path(base)
+        if not path.exists():
+            return ArtifactBuildIdentity(
+                present=False, valid=False, reason="build_metadata_missing"
+            )
+    
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - invalid identity must fail closed
+            return ArtifactBuildIdentity(
+                present=True,
+                valid=False,
+                reason=f"build_metadata_unreadable:{type(exc).__name__}",
+            )
+    
+>       if raw.get("schema_version") != SCHEMA_VERSION:
+           ^^^^^^^
+E       AttributeError: 'list' object has no attribute 'get'
+
+backend/app/core/build_artifact_identity.py:156: AttributeError
+_____________ test_non_object_artifact_metadata_fails_closed[None] _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad1')
+value = None
+
+    @pytest.mark.parametrize('value',[[],None,'metadata',42])
+    def test_non_object_artifact_metadata_fails_closed(tmp_path,value):
+        (tmp_path / identity.METADATA_FILENAME).write_text(json.dumps(value))
+>       report=identity.artifact_identity(tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/tmp/sterling-followup-review/test_artifact_draft.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad1')
+
+    def artifact_identity(root: Path | None = None) -> ArtifactBuildIdentity:
+        """Read and independently verify build metadata against executing source."""
+        base = (root or backend_root()).resolve()
+        path = metadata_path(base)
+        if not path.exists():
+            return ArtifactBuildIdentity(
+                present=False, valid=False, reason="build_metadata_missing"
+            )
+    
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - invalid identity must fail closed
+            return ArtifactBuildIdentity(
+                present=True,
+                valid=False,
+                reason=f"build_metadata_unreadable:{type(exc).__name__}",
+            )
+    
+>       if raw.get("schema_version") != SCHEMA_VERSION:
+           ^^^^^^^
+E       AttributeError: 'NoneType' object has no attribute 'get'
+
+backend/app/core/build_artifact_identity.py:156: AttributeError
+___________ test_non_object_artifact_metadata_fails_closed[metadata] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad2')
+value = 'metadata'
+
+    @pytest.mark.parametrize('value',[[],None,'metadata',42])
+    def test_non_object_artifact_metadata_fails_closed(tmp_path,value):
+        (tmp_path / identity.METADATA_FILENAME).write_text(json.dumps(value))
+>       report=identity.artifact_identity(tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/tmp/sterling-followup-review/test_artifact_draft.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad2')
+
+    def artifact_identity(root: Path | None = None) -> ArtifactBuildIdentity:
+        """Read and independently verify build metadata against executing source."""
+        base = (root or backend_root()).resolve()
+        path = metadata_path(base)
+        if not path.exists():
+            return ArtifactBuildIdentity(
+                present=False, valid=False, reason="build_metadata_missing"
+            )
+    
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - invalid identity must fail closed
+            return ArtifactBuildIdentity(
+                present=True,
+                valid=False,
+                reason=f"build_metadata_unreadable:{type(exc).__name__}",
+            )
+    
+>       if raw.get("schema_version") != SCHEMA_VERSION:
+           ^^^^^^^
+E       AttributeError: 'str' object has no attribute 'get'
+
+backend/app/core/build_artifact_identity.py:156: AttributeError
+______________ test_non_object_artifact_metadata_fails_closed[42] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad3')
+value = 42
+
+    @pytest.mark.parametrize('value',[[],None,'metadata',42])
+    def test_non_object_artifact_metadata_fails_closed(tmp_path,value):
+        (tmp_path / identity.METADATA_FILENAME).write_text(json.dumps(value))
+>       report=identity.artifact_identity(tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/tmp/sterling-followup-review/test_artifact_draft.py:8: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+root = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-22/test_non_object_artifact_metad3')
+
+    def artifact_identity(root: Path | None = None) -> ArtifactBuildIdentity:
+        """Read and independently verify build metadata against executing source."""
+        base = (root or backend_root()).resolve()
+        path = metadata_path(base)
+        if not path.exists():
+            return ArtifactBuildIdentity(
+                present=False, valid=False, reason="build_metadata_missing"
+            )
+    
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001 - invalid identity must fail closed
+            return ArtifactBuildIdentity(
+                present=True,
+                valid=False,
+                reason=f"build_metadata_unreadable:{type(exc).__name__}",
+            )
+    
+>       if raw.get("schema_version") != SCHEMA_VERSION:
+           ^^^^^^^
+E       AttributeError: 'int' object has no attribute 'get'
+
+backend/app/core/build_artifact_identity.py:156: AttributeError
+=========================== short test summary info ============================
+FAILED ../../../tmp/sterling-followup-review/test_artifact_draft.py::test_non_object_artifact_metadata_fails_closed[value0]
+FAILED ../../../tmp/sterling-followup-review/test_artifact_draft.py::test_non_object_artifact_metadata_fails_closed[None]
+FAILED ../../../tmp/sterling-followup-review/test_artifact_draft.py::test_non_object_artifact_metadata_fails_closed[metadata]
+FAILED ../../../tmp/sterling-followup-review/test_artifact_draft.py::test_non_object_artifact_metadata_fails_closed[42]
+4 failed in 0.13s

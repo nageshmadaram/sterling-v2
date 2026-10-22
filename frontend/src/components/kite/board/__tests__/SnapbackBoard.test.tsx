@@ -432,7 +432,7 @@ it('displays visible trading mode badges on snapback rows', () => {
   expect(screen.getAllByText('Swing')[0]).toBeInTheDocument();
 });
 
-it('keeps manual execution and Buy action available during session pause', () => {
+it('blocks manual execution during session pause without promising AMO', () => {
   const data = snapshot({
     rows: [
       row({ signal_id: 'sig-paused', trading_mode: 'swing', state: 'armed', execution_eligible: true }),
@@ -444,8 +444,8 @@ it('keeps manual execution and Buy action available during session pause', () =>
   snap = { data, isLoading: false, error: null };
   renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
   expect(screen.getByText('MARKET CLOSED')).toBeInTheDocument();
-  expect(screen.getByText(/after-market order/)).toBeInTheDocument();
+  expect(screen.getByText(/entries require an open session and a fresh plan/)).toBeInTheDocument();
   const buyBtn = screen.getByRole('button', { name: /Execute Snapback/i });
-  expect(buyBtn).not.toBeDisabled();
+  expect(buyBtn).toBeDisabled();
 });
 

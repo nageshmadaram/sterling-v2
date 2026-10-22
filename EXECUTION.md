@@ -15,7 +15,7 @@ a switch that stopped Sterling closing a position would be a way to lose money.
 | Safe mode | `./scripts/sterling-safe-mode on "reason"` or the UI | Immediately; survives restarts |
 | Runtime halt | `POST /api/v1/kite/trading/kill-switch` (the Kill Switch & Halt button in the UI) | Immediately; persisted in the control plane |
 
-`STERLING_LIVE_EXECUTION` is `true` when unset. An unrecognised value (a typo)
+`STERLING_LIVE_EXECUTION` is `false` when unset or blank. An unrecognised value (a typo)
 also turns entries **off** and logs an error. `GET /health` reports
 `live_execution`; `GET /api/v1/ops/live-status` shows the switch together with
 safe mode, per-account recovery state and exposure freshness

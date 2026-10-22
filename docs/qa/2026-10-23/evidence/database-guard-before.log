@@ -1,0 +1,21 @@
+.......F.                                                                [100%]
+=================================== FAILURES ===================================
+__________ test_checkout_database_is_not_disposable_even_inside_temp ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-nageshmadaram/pytest-32/test_checkout_database_is_not_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7631214ed1f0>
+
+    def test_checkout_database_is_not_disposable_even_inside_temp(tmp_path, monkeypatch):
+        backend = tmp_path / 'checkout' / 'backend'
+        monkeypatch.setattr(db, '__file__', str(backend / 'app' / 'services' / 'db.py'))
+        live = backend / 'sterling_paper.db'
+>       assert not db.is_disposable_path(str(live))
+E       AssertionError: assert not True
+E        +  where True = <function is_disposable_path at 0x7631219c9300>('/tmp/pytest-of-nageshmadaram/pytest-32/test_checkout_database_is_not_0/checkout/backend/sterling_paper.db')
+E        +    where <function is_disposable_path at 0x7631219c9300> = db.is_disposable_path
+E        +    and   '/tmp/pytest-of-nageshmadaram/pytest-32/test_checkout_database_is_not_0/checkout/backend/sterling_paper.db' = str(PosixPath('/tmp/pytest-of-nageshmadaram/pytest-32/test_checkout_database_is_not_0/checkout/backend/sterling_paper.db'))
+
+tests/unit/test_live_db_guard.py:66: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_live_db_guard.py::test_checkout_database_is_not_disposable_even_inside_temp
+1 failed, 8 passed in 1.27s

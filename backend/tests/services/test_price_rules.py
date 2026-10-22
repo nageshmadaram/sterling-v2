@@ -331,3 +331,53 @@ async def test_price_rules_switch_http_and_tenant_isolation(env):
   own=client.post('/api/v1/price-rules/enabled',json={'enabled':True,'expected_enabled':False})
   assert own.status_code==200
  assert store.load(UID)['enabled'] is False and store.load('another-user')['enabled'] is True
+
+@pytest.mark.asyncio
+async def test_confirmed_price_rules_journal_replays_without_duplicate_fills(env):
+ from app.services import trade_journal as journal
+ r=await armed();await runtime.cycle(UID)
+ assert journal.list_trades([UID],strategy='price_rules')['total']==0
+ await runtime.cycle(UID)
+ await runtime.exit_position(UID,r['id'],50);await runtime.cycle(UID)
+ await runtime.exit_position(UID,r['id'],100);await runtime.cycle(UID);await runtime.cycle(UID)
+ p=store.load(UID)['rules'][r['id']]
+ runtime.project_journal(UID,p);runtime.project_journal(UID,p)
+ result=journal.list_trades([UID],strategy='price_rules')
+ assert result['total']==1
+ trade=result['items'][0]
+ assert trade['status']=='CLOSED' and trade['qty']==100 and trade['exit_qty']==100
+ assert trade['gross_pnl']==1000
+
+@pytest.mark.asyncio
+async def test_price_rules_journal_backfill_uses_only_stored_fills(env,monkeypatch):
+ from app.services import trade_journal as journal, trade_journal_backfill as backfill
+ r=await armed();await runtime.cycle(UID);await runtime.cycle(UID)
+ p=store.load(UID)['rules'][r['id']]
+ assert p['fill_ts_ms'] > 0
+ report=backfill.backfill([UID])
+ assert report['price_rules']['existing']==1
+ assert journal.list_trades([UID],strategy='price_rules')['total']==1
+
+@pytest.mark.asyncio
+async def test_journal_partial_entry_is_one_cumulative_fill(env):
+ from app.services import trade_journal as journal
+ r=await armed();await runtime.cycle(UID)
+ env.qty=50;env.orders['O1'].update(filled_quantity=50,status='OPEN');await runtime.cycle(UID)
+ env.qty=100;env.orders['O1'].update(filled_quantity=100,status='COMPLETE');await runtime.cycle(UID)
+ tid=journal.list_trades([UID],strategy='price_rules')['items'][0]['trade_id']
+ fills=[e for e in journal.get_trade(tid,[UID])['timeline'] if e['type']==journal.FILLED]
+ assert len(fills)==1 and fills[0]['qty']==100
+
+
+@pytest.mark.asyncio
+async def test_favorable_partial_fill_never_lowers_approved_stop(env):
+    r=await armed();await runtime.cycle(UID)
+    approved=store.load(UID)['rules'][r['id']]['stop']
+    env.qty=50;env.orders['O1'].update(filled_quantity=50,average_price=90,status='OPEN')
+    await runtime.cycle(UID)
+    first=store.load(UID)['rules'][r['id']]
+    assert first['stop']>=approved
+    env.qty=100;env.orders['O1'].update(filled_quantity=100,average_price=95,status='COMPLETE')
+    await runtime.cycle(UID)
+    final=store.load(UID)['rules'][r['id']]
+    assert final['entry_price']-final['stop']<=final['stop_points']

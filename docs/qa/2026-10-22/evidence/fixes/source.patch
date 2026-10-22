@@ -1,0 +1,2204 @@
+diff --git a/EXECUTION.md b/EXECUTION.md
+index 53672db1..eff33793 100644
+--- a/EXECUTION.md
++++ b/EXECUTION.md
+@@ -15,7 +15,7 @@ a switch that stopped Sterling closing a position would be a way to lose money.
+ | Safe mode | `./scripts/sterling-safe-mode on "reason"` or the UI | Immediately; survives restarts |
+ | Runtime halt | `POST /api/v1/kite/trading/kill-switch` (the Kill Switch & Halt button in the UI) | Immediately; persisted in the control plane |
+ 
+-`STERLING_LIVE_EXECUTION` is `true` when unset. An unrecognised value (a typo)
++`STERLING_LIVE_EXECUTION` is `false` when unset or blank. An unrecognised value (a typo)
+ also turns entries **off** and logs an error. `GET /health` reports
+ `live_execution`; `GET /api/v1/ops/live-status` shows the switch together with
+ safe mode, per-account recovery state and exposure freshness
+diff --git a/TESTING.md b/TESTING.md
+index 8c9c9e92..84376920 100644
+--- a/TESTING.md
++++ b/TESTING.md
+@@ -16,8 +16,9 @@ cd backend
+ PYTHONWARNINGS=ignore .venv/bin/pytest tests/ -q -p no:cacheprovider
+ ```
+ 
+-This runs the full ~1250-test suite in well under a minute (vs many minutes with
+-warning capture).
++The backend suite now contains more than 11,000 cases. A full local run can take
++around 20 minutes; do not infer completion from an old test count or timing.
++Warning suppression reduces logging overhead without changing assertions.
+ 
+ ## Known suite characteristics
+ 
+@@ -26,9 +27,10 @@ warning capture).
+   fail in the full run due to shared module-level state. `tests/conftest.py`
+   resets a lot of global state between tests, but not all. Treat the **failure
+   set diff vs `main`** (not the absolute count) as the regression signal.
+-- **One live-socket test** (`test_delta_iv_socket.py::test_lifespan_starts_iv_stream_only_when_env_set`)
+-  can hang on a real socket; deselect it for unattended runs:
+-  `--deselect "tests/test_delta_iv_socket.py::test_lifespan_starts_iv_stream_only_when_env_set"`.
++- **Skip reporting.** Use `-rs` to record actual skipped cases. Historical
++  instructions referenced a removed Delta socket test; that selector no longer
++  excludes a current test. Keep broker fixtures isolated and do not introduce
++  blanket exclusions to make a run green.
+ 
+ ## Test types in this codebase
+ 
+diff --git a/backend/app/api/v1/endpoints/kite.py b/backend/app/api/v1/endpoints/kite.py
+index 461a37cf..86c9afdd 100644
+--- a/backend/app/api/v1/endpoints/kite.py
++++ b/backend/app/api/v1/endpoints/kite.py
+@@ -1155,28 +1155,21 @@ async def auctions(user: UserContext = Depends(get_current_user)):
+     return await _run(user, lambda c: c.get_auctions())
+ 
+ @router.get("/ipos")
+-async def ipos(user: UserContext = Depends(get_current_user)):
+-    """Fetch active IPOs."""
+-    return [
+-        {"name": "Susan Electricals India", "symbol": "SUSAN SME", "dates": "11th — 15th Jun", "price": "120 - 127", "qty": "2000 Qty.", "minAmount": "254000", "status": "Apply"},
+-        {"name": "Horizon Reclaim (India)", "symbol": "HORIZON SME", "dates": "12th — 16th Jun", "price": "98 - 103", "qty": "2400 Qty.", "minAmount": "247200", "status": "Apply"},
+-        {"name": "Cmr Green Technologies", "symbol": "CMRGREEN", "dates": "3rd — 5th Jun", "price": "182 - 192", "qty": "78 Qty.", "minAmount": "14976", "status": "closed"},
+-        {"name": "Hexagon Nutrition", "symbol": "HEXAGON", "dates": "5th — 9th Jun", "price": "42 - 45", "qty": "333 Qty.", "minAmount": "14985", "status": "closed"},
+-        {"name": "Rajnandini Fashion India", "symbol": "RFIL SME", "dates": "26th — 29th May", "price": "59 - 63", "qty": "4000 Qty.", "minAmount": "252000", "status": "closed"},
+-        {"name": "Smr Jewels", "symbol": "SMR SME", "dates": "26th May — 3rd Jun", "price": "125 - 128", "qty": "2000 Qty.", "minAmount": "256000", "status": "closed"},
+-        {"name": "Aureate Tradde", "symbol": "AUREATE SME", "dates": "29th May — 2nd Jun", "price": "70", "qty": "4000 Qty.", "minAmount": "280000", "status": "closed"},
+-        {"name": "Merritronix", "symbol": "MRTX SME", "dates": "1st — 3rd Jun", "price": "141 - 149", "qty": "2000 Qty.", "minAmount": "298000", "status": "closed"},
+-        {"name": "Vahh Chemicals", "symbol": "VAHH SME", "dates": "4th — 8th Jun", "price": "60", "qty": "4000 Qty.", "minAmount": "240000", "status": "closed"}
+-    ]
++async def ipos(response: Response, user: UserContext = Depends(get_current_user)):
++    """No verified IPO feed is configured; never publish demonstration listings."""
++    response.headers["X-Data-Status"] = "unavailable"
++    response.headers["X-Data-As-Of"] = "unknown"
++    return []
++
+ 
+ @router.get("/corporate-actions")
+-async def corporate_actions(user: UserContext = Depends(get_current_user)):
+-    """Fetch active corporate actions."""
+-    return [
+-        {"type": "BUYBACK", "symbol": "WIPRO", "startsAt": "Thu, 11 Jun 2026, 08:00", "endsOn": "Tue, 16 Jun 2026, 18:00", "offerPrice": "250.00"},
+-        {"type": "TAKEOVER", "symbol": "SRDAPRT", "startsAt": "Thu, 11 Jun 2026, 08:10", "endsOn": "Wed, 24 Jun 2026, 13:00", "offerPrice": "115.00"},
+-        {"type": "TAKEOVER", "symbol": "FBA", "startsAt": "Mon, 08 Jun 2026, 14:20", "endsOn": "Fri, 19 Jun 2026, 13:00", "offerPrice": "70.39"}
+-    ]
++async def corporate_actions(response: Response, user: UserContext = Depends(get_current_user)):
++    """No verified corporate-action feed is configured."""
++    response.headers["X-Data-Status"] = "unavailable"
++    response.headers["X-Data-As-Of"] = "unknown"
++    return []
++
++
+ @router.post("/holdings/authorise")
+ async def authorise_holdings(body: InitiateHoldingsAuthRequest,
+                              user: UserContext = Depends(get_current_user)):
+diff --git a/backend/app/api/v1/endpoints/navigator.py b/backend/app/api/v1/endpoints/navigator.py
+index 64d597d8..96110601 100644
+--- a/backend/app/api/v1/endpoints/navigator.py
++++ b/backend/app/api/v1/endpoints/navigator.py
+@@ -225,52 +225,6 @@ async def get_series(
+     return {"underlying": underlying, "points": rows}
+ 
+ 
+-@router.get("/chart/{underlying}")
+-async def get_chart_overlay(
+-    underlying: str, bars: int = 320, user: UserContext = Depends(get_current_user),
+-) -> dict:
+-    """Per-bar Navigator evidence for the chart overlay.
+-
+-    Deliberately NOT gated on `enabled`: the point of the overlay is to let
+-    someone see what Navigator would have made of these bars before trusting it
+-    with anything, and `chart_series` labels a disabled/unconfigured read
+-    honestly in `notes` rather than pretending it is a recorded decision.
+-    """
+-    from app.services.exchanges.kite import accounts as kite_accounts
+-    from app.services.exchanges.kite.errors import KiteTokenError
+-    from app.services.kite_engine.universe import load_cfg
+-    from app.services.navigator import chart_series
+-
+-    bars = max(80, min(bars, 1000))
+-    record = config_store.get(user.user_id, default_underlyings=_default_underlyings(user.user_id))
+-    acct = kite_accounts.get_active(user.user_id)
+-    if not acct:
+-        raise HTTPException(409, "No active Kite account — add credentials and log in first.")
+-    client = await kite_accounts.acquire_client(acct)
+-
+-    token = chart_series.resolve_underlying_token(load_cfg().get("indices", []), underlying)
+-    if token is None:
+-        for exchange in ("NSE", "BSE"):
+-            try:
+-                token = await client.resolve_token(underlying, exchange)
+-                break
+-            except Exception:  # noqa: BLE001 — try the next exchange, then give up
+-                token = None
+-    if not token:
+-        raise HTTPException(404, f"Could not resolve a spot token for {underlying}.")
+-
+-    try:
+-        return await chart_series.build_chart_series(
+-            client, user.user_id, underlying, token=int(token), record=record, bars=bars,
+-        )
+-    except KiteTokenError as exc:
+-        kite_accounts.clear_session(acct.user_id, acct.id)
+-        await kite_accounts.release_client(acct.id)
+-        raise HTTPException(409, f"KITE_SESSION_EXPIRED: {exc} — reconnect from the Connect tab.") from exc
+-    except CandleValidationError as exc:
+-        raise HTTPException(422, f"NAVIGATOR_CANDLES_INVALID: {exc}") from exc
+-
+-
+ async def _resolve_chart_token(client, underlying: str) -> Optional[int]:
+     """Spot token for the chart overlay: the static index config first (no
+     network), then the NSE/BSE equity dumps for a stock."""
+@@ -324,6 +278,8 @@ async def get_chart_overlay(
+         kite_accounts.clear_session(acct.user_id, acct.id)
+         await kite_accounts.release_client(acct.id)
+         raise HTTPException(409, f"KITE_SESSION_EXPIRED: {exc} — reconnect from the Connect tab.") from exc
++    except CandleValidationError as exc:
++        raise HTTPException(422, f"NAVIGATOR_CANDLES_INVALID: {exc}") from exc
+ 
+ 
+ @router.get("/signals")
+diff --git a/backend/app/api/v1/endpoints/ops_live.py b/backend/app/api/v1/endpoints/ops_live.py
+index 3ad88534..6197eb21 100644
+--- a/backend/app/api/v1/endpoints/ops_live.py
++++ b/backend/app/api/v1/endpoints/ops_live.py
+@@ -133,3 +133,10 @@ async def resume_safe_mode(
+         )
+     except live_runtime.SafeModeResumeRefused as exc:
+         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
++
++
++@router.get("/runtime-identity")
++def runtime_identity(frontend_sha: str = "", frontend_contract: str = "",
++                     _user: UserContext = Depends(get_current_user)) -> dict:
++    from app.core.runtime_identity import diagnostics
++    return diagnostics(frontend_sha[:64], frontend_contract[:64])
+diff --git a/backend/app/core/build_artifact_identity.py b/backend/app/core/build_artifact_identity.py
+index 8a20ba8e..9f8168d3 100644
+--- a/backend/app/core/build_artifact_identity.py
++++ b/backend/app/core/build_artifact_identity.py
+@@ -153,6 +153,9 @@ def artifact_identity(root: Path | None = None) -> ArtifactBuildIdentity:
+             reason=f"build_metadata_unreadable:{type(exc).__name__}",
+         )
+ 
++    if not isinstance(raw, dict):
++        return ArtifactBuildIdentity(present=True, valid=False, reason="build_metadata_not_object")
++
+     if raw.get("schema_version") != SCHEMA_VERSION:
+         return ArtifactBuildIdentity(
+             present=True, valid=False, reason="build_metadata_schema_mismatch"
+diff --git a/backend/app/core/runtime_identity.py b/backend/app/core/runtime_identity.py
+new file mode 100644
+index 00000000..338b3c38
+--- /dev/null
++++ b/backend/app/core/runtime_identity.py
+@@ -0,0 +1,78 @@
++"""Startup-frozen source provenance. A mutable checkout is never loaded-code proof."""
++from __future__ import annotations
++import hashlib
++import os
++import subprocess
++from datetime import datetime, timezone
++from pathlib import Path
++
++ROOT = Path(__file__).resolve().parents[2]
++API_CONTRACT = "sterling-api-v1"
++_BOOT = None
++
++
++def source_fingerprint():
++    digest = hashlib.sha256()
++    for path in sorted([ROOT / "main.py", *(ROOT / "app").rglob("*.py")]):
++        digest.update(str(path.relative_to(ROOT)).encode())
++        digest.update(path.read_bytes())
++    return digest.hexdigest()
++
++
++def checkout_sha():
++    try:
++        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
++                                capture_output=True, text=True, timeout=3, check=True)
++        return result.stdout.strip()
++    except (OSError, subprocess.SubprocessError):
++        from app.core.build_artifact_identity import artifact_identity
++        artifact = artifact_identity()
++        return artifact.build_sha if artifact.valid else "UNKNOWN"
++
++
++def source_dirty():
++    try:
++        result = subprocess.run(["git", "status", "--porcelain", "--", "app", "main.py"],
++                                cwd=ROOT, capture_output=True, text=True, timeout=3, check=True)
++        return bool(result.stdout.strip())
++    except (OSError, subprocess.SubprocessError):
++        from app.core.build_artifact_identity import artifact_identity
++        artifact = artifact_identity()
++        return not artifact.valid if artifact.present else None
++
++
++def capture_startup():
++    global _BOOT
++    if _BOOT is None:
++        _BOOT = {"captured_at": datetime.now(timezone.utc).isoformat(),
++                 "checkout_sha_at_start": checkout_sha(),
++                 "source_sha256_at_start": source_fingerprint(),
++                 "declared_runtime_sha": os.getenv("STERLING_RUNTIME_SHA") or None,
++                 "api_contract": API_CONTRACT, "source_dirty_at_start": source_dirty()}
++    return dict(_BOOT)
++
++
++def diagnostics(frontend_sha: str = "", frontend_contract: str = ""):
++    boot = dict(_BOOT or {})
++    current = checkout_sha()
++    reasons = []
++    if not boot:
++        reasons.append("startup_identity_not_captured")
++    if boot.get("source_sha256_at_start") != source_fingerprint():
++        reasons.append("backend_source_changed_since_start")
++    if boot.get("source_dirty_at_start") is not False:
++        reasons.append("backend_startup_source_not_clean_release")
++    if boot and current != boot.get("checkout_sha_at_start"):
++        reasons.append("backend_checkout_changed_since_start")
++    declared = boot.get("declared_runtime_sha")
++    if declared and declared != boot.get("checkout_sha_at_start"):
++        reasons.append("declared_backend_release_mismatch")
++    if not frontend_sha or frontend_sha == "UNKNOWN":
++        reasons.append("frontend_build_unknown")
++    elif frontend_sha != boot.get("checkout_sha_at_start"):
++        reasons.append("frontend_backend_release_mismatch")
++    if frontend_contract != API_CONTRACT:
++        reasons.append("frontend_backend_contract_mismatch")
++    return {**boot, "current_checkout_sha": current, "frontend_build_sha": frontend_sha or None,
++            "compatible": not reasons, "blockers": reasons,
++            "provenance_scope": "startup source snapshot; immutable release artifacts still required"}
+diff --git a/backend/app/services/db.py b/backend/app/services/db.py
+index 9382c6f0..4383c2ba 100644
+--- a/backend/app/services/db.py
++++ b/backend/app/services/db.py
+@@ -31,6 +31,7 @@ def _resolve_default_db_path() -> str:
+ 
+ _DB_PATH = _resolve_default_db_path()
+ _available = False
++_CHECKOUT_DB_PATH = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "sterling_paper.db"))
+ 
+ 
+ def under_test() -> bool:
+@@ -39,10 +40,12 @@ def under_test() -> bool:
+ 
+ 
+ def is_disposable_path(path: str) -> bool:
+-    """A database a test may create, fill and wipe: in memory, under the temp dir, or named *test*."""
++    """Fixture databases are disposable; the checkout's operator database never is."""
+     if not path or path == ":memory:" or path.startswith("file::memory:"):
+         return True
+     real = os.path.realpath(path)
++    if real == _CHECKOUT_DB_PATH:
++        return False
+     tmp = os.path.realpath(tempfile.gettempdir())
+     return real.startswith(tmp + os.sep) or "test" in os.path.basename(real).lower()
+ 
+diff --git a/backend/app/services/gamma_move_historical.py b/backend/app/services/gamma_move_historical.py
+index a1e50dae..9121118a 100644
+--- a/backend/app/services/gamma_move_historical.py
++++ b/backend/app/services/gamma_move_historical.py
+@@ -178,7 +178,8 @@ async def _underlyings(uid: str, cfg: GammaMoveConfig, client, day: date):
+                 atr_pct=daily_atr_pct(daily),
+             )
+         except Exception as exc:  # noqa: BLE001
+-            errors.append(f"{name}: {exc}")
++            notes = "; ".join(map(str, getattr(exc, "__notes__", [])[:2]))[:160]
++            errors.append(f"{name}: historical_underlyings {type(exc).__name__}: {str(exc)[:240] or 'no error detail'} (session={day}; {notes})")
+     return dump, out, errors, master_notes
+ 
+ 
+diff --git a/backend/app/services/gamma_move_scanner.py b/backend/app/services/gamma_move_scanner.py
+index df483934..1a255bd6 100644
+--- a/backend/app/services/gamma_move_scanner.py
++++ b/backend/app/services/gamma_move_scanner.py
+@@ -256,11 +256,21 @@ def _to_candles(rows, *, oi: bool = False) -> list[Candle]:
+ 
+ async def _historical(client, pacer: Pacer, token: int, interval: str,
+                       frm: str, to: str, oi: bool) -> list:
+-    await pacer.wait()
+-    raw = await client.get_historical(
+-        int(token), interval, frm, to, False, oi
+-    )
+-    return (raw.get("candles") if isinstance(raw, dict) else raw) or []
++    # These are idempotent market-data GETs; order writes never enter this retry.
++    import httpx
++    from app.services.exchanges.kite.errors import KiteNetworkError
++    for attempt in range(1, 4):
++        await pacer.wait()
++        try:
++            raw = await client.get_historical(int(token), interval, frm, to, False, oi)
++        except (TimeoutError, httpx.TransportError, KiteNetworkError) as exc:
++            if attempt == 3:
++                exc.add_note(f"historical_read attempts=3 token={token} interval={interval}")
++                raise
++            await asyncio.sleep(0.25 * (2 ** (attempt - 1)))
++            continue
++        return (raw.get("candles") if isinstance(raw, dict) else raw) or []
++
+ 
+ 
+ async def _quote_batched(client, keys: list[str]) -> dict:
+@@ -1064,6 +1074,20 @@ def process_ticks(uid: str, ticks: list[dict]) -> list:
+     if not watches:
+         return []
+     fallback = int(datetime.now(IST).timestamp() * 1000)
++    # Receipt time is diagnostic only: it must never invent an exchange bar.
++    verified_ticks = []
++    for tick in ticks or []:
++        stamp = _tick_ts_ms(tick, 0)
++        local = datetime.fromtimestamp(stamp / 1000, IST) if stamp > 0 else None
++        if local is None or not dtime(9, 15) <= local.time() < dtime(15, 30):
++            diagnostics = _stats.setdefault(uid, {}).setdefault("tick_diagnostics", [])
++            diagnostics.append({"token": tick.get("instrument_token"),
++                                "source_timestamp_ms": stamp or None, "received_at_ms": fallback,
++                                "reason": "timestamp_missing" if local is None else "outside_continuous_session"})
++            del diagnostics[:-20]
++            continue
++        verified_ticks.append(tick)
++    ticks = verified_ticks
+     signals = []
+     changed_days: set[date] = set()
+ 
+diff --git a/backend/app/services/kite_engine/protection.py b/backend/app/services/kite_engine/protection.py
+index b8a71ac9..fe8ba0a6 100644
+--- a/backend/app/services/kite_engine/protection.py
++++ b/backend/app/services/kite_engine/protection.py
+@@ -121,7 +121,7 @@ def _signed_delta(option_type: str, spot: float, strike: float, expiry: str) ->
+     return delta if delta != 0.0 else (0.5 if is_call else -0.5)
+ 
+ 
+-def plan_for_symbol(uid: str, option_symbol: str) -> Optional[LegPlan]:
++def plan_for_symbol(uid: str, option_symbol: str, *, rows=None) -> Optional[LegPlan]:
+     """The plan the board is displaying for ``option_symbol``, or None.
+ 
+     The stop is the leg's CURRENT trail (`premium_sl`) — the number under the
+@@ -140,7 +140,7 @@ def plan_for_symbol(uid: str, option_symbol: str) -> Optional[LegPlan]:
+     if not want:
+         return None
+     fallback: Optional[LegPlan] = None
+-    for row in _rows_for(uid):
++    for row in (_rows_for(uid) if rows is None else rows):
+         for leg in (row.legs or []):
+             if str(getattr(leg, "option_symbol", "")).upper() != want:
+                 continue
+diff --git a/backend/app/services/kite_engine/service.py b/backend/app/services/kite_engine/service.py
+index 4511a7b9..2da28c17 100644
+--- a/backend/app/services/kite_engine/service.py
++++ b/backend/app/services/kite_engine/service.py
+@@ -287,19 +287,30 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
+             raise ValueError("live_manual_protection_required")
+         if cfg.stop_mode not in {"broker", "both"}:
+             raise ValueError("live_manual_broker_stop_required")
+-        plan = protection.plan_for_symbol(uid, symbol)
+-        if not plan or not plan.live or not plan.protectable or plan.exchange != exchange:
+-            raise ValueError("fresh_protectable_plan_required")
+         # Manual requests use the same completed-bar freshness/session gate as auto entries.
+-        rows = [r for r in protection._rows_for(uid)
+-                if any(getattr(l, "option_symbol", "") == symbol for l in (r.legs or []))]
++        rows = []
++        for candidate in protection._rows_for(uid):
++            leg = next((l for l in (candidate.legs or [])
++                        if getattr(l, "option_symbol", "") == symbol), None)
++            if leg is None:
++                continue
++            # Merged parent rows carry the newest timestamp across all legs.
++            # Entry authority belongs to this contract's own signal generation.
++            leg_stamp = getattr(leg, "signal_timestamp_ms", None)
++            if leg_stamp:
++                from copy import copy
++                candidate = copy(candidate)
++                candidate.timestamp_ms = leg_stamp
++            rows.append(candidate)
+         row = next((r for r in rows if not entry_data_block_reason(
+             r, exchange=exchange, buffer_minutes=cfg.block_entry_minutes_before_close)), None)
+-        if row is None:
+-            # If variety == "amo" or placing manual order after hours, allow matching board row
+-            row = next((r for r in rows), None)
+         if row is None:
+             raise ValueError("stale_or_closed_manual_signal")
++        # Resolve the stop from the exact admitted row, never a duplicate symbol
++        # in another mode, source, interval or historical generation.
++        plan = protection.plan_for_symbol(uid, symbol, rows=[row])
++        if not plan or not plan.live or not plan.protectable or plan.exchange != exchange:
++            raise ValueError("fresh_protectable_plan_required")
+         from app.core.mode_execution import freeze_policy, carry_entry_refusal, timeframe_minutes
+         mode = getattr(cfg, "horizon_mode", "swing")
+         timeframe = timeframe_minutes(mode, getattr(cfg, "signal_timeframe_minutes", None))
+@@ -343,12 +354,14 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
+             day_pnl = state.daily_realized_pnl(uid)
+             if day_pnl < 0 and -day_pnl >= daily_loss_limit(uid, available, cfg.max_daily_loss_pct):
+                 raise ValueError("daily_loss_limit")
+-        if variety != "amo":
+-            reason = entry_data_block_reason(row, exchange=exchange,
+-                                             buffer_minutes=cfg.block_entry_minutes_before_close)
+-            if reason:
+-                # Outside continuous hours, fallback to AMO rather than blocking manual click
+-                variety = "amo"
++        # A strategy signal authorizes this session only. Queuing next-session
++        # exposure requires a separately reviewed, persisted AMO policy.
++        if variety == "amo":
++            raise ValueError("strategy_amo_policy_unavailable")
++        reason = entry_data_block_reason(row, exchange=exchange,
++                                         buffer_minutes=cfg.block_entry_minutes_before_close)
++        if reason:
++            raise ValueError(reason)
+         from app.services.exchanges.kite import accounts
+         if not accounts.client_is_current(client, user_id=uid):
+             raise ValueError("account_changed_before_submission")
+@@ -388,7 +401,13 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
+     if intent is not None:
+         register_pending(intent, result.order_id)
+     return {"status": "ok", "order_id": result.order_id, "protected": False,
+-            "protection": "awaiting confirmed fill", "message": "Entry submitted; fill pending"}
++            "execution_state": "ACKNOWLEDGED", "variety": variety, "amo": variety == "amo",
++            "protection_owner": "engine", "intent_key": getattr(intent, "intent_key", None),
++            "protection_state": "AWAITING_FILL",
++            "protection": "Engine protection will be verified after confirmed fill",
++            "plan": {"stop_premium": plan.stop_premium, "target_premium": plan.target_premium,
++                     "quantity": quantity, "mode_policy": mode_policy},
++            "message": "Entry submitted; fill pending"}
+ 
+ 
+ async def arm_manual_option_buy(client, uid: str, *, option_symbol: str, exchange: str,
+@@ -749,10 +768,25 @@ def entry_data_block_reason(row, *, exchange: str, buffer_minutes: int) -> str:
+         exchange=exchange, cash_signal=row.source != "derivatives", buffer_minutes=buffer_minutes)
+     if reason:
+         return reason
+-    signal_at = datetime.fromtimestamp(row.timestamp_ms / 1000, _IST)
+-    now = datetime.now(_IST)
+-    if signal_at.date() != now.date() or not (0 <= (now - signal_at).total_seconds() - 3600 <= 600):
+-        return "stale_or_unclosed_signal"
++    from app.core.mode_execution import timeframe_minutes
++    try:
++        minutes = timeframe_minutes(getattr(row, "horizon_mode", "swing"),
++                                    getattr(row, "signal_timeframe_minutes", None))
++        signal_at = datetime.fromtimestamp(row.timestamp_ms / 1000, _IST)
++        now = datetime.now(_IST)
++        age_after_close = (now - signal_at).total_seconds() - minutes * 60
++        # Smaller intervals expire at the next bar; hourly retains its 10m TTL.
++        ttl = min(minutes * 60, 600)
++        if signal_at.date() != now.date() or not (0 <= age_after_close <= ttl):
++            return "stale_or_unclosed_signal"
++        # Signal timestamps are bar opens, never after the continuous session.
++        if exchange in {"NFO", "BFO", "NSE", "BSE"}:
++            from datetime import time
++            if (not time(9, 15) <= signal_at.time() < time(15, 30)
++                    or (signal_at + timedelta(minutes=minutes)).time() > time(15, 30)):
++                return "signal_outside_continuous_session"
++    except (ValueError, TypeError, OverflowError, AttributeError):
++        return "invalid_signal_timeframe_or_timestamp"
+     return ""
+ 
+ 
+diff --git a/backend/app/services/price_rules.py b/backend/app/services/price_rules.py
+index ca07eb70..896dee81 100644
+--- a/backend/app/services/price_rules.py
++++ b/backend/app/services/price_rules.py
+@@ -145,6 +145,41 @@ def remaining(r):
+     return qty
+ 
+ 
++def project_journal(uid, r):
++    """Replay-safe projection of confirmed durable facts, including partial fills."""
++    from app.services import trade_journal as journal
++    qty = int(r.get("filled", 0))
++    if qty <= 0:
++        return  # acknowledgement is not a fill
++    tid = journal.record_entry(uid=uid, strategy=STRATEGY_ID, symbol=r["symbol"],
++        key=f"{r['account_id']}:{r['id']}", status="OPEN", account_id=r["account_id"],
++        side="BUY", qty=qty, lot_size=r["lot_size"], lots=qty/r["lot_size"],
++        expiry=r.get("expiry"), option_type=r.get("option_type"),
++        entry_order_id=r.get("order_id"), entry_price=r.get("entry_price"),
++        initial_sl=r.get("stop"), target=r.get("target"),
++        signal_ts_ms=r.get("created_ms"), entry_ts_ms=r.get("fill_ts_ms"),
++        source="price_rules_confirmed", extra={"exchange":r["exchange"], "rule_id":r["id"]})
++    if not tid:
++        raise RuntimeError("price_rules_journal_projection_failed")
++    journal.record_event(trade_id=tid, event_type=journal.FILLED,
++        event_key=f"fill:{r.get('order_id')}", qty=qty, price=r.get("entry_price"), cumulative=True,
++        ts_ms=r.get("fill_ts_ms"), detail="Confirmed cumulative entry fill")
++    if r.get("gtt_id") and not r.get("protection_pending"):
++        journal.record_event(trade_id=tid, event_type=journal.PROTECTION_PLACED,
++            event_key=f"gtt:{r['gtt_id']}:{r.get('gtt_qty')}", price=r.get("stop"),
++            qty=r.get("gtt_qty"), detail="Broker protection verified")
++    sold = 0
++    for oid, leg in r["exits"].items():
++        filled = int(leg.get("filled", 0))
++        if filled <= 0:
++            continue
++        sold += filled
++        journal.record_exit(trade_id=tid, exit_price=leg.get("price"), qty=filled,
++            ts_ms=leg.get("fill_ts_ms"), fill_key=f"exit:{oid}", cumulative=True,
++            partial=sold < qty or r.get("entry_status") not in TERMINAL,
++            reason=leg.get("reason", "broker_exit"), trailed=False)
++
++
+ async def submit(uid, r, client):
+     source = QuoteSource(lambda: client, owner=uid)
+     margins = await client.get_margins()
+@@ -197,7 +232,7 @@ def verify_order(r, row, oid, side, max_qty):
+     return qty, price, str(row.get("status","")).upper()
+ 
+ 
+-async def observe(uid,r,client,oid,side,max_qty,intent=""):
++async def observe(uid,r,client,oid,side,max_qty,intent="",reason=""):
+     history = await client.get_order_history(oid)
+     if not isinstance(history,list) or not history:
+         raise RuntimeError("order_history_unavailable")
+@@ -218,14 +253,19 @@ async def observe(uid,r,client,oid,side,max_qty,intent=""):
+         p=doc["rules"][r["id"]]
+         if side=="BUY":
+             if qty and not p["filled"]:
+-                p["stop"]=snap(price-p["stop_points"],p["tick"],"down")
++                p["stop"]=max(p.get("stop", 0), snap(price-p["stop_points"],p["tick"],"down"))
+                 p["target"]=snap(price+p["target_points"],p["tick"],"up") if p["target_points"] else 0
+             p["filled"]=max(p["filled"],qty);p["entry_status"]=status;p["entry_price"]=price
++            if qty: p.setdefault("fill_ts_ms", int(ts*1000))
+         else:
+             old=p["exits"].setdefault(str(oid),{"filled":0,"quantity":max_qty,"intent_key":intent})
+             old["filled"]=max(old["filled"],qty);old["status"]=status;old["price"]=price
++            if reason: old["reason"]=reason
++            elif intent: old.setdefault("reason", "manual_exit")
++            if qty: old.setdefault("fill_ts_ms", int(ts*1000))
+         p["revision"]+=1
+     store.mutate(uid,project)
++    project_journal(uid, store.load(uid)["rules"][r["id"]])
+     if observation and observation.intent.projection_pending and not order_journal.mark_projected(intent,observation.intent.projection_version):
+         raise RuntimeError("projection_ack_conflict")
+     return status
+@@ -304,7 +344,8 @@ async def protect(uid,r,client):
+     r=update(uid,r["id"],gtt_id=gid,gtt_qty=qty)
+     trigger=verify_trigger(r,await client.get_gtt(gid),qty)
+     if trigger.get("status")!="active":raise RuntimeError("protection_not_active")
+-    update(uid,r["id"],state="OPEN",protection_pending=False,protection_claim="",error="")
++    protected = update(uid,r["id"],state="OPEN",protection_pending=False,protection_claim="",error="")
++    project_journal(uid, protected)
+ 
+ 
+ async def manage(uid,r,client,*,repair_protection=True):
+@@ -331,14 +372,14 @@ async def manage(uid,r,client,*,repair_protection=True):
+         verify_trigger(r,g,r["gtt_qty"])
+         if g.get("status")=="triggered":
+             children=[]
+-            for leg in g["orders"]:
++            for leg_index, leg in enumerate(g["orders"]):
+                 result=leg.get("result")
+                 if result:
+                     result=result.get("order_result",result)
+                     oid=result.get("order_id")
+                     if not oid:raise RuntimeError("trigger_child_unconfirmed")
+                     children.append(str(oid))
+-                    await observe(uid,r,client,str(oid),"SELL",r["gtt_qty"])
++                    await observe(uid,r,client,str(oid),"SELL",r["gtt_qty"],reason="SL" if leg_index == 0 else "TARGET")
+             if not children:raise RuntimeError("trigger_child_missing")
+             r=store.load(uid)["rules"][r["id"]]
+             if any(r["exits"][oid]["status"] not in TERMINAL for oid in children):
+diff --git a/backend/app/services/trade_journal.py b/backend/app/services/trade_journal.py
+index 466c286b..b86106e6 100644
+--- a/backend/app/services/trade_journal.py
++++ b/backend/app/services/trade_journal.py
+@@ -51,7 +51,7 @@ log = get_logger(__name__)
+ IST = timezone(timedelta(hours=5, minutes=30))
+ MODE_LIVE, MODE_SIMULATION = identity.MODE_LIVE, identity.MODE_SIMULATION
+ 
+-STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend")
++STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend", "price_rules")
+ _ID_PREFIX = {"supertrend": "ST", "snapback": "SB", "gamma": "GU"}
+ 
+ PENDING, OPEN, CLOSED, REJECTED = "PENDING", "OPEN", "CLOSED", "REJECTED"
+@@ -683,7 +683,8 @@ def trade_status(trade_id: str) -> Optional[str]:
+ def record_event(*, event_type: str, trade_id: Optional[str] = None, uid: str = "", strategy: str = "",
+                  symbol: str = "", key: object = "", ts_ms: Optional[int] = None, detail: str = "",
+                  price: Optional[float] = None, qty: Optional[int] = None, pnl: Optional[float] = None,
+-                 data: Optional[Dict[str, Any]] = None, event_key: Optional[str] = None) -> Optional[str]:
++                 data: Optional[Dict[str, Any]] = None, event_key: Optional[str] = None,
++                 cumulative: bool = False) -> Optional[str]:
+     """Append one timeline event; a repeat of the same ``event_key`` is ignored.
+ 
+     The trade is named by ``trade_id`` or by ``(uid, strategy, symbol, key)``. An event for a trade
+@@ -700,7 +701,7 @@ def record_event(*, event_type: str, trade_id: Optional[str] = None, uid: str =
+             return None
+         ekey = event_key or _default_event_key(event_type, now, detail, price)
+         fresh = _insert_event(conn, tid, event_type, now, ekey, price=price, qty=qty, pnl=pnl,
+-                              detail=detail, data=data)
++                              detail=detail, data=data, cumulative=cumulative)
+         if fresh:
+             _after_event(t, event_type, now, _num(price), data)
+             t["updated_ms"] = now
+diff --git a/backend/app/services/trade_journal_backfill.py b/backend/app/services/trade_journal_backfill.py
+index 3ddbe85f..8f56f413 100644
+--- a/backend/app/services/trade_journal_backfill.py
++++ b/backend/app/services/trade_journal_backfill.py
+@@ -31,7 +31,7 @@ from app.services.simulation import identity
+ 
+ log = get_logger(__name__)
+ 
+-MARKER_KEY = "trade_journal_backfill_v1"
++MARKER_KEY = "trade_journal_backfill_v2"
+ SOURCE = "backfill"
+ _FILL_RE = re.compile(r"fill @ ₹\s*([0-9][0-9,]*\.?[0-9]*)")
+ 
+@@ -141,7 +141,7 @@ def _snapback_row(uid: str, pos: Any) -> str:
+ def backfill(uids: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+     """Import the closed trades the journal has not seen. Returns ``{strategy: {imported, existing,
+     skipped}, "errors": [...]}``. Never raises; one bad row or store never stops the rest."""
+-    report: Dict[str, Any] = {ad.SUPERTREND: _tally(), ad.SNAPBACK: _tally(), "errors": []}
++    report: Dict[str, Any] = {ad.SUPERTREND: _tally(), ad.SNAPBACK: _tally(), "price_rules": _tally(), "errors": []}
+ 
+     def run(strategy: str, uid: str, items: Callable[[], Sequence[Any]], one: Callable[[str, Any], str]) -> None:
+         try:
+@@ -171,6 +171,16 @@ def backfill(uids: Optional[Sequence[str]] = None) -> Dict[str, Any]:
+ 
+         for uid in filter(real, _uids_with("kite_engine_positions_")):
+             run(ad.SUPERTREND, uid, lambda uid=uid: _rows(f"kite_engine_positions_{uid}"), _supertrend_row)
++        from app.services import price_rules, price_rules_store
++        def price_rule_row(uid, row):
++            if not row.get("filled") or not row.get("entry_price") or not row.get("fill_ts_ms"):
++                return SKIPPED
++            tid = tj.trade_id_for("price_rules", uid, row["symbol"], f"{row['account_id']}:{row['id']}")
++            existing = tj.trade_status(tid) is not None
++            price_rules.project_journal(uid, row)
++            return EXISTING if existing else IMPORTED
++        for uid in filter(real, price_rules_store.known_uids()):
++            run("price_rules", uid, lambda uid=uid: list(price_rules_store.load(uid)["rules"].values()), price_rule_row)
+         store = sbp.default_store()
+         for uid in filter(real, store.known_uids()):
+             run(ad.SNAPBACK, uid, lambda uid=uid: store.list(uid, statuses=("CLOSED",)), _snapback_row)
+diff --git a/backend/app/services/trade_journal_narrative.py b/backend/app/services/trade_journal_narrative.py
+index 6d175552..92e0bc23 100644
+--- a/backend/app/services/trade_journal_narrative.py
++++ b/backend/app/services/trade_journal_narrative.py
+@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple
+ 
+ IST = timezone(timedelta(hours=5, minutes=30))
+ 
+-STRATEGY_LABELS = {"supertrend": "Supertrend", "snapback": "Snapback", "gamma": "Gamma Unwind"}
++STRATEGY_LABELS = {"supertrend": "Supertrend", "snapback": "Snapback", "gamma": "Gamma Unwind", "ema_trend": "EMA Trend", "price_rules": "Price Rules"}
+ 
+ # --------------------------------------------------------------------------
+ # Exit reasons
+diff --git a/backend/app/services/trade_journal_stats.py b/backend/app/services/trade_journal_stats.py
+index 2324b488..e5824e7a 100644
+--- a/backend/app/services/trade_journal_stats.py
++++ b/backend/app/services/trade_journal_stats.py
+@@ -24,7 +24,7 @@ from typing import Any, Dict, Iterable, List, Optional
+ 
+ from app.services.trade_journal_narrative import EXIT_REASON_LABELS, STRATEGY_LABELS
+ 
+-KNOWN_STRATEGIES = ("supertrend", "snapback", "gamma")
++KNOWN_STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend", "price_rules")
+ 
+ 
+ def _f(value: object) -> Optional[float]:
+@@ -188,7 +188,7 @@ def _headline(label: str, s: Dict[str, Any], drag: Optional[Dict[str, Any]]) ->
+ 
+ def by_strategy(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+     """One comparison row per strategy: its summary, a plain-English headline, and the exit
+-    reason that costs it the most. The three known strategies always appear."""
++    reason that costs it the most. All registered journal strategies always appear."""
+     rows = list(rows)
+     buckets: Dict[str, List[Dict[str, Any]]] = {s: [] for s in KNOWN_STRATEGIES}
+     for r in rows:
+diff --git a/backend/main.py b/backend/main.py
+index ad1af282..501ee01a 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -101,6 +101,8 @@ async def lifespan(app: FastAPI):
+ 
+ @asynccontextmanager
+ async def _application_lifespan(app: FastAPI):
++    from app.core.runtime_identity import capture_startup
++    capture_startup()
+     setup_logging()
+     configure_json_logging()  # no-op unless settings.log_json (Phase 2 observability)
+     # The SQLite store must be open BEFORE anything reads it (including production security credential inspection).
+diff --git a/backend/tests/engines/sterling_kite_engine/test_live_manual_execution.py b/backend/tests/engines/sterling_kite_engine/test_live_manual_execution.py
+index 672e7fbc..e72e18ae 100644
+--- a/backend/tests/engines/sterling_kite_engine/test_live_manual_execution.py
++++ b/backend/tests/engines/sterling_kite_engine/test_live_manual_execution.py
+@@ -36,7 +36,7 @@ def live_manual(monkeypatch):
+     monkeypatch.setattr(accounts, "client_is_current", lambda *a, **kw: True)
+     monkeypatch.setattr(accounts, "get_active", lambda uid: SimpleNamespace(id="account"))
+     monkeypatch.setattr(accounts, "acquire_client", AsyncMock(return_value=client))
+-    monkeypatch.setattr(protection, "plan_for_symbol", lambda *a: plan)
++    monkeypatch.setattr(protection, "plan_for_symbol", lambda *a, **kw: plan)
+     monkeypatch.setattr(protection, "_rows_for", lambda uid: [row])
+     monkeypatch.setattr(service, "entry_data_block_reason", lambda *a, **kw: "")
+     monkeypatch.setattr(service, "available_fo_capital", AsyncMock(return_value=100000))
+@@ -52,6 +52,9 @@ async def test_manual_entry_has_journal_and_zero_confirmed_qty(live_manual):
+     assert result["status"] == "ok" and result["protected"] is False
+     assert positions.get("u", "OPT").qty == 0
+     intent = order_journal.find(uid="u", account_id="account", order_id="manual-1")
++    assert result["intent_key"] == intent.intent_key
++    assert result["protection_owner"] == "engine"
++    assert result["execution_state"] == "ACKNOWLEDGED"
+     assert intent.capital_required == 6017.5
+     assert intent.payload["mode_policy"]["mode"] == "swing"
+     assert intent.payload["mode_policy"]["hard_exit_ms"] > intent.payload["mode_policy"]["entry_ms"]
+@@ -112,3 +115,16 @@ async def test_manual_limit_requires_exchange_tick(live_manual):
+                                               order_type="LIMIT", limit_price=120.33)
+     assert result["status"] == "blocked" and result["reason"] == "limit_price_not_on_exchange_tick"
+     client.place_order.assert_not_awaited()
++
++@pytest.mark.asyncio
++async def test_manual_uses_contract_signal_time_not_merged_parent_time(live_manual, monkeypatch):
++    client, _ = live_manual
++    stale = SimpleNamespace(source="derivatives", timestamp_ms=200, direction="long",
++        legs=[SimpleNamespace(option_symbol="OPT", signal_timestamp_ms=100)])
++    monkeypatch.setattr(protection, "_rows_for", lambda uid: [stale])
++    monkeypatch.setattr(service, "entry_data_block_reason",
++                        lambda row, **kw: "stale" if row.timestamp_ms == 100 else "")
++    result = await service.place_manual_order("u", "OPT", "BUY", 50)
++    assert result["reason"] == "stale_or_closed_manual_signal"
++    assert stale.timestamp_ms == 200
++    client.place_order.assert_not_awaited()
+diff --git a/backend/tests/services/navigator/test_chart_route.py b/backend/tests/services/navigator/test_chart_route.py
+new file mode 100644
+index 00000000..f6f05f26
+--- /dev/null
++++ b/backend/tests/services/navigator/test_chart_route.py
+@@ -0,0 +1,31 @@
++"""HTTP route dispatch must use the maintained Navigator chart implementation."""
++from types import SimpleNamespace
++from unittest.mock import AsyncMock
++import pytest
++from fastapi import HTTPException
++from app.api.v1.endpoints import navigator
++from app.engines.navigator.quality import CandleValidationError
++from app.services.exchanges.kite import accounts
++
++
++def test_chart_has_one_unambiguous_route():
++    routes=[r for r in navigator.router.routes if r.path.endswith('/chart/{underlying}')]
++    assert len(routes)==1
++    assert routes[0].endpoint is navigator.get_chart_overlay
++
++
++@pytest.mark.asyncio
++async def test_chart_candle_errors_are_validation_responses(monkeypatch):
++    monkeypatch.setattr(navigator,'_default_underlyings',lambda uid:['NIFTY 50'])
++    monkeypatch.setattr(navigator.config_store,'get',lambda *a,**kw:SimpleNamespace())
++    monkeypatch.setattr(accounts,'get_active',lambda uid:SimpleNamespace(id='fake',user_id=uid))
++    monkeypatch.setattr(accounts,'acquire_client',AsyncMock(return_value=SimpleNamespace()))
++    monkeypatch.setattr(navigator,'_resolve_chart_token',AsyncMock(return_value=123))
++    build=AsyncMock(side_effect=CandleValidationError('malformed candles'))
++    monkeypatch.setattr(navigator.chart_series,'build_chart_series',build)
++    route=next(r for r in navigator.router.routes if r.path.endswith('/chart/{underlying}'))
++    with pytest.raises(HTTPException) as result:
++        await route.endpoint('NIFTY 50',bars=1,user=SimpleNamespace(user_id='qa'))
++    assert result.value.status_code==422
++    assert 'NAVIGATOR_CANDLES_INVALID' in result.value.detail
++    assert build.await_args.kwargs['bars']==60
+diff --git a/backend/tests/services/navigator/test_chart_series.py b/backend/tests/services/navigator/test_chart_series.py
+index e1dc1183..9ec2e860 100644
+--- a/backend/tests/services/navigator/test_chart_series.py
++++ b/backend/tests/services/navigator/test_chart_series.py
+@@ -28,10 +28,10 @@ _UNDERLYINGS = ["NIFTY 50"]
+ 
+ 
+ @pytest.fixture(autouse=True)
+-def isolated_db():
++def isolated_db(monkeypatch):
+     fd, path = tempfile.mkstemp()
+     os.close(fd)
+-    db._DB_PATH = path
++    monkeypatch.setattr(db, "_DB_PATH", path)
+     db.init()
+     nav_service.clear_cache(_UID)
+     yield
+diff --git a/backend/tests/services/test_gamma_history_retries.py b/backend/tests/services/test_gamma_history_retries.py
+new file mode 100644
+index 00000000..6cf41420
+--- /dev/null
++++ b/backend/tests/services/test_gamma_history_retries.py
+@@ -0,0 +1,33 @@
++from types import SimpleNamespace
++from unittest.mock import AsyncMock
++import pytest
++from app.services import gamma_move_scanner as scanner
++from app.services.exchanges.kite.errors import KiteTokenError
++
++@pytest.mark.asyncio
++async def test_transient_history_timeout_retries_same_read(monkeypatch):
++    sleep=AsyncMock();monkeypatch.setattr(scanner.asyncio,'sleep',sleep)
++    client=SimpleNamespace(get_historical=AsyncMock(side_effect=[TimeoutError(),{'candles':[[1,2,3]]}]))
++    pacer=SimpleNamespace(wait=AsyncMock())
++    rows=await scanner._historical(client,pacer,123,'5minute','from','to',False)
++    assert rows==[[1,2,3]] and client.get_historical.await_count==2
++    assert pacer.wait.await_count==2 and sleep.await_count==1
++    assert client.get_historical.await_args_list[0]==client.get_historical.await_args_list[1]
++
++@pytest.mark.asyncio
++async def test_history_retry_exhaustion_does_not_fabricate_rows(monkeypatch):
++    monkeypatch.setattr(scanner.asyncio,'sleep',AsyncMock())
++    client=SimpleNamespace(get_historical=AsyncMock(side_effect=TimeoutError()))
++    with pytest.raises(TimeoutError) as error:
++        await scanner._historical(client,SimpleNamespace(wait=AsyncMock()),123,'5minute','from','to',False)
++    assert client.get_historical.await_count==3
++    assert any('attempts=3' in note for note in error.value.__notes__)
++
++@pytest.mark.asyncio
++async def test_expired_session_is_not_retried(monkeypatch):
++    sleep=AsyncMock();monkeypatch.setattr(scanner.asyncio,'sleep',sleep)
++    client=SimpleNamespace(get_historical=AsyncMock(side_effect=KiteTokenError('expired')))
++    with pytest.raises(KiteTokenError):
++        await scanner._historical(client,SimpleNamespace(wait=AsyncMock()),123,'5minute','from','to',False)
++    assert client.get_historical.await_count==1
++    sleep.assert_not_awaited()
+diff --git a/backend/tests/services/test_gamma_move_scanner_audit.py b/backend/tests/services/test_gamma_move_scanner_audit.py
+index 3a3a204f..3e4a9d1e 100644
+--- a/backend/tests/services/test_gamma_move_scanner_audit.py
++++ b/backend/tests/services/test_gamma_move_scanner_audit.py
+@@ -104,3 +104,17 @@ def test_watch_row_is_stamped_at_the_close_of_its_last_closed_bar():
+         closed_bars=[bar(2), last], underlying_bars=[], spot=102.0,
+     )
+     assert scanner.watch_view(rt)["at_ms"] == last.ts_ms + 5 * 60_000
++
++@pytest.mark.parametrize('stamp', [None, '2026-10-05T15:39:00+05:30', '2026-10-05T08:59:00+05:30'])
++def test_missing_and_out_of_session_exchange_times_never_create_bars(stamp):
++    w = watch()
++    rt = scanner.RuntimeWatch(contract=w, engine=ContractEngine(w, GammaMoveConfig().validate()),
++                              closed_bars=[], underlying_bars=[], spot=102)
++    scanner._runtime['u1'] = {222: rt}
++    tick = {'instrument_token': 222, 'last_price': 102, 'oi': 900}
++    if stamp: tick['exchange_timestamp'] = stamp
++    assert scanner.process_ticks('u1', [tick]) == []
++    assert rt.forming is None and rt.last_tick_ms == 0
++    diagnostic = scanner._stats['u1']['tick_diagnostics'][-1]
++    assert diagnostic['received_at_ms'] > 0
++    assert diagnostic['reason'] == ('timestamp_missing' if stamp is None else 'outside_continuous_session')
+diff --git a/backend/tests/services/test_price_rules.py b/backend/tests/services/test_price_rules.py
+index 73262892..082e9c8a 100644
+--- a/backend/tests/services/test_price_rules.py
++++ b/backend/tests/services/test_price_rules.py
+@@ -331,3 +331,53 @@ async def test_price_rules_switch_http_and_tenant_isolation(env):
+   own=client.post('/api/v1/price-rules/enabled',json={'enabled':True,'expected_enabled':False})
+   assert own.status_code==200
+  assert store.load(UID)['enabled'] is False and store.load('another-user')['enabled'] is True
++
++@pytest.mark.asyncio
++async def test_confirmed_price_rules_journal_replays_without_duplicate_fills(env):
++ from app.services import trade_journal as journal
++ r=await armed();await runtime.cycle(UID)
++ assert journal.list_trades([UID],strategy='price_rules')['total']==0
++ await runtime.cycle(UID)
++ await runtime.exit_position(UID,r['id'],50);await runtime.cycle(UID)
++ await runtime.exit_position(UID,r['id'],100);await runtime.cycle(UID);await runtime.cycle(UID)
++ p=store.load(UID)['rules'][r['id']]
++ runtime.project_journal(UID,p);runtime.project_journal(UID,p)
++ result=journal.list_trades([UID],strategy='price_rules')
++ assert result['total']==1
++ trade=result['items'][0]
++ assert trade['status']=='CLOSED' and trade['qty']==100 and trade['exit_qty']==100
++ assert trade['gross_pnl']==1000
++
++@pytest.mark.asyncio
++async def test_price_rules_journal_backfill_uses_only_stored_fills(env,monkeypatch):
++ from app.services import trade_journal as journal, trade_journal_backfill as backfill
++ r=await armed();await runtime.cycle(UID);await runtime.cycle(UID)
++ p=store.load(UID)['rules'][r['id']]
++ assert p['fill_ts_ms'] > 0
++ report=backfill.backfill([UID])
++ assert report['price_rules']['existing']==1
++ assert journal.list_trades([UID],strategy='price_rules')['total']==1
++
++@pytest.mark.asyncio
++async def test_journal_partial_entry_is_one_cumulative_fill(env):
++ from app.services import trade_journal as journal
++ r=await armed();await runtime.cycle(UID)
++ env.qty=50;env.orders['O1'].update(filled_quantity=50,status='OPEN');await runtime.cycle(UID)
++ env.qty=100;env.orders['O1'].update(filled_quantity=100,status='COMPLETE');await runtime.cycle(UID)
++ tid=journal.list_trades([UID],strategy='price_rules')['items'][0]['trade_id']
++ fills=[e for e in journal.get_trade(tid,[UID])['timeline'] if e['type']==journal.FILLED]
++ assert len(fills)==1 and fills[0]['qty']==100
++
++
++@pytest.mark.asyncio
++async def test_favorable_partial_fill_never_lowers_approved_stop(env):
++    r=await armed();await runtime.cycle(UID)
++    approved=store.load(UID)['rules'][r['id']]['stop']
++    env.qty=50;env.orders['O1'].update(filled_quantity=50,average_price=90,status='OPEN')
++    await runtime.cycle(UID)
++    first=store.load(UID)['rules'][r['id']]
++    assert first['stop']>=approved
++    env.qty=100;env.orders['O1'].update(filled_quantity=100,average_price=95,status='COMPLETE')
++    await runtime.cycle(UID)
++    final=store.load(UID)['rules'][r['id']]
++    assert final['entry_price']-final['stop']<=final['stop_points']
+diff --git a/backend/tests/test_public_access_stack.py b/backend/tests/test_public_access_stack.py
+index fc57a174..df38a313 100644
+--- a/backend/tests/test_public_access_stack.py
++++ b/backend/tests/test_public_access_stack.py
+@@ -767,6 +767,7 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
+  fail=[False]
+  def simulated_build(command,**kwargs):
+   assert command==['npm','run','build']
++  assert kwargs['env']['STERLING_BUILD_SHA']==current[0]
+   assert not (publisher.frontend/'dist/leftover.js').exists()
+   if fail[0]:
+    raise subprocess.CalledProcessError(1,command)
+diff --git a/backend/tests/test_trader_qa_20261022.py b/backend/tests/test_trader_qa_20261022.py
+new file mode 100644
+index 00000000..043f38d4
+--- /dev/null
++++ b/backend/tests/test_trader_qa_20261022.py
+@@ -0,0 +1,129 @@
++"""Offline regression evidence. Broker writes use mocks or MockTransport only."""
++from datetime import datetime, timedelta
++from types import SimpleNamespace
++
++import pytest
++
++from tests.engines.sterling_kite_engine.test_live_manual_execution import live_manual
++
++
++@pytest.mark.parametrize("source", ["spot", "derivatives"])
++@pytest.mark.parametrize("mode,minutes", [
++    ("ultra_scalping", 1), ("scalping", 1), ("scalping", 3),
++    ("scalping", 5), ("intraday", 5), ("intraday", 15),
++    ("intraday", 30), ("overnight", 30), ("overnight", 60), ("swing", 60),
++])
++def test_fresh_completed_candle_admission(monkeypatch, mode, minutes, source):
++    from app.services.kite_engine import service
++
++    now = datetime.fromisoformat("2026-10-07T11:00:30+05:30")
++
++    class Clock(datetime):
++        @classmethod
++        def now(cls, tz=None):
++            return now.astimezone(tz) if tz else now.replace(tzinfo=None)
++
++    monkeypatch.setattr(service, "datetime", Clock)
++    monkeypatch.setattr(service.market_hours, "entry_block_reason", lambda **kw: "")
++    row = SimpleNamespace(source=source, horizon_mode=mode,
++                          signal_timeframe_minutes=minutes,
++                          timestamp_ms=int((now-timedelta(minutes=minutes, seconds=30)).timestamp()*1000))
++    reason = service.entry_data_block_reason(row, exchange="NFO", buffer_minutes=5)
++    assert reason == ""
++    print(f"FRESH_CLOSED_BAR mode={mode} timeframe={minutes}m observed={reason or 'ACCEPTED'}")
++
++
++@pytest.mark.parametrize("variety", ["regular", "amo"])
++@pytest.mark.asyncio
++async def test_stale_manual_signal_never_submits_or_becomes_amo(live_manual, monkeypatch, tmp_path, variety):
++    from app.services.kite_engine import service
++    from app.services import db
++    from tests.conftest import reconciled_control_plane
++
++    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "qa-manual-test.db"))
++    db.init()
++    reconciled_control_plane()
++    monkeypatch.setattr(service.positions, "_positions", {})
++    monkeypatch.setattr(service.positions, "_unreadable", {})
++
++    client, _ = live_manual
++    monkeypatch.setattr(service, "entry_data_block_reason", lambda *a, **kw: "stale_or_unclosed_signal")
++    result = await service.place_manual_order("u", "OPT", "BUY", 50, variety=variety)
++    assert result["status"] == "blocked", result
++    assert result["reason"] == "stale_or_closed_manual_signal"
++    client.place_order.assert_not_awaited()
++
++
++@pytest.mark.asyncio
++async def test_offline_amo_broker_wire_and_cancel(monkeypatch):
++    """Real serializer and HTTP adapter; all replies are synthetic."""
++    import json
++    import socket
++    from urllib.parse import parse_qs
++    import httpx
++    from tests.test_kite_orders import _client
++    from app.services.snapback_family_mode import canonical_broker_capability, INTENT_CANCEL
++
++    def blocked(*args, **kwargs):
++        raise AssertionError("QA must never open a network socket")
++    monkeypatch.setattr(socket.socket, "connect", blocked)
++    trace = []
++
++    def handler(request):
++        body = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
++        trace.append({"method": request.method, "path": request.url.path, "body": body})
++        return httpx.Response(200, json={"status": "success", "data": {"order_id": "QA-AMO-1"}})
++
++    client = _client(handler)
++    try:
++        with canonical_broker_capability("qa-amo-wire"):
++            reply = await client.place_order("NFO:NIFTY26OCT25000CE", "buy", 75,
++                order_type="limit_order", limit_price=100.05, product="NRML", variety="amo", allow_amo=True)
++        with canonical_broker_capability("qa-amo-cancel", intent=INTENT_CANCEL):
++            await client.cancel_order(reply["order_id"], variety="amo")
++        assert [r["path"] for r in trace] == ["/orders/amo", "/orders/amo/QA-AMO-1"]
++        assert trace[0]["body"]["quantity"] == "75"
++        assert trace[0]["body"]["price"] == "100.05"
++        assert trace[0]["body"]["product"] == "NRML"
++        assert trace[1]["method"] == "DELETE"
++        print("OFFLINE_AMO_WIRE " + json.dumps(trace, sort_keys=True))
++    finally:
++        await client.close()
++
++
++@pytest.mark.parametrize("offset,mode,minutes,expected", [
++    (0, "intraday", 15, "stale_or_unclosed_signal"),
++    (-1, "intraday", 15, "stale_or_unclosed_signal"),
++    (1440, "intraday", 15, "stale_or_unclosed_signal"),
++    (30, "ultra_scalping", 15, "invalid_signal_timeframe_or_timestamp"),
++    (3, "ultra_scalping", 1, "stale_or_unclosed_signal"),
++])
++def test_invalid_signal_age_and_interval_refused(monkeypatch, offset, mode, minutes, expected):
++    from app.services.kite_engine import service
++    now = datetime.fromisoformat("2026-10-07T11:00:30+05:30")
++    class Clock(datetime):
++        @classmethod
++        def now(cls, tz=None):
++            return now
++    monkeypatch.setattr(service, "datetime", Clock)
++    monkeypatch.setattr(service.market_hours, "entry_block_reason", lambda **kw: "")
++    row = SimpleNamespace(source="derivatives", horizon_mode=mode,
++                          signal_timeframe_minutes=minutes,
++                          timestamp_ms=int((now-timedelta(minutes=offset)).timestamp()*1000))
++    assert service.entry_data_block_reason(row, exchange="NFO", buffer_minutes=5) == expected
++
++
++def test_runtime_identity_is_frozen_and_reports_drift(monkeypatch):
++    from app.core import runtime_identity as identity
++    monkeypatch.setattr(identity, "_BOOT", None)
++    monkeypatch.setattr(identity, "checkout_sha", lambda: "a"*40)
++    monkeypatch.setattr(identity, "source_fingerprint", lambda: "initial")
++    monkeypatch.setattr(identity, "source_dirty", lambda: False)
++    monkeypatch.setenv("STERLING_RUNTIME_SHA", "b"*40)
++    boot = identity.capture_startup()
++    monkeypatch.setattr(identity, "source_fingerprint", lambda: "edited")
++    assert identity.capture_startup() == boot
++    report = identity.diagnostics("c"*40, "old-api")
++    assert report["compatible"] is False
++    assert set(report["blockers"]) == {"backend_source_changed_since_start", "declared_backend_release_mismatch",
++                                      "frontend_backend_release_mismatch", "frontend_backend_contract_mismatch"}
+diff --git a/backend/tests/unit/test_build_artifact_identity.py b/backend/tests/unit/test_build_artifact_identity.py
+index caf7d31c..d2ba4126 100644
+--- a/backend/tests/unit/test_build_artifact_identity.py
++++ b/backend/tests/unit/test_build_artifact_identity.py
+@@ -1,5 +1,7 @@
+ from __future__ import annotations
+ 
++import json
++import pytest
+ from pathlib import Path
+ 
+ from app.core import build_artifact_identity as bai
+@@ -92,3 +94,11 @@ def test_missing_artifact_metadata_is_unknown_not_clean(tmp_path: Path, monkeypa
+ 
+     assert rm.release_tag_points_at("release-1", SHA) is None
+     assert rm.working_tree_clean() is None
++
++
++@pytest.mark.parametrize("value", [[], None, "metadata", 42])
++def test_non_object_metadata_returns_invalid_identity(tmp_path, value):
++    (tmp_path / bai.METADATA_FILENAME).write_text(json.dumps(value))
++    identity = bai.artifact_identity(tmp_path)
++    assert identity.present is True and identity.valid is False
++    assert identity.reason == "build_metadata_not_object"
+diff --git a/backend/tests/unit/test_live_db_guard.py b/backend/tests/unit/test_live_db_guard.py
+index 9458ea8c..b317c73c 100644
+--- a/backend/tests/unit/test_live_db_guard.py
++++ b/backend/tests/unit/test_live_db_guard.py
+@@ -57,3 +57,21 @@ def test_env_seed_ignores_placeholder_keys(monkeypatch, key):
+     monkeypatch.setenv("KITE_API_KEY", key)
+     monkeypatch.setenv("KITE_API_SECRET", "secret")
+     assert auth.seed_from_env() is None
++
++
++def test_checkout_database_is_not_disposable_even_inside_temp(tmp_path, monkeypatch):
++    backend = tmp_path / 'checkout' / 'backend'
++    live = backend / 'sterling_paper.db'
++    monkeypatch.setattr(db, '_CHECKOUT_DB_PATH', str(live))
++    assert not db.is_disposable_path(str(live))
++    monkeypatch.setattr(db, '_DB_PATH', str(live))
++    with pytest.raises(RuntimeError, match='refusing to open'):
++        with db._conn():
++            pass
++    assert not live.exists()
++
++
++def test_temporary_fixture_database_remains_disposable(tmp_path, monkeypatch):
++    backend = tmp_path / 'checkout' / 'backend'
++    monkeypatch.setattr(db, '_CHECKOUT_DB_PATH', str(backend / 'sterling_paper.db'))
++    assert db.is_disposable_path(str(backend / 'fixture_test.db'))
+diff --git a/backend/tests/unit/test_runtime_identity_images.py b/backend/tests/unit/test_runtime_identity_images.py
+new file mode 100644
+index 00000000..14f0bc07
+--- /dev/null
++++ b/backend/tests/unit/test_runtime_identity_images.py
+@@ -0,0 +1,20 @@
++"""Git-less release diagnostics must use content-verified artifact identity."""
++from types import SimpleNamespace
++from unittest.mock import Mock
++import pytest
++from app.core import runtime_identity as identity
++from app.core import build_artifact_identity as artifact
++
++@pytest.mark.parametrize('valid',[True,False])
++def test_gitless_runtime_uses_verified_artifact(monkeypatch,valid):
++    monkeypatch.setattr(identity.subprocess,'run',Mock(side_effect=FileNotFoundError('git absent')))
++    monkeypatch.setattr(artifact,'artifact_identity',lambda:SimpleNamespace(present=True,valid=valid,build_sha='a'*40))
++    assert identity.checkout_sha()==('a'*40 if valid else 'UNKNOWN')
++    assert identity.source_dirty() is (not valid)
++
++
++def test_gitless_runtime_without_metadata_is_unknown(monkeypatch):
++    monkeypatch.setattr(identity.subprocess,'run',Mock(side_effect=FileNotFoundError('git absent')))
++    monkeypatch.setattr(artifact,'artifact_identity',lambda:SimpleNamespace(present=False,valid=False,build_sha='UNKNOWN'))
++    assert identity.checkout_sha()=='UNKNOWN'
++    assert identity.source_dirty() is None
+diff --git a/backend/tests/unit/test_trade_journal_api.py b/backend/tests/unit/test_trade_journal_api.py
+index 102d8bcb..60272d6f 100644
+--- a/backend/tests/unit/test_trade_journal_api.py
++++ b/backend/tests/unit/test_trade_journal_api.py
+@@ -192,7 +192,7 @@ def test_an_empty_journal_answers_with_zeros_not_errors(api):
+     assert c.get("/api/v1/journal/trades").json()["total"] == 0
+     s = c.get("/api/v1/journal/summary").json()["summary"]
+     assert s["trades"] == 0 and s["net_pnl"] == 0.0 and s["win_rate_pct"] is None
+-    assert [g["trades"] for g in c.get("/api/v1/journal/by-strategy").json()["strategies"]] == [0, 0, 0]
++    assert [g["trades"] for g in c.get("/api/v1/journal/by-strategy").json()["strategies"]] == [0, 0, 0, 0, 0]
+     assert c.get("/api/v1/journal/exit-reasons").json()["reasons"] == []
+     assert c.get("/api/v1/journal/equity").json()["by_trade"] == []
+     assert c.get("/api/v1/journal/calendar").json()["days"] == []
+diff --git a/backend/tests/unit/test_trade_journal_stats.py b/backend/tests/unit/test_trade_journal_stats.py
+index 492a3eba..ec2cb2be 100644
+--- a/backend/tests/unit/test_trade_journal_stats.py
++++ b/backend/tests/unit/test_trade_journal_stats.py
+@@ -107,7 +107,7 @@ def test_empty_journal_is_all_zero_not_an_error():
+ 
+ def test_by_strategy_ranks_and_explains_the_biggest_drag(trades):
+     table = {g["strategy"]: g for g in stats.by_strategy(trades)}
+-    assert list(table) == ["supertrend", "snapback", "gamma"]
++    assert list(table) == ["supertrend", "snapback", "gamma", "ema_trend", "price_rules"]
+     assert table["supertrend"]["net_pnl"] == 400.0 and table["supertrend"]["trades"] == 3
+     assert table["gamma"]["net_pnl"] == -300.0 and table["snapback"]["net_pnl"] == 300.0
+     assert (table["supertrend"]["rank"], table["snapback"]["rank"], table["gamma"]["rank"]) == (1, 2, 3)
+@@ -120,9 +120,9 @@ def test_by_strategy_ranks_and_explains_the_biggest_drag(trades):
+     assert table["snapback"]["headline"] == "Snapback is making money: +₹300 over 1 trade, 100% winners."
+ 
+ 
+-def test_by_strategy_lists_all_three_even_with_no_trades():
++def test_by_strategy_lists_all_strategies_even_with_no_trades():
+     table = stats.by_strategy([])
+-    assert [g["strategy"] for g in table] == ["supertrend", "snapback", "gamma"]
++    assert [g["strategy"] for g in table] == ["supertrend", "snapback", "gamma", "ema_trend", "price_rules"]
+     assert all(g["rank"] is None and g["trades"] == 0 for g in table)
+     assert table[0]["headline"] == "Supertrend: no closed trades yet."
+ 
+diff --git a/docs/operator/START_HERE.md b/docs/operator/START_HERE.md
+index e5f065ab..6eb37c60 100644
+--- a/docs/operator/START_HERE.md
++++ b/docs/operator/START_HERE.md
+@@ -40,10 +40,10 @@ daily-loss halt at -1,500 INR by default.
+ 
+ ## 3. Your first session
+ 
+-1. Start the backend (`./sterlingctl start`, or the systemd service) and log in to
++1. Start the backend (`scripts/sterlingctl start`, or the systemd service) and log in to
+    Kite from the Sterling UI before 09:15 IST. The first login binds the account to
+    your Zerodha identity.
+-2. Check `./sterlingctl status`: NORMAL, broker connected, no unresolved orders.
++2. Check `scripts/sterlingctl status`: NORMAL, broker connected, no unresolved orders.
+ 3. Confirm the caps in your environment file: `STERLING_LIVE_EXECUTION=true`,
+    `STERLING_LIVE_MINIMUM_MAX_LOTS=1`.
+ 4. Watch the first entry of each strategy in the Kite app: the order, the fill and
+@@ -56,15 +56,15 @@ daily-loss halt at -1,500 INR by default.
+ Everything is one command. Run them from the Sterling folder.
+ 
+ ```bash
+-./sterlingctl status          # what Sterling is doing right now
+-./sterlingctl doctor          # configuration and safety checks; read every FAIL
+-./sterlingctl start           # runs the start sequence, stops at the first failed step
+-./sterlingctl stop
+-./sterlingctl safe on         # block new trades immediately
+-./sterlingctl safe off --ack  # allow them again (only after you fixed the cause)
+-./sterlingctl reconcile       # compare Sterling's view against the broker's
+-./sterlingctl backup          # checksummed backup with a manifest
+-./sterlingctl restore-check   # prove the latest backup actually restores
++scripts/sterlingctl status          # what Sterling is doing right now
++scripts/sterlingctl doctor          # configuration and safety checks; read every FAIL
++scripts/sterlingctl start           # runs the start sequence, stops at the first failed step
++scripts/sterlingctl stop
++scripts/sterlingctl safe on         # block new trades immediately
++scripts/sterlingctl safe off --ack  # allow them again (only after you fixed the cause)
++scripts/sterlingctl reconcile       # compare Sterling's view against the broker's
++scripts/sterlingctl backup          # checksummed backup with a manifest
++scripts/sterlingctl restore-check   # prove the latest backup actually restores
+ ```
+ 
+ A `doctor` exit code of **2** means a check could not be run at all. That is not
+diff --git a/frontend/Dockerfile b/frontend/Dockerfile
+index 14ae079b..7f04a538 100644
+--- a/frontend/Dockerfile
++++ b/frontend/Dockerfile
+@@ -2,6 +2,9 @@ FROM node:22-alpine AS builder
+ 
+ WORKDIR /app
+ 
++ARG STERLING_BUILD_SHA=UNKNOWN
++ENV STERLING_BUILD_SHA=$STERLING_BUILD_SHA
++
+ # Accept optional VITE_API_BASE_URL build arg
+ # Empty string = use nginx proxy (recommended for Docker deployment)
+ # Set to http://your-backend-host:8000 for custom deployments
+diff --git a/frontend/buildIdentity.ts b/frontend/buildIdentity.ts
+new file mode 100644
+index 00000000..acc8155b
+--- /dev/null
++++ b/frontend/buildIdentity.ts
+@@ -0,0 +1,6 @@
++/** Prefer checkout provenance; Git-less images use their explicit build input. */
++export function resolveBuildSha(readGit: () => string, artifactSha: unknown): string {
++  const valid = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{40}$/i.test(value.trim()) ? value.trim().toLowerCase() : 'UNKNOWN';
++  try { return valid(readGit()); }
++  catch { return valid(artifactSha); }
++}
+diff --git a/frontend/src/__tests__/buildIdentity.test.ts b/frontend/src/__tests__/buildIdentity.test.ts
+new file mode 100644
+index 00000000..f61bfba0
+--- /dev/null
++++ b/frontend/src/__tests__/buildIdentity.test.ts
+@@ -0,0 +1,12 @@
++import { expect, it } from 'vitest';
++import { resolveBuildSha } from '../../buildIdentity';
++const gitAbsent = () => { throw new Error('Git is not installed in the image'); };
++it('uses the image build input when Git is absent', () => {
++  expect(resolveBuildSha(gitAbsent, 'a'.repeat(40))).toBe('a'.repeat(40));
++});
++it('keeps checkout identity authoritative over an environment override', () => {
++  expect(resolveBuildSha(() => 'b'.repeat(40), 'a'.repeat(40))).toBe('b'.repeat(40));
++});
++it.each([undefined, '', 'UNKNOWN', 'bad', 'a'.repeat(39)])('rejects unknown or malformed image identity: %s', value => {
++  expect(resolveBuildSha(gitAbsent, value)).toBe('UNKNOWN');
++});
+diff --git a/frontend/src/components/journal/JournalTab.tsx b/frontend/src/components/journal/JournalTab.tsx
+index 4647f3bf..66759203 100644
+--- a/frontend/src/components/journal/JournalTab.tsx
++++ b/frontend/src/components/journal/JournalTab.tsx
+@@ -31,7 +31,7 @@ function NothingYet({ filters }: { filters: JournalFilters }) {
+         <div style={{ fontWeight: 600, color: 'var(--k-ink-1)', marginBottom: 4 }}>What this page will show once trades happen</div>
+         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
+           <li>How it is going: profit or loss, how often trades win, and the biggest win and loss.</li>
+-          <li>Which strategy is earning: Supertrend, Snapback and Gamma Unwind side by side.</li>
++          <li>Which strategy is earning: Supertrend, Snapback, Gamma Unwind, EMA Trend and Price Rules side by side.</li>
+           <li>Profit over time, and how each day ended.</li>
+           <li>Every trade, with the full story of why it entered and how it ended.</li>
+           <li>Signals the app skipped, with the reason (listed below when there are any).</li>
+diff --git a/frontend/src/components/journal/StrategyComparison.tsx b/frontend/src/components/journal/StrategyComparison.tsx
+index 42e32311..dff94a2a 100644
+--- a/frontend/src/components/journal/StrategyComparison.tsx
++++ b/frontend/src/components/journal/StrategyComparison.tsx
+@@ -79,7 +79,7 @@ export function StrategyComparison({ filters }: { filters: JournalFilters }) {
+   const exits = useJournalStrategyExitReasons(filters);
+   const rows = q.data ? orderedStrategies(q.data.strategies) : [];
+   return (
+-    <Section id="strategies" title="Which strategy is earning?" subtitle="Supertrend, Snapback and Gamma Unwind side by side for the same period.">
++    <Section id="strategies" title="Which strategy is earning?" subtitle="Supertrend, Snapback, Gamma Unwind, EMA Trend and Price Rules side by side for the same period.">
+       {q.isLoading && <Loading what="the comparison" />}
+       {q.isError && !q.data && <ErrorBlock what="the strategy comparison" error={q.error} onRetry={() => q.refetch()} />}
+       {q.data && (
+diff --git a/frontend/src/components/journal/types.ts b/frontend/src/components/journal/types.ts
+index aaf7ff40..e5204eeb 100644
+--- a/frontend/src/components/journal/types.ts
++++ b/frontend/src/components/journal/types.ts
+@@ -6,18 +6,19 @@
+  */
+ 
+ export type JournalMode = 'live' | 'simulation' | 'all';
+-export type StrategyId = 'supertrend' | 'snapback' | 'gamma' | 'ema_trend';
++export type StrategyId = 'supertrend' | 'snapback' | 'gamma' | 'ema_trend' | 'price_rules';
+ export type Outcome = 'win' | 'loss' | 'open';
+ export type TradeModeLabel = 'LIVE' | 'SIMULATION';
+ export type TradeStatus = 'PENDING' | 'OPEN' | 'CLOSED' | 'REJECTED';
+ 
+-export const STRATEGY_IDS: readonly StrategyId[] = ['supertrend', 'snapback', 'gamma', 'ema_trend'];
++export const STRATEGY_IDS: readonly StrategyId[] = ['supertrend', 'snapback', 'gamma', 'ema_trend', 'price_rules'];
+ 
+ export const STRATEGY_NAMES: Record<StrategyId, string> = {
+   supertrend: 'Supertrend',
+   snapback: 'Snapback',
+   gamma: 'Gamma Unwind',
+   ema_trend: 'EMA Trend',
++  price_rules: 'Price Rules',
+ };
+ 
+ export interface JournalScope {
+diff --git a/frontend/src/components/kite/AdaptiveEdgePositionCalculator.tsx b/frontend/src/components/kite/AdaptiveEdgePositionCalculator.tsx
+index f89d8838..92251c8b 100644
+--- a/frontend/src/components/kite/AdaptiveEdgePositionCalculator.tsx
++++ b/frontend/src/components/kite/AdaptiveEdgePositionCalculator.tsx
+@@ -1,4 +1,4 @@
+-import React, { useMemo, useState } from 'react';
++import React, { useEffect, useMemo, useState } from 'react';
+ import { k } from '../../styles/kiteUI';
+ import { roundToTick, fmtTick, fmtINR } from '../../utils/fmt';
+ import { formatInstrument } from '../../lib/instrument';
+@@ -63,19 +63,26 @@ export function AdaptiveEdgePositionCalculator({
+     () => (propLotSize != null && propLotSize > 0 ? propLotSize : getInstrumentLotSize(symbol)),
+     [propLotSize, symbol],
+   );
+-  const baseEntry = roundToTick(defaultEntryPrice ?? currentLtp ?? 100) ?? 100;
+-  const baseSl = roundToTick(defaultSl ?? (baseEntry * 0.8)) ?? Number((baseEntry * 0.8).toFixed(2));
+-  const baseTsl = roundToTick(defaultTsl ?? baseEntry) ?? baseEntry;
++  const baseEntry = roundToTick(defaultEntryPrice ?? (allowOrder ? currentLtp : null) ?? 0) ?? 0;
++  const baseSl = roundToTick(defaultSl ?? 0) ?? 0;
++  const baseTsl = roundToTick(defaultTsl ?? 0) ?? 0;
+   const baseTarget = roundToTick(defaultExit ?? 0) ?? baseEntry;
+ 
+   // Editable State
+-  const plannedLots = defaultLots != null && defaultLots > 0 ? Math.round(defaultLots) : 1;
++  const plannedLots = defaultLots != null && defaultLots > 0 ? Math.round(defaultLots) : allowOrder ? 1 : 0;
+   const [numLots, setNumLots] = useState<number>(plannedLots);
+   const [entryPrice, setEntryPrice] = useState<number>(baseEntry);
+   const [slPrice, setSlPrice] = useState<number>(baseSl);
+   const [tslPrice, setTslPrice] = useState<number>(baseTsl);
+   const [targetPrice, setTargetPrice] = useState<number>(baseTarget);
+ 
++  useEffect(() => {
++    if (!allowOrder) {
++      setNumLots(plannedLots); setEntryPrice(baseEntry); setSlPrice(baseSl);
++      setTslPrice(baseTsl); setTargetPrice(baseTarget);
++    }
++  }, [allowOrder, plannedLots, baseEntry, baseSl, baseTsl, baseTarget]);
++
+   const isCustomized =
+     numLots !== plannedLots ||
+     entryPrice !== baseEntry ||
+@@ -104,9 +111,9 @@ export function AdaptiveEdgePositionCalculator({
+ 
+   // Hard SL Risk. A bought option can go to zero, so ORB (hideTsl) sizes
+   // against the full premium outlay — the same number the board row shows.
+-  const slDistance = Math.max(0, roundToTick(entryPrice - slPrice) ?? 0);
++  const slDistance = slPrice > 0 ? Math.max(0, roundToTick(entryPrice - slPrice) ?? 0) : 0;
+   const premiumOutlay = roundToTick(entryPrice * totalQty) ?? (entryPrice * totalQty);
+-  const maxRiskAmount = hideTsl ? premiumOutlay : (roundToTick(slDistance * totalQty) ?? 0);
++  const maxRiskAmount = roundToTick(slDistance * totalQty) ?? 0;
+   const riskPerLot = hideTsl
+     ? (roundToTick(entryPrice * lotSize) ?? (entryPrice * lotSize))
+     : (roundToTick(slDistance * lotSize) ?? 0);
+@@ -119,7 +126,7 @@ export function AdaptiveEdgePositionCalculator({
+   // Target / Reward
+   const targetDistance = Math.max(0, roundToTick(targetPrice - entryPrice) ?? 0);
+   const targetReward = roundToTick(targetDistance * totalQty) ?? 0;
+-  const riskRewardRatio = slDistance > 0 ? (targetDistance / slDistance).toFixed(2) : '1.00';
++  const riskRewardRatio = slDistance > 0 && entryPrice > 0 && targetPrice > entryPrice ? (targetDistance / slDistance).toFixed(2) : '—';
+   const realizedRR = slDistance > 0 ? (coveredPoints / slDistance).toFixed(2) : '0.00';
+ 
+   const estFrictionINR = 60 * numLots;
+@@ -178,8 +185,8 @@ export function AdaptiveEdgePositionCalculator({
+   };
+ 
+   const handleCopyTradePlan = () => {
+-    const tslLine = hideTsl ? '' : `\nTSL: ₹${fmtTick(tslPrice)}`;
+-    const text = `TRADE PLAN\nSymbol: ${formatInstrument(tradingsymbol || symbol)} (${exchange})\nLots: ${numLots} (${totalQty} Qty)\nEntry: ₹${fmtTick(entryPrice)}\nStop Loss: ₹${fmtTick(slPrice)} (-${fmtTick(slDistance)} pts)${tslLine}\nTarget: ₹${fmtTick(targetPrice)} (+${fmtTick(targetDistance)} pts)\nRisk/Reward: 1 : ${riskRewardRatio} R`;
++    const tslLine = hideTsl ? '' : `\nTSL: ${tslPrice > 0 ? '₹' + fmtTick(tslPrice) : 'Not supplied'}`;
++    const text = `TRADE PLAN\nPlan authority: ${allowOrder ? 'Editable sizing preview; server admission required' : 'Strategy snapshot; execution uses the server plan'}\nSymbol: ${formatInstrument(tradingsymbol || symbol)} (${exchange})\nLots: ${numLots} (${totalQty} Qty)\nEntry: ${entryPrice > 0 ? '₹' + fmtTick(entryPrice) : 'Not supplied'}\nStop Loss: ${slPrice > 0 ? `₹${fmtTick(slPrice)} (-${fmtTick(slDistance)} pts)` : 'Not supplied'}${tslLine}\nTarget: ${targetPrice > 0 ? `₹${fmtTick(targetPrice)} (+${fmtTick(targetDistance)} pts)` : 'Not supplied'}\nRisk/Reward: ${riskRewardRatio !== '—' ? `1 : ${riskRewardRatio} R` : 'Unknown (entry, stop or target unavailable)'}`;
+     if (navigator.clipboard) {
+       navigator.clipboard.writeText(text);
+       setCopied(true);
+@@ -331,7 +338,7 @@ export function AdaptiveEdgePositionCalculator({
+                   alignItems: 'center',
+                   justifyContent: 'center',
+                 }}
+-                disabled={numLots <= 1}
++                disabled={!allowOrder || numLots <= 1}
+               >
+                 −
+               </button>
+@@ -339,6 +346,7 @@ export function AdaptiveEdgePositionCalculator({
+                 type="number"
+                 min={1}
+                 max={500}
++                readOnly={!allowOrder}
+                 value={numLots}
+                 onChange={(e) => {
+                   const val = parseInt(e.target.value, 10);
+@@ -359,6 +367,7 @@ export function AdaptiveEdgePositionCalculator({
+               />
+               <button
+                 type="button"
++                disabled={!allowOrder}
+                 onClick={() => setNumLots((l) => l + 1)}
+                 style={{
+                   width: 24,
+@@ -387,7 +396,8 @@ export function AdaptiveEdgePositionCalculator({
+             <input
+               type="number"
+               step="0.05"
+-              value={entryPrice}
++              readOnly={!allowOrder}
++              value={entryPrice || ''}
+               onChange={(e) => {
+                 const val = parseFloat(e.target.value);
+                 if (!isNaN(val) && val >= 0) setEntryPrice(roundToTick(val) ?? val);
+@@ -415,7 +425,8 @@ export function AdaptiveEdgePositionCalculator({
+             <input
+               type="number"
+               step="0.05"
+-              value={slPrice}
++              readOnly={!allowOrder}
++              value={slPrice || ''}
+               onChange={(e) => {
+                 const val = parseFloat(e.target.value);
+                 if (!isNaN(val) && val >= 0) setSlPrice(roundToTick(val) ?? val);
+@@ -444,7 +455,8 @@ export function AdaptiveEdgePositionCalculator({
+             <input
+               type="number"
+               step="0.05"
+-              value={tslPrice}
++              readOnly={!allowOrder}
++              value={tslPrice || ''}
+               onChange={(e) => {
+                 const val = parseFloat(e.target.value);
+                 if (!isNaN(val) && val >= 0) setTslPrice(roundToTick(val) ?? val);
+@@ -473,7 +485,8 @@ export function AdaptiveEdgePositionCalculator({
+             <input
+               type="number"
+               step="0.05"
+-              value={targetPrice}
++              readOnly={!allowOrder}
++              value={targetPrice || ''}
+               onChange={(e) => {
+                 const val = parseFloat(e.target.value);
+                 if (!isNaN(val) && val >= 0) setTargetPrice(roundToTick(val) ?? val);
+@@ -497,24 +510,24 @@ export function AdaptiveEdgePositionCalculator({
+ 
+       <div className="plan-metrics" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+         <MetricCard title="Position estimate" summary={lotSize > 0 ? `${totalQty} Qty` : 'Lot size required'}>
+-          <Metric label="Entry / capital" value={`₹${fmtTick(entryPrice)} · ${lotSize > 0 ? fmtINR(totalInvestment) : '—'}`} />
++          <Metric label="Entry / capital" value={entryPrice > 0 ? `₹${fmtTick(entryPrice)} · ${lotSize > 0 ? fmtINR(totalInvestment) : '—'}` : '—'} />
+           <Metric label="Current LTP" value={currentLtp != null ? `₹${fmtTick(liveLtp)}` : '—'}
+-            detail={currentLtp != null ? `${coveredPoints >= 0 ? '+' : ''}${fmtTick(coveredPoints)} pts (${coveredPct >= 0 ? '+' : ''}${coveredPct.toFixed(2)}%)` : 'Quote unavailable'} tone={isProfit ? k.green : k.red} />
+-          <Metric label="Gross MTM estimate" value={currentLtp != null && lotSize > 0 ? fmtINR(unrealizedPnl, { showSign: true }) : '—'}
++            detail={currentLtp != null && entryPrice > 0 ? `${coveredPoints >= 0 ? '+' : ''}${fmtTick(coveredPoints)} pts (${coveredPct >= 0 ? '+' : ''}${coveredPct.toFixed(2)}%)` : 'Quote unavailable'} tone={isProfit ? k.green : k.red} />
++          <Metric label="Gross MTM estimate" value={currentLtp != null && entryPrice > 0 && lotSize > 0 ? fmtINR(unrealizedPnl, { showSign: true }) : '—'}
+             detail={currentLtp != null && lotSize > 0 && slDistance > 0 ? `${realizedRR}R` : undefined} tone={isProfit ? k.green : k.red} />
+           <span style={{ color: k.dim, fontSize: 10 }}>Plan quantity; confirmed holdings appear in Positions.</span>
+         </MetricCard>
+         <MetricCard title="Protection" summary="Planned levels">
+-          <Metric label="Stop (SL)" value={defaultSl != null || isCustomized ? `₹${fmtTick(slPrice)}` : '—'}
+-            detail={defaultSl != null || isCustomized ? `-${fmtTick(slDistance)} pts · ${lotSize > 0 ? fmtINR(-maxRiskAmount) : '—'}` : 'No strategy stop supplied'} tone={k.red} />
++          <Metric label="Stop (SL)" value={slPrice > 0 ? `₹${fmtTick(slPrice)}` : '—'}
++            detail={slPrice > 0 ? `-${fmtTick(slDistance)} pts · ${lotSize > 0 ? fmtINR(-maxRiskAmount) : '—'}` : 'No strategy stop supplied'} tone={k.red} />
+           {hideTsl && <Metric label="Premium at risk" value={lotSize > 0 ? fmtINR(-premiumOutlay) : '—'} tone={k.red} />}
+-          {!hideTsl && <Metric label="Trail (TSL)" value={defaultTsl != null || isCustomized ? `₹${fmtTick(tslPrice)}` : '—'}
+-            detail={defaultTsl != null || isCustomized ? `${isRiskFree ? 'Profit locked' : 'Downside'} · ${lotSize > 0 ? fmtINR(tslPnl, { showSign: true }) : '—'}` : 'No strategy trail supplied'} tone={isRiskFree ? k.green : k.orange} />}
++          {!hideTsl && <Metric label="Trail (TSL)" value={tslPrice > 0 ? `₹${fmtTick(tslPrice)}` : '—'}
++            detail={tslPrice > 0 ? `${isRiskFree ? 'Profit locked' : 'Downside'} · ${lotSize > 0 ? fmtINR(tslPnl, { showSign: true }) : '—'}` : 'No strategy trail supplied'} tone={isRiskFree ? k.green : k.orange} />}
+           <span style={{ color: k.dim, fontSize: 10 }}>Stop outcomes exclude slippage and charges; verify broker protection.</span>
+         </MetricCard>
+         <MetricCard title="Exit plan">
+-          <Metric label="Target / reward" value={targetPrice > entryPrice ? `₹${fmtTick(targetPrice)}` : '—'}
+-            detail={targetPrice > entryPrice ? `${lotSize > 0 ? fmtINR(targetReward, { showSign: true }) : '—'} · ${riskRewardRatio}R` : 'No fixed target supplied'} tone={k.purple} />
++          <Metric label="Target / reward" value={entryPrice > 0 && targetPrice > entryPrice ? `₹${fmtTick(targetPrice)}` : '—'}
++            detail={entryPrice > 0 && targetPrice > entryPrice ? `${lotSize > 0 ? fmtINR(targetReward, { showSign: true }) : '—'} · ${riskRewardRatio === '—' ? 'R unavailable' : riskRewardRatio + 'R'}` : 'No fixed target supplied'} tone={k.purple} />
+           <Metric label="Estimated charges" value={lotSize > 0 ? `~${fmtINR(estFrictionINR)}` : '—'} detail="Sizing allowance; actual fees vary" />
+           <Metric label="Exit status" value={exitState || '—'} tone={exitState?.includes('red') ? k.orange : k.text} />
+         </MetricCard>
+diff --git a/frontend/src/components/kite/EnginePositionsPane.tsx b/frontend/src/components/kite/EnginePositionsPane.tsx
+index 1c9f57d0..150885aa 100644
+--- a/frontend/src/components/kite/EnginePositionsPane.tsx
++++ b/frontend/src/components/kite/EnginePositionsPane.tsx
+@@ -48,8 +48,8 @@ function ExitRuleBadge({ exitMode }: { exitMode?: string }) {
+   const map: Record<string, { label: string; color: string; bg: string }> = {
+     one_red: { label: '1R', color: '#b91c1c', bg: '#fee2e2' },
+     two_red: { label: '2R', color: '#c2410c', bg: '#ffedd5' },
+-    three_red: { label: '3R', color: '#854d0e', bg: '#fef9c3' },
+-    three_red_signal: { label: '3R+Sig', color: '#166534', bg: '#dcfce7' },
++    three_red: { label: '3 red', color: '#854d0e', bg: '#fef9c3' },
++    three_red_signal: { label: '3 red + signal', color: '#166534', bg: '#dcfce7' },
+   };
+   const m = map[exitMode] || { label: exitMode, color: 'var(--k-ink-slate-2)', bg: 'var(--k-surface-slate)' };
+   return (
+diff --git a/frontend/src/components/kite/KiteDashboard.tsx b/frontend/src/components/kite/KiteDashboard.tsx
+index 6d59e85c..4f921888 100644
+--- a/frontend/src/components/kite/KiteDashboard.tsx
++++ b/frontend/src/components/kite/KiteDashboard.tsx
+@@ -186,15 +186,15 @@ function IpoCalendar({ ipos, corporateActions }: { ipos: any[]; corporateActions
+   const rows = [...ipos, ...corporateActions].slice(0, 9);
+   return (
+     <section className="kd-calendar">
+-      <div className="kd-calendar-tabs"><button className="active">Upcoming IPOs</button><button>Economic Calendar</button><button>Earnings Calendar</button></div>
++      <div className="kd-calendar-tabs"><button className="active">Upcoming IPOs</button><button disabled title="Feed unavailable">Economic Calendar</button><button disabled title="Feed unavailable">Earnings Calendar</button></div>
+       <div className="kd-calendar-body">
+-        <small>LIVE IPOS</small>
++        <small>IPO / CORPORATE ACTION FEED</small>
+         {rows.length ? rows.map((row, index) => (
+           <div className="kd-calendar-row" key={`${row.symbol || row.name || 'event'}-${index}`}>
+             <span>{row.name || row.symbol || row.company || row.tradingsymbol || 'Market event'}</span>
+             <small>{row.dates || row.date || row.endsAt || row.ends_on || row.end_date || 'To be announced'}</small>
+           </div>
+-        )) : <div className="kd-empty-mini">No upcoming issues or corporate actions.</div>}
++        )) : <div className="kd-empty-mini">Verified calendar feed unavailable. Check exchange announcements.</div>}
+       </div>
+     </section>
+   );
+diff --git a/frontend/src/components/kite/KiteFooterStatus.tsx b/frontend/src/components/kite/KiteFooterStatus.tsx
+index 32fc4b02..d0293bb6 100644
+--- a/frontend/src/components/kite/KiteFooterStatus.tsx
++++ b/frontend/src/components/kite/KiteFooterStatus.tsx
+@@ -29,8 +29,8 @@ function LiveStateChip() {
+ 
+   const engaged = safeModeEngaged(status);
+   let tone: Tone = 'good';
+-  let text = 'LIVE';
+-  let hint = 'Live trading. New entries allowed.';
++  let text = 'LIVE ACCOUNT';
++  let hint = 'Live account mode. Each entry still requires session, strategy, signal and risk admission.';
+   if (engaged === true) {
+     tone = 'bad';
+     text = 'SAFE MODE';
+@@ -47,6 +47,10 @@ function LiveStateChip() {
+     tone = 'warn';
+     text = 'LIVE ?';
+     hint = 'Safe-mode state could not be read.';
++  } else if (status.exposure.fresh !== true || status.exposure.observed !== true) {
++    tone = 'warn';
++    text = 'EXPOSURE ?';
++    hint = 'Broker exposure is stale or unverified. New entry readiness is unconfirmed.';
+   }
+   const t = TONES[tone];
+ 
+@@ -60,7 +64,7 @@ function LiveStateChip() {
+       style={{
+         display: 'inline-flex', alignItems: 'center', gap: 5, height: 22, padding: '0 8px',
+         border: `1px solid ${t.border}`, borderRadius: 6, background: t.bg, color: t.fg,
+-        fontFamily: 'inherit', fontSize: 9.5, fontWeight: 850, letterSpacing: '.04em',
++        fontFamily: 'inherit', fontSize: 11, fontWeight: 850, letterSpacing: '.04em',
+         cursor: 'pointer', whiteSpace: 'nowrap',
+       }}
+     >
+@@ -107,7 +111,7 @@ export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void
+           boxShadow: connected ? '0 0 10px rgba(34, 197, 94, 0.22)' : 'none',
+           color: brokerTone,
+           fontFamily: 'inherit',
+-          fontSize: 9.5,
++          fontSize: 11,
+           fontWeight: 850,
+           letterSpacing: '.04em',
+           cursor: 'pointer',
+diff --git a/frontend/src/components/kite/KiteLayout.tsx b/frontend/src/components/kite/KiteLayout.tsx
+index c5c4f7df..d8f1f3cc 100644
+--- a/frontend/src/components/kite/KiteLayout.tsx
++++ b/frontend/src/components/kite/KiteLayout.tsx
+@@ -372,6 +372,8 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
+       orderPreviousPane.current = null;
+     };
+     const onChartOpen = () => {
++      setLayout(current => current.minimized.includes('dashboard') ? restorePane(current, 'dashboard') : current);
++      setFocus(current => current?.pane !== 'dashboard' ? null : current);
+       if (detailPreviousPane.current === null) detailPreviousPane.current = mobilePaneRef.current;
+       setMobilePane('dashboard');
+       setInstrumentSearchOpen(false);
+@@ -967,14 +969,14 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
+                 )}
+               </div>
+             )}
+-            {liveCount > 0 && <><span title={`${liveCount} signal${liveCount === 1 ? '' : 's'} currently running`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} live</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
++            {liveCount > 0 && <><span title={`${liveCount} active setup${liveCount === 1 ? '' : 's'}; confirmed holdings appear in Positions`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} setups</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
+             <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} aria-hidden="true" />
+             <span className={scanning ? 'kl-scan-text' : undefined}
+               title={!scanning ? [
+                 activity?.last_scan_ms ? `Last scan ${fmtAgo(activity.last_scan_ms)}` : '',
+                 marketClosed ? 'Market closed' : autoScan && activity?.next_scan_ms ? `Next due ${fmtNext(activity.next_scan_ms)}` : '',
+               ].filter(Boolean).join(' · ') : undefined}
+-              style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
++              style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'AUTO SCAN' : 'MANUAL SCAN'}</span>
+             {/* The item second, and only where the engine publishes one. `capitalize`
+                 had to come off the span above: it was title-casing a contract, so
+                 "TCS OCT 2300 PE" arrived as "Tcs Oct 2300 Pe". */}
+diff --git a/frontend/src/components/kite/KiteTab.tsx b/frontend/src/components/kite/KiteTab.tsx
+index 8f4a78ad..90acaf55 100644
+--- a/frontend/src/components/kite/KiteTab.tsx
++++ b/frontend/src/components/kite/KiteTab.tsx
+@@ -151,6 +151,7 @@ export function KiteTab() {
+       }
+     }
+     closeChartView();
++    window.dispatchEvent(new CustomEvent('kite-focus-main-pane'));
+     setNav(n);
+     setSetupView(null);
+     setDetailView(null);
+diff --git a/frontend/src/components/kite/LiveOperationsPanel.tsx b/frontend/src/components/kite/LiveOperationsPanel.tsx
+index 867e8580..b207a515 100644
+--- a/frontend/src/components/kite/LiveOperationsPanel.tsx
++++ b/frontend/src/components/kite/LiveOperationsPanel.tsx
+@@ -11,7 +11,8 @@
+  * green is shown. Cached data is demoted to a muted "last known" line, never
+  * presented as current state.
+  */
+-import { useQueryClient } from '@tanstack/react-query';
++import { useQuery, useQueryClient } from '@tanstack/react-query';
++import { api } from '../../utils/api';
+ import {
+   LIVE_OPERATIONS_KEY,
+   dataAgeSeconds,
+@@ -30,6 +31,11 @@ import { EmaTrendOperations } from './board/EmaTrendOperations';
+ import { useSimNowMs } from '../../hooks/useReplayStore';
+ 
+ export function LiveOperationsPanel() {
++  const identity = useQuery<{ compatible: boolean; blockers: string[]; checkout_sha_at_start?: string; source_sha256_at_start?: string }>({
++    queryKey: ['runtime-identity'],
++    queryFn: () => api.get('/api/v1/ops/runtime-identity?frontend_sha=' + encodeURIComponent(import.meta.env.VITE_BUILD_SHA || 'UNKNOWN') + '&frontend_contract=' + encodeURIComponent(import.meta.env.VITE_API_CONTRACT || 'UNKNOWN')),
++    refetchInterval: 60000,
++  });
+   const sim = useIsSimulation();
+   const historical = useSimNowMs() !== null;
+   const query = useLiveOperations();
+@@ -48,6 +54,11 @@ export function LiveOperationsPanel() {
+ 
+   return (
+     <div data-testid="live-operations" style={{ padding: 10, minWidth: 0 }}>
++      <div role={identity.data?.compatible ? 'status' : 'alert'} style={{ padding: 8, fontSize: 12 }}>
++        Release compatibility: {identity.isError ? 'UNKNOWN — backend identity unavailable' : !identity.data ? 'checking' : identity.data.compatible ? 'matched' : identity.data.blockers?.join(', ') || 'UNKNOWN — incomplete identity response'}
++        <div>Backend startup: {identity.data?.checkout_sha_at_start || 'unknown'} · Frontend: {import.meta.env.VITE_BUILD_SHA || 'unknown'}</div>
++        <div>Backend source fingerprint: {identity.data?.source_sha256_at_start || 'unknown'}</div>
++      </div>
+       <ModeBanner mode={payload?.production_mode ?? 'UNKNOWN'} unreachable={unreachable} />
+ 
+       {unreachable && (
+diff --git a/frontend/src/components/kite/OrderWindow.tsx b/frontend/src/components/kite/OrderWindow.tsx
+index 1ea1670a..4e916cdc 100644
+--- a/frontend/src/components/kite/OrderWindow.tsx
++++ b/frontend/src/components/kite/OrderWindow.tsx
+@@ -32,14 +32,16 @@ import {
+ export function explainOrderOutcome(raw: string): { title: string; detail: string; tone: 'info' | 'error' } {
+   const m = String(raw || '').trim();
+   const l = m.toLowerCase();
++  if (/uncertain|unknown.*outcome|reconciliation required/.test(l))
++    return { title: 'Order outcome unknown', detail: `Check Orders and reconciliation before submitting again. Reply: ${m}`, tone: 'info' };
+   if (/insufficient|margin|funds|capital_unavailable|capital/.test(l))
+     return { title: 'Not bought: not enough funds', detail: `Zerodha or Sterling checked the account and the funds do not cover this order. Reply: ${m}`, tone: 'info' };
+   if (/\bip\b|whitelist|static ip|ip address|egress/.test(l))
+     return { title: 'Zerodha refused: IP not registered', detail: `This server's IP is not registered for API orders on your Zerodha account. Reply: ${m}`, tone: 'info' };
++  if (/market is closed|market_session_closed|after market|amo|stale_or_closed_manual_signal/.test(l))
++    return { title: 'Entry not authorized for this session', detail: `Wait for an open session and review a fresh strategy plan. Reply: ${m}`, tone: 'info' };
+   if (/token|session|log ?in|access_token|api_key/.test(l))
+     return { title: 'Kite session expired', detail: `Log in to Kite again, then place the order. Reply: ${m}`, tone: 'info' };
+-  if (/market is closed|after market|amo/.test(l))
+-    return { title: 'Market closed', detail: `Place it as an After Market Order, or wait for the open. Reply: ${m}`, tone: 'info' };
+   if (/daily.?loss|halt|kill switch|safe mode|admission|blocked|refus/.test(l))
+     return { title: 'Stopped by a safety check', detail: m, tone: 'info' };
+   return { title: 'Order failed', detail: m || 'No reply from the broker.', tone: 'error' };
+@@ -85,6 +87,7 @@ export function OrderWindow({ options, onClose }: Props) {
+     symbol: options.symbol, exchange: options.exchange,
+     lotSize: options.lotSize, lastPrice: options.lastPrice || 0,
+   });
++  const engineOwnedProtection = ['NFO', 'BFO'].includes(instr.exchange) && /(?:CE|PE)$/.test(instr.symbol);
+   const lot = effectiveLot(instr.lotSize);
+   const carryProduct = defaultProduct(instr.exchange);
+ 
+@@ -281,7 +284,7 @@ export function OrderWindow({ options, onClose }: Props) {
+         // order actually fills (see PendingGttProtectionWatcher), not fired
+         // on mere submission-acceptance.
+         // Carry + Astro MIS lots attach a protective GTT once the order fills.
+-        if ((product !== 'MIS' || options.tag === 'ASTRO') && (slOn || tgtOn)) {
++        if (!engineOwnedProtection && res?.protection_owner !== 'engine' && (product !== 'MIS' || options.tag === 'ASTRO') && (slOn || tgtOn)) {
+           const base = needsPrice(orderType) ? price : instr.lastPrice;
+           const gtt = buildProtectionGtt({
+             tradingsymbol: instr.symbol, exchange: instr.exchange, entrySide: side, quantity: qty,
+@@ -310,8 +313,9 @@ export function OrderWindow({ options, onClose }: Props) {
+         ? `This plan's stop (${planStop.toFixed(2)}) is at or above the price (${entryPx.toFixed(2)}), so it would sell at once. Skip this leg.`
+         : null)
+     : null;
+-  const buyDisabled = placing || !!nudge?.blocked || (amoConfirmNeeded && !amoConfirmed) || !!planBlock;
+-  const buyHint = planBlock
++  const amoPolicyBlocked = engineOwnedProtection && side === 'BUY' && amoConfirmNeeded;
++  const buyDisabled = amoPolicyBlocked || placing || !!nudge?.blocked || (amoConfirmNeeded && !amoConfirmed) || !!planBlock;
++  const buyHint = (amoPolicyBlocked ? 'Strategy AMO is unavailable. Review a fresh plan during an open session.' : null) || planBlock
+     || (amoConfirmNeeded && !amoConfirmed ? 'Tick "After Market Order" above to place it for the next session.' : '');
+ 
+   const addToBasket = useKiteBasketStore((s) => s.add);
+@@ -414,7 +418,7 @@ export function OrderWindow({ options, onClose }: Props) {
+                 </div>
+ 
+                 {/* Protective GTT — carry always; Astro MIS lots too */}
+-                {(product !== 'MIS' || options.tag === 'ASTRO') && (
++                {!engineOwnedProtection && (product !== 'MIS' || options.tag === 'ASTRO') && (
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, borderTop: `1px solid ${k.border}`, paddingTop: 12, fontSize: 12 }}>
+                     <GttIcon />
+                     <PctToggle accent={accent} label="Stoploss" on={slOn} setOn={setSlOn} pct={slPct} setPct={setSlPct} defaultPct={-5} />
+@@ -489,7 +493,7 @@ export function OrderWindow({ options, onClose }: Props) {
+                 )}
+ 
+                 {/* Protective GTT — carry always; Astro MIS lots too */}
+-                {(product !== 'MIS' || options.tag === 'ASTRO') && (
++                {!engineOwnedProtection && (product !== 'MIS' || options.tag === 'ASTRO') && (
+                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, borderTop: `1px solid ${k.border}`, paddingTop: 14 }}>
+                     <GttIcon />
+                     <PctToggle accent={accent} label="Stoploss" on={slOn} setOn={setSlOn} pct={slPct} setPct={setSlPct} defaultPct={-5} />
+@@ -511,7 +515,8 @@ export function OrderWindow({ options, onClose }: Props) {
+               </div>); })()}
+             {!error && buyHint && <div style={{ padding: '6px 16px', color: k.dim, fontSize: 11.5 }}>{buyHint}</div>}
+ 
+-            {amoConfirmNeeded && (
++            {engineOwnedProtection && <p role="status" style={{ padding: '0 16px', fontSize: 12 }}>The engine owns protection from the admitted server plan; ticket percentages do not change it. {amoPolicyBlocked ? 'Strategy AMO entries are unavailable; review a fresh plan during an open session.' : ''}</p>}
++            {amoConfirmNeeded && !amoPolicyBlocked && (
+               <div style={{ padding: '8px 16px', background: tint(k.amber, 12), color: 'var(--k-warn-ink)', fontSize: 12 }}>
+                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                   <input type="checkbox" checked={amoConfirmed} onChange={(e) => setAmoConfirmed(e.target.checked)} style={{ accentColor: k.amber, width: 14, height: 14, flexShrink: 0 }} />
+diff --git a/frontend/src/components/kite/PendingGttProtectionWatcher.tsx b/frontend/src/components/kite/PendingGttProtectionWatcher.tsx
+index 9ab12f9f..da70dd0b 100644
+--- a/frontend/src/components/kite/PendingGttProtectionWatcher.tsx
++++ b/frontend/src/components/kite/PendingGttProtectionWatcher.tsx
+@@ -26,6 +26,14 @@ export function PendingGttProtectionWatcher() {
+   useEffect(() => {
+     if (!orders || pending.length === 0) return;
+     for (const entry of pending) {
++      if (['NFO', 'BFO'].includes(entry.gtt.exchange)) {
++        // Legacy option tickets must not create a second stop alongside the
++        // canonical engine. Quarantine the old request and surface ownership.
++        remove(entry.orderId);
++        notifyOrder({ kind: 'info', title: 'Engine protection owns this option',
++          message: `Legacy browser GTT request for ${entry.orderId} removed. Verify engine protection in Positions.` });
++        continue;
++      }
+       if (firing.current.has(entry.orderId)) continue;
+       const order = orders.find((o: any) => o.order_id === entry.orderId);
+       if (!order) continue;
+diff --git a/frontend/src/components/kite/PriceRulesPanel.tsx b/frontend/src/components/kite/PriceRulesPanel.tsx
+index ee3fedfc..86d68ee2 100644
+--- a/frontend/src/components/kite/PriceRulesPanel.tsx
++++ b/frontend/src/components/kite/PriceRulesPanel.tsx
+@@ -59,12 +59,7 @@ export function PriceRulesPanel() {
+       if (simulation || busy || query.isError || e.repeat || e.ctrlKey || e.altKey || e.metaKey || element?.isContentEditable ||
+           ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(element?.tagName)) return;
+       if (['1', '2', '3'].includes(e.key)) setLots(Number(e.key));
+-      if (e.key === 'Escape') {
+-        e.preventDefault();
+-        const open = query.data?.rules.filter(r => r.filled > Object.values(r.exits).reduce((n, o) => n + o.filled, 0)) || [];
+-        // Requests remain bounded and serialized by the backend, including keyboard exits.
+-        void (async () => { for (const r of open) { try { await exit.mutateAsync({ id: r.id, size: 100 }); } catch { break; } } })();
+-      }
++
+     };
+     window.addEventListener('keydown', handler);
+     return () => window.removeEventListener('keydown', handler);
+@@ -105,7 +100,7 @@ export function PriceRulesPanel() {
+       <button disabled={busy || !symbol || !ready} onClick={() => publish.mutate()}>Publish entry plan</button>
+       <label>Exit size <select value={percent} onChange={e => setPercent(Number(e.target.value))}>{[25, 50, 75, 100].map(v => <option key={v} value={v}>{v}%</option>)}</select></label>
+     </div>
+-    <p>Plans fire once. Conditions use fresh server prices. Account limits and entry brakes apply. Keys 1/2/3 select lots; Escape requests full owned exits outside input fields.</p>
++    <p>Plans fire once. Conditions use fresh server prices. Account limits and entry brakes apply. Keys 1/2/3 select lots. Use an explicit Exit action to close a position.</p>
+     <div className="responsive-table"><table><thead><tr><th>Exact contract / account</th><th>Condition / state</th><th>Requested / filled / remaining</th><th>Broker protection</th><th>Actions</th></tr></thead><tbody>
+       {query.data?.rules.map(r => { const left = r.filled - Object.values(r.exits).reduce((n, o) => n + o.filled, 0); return <tr key={r.id}>
+         <td>{formatInstrument(r.symbol)}<br />{r.account_id}</td><td>{r.comparison === 'MANUAL' ? 'Manual' : `${r.watch} ${r.comparison} ${r.level}`}<br />{r.state}{r.error && <p role="alert">{r.error}</p>}</td>
+diff --git a/frontend/src/components/kite/TradingModePanel.tsx b/frontend/src/components/kite/TradingModePanel.tsx
+index fee65540..a9a1fec5 100644
+--- a/frontend/src/components/kite/TradingModePanel.tsx
++++ b/frontend/src/components/kite/TradingModePanel.tsx
+@@ -224,7 +224,7 @@ export function TradingModePanel() {
+           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
+             <div>
+               <div style={{ fontSize: 12, fontWeight: 700, color: TEXT }}>Maximum lots per automatic entry</div>
+-              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling on automatic entries. Does not size manual orders.</div>
++              <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>Hard ceiling on automatic and manual entries. Manual quantity must fit this limit.</div>
+             </div>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+               {[1, 2, 5, 10, 25].map((l) => {
+diff --git a/frontend/src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx b/frontend/src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx
+index b028aa6c..c75ab9cd 100644
+--- a/frontend/src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx
++++ b/frontend/src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx
+@@ -171,3 +171,31 @@ it('does not invent a target for a strategy that supplies none', () => {
+   render(<AdaptiveEdgePositionCalculator symbol="NIFTY26O0925000CE" lotSize={75} defaultEntryPrice={100} defaultSl={80} />);
+   expect(screen.getByText('No fixed target supplied')).toBeInTheDocument();
+ });
++
++it('locks all strategy-owned plan inputs and follows a new server snapshot', () => {
++  const view = render(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={2}
++    defaultEntryPrice={100} defaultSl={80} allowOrder={false} />);
++  for (const input of screen.getAllByRole('spinbutton')) expect(input).toHaveAttribute('readonly');
++  view.rerender(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={3}
++    defaultEntryPrice={120} defaultSl={90} allowOrder={false} />);
++  expect(screen.getAllByRole('spinbutton')[0]).toHaveValue(3);
++  expect(screen.getAllByRole('spinbutton')[1]).toHaveValue(120);
++});
++
++it('does not substitute a quote for a missing authoritative entry', () => {
++  render(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={2}
++    currentLtp={100} allowOrder={false} />);
++  expect(screen.getAllByRole('spinbutton')[1]).toHaveValue(null);
++  expect(screen.getByText('Entry / capital').parentElement).not.toHaveTextContent('₹0.00');
++  expect(screen.getByText('Gross MTM estimate').parentElement).not.toHaveTextContent('₹');
++});
++
++it('does not copy an invented zero reward multiple when the target is missing', () => {
++  const writeText = vi.fn().mockResolvedValue(undefined);
++  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
++  render(<AdaptiveEdgePositionCalculator symbol="TESTCE" lotSize={50} defaultLots={1}
++    defaultEntryPrice={100} defaultSl={80} allowOrder={false} />);
++  fireEvent.click(screen.getByRole('button', { name: /Copy Plan/ }));
++  expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Risk/Reward: Unknown'));
++  expect(writeText.mock.calls[0][0]).not.toContain('1 : 0.00 R');
++});
+diff --git a/frontend/src/components/kite/__tests__/KiteFooterStatus.test.tsx b/frontend/src/components/kite/__tests__/KiteFooterStatus.test.tsx
+index bfad25bb..589c58db 100644
+--- a/frontend/src/components/kite/__tests__/KiteFooterStatus.test.tsx
++++ b/frontend/src/components/kite/__tests__/KiteFooterStatus.test.tsx
+@@ -98,7 +98,7 @@ function setLive(over: Record<string, unknown> = {}) {
+       safe_mode: { state: 'NORMAL', reason: null, triggers: [] },
+       live_execution: true,
+       recovery_state: 'NORMAL',
+-      exposure_observation: { fresh: true, age_s: 3 },
++      exposure_observation: { observed: true, fresh: true, age_s: 3 },
+       ...over,
+     }),
+   };
+diff --git a/frontend/src/components/kite/__tests__/KiteLayout.workspace.test.tsx b/frontend/src/components/kite/__tests__/KiteLayout.workspace.test.tsx
+index 12f2387c..ba440f27 100644
+--- a/frontend/src/components/kite/__tests__/KiteLayout.workspace.test.tsx
++++ b/frontend/src/components/kite/__tests__/KiteLayout.workspace.test.tsx
+@@ -190,7 +190,7 @@ describe('KiteLayout advanced workspace', () => {
+ 
+     const status = screen.getByLabelText('Workspace and engine status');
+     const layoutButton = within(status).getByRole('button', { name: 'Layout' });
+-    const live = within(status).getByText('27 live');
++    const live = within(status).getByText('27 setups');
+ 
+     expect(status.firstElementChild).toContainElement(layoutButton);
+     expect(layoutButton.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+@@ -369,3 +369,13 @@ it('returns to Watchlist when an order overlay closes',()=>{
+  fireEvent(window,new Event('sterling-order-window-close'));
+  expect(screen.getByRole('tab',{name:'Watchlist'})).toHaveAttribute('aria-selected','true');
+ });
++
++
++it('reveals the main page when another desktop pane is maximized', () => {
++  renderLayout(props);
++  fireEvent.click(screen.getByRole('button', { name: 'Minimize Dashboard' }));
++  fireEvent.click(screen.getByRole('button', { name: 'Maximize Signals' }));
++  act(() => window.dispatchEvent(new Event('kite-focus-main-pane')));
++  expect(screen.getByText('dashboard body')).toBeVisible();
++  expect(screen.queryByTitle('Restore Dashboard')).toBeNull();
++});
+diff --git a/frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx b/frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx
+index b67b88cc..b5ecc6d7 100644
+--- a/frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx
++++ b/frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx
+@@ -358,7 +358,7 @@ describe('LiveOperationsPanel', () => {
+     get.mockResolvedValue(payload());
+     renderPanel();
+     await waitFor(() => expect(get).toHaveBeenCalled());
+-    expect(get.mock.calls.every((call) => call[0] === '/api/v1/operations/family')).toBe(true);
++    expect(get.mock.calls.every((call) => call[0] === '/api/v1/operations/family' || call[0].startsWith('/api/v1/ops/runtime-identity?'))).toBe(true);
+   });
+ });
+ 
+diff --git a/frontend/src/components/kite/__tests__/PendingGttProtectionWatcher.test.tsx b/frontend/src/components/kite/__tests__/PendingGttProtectionWatcher.test.tsx
+index a1ad38e5..2bc13b94 100644
+--- a/frontend/src/components/kite/__tests__/PendingGttProtectionWatcher.test.tsx
++++ b/frontend/src/components/kite/__tests__/PendingGttProtectionWatcher.test.tsx
+@@ -61,3 +61,11 @@ describe('PendingGttProtectionWatcher', () => {
+     expect(pending[0].orderId).toBe('o2');
+   });
+ });
++
++it('quarantines a legacy option GTT instead of duplicating engine protection', async () => {
++  useKitePendingProtectionStore.getState().add({ orderId: 'option-1', gtt: { ...gtt(), exchange: 'NFO' } });
++  mockOrders = [{ order_id: 'option-1', status: 'COMPLETE' }];
++  render(<PendingGttProtectionWatcher />);
++  await waitFor(() => expect(useKitePendingProtectionStore.getState().pending).toHaveLength(0));
++  expect(mockGttMutate).not.toHaveBeenCalled();
++});
+diff --git a/frontend/src/components/kite/__tests__/SterlingKiteEnginePane.rescan.test.tsx b/frontend/src/components/kite/__tests__/SterlingKiteEnginePane.rescan.test.tsx
+index 168e5a4b..199c0dc3 100644
+--- a/frontend/src/components/kite/__tests__/SterlingKiteEnginePane.rescan.test.tsx
++++ b/frontend/src/components/kite/__tests__/SterlingKiteEnginePane.rescan.test.tsx
+@@ -73,7 +73,8 @@ vi.mock('../../../hooks/useNavigator', () => ({
+   useCancelNavigatorScan: () => ({ mutate: vi.fn(), isPending: false }),
+ }));
+ 
+-vi.mock('../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
++vi.mock('../../../hooks/useKite', () => ({ useKiteStatus: () => ({ data: { connected: true }, isLoading: false }),
++  useKiteQuote: () => ({ data: {} }) }));
+ 
+ // The shell reads every release engine to count its tab.
+ vi.mock('../../../hooks/useGammaMove', () => ({
+diff --git a/frontend/src/components/kite/__tests__/TradingModePanel.rescan.test.tsx b/frontend/src/components/kite/__tests__/TradingModePanel.rescan.test.tsx
+index a7ae7f1e..89a72511 100644
+--- a/frontend/src/components/kite/__tests__/TradingModePanel.rescan.test.tsx
++++ b/frontend/src/components/kite/__tests__/TradingModePanel.rescan.test.tsx
+@@ -176,7 +176,7 @@ describe('Trading Mode — which strategies a re-scan covers', () => {
+     render(<TradingModePanel />);
+ 
+     expect(screen.getByText('Maximum lots per automatic entry')).toBeInTheDocument();
+-    expect(screen.getByText(/Does not size manual orders/i)).toBeInTheDocument();
++    expect(screen.getByText(/Manual quantity must fit this limit/i)).toBeInTheDocument();
+   });
+ 
+   it('shows the spread gate as Off when the backend value is null', () => {
+diff --git a/frontend/src/components/kite/__tests__/engineTabVisibility.test.tsx b/frontend/src/components/kite/__tests__/engineTabVisibility.test.tsx
+index ccebd885..7529bb79 100644
+--- a/frontend/src/components/kite/__tests__/engineTabVisibility.test.tsx
++++ b/frontend/src/components/kite/__tests__/engineTabVisibility.test.tsx
+@@ -45,7 +45,8 @@ vi.mock('../../../hooks/useSterlingKiteEngine', () => ({
+   useCancelScan: () => ({ mutate: vi.fn(), isPending: false }),
+   useStockRegistry: () => ({ data: [] }),
+ }));
+-vi.mock('../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
++vi.mock('../../../hooks/useKite', () => ({ useKiteStatus: () => ({ data: { connected: true }, isLoading: false }),
++  useKiteQuote: () => ({ data: {} }) }));
+ vi.mock('../../../hooks/useGammaMove', () => ({
+   useGammaMoveSnapshot: () => ({ data: null }),
+   useGammaMoveConfig: () => ({ data: { config: { enabled: gmEnabled } } }),
+diff --git a/frontend/src/components/kite/__tests__/traderQa20261022.test.tsx b/frontend/src/components/kite/__tests__/traderQa20261022.test.tsx
+new file mode 100644
+index 00000000..e590fa93
+--- /dev/null
++++ b/frontend/src/components/kite/__tests__/traderQa20261022.test.tsx
+@@ -0,0 +1,36 @@
++// Regression coverage for the trader QA findings.
++import { beforeEach, expect, it, vi } from 'vitest';
++import { fireEvent, render, screen, waitFor } from '@testing-library/react';
++const state = vi.hoisted(() => ({ query: {} as any, post: vi.fn() }));
++vi.mock('../../../store/useViewStore', () => ({ useIsSimulation: () => false }));
++vi.mock('../../../hooks/useKiteOptionChain', () => ({ useKiteOptionChain: () => ({ data: { chain: {}, expiries: [] } }) }));
++vi.mock('../../../utils/api', () => ({ api: { post: state.post } }));
++vi.mock('@tanstack/react-query', () => ({
++  useQuery: () => state.query,
++  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
++  useMutation: ({ mutationFn }: any) => ({ isPending: false, mutate: mutationFn, mutateAsync: mutationFn }),
++}));
++import { PriceRulesPanel } from '../PriceRulesPanel';
++import { AdaptiveEdgePositionCalculator } from '../AdaptiveEdgePositionCalculator';
++beforeEach(() => { state.post.mockReset(); state.post.mockResolvedValue({}); });
++
++it('Escape never requests a financial exit', async () => {
++  state.query = { data: { entry_allowed: false, rules: ['one', 'two'].map(id => ({
++    id, revision: 1, state: 'OPEN', account_id: 'QA', exchange: 'NFO', symbol: 'QA-CE',
++    quantity: 75, filled: 75, exits: {}, comparison: 'MANUAL', error: '',
++  })) } };
++  render(<PriceRulesPanel />);
++  fireEvent.keyDown(document.body, { key: 'Escape' });
++  expect(state.post).not.toHaveBeenCalled();
++});
++
++it('copied plans preserve an unknown stop and risk reward', () => {
++  const writeText = vi.fn().mockResolvedValue(undefined);
++  Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
++  render(<AdaptiveEdgePositionCalculator symbol="QA-CE" lotSize={75}
++    defaultEntryPrice={100} defaultExit={140} hideTsl allowOrder={false} />);
++  expect(screen.getByText('No strategy stop supplied')).toBeInTheDocument();
++  fireEvent.click(screen.getByRole('button', { name: /Copy Plan/ }));
++  expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Stop Loss: Not supplied'));
++  console.log('COPIED_PLAN_TRACE', writeText.mock.calls[0][0]);
++});
+diff --git a/frontend/src/components/kite/board/SnapbackBoard.tsx b/frontend/src/components/kite/board/SnapbackBoard.tsx
+index 3016bc37..46337678 100644
+--- a/frontend/src/components/kite/board/SnapbackBoard.tsx
++++ b/frontend/src/components/kite/board/SnapbackBoard.tsx
+@@ -174,7 +174,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
+   const enabled = data?.config?.enabled === true;
+   const manualCapability = data?.capabilities?.manual_execution;
+   const autoCapability = data?.capabilities?.auto_execution;
+-  const manualExecutable = manualCapability?.single_leg === true;
++  const manualExecutable = manualCapability?.single_leg === true && !(autoCapability?.session?.length);
+   const autoExecutable = autoCapability?.available === true;
+   const explainReason = (reason?: string | null) => reason?.replace(
+     'external_exposure_unreadable', 'Broker inventory could not be verified',
+@@ -225,7 +225,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
+             : researchOnly
+             ? <> · <strong style={{ color: k.amber }}>TEST MODE · NO REAL ORDERS</strong></>
+             : (autoCapability?.session?.length ?? 0) > 0
+-              ? <> · <strong style={{ color: k.amber }}>MARKET CLOSED</strong>{manualExecutable && !researchOnly ? <span style={{ color: k.dim }}> · you can still place an after-market order</span> : null}</>
++              ? <> · <strong style={{ color: k.amber }}>MARKET CLOSED</strong><span style={{ color: k.dim }}> · entries require an open session and a fresh plan</span></>
+             : autoExecutable
+               ? <> · <strong style={{ color: k.green }}>AUTO TRADING READY</strong></>
+               : manualExecutable
+diff --git a/frontend/src/components/kite/board/StrategyGuide.tsx b/frontend/src/components/kite/board/StrategyGuide.tsx
+index 8bc39113..99bcd8b1 100644
+--- a/frontend/src/components/kite/board/StrategyGuide.tsx
++++ b/frontend/src/components/kite/board/StrategyGuide.tsx
+@@ -8,7 +8,7 @@ import type { EngineId } from './boardTypes';
+ 
+ const WHAT: Partial<Record<EngineId | 'price_rules', string>> = {
+   supertrend: 'Buys a call when three trend lines turn up together, or a put when they turn down. Sells when the lines turn against it or the trailing stop is hit.',
+-  gamma_move: 'Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. Takes profit at +20% and +40%.',
++  gamma_move: 'Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. At +20%, moves the stop to entry without selling. At +40%, exits the remaining position.',
+   snapback: 'Finds stocks that moved too far, too fast. Buys an option that gains when the price comes back toward its average.',
+   ema_trend: 'Practice only, no real orders. Follows stocks trending above their 10- and 21-day averages.',
+   intraday: 'Same-day trades on index options. Every position is closed before the market shuts.',
+diff --git a/frontend/src/components/kite/board/__tests__/SnapbackBoard.test.tsx b/frontend/src/components/kite/board/__tests__/SnapbackBoard.test.tsx
+index 78caa63e..7833beb5 100644
+--- a/frontend/src/components/kite/board/__tests__/SnapbackBoard.test.tsx
++++ b/frontend/src/components/kite/board/__tests__/SnapbackBoard.test.tsx
+@@ -432,7 +432,7 @@ it('displays visible trading mode badges on snapback rows', () => {
+   expect(screen.getAllByText('Swing')[0]).toBeInTheDocument();
+ });
+ 
+-it('keeps manual execution and Buy action available during session pause', () => {
++it('blocks manual execution during session pause without promising AMO', () => {
+   const data = snapshot({
+     rows: [
+       row({ signal_id: 'sig-paused', trading_mode: 'swing', state: 'armed', execution_eligible: true }),
+@@ -444,8 +444,8 @@ it('keeps manual execution and Buy action available during session pause', () =>
+   snap = { data, isLoading: false, error: null };
+   renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
+   expect(screen.getByText('MARKET CLOSED')).toBeInTheDocument();
+-  expect(screen.getByText(/after-market order/)).toBeInTheDocument();
++  expect(screen.getByText(/entries require an open session and a fresh plan/)).toBeInTheDocument();
+   const buyBtn = screen.getByRole('button', { name: /Execute Snapback/i });
+-  expect(buyBtn).not.toBeDisabled();
++  expect(buyBtn).toBeDisabled();
+ });
+ 
+diff --git a/frontend/src/components/kite/config/registry.ts b/frontend/src/components/kite/config/registry.ts
+index 0119963f..89e59f0e 100644
+--- a/frontend/src/components/kite/config/registry.ts
++++ b/frontend/src/components/kite/config/registry.ts
+@@ -372,7 +372,7 @@ export const EXIT_MODE_OPTIONS: Array<{ value: ExitMode; label: string; hint: st
+   { value: 'one_red', label: '1 Red', hint: 'Exit when any 1 line turns red. Tested best.' },
+   { value: 'two_red', label: '2 Red', hint: 'Any two lines turn red.' },
+   { value: 'three_red', label: '3 Red', hint: 'All three lines turn red — a full reversal.' },
+-  { value: 'three_red_signal', label: '3R + Signal', hint: 'All three red and a fresh counter-arrow — loosest.' },
++  { value: 'three_red_signal', label: '3 red + Signal', hint: 'All three red and a fresh counter-arrow — loosest.' },
+ ];
+ 
+ export const TRAIL_OPTIONS: Array<{ value: TrailTarget; label: string; hint: string }> = [
+diff --git a/frontend/src/components/sim/SpectrumNavigation.tsx b/frontend/src/components/sim/SpectrumNavigation.tsx
+index 3ba4057b..cf9defad 100644
+--- a/frontend/src/components/sim/SpectrumNavigation.tsx
++++ b/frontend/src/components/sim/SpectrumNavigation.tsx
+@@ -31,7 +31,7 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
+       data-active-view={active === 'simulation' ? 'simulation' : 'live'}
+       className="mobile-view-toggle unified-view-toggle"
+       aria-label={`Toggle Spectrum: ${currentLabel}`}
+-      title={navigable.length > 1 ? 'Switch to next selected workspace' : currentLabel}
++      title={selected.includes('simulation') && !simulationAllowed ? 'Simulation unavailable: owner authorization required. Other selected workspaces remain available.' : navigable.length > 1 ? 'Switch to next selected workspace' : currentLabel}
+       disabled={navigable.length < 2}
+       onClick={() => navigate(navigable[(navigable.indexOf(active) + 1) % navigable.length])}>
+       {currentLabel}
+diff --git a/frontend/src/hooks/__tests__/useJournal.test.tsx b/frontend/src/hooks/__tests__/useJournal.test.tsx
+index 1636fb39..684fc28f 100644
+--- a/frontend/src/hooks/__tests__/useJournal.test.tsx
++++ b/frontend/src/hooks/__tests__/useJournal.test.tsx
+@@ -82,9 +82,9 @@ describe('journal requests', () => {
+       reasons: [{ reason: url.includes('strategy=gamma') ? 'SL' : 'TARGET', label: 'x', count: 1, pct_of_trades: 100, wins: 0, losses: 0, net_pnl: 0, avg_pnl: 0 }],
+     }));
+     const { result } = renderHook(() => useJournalStrategyExitReasons(filters({ strategy: 'snapback' })), { wrapper: wrapper() });
+-    await waitFor(() => expect(Object.keys(result.current)).toHaveLength(4));
++    await waitFor(() => expect(Object.keys(result.current)).toHaveLength(5));
+     const urls = get.mock.calls.map((c) => String(c[0]));
+-    for (const s of ['supertrend', 'snapback', 'gamma', 'ema_trend']) expect(urls.some((u) => u.includes(`strategy=${s}`))).toBe(true);
++    for (const s of ['supertrend', 'snapback', 'gamma', 'ema_trend', 'price_rules']) expect(urls.some((u) => u.includes(`strategy=${s}`))).toBe(true);
+     expect(result.current.gamma?.[0].reason).toBe('SL');
+     expect(result.current.supertrend?.[0].reason).toBe('TARGET');
+   });
+diff --git a/frontend/src/hooks/__tests__/useKiteOrderAcknowledgement.test.tsx b/frontend/src/hooks/__tests__/useKiteOrderAcknowledgement.test.tsx
+new file mode 100644
+index 00000000..247f4e2d
+--- /dev/null
++++ b/frontend/src/hooks/__tests__/useKiteOrderAcknowledgement.test.tsx
+@@ -0,0 +1,25 @@
++import React from 'react';
++import { beforeEach, expect, it, vi } from 'vitest';
++import { act, renderHook } from '@testing-library/react';
++import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
++const mocks = vi.hoisted(() => ({ post: vi.fn(), notify: vi.fn() }));
++vi.mock('../../utils/api', () => ({ api: { post: mocks.post } }));
++vi.mock('../../store/useKiteNotifications', () => ({ notifyOrder: mocks.notify }));
++import { usePlaceKiteOrder } from '../useKite';
++const wrapper = ({ children }: { children: React.ReactNode }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>;
++beforeEach(() => { mocks.post.mockReset(); mocks.notify.mockReset(); });
++it('reports canonical acknowledgement as fill pending without false protection failure', async () => {
++  mocks.post.mockResolvedValue({ order_id: 'one', execution_state: 'ACKNOWLEDGED', protected: false,
++    protection_owner: 'engine', protection: 'Engine protection will be verified after confirmed fill', variety: 'regular' });
++  const { result } = renderHook(() => usePlaceKiteOrder(), { wrapper });
++  await act(async () => { await result.current.mutateAsync({ tradingsymbol: 'TESTCE', exchange: 'NFO', transaction_type: 'BUY', quantity: 50, order_type: 'LIMIT', price: 100, product: 'NRML' }); });
++  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Entry acknowledged — fill pending' }));
++  expect(JSON.stringify(mocks.notify.mock.calls)).not.toMatch(/UNPROTECTED|No automatic exit|Protected:/);
++});
++
++it('does not mislabel an uncertain submission as a rejection', async () => {
++  mocks.post.mockRejectedValue(new Error('Entry outcome uncertain; broker reconciliation required'));
++  const { result } = renderHook(() => usePlaceKiteOrder(), { wrapper });
++  await act(async () => { await result.current.mutateAsync({ tradingsymbol: 'TESTCE', exchange: 'NFO', transaction_type: 'BUY', quantity: 50, order_type: 'LIMIT', price: 100, product: 'NRML' }).catch(() => {}); });
++  expect(mocks.notify).toHaveBeenCalledWith(expect.objectContaining({ title: 'Order outcome unknown — reconcile before retrying', kind: 'info' }));
++});
+diff --git a/frontend/src/hooks/useKite.ts b/frontend/src/hooks/useKite.ts
+index 02bb73ca..6ff0f99f 100644
+--- a/frontend/src/hooks/useKite.ts
++++ b/frontend/src/hooks/useKite.ts
+@@ -576,30 +576,24 @@ export function usePlaceKiteOrder() {
+     onSuccess: (data, body) => {
+       qc.invalidateQueries({ queryKey: ['kite-orders'] });
+       qc.invalidateQueries({ queryKey: ['kite-engine-open-positions'] });
+-      const amo = !!data?.amo;  // backend auto-converted a market-closed order to AMO
+-      // An F&O option BUY placed here is registered and armed by the engine (this is
+-      // the endpoint the signal board's Buy reaches). Whether that succeeded is the
+-      // single most important thing to say afterwards: the board renders an SL, a TSL
+-      // and a Target beside the position either way, so an entry with nothing guarding
+-      // it has to be named here rather than left looking protected.
+-      const unprotected = data?.protected === false;
++      const amo = data?.variety === 'amo' || data?.amo === true;
++      const awaitingFill = data?.execution_state === 'ACKNOWLEDGED';
++      const unprotected = data?.protected === false && !awaitingFill;
+       notifyOrder({
+-        kind: amo ? 'open' : unprotected ? 'info' : 'placed',
+-        title: amo ? 'Placed as AMO'
+-          : unprotected ? 'Order placed — UNPROTECTED' : 'Order placed',
+-        message: (amo
+-          ? `${body.transaction_type} ${body.quantity} ${body.tradingsymbol} — market closed, queued as an AMO for the next open.`
+-          : `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}.`)
+-          + (data?.protection
+-            ? ` ${unprotected ? 'No automatic exit' : 'Protected'}: ${data.protection}.`
+-            : ''),
++        kind: unprotected ? 'info' : 'open',
++        title: amo ? 'AMO acknowledged — awaiting session'
++          : awaitingFill ? 'Entry acknowledged — fill pending'
++          : unprotected ? 'Order submitted — protection unverified' : 'Order submitted',
++        message: `${body.transaction_type} ${body.quantity} ${body.tradingsymbol}.`
++          + (data?.protection ? ` ${data.protection}.` : ' Check the order book for confirmed fills.'),
+         orderId: data?.order_id,
+       });
+     },
+     onError: (err, body) => {
++      const unknown = /uncertain|unknown.*outcome|reconciliation required/i.test(err.message);
+       notifyOrder({
+-        kind: 'rejected',
+-        title: 'Order rejected',
++        kind: unknown ? 'info' : 'rejected',
++        title: unknown ? 'Order outcome unknown — reconcile before retrying' : 'Order rejected',
+         message: `${body.transaction_type} ${body.tradingsymbol} — ${err.message}`,
+       });
+     },
+diff --git a/frontend/vite.config.ts b/frontend/vite.config.ts
+index 1bf560ec..d7ae8c34 100644
+--- a/frontend/vite.config.ts
++++ b/frontend/vite.config.ts
+@@ -1,11 +1,20 @@
++import { execFileSync } from 'node:child_process';
+ import { defineConfig } from 'vite';
++import { resolveBuildSha } from './buildIdentity';
+ import react from '@vitejs/plugin-react';
+ import path from 'node:path';
+ 
+ export default defineConfig({
+   plugins: [react()],
+   // Every browser request uses the same origin; API_TARGET selects the local upstream.
+-  define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify('') },
++  define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify(''),
++    'import.meta.env.VITE_BUILD_SHA': JSON.stringify(resolveBuildSha(() => {
++      const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
++      // Archives inside another checkout must use their publisher's immutable SHA.
++      if (path.resolve(root, 'frontend') !== path.resolve(import.meta.dirname)) throw new Error('Archived frontend build');
++      return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
++    }, process.env.STERLING_BUILD_SHA)),
++    'import.meta.env.VITE_API_CONTRACT': JSON.stringify('sterling-api-v1') },
+   resolve: {
+     alias: {
+       '@': path.resolve(import.meta.dirname, 'src'),
+diff --git a/scripts/sterling_stack.py b/scripts/sterling_stack.py
+index a31f46d4..299052e2 100644
+--- a/scripts/sterling_stack.py
++++ b/scripts/sterling_stack.py
+@@ -647,7 +647,7 @@ class CommittedFrontend:
+             with (STATE/'release-build.log').open('a') as log:
+                 subprocess.run(['npm','run','build'],
+                                cwd=self.frontend,
+-                               env={**clean_env(),'VITE_API_BASE_URL':''},
++                               env={**clean_env(),'VITE_API_BASE_URL':'','STERLING_BUILD_SHA':sha},
+                                stdout=log,stderr=log,
+                                timeout=360,check=True)
+             built=self.frontend/'dist'

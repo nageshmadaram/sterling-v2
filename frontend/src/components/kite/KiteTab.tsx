@@ -151,6 +151,7 @@ export function KiteTab() {
       }
     }
     closeChartView();
+    window.dispatchEvent(new CustomEvent('kite-focus-main-pane'));
     setNav(n);
     setSetupView(null);
     setDetailView(null);

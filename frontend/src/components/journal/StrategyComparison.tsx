@@ -79,7 +79,7 @@ export function StrategyComparison({ filters }: { filters: JournalFilters }) {
   const exits = useJournalStrategyExitReasons(filters);
   const rows = q.data ? orderedStrategies(q.data.strategies) : [];
   return (
-    <Section id="strategies" title="Which strategy is earning?" subtitle="Supertrend, Snapback and Gamma Unwind side by side for the same period.">
+    <Section id="strategies" title="Which strategy is earning?" subtitle="Supertrend, Snapback, Gamma Unwind, EMA Trend and Price Rules side by side for the same period.">
       {q.isLoading && <Loading what="the comparison" />}
       {q.isError && !q.data && <ErrorBlock what="the strategy comparison" error={q.error} onRetry={() => q.refetch()} />}
       {q.data && (

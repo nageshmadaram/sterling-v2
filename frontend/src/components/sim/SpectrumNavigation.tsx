@@ -31,7 +31,7 @@ export function SpectrumNavigation({ workspace, onSelect }: SpectrumNavigationPr
       data-active-view={active === 'simulation' ? 'simulation' : 'live'}
       className="mobile-view-toggle unified-view-toggle"
       aria-label={`Toggle Spectrum: ${currentLabel}`}
-      title={navigable.length > 1 ? 'Switch to next selected workspace' : currentLabel}
+      title={selected.includes('simulation') && !simulationAllowed ? 'Simulation unavailable: owner authorization required. Other selected workspaces remain available.' : navigable.length > 1 ? 'Switch to next selected workspace' : currentLabel}
       disabled={navigable.length < 2}
       onClick={() => navigate(navigable[(navigable.indexOf(active) + 1) % navigable.length])}>
       {currentLabel}

@@ -1,0 +1,26 @@
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+Error: Not implemented: window.confirm
+    at module.exports (/home/nageshmadaram/Sterling/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /home/nageshmadaram/Sterling/frontend/node_modules/jsdom/lib/jsdom/browser/Window.js:962:7
+    at select (/home/nageshmadaram/Sterling/frontend/src/components/kite/ConnectPane.tsx:1136:19)
+    at onClick (/home/nageshmadaram/Sterling/frontend/src/components/kite/ConnectPane.tsx:1240:99)
+    at executeDispatch (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+The glob option "as" has been deprecated in favour of "query". Please update `as: 'raw'` to `query: '?raw', import: 'default'`.
+The glob option "as" has been deprecated in favour of "query". Please update `as: 'raw'` to `query: '?raw', import: 'default'`.
+
+ Test Files  241 passed (241)
+      Tests  2256 passed (2256)
+   Start at  02:20:29
+   Duration  192.86s (environment 43%, tests 39%, import 9%, setup 5%, transform 3%, worker 1%)
+
+Environment  jsdom was created 241 times · 146.52s total, 43% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+

@@ -192,7 +192,7 @@ def test_an_empty_journal_answers_with_zeros_not_errors(api):
     assert c.get("/api/v1/journal/trades").json()["total"] == 0
     s = c.get("/api/v1/journal/summary").json()["summary"]
     assert s["trades"] == 0 and s["net_pnl"] == 0.0 and s["win_rate_pct"] is None
-    assert [g["trades"] for g in c.get("/api/v1/journal/by-strategy").json()["strategies"]] == [0, 0, 0]
+    assert [g["trades"] for g in c.get("/api/v1/journal/by-strategy").json()["strategies"]] == [0, 0, 0, 0, 0]
     assert c.get("/api/v1/journal/exit-reasons").json()["reasons"] == []
     assert c.get("/api/v1/journal/equity").json()["by_trade"] == []
     assert c.get("/api/v1/journal/calendar").json()["days"] == []

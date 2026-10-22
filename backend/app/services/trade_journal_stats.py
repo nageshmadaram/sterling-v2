@@ -24,7 +24,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from app.services.trade_journal_narrative import EXIT_REASON_LABELS, STRATEGY_LABELS
 
-KNOWN_STRATEGIES = ("supertrend", "snapback", "gamma")
+KNOWN_STRATEGIES = ("supertrend", "snapback", "gamma", "ema_trend", "price_rules")
 
 
 def _f(value: object) -> Optional[float]:
@@ -188,7 +188,7 @@ def _headline(label: str, s: Dict[str, Any], drag: Optional[Dict[str, Any]]) -> 
 
 def by_strategy(rows: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """One comparison row per strategy: its summary, a plain-English headline, and the exit
-    reason that costs it the most. The three known strategies always appear."""
+    reason that costs it the most. All registered journal strategies always appear."""
     rows = list(rows)
     buckets: Dict[str, List[Dict[str, Any]]] = {s: [] for s in KNOWN_STRATEGIES}
     for r in rows:

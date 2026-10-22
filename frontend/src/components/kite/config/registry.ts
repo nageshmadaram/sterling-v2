@@ -372,7 +372,7 @@ export const EXIT_MODE_OPTIONS: Array<{ value: ExitMode; label: string; hint: st
   { value: 'one_red', label: '1 Red', hint: 'Exit when any 1 line turns red. Tested best.' },
   { value: 'two_red', label: '2 Red', hint: 'Any two lines turn red.' },
   { value: 'three_red', label: '3 Red', hint: 'All three lines turn red — a full reversal.' },
-  { value: 'three_red_signal', label: '3R + Signal', hint: 'All three red and a fresh counter-arrow — loosest.' },
+  { value: 'three_red_signal', label: '3 red + Signal', hint: 'All three red and a fresh counter-arrow — loosest.' },
 ];
 
 export const TRAIL_OPTIONS: Array<{ value: TrailTarget; label: string; hint: string }> = [

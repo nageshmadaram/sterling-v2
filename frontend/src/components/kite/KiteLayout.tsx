@@ -372,6 +372,8 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
       orderPreviousPane.current = null;
     };
     const onChartOpen = () => {
+      setLayout(current => current.minimized.includes('dashboard') ? restorePane(current, 'dashboard') : current);
+      setFocus(current => current?.pane !== 'dashboard' ? null : current);
       if (detailPreviousPane.current === null) detailPreviousPane.current = mobilePaneRef.current;
       setMobilePane('dashboard');
       setInstrumentSearchOpen(false);
@@ -967,14 +969,14 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
                 )}
               </div>
             )}
-            {liveCount > 0 && <><span title={`${liveCount} signal${liveCount === 1 ? '' : 's'} currently running`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} live</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
+            {liveCount > 0 && <><span title={`${liveCount} active setup${liveCount === 1 ? '' : 's'}; confirmed holdings appear in Positions`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 650, color: k.green }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: k.green }} />{liveCount} setups</span><span style={{ width: 1, height: 14, background: 'var(--k-border)' }} /></>}
             <span className={scanning ? 'kl-scan-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: scanning ? k.orange : marketClosed ? 'var(--k-faint-2)' : autoScan ? k.orange : 'var(--k-faint-2)' }} aria-hidden="true" />
             <span className={scanning ? 'kl-scan-text' : undefined}
               title={!scanning ? [
                 activity?.last_scan_ms ? `Last scan ${fmtAgo(activity.last_scan_ms)}` : '',
                 marketClosed ? 'Market closed' : autoScan && activity?.next_scan_ms ? `Next due ${fmtNext(activity.next_scan_ms)}` : '',
               ].filter(Boolean).join(' · ') : undefined}
-              style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'ALGO' : 'MANUAL'}</span>
+              style={{ color: scanning ? undefined : 'var(--k-ink-5)', fontWeight: scanning ? 650 : 400 }}>{scanning ? (scanStatus.engineLabel ?? 'Scanning') : autoScan ? 'AUTO SCAN' : 'MANUAL SCAN'}</span>
             {/* The item second, and only where the engine publishes one. `capitalize`
                 had to come off the span above: it was title-casing a contract, so
                 "TCS OCT 2300 PE" arrived as "Tcs Oct 2300 Pe". */}

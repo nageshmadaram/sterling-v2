@@ -1,11 +1,20 @@
+import { execFileSync } from 'node:child_process';
 import { defineConfig } from 'vite';
+import { resolveBuildSha } from './buildIdentity';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
   // Every browser request uses the same origin; API_TARGET selects the local upstream.
-  define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify('') },
+  define: { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify(''),
+    'import.meta.env.VITE_BUILD_SHA': JSON.stringify(resolveBuildSha(() => {
+      const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+      // Archives inside another checkout must use their publisher's immutable SHA.
+      if (path.resolve(root, 'frontend') !== path.resolve(import.meta.dirname)) throw new Error('Archived frontend build');
+      return execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' });
+    }, process.env.STERLING_BUILD_SHA)),
+    'import.meta.env.VITE_API_CONTRACT': JSON.stringify('sterling-api-v1') },
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),

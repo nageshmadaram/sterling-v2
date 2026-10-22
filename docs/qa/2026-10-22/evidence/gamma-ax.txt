@@ -1,0 +1,205 @@
+Browser tab: 1, Title: "Sterling", URL: "http://127.0.0.1:5180/".
+0 AXWebArea Sterling, URL: 127.0.0.1:5180/
+	1 container
+		2 container
+			3 button Description: Sterling Home, Help: Open KITE
+				4 container Sterling
+				5 text STERLING
+			6 button Description: Toggle Spectrum: KITE, Help: Switch to next selected workspace
+			7 button Dashboard
+			8 button PCR
+			9 button Positions
+			10 pop up button (collapsed) Tools ▾, Secondary Actions: Expand
+			11 pop up button (collapsed) Description: Choose theme, Secondary Actions: Expand
+			12 button (collapsed) Description: Sterling account profile, Secondary Actions: Expand
+			13 button ⋮, Help: More options
+			14 container Description: KITE workspace, ID: sterling-kite-surface
+				15 container VS Code Activity Rail
+					16 button ⯵, Help: Search & Command Palette (Ctrl+K)
+					17 button Main Dashboard
+					18 button PCR Analytics
+					19 button Positions
+					20 button More
+					21 button Description: Customize Layout, Help: Customize Workspace Layout
+					22 button Description: Kite Account Status, Help: Zerodha Kite Account & Session
+				23 container
+					24 container Terminal pane
+						25 container Drag to reposition · double-click to maximize
+							26 image
+							27 text Terminal Left dock
+							28 button Minimize Terminal
+								29 image
+							30 checkbox Description: Half screen Terminal, Value: 0
+								31 image
+							32 checkbox Description: Maximize Terminal, Value: 0
+								33 image
+							34 checkbox Description: Full screen Terminal, Value: 0
+								35 image
+						36 container
+							37 text Diagnostics
+							38 pop up button (collapsed, settable) Description: Log source, Value: All sources, Secondary Actions: Expand
+								39 menu
+									40 (selected) All sources
+									41 Engine
+									42 Network / streams
+									43 Frontend
+									44 Backend
+							45 pop up button (collapsed, settable) Description: Log severity, Value: All levels, Secondary Actions: Expand
+								46 menu
+									47 (selected) All levels
+									48 DEBUG
+									49 INFO
+									50 WARN
+									51 ERROR
+							52 button Download capture
+							53 text Bounded capture · backend uses its configured log level
+							54 button Show older logs (1296 available)
+								55 text Show older logs (
+								56 text 1296
+								57 text  available)
+							6261 text 21:54:34 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=104.3 cid= 21:54:35 DEBUG Network: GET 200 /api/v1/price-rules/enabled (259 ms) · 81c65c03b55b4ade 21:54:35 DEBUG Network: GET 200 /api/v1/kite/quote (298 ms) · 7cd69fed1435432e 21:54:35 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=39.8 cid= 21:54:35 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (208 ms) · 6f269e4ec28542c0 21:54:35 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=35.7 cid= 21:54:35 🖧 INFO Backend · sterling.http: GET /api/v1/kite/positions status=200 duration_ms=43.5 cid= 21:54:35 DEBUG Network: GET 200 /api/v1/kite/quote (283 ms) · dc7ef8c9a78b44e3 21:54:35 DEBUG Network: GET 200 /api/v1/kite/positions (288 ms) · f5048f7b2b06432a 21:54:35 🖧 INFO Backend · sterling.http: GET /api/v1/kite/status status=200 duration_ms=2.0 cid= 21:54:36 DEBUG Network: GET 200 /api/v1/kite/status (118 ms) · bc89fd83062b4003 21:54:37 🖧 INFO Backend · sterling.http: GET /health status=200 duration_ms=0.9 cid= 21:54:38 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=49.5 cid= 21:54:38 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (79 ms) · 012dd01acf324254 21:54:38 🖧 INFO Backend · sterling.http: GET /api/v1/price-rules/enabled status=200 duration_ms=11.1 cid= 21:54:38 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=100.3 cid= 21:54:38 DEBUG Network: GET 200 /api/v1/price-rules/enabled (220 ms) · 17ba7cdef7804e51 21:54:38 DEBUG Network: GET 200 /api/v1/kite/quote (260 ms) · 6d6b43c5a09949e0 21:54:38 🖧 INFO Backend · sterling.http: GET /api/v1/kite/engine/activity status=200 duration_ms=3.6 cid= 21:54:38 DEBUG Network: GET 200 /api/v1/kite/engine/activity (104 ms) · 96ec63b7cd344fa1 21:54:39 🖧 INFO Backend · sterling.http: GET /api/v1/kite/margins status=200 duration_ms=42.5 cid= 21:54:39 DEBUG Network: GET 200 /api/v1/kite/margins (296 ms) · 196116e23d9f407f 21:54:39 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=37.1 cid= 21:54:39 DEBUG Network: GET 200 /api/v1/kite/quote (198 ms) · a0ae3959d76141e3 21:54:39 🖧 INFO Backend · sterling.http: POST /api/v1/kite/ticker/subscribe status=200 duration_ms=4.3 cid= 21:54:39 DEBUG Network: POST 200 /api/v1/kite/ticker/subscribe (165 ms) · 82e91091ce3f46b6 21:54:40 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=60.8 cid= 21:54:40 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (67 ms) · e346435cafe049ed 21:54:41 🖧 INFO Backend · sterling.http: GET /api/v1/ema-trend/snapshot status=200 duration_ms=678.9 cid= 21:54:41 DEBUG Network: GET 200 /api/v1/ema-trend/snapshot (818 ms) · 32e966b5de8a418c 21:54:41 🖧 INFO Backend · sterling.http: GET /api/v1/kite/positions status=200 duration_ms=41.2 cid= 21:54:41 DEBUG Network: GET 200 /api/v1/kite/positions (155 ms) · 6d1b5323f2f9452a 21:54:42 🖧 INFO Backend · sterling.http: GET /api/v1/price-rules/enabled status=200 duration_ms=5.2 cid= 21:54:42 DEBUG Network: GET 200 /api/v1/price-rules/enabled (885 ms) · 5d7273f6bcfc45d6 21:54:43 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=75.4 cid= 21:54:43 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (258 ms) · 5f15d35f08ea4c29 21:54:45 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=44.3 cid= 21:54:45 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (51 ms) · dc1765a975d24a90 21:54:46 🖧 INFO Backend · sterling.http: GET /api/v1/price-rules/enabled status=200 duration_ms=39.9 cid= 21:54:46 DEBUG Network: GET 200 /api/v1/price-rules/enabled (77 ms) · 62d105bb0b8d48c7 21:54:47 🖧 INFO Backend · sterling.http: GET /api/v1/kite/positions status=200 duration_ms=38.2 cid= 21:54:47 DEBUG Network: GET 200 /api/v1/kite/positions (123 ms) · f98784208ad74d5b 21:54:47 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=73.4 cid= 21:54:47 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (80 ms) · bb27e02ab542456c 21:54:48 🖧 INFO Backend · sterling.http: GET /api/v1/kite/engine/signals status=200 duration_ms=7.5 cid= 21:54:48 DEBUG Network: GET 200 /api/v1/kite/engine/signals (13 ms) · 7397ea68e96746d6 21:54:49 🖧 INFO Backend · sterling.http: GET /api/v1/sim/status status=200 duration_ms=51.1 cid= 21:54:49 DEBUG Network: GET 200 /api/v1/sim/status (135 ms) · ecf3365440d8464e 21:54:49 🖧 INFO Backend · sterling.http: GET /api/v1/kite/engine/activity status=200 duration_ms=3.6 cid= 21:54:49 DEBUG Network: GET 200 /api/v1/kite/engine/activity (131 ms) · b4ef109f5e914153 21:54:49 🖧 INFO Backend · sterling.http: GET /api/v1/price-rules/enabled status=200 duration_ms=4.3 cid= 21:54:49 🖧 INFO Backend · sterling.http: GET /api/v1/kite/holdings status=200 duration_ms=41.7 cid= 21:54:49 🖧 INFO Backend · sterling.http: GET /api/v1/ops/live-status status=200 duration_ms=46.4 cid= 21:54:49 DEBUG Network: GET 200 /api/v1/price-rules/enabled (200 ms) · da8e11869e534a08 21:54:49 DEBUG Network: GET 200 /api/v1/kite/holdings (259 ms) · ffaeaeb7ceca4da5 21:54:50 DEBUG Network: GET 200 /api/v1/ops/live-status (448 ms) · cb4b32a893d54ee5 21:54:50 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=40.6 cid= 21:54:50 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (151 ms) · 95f742decd4c4afa 21:54:52 🖧 INFO Backend · sterling.http: GET /api/v1/ema-trend/snapshot status=200 duration_ms=658.3 cid= 21:54:52 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=67.1 cid= 21:54:52 🖧 INFO Backend · sterling.http: GET /api/v1/kite/positions status=200 duration_ms=122.2 cid= 21:54:52 DEBUG Network: GET 200 /api/v1/ema-trend/snapshot (790 ms) · 0ebccf13af0949a1 21:54:52 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=193.2 cid= 21:54:52 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (197 ms) · 262998a48f1f44da 21:54:52 DEBUG Network: GET 200 /api/v1/kite/positions (417 ms) · 08592742822344a1 21:54:53 🖧 INFO Backend · sterling.http: GET /health status=200 duration_ms=1.4 cid= 21:54:53 DEBUG Network: GET 200 /api/v1/kite/quote (959 ms) · cf03370e669f4c84 21:54:53 🖧 INFO Backend · sterling.http: GET /api/v1/price-rules/enabled status=200 duration_ms=4.7 cid= 21:54:53 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=43.1 cid= 21:54:53 DEBUG Network: GET 200 /api/v1/price-rules/enabled (271 ms) · f397df5134194975 21:54:54 DEBUG Network: GET 200 /api/v1/kite/quote (936 ms) · 76a517e1b8734b6e 21:54:55 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=42.4 cid= 21:54:55 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (139 ms) · 96ca031146a045b1 21:54:56 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=132.6 cid= 21:54:56 DEBUG Network: GET 200 /api/v1/kite/quote (321 ms) · 67785da64c444b49 21:54:57 🖧 INFO Backend · sterling.http: GET /api/v1/candles/BSE:SENSEX status=200 duration_ms=121.7 cid= 21:54:57 DEBUG Network: GET 200 /api/v1/candles/BSE%3ASENSEX (146 ms) · ce2ed87b33be4020 21:54:57 🖧 INFO Backend · sterling.http: GET /api/v1/price-rules/enabled status=200 duration_ms=4.9 cid= 21:54:57 DEBUG Network: GET 200 /api/v1/price-rules/enabled (118 ms) · b10506c0864a421a 21:54:58 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=59.2 cid= 21:54:58 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (85 ms) · e311625503c645c4 21:54:58 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=99.1 cid= 21:54:58 DEBUG Network: GET 200 /api/v1/kite/quote (283 ms) · 95035639a72e42e8 21:54:58 🖧 INFO Backend · sterling.http: GET /api/v1/kite/positions status=200 duration_ms=41.9 cid= 21:54:58 DEBUG Network: GET 200 /api/v1/kite/positions (156 ms) · 107b5f684961458e 21:54:59 🖧 INFO Backend · sterling.http: GET /api/v1/candles/NSE:NIFTY 50 status=200 duration_ms=1216.5 cid= 21:54:59 DEBUG Network: GET 200 /api/v1/candles/NSE%3ANIFTY%2050 (1284 ms) · f0e75604b08743bb 21:54:59 🖧 INFO Backend · sterling.http: GET /api/v1/kite/engine/config status=200 duration_ms=2.8 cid= 21:54:59 DEBUG Network: GET 200 /api/v1/kite/engine/config (12 ms) · f49c252a3c0e4f03 21:54:59 🖧 INFO Backend · sterling.http: GET /api/v1/kite/margins status=200 duration_ms=45.7 cid= 21:54:59 DEBUG Network: GET 200 /api/v1/kite/margins (166 ms) · 59d0b870e89843fa 21:55:00 🖧 INFO Backend · sterling.http: GET /api/v1/kite/quote status=200 duration_ms=108.6 cid= 21:55:00 DEBUG Network: GET 200 /api/v1/kite/quote (222 ms) · ac5f9dc09e464ca4 21:55:00 🖧 INFO Backend · sterling.http: GET /api/v1/kite/engine/activity status=200 duration_ms=2.7 cid= 21:55:00 DEBUG Network: GET 200 /api/v1/kite/engine/activity (118 ms) · dfb120aecb5646e5 21:55:00 🖧 INFO Backend · sterling.http: GET /api/v1/config/gamma-move/snapshot status=200 duration_ms=66.6 cid= 21:55:00 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (401 ms) · 331f764eeac74928 21:55:01 DEBUG Network: GET 200 /api/v1/price-rules/enabled (159 ms) · ed92f247fce84079 21:55:02 DEBUG Network: GET 200 /api/v1/config/snapback/snapshot (840 ms) · 9a948496c73642e1 21:55:03 DEBUG Network: GET 200 /api/v1/kite/quote (1115 ms) · d53543d3b24b484c 21:55:04 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (1170 ms) · 344bdf74109d4675 21:55:05 DEBUG Network: GET 200 /api/v1/ema-trend/snapshot (1001 ms) · 9c5362cc2586478e 21:55:05 DEBUG Network: GET 200 /api/v1/kite/engine/signals (1067 ms) · ee24fe8a183f482f 21:55:05 DEBUG Network: GET 200 /api/v1/price-rules/enabled (497 ms) · 675a3179c36e4886 21:55:05 DEBUG Network: GET 200 /api/v1/sim/status (551 ms) · 82c140c766bd4e98 21:55:05 DEBUG Network: GET 200 /api/v1/kite/positions (1504 ms) · e383d0658565464f 21:55:05 DEBUG Network: GET 200 /api/v1/kite/quote (1565 ms) · 4a8eecc8a4dd4f16 21:55:05 DEBUG Network: GET 200 /api/v1/kite/holdings (64 ms) · ef825fddc6d242ac 21:55:06 DEBUG Network: GET 200 /api/v1/ops/live-status (928 ms) · 2be330d06c16468b 21:55:07 DEBUG Network: GET 200 /api/v1/kite/status (282 ms) · 41209abe9d8840f2 21:55:07 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (333 ms) · 73403bd44fc644a4 21:55:07 DEBUG Network: GET 200 /api/v1/kite/quote (376 ms) · 1d229753b97c4bf4 21:55:08 DEBUG Network: GET 200 /api/v1/kite/ipos (596 ms) · 2769b5dee8d14787 21:55:08 DEBUG Network: GET 200 /api/v1/kite/corporate-actions (645 ms) · 0781c5f56a854400 21:55:09 DEBUG Network: GET 200 /api/v1/price-rules/enabled (118 ms) · 3497da0758a44548 21:55:09 DEBUG Network: GET 200 /api/v1/kite/quote (418 ms) · 8bdd86b1e1634830 21:55:09 DEBUG Network: GET 200 /api/v1/config/gamma-move/snapshot (99 ms) · 82f085dfe99f4106 21:55:11 DEBUG Network: GET 200 /api/v1/kite/quote (132 ms) · c330a698661a49e0 21:55:11 DEBUG Network: GET 200 /api/v1/kite/engine/activity (234 ms) · a01b7b09387747b5 21:55:11 DEBUG Network: GET 200 /api/v1/kite/positions (310 ms) · 71a11a09ccb34092
+							59 container Minimize terminal
+								60 text TERMINAL 🤖 auto 🕐 last  20:16:09 ⏭️ next  due now
+								61 button Switch to dark theme
+									62 image
+								63 button (collapsed) Description: Terminal log views, Help: Engine, backend, frontend and network log views, Secondary Actions: Expand
+									64 image
+								65 checkbox Description: Toggle diagnostics, Help: Stop diagnostic capture, Value: 1
+									66 image
+								67 button Clear terminal
+									68 image
+					69 container Dashboard pane
+						70 container Drag to reposition · double-click to maximize
+							71 image
+							72 text Dashboard Main dock
+							73 button Minimize Dashboard
+								74 image
+							75 checkbox Description: Half screen Dashboard, Value: 0
+								76 image
+							77 checkbox Description: Maximize Dashboard, Value: 0
+								78 image
+							79 checkbox Description: Full screen Dashboard, Value: 0
+								80 image
+						81 container
+							82 container
+								83 button Description: Add ticker instrument, Help: Search and add an instrument
+								84 button NIFTY 50, 22,687.65, -0.54 percent
+									85 container
+										86 text NIFTY 50 22,687.65 -123.70  ( -0.54 %)
+								87 button SENSEX, 73,249.39, -0.62 percent
+									88 container
+										89 text SENSEX 73,249.39 -460.30  ( -0.62 %)
+							90 container
+								91 heading Hi, Madaram, Value: 1
+									92 text Hi,  Madaram
+								93 container Search symbols, contracts, strategies & layout commands (Ctrl+K)
+									94 text 🔍 Search symbols, contracts, strategies, commands...
+									95 text Ctrl+K
+								96 text Equity
+								97 text -6,342.1
+								98 text Margin available Margins used
+								99 text 0
+								100 text Opening balance
+								101 text -6,342.1
+								102 link Description: ↗ View statement, Value: 127.0.0.1:5180/#
+								103 text Commodity
+								104 text 0
+								105 text Margin available Margins used
+								106 text 0
+								107 text Opening balance
+								108 text 0
+								109 link Description: ↗ View statement, Value: 127.0.0.1:5180/#
+								110 text You don't have any stocks in your DEMAT yet. Get started
+								111 text with absolutely free equity investments.
+								112 button Start investing
+								113 container
+									114 text Top Gainers Nifty 500
+									115 button More
+								116 text No market movers available.
+								117 button View all →
+								118 container
+									119 text Top Losers Nifty 500
+									120 button More
+								121 text No market movers available.
+								122 button View all →
+								123 button Upcoming IPOs
+								124 button Economic Calendar
+								125 button Earnings Calendar
+								126 text LIVE IPOS Susan Electricals India
+								127 text 11th — 15th Jun
+								128 text Horizon Reclaim (India)
+								129 text 12th — 16th Jun
+								130 text Cmr Green Technologies
+								131 text 3rd — 5th Jun
+								132 text Hexagon Nutrition
+								133 text 5th — 9th Jun
+								134 text Rajnandini Fashion India
+								135 text 26th — 29th May
+								136 text Smr Jewels
+								137 text 26th May — 3rd Jun
+								138 text Aureate Tradde
+								139 text 29th May — 2nd Jun
+								140 text Merritronix
+								141 text 1st — 3rd Jun
+								142 text Vahh Chemicals
+								143 text 4th — 8th Jun
+								144 heading ⌁ Market overview, Value: 3
+									145 text ⌁ Market overview
+								146 text NIFTY 50⌄
+								147 container
+									148 container Charting by TradingView
+										149 link Description: Charting by TradingView, Value: tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=127.0.0.1/, ID: tv-attr-logo
+								150 heading ⓘ Positions (0), Value: 3
+									151 text ⓘ Positions ( 0 )
+								152 text No open positions.
+					153 container Signals pane
+						154 container Drag to reposition · double-click to maximize
+							155 image
+							156 text Signals Right dock
+							157 container kw-pane-actions-signals
+								158 button Re-scan Gamma Unwind, SuperTrend, Snapback, EMA Trend
+								159 checkbox Description: Board settings, Value: 0
+									160 image
+							161 button Minimize Signals
+								162 image
+							163 checkbox Description: Half screen Signals, Value: 0
+								164 image
+							165 checkbox Description: Maximize Signals, Value: 0
+								166 image
+							167 checkbox Description: Full screen Signals, Value: 0
+								168 image
+						169 container
+							170 tab group Signal engine
+								171 tab (selectable, settable, boolean) Description: SuperTrend, 17 live of 102 scanned, Value: 0
+								172 tab (selected, settable, boolean) Description: Gamma Unwind, 0 live of 188 scanned, Value: 1
+								173 tab (selectable, settable, boolean) Description: Snapback, 0 live of 1 scanned, Value: 0
+								174 tab (selectable, settable, boolean) Description: EMA Trend, 4 live of 1000 scanned, Value: 0
+							175 container How this strategy works
+								176 text Watches options whose sellers are leaving. Buys when the option price breaks above its recent range. Takes profit at +20% and +40%.
+								177 container
+									178 text 1  Tap a row to see the plan · 2  Press  B  to buy it yourself · 3  To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
+								179 button Hide this guide
+							6262 text Loading strategy signals…
+					6240 splitter Description: Resize left dock, Value: 100
+					6241 splitter Description: Resize right dock, Value: 100
+				6242 container
+					6243 button Description: Open basket, Help: Basket
+						6244 image
+					6245 container Minimized panes and Kite status
+						6246 button LIVE, Help: Live trading. New entries allowed.
+						6247 button KITE, Help: Connected · Madaram Nagesh · expires 06:00:00 IST
+						6248 checkbox Description: Open replay dock, Help: Open the replay dock, Value: 0
+						6249 button Watchlist, Help: Restore Watchlist
+							6250 image
+							6251 text Watchlist
+					6252 container Workspace and engine status
+						6253 button (collapsed) Layout, Help: Open workspace layouts, Secondary Actions: Expand
+							6254 image
+							6255 text Layout
+							6256 image
+						6257 container 25 signals currently running
+							6258 text 25  live
+						6259 text ALGO
+						6260 text · Market closed
+
+The focused UI element is 172 tab (selected, settable, boolean) Description: Gamma Unwind, 0 live of 188 scanned, Value: 1

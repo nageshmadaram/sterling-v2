@@ -101,6 +101,8 @@ async def lifespan(app: FastAPI):
 
 @asynccontextmanager
 async def _application_lifespan(app: FastAPI):
+    from app.core.runtime_identity import capture_startup
+    capture_startup()
     setup_logging()
     configure_json_logging()  # no-op unless settings.log_json (Phase 2 observability)
     # The SQLite store must be open BEFORE anything reads it (including production security credential inspection).

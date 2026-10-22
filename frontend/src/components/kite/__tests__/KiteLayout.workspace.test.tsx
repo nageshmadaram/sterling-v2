@@ -190,7 +190,7 @@ describe('KiteLayout advanced workspace', () => {
 
     const status = screen.getByLabelText('Workspace and engine status');
     const layoutButton = within(status).getByRole('button', { name: 'Layout' });
-    const live = within(status).getByText('27 live');
+    const live = within(status).getByText('27 setups');
 
     expect(status.firstElementChild).toContainElement(layoutButton);
     expect(layoutButton.compareDocumentPosition(live) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -368,4 +368,14 @@ it('returns to Watchlist when an order overlay closes',()=>{
  fireEvent.click(screen.getByRole('tab',{name:'Home'}));
  fireEvent(window,new Event('sterling-order-window-close'));
  expect(screen.getByRole('tab',{name:'Watchlist'})).toHaveAttribute('aria-selected','true');
+});
+
+
+it('reveals the main page when another desktop pane is maximized', () => {
+  renderLayout(props);
+  fireEvent.click(screen.getByRole('button', { name: 'Minimize Dashboard' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Maximize Signals' }));
+  act(() => window.dispatchEvent(new Event('kite-focus-main-pane')));
+  expect(screen.getByText('dashboard body')).toBeVisible();
+  expect(screen.queryByTitle('Restore Dashboard')).toBeNull();
 });

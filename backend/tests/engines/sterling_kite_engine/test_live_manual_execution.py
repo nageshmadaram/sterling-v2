@@ -36,7 +36,7 @@ def live_manual(monkeypatch):
     monkeypatch.setattr(accounts, "client_is_current", lambda *a, **kw: True)
     monkeypatch.setattr(accounts, "get_active", lambda uid: SimpleNamespace(id="account"))
     monkeypatch.setattr(accounts, "acquire_client", AsyncMock(return_value=client))
-    monkeypatch.setattr(protection, "plan_for_symbol", lambda *a: plan)
+    monkeypatch.setattr(protection, "plan_for_symbol", lambda *a, **kw: plan)
     monkeypatch.setattr(protection, "_rows_for", lambda uid: [row])
     monkeypatch.setattr(service, "entry_data_block_reason", lambda *a, **kw: "")
     monkeypatch.setattr(service, "available_fo_capital", AsyncMock(return_value=100000))
@@ -52,6 +52,9 @@ async def test_manual_entry_has_journal_and_zero_confirmed_qty(live_manual):
     assert result["status"] == "ok" and result["protected"] is False
     assert positions.get("u", "OPT").qty == 0
     intent = order_journal.find(uid="u", account_id="account", order_id="manual-1")
+    assert result["intent_key"] == intent.intent_key
+    assert result["protection_owner"] == "engine"
+    assert result["execution_state"] == "ACKNOWLEDGED"
     assert intent.capital_required == 6017.5
     assert intent.payload["mode_policy"]["mode"] == "swing"
     assert intent.payload["mode_policy"]["hard_exit_ms"] > intent.payload["mode_policy"]["entry_ms"]
@@ -111,4 +114,17 @@ async def test_manual_limit_requires_exchange_tick(live_manual):
     result = await service.place_manual_order("u", "OPT", "BUY", 50,
                                               order_type="LIMIT", limit_price=120.33)
     assert result["status"] == "blocked" and result["reason"] == "limit_price_not_on_exchange_tick"
+    client.place_order.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_manual_uses_contract_signal_time_not_merged_parent_time(live_manual, monkeypatch):
+    client, _ = live_manual
+    stale = SimpleNamespace(source="derivatives", timestamp_ms=200, direction="long",
+        legs=[SimpleNamespace(option_symbol="OPT", signal_timestamp_ms=100)])
+    monkeypatch.setattr(protection, "_rows_for", lambda uid: [stale])
+    monkeypatch.setattr(service, "entry_data_block_reason",
+                        lambda row, **kw: "stale" if row.timestamp_ms == 100 else "")
+    result = await service.place_manual_order("u", "OPT", "BUY", 50)
+    assert result["reason"] == "stale_or_closed_manual_signal"
+    assert stale.timestamp_ms == 200
     client.place_order.assert_not_awaited()

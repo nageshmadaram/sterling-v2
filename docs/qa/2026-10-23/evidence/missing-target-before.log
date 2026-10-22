@@ -1,0 +1,47 @@
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+ ❯ src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx (12 tests | 1 failed) 518ms
+   × does not copy an invented zero reward multiple when the target is missing 36ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx > does not copy an invented zero reward multiple when the target is missing
+AssertionError: expected "vi.fn()" to be called with arguments: [ StringContaining{…} ]
+
+Received:
+
+  1st vi.fn() call:
+
+  [
+-   StringContaining "Risk/Reward: Unknown",
++   "TRADE PLAN
++ Plan authority: Strategy snapshot; execution uses the server plan
++ Symbol: TESTCE (NFO)
++ Lots: 1 (50 Qty)
++ Entry: ₹100.00
++ Stop Loss: ₹80.00 (-20.00 pts)
++ TSL: Not supplied
++ Target: Not supplied
++ Risk/Reward: 1 : 0.00 R",
+  ]
+
+
+Number of calls: 1
+
+ ❯ src/components/kite/__tests__/AdaptiveEdgePositionCalculator.test.tsx:199:21
+    197|     defaultEntryPrice={100} defaultSl={80} allowOrder={false} />);
+    198|   fireEvent.click(screen.getByRole('button', { name: /Copy Plan/ }));
+    199|   expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Risk…
+       |                     ^
+    200|   expect(writeText.mock.calls[0][0]).not.toContain('1 : 0.00 R');
+    201| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 11 passed (12)
+   Start at  02:19:43
+   Duration  1.80s (environment 40%, tests 33%, transform 13%, import 9%, setup 5%, worker 1%)
+

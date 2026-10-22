@@ -48,8 +48,8 @@ function ExitRuleBadge({ exitMode }: { exitMode?: string }) {
   const map: Record<string, { label: string; color: string; bg: string }> = {
     one_red: { label: '1R', color: '#b91c1c', bg: '#fee2e2' },
     two_red: { label: '2R', color: '#c2410c', bg: '#ffedd5' },
-    three_red: { label: '3R', color: '#854d0e', bg: '#fef9c3' },
-    three_red_signal: { label: '3R+Sig', color: '#166534', bg: '#dcfce7' },
+    three_red: { label: '3 red', color: '#854d0e', bg: '#fef9c3' },
+    three_red_signal: { label: '3 red + signal', color: '#166534', bg: '#dcfce7' },
   };
   const m = map[exitMode] || { label: exitMode, color: 'var(--k-ink-slate-2)', bg: 'var(--k-surface-slate)' };
   return (

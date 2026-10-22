@@ -1,0 +1,14 @@
+{
+  "checkout_sha": "ff137155a083b2c52981545ff94400764ad6c188",
+  "sources": [
+    {
+      "path": "backend/tests/test_trader_qa_20261022.py",
+      "sha256": "75ce501fe828ebdcece8c18707112b8bd16d4a2bf95dfdb43b4474aaf21a22d8"
+    },
+    {
+      "path": "frontend/src/components/kite/__tests__/traderQa20261022.test.tsx",
+      "sha256": "6bd9de95c48275c50774ea08089dffc2c785b576611e9381dd28bdffad318dd8"
+    }
+  ],
+  "purpose": "Characterize observed defects; not release approvals"
+}

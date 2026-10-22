@@ -186,15 +186,15 @@ function IpoCalendar({ ipos, corporateActions }: { ipos: any[]; corporateActions
   const rows = [...ipos, ...corporateActions].slice(0, 9);
   return (
     <section className="kd-calendar">
-      <div className="kd-calendar-tabs"><button className="active">Upcoming IPOs</button><button>Economic Calendar</button><button>Earnings Calendar</button></div>
+      <div className="kd-calendar-tabs"><button className="active">Upcoming IPOs</button><button disabled title="Feed unavailable">Economic Calendar</button><button disabled title="Feed unavailable">Earnings Calendar</button></div>
       <div className="kd-calendar-body">
-        <small>LIVE IPOS</small>
+        <small>IPO / CORPORATE ACTION FEED</small>
         {rows.length ? rows.map((row, index) => (
           <div className="kd-calendar-row" key={`${row.symbol || row.name || 'event'}-${index}`}>
             <span>{row.name || row.symbol || row.company || row.tradingsymbol || 'Market event'}</span>
             <small>{row.dates || row.date || row.endsAt || row.ends_on || row.end_date || 'To be announced'}</small>
           </div>
-        )) : <div className="kd-empty-mini">No upcoming issues or corporate actions.</div>}
+        )) : <div className="kd-empty-mini">Verified calendar feed unavailable. Check exchange announcements.</div>}
       </div>
     </section>
   );

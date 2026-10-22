@@ -104,3 +104,17 @@ def test_watch_row_is_stamped_at_the_close_of_its_last_closed_bar():
         closed_bars=[bar(2), last], underlying_bars=[], spot=102.0,
     )
     assert scanner.watch_view(rt)["at_ms"] == last.ts_ms + 5 * 60_000
+
+@pytest.mark.parametrize('stamp', [None, '2026-10-05T15:39:00+05:30', '2026-10-05T08:59:00+05:30'])
+def test_missing_and_out_of_session_exchange_times_never_create_bars(stamp):
+    w = watch()
+    rt = scanner.RuntimeWatch(contract=w, engine=ContractEngine(w, GammaMoveConfig().validate()),
+                              closed_bars=[], underlying_bars=[], spot=102)
+    scanner._runtime['u1'] = {222: rt}
+    tick = {'instrument_token': 222, 'last_price': 102, 'oi': 900}
+    if stamp: tick['exchange_timestamp'] = stamp
+    assert scanner.process_ticks('u1', [tick]) == []
+    assert rt.forming is None and rt.last_tick_ms == 0
+    diagnostic = scanner._stats['u1']['tick_diagnostics'][-1]
+    assert diagnostic['received_at_ms'] > 0
+    assert diagnostic['reason'] == ('timestamp_missing' if stamp is None else 'outside_continuous_session')

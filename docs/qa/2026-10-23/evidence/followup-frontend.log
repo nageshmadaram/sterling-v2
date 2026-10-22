@@ -1,0 +1,12 @@
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  21 passed (21)
+   Start at  02:20:03
+   Duration  2.37s (environment 47%, tests 27%, transform 11%, import 8%, setup 6%, worker 1%)
+
+    Isolate  3 workers spawned · ~756ms startup each (spawn + environment, per file)
+             at least ~378ms faster with isolate: false — reuses workers across files instead of one per file
+

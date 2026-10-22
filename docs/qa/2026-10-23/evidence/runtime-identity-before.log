@@ -1,0 +1,46 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_gitless_identity_uses_only_verified_artifact[True] ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7b8e9bc890>
+valid = True
+
+    @pytest.mark.parametrize('valid',[True,False])
+    def test_gitless_identity_uses_only_verified_artifact(monkeypatch, valid):
+        identity=load(Path('/home/nageshmadaram/Sterling/backend/app/core/runtime_identity.py'))
+        from app.core import build_artifact_identity
+        def unavailable(*args,**kwargs):raise FileNotFoundError('git absent in image')
+        monkeypatch.setattr(identity.subprocess,'run',unavailable)
+        monkeypatch.setattr(build_artifact_identity,'artifact_identity',lambda:SimpleNamespace(
+            present=True,valid=valid,build_sha='a'*40))
+>       assert identity.checkout_sha()==('a'*40 if valid else 'UNKNOWN')
+E       AssertionError: assert 'UNKNOWN' == 'aaaaaaaaaaaa...aaaaaaaaaaaaa'
+E         
+E         - aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+E         + UNKNOWN
+
+/tmp/sterling-followup-review/test_identity_draft.py:21: AssertionError
+___________ test_gitless_identity_uses_only_verified_artifact[False] ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7b8e9bc470>
+valid = False
+
+    @pytest.mark.parametrize('valid',[True,False])
+    def test_gitless_identity_uses_only_verified_artifact(monkeypatch, valid):
+        identity=load(Path('/home/nageshmadaram/Sterling/backend/app/core/runtime_identity.py'))
+        from app.core import build_artifact_identity
+        def unavailable(*args,**kwargs):raise FileNotFoundError('git absent in image')
+        monkeypatch.setattr(identity.subprocess,'run',unavailable)
+        monkeypatch.setattr(build_artifact_identity,'artifact_identity',lambda:SimpleNamespace(
+            present=True,valid=valid,build_sha='a'*40))
+        assert identity.checkout_sha()==('a'*40 if valid else 'UNKNOWN')
+>       assert identity.source_dirty() is (not valid)
+E       AssertionError: assert None is not False
+E        +  where None = <function source_dirty at 0x7f7b8e9f9da0>()
+E        +    where <function source_dirty at 0x7f7b8e9f9da0> = <module 'identity_under_review' from '/home/nageshmadaram/Sterling/backend/app/core/runtime_identity.py'>.source_dirty
+
+/tmp/sterling-followup-review/test_identity_draft.py:22: AssertionError
+=========================== short test summary info ============================
+FAILED ../../../tmp/sterling-followup-review/test_identity_draft.py::test_gitless_identity_uses_only_verified_artifact[True]
+FAILED ../../../tmp/sterling-followup-review/test_identity_draft.py::test_gitless_identity_uses_only_verified_artifact[False]
+2 failed in 0.04s
