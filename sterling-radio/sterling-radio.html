@@ -432,6 +432,9 @@
     for(const id of Object.keys(ZONES))if(zones.get(id))chips.push(['zone:'+id,`${ZONES[id]} ${zones.get(id).toLocaleString()}`]);}
    const languages=[...counts.language].sort((a,b)=>b[1]-a[1]),top=languages.slice(0,6).map(([l])=>l),others=languages.slice(6).reduce((n,[,c])=>n+c,0);
    for(const [language,count] of languages.slice(0,6))chips.push(['lang:'+language,`${title(language)} ${count.toLocaleString()}`]);
+   // Telugu always second, right after All, when this section has it.
+   const te=chips.findIndex(([key])=>key==='lang:telugu');if(te>1)chips.splice(1,0,...chips.splice(te,1));
+   else if(te<0&&counts.language.get('telugu')){chips.splice(1,0,['lang:telugu',`Telugu ${counts.language.get('telugu').toLocaleString()}`]);}
    if(others)chips.push(['lang:__other',`Others ${others.toLocaleString()}`,top]);
    const html=JSON.stringify(chips)+(filters.zone||'')+(filters.language||'');if(box.dataset.sig===html)return;box.dataset.sig=html;
    box.replaceChildren(...chips.map(([key,label,othersOf])=>{const b=doc.createElement('button');b.type='button';b.dataset.sub=key;b.textContent=label;if(othersOf)b.dataset.others=JSON.stringify(othersOf);
@@ -3998,6 +4001,8 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
     }
     // One chip per band next to Shortwave, in each chip bar (desktop, phone, YouTube-style theme).
     function mountBandChips(){
+      // Chip order in every bar: All, Telugu, World FM, then the rest.
+      for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const all=document.getElementById(prefix+'all'),te=document.getElementById(prefix+'te'),feat=document.getElementById(prefix+'feat');if(all&&te){all.after(te);if(feat)te.after(feat);}}
       for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
         const sw=document.getElementById(prefix+'sw');if(!sw||document.getElementById(prefix+'mw'))continue;
         let after=sw;
@@ -4056,6 +4061,8 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
       // Genre rows skip tags that only restate the band or a language ("shortwave", "sw", "english").
       const langs=new Set(pool.flatMap(s=>s.languages||[])),plain=/^(radio|am|fm|mw|sw|lw|hf|ham|ham radio|am radio|shortwave|short wave|mediumwave|medium wave|longwave|long wave|international shortwave|world radio|world band|akashvani|all india radio|air|india|indian|live|online|internet radio|stream)$/;
       for(const [tag,list] of group('tag',s=>(s.tags||[]).filter(t=>!plain.test(t)&&!langs.has(t))).slice(0,5))rows.push({id:'tag-'+tag,title:cap(tag),items:list.sort(byPop).map(station),open:()=>openRadioSection({tag},cat)});
+      // Telugu always comes second, right after Popular, when the section has it.
+      const te=rows.findIndex(row=>row.id==='lang-telugu');if(te>1)rows.splice(1,0,...rows.splice(te,1));
       // A row whose stations match an earlier row's adds nothing.
       const seenSets=new Set();for(let i=rows.length-1;i>=1;i--){const sig=rows[i].items.map(item=>item.key).sort().join('|');if(seenSets.has(sig)||rows[i].items.length===pool.length)rows.splice(i,1);else seenSets.add(sig);}
       rows.push({id:'everything',title:`All ${pool.length.toLocaleString()} ${label} stations`,items:pool.map(station),open:()=>{rememberRadioPlace();radioListView=true;refreshRadioDirectory();}});

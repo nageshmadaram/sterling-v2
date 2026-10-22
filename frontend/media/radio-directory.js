@@ -120,6 +120,9 @@
     for(const id of Object.keys(ZONES))if(zones.get(id))chips.push(['zone:'+id,`${ZONES[id]} ${zones.get(id).toLocaleString()}`]);}
    const languages=[...counts.language].sort((a,b)=>b[1]-a[1]),top=languages.slice(0,6).map(([l])=>l),others=languages.slice(6).reduce((n,[,c])=>n+c,0);
    for(const [language,count] of languages.slice(0,6))chips.push(['lang:'+language,`${title(language)} ${count.toLocaleString()}`]);
+   // Telugu always second, right after All, when this section has it.
+   const te=chips.findIndex(([key])=>key==='lang:telugu');if(te>1)chips.splice(1,0,...chips.splice(te,1));
+   else if(te<0&&counts.language.get('telugu')){chips.splice(1,0,['lang:telugu',`Telugu ${counts.language.get('telugu').toLocaleString()}`]);}
    if(others)chips.push(['lang:__other',`Others ${others.toLocaleString()}`,top]);
    const html=JSON.stringify(chips)+(filters.zone||'')+(filters.language||'');if(box.dataset.sig===html)return;box.dataset.sig=html;
    box.replaceChildren(...chips.map(([key,label,othersOf])=>{const b=doc.createElement('button');b.type='button';b.dataset.sub=key;b.textContent=label;if(othersOf)b.dataset.others=JSON.stringify(othersOf);
