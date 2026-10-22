@@ -6,12 +6,17 @@
  function mount({container,artwork,onPlay,fallback}){
   const doc=document,root=doc.createElement('div');root.id='radio-home-shelves';container.append(root);
   const rows=new Map();
+  // Generated station badges cost ~8 ms each (canvas to image). Draw them only for cards near the
+  // screen, a few per frame, so a chip tap paints at once instead of after a second of drawing.
+  const pending=[];let drawing=0;
+  const drawSome=()=>{drawing=0;const end=performance.now()+8;while(pending.length&&performance.now()<end){const [img,station]=pending.shift();if(img.isConnected&&!img.src)img.src=artwork(station);}if(pending.length)drawing=requestAnimationFrame(drawSome);};
+  const art=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){art.unobserve(entry.target);const station=entry.target._station;if(station){pending.push([entry.target,station]);if(!drawing)drawing=requestAnimationFrame(drawSome);}}},{root:null,rootMargin:'200px 400px'});
   const grow=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)rows.get(entry.target.dataset.row)?.more();},{root:null,rootMargin:'0px 600px 0px 0px'});
   function card(item,state){
    const b=doc.createElement('button');b.type='button';
    if(item.kind==='station'){
     b.className='rh-card';b.setAttribute('aria-label',`Play ${item.station.title}`);
-    const img=doc.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src=artwork(item.station);
+    const img=doc.createElement('img');img.alt='';img.decoding='async';img._station=item.station;art.observe(img);
     // A broken logo falls back to the generated station badge instead of a blank square.
     img.addEventListener('error',()=>{const next=fallback?.(item.station);if(next&&next!==img.src)img.src=next;else img.style.visibility='hidden';},{once:true});
     const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.station.title;small.textContent=item.station.freqKhz?`${item.station.freqKhz} kHz · ${item.station.country||''}`:(item.station.country||item.station.subtitle||'');

@@ -4251,10 +4251,14 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       playStream(activeChannel, (serverStage + 1) % 2);
     }
 
-    function getPlaybackQueue() { return (playbackQueue.length?playbackQueue:computeFilteredCatalogPool()).filter(isChannelVisible); }
+    // The queue keeps every channel; hidden (unavailable) ones are skipped when stepping, never
+    // removed, so the playing channel always has a position even after it failed and was hidden.
+    function basePlaybackQueue() { return playbackQueue.length?playbackQueue:computeFilteredCatalogPool(); }
+    function getPlaybackQueue() { return basePlaybackQueue().filter(isChannelVisible); }
     function getUpcomingPlaybackQueue() {
-      const pool=getPlaybackQueue(),index=pool.findIndex(c=>c.url===activeChannel?.url);
-      return index<0?pool:[...pool.slice(index+1),...pool.slice(0,index)];
+      const base=basePlaybackQueue(),index=base.findIndex(c=>c.url===activeChannel?.url);
+      const ordered=index<0?base:[...base.slice(index+1),...base.slice(0,index)];
+      return ordered.filter(c=>c.url!==activeChannel?.url&&isChannelVisible(c));
     }
     function playRightRailChannel(channel) {
       playbackQueue=[...new Map([...(activeChannel?[activeChannel]:[]),...currentRightRailPool].map(c=>[c.url,c])).values()];
@@ -4265,9 +4269,13 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
       try { playStream(channel,0); } finally { navigatingPlaybackQueue=false; }
     }
     function stepPlaybackQueue(direction) {
-      const pool=getPlaybackQueue();if(!pool.length)return;
-      const index=pool.findIndex(c=>c.url===activeChannel?.url);
-      playQueuedChannel(pool[index<0?(direction>0?0:pool.length-1):(index+direction+pool.length)%pool.length]);
+      const base=basePlaybackQueue();if(!base.length)return;
+      const index=base.findIndex(c=>c.url===activeChannel?.url);
+      let i=index<0?(direction>0?-1:base.length):index;
+      for(let n=0;n<base.length;n++){
+        i=(i+direction+base.length)%base.length;
+        const ch=base[i];if(ch.url!==activeChannel?.url&&isChannelVisible(ch)){playQueuedChannel(ch);return;}
+      }
     }
     function playNextChannel() { stepPlaybackQueue(1); }
     function playPrevChannel() { stepPlaybackQueue(-1); }

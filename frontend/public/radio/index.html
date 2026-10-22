@@ -2270,12 +2270,17 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     const CURATED_RADIO_POOL=[...MASTER_POOL];
     let radioCatalog=null,radioDirectoryUi=null,radioDirectorySnapshot=null,radioRefreshTimer=0,radioRefreshAt=0;
     const radioDirectoryIndexed=new WeakSet();
+    function isHyderabadStation(s){return /hyderabad|\bhyd\b|secunderabad/i.test([s.title,s.subtitle,s.region,s.city,...(s.tags||[])].filter(Boolean).join(' '));}
     function radioDirectoryBase(cat=appConfig.activeCategory) {
       if(BAND_CATEGORIES.includes(cat))return bandStations(RADIO_BANDS?.BY_CATEGORY[cat]);
       if(cat==='akashvani')return MASTER_POOL.filter(station=>station.category==='akashvani'||/akashvani|all india radio/i.test(station.title));
       // A language section holds stations IN that language: its own category, or that language first.
       // Multi-language national streams that merely list it (Hindi, Malayalam, Telugu, …) stay out.
-      if(cat==='telugu'||cat==='tamil')return MASTER_POOL.filter(station=>station.category===cat||(station.languages||[])[0]===cat);
+      if(cat==='telugu'||cat==='tamil'){
+        const list=MASTER_POOL.filter(station=>station.category===cat||(station.languages||[])[0]===cat);
+        // Telugu: Hyderabad stations first everywhere the section is listed.
+        return cat==='telugu'?[...list.filter(isHyderabadStation),...list.filter(s=>!isHyderabadStation(s))]:list;
+      }
       if(cat==='featured')return MASTER_POOL.filter(station=>station.category!=='shortwave');
       return MASTER_POOL;
     }
@@ -2342,7 +2347,15 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
        as horizontal rows. The long grid only appears inside a section. */
     // The row a station was played from becomes the queue (Next, Previous, Up next), like Spotify.
     let radioHome=null,radioHomeKey='',radioHomeAt=0,radioListView=false,radioRowQueue=null;
-    function radioQueue(){return radioRowQueue&&activeStream&&radioRowQueue.some(ch=>ch.id===activeStream.id)?radioRowQueue:(catalogItems.length?catalogItems:MASTER_POOL);}
+    // The list the station was picked from is the queue. A station from outside the visible list
+    // (search, More like this, history) queues its similar stations after it, never "item 1".
+    function radioQueue(){
+      const has=list=>Array.isArray(list)&&activeStream&&list.some(ch=>ch.id===activeStream.id);
+      if(has(radioRowQueue))return radioRowQueue;
+      if(has(catalogItems))return catalogItems;
+      if(activeStream){radioRowQueue=[activeStream,...radioMoreLike(activeStream).filter(ch=>ch.id!==activeStream.id)];return radioRowQueue;}
+      return catalogItems.length?catalogItems:MASTER_POOL;
+    }
     const HOME_COLORS=['#8d67ab','#1e3264','#e8115b','#148a08','#bc5900','#509bf5','#af2896','#27856a','#e91429','#477d95'];
     // Rows (Spotify style) on Home and in every section; the vertical list only for Show all, filters and search.
     function radioIsHome(){const f=appConfig.catalogFilters||{};return !radioListView&&appConfig.activeCategory!=='podcasts'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&['home','collection'].includes(document.documentElement.dataset.radioView);}
@@ -2377,20 +2390,26 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       ];
     }
     function buildSectionRows(cat){
-      const pool=radioDirectoryBase(cat),byPop=(a,b)=>(b.pop||0)-(a.pop||0),station=s=>({kind:'station',key:s.id,station:s});
+      const pool=radioDirectoryBase(cat),station=s=>({kind:'station',key:s.id,station:s});
+      // In Telugu, Hyderabad stations lead every row; otherwise rows are by popularity.
+      const hyd=cat==='telugu'?s=>isHyderabadStation(s)?1:0:()=>0,byPop=(a,b)=>hyd(b)-hyd(a)||(b.pop||0)-(a.pop||0);
+      const languageSection=cat==='telugu'||cat==='tamil';
       const label=cat==='akashvani'?'Akashvani':RADIO_BANDS?.BY_CATEGORY[cat]?.label||({telugu:'Telugu',tamil:'Tamil',featured:'World FM'})[cat]||'stations';
       const rows=[{id:'popular',title:`Popular ${label}`,size:'large',items:[...pool].sort(byPop).slice(0,300).map(station),open:()=>{rememberRadioPlace();radioListView=true;refreshRadioDirectory();}}];
       const group=(key,pick,min=3)=>{const map=new Map();for(const s of pool)for(const v of pick(s))if(v){if(!map.has(v))map.set(v,[]);map.get(v).push(s);}return [...map].filter(([,list])=>list.length>=min).sort((a,b)=>b[1].length-a[1].length);};
       const cap=t=>String(t).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
       const zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirectory?.zoneOf||(()=>'');
       if(cat==='akashvani')for(const [zone,list] of group('zone',s=>[zoneOf(s)],1))rows.push({id:'zone-'+zone,title:zones[zone]||cap(zone),items:list.sort(byPop).map(station),open:()=>openRadioSection({zone},cat)});
-      for(const [lang,list] of group('lang',s=>s.languages||[]).slice(0,6))rows.push({id:'lang-'+lang,title:`${cap(lang)}`,items:list.sort(byPop).map(station),open:()=>openRadioSection({language:lang},cat)});
+      // A language section is one language: no rows for the others a station also lists (no "Hindi" in Telugu).
+      if(!languageSection)for(const [lang,list] of group('lang',s=>s.languages||[]).slice(0,6))rows.push({id:'lang-'+lang,title:`${cap(lang)}`,items:list.sort(byPop).map(station),open:()=>openRadioSection({language:lang},cat)});
       for(const [country,list] of group('country',s=>[s.country]).filter(([,list])=>list.length<=pool.length*0.9).slice(0,5))rows.push({id:'country-'+country,title:`From ${country}`,items:list.sort(byPop).map(station),open:()=>openRadioSection({country},cat)});
       // Genre rows skip tags that only restate the band or a language ("shortwave", "sw", "english").
       const langs=new Set(pool.flatMap(s=>s.languages||[])),plain=/^(radio|am|fm|mw|sw|lw|hf|ham|ham radio|am radio|shortwave|short wave|mediumwave|medium wave|longwave|long wave|international shortwave|world radio|world band|akashvani|all india radio|air|india|indian|live|online|internet radio|stream)$/;
       for(const [tag,list] of group('tag',s=>(s.tags||[]).filter(t=>!plain.test(t)&&!langs.has(t))).slice(0,5))rows.push({id:'tag-'+tag,title:cap(tag),items:list.sort(byPop).map(station),open:()=>openRadioSection({tag},cat)});
       // Telugu always comes second, right after Popular, when the section has it.
       const te=rows.findIndex(row=>row.id==='lang-telugu');if(te>1)rows.splice(1,0,...rows.splice(te,1));
+      // Inside Telugu, the Hyderabad row comes right after Popular.
+      if(cat==='telugu'){const h=rows.findIndex(row=>/^tag-(hyderabad|hyd)$/.test(row.id));if(h>1)rows.splice(1,0,...rows.splice(h,1));}
       // A row whose stations match an earlier row's adds nothing.
       const seenSets=new Set();for(let i=rows.length-1;i>=1;i--){const sig=rows[i].items.map(item=>item.key).sort().join('|');if(seenSets.has(sig)||rows[i].items.length===pool.length)rows.splice(i,1);else seenSets.add(sig);}
       rows.push({id:'everything',title:`All ${pool.length.toLocaleString()} ${label} stations`,items:pool.map(station),open:()=>{rememberRadioPlace();radioListView=true;refreshRadioDirectory();}});
@@ -2567,7 +2586,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       syncSwDrawerUI();
 
       switchAppMode(appConfig.appMode || 'spotify', true);
-      loadCategory(appConfig.activeCategory || 'all', true);
+      // Every visit opens on Home; the last section is not restored (it flashed before Home).
+      appConfig.activeCategory = 'all';
+      loadCategory('all', true);
       renderPersonalizedShelves();
       renderSidebarList();
       initRadioDirectory();
@@ -2622,7 +2643,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       radioHosted = event.data.hostHeader === true;
       document.documentElement.classList.toggle('radio-hosted',radioHosted);
       radioStorage.hydrate(event.data.values);
-      appConfig = { ...DEFAULT_CONFIG, ...readRadioJson('omnicast_v11_config', {}) };
+      // Keep the section the user is on now; stored config must not move them (or flash a stored section).
+      const liveCategory = radioBooted ? (appConfig.activeCategory || 'all') : 'all';
+      appConfig = { ...DEFAULT_CONFIG, ...readRadioJson('omnicast_v11_config', {}), activeCategory: liveCategory };
       recentsList = readRadioJson('omnicast_v11_recents', []);
       playCounts = readRadioJson('omnicast_v11_counts', {});
       likedStations = readRadioJson('omnicast_v11_liked', []);
@@ -3266,6 +3289,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const ytmCards = document.getElementById('ytm-cards-grid');
       document.getElementById('sp-grid-count').textContent = `${catalogItems.length.toLocaleString()} ${catalogItems.length===1?'station':'stations'}`;
       if(appConfig.activeCategory==='podcasts')for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const button=document.getElementById(prefix+'pod');if(button)button.textContent=`Podcasts ${catalogItems.length.toLocaleString()}`;}
+      // Home and section pages show rows (media/radio-home.js); the grid under them is hidden,
+      // so building it there cost a third of a second per chip tap for nothing.
+      if(radioIsHome()){radioGridView='';return;}
       const viewKey=[appConfig.activeCategory,radioSearchQuery,document.documentElement.dataset.radioView,JSON.stringify(appConfig.catalogFilters||{})].join('|');
       const preserveGrid=radioGridView===viewKey&&radioGridRows.length>0&&radioGridRows.every((station,index)=>station===catalogItems[index]);
       radioGridView=viewKey;
@@ -3923,7 +3949,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const more=document.querySelector('#sheet-similar-block .rnp-show-more');if(more)more.hidden=rnpShown>=rnpPool.length;
     }
     (()=>{const sheet=document.getElementById('mobile-player-sheet');if(!sheet)return;
-      sheet.addEventListener('click',event=>{const row=event.target.closest('[data-rnp-play]');if(row){const ch=findStationById(row.dataset.rnpId)||rnpPool.find(c=>c.id===row.dataset.rnpId);if(ch){startPlayback(ch);sheet.scrollTo({top:0,behavior:'smooth'});}return;}
+      sheet.addEventListener('click',event=>{const row=event.target.closest('[data-rnp-play]');if(row){const ch=findStationById(row.dataset.rnpId)||rnpPool.find(c=>c.id===row.dataset.rnpId);if(ch){if(row.closest('#sheet-similar-list'))radioRowQueue=[...rnpPool];startPlayback(ch);sheet.scrollTo({top:0,behavior:'smooth'});}return;}
         if(event.target.closest('.rnp-show-more'))appendSheetMore();});
       sheet.addEventListener('scroll',()=>{if(sheet.scrollTop+sheet.clientHeight>sheet.scrollHeight-240&&rnpShown<rnpPool.length)appendSheetMore();},{passive:true});
     })();
