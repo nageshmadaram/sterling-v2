@@ -16,6 +16,7 @@
   <script src="/media/radio-bands.js"></script>
   <script src="/media/radio-catalog.js"></script>
   <script src="/media/radio-directory.js"></script>
+  <script src="/media/radio-home.js"></script>
   <script src="/media/spotify-shell.js"></script>
   <script src="/media/extras.js"></script>
   <script src="/media/nav-stack.js"></script>
@@ -457,7 +458,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- Right Controls -->
       <div class="flex items-center gap-2">
-        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Sleep timer, alarm, stats, backup and shortcuts (?)">✦ Extras</button>
+        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Station sources, equalizer, sleep timer, alarm and more (?)">⚙ Settings</button>
         <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
         <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
         <button data-radio-click="30" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
@@ -634,8 +635,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           <div id="sp-mostplayed-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
 
-        <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY -->
-        <section>
+        <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY (a section view; the home page shows rows instead) -->
+        <section id="sp-grid-section">
           <div class="flex items-center justify-between mb-3">
             <h2 id="sp-grid-heading" class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Shortwave & AM World Radio</h2>
             <span id="sp-grid-count" class="text-xs text-[#b3b3b3]"></span>
@@ -1017,6 +1018,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
        SOLID OPAQUE MOBILE FULL-SCREEN PLAYER SHEET (PERFECT CIRCULAR PLAY BUTTON)
        ========================================================================= -->
   <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[90] solid-mobile-sheet flex flex-col justify-between p-5 overflow-y-auto">
+    <div class="rnp-main">
     <div class="flex items-center justify-between shrink-0">
       <button data-radio-click="70" class="w-9 h-9 btn-circle text-white">
         <i class="fa-solid fa-chevron-down text-base"></i>
@@ -1077,11 +1079,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         </div>
       </div>
 
-      <div id="sheet-similar-block" class="pt-3 border-t border-white/10">
-        <div class="text-[11px] font-semibold text-[#b3b3b3] mb-2">Similar Channels</div>
-        <div id="sheet-similar-row" class="flex gap-2.5 overflow-x-auto no-scrollbar pb-1"></div>
-      </div>
     </div>
+    </div>
+    <!-- Below the player, as in TV: the next stations in this list, then stations like this one. -->
+    <section class="rnp-more" aria-label="Up next"><header><h3>Up next</h3></header><div id="sheet-up-next"></div></section>
+    <section class="rnp-more" id="sheet-similar-block" aria-labelledby="sheet-similar-title"><header><h3 id="sheet-similar-title">More like this</h3></header><div id="sheet-similar-list"></div><div id="sheet-similar-row" hidden></div><button type="button" class="rnp-show-more" hidden>Show more</button></section>
   </div>
 
   <!-- =========================================================================
@@ -2294,6 +2296,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function refreshRadioDirectory(snapshot=radioDirectorySnapshot){
       if(!snapshot)return;radioDirectorySnapshot=snapshot;
+      renderRadioHome();
       updateRadioDirectoryCounts();const base=radioDirectoryBase();
       if(appConfig.activeCategory==='all'&&!radioSearchQuery.trim())setHeadings(radioFilterTitle());
       const filtered=radioDirectoryUi?.update(snapshot,base)||radioDirectoryFiltered(base);
@@ -2330,6 +2333,48 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         }
       }
     }
+    /* Spotify-style home (media/radio-home.js): playlists, languages, Akashvani zones, bands and genres
+       as horizontal rows. The long grid only appears inside a section. */
+    let radioHome=null,radioHomeKey='',radioHomeAt=0;
+    const HOME_COLORS=['#8d67ab','#1e3264','#e8115b','#148a08','#bc5900','#509bf5','#af2896','#27856a','#e91429','#477d95'];
+    function radioIsHome(){const f=appConfig.catalogFilters||{};return appConfig.activeCategory==='all'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&document.documentElement.dataset.radioView==='home';}
+    function openRadioSection(filters,cat='all'){rememberRadioPlace();appConfig.catalogFilters=filters;saveAppConfig();loadCategory(cat,true);document.documentElement.dataset.radioView='collection';refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start'});}
+    function buildRadioHome(){
+      const pool=MASTER_POOL,byPop=(a,b)=>(b.pop||0)-(a.pop||0),station=s=>({kind:'station',key:s.id,station:s});
+      const shelf=(id,title,list,open)=>({id,title,items:list.slice(0,300).map(station),open});
+      let colour=0;const tile=(key,title,subtitle,list,open,badge)=>({kind:'tile',key,title,subtitle,badge,open,color:HOME_COLORS[colour++%HOME_COLORS.length],art:list.slice(0,4).map(getStationIdentityThumbnail)});
+      const presets=window.SterlingRadioPresets,groupList=id=>pool.filter(s=>(s.groups||[]).includes(id));
+      const made=(presets?.homePlaylists||[]).map(id=>{const list=groupList(id).sort(byPop);return list.length?tile('pl:'+id,presets.groupLabel(id),`Playlist · ${list.length} ${list.length===1?'station':'stations'}`,list,()=>openRadioSection({group:id})):null;}).filter(Boolean);
+      const lang=l=>pool.filter(s=>(s.languages||[]).includes(l)).sort(byPop),tag=t=>pool.filter(s=>(s.tags||[]).includes(t)).sort(byPop);
+      const zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirectory?.zoneOf||(()=>'');
+      const air=pool.filter(s=>s.category==='akashvani');
+      const zoneTiles=Object.entries(zones).map(([id,label])=>{const list=air.filter(s=>zoneOf(s)===id);return list.length?tile('zone:'+id,label,`Akashvani · ${list.length} stations`,list,()=>openRadioSection({zone:id},'akashvani')):null;}).filter(Boolean);
+      const bandTiles=(window.SterlingRadioBands?.list()||[]).map(b=>{const list=bandStations(b);return list.length?tile('band:'+b.id,b.label,`${list.length} stations · ${b.short}`,[],()=>loadCategory(b.category),b.short):null;}).filter(Boolean);
+      return [
+        {id:'made',title:'Made for you',items:made},
+        shelf('telugu','Telugu radio',lang('telugu'),()=>openRadioSection({language:'telugu'})),
+        {id:'akashvani',title:'Akashvani across India',items:zoneTiles,open:()=>loadCategory('akashvani')},
+        shelf('hindi','Hindi radio',lang('hindi'),()=>openRadioSection({language:'hindi'})),
+        shelf('tamil','Tamil radio',lang('tamil'),()=>openRadioSection({language:'tamil'})),
+        {id:'bands',title:'Shortwave, AM & more',items:bandTiles},
+        shelf('top','Top stations worldwide',groupList('top').sort(byPop),()=>openRadioSection({group:'top'})),
+        shelf('english','English radio',lang('english'),()=>openRadioSection({language:'english'})),
+        shelf('news','News & talk',tag('news'),()=>openRadioSection({tag:'news'})),
+        shelf('bollywood','Bollywood',tag('bollywood'),()=>openRadioSection({tag:'bollywood'})),
+        shelf('devotional','Devotional',tag('devotional'),()=>openRadioSection({tag:'devotional'})),
+        shelf('classical','Classical',tag('classical'),()=>openRadioSection({tag:'classical'})),
+        shelf('lofi','Lo-fi & chill',groupList('lofi').sort(byPop),()=>openRadioSection({group:'lofi'})),
+        shelf('pop','Pop',tag('pop'),()=>openRadioSection({tag:'pop'})),
+        shelf('jazz','Jazz',tag('jazz'),()=>openRadioSection({tag:'jazz'})),
+      ];
+    }
+    function renderRadioHome(){
+      const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
+      if(!home||!window.SterlingRadioHome)return;
+      const key=MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
+      if(!radioHome){const anchor=document.getElementById('sp-mostplayed-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
+      radioHome.render(buildRadioHome());
+    }
     function initRadioDirectory(){
       mountBandChips();
       if(!window.SterlingRadioCatalog||!window.SterlingRadioDirectory)return;
@@ -2343,7 +2388,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         const now=performance.now();
         const active=Boolean(radioSearchQuery.trim())||Object.values(appConfig.catalogFilters||{}).some(Boolean);
         if(!snapshot.loading||!radioDirectoryUi){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
-        else if(!active){radioDirectoryUi.progress(snapshot);if(now-radioRefreshAt>2500){radioRefreshAt=now;updateRadioDirectoryCounts();}}
+        else if(!active){radioDirectoryUi.progress(snapshot);if(now-radioRefreshAt>2500){radioRefreshAt=now;updateRadioDirectoryCounts();}if(now-radioHomeAt>5000)renderRadioHome();}
         else if(now-radioRefreshAt>2500){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
         else radioRefreshTimer=setTimeout(()=>{radioRefreshAt=performance.now();refreshRadioDirectory(radioDirectorySnapshot);},2500-(now-radioRefreshAt));
       }});
@@ -2391,6 +2436,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       radioExtras=window.SterlingMediaExtras.mount({kind:'radio',noun:'station',storageKey:'omnicast_v11_extras',
         storage:{get:key=>radioStorage.getItem(key),set:(key,value)=>radioStorage.setItem(key,value)},
         features:{sleep:true,alarm:true,stats:true},
+        settings:[['Station sources','Turn sources on or off, add, edit or delete them',()=>openRadioSources()],['Equalizer','Bass, mid and treble',()=>openDspModal()],['Startup station','What plays when Radio opens',()=>openStartupModal()]],
         isPlaying:()=>isPlaying,toggle:()=>togglePlayPause(),next:()=>playNextChannel(),prev:()=>playPrevChannel(),
         mute:()=>toggleMute(),like:()=>{toggleLikeCurrent();showToast?.(likedStations.some(s=>s.id===activeStream?.id)?'Added to Liked Stations':'Removed from Liked Stations');},
         focusSearch:()=>{if(shellActive()&&spotifyShell)spotifyShell.show('search');else document.getElementById('sp-search-desktop')?.focus();},
@@ -2419,7 +2465,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(radioCatalog)void radioCatalog.reload(appConfig.catalogSources);
         renderPersonalizedShelves?.();loadCategory(appConfig.activeCategory,true);showToast?.('Refreshing stations…');
       });
-      document.getElementById('sheet-queue')?.addEventListener('click',()=>document.getElementById('sheet-similar-block')?.scrollIntoView({behavior:'smooth',block:'end'}));
+      document.getElementById('sheet-queue')?.addEventListener('click',()=>document.querySelector('#mobile-player-sheet .rnp-more')?.scrollIntoView({behavior:'smooth',block:'start'}));
       spotifyShell=window.SterlingSpotifyShell.mount({kind:'radio',noun:'stations',itemType:'Station',likedTitle:'Liked Stations',placeholder:'What do you want to listen to?',
         avatar:()=>(document.querySelector('[data-radio-avatar],#sp-avatar')?.textContent||'N').trim().slice(0,1)||'N',
         items:()=>MASTER_POOL.map(shellItem),
@@ -2676,6 +2722,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       for(const id of ['sw-freq-slider','ytm-sw-slider']){const slider=document.getElementById(id);if(!slider)continue;slider.min=band.min;slider.max=band.max;slider.step=band.step;slider.setAttribute('aria-label',`${band.label} frequency in kilohertz`);}
       const marks=document.getElementById('sw-band-marks');
       if(marks){marks.replaceChildren(...band.marks.map(([label,from,to])=>{const b=document.createElement('button');b.type='button';b.className='radio-band-mark';b.textContent=label;b.title=`${from}–${to} kHz`;b.addEventListener('click',()=>jumpAndPlaySw(Math.round((from+to)/2)));return b;}));}
+      // Dots on the dial where stations sit, so the dial shows where to stop.
+      const ticks=document.querySelector('#sw-tuner-deck .tuner-ruler-ticks');
+      if(ticks){let dots=ticks.querySelector('.radio-dial-dots');if(!dots){dots=document.createElement('div');dots.className='radio-dial-dots';dots.setAttribute('aria-hidden','true');ticks.prepend(dots);}
+        const seen=new Set();dots.replaceChildren(...tunerPool().filter(s=>{const k=Math.round(s.freqKhz/band.step);if(seen.has(k))return false;seen.add(k);return true;}).map(s=>{const dot=document.createElement('i');dot.style.left=`${((s.freqKhz-band.min)/(band.max-band.min)*100).toFixed(2)}%`;return dot;}));}
       const ruler=document.getElementById('sw-ruler-labels');
       if(ruler){const n=6,labels=Array.from({length:n+1},(_,i)=>Math.round(band.min+(band.max-band.min)*i/n));ruler.replaceChildren(...labels.map((v,i)=>{const span=document.createElement('span');span.textContent=i===n?`${v} kHz`:String(v);return span;}));}
       for(const [action,dir] of [['47',-1],['48',1]])document.querySelectorAll(`[data-radio-click="${action}"]`).forEach(b=>{b.textContent=`${dir<0?'−':'+'}${band.step} kHz`;});
@@ -2878,6 +2928,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         }).join('');
       }
 
+      if(document.getElementById('mobile-player-sheet')?.classList.contains('drawer-visible'))renderSheetMore();
       const sheetSim = document.getElementById('sheet-similar-row');
       if (sheetSim) {
         sheetSim.innerHTML = similarList.slice(0, 6).map(ch => {
@@ -3057,6 +3108,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
 
       if(radioCatalog)refreshRadioDirectory();else renderCategoryGrids();
+      renderRadioHome();
     }
 
     function setHeadings(title) {
@@ -3804,6 +3856,37 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
     }
 
+    // Now Playing, below the fold: "Up next" from the current list and "More like this" (same band,
+    // language and tags first), 30 rows at a time like TV.
+    let rnpFor='',rnpPool=[],rnpShown=0;
+    const rnpRow=(ch,attr)=>`<button type="button" class="rnp-row" ${attr} data-rnp-id="${escapeRadioText(ch.id)}"><img src="${getStationIdentityThumbnail(ch)}" alt="" loading="lazy" decoding="async"><span><strong>${escapeRadioText(ch.title)}</strong><small>${escapeRadioText(ch.freqKhz?`${ch.freqKhz} kHz · ${ch.country||''}`:ch.subtitle||'')}</small></span></button>`;
+    function radioMoreLike(anchor){
+      const tags=new Set(anchor.tags||[]),langs=new Set(anchor.languages||[]),out=[];
+      for(const ch of MASTER_POOL){if(ch.id===anchor.id)continue;let score=0;
+        if(anchor.band&&ch.band===anchor.band)score+=6;if(anchor.category&&ch.category===anchor.category&&anchor.category!=='directory')score+=4;
+        for(const l of ch.languages||[])if(langs.has(l)){score+=3;break;}for(const t of ch.tags||[])if(tags.has(t))score+=2;
+        if(score>=3)out.push([score,ch.pop||0,ch]);}
+      return out.sort((a,b)=>b[0]-a[0]||b[1]-a[1]).slice(0,300).map(x=>x[2]);
+    }
+    function renderSheetMore(){
+      if(!activeStream)return;
+      const queue=catalogItems.length?catalogItems:MASTER_POOL,at=queue.findIndex(ch=>ch.id===activeStream.id);
+      const next=at<0?queue.slice(0,5):[...queue.slice(at+1),...queue.slice(0,at)].slice(0,5);
+      const up=document.getElementById('sheet-up-next');if(up)up.innerHTML=next.map(ch=>rnpRow(ch,'data-rnp-play')).join('');
+      if(rnpFor===activeStream.id)return;rnpFor=activeStream.id;rnpPool=radioMoreLike(activeStream);rnpShown=0;
+      document.getElementById('sheet-similar-title').textContent=`More like this · ${rnpPool.length.toLocaleString()} ${rnpPool.length===1?'station':'stations'}`;
+      document.getElementById('sheet-similar-list').innerHTML='';appendSheetMore();
+    }
+    function appendSheetMore(){
+      const batch=rnpPool.slice(rnpShown,rnpShown+30);rnpShown+=batch.length;
+      document.getElementById('sheet-similar-list')?.insertAdjacentHTML('beforeend',batch.map(ch=>rnpRow(ch,'data-rnp-play')).join(''));
+      const more=document.querySelector('#sheet-similar-block .rnp-show-more');if(more)more.hidden=rnpShown>=rnpPool.length;
+    }
+    (()=>{const sheet=document.getElementById('mobile-player-sheet');if(!sheet)return;
+      sheet.addEventListener('click',event=>{const row=event.target.closest('[data-rnp-play]');if(row){const ch=findStationById(row.dataset.rnpId)||rnpPool.find(c=>c.id===row.dataset.rnpId);if(ch){startPlayback(ch);sheet.scrollTo({top:0,behavior:'smooth'});}return;}
+        if(event.target.closest('.rnp-show-more'))appendSheetMore();});
+      sheet.addEventListener('scroll',()=>{if(sheet.scrollTop+sheet.clientHeight>sheet.scrollHeight-240&&rnpShown<rnpPool.length)appendSheetMore();},{passive:true});
+    })();
     function stepRadioQueue(direction) {
       const episodes=activeStream?.kind==='podcast_episode'&&episodeList.some(ch=>ch.id===activeStream.id);
       const queue=episodes?episodeList:catalogItems;if(!queue.length)return;
@@ -3932,6 +4015,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       s.classList.add('drawer-visible');
       s.setAttribute('role','dialog');s.setAttribute('aria-modal','true');s.setAttribute('aria-label','Now Playing');
       if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
+      s.scrollTop=0;renderSheetMore();
       s.querySelector('button')?.focus();
     }
 

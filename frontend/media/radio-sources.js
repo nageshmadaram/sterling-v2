@@ -7,6 +7,7 @@
  const groups=[
   ['world','World directory'],['akashvani','Akashvani · Prasar Bharati'],['india','India'],['languages','Indian languages'],
   ['indian-genres','Indian genres'],['bands','Shortwave · AM · MW · LW'],['top','Top stations worldwide'],['mixes','Curated mixes'],
+  ['telugu-247','Telugu 24/7'],['retro','Retro: SPB, Ilaiyaraaja & classics'],['rahman','A.R. Rahman'],['lofi','Lo-fi & chill'],['desi-chill','Desi chill & classical'],
  ];
  // [id, name, url, group, enabled, category, note]
  const rows=[
@@ -39,6 +40,19 @@
   ['hifi-320','High quality · 320 kbps+',rb('search?bitrateMin=320&order=clickcount&reverse=true'),'top',false,'',''],
   ['junguler-talk','Talk mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/talk.m3u','mixes',false,'',''],
   ['junguler-world','World mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/world.m3u','mixes',false,'',''],
+  // Playlists on the Radio home page. Each group is one playlist; several searches can feed it.
+  ['telugu-247','Telugu 24/7 melodies','builtin:telugu-247','telugu-247',true,'','Melody Radio Telugu, Radio Ala, London Telugu Radio, TORI, AIR Hyderabad A.'],
+  ['desi-chill','Desi chill & classical','builtin:desi-chill','desi-chill',true,'','SomaFM Suburbs of Goa and Akashvani Raagam.'],
+  ['rb-spb-tag','SPB · Radio Browser tag',rb('search?tag=spb'),'retro',true,'',''],
+  ['rb-spb','SPB · Radio Browser name',rb('byname/spb'),'retro',true,'',''],
+  ['rb-ilaiyaraaja','Ilaiyaraaja · Radio Browser name',rb('byname/ilaiyaraaja'),'retro',true,'','Few stations carry this exact spelling today.'],
+  ['rb-ilayaraja','Ilayaraja · Radio Browser search',rb('search?name=ilayaraja'),'retro',true,'',''],
+  ['rb-india-retro','Indian retro',rb('search?tag=retro&countrycode=IN'),'retro',true,'',''],
+  ['rb-rahman','A.R. Rahman · Radio Browser name',rb('byname/rahman'),'rahman',true,'',''],
+  ['rb-rahman-tag','A.R. Rahman · Radio Browser tag',rb('search?tag=rahman'),'rahman',true,'',''],
+  ['rb-lofi-tag','Lo-fi · tag',rb('search?tag=lofi&order=clickcount&reverse=true'),'lofi',true,'',''],
+  ['rb-lofi-name','Lo-fi · name',rb('search?name=lofi&order=clickcount&reverse=true'),'lofi',true,'',''],
+  ['rb-bollywood-lofi','Bollywood lo-fi',rb('byname/bollywood%20lofi'),'lofi',true,'','Few stations carry this exact name today.'],
   ['junguler-oldies','Oldies mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/oldies.m3u','mixes',false,'',''],
  ];
  const kindOf=url=>url.startsWith('builtin:')?'builtin':/\/json\/stations$/.test(url)?'directory':/\.json(?:\?|$)/.test(url)?'json':'m3u';
@@ -52,6 +66,18 @@
    pb('005','Akashvani FM Gold Delhi','Hindi;English','Akashvani FM'),
    pb('139','Akashvani Raagam Classical','Classical','Akashvani Classical'),
    pb('137','Akashvani Odia','Odia','Akashvani Regional')].join('\n'),
+  // From the user's list, 2026-10-22. Zeno (401), Virijallu (403) and both Hungama streams (no
+  // response) were down when checked and are left out; TORI timed out but is kept.
+  'telugu-247':['#EXTM3U',
+   ...[['Melody Radio Telugu','https://a1.asurahosting.com:9580/radio.mp3'],
+    ['Radio Ala 90.8 FM Kakinada','https://mahi.radioca.st/stream'],
+    ['TORI · Telugu One Radio','https://stream.teluguoneradio.com:9700/;stream/1'],
+    ['London Telugu Radio','https://c8.radioboss.fm/stream/33'],
+    ['AIR Hyderabad A (738 kHz MW)','https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8'],
+   ].map(([name,url])=>`#EXTINF:-1 tvg-country="IN" tvg-language="Telugu" group-title="Telugu 24/7",${name}\n${url}`)].join('\n'),
+  'desi-chill':['#EXTM3U',
+   '#EXTINF:-1 tvg-country="US" tvg-language="English" group-title="Desi Chill",SomaFM · Suburbs of Goa\nhttps://ice1.somafm.com/suburbsofgoa-128-mp3',
+   '#EXTINF:-1 tvg-country="IN" tvg-language="Classical" group-title="Desi Chill",Akashvani Raagam (24/7 classical)\nhttps://air.pc.cdn.bitgravity.com/air/live/pbaudio139/playlist.m3u8'].join('\n'),
   'intl-shortwave':['#EXTM3U',
    ...[['GB','English','BBC World Service','https://stream.live.vc.bbcmedia.co.uk/bbc_world_service'],
     ['NZ','English','RNZ Pacific','http://radionz-ice.streamguys.com/international.mp3'],
@@ -63,6 +89,6 @@
     ['AU','English','ABC Radio Australia','https://mediaserviceslive.akamaized.net/hls/live/2038266/ramulti/masterhq.m3u8'],
    ].map(([country,lang,name,url])=>`#EXTINF:-1 tvg-country="${country}" tvg-language="${lang}" group-title="International Shortwave",${name}\n${url}`)].join('\n'),
  };
- window.SterlingRadioPresets=Object.freeze({version:2,groups:groups.map(([id,label])=>({id,label})),sources:()=>sources.map(row=>({...row})),playlists,
+ window.SterlingRadioPresets=Object.freeze({version:3,homePlaylists:['telugu-247','retro','rahman','lofi','desi-chill'],groups:groups.map(([id,label])=>({id,label})),sources:()=>sources.map(row=>({...row})),playlists,
   groupLabel:id=>(groups.find(row=>row[0]===id)||[])[1]||id||'My sources'});
 })();

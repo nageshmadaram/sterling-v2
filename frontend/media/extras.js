@@ -20,6 +20,7 @@
   // ── Panel ───────────────────────────────────────────────────────────────
   const dialog=el('dialog','mx-dialog');dialog.setAttribute('aria-label',`${a.kind==='tv'?'TV':'Radio'} extras`);
   dialog.innerHTML=`<header><div><small>MORE WAYS TO ${a.kind==='tv'?'WATCH':'LISTEN'}</small><h2>Extras</h2></div><button type="button" data-mx="close" aria-label="Close extras">✕</button></header>
+  <section data-mx-part="settings" hidden><h3>Settings</h3><div class="mx-settings"></div></section>
   <section class="mx-quick"><button type="button" data-mx="surprise"><b>🎲</b><span>Surprise me<small>Play a random ${noun} from this list</small></span></button></section>
   <section data-mx-part="sleep" hidden><h3>Sleep timer</h3><p class="mx-note">${a.kind==='tv'?'Video':'Sound'} fades out over the last 30 seconds, then stops.</p><div class="mx-chips" data-mx-sleep></div><p class="mx-status" data-mx-sleep-status role="status"></p></section>
   <section data-mx-part="alarm" hidden><h3>Wake-up alarm</h3><p class="mx-note">Plays a ${noun} at a set time and fades in. This page must stay open.</p>
@@ -31,6 +32,8 @@
   document.body.append(dialog);
   const $=s=>dialog.querySelector(s);
   for(const part of ['sleep','alarm','stats'])$(`[data-mx-part="${part}"]`).hidden=!f[part];
+  // App settings that used to sit on every page (sources, equalizer, startup) live here.
+  if(a.settings?.length){$('[data-mx-part="settings"]').hidden=false;$('.mx-settings').replaceChildren(...a.settings.map(([label,detail,run])=>{const b=el('button','mx-setting');b.type='button';b.append(el('span','',label),el('small','',detail));b.addEventListener('click',()=>{close();run();});return b;}));}
   let returnFocus=null;
   function open(section){returnFocus=document.activeElement;render();if(!dialog.open)dialog.showModal();dialog.scrollTop=0;if(section)$(`[data-mx-part="${section}"]`)?.scrollIntoView({block:'start'});}
   function close(){dialog.close();returnFocus?.focus?.({preventScroll:true});}

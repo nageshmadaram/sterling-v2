@@ -40,6 +40,7 @@
  const groups=[
   ['world','World directory'],['akashvani','Akashvani · Prasar Bharati'],['india','India'],['languages','Indian languages'],
   ['indian-genres','Indian genres'],['bands','Shortwave · AM · MW · LW'],['top','Top stations worldwide'],['mixes','Curated mixes'],
+  ['telugu-247','Telugu 24/7'],['retro','Retro: SPB, Ilaiyaraaja & classics'],['rahman','A.R. Rahman'],['lofi','Lo-fi & chill'],['desi-chill','Desi chill & classical'],
  ];
  // [id, name, url, group, enabled, category, note]
  const rows=[
@@ -72,6 +73,19 @@
   ['hifi-320','High quality · 320 kbps+',rb('search?bitrateMin=320&order=clickcount&reverse=true'),'top',false,'',''],
   ['junguler-talk','Talk mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/talk.m3u','mixes',false,'',''],
   ['junguler-world','World mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/world.m3u','mixes',false,'',''],
+  // Playlists on the Radio home page. Each group is one playlist; several searches can feed it.
+  ['telugu-247','Telugu 24/7 melodies','builtin:telugu-247','telugu-247',true,'','Melody Radio Telugu, Radio Ala, London Telugu Radio, TORI, AIR Hyderabad A.'],
+  ['desi-chill','Desi chill & classical','builtin:desi-chill','desi-chill',true,'','SomaFM Suburbs of Goa and Akashvani Raagam.'],
+  ['rb-spb-tag','SPB · Radio Browser tag',rb('search?tag=spb'),'retro',true,'',''],
+  ['rb-spb','SPB · Radio Browser name',rb('byname/spb'),'retro',true,'',''],
+  ['rb-ilaiyaraaja','Ilaiyaraaja · Radio Browser name',rb('byname/ilaiyaraaja'),'retro',true,'','Few stations carry this exact spelling today.'],
+  ['rb-ilayaraja','Ilayaraja · Radio Browser search',rb('search?name=ilayaraja'),'retro',true,'',''],
+  ['rb-india-retro','Indian retro',rb('search?tag=retro&countrycode=IN'),'retro',true,'',''],
+  ['rb-rahman','A.R. Rahman · Radio Browser name',rb('byname/rahman'),'rahman',true,'',''],
+  ['rb-rahman-tag','A.R. Rahman · Radio Browser tag',rb('search?tag=rahman'),'rahman',true,'',''],
+  ['rb-lofi-tag','Lo-fi · tag',rb('search?tag=lofi&order=clickcount&reverse=true'),'lofi',true,'',''],
+  ['rb-lofi-name','Lo-fi · name',rb('search?name=lofi&order=clickcount&reverse=true'),'lofi',true,'',''],
+  ['rb-bollywood-lofi','Bollywood lo-fi',rb('byname/bollywood%20lofi'),'lofi',true,'','Few stations carry this exact name today.'],
   ['junguler-oldies','Oldies mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/oldies.m3u','mixes',false,'',''],
  ];
  const kindOf=url=>url.startsWith('builtin:')?'builtin':/\/json\/stations$/.test(url)?'directory':/\.json(?:\?|$)/.test(url)?'json':'m3u';
@@ -85,6 +99,18 @@
    pb('005','Akashvani FM Gold Delhi','Hindi;English','Akashvani FM'),
    pb('139','Akashvani Raagam Classical','Classical','Akashvani Classical'),
    pb('137','Akashvani Odia','Odia','Akashvani Regional')].join('\n'),
+  // From the user's list, 2026-10-22. Zeno (401), Virijallu (403) and both Hungama streams (no
+  // response) were down when checked and are left out; TORI timed out but is kept.
+  'telugu-247':['#EXTM3U',
+   ...[['Melody Radio Telugu','https://a1.asurahosting.com:9580/radio.mp3'],
+    ['Radio Ala 90.8 FM Kakinada','https://mahi.radioca.st/stream'],
+    ['TORI · Telugu One Radio','https://stream.teluguoneradio.com:9700/;stream/1'],
+    ['London Telugu Radio','https://c8.radioboss.fm/stream/33'],
+    ['AIR Hyderabad A (738 kHz MW)','https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8'],
+   ].map(([name,url])=>`#EXTINF:-1 tvg-country="IN" tvg-language="Telugu" group-title="Telugu 24/7",${name}\n${url}`)].join('\n'),
+  'desi-chill':['#EXTM3U',
+   '#EXTINF:-1 tvg-country="US" tvg-language="English" group-title="Desi Chill",SomaFM · Suburbs of Goa\nhttps://ice1.somafm.com/suburbsofgoa-128-mp3',
+   '#EXTINF:-1 tvg-country="IN" tvg-language="Classical" group-title="Desi Chill",Akashvani Raagam (24/7 classical)\nhttps://air.pc.cdn.bitgravity.com/air/live/pbaudio139/playlist.m3u8'].join('\n'),
   'intl-shortwave':['#EXTM3U',
    ...[['GB','English','BBC World Service','https://stream.live.vc.bbcmedia.co.uk/bbc_world_service'],
     ['NZ','English','RNZ Pacific','http://radionz-ice.streamguys.com/international.mp3'],
@@ -96,7 +122,7 @@
     ['AU','English','ABC Radio Australia','https://mediaserviceslive.akamaized.net/hls/live/2038266/ramulti/masterhq.m3u8'],
    ].map(([country,lang,name,url])=>`#EXTINF:-1 tvg-country="${country}" tvg-language="${lang}" group-title="International Shortwave",${name}\n${url}`)].join('\n'),
  };
- window.SterlingRadioPresets=Object.freeze({version:2,groups:groups.map(([id,label])=>({id,label})),sources:()=>sources.map(row=>({...row})),playlists,
+ window.SterlingRadioPresets=Object.freeze({version:3,homePlaylists:['telugu-247','retro','rahman','lofi','desi-chill'],groups:groups.map(([id,label])=>({id,label})),sources:()=>sources.map(row=>({...row})),playlists,
   groupLabel:id=>(groups.find(row=>row[0]===id)||[])[1]||id||'My sources'});
 })();
 
@@ -188,7 +214,7 @@
   const languages=words(row.language||row.languages),tags=words(row.tags||row.group);
   const country=countryName(row.country||row.countrycode||(source.category==='akashvani'?'India':'')).slice(0,100),region=typeof row.state==='string'?row.state.replace(/\s+/g,' ').trim().toUpperCase().slice(0,60):'';
   const tuned=window.SterlingRadioBands?.classify({title:name,tags,freqKhz:row.freqKhz},source)||{};
-  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',band:tuned.band||null,freqKhz:tuned.khz||null,category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
+  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',pop:Number(row.clickcount)||Number(row.votes)||0,band:tuned.band||null,freqKhz:tuned.khz||null,category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
    subtitle:[country,languages.slice(0,2).map(word=>word.replace(/\b\w/g,c=>c.toUpperCase())).join(', ')].filter(Boolean).join(' · ')||'Live radio',
    streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:tuned.khz?String(tuned.khz):'LIVE',freqLabel:tuned.khz?`${tuned.khz} kHz`:'Live radio'};
  }
@@ -287,12 +313,17 @@
 (()=>{
  const genres=['news','talk','pop','bollywood','rock','jazz','classical','dance','devotional','oldies','hits','folk','sports'];
  const labels={news:'News & talk',pop:'Pop',bollywood:'Bollywood',rock:'Rock',jazz:'Jazz',classical:'Classical',talk:'Talk',dance:'Dance',devotional:'Devotional',oldies:'Oldies',hits:'Hits',folk:'Folk',sports:'Sports'};
- const match=(station,filters={})=>(!filters.language||(station.languages||[]).includes(filters.language))&&(!filters.country||station.country===filters.country)&&(!filters.tag||(station.tags||[]).includes(filters.tag))&&(!filters.group||(station.groups||[]).includes(filters.group))&&(!filters.region||station.region===filters.region)&&(!filters.secure||station.streamUrl?.startsWith('https:'));
+ // Akashvani zones from the state of each station (codito/akashvani list).
+ const ZONES={south:'South India',north:'North India',west:'West India',east:'East India',northeast:'Northeast',central:'Central India',national:'National'};
+ const ZONE_OF={};for(const [zone,states] of Object.entries({south:['ANDHRA PRADESH','TELANGANA','TAMIL NADU','KARNATAKA','KERALA','PUDUCHERRY','LAKSHADWEEP'],north:['DELHI','HARYANA','PUNJAB','HIMACHAL PRADESH','JAMMU & KASHMIR','JAMMU AND KASHMIR','LADAKH','UTTAR PRADESH','UTTARAKHAND','CHANDIGARH','RAJASTHAN'],west:['MAHARASHTRA','GUJARAT','GOA','DAMAN AND DIU','DADRA AND NAGAR HAVELI'],east:['WEST BENGAL','ODISHA','BIHAR','JHARKHAND','ANDAMAN NICOBAR','ANDAMAN AND NICOBAR'],northeast:['ASSAM','ARUNACHAL PRADESH','MANIPUR','MEGHALAYA','MIZORAM','NAGALAND','TRIPURA','SIKKIM'],central:['MADHYA PRADESH','CHHATISGARH','CHHATTISGARH'],national:['NATIONAL']}))for(const state of states)ZONE_OF[state]=zone;
+ const zoneOf=station=>ZONE_OF[station.region]||'';
+ const languageMatch=(station,filters)=>!filters.language||(filters.language==='__other'?!(station.languages||[]).some(l=>(filters.otherOf||[]).includes(l)):(station.languages||[]).includes(filters.language));
+ const match=(station,filters={})=>languageMatch(station,filters)&&(!filters.zone||zoneOf(station)===filters.zone)&&(!filters.country||station.country===filters.country)&&(!filters.tag||(station.tags||[]).includes(filters.tag))&&(!filters.group||(station.groups||[]).includes(filters.group))&&(!filters.region||station.region===filters.region)&&(!filters.secure||station.streamUrl?.startsWith('https:'));
  const title=text=>String(text).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
  const stationCount=n=>{n=Number(n)||0;return `${n.toLocaleString()} ${n===1?'station':'stations'}`;};
  function mount({getConfig,onFilter,onSources,catalog,artwork,onPlay}){
   const doc=document,controls=[],dialog=doc.createElement('dialog');dialog.className='radio-source-dialog';dialog.setAttribute('aria-label','Radio sources');
-  dialog.innerHTML='<header><div><small>YOUR RADIO, YOUR WAY</small><h2>Station sources</h2></div><button type="button" data-close aria-label="Close radio sources">✕</button></header><p>Turn any source on or off. Edit or delete it. Deleted built-in sources stay in the library below. Settings sync with your Sterling account.</p><p class="radio-source-total" role="status"></p><div class="radio-source-list"></div><details class="radio-source-library"><summary>Add from library</summary><div></div></details><form><h3>Add your own source</h3><label>Source name<input name="name" maxlength="80" required placeholder="My stations"></label><label>Source URL<input name="url" type="url" maxlength="2048" required placeholder="https://example.com/radio.m3u"></label><label>Format<select name="kind"><option value="m3u">M3U / M3U8 playlist</option><option value="json">JSON station list</option><option value="directory">Paged Radio Browser API</option><option value="stream">Single station stream</option></select></label><label>Group<input name="group" maxlength="40" list="radio-source-groups" placeholder="My sources"></label><datalist id="radio-source-groups"></datalist><div class="radio-source-actions"><button type="submit">Save source</button><button type="button" data-cancel-edit hidden>Cancel edit</button></div></form><p class="radio-source-notice" role="status"></p><footer><button type="button" data-reload>Reload all</button><button type="button" data-defaults>Restore defaults</button></footer>';
+  dialog.innerHTML='<header><div><small>YOUR RADIO, YOUR WAY</small><h2>Station sources</h2></div><button type="button" data-close aria-label="Close radio sources">✕</button></header><p>Turn any source on or off. Edit or delete it. Deleted built-in sources stay in the library below. Settings sync with your Sterling account.</p><p class="radio-source-total" role="status"></p><p class="radio-source-loading"><span></span><button type="button" data-pause>Pause loading</button></p><div class="radio-source-list"></div><details class="radio-source-library"><summary>Add from library</summary><div></div></details><form><h3>Add your own source</h3><label>Source name<input name="name" maxlength="80" required placeholder="My stations"></label><label>Source URL<input name="url" type="url" maxlength="2048" required placeholder="https://example.com/radio.m3u"></label><label>Format<select name="kind"><option value="m3u">M3U / M3U8 playlist</option><option value="json">JSON station list</option><option value="directory">Paged Radio Browser API</option><option value="stream">Single station stream</option></select></label><label>Group<input name="group" maxlength="40" list="radio-source-groups" placeholder="My sources"></label><datalist id="radio-source-groups"></datalist><div class="radio-source-actions"><button type="submit">Save source</button><button type="button" data-cancel-edit hidden>Cancel edit</button></div></form><p class="radio-source-notice" role="status"></p><footer><button type="button" data-reload>Reload all</button><button type="button" data-defaults>Restore defaults</button></footer>';
   doc.body.append(dialog);let returnFocus=null,editing=null,lastSnapshot=null;
   const presets=()=>window.SterlingRadioPresets?.sources?.()||window.SterlingRadioCatalog.defaults();
   const groupLabel=id=>window.SterlingRadioPresets?.groupLabel?.(id)||(id==='custom'?'My sources':id);
@@ -347,6 +378,7 @@
    if(groupButton){const next=configured(),rows=next.filter(row=>row.group===groupButton.dataset.groupToggle),value=!rows.every(row=>row.enabled);for(const row of rows)row.enabled=value;save(next);}
    const libraryButton=event.target.closest('[data-library-add]');
    if(libraryButton){const preset=presets().find(row=>row.id===libraryButton.dataset.libraryAdd),next=configured();if(preset){next.push({...preset,enabled:true});save(next);}}
+   if(event.target.closest('[data-pause]')){if(catalog.snapshot().loading)catalog.pause();else void catalog.resume();}
    if(event.target.closest('[data-cancel-edit]')){clearForm();const url=dialog.querySelector('input[name=url]');url.required=true;url.placeholder='https://example.com/radio.m3u';}
    if(event.target.closest('[data-reload]'))onSources(configured());
    if(event.target.closest('[data-defaults]')){clearForm();save(window.SterlingRadioCatalog.defaults());}
@@ -367,10 +399,13 @@
   for(const id of ['sp-cards-grid','ytm-cards-grid']){
    const grid=doc.getElementById(id);if(!grid)continue;
    const block=doc.createElement('div');block.className='radio-directory-tools';
-   block.innerHTML='<div class="radio-directory-summary"><span role="status"></span><button type="button" data-sources>Manage sources</button><button type="button" data-clear-filters hidden>Clear filters</button><button type="button" data-pause>Pause loading</button></div><details class="radio-directory-filters"><summary>Filter stations</summary><div class="radio-directory-selects"><label>Language<select data-filter="language" aria-label="Radio language"></select></label><label>Country<select data-filter="country" aria-label="Radio country"></select></label><label>Genre<select data-filter="tag" aria-label="Radio genre"></select></label><label>Akashvani state<select data-filter="region" aria-label="Akashvani state"></select></label><label class="radio-secure-filter"><input type="checkbox" data-filter="secure">HTTPS only</label></div></details><div class="radio-genre-chips" aria-label="Radio genres"></div>';
+   block.innerHTML='<div class="radio-section-bar"><div class="radio-sub-chips" aria-label="Narrow this section"></div><button type="button" class="radio-filter-btn" data-filter-toggle aria-expanded="false" aria-label="Filter stations" title="Filter stations"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8.2V19l-4 2v-7.8z"/></svg><span class="radio-filter-count" hidden></span></button></div><div class="radio-genre-chips" aria-label="Radio genres"></div><div class="radio-filter-panel" hidden><div class="radio-directory-selects"><label>Language<select data-filter="language" aria-label="Radio language"></select></label><label>Country<select data-filter="country" aria-label="Radio country"></select></label><label>Genre<select data-filter="tag" aria-label="Radio genre"></select></label><label>Akashvani state<select data-filter="region" aria-label="Akashvani state"></select></label><label class="radio-secure-filter"><input type="checkbox" data-filter="secure">HTTPS only</label></div><button type="button" data-clear-filters hidden>Clear filters</button></div>';
    const chips=block.querySelector('.radio-genre-chips');
    for(const tag of ['',...genres]){const button=doc.createElement('button');button.type='button';button.dataset.genre=tag;chips.append(button);}
-   block.addEventListener('click',event=>{if(event.target.closest('[data-sources]'))open();if(event.target.closest('[data-clear-filters]'))onFilter({});if(event.target.closest('[data-pause]')){if(catalog.snapshot().loading)catalog.pause();else void catalog.resume();}const genre=event.target.closest('[data-genre]');if(genre)onFilter({...getConfig().catalogFilters,tag:genre.dataset.genre});});
+   block.addEventListener('click',event=>{
+    const toggle=event.target.closest('[data-filter-toggle]');if(toggle){const panel=block.querySelector('.radio-filter-panel');panel.hidden=!panel.hidden;toggle.setAttribute('aria-expanded',String(!panel.hidden));}
+    const sub=event.target.closest('[data-sub]');if(sub){const [kind,value]=sub.dataset.sub.split(':');const f={...getConfig().catalogFilters};if(!kind){delete f.zone;delete f.language;delete f.otherOf;}else if(kind==='zone')f.zone=f.zone===value?'':value;else{f.language=f.language===value?'':value;f.otherOf=value==='__other'?JSON.parse(sub.dataset.others||'[]'):undefined;}onFilter(f);}
+    if(event.target.closest('[data-clear-filters]'))onFilter({});const genre=event.target.closest('[data-genre]');if(genre)onFilter({...getConfig().catalogFilters,tag:genre.dataset.genre});});
    block.addEventListener('change',event=>{const control=event.target.closest('[data-filter]');if(control)onFilter({...getConfig().catalogFilters,[control.dataset.filter]:control.type==='checkbox'?control.checked:control.value});});
    grid.before(block);controls.push(block);
   }
@@ -382,7 +417,27 @@
   // Source groups (Akashvani, India, shortwave bands, top lists) as browse tiles beside the genres.
   const groupTiles=[];for(const group of (window.SterlingRadioPresets?.groups||[]).filter(row=>row.id!=='world')){const button=doc.createElement('button');button.type='button';button.dataset.group=group.id;button.className='radio-group-tile';button.innerHTML='<strong></strong><small></small><img alt="" loading="lazy" decoding="async">';button.querySelector('strong').textContent=group.label;button.addEventListener('click',()=>onFilter({language:'',country:'',tag:'',group:group.id,secure:false},true));button.querySelector('img').addEventListener('error',event=>{event.currentTarget.hidden=true;});groupTiles.push(button);}
   browse.lastElementChild.prepend(...groupTiles);
+  // Loading status and pause live in the sources dialog (settings), not on every page.
+  function renderLoadState(snapshot){
+   const line=dialog.querySelector('.radio-source-loading');if(!line)return;
+   line.querySelector('span').textContent=`${stationCount(snapshot.stations.length)} loaded${snapshot.loading?' · loading the full directory…':snapshot.complete?' · up to date':' · paused, or a source needs attention'}`;
+   const pause=line.querySelector('button');pause.textContent=snapshot.loading?'Pause loading':'Resume';pause.hidden=snapshot.complete;
+  }
+  // Chips that narrow the current section: Akashvani zones, then the section's main languages and Others.
+  function renderSubChips(block,basePool,filters,counts){
+   const box=block.querySelector('.radio-sub-chips'),chips=[['','All']];
+   if(basePool.length<6000){const zones=new Map();const noZone={...filters,zone:''};for(const station of basePool){const zone=zoneOf(station);if(zone&&match(station,noZone))zones.set(zone,(zones.get(zone)||0)+1);}
+    for(const id of Object.keys(ZONES))if(zones.get(id))chips.push(['zone:'+id,`${ZONES[id]} ${zones.get(id).toLocaleString()}`]);}
+   const languages=[...counts.language].sort((a,b)=>b[1]-a[1]),top=languages.slice(0,6).map(([l])=>l),others=languages.slice(6).reduce((n,[,c])=>n+c,0);
+   for(const [language,count] of languages.slice(0,6))chips.push(['lang:'+language,`${title(language)} ${count.toLocaleString()}`]);
+   if(others)chips.push(['lang:__other',`Others ${others.toLocaleString()}`,top]);
+   const html=JSON.stringify(chips)+(filters.zone||'')+(filters.language||'');if(box.dataset.sig===html)return;box.dataset.sig=html;
+   box.replaceChildren(...chips.map(([key,label,othersOf])=>{const b=doc.createElement('button');b.type='button';b.dataset.sub=key;b.textContent=label;if(othersOf)b.dataset.others=JSON.stringify(othersOf);
+    const [kind,value]=key.split(':');b.setAttribute('aria-pressed',String(!kind?!filters.zone&&!filters.language:kind==='zone'?filters.zone===value:filters.language===value));return b;}));
+   box.hidden=chips.length<3;
+  }
   function update(snapshot,basePool){
+   renderLoadState(snapshot);
    lastSnapshot=snapshot;const filters=getConfig().catalogFilters||{},counts={language:new Map(),country:new Map(),tag:new Map(),region:new Map()},samples=new Map(),picks=new Map();
    const add=(map,key)=>{if(key)map.set(key,(map.get(key)||0)+1);};
    // One pass over the whole catalog (tens of thousands of stations): filter objects are built once,
@@ -395,16 +450,14 @@
     if(station.region&&match(station,noRegion))add(counts.region,station.region);
     if(match(station,noTag)){allGenres++;const tags=station.tags||[];for(let i=0;i<tags.length;i++){const tag=tags[i];if(tags.indexOf(tag)!==i)continue;add(counts.tag,tag);if(!samples.has(tag))samples.set(tag,station);let pick=picks.get(tag);if(!pick)picks.set(tag,pick=[]);if(pick.length<8)pick.push(station);}}
    }
-   const filtered=basePool.filter(station=>match(station,filters)),anyFilter=Boolean(filters.language||filters.country||filters.tag||filters.group||filters.region||filters.secure);
+   const filtered=basePool.filter(station=>match(station,filters)),anyFilter=Boolean(filters.language||filters.country||filters.tag||filters.group||filters.region||filters.zone||filters.secure);
    doc.documentElement.dataset.radioDirectoryFiltered=String(anyFilter);
    browse.hidden=getConfig().activeCategory!=='all'||anyFilter||doc.documentElement.dataset.radioView!=='home';world.hidden=browse.hidden;
    for(const block of controls){
     block.hidden=getConfig().activeCategory==='podcasts'||doc.documentElement.dataset.radioView==='library';
     block.querySelector('[data-clear-filters]').hidden=!anyFilter;
-    block.querySelector('summary').textContent=anyFilter?`Filters · ${[filters.group&&(window.SterlingRadioPresets?.groupLabel?.(filters.group)||filters.group),filters.region&&title(filters.region),filters.language,filters.country,filters.tag,filters.secure?'HTTPS':''].filter(Boolean).join(' · ')} · ${stationCount(filtered.length)}`:'Filter stations';
-    const status=block.querySelector('[role=status]');
-    status.textContent=`${stationCount(snapshot.stations.length)} loaded${snapshot.loading?' · Loading full directory…':snapshot.complete?' · Sources up to date':' · Loading paused or source needs attention'}${snapshot.reportedTotal?' · Provider: '+snapshot.reportedTotal.toLocaleString()+' entries (includes unavailable)':''}`;
-    const pause=block.querySelector('[data-pause]');pause.textContent=snapshot.loading?'Pause loading':'Resume / retry';pause.hidden=snapshot.complete;
+    const active=[filters.language,filters.country,filters.tag,filters.region,filters.zone,filters.secure,filters.group].filter(Boolean).length,badge=block.querySelector('.radio-filter-count');badge.hidden=!active;badge.textContent=String(active);
+    renderSubChips(block,basePool,filters,counts);
     for(const field of ['language','country','tag','region']){
      const select=block.querySelector(`[data-filter="${field}"]`);if(doc.activeElement===select)continue;
      const options=[['',`All ${field==='tag'?'genres':field==='country'?'countries':field==='region'?'states':'languages'}`],...[...counts[field]].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,count])=>[key,`${field==='region'?title(key):key} (${count.toLocaleString()})`])];
@@ -430,15 +483,68 @@
   // source rows only. The full facet recount (update) runs when loading ends or the user acts.
   function progress(snapshot){
    lastSnapshot=snapshot;
-   for(const block of controls){
-    block.querySelector('[role=status]').textContent=`${stationCount(snapshot.stations.length)} loaded${snapshot.loading?' · Loading full directory…':snapshot.complete?' · Sources up to date':' · Loading paused or source needs attention'}${snapshot.reportedTotal?' · Provider: '+snapshot.reportedTotal.toLocaleString()+' entries (includes unavailable)':''}`;
-    const pause=block.querySelector('[data-pause]');pause.textContent=snapshot.loading?'Pause loading':'Resume / retry';pause.hidden=snapshot.complete;
-   }
+   renderLoadState(snapshot);
    if(dialog.open){for(const status of dialog.querySelectorAll('[data-source-status]')){const state=snapshot.sources.find(item=>item.id===status.dataset.sourceStatus);if(state)status.textContent=statusText(state,state);}updateTotal();}
   }
   return {update,progress,openSources:open};
  }
- window.SterlingRadioDirectory=Object.freeze({mount,match});
+ window.SterlingRadioDirectory=Object.freeze({mount,match,zones:ZONES,zoneOf});
+})();
+
+</script>
+  <script>
+/* Radio home, Spotify style: rows of horizontal shelves instead of one long grid. Each row renders 12
+   cards and adds 12 more only when scrolled near its right edge, so the page never builds thousands of
+   cards. A row is rebuilt only when its content changes. */
+(()=>{
+ const BATCH=12,CAP=300;
+ function mount({container,artwork,onPlay}){
+  const doc=document,root=doc.createElement('div');root.id='radio-home-shelves';container.append(root);
+  const rows=new Map();
+  const grow=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)rows.get(entry.target.dataset.row)?.more();},{root:null,rootMargin:'0px 600px 0px 0px'});
+  function card(item){
+   const b=doc.createElement('button');b.type='button';
+   if(item.kind==='station'){
+    b.className='rh-card';b.setAttribute('aria-label',`Play ${item.station.title}`);
+    const img=doc.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src=artwork(item.station);img.addEventListener('error',()=>{img.style.visibility='hidden';},{once:true});
+    const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.station.title;small.textContent=item.station.freqKhz?`${item.station.freqKhz} kHz · ${item.station.country||''}`:(item.station.country||item.station.subtitle||'');
+    b.append(img,strong,small);b.addEventListener('click',()=>onPlay(item.station.id));
+   }else{
+    b.className='rh-card rh-tile';b.style.setProperty('--tile',item.color||'#1e3264');b.setAttribute('aria-label',`Open ${item.title}`);
+    const art=doc.createElement('span');art.className='rh-mosaic';
+    for(const src of (item.art||[]).slice(0,4)){const img=doc.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src=src;img.addEventListener('error',()=>{img.style.visibility='hidden';},{once:true});art.append(img);}
+    // Initials sit behind the artwork, so a tile whose logos fail to load still reads clearly.
+    const big=doc.createElement('b');big.textContent=item.badge||item.title.split(/[\s:,&]+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();art.prepend(big);
+    const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.title;small.textContent=item.subtitle||'';
+    b.append(art,strong,small);b.addEventListener('click',()=>item.open());
+   }
+   return b;
+  }
+  function row(def){
+   const section=doc.createElement('section');section.className='rh-row';section.dataset.row=def.id;
+   const head=doc.createElement('header'),h2=doc.createElement('h2');h2.textContent=def.title;head.append(h2);
+   if(def.open){const all=doc.createElement('button');all.type='button';all.className='rh-all';all.textContent='Show all';all.addEventListener('click',def.open);head.append(all);}
+   const strip=doc.createElement('div');strip.className='rh-strip';const end=doc.createElement('span');end.className='rh-end';end.dataset.row=def.id;
+   section.append(head,strip);let shown=0;
+   const state={def,section,more(){const next=state.def.items.slice(shown,Math.min(shown+BATCH,CAP));if(!next.length)return;end.remove();strip.append(...next.map(card));shown+=next.length;if(shown<Math.min(state.def.items.length,CAP))strip.append(end);}};
+   grow.observe(end);state.more();return state;
+  }
+  function render(defs){
+   const seen=new Set();let previous=null;
+   for(const def of defs){
+    if(!def.items.length)continue;seen.add(def.id);
+    const signature=def.title+'|'+def.items.length+'|'+def.items.slice(0,BATCH).map(i=>i.key).join(',');
+    let state=rows.get(def.id);
+    if(!state||state.signature!==signature){const fresh=row(def);fresh.signature=signature;if(state)state.section.replaceWith(fresh.section);state=fresh;rows.set(def.id,state);}
+    else state.def=def;
+    if(previous?previous.nextSibling!==state.section:root.firstChild!==state.section)(previous?previous.after(state.section):root.prepend(state.section));
+    previous=state.section;
+   }
+   for(const [id,state] of rows)if(!seen.has(id)){state.section.remove();rows.delete(id);}
+  }
+  return {render,root};
+ }
+ window.SterlingRadioHome=Object.freeze({mount});
 })();
 
 </script>
@@ -646,6 +752,7 @@
   // ── Panel ───────────────────────────────────────────────────────────────
   const dialog=el('dialog','mx-dialog');dialog.setAttribute('aria-label',`${a.kind==='tv'?'TV':'Radio'} extras`);
   dialog.innerHTML=`<header><div><small>MORE WAYS TO ${a.kind==='tv'?'WATCH':'LISTEN'}</small><h2>Extras</h2></div><button type="button" data-mx="close" aria-label="Close extras">✕</button></header>
+  <section data-mx-part="settings" hidden><h3>Settings</h3><div class="mx-settings"></div></section>
   <section class="mx-quick"><button type="button" data-mx="surprise"><b>🎲</b><span>Surprise me<small>Play a random ${noun} from this list</small></span></button></section>
   <section data-mx-part="sleep" hidden><h3>Sleep timer</h3><p class="mx-note">${a.kind==='tv'?'Video':'Sound'} fades out over the last 30 seconds, then stops.</p><div class="mx-chips" data-mx-sleep></div><p class="mx-status" data-mx-sleep-status role="status"></p></section>
   <section data-mx-part="alarm" hidden><h3>Wake-up alarm</h3><p class="mx-note">Plays a ${noun} at a set time and fades in. This page must stay open.</p>
@@ -657,6 +764,8 @@
   document.body.append(dialog);
   const $=s=>dialog.querySelector(s);
   for(const part of ['sleep','alarm','stats'])$(`[data-mx-part="${part}"]`).hidden=!f[part];
+  // App settings that used to sit on every page (sources, equalizer, startup) live here.
+  if(a.settings?.length){$('[data-mx-part="settings"]').hidden=false;$('.mx-settings').replaceChildren(...a.settings.map(([label,detail,run])=>{const b=el('button','mx-setting');b.type='button';b.append(el('span','',label),el('small','',detail));b.addEventListener('click',()=>{close();run();});return b;}));}
   let returnFocus=null;
   function open(section){returnFocus=document.activeElement;render();if(!dialog.open)dialog.showModal();dialog.scrollTop=0;if(section)$(`[data-mx-part="${section}"]`)?.scrollIntoView({block:'start'});}
   function close(){dialog.close();returnFocus?.focus?.({preventScroll:true});}
@@ -1634,6 +1743,68 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 #sw-player-window .sw-player-presets small{font-size:11px;color:#a7a7a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #sw-player-window .sw-player-more{display:block;margin:12px auto 0;padding:8px 18px;border-radius:18px;border:1px solid #ffffff40;color:#fff;font-size:12px}
 #sw-player-window .sw-player-more[hidden]{display:none}
+/* Radio home, Spotify style: rows instead of one long grid. */
+html[data-radio-home="1"] #sp-grid-section,#radio-directory-browse,#radio-world-shelves{display:none!important}
+html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
+#radio-home-shelves{margin-top:4px}
+.rh-row{margin:0 0 28px}.rh-row header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 12px;background:transparent!important}
+.rh-row h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;color:#fff}
+.rh-all{font-size:13px;font-weight:700;color:#b3b3b3;background:transparent;border:0;white-space:nowrap}.rh-all:hover{color:#fff;text-decoration:underline}
+.rh-strip{display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:2px;scrollbar-width:none;padding-bottom:4px}.rh-strip::-webkit-scrollbar{display:none}
+.rh-end{flex:none;width:1px}
+.rh-card{flex:none;width:156px;padding:10px;border-radius:8px;background:transparent;border:0;color:#fff;text-align:left;scroll-snap-align:start;cursor:pointer}
+.rh-card:hover,.rh-card:focus-visible{background:#ffffff12}
+.rh-card img{display:block;width:136px;height:136px;border-radius:6px;object-fit:cover;background:#282828;margin-bottom:8px}
+.rh-card strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;font-weight:600;line-height:1.3}
+.rh-card small{display:block;margin-top:4px;font-size:12px;color:#a7a7a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rh-tile .rh-mosaic{display:grid;grid-template-columns:1fr 1fr;width:136px;height:136px;border-radius:6px;overflow:hidden;background:var(--tile);margin-bottom:8px}
+.rh-tile .rh-mosaic img{width:68px;height:68px;margin:0;border-radius:0}
+.rh-tile .rh-mosaic b{grid-column:1/-1;grid-row:1/-1;display:grid;place-items:center;font-size:34px;font-weight:800;letter-spacing:-.04em;color:#fff}
+@media(max-width:1023px){.rh-card{width:140px;padding:6px}.rh-card img,.rh-tile .rh-mosaic{width:128px;height:128px}.rh-tile .rh-mosaic img{width:64px;height:64px}.rh-row h2{font-size:20px}}
+/* Section toolbar: narrowing chips, genre chips (Spotify pills) and the filter icon. */
+.radio-directory-tools{margin:0 0 14px}
+.radio-section-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.radio-sub-chips,.radio-genre-chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}.radio-sub-chips::-webkit-scrollbar,.radio-genre-chips::-webkit-scrollbar{display:none}
+.radio-sub-chips[hidden]{display:none}
+.radio-sub-chips button,.radio-genre-chips button{flex:none;min-height:32px;padding:6px 14px;border-radius:16px;border:0;background:#2a2a2a;color:#fff;font-size:13px;font-weight:500;white-space:nowrap}
+.radio-sub-chips button:hover,.radio-genre-chips button:hover{background:#333}
+.radio-sub-chips button[aria-pressed=true],.radio-genre-chips button[aria-pressed=true]{background:#fff;color:#000;font-weight:600}
+.radio-genre-chips button[hidden]{display:none}
+.radio-filter-btn{position:relative;flex:none;width:36px;height:36px;border-radius:50%;border:0;background:#2a2a2a;color:#fff;display:grid;place-items:center;margin-left:auto}
+.radio-filter-btn svg{width:18px;height:18px;fill:currentColor}.radio-filter-btn[aria-expanded=true]{background:#fff;color:#000}
+.radio-filter-count{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#1ed760;color:#000;font:700 10px/16px Inter,system-ui,sans-serif}.radio-filter-count[hidden]{display:none}
+.radio-filter-panel{margin:4px 0 12px;padding:12px;border-radius:12px;background:#181818;border:1px solid #ffffff14}.radio-filter-panel[hidden]{display:none}
+.radio-filter-panel [data-clear-filters]{margin-top:10px;min-height:32px;padding:6px 14px;border-radius:16px;border:1px solid #ffffff40;color:#fff;background:transparent;font-size:12px}
+.radio-source-loading{display:flex;align-items:center;gap:10px;font-size:12px;color:#a7a7a7;margin:0 0 8px}.radio-source-loading button{min-height:30px!important;padding:4px 12px!important}
+/* Radio Now Playing matches TV: the first screen is the player; Up next and More like this follow on scroll. */
+#mobile-player-sheet.solid-mobile-sheet{display:block!important}
+.rnp-main{min-height:calc(100dvh - 40px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;justify-content:space-between}
+.rnp-more{margin:22px -8px 0;padding:16px 8px 6px;border-radius:12px;background:#0000002e}
+.rnp-more header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 4px 8px;background:transparent!important}
+.rnp-more h3{font-size:16px;font-weight:700;margin:0;color:#fff}.rnp-more header button{font-size:12px;color:#d6d6d6;border:1px solid #ffffff40;border-radius:16px;padding:5px 12px}
+.rnp-row{display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:6px 4px;text-align:left;color:#fff;background:transparent;border:0}
+.rnp-row img{width:48px;height:48px;border-radius:4px;object-fit:cover;flex:none;background:#ffffff14}
+.rnp-row span{min-width:0;display:flex;flex-direction:column;gap:3px}
+.rnp-row strong{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rnp-row small{font-size:12px;color:#b3b3b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rnp-show-more{display:block;margin:10px auto 6px;font-size:13px;font-weight:600;border:1px solid #ffffff50;border-radius:18px;padding:8px 18px;color:#fff}.rnp-show-more[hidden]{display:none}
+.rh-tile .rh-mosaic{position:relative}.rh-tile .rh-mosaic b{position:absolute;inset:0;z-index:0}.rh-tile .rh-mosaic img{position:relative;z-index:1}
+.mx-settings{display:flex;flex-direction:column;gap:6px}
+.mx-setting{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:12px 14px;border-radius:12px;background:#ffffff0d;border:0;color:#fff;text-align:left}
+.mx-setting:hover,.mx-setting:focus-visible{background:#ffffff1a}.mx-setting span{font-size:14px;font-weight:600}.mx-setting small{font-size:12px;color:#a7a7a7}
+/* Simpler band tuner: always open in a band section, no drawer, no motion; big readout; station dots. */
+#sw-tuner-deck,#sw-tuner-deck *,#sw-player-window,#sw-player-window *{transition:none!important;animation:none!important}
+#sw-tuner-deck #sw-tuner-drawer{display:block!important;border-top:0!important;background:transparent!important;padding-top:0!important}
+#sw-tuner-deck #sw-expand-btn,#sw-tuner-deck #sw-expand-icon{display:none!important}
+#sw-tuner-deck>div:first-child{height:auto!important;min-height:64px;padding-top:12px!important;padding-bottom:8px!important}
+#sw-tuner-deck #sw-freq-pill{font-size:20px!important;padding:6px 12px!important;letter-spacing:-.02em}
+#sw-tuner-deck #sw-nearest-title{font-size:15px!important;font-weight:700!important}
+#sw-tuner-deck #sw-band-badge{display:inline-block!important;font-weight:700!important}
+#sw-tuner-deck [data-radio-click="38"],#sw-tuner-deck [data-radio-click="39"]{width:40px!important;height:40px!important;border-radius:50%!important}
+#sw-tuner-deck .tuner-ruler-ticks{position:relative;height:44px!important}
+.radio-dial-dots{position:absolute;left:0;right:0;top:4px;height:8px;pointer-events:none}
+.radio-dial-dots i{position:absolute;top:0;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--band);opacity:.85}
+#sw-tuner-deck .tuner-ruler-slider{position:relative;z-index:1}
 
 </style>
   <script>
@@ -1934,7 +2105,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 
       <!-- Right Controls -->
       <div class="flex items-center gap-2">
-        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Sleep timer, alarm, stats, backup and shortcuts (?)">✦ Extras</button>
+        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Station sources, equalizer, sleep timer, alarm and more (?)">⚙ Settings</button>
         <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
         <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
         <button data-radio-click="30" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
@@ -2111,8 +2282,8 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
           <div id="sp-mostplayed-carousel" class="flex gap-3.5 overflow-x-auto no-scrollbar snap-carousel pb-1"></div>
         </section>
 
-        <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY -->
-        <section>
+        <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY (a section view; the home page shows rows instead) -->
+        <section id="sp-grid-section">
           <div class="flex items-center justify-between mb-3">
             <h2 id="sp-grid-heading" class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Shortwave & AM World Radio</h2>
             <span id="sp-grid-count" class="text-xs text-[#b3b3b3]"></span>
@@ -2494,6 +2665,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
        SOLID OPAQUE MOBILE FULL-SCREEN PLAYER SHEET (PERFECT CIRCULAR PLAY BUTTON)
        ========================================================================= -->
   <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[90] solid-mobile-sheet flex flex-col justify-between p-5 overflow-y-auto">
+    <div class="rnp-main">
     <div class="flex items-center justify-between shrink-0">
       <button data-radio-click="70" class="w-9 h-9 btn-circle text-white">
         <i class="fa-solid fa-chevron-down text-base"></i>
@@ -2554,11 +2726,11 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         </div>
       </div>
 
-      <div id="sheet-similar-block" class="pt-3 border-t border-white/10">
-        <div class="text-[11px] font-semibold text-[#b3b3b3] mb-2">Similar Channels</div>
-        <div id="sheet-similar-row" class="flex gap-2.5 overflow-x-auto no-scrollbar pb-1"></div>
-      </div>
     </div>
+    </div>
+    <!-- Below the player, as in TV: the next stations in this list, then stations like this one. -->
+    <section class="rnp-more" aria-label="Up next"><header><h3>Up next</h3></header><div id="sheet-up-next"></div></section>
+    <section class="rnp-more" id="sheet-similar-block" aria-labelledby="sheet-similar-title"><header><h3 id="sheet-similar-title">More like this</h3></header><div id="sheet-similar-list"></div><div id="sheet-similar-row" hidden></div><button type="button" class="rnp-show-more" hidden>Show more</button></section>
   </div>
 
   <!-- =========================================================================
@@ -3771,6 +3943,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
     }
     function refreshRadioDirectory(snapshot=radioDirectorySnapshot){
       if(!snapshot)return;radioDirectorySnapshot=snapshot;
+      renderRadioHome();
       updateRadioDirectoryCounts();const base=radioDirectoryBase();
       if(appConfig.activeCategory==='all'&&!radioSearchQuery.trim())setHeadings(radioFilterTitle());
       const filtered=radioDirectoryUi?.update(snapshot,base)||radioDirectoryFiltered(base);
@@ -3807,6 +3980,48 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         }
       }
     }
+    /* Spotify-style home (media/radio-home.js): playlists, languages, Akashvani zones, bands and genres
+       as horizontal rows. The long grid only appears inside a section. */
+    let radioHome=null,radioHomeKey='',radioHomeAt=0;
+    const HOME_COLORS=['#8d67ab','#1e3264','#e8115b','#148a08','#bc5900','#509bf5','#af2896','#27856a','#e91429','#477d95'];
+    function radioIsHome(){const f=appConfig.catalogFilters||{};return appConfig.activeCategory==='all'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&document.documentElement.dataset.radioView==='home';}
+    function openRadioSection(filters,cat='all'){rememberRadioPlace();appConfig.catalogFilters=filters;saveAppConfig();loadCategory(cat,true);document.documentElement.dataset.radioView='collection';refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start'});}
+    function buildRadioHome(){
+      const pool=MASTER_POOL,byPop=(a,b)=>(b.pop||0)-(a.pop||0),station=s=>({kind:'station',key:s.id,station:s});
+      const shelf=(id,title,list,open)=>({id,title,items:list.slice(0,300).map(station),open});
+      let colour=0;const tile=(key,title,subtitle,list,open,badge)=>({kind:'tile',key,title,subtitle,badge,open,color:HOME_COLORS[colour++%HOME_COLORS.length],art:list.slice(0,4).map(getStationIdentityThumbnail)});
+      const presets=window.SterlingRadioPresets,groupList=id=>pool.filter(s=>(s.groups||[]).includes(id));
+      const made=(presets?.homePlaylists||[]).map(id=>{const list=groupList(id).sort(byPop);return list.length?tile('pl:'+id,presets.groupLabel(id),`Playlist · ${list.length} ${list.length===1?'station':'stations'}`,list,()=>openRadioSection({group:id})):null;}).filter(Boolean);
+      const lang=l=>pool.filter(s=>(s.languages||[]).includes(l)).sort(byPop),tag=t=>pool.filter(s=>(s.tags||[]).includes(t)).sort(byPop);
+      const zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirectory?.zoneOf||(()=>'');
+      const air=pool.filter(s=>s.category==='akashvani');
+      const zoneTiles=Object.entries(zones).map(([id,label])=>{const list=air.filter(s=>zoneOf(s)===id);return list.length?tile('zone:'+id,label,`Akashvani · ${list.length} stations`,list,()=>openRadioSection({zone:id},'akashvani')):null;}).filter(Boolean);
+      const bandTiles=(window.SterlingRadioBands?.list()||[]).map(b=>{const list=bandStations(b);return list.length?tile('band:'+b.id,b.label,`${list.length} stations · ${b.short}`,[],()=>loadCategory(b.category),b.short):null;}).filter(Boolean);
+      return [
+        {id:'made',title:'Made for you',items:made},
+        shelf('telugu','Telugu radio',lang('telugu'),()=>openRadioSection({language:'telugu'})),
+        {id:'akashvani',title:'Akashvani across India',items:zoneTiles,open:()=>loadCategory('akashvani')},
+        shelf('hindi','Hindi radio',lang('hindi'),()=>openRadioSection({language:'hindi'})),
+        shelf('tamil','Tamil radio',lang('tamil'),()=>openRadioSection({language:'tamil'})),
+        {id:'bands',title:'Shortwave, AM & more',items:bandTiles},
+        shelf('top','Top stations worldwide',groupList('top').sort(byPop),()=>openRadioSection({group:'top'})),
+        shelf('english','English radio',lang('english'),()=>openRadioSection({language:'english'})),
+        shelf('news','News & talk',tag('news'),()=>openRadioSection({tag:'news'})),
+        shelf('bollywood','Bollywood',tag('bollywood'),()=>openRadioSection({tag:'bollywood'})),
+        shelf('devotional','Devotional',tag('devotional'),()=>openRadioSection({tag:'devotional'})),
+        shelf('classical','Classical',tag('classical'),()=>openRadioSection({tag:'classical'})),
+        shelf('lofi','Lo-fi & chill',groupList('lofi').sort(byPop),()=>openRadioSection({group:'lofi'})),
+        shelf('pop','Pop',tag('pop'),()=>openRadioSection({tag:'pop'})),
+        shelf('jazz','Jazz',tag('jazz'),()=>openRadioSection({tag:'jazz'})),
+      ];
+    }
+    function renderRadioHome(){
+      const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
+      if(!home||!window.SterlingRadioHome)return;
+      const key=MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
+      if(!radioHome){const anchor=document.getElementById('sp-mostplayed-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
+      radioHome.render(buildRadioHome());
+    }
     function initRadioDirectory(){
       mountBandChips();
       if(!window.SterlingRadioCatalog||!window.SterlingRadioDirectory)return;
@@ -3820,7 +4035,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         const now=performance.now();
         const active=Boolean(radioSearchQuery.trim())||Object.values(appConfig.catalogFilters||{}).some(Boolean);
         if(!snapshot.loading||!radioDirectoryUi){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
-        else if(!active){radioDirectoryUi.progress(snapshot);if(now-radioRefreshAt>2500){radioRefreshAt=now;updateRadioDirectoryCounts();}}
+        else if(!active){radioDirectoryUi.progress(snapshot);if(now-radioRefreshAt>2500){radioRefreshAt=now;updateRadioDirectoryCounts();}if(now-radioHomeAt>5000)renderRadioHome();}
         else if(now-radioRefreshAt>2500){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
         else radioRefreshTimer=setTimeout(()=>{radioRefreshAt=performance.now();refreshRadioDirectory(radioDirectorySnapshot);},2500-(now-radioRefreshAt));
       }});
@@ -3868,6 +4083,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       radioExtras=window.SterlingMediaExtras.mount({kind:'radio',noun:'station',storageKey:'omnicast_v11_extras',
         storage:{get:key=>radioStorage.getItem(key),set:(key,value)=>radioStorage.setItem(key,value)},
         features:{sleep:true,alarm:true,stats:true},
+        settings:[['Station sources','Turn sources on or off, add, edit or delete them',()=>openRadioSources()],['Equalizer','Bass, mid and treble',()=>openDspModal()],['Startup station','What plays when Radio opens',()=>openStartupModal()]],
         isPlaying:()=>isPlaying,toggle:()=>togglePlayPause(),next:()=>playNextChannel(),prev:()=>playPrevChannel(),
         mute:()=>toggleMute(),like:()=>{toggleLikeCurrent();showToast?.(likedStations.some(s=>s.id===activeStream?.id)?'Added to Liked Stations':'Removed from Liked Stations');},
         focusSearch:()=>{if(shellActive()&&spotifyShell)spotifyShell.show('search');else document.getElementById('sp-search-desktop')?.focus();},
@@ -3896,7 +4112,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         if(radioCatalog)void radioCatalog.reload(appConfig.catalogSources);
         renderPersonalizedShelves?.();loadCategory(appConfig.activeCategory,true);showToast?.('Refreshing stations…');
       });
-      document.getElementById('sheet-queue')?.addEventListener('click',()=>document.getElementById('sheet-similar-block')?.scrollIntoView({behavior:'smooth',block:'end'}));
+      document.getElementById('sheet-queue')?.addEventListener('click',()=>document.querySelector('#mobile-player-sheet .rnp-more')?.scrollIntoView({behavior:'smooth',block:'start'}));
       spotifyShell=window.SterlingSpotifyShell.mount({kind:'radio',noun:'stations',itemType:'Station',likedTitle:'Liked Stations',placeholder:'What do you want to listen to?',
         avatar:()=>(document.querySelector('[data-radio-avatar],#sp-avatar')?.textContent||'N').trim().slice(0,1)||'N',
         items:()=>MASTER_POOL.map(shellItem),
@@ -4153,6 +4369,10 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       for(const id of ['sw-freq-slider','ytm-sw-slider']){const slider=document.getElementById(id);if(!slider)continue;slider.min=band.min;slider.max=band.max;slider.step=band.step;slider.setAttribute('aria-label',`${band.label} frequency in kilohertz`);}
       const marks=document.getElementById('sw-band-marks');
       if(marks){marks.replaceChildren(...band.marks.map(([label,from,to])=>{const b=document.createElement('button');b.type='button';b.className='radio-band-mark';b.textContent=label;b.title=`${from}–${to} kHz`;b.addEventListener('click',()=>jumpAndPlaySw(Math.round((from+to)/2)));return b;}));}
+      // Dots on the dial where stations sit, so the dial shows where to stop.
+      const ticks=document.querySelector('#sw-tuner-deck .tuner-ruler-ticks');
+      if(ticks){let dots=ticks.querySelector('.radio-dial-dots');if(!dots){dots=document.createElement('div');dots.className='radio-dial-dots';dots.setAttribute('aria-hidden','true');ticks.prepend(dots);}
+        const seen=new Set();dots.replaceChildren(...tunerPool().filter(s=>{const k=Math.round(s.freqKhz/band.step);if(seen.has(k))return false;seen.add(k);return true;}).map(s=>{const dot=document.createElement('i');dot.style.left=`${((s.freqKhz-band.min)/(band.max-band.min)*100).toFixed(2)}%`;return dot;}));}
       const ruler=document.getElementById('sw-ruler-labels');
       if(ruler){const n=6,labels=Array.from({length:n+1},(_,i)=>Math.round(band.min+(band.max-band.min)*i/n));ruler.replaceChildren(...labels.map((v,i)=>{const span=document.createElement('span');span.textContent=i===n?`${v} kHz`:String(v);return span;}));}
       for(const [action,dir] of [['47',-1],['48',1]])document.querySelectorAll(`[data-radio-click="${action}"]`).forEach(b=>{b.textContent=`${dir<0?'−':'+'}${band.step} kHz`;});
@@ -4355,6 +4575,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
         }).join('');
       }
 
+      if(document.getElementById('mobile-player-sheet')?.classList.contains('drawer-visible'))renderSheetMore();
       const sheetSim = document.getElementById('sheet-similar-row');
       if (sheetSim) {
         sheetSim.innerHTML = similarList.slice(0, 6).map(ch => {
@@ -4534,6 +4755,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       }
 
       if(radioCatalog)refreshRadioDirectory();else renderCategoryGrids();
+      renderRadioHome();
     }
 
     function setHeadings(title) {
@@ -5281,6 +5503,37 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       }
     }
 
+    // Now Playing, below the fold: "Up next" from the current list and "More like this" (same band,
+    // language and tags first), 30 rows at a time like TV.
+    let rnpFor='',rnpPool=[],rnpShown=0;
+    const rnpRow=(ch,attr)=>`<button type="button" class="rnp-row" ${attr} data-rnp-id="${escapeRadioText(ch.id)}"><img src="${getStationIdentityThumbnail(ch)}" alt="" loading="lazy" decoding="async"><span><strong>${escapeRadioText(ch.title)}</strong><small>${escapeRadioText(ch.freqKhz?`${ch.freqKhz} kHz · ${ch.country||''}`:ch.subtitle||'')}</small></span></button>`;
+    function radioMoreLike(anchor){
+      const tags=new Set(anchor.tags||[]),langs=new Set(anchor.languages||[]),out=[];
+      for(const ch of MASTER_POOL){if(ch.id===anchor.id)continue;let score=0;
+        if(anchor.band&&ch.band===anchor.band)score+=6;if(anchor.category&&ch.category===anchor.category&&anchor.category!=='directory')score+=4;
+        for(const l of ch.languages||[])if(langs.has(l)){score+=3;break;}for(const t of ch.tags||[])if(tags.has(t))score+=2;
+        if(score>=3)out.push([score,ch.pop||0,ch]);}
+      return out.sort((a,b)=>b[0]-a[0]||b[1]-a[1]).slice(0,300).map(x=>x[2]);
+    }
+    function renderSheetMore(){
+      if(!activeStream)return;
+      const queue=catalogItems.length?catalogItems:MASTER_POOL,at=queue.findIndex(ch=>ch.id===activeStream.id);
+      const next=at<0?queue.slice(0,5):[...queue.slice(at+1),...queue.slice(0,at)].slice(0,5);
+      const up=document.getElementById('sheet-up-next');if(up)up.innerHTML=next.map(ch=>rnpRow(ch,'data-rnp-play')).join('');
+      if(rnpFor===activeStream.id)return;rnpFor=activeStream.id;rnpPool=radioMoreLike(activeStream);rnpShown=0;
+      document.getElementById('sheet-similar-title').textContent=`More like this · ${rnpPool.length.toLocaleString()} ${rnpPool.length===1?'station':'stations'}`;
+      document.getElementById('sheet-similar-list').innerHTML='';appendSheetMore();
+    }
+    function appendSheetMore(){
+      const batch=rnpPool.slice(rnpShown,rnpShown+30);rnpShown+=batch.length;
+      document.getElementById('sheet-similar-list')?.insertAdjacentHTML('beforeend',batch.map(ch=>rnpRow(ch,'data-rnp-play')).join(''));
+      const more=document.querySelector('#sheet-similar-block .rnp-show-more');if(more)more.hidden=rnpShown>=rnpPool.length;
+    }
+    (()=>{const sheet=document.getElementById('mobile-player-sheet');if(!sheet)return;
+      sheet.addEventListener('click',event=>{const row=event.target.closest('[data-rnp-play]');if(row){const ch=findStationById(row.dataset.rnpId)||rnpPool.find(c=>c.id===row.dataset.rnpId);if(ch){startPlayback(ch);sheet.scrollTo({top:0,behavior:'smooth'});}return;}
+        if(event.target.closest('.rnp-show-more'))appendSheetMore();});
+      sheet.addEventListener('scroll',()=>{if(sheet.scrollTop+sheet.clientHeight>sheet.scrollHeight-240&&rnpShown<rnpPool.length)appendSheetMore();},{passive:true});
+    })();
     function stepRadioQueue(direction) {
       const episodes=activeStream?.kind==='podcast_episode'&&episodeList.some(ch=>ch.id===activeStream.id);
       const queue=episodes?episodeList:catalogItems;if(!queue.length)return;
@@ -5409,6 +5662,7 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
       s.classList.add('drawer-visible');
       s.setAttribute('role','dialog');s.setAttribute('aria-modal','true');s.setAttribute('aria-label','Now Playing');
       if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
+      s.scrollTop=0;renderSheetMore();
       s.querySelector('button')?.focus();
     }
 

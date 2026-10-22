@@ -39,7 +39,7 @@
   const languages=words(row.language||row.languages),tags=words(row.tags||row.group);
   const country=countryName(row.country||row.countrycode||(source.category==='akashvani'?'India':'')).slice(0,100),region=typeof row.state==='string'?row.state.replace(/\s+/g,' ').trim().toUpperCase().slice(0,60):'';
   const tuned=window.SterlingRadioBands?.classify({title:name,tags,freqKhz:row.freqKhz},source)||{};
-  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',band:tuned.band||null,freqKhz:tuned.khz||null,category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
+  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',pop:Number(row.clickcount)||Number(row.votes)||0,band:tuned.band||null,freqKhz:tuned.khz||null,category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
    subtitle:[country,languages.slice(0,2).map(word=>word.replace(/\b\w/g,c=>c.toUpperCase())).join(', ')].filter(Boolean).join(' · ')||'Live radio',
    streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:tuned.khz?String(tuned.khz):'LIVE',freqLabel:tuned.khz?`${tuned.khz} kHz`:'Live radio'};
  }

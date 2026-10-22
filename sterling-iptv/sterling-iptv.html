@@ -276,6 +276,7 @@
   // ── Panel ───────────────────────────────────────────────────────────────
   const dialog=el('dialog','mx-dialog');dialog.setAttribute('aria-label',`${a.kind==='tv'?'TV':'Radio'} extras`);
   dialog.innerHTML=`<header><div><small>MORE WAYS TO ${a.kind==='tv'?'WATCH':'LISTEN'}</small><h2>Extras</h2></div><button type="button" data-mx="close" aria-label="Close extras">✕</button></header>
+  <section data-mx-part="settings" hidden><h3>Settings</h3><div class="mx-settings"></div></section>
   <section class="mx-quick"><button type="button" data-mx="surprise"><b>🎲</b><span>Surprise me<small>Play a random ${noun} from this list</small></span></button></section>
   <section data-mx-part="sleep" hidden><h3>Sleep timer</h3><p class="mx-note">${a.kind==='tv'?'Video':'Sound'} fades out over the last 30 seconds, then stops.</p><div class="mx-chips" data-mx-sleep></div><p class="mx-status" data-mx-sleep-status role="status"></p></section>
   <section data-mx-part="alarm" hidden><h3>Wake-up alarm</h3><p class="mx-note">Plays a ${noun} at a set time and fades in. This page must stay open.</p>
@@ -287,6 +288,8 @@
   document.body.append(dialog);
   const $=s=>dialog.querySelector(s);
   for(const part of ['sleep','alarm','stats'])$(`[data-mx-part="${part}"]`).hidden=!f[part];
+  // App settings that used to sit on every page (sources, equalizer, startup) live here.
+  if(a.settings?.length){$('[data-mx-part="settings"]').hidden=false;$('.mx-settings').replaceChildren(...a.settings.map(([label,detail,run])=>{const b=el('button','mx-setting');b.type='button';b.append(el('span','',label),el('small','',detail));b.addEventListener('click',()=>{close();run();});return b;}));}
   let returnFocus=null;
   function open(section){returnFocus=document.activeElement;render();if(!dialog.open)dialog.showModal();dialog.scrollTop=0;if(section)$(`[data-mx-part="${section}"]`)?.scrollIntoView({block:'start'});}
   function close(){dialog.close();returnFocus?.focus?.({preventScroll:true});}
@@ -1560,6 +1563,68 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 #sw-player-window .sw-player-presets small{font-size:11px;color:#a7a7a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #sw-player-window .sw-player-more{display:block;margin:12px auto 0;padding:8px 18px;border-radius:18px;border:1px solid #ffffff40;color:#fff;font-size:12px}
 #sw-player-window .sw-player-more[hidden]{display:none}
+/* Radio home, Spotify style: rows instead of one long grid. */
+html[data-radio-home="1"] #sp-grid-section,#radio-directory-browse,#radio-world-shelves{display:none!important}
+html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
+#radio-home-shelves{margin-top:4px}
+.rh-row{margin:0 0 28px}.rh-row header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin:0 0 12px;background:transparent!important}
+.rh-row h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.02em;color:#fff}
+.rh-all{font-size:13px;font-weight:700;color:#b3b3b3;background:transparent;border:0;white-space:nowrap}.rh-all:hover{color:#fff;text-decoration:underline}
+.rh-strip{display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:2px;scrollbar-width:none;padding-bottom:4px}.rh-strip::-webkit-scrollbar{display:none}
+.rh-end{flex:none;width:1px}
+.rh-card{flex:none;width:156px;padding:10px;border-radius:8px;background:transparent;border:0;color:#fff;text-align:left;scroll-snap-align:start;cursor:pointer}
+.rh-card:hover,.rh-card:focus-visible{background:#ffffff12}
+.rh-card img{display:block;width:136px;height:136px;border-radius:6px;object-fit:cover;background:#282828;margin-bottom:8px}
+.rh-card strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:14px;font-weight:600;line-height:1.3}
+.rh-card small{display:block;margin-top:4px;font-size:12px;color:#a7a7a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rh-tile .rh-mosaic{display:grid;grid-template-columns:1fr 1fr;width:136px;height:136px;border-radius:6px;overflow:hidden;background:var(--tile);margin-bottom:8px}
+.rh-tile .rh-mosaic img{width:68px;height:68px;margin:0;border-radius:0}
+.rh-tile .rh-mosaic b{grid-column:1/-1;grid-row:1/-1;display:grid;place-items:center;font-size:34px;font-weight:800;letter-spacing:-.04em;color:#fff}
+@media(max-width:1023px){.rh-card{width:140px;padding:6px}.rh-card img,.rh-tile .rh-mosaic{width:128px;height:128px}.rh-tile .rh-mosaic img{width:64px;height:64px}.rh-row h2{font-size:20px}}
+/* Section toolbar: narrowing chips, genre chips (Spotify pills) and the filter icon. */
+.radio-directory-tools{margin:0 0 14px}
+.radio-section-bar{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.radio-sub-chips,.radio-genre-chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}.radio-sub-chips::-webkit-scrollbar,.radio-genre-chips::-webkit-scrollbar{display:none}
+.radio-sub-chips[hidden]{display:none}
+.radio-sub-chips button,.radio-genre-chips button{flex:none;min-height:32px;padding:6px 14px;border-radius:16px;border:0;background:#2a2a2a;color:#fff;font-size:13px;font-weight:500;white-space:nowrap}
+.radio-sub-chips button:hover,.radio-genre-chips button:hover{background:#333}
+.radio-sub-chips button[aria-pressed=true],.radio-genre-chips button[aria-pressed=true]{background:#fff;color:#000;font-weight:600}
+.radio-genre-chips button[hidden]{display:none}
+.radio-filter-btn{position:relative;flex:none;width:36px;height:36px;border-radius:50%;border:0;background:#2a2a2a;color:#fff;display:grid;place-items:center;margin-left:auto}
+.radio-filter-btn svg{width:18px;height:18px;fill:currentColor}.radio-filter-btn[aria-expanded=true]{background:#fff;color:#000}
+.radio-filter-count{position:absolute;top:-3px;right:-3px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#1ed760;color:#000;font:700 10px/16px Inter,system-ui,sans-serif}.radio-filter-count[hidden]{display:none}
+.radio-filter-panel{margin:4px 0 12px;padding:12px;border-radius:12px;background:#181818;border:1px solid #ffffff14}.radio-filter-panel[hidden]{display:none}
+.radio-filter-panel [data-clear-filters]{margin-top:10px;min-height:32px;padding:6px 14px;border-radius:16px;border:1px solid #ffffff40;color:#fff;background:transparent;font-size:12px}
+.radio-source-loading{display:flex;align-items:center;gap:10px;font-size:12px;color:#a7a7a7;margin:0 0 8px}.radio-source-loading button{min-height:30px!important;padding:4px 12px!important}
+/* Radio Now Playing matches TV: the first screen is the player; Up next and More like this follow on scroll. */
+#mobile-player-sheet.solid-mobile-sheet{display:block!important}
+.rnp-main{min-height:calc(100dvh - 40px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;justify-content:space-between}
+.rnp-more{margin:22px -8px 0;padding:16px 8px 6px;border-radius:12px;background:#0000002e}
+.rnp-more header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 4px 8px;background:transparent!important}
+.rnp-more h3{font-size:16px;font-weight:700;margin:0;color:#fff}.rnp-more header button{font-size:12px;color:#d6d6d6;border:1px solid #ffffff40;border-radius:16px;padding:5px 12px}
+.rnp-row{display:flex;align-items:center;gap:12px;width:100%;min-height:58px;padding:6px 4px;text-align:left;color:#fff;background:transparent;border:0}
+.rnp-row img{width:48px;height:48px;border-radius:4px;object-fit:cover;flex:none;background:#ffffff14}
+.rnp-row span{min-width:0;display:flex;flex-direction:column;gap:3px}
+.rnp-row strong{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rnp-row small{font-size:12px;color:#b3b3b3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rnp-show-more{display:block;margin:10px auto 6px;font-size:13px;font-weight:600;border:1px solid #ffffff50;border-radius:18px;padding:8px 18px;color:#fff}.rnp-show-more[hidden]{display:none}
+.rh-tile .rh-mosaic{position:relative}.rh-tile .rh-mosaic b{position:absolute;inset:0;z-index:0}.rh-tile .rh-mosaic img{position:relative;z-index:1}
+.mx-settings{display:flex;flex-direction:column;gap:6px}
+.mx-setting{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:12px 14px;border-radius:12px;background:#ffffff0d;border:0;color:#fff;text-align:left}
+.mx-setting:hover,.mx-setting:focus-visible{background:#ffffff1a}.mx-setting span{font-size:14px;font-weight:600}.mx-setting small{font-size:12px;color:#a7a7a7}
+/* Simpler band tuner: always open in a band section, no drawer, no motion; big readout; station dots. */
+#sw-tuner-deck,#sw-tuner-deck *,#sw-player-window,#sw-player-window *{transition:none!important;animation:none!important}
+#sw-tuner-deck #sw-tuner-drawer{display:block!important;border-top:0!important;background:transparent!important;padding-top:0!important}
+#sw-tuner-deck #sw-expand-btn,#sw-tuner-deck #sw-expand-icon{display:none!important}
+#sw-tuner-deck>div:first-child{height:auto!important;min-height:64px;padding-top:12px!important;padding-bottom:8px!important}
+#sw-tuner-deck #sw-freq-pill{font-size:20px!important;padding:6px 12px!important;letter-spacing:-.02em}
+#sw-tuner-deck #sw-nearest-title{font-size:15px!important;font-weight:700!important}
+#sw-tuner-deck #sw-band-badge{display:inline-block!important;font-weight:700!important}
+#sw-tuner-deck [data-radio-click="38"],#sw-tuner-deck [data-radio-click="39"]{width:40px!important;height:40px!important;border-radius:50%!important}
+#sw-tuner-deck .tuner-ruler-ticks{position:relative;height:44px!important}
+.radio-dial-dots{position:absolute;left:0;right:0;top:4px;height:8px;pointer-events:none}
+.radio-dial-dots i{position:absolute;top:0;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--band);opacity:.85}
+#sw-tuner-deck .tuner-ruler-slider{position:relative;z-index:1}
 
 </style>
   <script>
