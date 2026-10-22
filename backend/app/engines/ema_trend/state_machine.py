@@ -174,10 +174,8 @@ def decide(c: Campaign, f: Feature, previous: Feature | None, profile: Profile,
         return make_action(c, "STOP", "SELL", c.qty, f.index, f.bar.available_ms, price)
     local = datetime.fromtimestamp(f.bar.close_ms/1000, IST)
     session_due = profile.force_close and local.strftime("%H:%M") >= profile.force_close
-    from .config import gap_close_due
-    session_due = session_due or gap_close_due(profile, local)
     # Any accidental next-day intraday holding closes at the first observation.
-    if previous and profile.mode not in ("swing", "overnight"):
+    if previous and profile.mode != "swing":
         session_due = session_due or local.date() != datetime.fromtimestamp(previous.bar.close_ms/1000, IST).date()
     time_due = profile.max_hold_bars is not None and f.index-c.entry_index >= profile.max_hold_bars
     if c.pending and c.pending.side == "BUY" and (session_due or time_due or c.state == "CLOSING"):

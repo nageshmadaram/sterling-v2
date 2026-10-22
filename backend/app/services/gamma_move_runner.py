@@ -497,13 +497,6 @@ def _product(pos_or_hold) -> str:
     return "NRML"
 
 
-def _gap_after(day: date) -> bool:
-    """True when the next trading day is not the next calendar day."""
-    from datetime import timedelta
-    from app.engines.gamma_move.selection import is_trading_day
-    return not is_trading_day(day + timedelta(days=1))
-
-
 def hold_for_dte(dte: int | None) -> str:
     return "intraday" if dte is not None and dte <= 1 else "swing"
 
@@ -541,10 +534,8 @@ def stale_signal_gate(at_ms: int, now_ms: int | None = None) -> dict | None:
 
 
 def hold_gate(cfg: GammaMoveConfig, hold: str, paper: bool | None,
-              now: datetime | None = None, *, live_enabled: bool = True,
-              mode: str | None = None) -> dict | None:
+              now: datetime | None = None, *, live_enabled: bool = True) -> dict | None:
     """Why this hold cannot be entered in the current broker mode, if it cannot."""
-    from app.engines.gamma_move.modes import LIVE_TESTED_MODES
     now = now or _now()
     if hold == "intraday" and now.time() >= dtime(15, 20):
         return {"code": "intraday_entry_cutoff", "reason": _CUTOFF_MESSAGE}
@@ -553,11 +544,6 @@ def hold_gate(cfg: GammaMoveConfig, hold: str, paper: bool | None,
             return {
                 "code": "live_execution_disabled",
                 "reason": "New entries are halted by the operator master switch (STERLING_LIVE_EXECUTION).",
-            }
-        if mode and mode not in LIVE_TESTED_MODES:
-            return {
-                "code": "mode_practice_only",
-                "reason": f"{mode.replace('_', ' ').title()} mode is not tested with real money yet. Practice only.",
             }
         if hold == "swing":
             return {
@@ -579,9 +565,7 @@ def entry_gate(cfg: GammaMoveConfig, *, tier: str, dte: int | None, at_ms: int,
     why not". The board and the alerts read this; arm() enforces the same rules.
     """
     now = now or _now()
-    from app.engines.gamma_move.modes import resolve_mode
-    rules = resolve_mode(getattr(cfg, "trade_mode", "auto"), dte)
-    hold = rules.hold
+    hold = hold_for_dte(dte)
     blocked = None
     if tier != TIER_ENTRY:
         blocked = {
@@ -593,11 +577,11 @@ def entry_gate(cfg: GammaMoveConfig, *, tier: str, dte: int | None, at_ms: int,
     else:
         blocked = (
             stale_signal_gate(at_ms, int(now.timestamp() * 1000))
-            or hold_gate(cfg, hold, paper, now, live_enabled=live_enabled, mode=rules.mode)
+            or hold_gate(cfg, hold, paper, now, live_enabled=live_enabled)
         )
     if blocked is None:
-        return {"eligible": True, "code": "", "reason": "", "hold": hold, "mode": rules.mode}
-    return {"eligible": False, "hold": hold, "mode": rules.mode, **blocked}
+        return {"eligible": True, "code": "", "reason": "", "hold": hold}
+    return {"eligible": False, "hold": hold, **blocked}
 
 
 async def arm(uid: str, signal_id: str) -> dict:
@@ -692,13 +676,9 @@ async def arm(uid: str, signal_id: str) -> dict:
             return {"ok": False, "message": "execution size resolves to zero"}
 
         client = await _client(uid)
-        from app.engines.gamma_move.modes import resolve_mode
-        rules = resolve_mode(cfg.trade_mode, sig.contract.dte)
-        hold = rules.hold
+        hold = hold_for_dte(sig.contract.dte)
         # A simulated client is judged by the rules of real money: its results must predict what AUTO would do.
-        block = hold_gate(cfg, hold, False if is_live_like(client) else getattr(client, "_is_paper", None),
-                          # Untested modes are refused only on a REAL account; practice is the point.
-                          mode=rules.mode if getattr(client, "_is_paper", None) is False else None)
+        block = hold_gate(cfg, hold, False if is_live_like(client) else getattr(client, "_is_paper", None))
         if block:
             return {"ok": False, "code": block["code"], "message": block["reason"]}
 
@@ -742,7 +722,7 @@ async def arm(uid: str, signal_id: str) -> dict:
 
         pos = PositionState.from_signal(
             sig, fill=limit, quantity=qty, lots=cfg.execution_lots,
-            at_ms=_now_ms(), day=_today_str(), trade_mode=cfg.trade_mode,
+            at_ms=_now_ms(), day=_today_str(),
         )
         pos.order_id = order_id
         pos.idempotency_key = idem
@@ -2223,19 +2203,6 @@ async def _reference_time_sweeps(uid: str,
             grade_price=ltp,
         )
 
-    # Mode time limits (ultra scalp 20 min, scalp 60 min). Checked every sweep.
-    now_ms = int(now.timestamp() * 1000)
-    for pos in list(positions_store.open_positions(uid)):
-        limit = int(getattr(pos, "time_limit_min", 0) or 0)
-        if limit <= 0 or pos.exiting or not pos.entered_ms:
-            continue
-        if now_ms - int(pos.entered_ms) < limit * 60_000:
-            continue
-        ltp = await _quote_ltp(client, pos)
-        if ltp <= 0:
-            continue
-        await _execute_exit(uid, pos, market_ltp=ltp, reason="TIME", grade_price=ltp)
-
     # Reference D125/D26: 15:20 intraday, expiry and day-5 exits.
     if now.time() >= dtime(15, 20):
         key = (uid, today.isoformat(), "15:20")
@@ -2253,16 +2220,12 @@ async def _reference_time_sweeps(uid: str,
                 positions_store.put(uid, pos)
 
                 reason = None
-                session_cap = int(getattr(pos, "max_sessions", 0) or 0) or cfg.swing_days
                 if pos.hold == "intraday":
                     reason = "EOD"
-                elif today >= expiry and day_k < session_cap:
+                elif today >= expiry and day_k < cfg.swing_days:
                     reason = "EXPIRY"
-                elif day_k >= session_cap:
-                    reason = "DAY5" if session_cap == cfg.swing_days else "SESSION_LIMIT"
-                elif getattr(pos, "no_gap_carry", False) and _gap_after(today):
-                    # Overnight never carries into a weekend or holiday.
-                    reason = "GAP"
+                elif day_k >= cfg.swing_days:
+                    reason = "DAY5"
                 if reason is None:
                     continue
 
@@ -3242,7 +3205,6 @@ async def adopt(uid: str, symbol: str,
         lots=lots,
         at_ms=_now_ms(),
         day=_today_str(),
-        trade_mode=get_config(uid).trade_mode,
     )
     client = await _client(uid)
     pos.account_id = str(getattr(client, "_account_id", "") or "")

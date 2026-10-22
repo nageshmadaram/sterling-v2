@@ -74,10 +74,6 @@ class GammaMoveConfig:
 
     # strategy.yaml: hold
     swing_days: int = 5
-    # Trading mode. "auto" is the reference rule (expiry within 1 day trades
-    # intraday, otherwise swing). The other modes reuse the same entry signal
-    # with their own exits; see engines/gamma_move/modes.py.
-    trade_mode: str = "auto"
 
     # strategy.yaml: four gates
     gates_enabled: bool = True
@@ -152,9 +148,6 @@ class GammaMoveConfig:
             raise ValueError("vol_build_min_of_last3 must be between 1 and 3")
         if not 0 <= self.h_max_zero_vol_slots <= self.consol_bars:
             raise ValueError("h_max_zero_vol_slots must be between 0 and consol_bars")
-        from .modes import TRADE_MODES
-        if self.trade_mode not in ("auto", *TRADE_MODES):
-            raise ValueError(f"unknown trade_mode: {self.trade_mode}")
         if self.expiry_dte_threshold < 0:
             raise ValueError("expiry_dte_threshold cannot be negative")
         if self.min_oi_lots < 0 or self.min_prev_turnover_rs < 0 or self.min_premium_ticks < 0:

@@ -97,7 +97,7 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> GammaMoveConfi
             scanner.clear_levels(uid)
 
         execution_only = {
-            "auto_execute", "execution_lots", "stop_mode", "trade_mode",
+            "auto_execute", "execution_lots", "stop_mode",
             "alert_group_rate_per_min", "alert_per_chat_rate_per_sec",
         }
         signal_changed = changed - execution_only
