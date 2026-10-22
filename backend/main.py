@@ -644,9 +644,6 @@ def create_app() -> FastAPI:
     app.include_router(price_rules_router, prefix="/api/v1")
     from app.api.v1.endpoints.ema_trend import router as ema_trend_router
     app.include_router(ema_trend_router, prefix="/api/v1")
-    # Public YouTube library for the sandboxed TV page (fixed channel list, no input).
-    from app.api.v1.endpoints.media_youtube import router as media_youtube_router
-    app.include_router(media_youtube_router, prefix="/api/v1")
     app.include_router(backtest_router, prefix="/api/v1")
 
     # Zerodha Kite (Indian markets) — multi-tenant manual console
