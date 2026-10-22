@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -108,12 +109,27 @@ class SnapbackStopMonitor:
 
     # ------------------------------------------------------------------- ticks
 
+    # on_tick runs on the event loop for EVERY tick. Reading the warehouse each time opened
+    # a SQLite connection per tick with a 15 s busy timeout, and a busy database froze the
+    # whole backend for up to 25 s (order handling included). Read at most once a second.
+    _POSITIONS_TTL_S = 1.0
+
     def _open_positions(self) -> List[Dict[str, Any]]:
+        now = time.monotonic()
+        cached = getattr(self, "_positions_cache", None)
+        if cached is not None and now - cached[0] < self._POSITIONS_TTL_S:
+            return cached[1]
         try:
-            return [dict(p) for p in (self.warehouse.get_active_paper_positions() or [])]
+            rows = [dict(p) for p in (self.warehouse.get_active_paper_positions() or [])]
         except Exception as exc:
             log.warning("Stop monitor: could not read positions: %s", exc)
-            return []
+            return cached[1] if cached is not None else []
+        self._positions_cache = (now, rows)
+        return rows
+
+    def invalidate_positions(self) -> None:
+        """Forget the cached open positions (call after opening or closing one)."""
+        self._positions_cache = None
 
     def on_tick(self, tick: Dict[str, Any], *, source: str = "WEBSOCKET") -> None:
         """Observe one tick for a subscribed contract and apply the frozen stop rules."""
@@ -122,7 +138,10 @@ class SnapbackStopMonitor:
         bid = _f(tick.get("bid"))
         ask = _f(tick.get("ask"))
 
-        for pos in self._open_positions():
+        positions = self._open_positions()
+        if not any(str(p.get("option_symbol") or "") == contract for p in positions):
+            return
+        for pos in positions:
             if str(pos.get("option_symbol") or "") != contract:
                 continue
 
@@ -219,6 +238,9 @@ class SnapbackStopMonitor:
             pending_exit_option_bid=bid,
             pending_exit_ts=observed_at.astimezone(timezone.utc).isoformat(),
         )
+        # Latch in the cached row too, so the next tick inside the cache window sees it.
+        pos["status"] = "EXIT_PENDING"
+        pos["pending_exit_reason"] = reason
         log.warning(
             "Stop monitor latched %s for %s at bid %.2f (%s)",
             reason, opp, bid, observed_at.isoformat(),
