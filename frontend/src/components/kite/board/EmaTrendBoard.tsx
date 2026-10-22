@@ -3,6 +3,7 @@ import { useEmaTrendConfig, useEmaTrendSnapshot, useRunEmaTrendScan, useEmaTrend
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
+import { useSignalMarketData } from './useSignalMarketData';
 import { SignalBoard } from './SignalBoard';
 import { BoardFilters } from './BoardFilters';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
@@ -94,7 +95,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
     if (job.data?.status === 'COMPLETED' || job.data?.status === 'FAILED') void snapshot.refetch();
   }, [job.data?.id, job.data?.status]);
 
-  const signals = React.useMemo(() => historical ? [] : [
+  const adaptedSignals = React.useMemo(() => historical ? [] : [
     ...emaTrendCampaignsToBoard(snapshot.data?.campaigns || []),
     ...oneRowPerStock(emaTrendSetupsToBoard(snapshot.data?.rows || []).map(row => ({
       ...row,
@@ -104,6 +105,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         snapshot.data.paused !== true && snapshot.data.capabilities?.paper === true,
     }))),
   ], [snapshot.data, historical]);
+  // Live price and today's change for every listed stock (display only).
+  const signals = useSignalMarketData(adaptedSignals, historical);
   // v4 starts with an unrestricted view; stale TODAY/ENDED preferences must
   // not make genuine older saved signals look like a broken scanner.
   const commonColumns = useSignalColumns();

@@ -56,7 +56,7 @@ export const SIGNAL_RIGHT_COLUMNS: Record<string, SignalColumnDef> = {
   // nothing to order, and a heading that offers a sort it cannot perform is
   // worse than one that does not offer it. The shared board sorts its own
   // `time` column because there the rows are signals, which do differ.
-  time: { key: 'time', label: 'Time', width: 78, align: 'right', visibleWhen: 'always', tooltip: 'When the signal fired' },
+  time: { key: 'time', label: 'Time', width: 100, align: 'right', visibleWhen: 'always', tooltip: 'When the signal fired' },
   /**
    * Buy and Sell, and the chart, as COLUMNS the picker can switch off.
    *

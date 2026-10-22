@@ -204,12 +204,12 @@ describe('dates and day order', () => {
     score: null, reason: null, sections: [],
   });
 
-  it('stamps today with a date and seconds, not a bare minute', () => {
+  it('stamps today with a date and the minute, short enough to show in full', () => {
     // Minute precision hid what the row exists to report: Adaptive Edge scalps
     // order flow, and the recorded ATM bot opened and closed inside 3 seconds.
     render(<SignalBoard signals={[dated('a', NOW - 3_600_000, 'running')]}
       columns={['instrument', 'time']} nowMs={NOW} openId={null} onToggle={() => {}} />);
-    expect(screen.getByText('21 Aug 09:30:00')).toBeTruthy();
+    expect(screen.getByText('21 Aug 09:30')).toBeTruthy();
   });
 
   it('carries the date when the row is not from today — the original bug', () => {
@@ -217,7 +217,7 @@ describe('dates and day order', () => {
     // so the cell has to.
     render(<SignalBoard signals={[dated('a', NOW - DAY, 'running')]}
       columns={['instrument', 'time']} nowMs={NOW} openId={null} onToggle={() => {}} />);
-    expect(screen.getByText('20 Aug 10:30:00')).toBeTruthy();
+    expect(screen.getByText('20 Aug 10:30')).toBeTruthy();
   });
 
   it('renders a dash for an unusable timestamp instead of throwing', () => {
@@ -238,7 +238,7 @@ describe('dates and day order', () => {
       columns={['instrument', 'time']} nowMs={NOW} openId={null} onToggle={() => {}} />);
     // 'Older' is the only band here, so it is the newest and opens by default.
     expect(screen.getByText('Older')).toBeTruthy();
-    expect(screen.getByText('17 Aug 10:30:00')).toBeTruthy();
+    expect(screen.getByText('17 Aug 10:30')).toBeTruthy();
     expect(screen.queryByText(/^\w{3},? 17 Aug$/), 'no day band').toBeNull();
   });
 

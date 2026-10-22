@@ -32,6 +32,12 @@ export function emaTrendSetupsToBoard(rows: readonly EmaTrendSetup[], historical
     return { id: row.id, engine: 'ema_trend', mode: normalizeMode(row.mode), underlying: row.symbol.split(':').pop()!, instrument: instrument(row.symbol,row.contract,spotWatch),
       direction: 'long', status: row.status === 'expired' ? 'ended' : row.status, atMs: row.close_ms,
       levels: { ltp: number(f.bar.close), entry: number(row.ceiling), stop: number(row.stop), trail: null, target: null, exit: null },
+      // EMA Trend rides the trend: no fixed target, and the stop starts trailing once in a trade.
+      levelNotes: {
+        target: { text: 'Trend', hint: 'No fixed target: the trade rides the trend until the trailing stop or the EMA exit closes it.' },
+        trail: { text: 'After entry', hint: 'The stop starts trailing once the trade is open.' },
+      },
+      exitProgress: 'Not in trade',
       sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null }, score: null, reason: row.reason,
       historical, executionEligible: !historical && !spotWatch && row.status === 'armed' && row.activation_eligible === true && row.entry_window_open !== false, planPriced: true,
       origin: { label: spotWatch ? 'WATCH ONLY' : 'SELECTED', hint: spotWatch ? 'Index signal, watch only.' : 'From your selected names, finished candles only.', tone: 'blue' },

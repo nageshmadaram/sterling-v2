@@ -243,6 +243,8 @@ export interface BoardSignal {
    * board silently replaced its counter with a realised price it does not have.
    */
   exitProgress?: string | null;
+  /** Replaces the time cell, e.g. a daily-candle signal shown as its date and "day close". */
+  timeLabel?: string;
   /**
    * What a level column says when the engine has a rule rather than a premium,
    * e.g. a swing stop that is an underlying daily close, or a trail that only
@@ -681,10 +683,12 @@ export const hhmmss = (ms: number) =>
  * Today stays bare, because repeating today's date on every row of a board an
  * operator is watching live is noise.
  */
+/** Hours and minutes only: seconds made the time too long for its column and it was cut off. */
+const hhmm = (ms: number) => hhmmss(ms).slice(0, 5);
 export const stamp = (ms: number | null, nowMs: number, isLeg = false) => {
   if (ms == null || !Number.isFinite(ms)) return '—';
-  if (isLeg) return hhmmss(ms);
-  return `${sessionDayDate(sessionDayKey(ms), nowMs)} ${hhmmss(ms)}`;
+  if (isLeg) return hhmm(ms);
+  return `${sessionDayDate(sessionDayKey(ms), nowMs)} ${hhmm(ms)}`;
 };
 
 

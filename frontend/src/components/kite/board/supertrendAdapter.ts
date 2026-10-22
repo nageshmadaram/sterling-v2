@@ -425,6 +425,9 @@ function supertrendSignalToBoard(
  */
 function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterOptions): BoardOrigin[] {
   const flags: BoardOrigin[] = [];
+  if (row.view_only) {
+    flags.push({ label: 'VIEW ONLY', tone: 'dim', hint: 'A signal from a mode SuperTrend is not set to trade. To trade it, switch SuperTrend to this mode in Settings.' });
+  }
 
   const reason = row.exit_reason;
   if (reason?.startsWith('trail breach')) {

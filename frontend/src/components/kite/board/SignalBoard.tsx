@@ -603,8 +603,8 @@ function cellContent(
       const stale = signal.quoteAgeS != null && signal.quoteAgeS > STALE_AFTER_S;
       return {
         node: stale
-          ? <span title={`Quote is ${Math.round(signal.quoteAgeS!)}s old`}>{stamp(signal.atMs, nowMs, isLeg)} · stale</span>
-          : stamp(signal.atMs, nowMs, isLeg),
+          ? <span title={`Quote is ${Math.round(signal.quoteAgeS!)}s old`}>{signal.timeLabel ?? stamp(signal.atMs, nowMs, isLeg)} · stale</span>
+          : (signal.timeLabel ?? stamp(signal.atMs, nowMs, isLeg)),
         color: stale ? k.red : k.dim,
       };
     }

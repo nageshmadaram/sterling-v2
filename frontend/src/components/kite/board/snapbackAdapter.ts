@@ -362,7 +362,7 @@ function underlyingNotes(row: SnapbackRow): BoardSignal['levelNotes'] {
   if (ltp) notes.ltp = { text: ltp, hint: 'Underlying spot at the scan. No option contract to quote.' };
   if (entry) notes.entry = { text: entry, hint: 'The 20-session extreme the close broke. The trade is an option on this move.' };
   if (target) notes.target = { text: target, hint: 'The 20-session mean the setup expects price to return to.' };
-  notes.stop = { text: 'no contract', hint: `The stop is a premium level, set once a contract is chosen. ${why}` };
+  notes.stop = { text: 'n/a', hint: `No stop yet: the stop is an option price, set once a contract is chosen. ${why}` };
   return notes;
 }
 
@@ -396,6 +396,10 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // once that candle has closed, so the time shown is the close, matching the
     // daily lane where the stamp is the 15:30 close.
     atMs: (isMinuteBarMode(row) ? row.signal_close_ms : null) ?? row.timestamp_ms ?? null,
+    // Swing reads DAILY candles: the signal is the day's close (15:30), not a time of day.
+    timeLabel: !isMinuteBarMode(row) && row.timestamp_ms
+      ? `${new Date(row.timestamp_ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })} · day close`
+      : undefined,
     // How old the quote behind `levels.ltp` is, computed by the server when it
     // served the row. Rows outlive their scan; an unlabelled old LTP reads as live.
     quoteAgeS: row.quote_age_s ?? null,
