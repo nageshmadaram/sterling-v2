@@ -2372,7 +2372,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
       if(!home||!window.SterlingRadioHome)return;
       const key=MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
-      if(!radioHome){const anchor=document.getElementById('sp-mostplayed-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
+      if(!radioHome){const anchor=document.getElementById('sp-recents-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
       radioHome.render(buildRadioHome());
     }
     function initRadioDirectory(){

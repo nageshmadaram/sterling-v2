@@ -208,6 +208,8 @@
     handle.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','Home','End'].includes(e.key)){e.preventDefault();resize(e.key==='Home'?40:e.key==='End'?95:Number(handle.getAttribute('aria-valuenow'))+(e.key==='ArrowUp'?10:-10));}});
     sheet.classList.add('tm-sheet-open');sheet.querySelector('button')?.focus();
   }
+  // Filter icon at the end of the category chips, as in Radio; it opens TV's filters sheet.
+  {const pills=document.getElementById('dynamic-category-pills-row');if(pills&&!document.getElementById('tm-filter-btn')){const b=document.createElement('button');b.id='tm-filter-btn';b.type='button';b.className='radio-filter-btn tm-filter-btn';b.dataset.tmAction='filters';b.setAttribute('aria-label','Filter channels');b.title='Filter channels';b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8.2V19l-4 2v-7.8z"/></svg>';pills.after(b);}}
   // Back: every place opened from here records how to return (media/nav-stack.js).
   const tvNav=window.SterlingNav?.create({kind:'tv',hosted:()=>hosted});
   function tvPlace(){

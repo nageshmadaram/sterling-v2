@@ -1032,6 +1032,11 @@
  .channel-grid-card img,.tm-quick button,.tm-album,.tm-icon {transition-property:transform,opacity,background-color,border-color;transition-duration:.16s;}
 }
 @keyframes tm-menu-enter {from {opacity:0;transform:translateY(14px);} to {opacity:1;transform:translateY(0);}}
+.tm-filter-btn { display:none!important; }
+@media (max-width:767px), (max-width:1024px) and (max-height:600px) {
+  .theme-spotify.tm-catalog-view .tm-filter-btn { display:grid!important;position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:2;box-shadow:-12px 0 12px var(--bg-canvas,#121212); }
+  .theme-spotify.tm-catalog-view #dynamic-category-pills-row { padding-right:48px; }
+}
 </style>
 <!-- TV MOBILE STYLE END -->
 <style>
@@ -1625,6 +1630,16 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
 .radio-dial-dots{position:absolute;left:0;right:0;top:4px;height:8px;pointer-events:none}
 .radio-dial-dots i{position:absolute;top:0;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--band);opacity:.85}
 #sw-tuner-deck .tuner-ruler-slider{position:relative;z-index:1}
+/* Phone: Radio rows use TV's card and title metrics, so both apps read the same. */
+@media(max-width:1023px){
+ .rh-strip{gap:14px}.rh-card{width:142px;padding:0}.rh-card:hover{background:transparent}
+ .rh-card img,.rh-tile .rh-mosaic{width:142px;height:142px;border-radius:5px}.rh-tile .rh-mosaic img{width:71px;height:71px}
+ .rh-row{margin:24px 0 0}.rh-row header{margin:0 0 15px}
+ .rh-row h2{font-size:22px;font-weight:800;letter-spacing:-.7px;line-height:1.2}
+ .rh-all{font-size:11px;font-weight:700;color:#bbb}
+ .mode-spotify :is(#sp-recents-carousel,#sp-suggested-carousel,#sp-mostplayed-carousel)>.snap-card{width:142px}
+}
+.rh-row header,.rnp-more header,.radio-youtube header{padding:0!important}
 
 </style>
   <script>
@@ -5787,6 +5802,8 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
     handle.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','Home','End'].includes(e.key)){e.preventDefault();resize(e.key==='Home'?40:e.key==='End'?95:Number(handle.getAttribute('aria-valuenow'))+(e.key==='ArrowUp'?10:-10));}});
     sheet.classList.add('tm-sheet-open');sheet.querySelector('button')?.focus();
   }
+  // Filter icon at the end of the category chips, as in Radio; it opens TV's filters sheet.
+  {const pills=document.getElementById('dynamic-category-pills-row');if(pills&&!document.getElementById('tm-filter-btn')){const b=document.createElement('button');b.id='tm-filter-btn';b.type='button';b.className='radio-filter-btn tm-filter-btn';b.dataset.tmAction='filters';b.setAttribute('aria-label','Filter channels');b.title='Filter channels';b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8.2V19l-4 2v-7.8z"/></svg>';pills.after(b);}}
   // Back: every place opened from here records how to return (media/nav-stack.js).
   const tvNav=window.SterlingNav?.create({kind:'tv',hosted:()=>hosted});
   function tvPlace(){

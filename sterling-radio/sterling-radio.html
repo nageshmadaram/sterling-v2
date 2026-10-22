@@ -1805,6 +1805,16 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
 .radio-dial-dots{position:absolute;left:0;right:0;top:4px;height:8px;pointer-events:none}
 .radio-dial-dots i{position:absolute;top:0;width:6px;height:6px;margin-left:-3px;border-radius:50%;background:var(--band);opacity:.85}
 #sw-tuner-deck .tuner-ruler-slider{position:relative;z-index:1}
+/* Phone: Radio rows use TV's card and title metrics, so both apps read the same. */
+@media(max-width:1023px){
+ .rh-strip{gap:14px}.rh-card{width:142px;padding:0}.rh-card:hover{background:transparent}
+ .rh-card img,.rh-tile .rh-mosaic{width:142px;height:142px;border-radius:5px}.rh-tile .rh-mosaic img{width:71px;height:71px}
+ .rh-row{margin:24px 0 0}.rh-row header{margin:0 0 15px}
+ .rh-row h2{font-size:22px;font-weight:800;letter-spacing:-.7px;line-height:1.2}
+ .rh-all{font-size:11px;font-weight:700;color:#bbb}
+ .mode-spotify :is(#sp-recents-carousel,#sp-suggested-carousel,#sp-mostplayed-carousel)>.snap-card{width:142px}
+}
+.rh-row header,.rnp-more header,.radio-youtube header{padding:0!important}
 
 </style>
   <script>
@@ -4019,7 +4029,7 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
       const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
       if(!home||!window.SterlingRadioHome)return;
       const key=MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
-      if(!radioHome){const anchor=document.getElementById('sp-mostplayed-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
+      if(!radioHome){const anchor=document.getElementById('sp-recents-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
       radioHome.render(buildRadioHome());
     }
     function initRadioDirectory(){
