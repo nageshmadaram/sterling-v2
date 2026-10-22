@@ -2337,10 +2337,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     /* Spotify-style home (media/radio-home.js): playlists, languages, Akashvani zones, bands and genres
        as horizontal rows. The long grid only appears inside a section. */
-    let radioHome=null,radioHomeKey='',radioHomeAt=0;
+    let radioHome=null,radioHomeKey='',radioHomeAt=0,radioListView=false;
     const HOME_COLORS=['#8d67ab','#1e3264','#e8115b','#148a08','#bc5900','#509bf5','#af2896','#27856a','#e91429','#477d95'];
-    function radioIsHome(){const f=appConfig.catalogFilters||{};return appConfig.activeCategory==='all'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&document.documentElement.dataset.radioView==='home';}
-    function openRadioSection(filters,cat='all'){rememberRadioPlace();appConfig.catalogFilters=filters;saveAppConfig();loadCategory(cat,true);document.documentElement.dataset.radioView='collection';refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start'});}
+    // Rows (Spotify style) on Home and in every section; the vertical list only for Show all, filters and search.
+    function radioIsHome(){const f=appConfig.catalogFilters||{};return !radioListView&&appConfig.activeCategory!=='podcasts'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&['home','collection'].includes(document.documentElement.dataset.radioView);}
+    function openRadioSection(filters,cat=appConfig.activeCategory||'all'){rememberRadioPlace();appConfig.catalogFilters=filters;radioListView=true;saveAppConfig();loadCategory(cat,true);document.documentElement.dataset.radioView='collection';refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start'});}
     function buildRadioHome(){
       const pool=MASTER_POOL,byPop=(a,b)=>(b.pop||0)-(a.pop||0),station=s=>({kind:'station',key:s.id,station:s});
       const shelf=(id,title,list,open)=>({id,title,items:list.slice(0,300).map(station),open});
@@ -2353,7 +2354,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const zoneTiles=Object.entries(zones).map(([id,label])=>{const list=air.filter(s=>zoneOf(s)===id);return list.length?tile('zone:'+id,label,`Akashvani · ${list.length} stations`,list,()=>openRadioSection({zone:id},'akashvani')):null;}).filter(Boolean);
       const bandTiles=(window.SterlingRadioBands?.list()||[]).map(b=>{const list=bandStations(b);return list.length?tile('band:'+b.id,b.label,`${list.length} stations · ${b.short}`,[],()=>loadCategory(b.category),b.short):null;}).filter(Boolean);
       return [
-        {id:'made',title:'Made for you',items:made},
+        {id:'made',title:'Made for you',size:'large',items:made},
         shelf('telugu','Telugu radio',lang('telugu'),()=>openRadioSection({language:'telugu'})),
         {id:'akashvani',title:'Akashvani across India',items:zoneTiles,open:()=>loadCategory('akashvani')},
         shelf('hindi','Hindi radio',lang('hindi'),()=>openRadioSection({language:'hindi'})),
@@ -2370,12 +2371,34 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         shelf('jazz','Jazz',tag('jazz'),()=>openRadioSection({tag:'jazz'})),
       ];
     }
+    function buildSectionRows(cat){
+      const pool=radioDirectoryBase(cat),byPop=(a,b)=>(b.pop||0)-(a.pop||0),station=s=>({kind:'station',key:s.id,station:s});
+      const label=cat==='akashvani'?'Akashvani':RADIO_BANDS?.BY_CATEGORY[cat]?.label||({telugu:'Telugu',tamil:'Tamil',featured:'World FM'})[cat]||'stations';
+      const rows=[{id:'popular',title:`Popular ${label}`,size:'large',items:[...pool].sort(byPop).slice(0,300).map(station),open:()=>{rememberRadioPlace();radioListView=true;refreshRadioDirectory();}}];
+      const group=(key,pick,min=3)=>{const map=new Map();for(const s of pool)for(const v of pick(s))if(v){if(!map.has(v))map.set(v,[]);map.get(v).push(s);}return [...map].filter(([,list])=>list.length>=min).sort((a,b)=>b[1].length-a[1].length);};
+      const cap=t=>String(t).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
+      const zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirectory?.zoneOf||(()=>'');
+      if(cat==='akashvani')for(const [zone,list] of group('zone',s=>[zoneOf(s)],1))rows.push({id:'zone-'+zone,title:zones[zone]||cap(zone),items:list.sort(byPop).map(station),open:()=>openRadioSection({zone},cat)});
+      for(const [lang,list] of group('lang',s=>s.languages||[]).slice(0,6))rows.push({id:'lang-'+lang,title:`${cap(lang)}`,items:list.sort(byPop).map(station),open:()=>openRadioSection({language:lang},cat)});
+      for(const [country,list] of group('country',s=>[s.country]).filter(([,list])=>list.length<=pool.length*0.9).slice(0,5))rows.push({id:'country-'+country,title:`From ${country}`,items:list.sort(byPop).map(station),open:()=>openRadioSection({country},cat)});
+      // Genre rows skip tags that only restate the band or a language ("shortwave", "sw", "english").
+      const langs=new Set(pool.flatMap(s=>s.languages||[])),plain=/^(radio|am|fm|mw|sw|lw|hf|ham|ham radio|am radio|shortwave|short wave|mediumwave|medium wave|longwave|long wave|international shortwave|world radio|world band|akashvani|all india radio|air|india|indian|live|online|internet radio|stream)$/;
+      for(const [tag,list] of group('tag',s=>(s.tags||[]).filter(t=>!plain.test(t)&&!langs.has(t))).slice(0,5))rows.push({id:'tag-'+tag,title:cap(tag),items:list.sort(byPop).map(station),open:()=>openRadioSection({tag},cat)});
+      // A row whose stations match an earlier row's adds nothing.
+      const seenSets=new Set();for(let i=rows.length-1;i>=1;i--){const sig=rows[i].items.map(item=>item.key).sort().join('|');if(seenSets.has(sig)||rows[i].items.length===pool.length)rows.splice(i,1);else seenSets.add(sig);}
+      rows.push({id:'everything',title:`All ${pool.length.toLocaleString()} ${label} stations`,items:pool.map(station),open:()=>{rememberRadioPlace();radioListView=true;refreshRadioDirectory();}});
+      return rows;
+    }
     function renderRadioHome(){
       const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
       if(!home||!window.SterlingRadioHome)return;
-      const key=MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
-      if(!radioHome){const anchor=document.getElementById('sp-recents-section');if(!anchor)return;const holder=document.createElement('div');anchor.after(holder);radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,onPlay:id=>playStationById(id)});}
-      radioHome.render(buildRadioHome());
+      const cat=appConfig.activeCategory||'all',key=cat+'|'+MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
+      if(!radioHome){const holder=document.createElement('div');holder.id='radio-rows-holder';radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,fallback:s=>getStationIdentityThumbnail({...s,artwork:null}),onPlay:id=>playStationById(id)});}
+      // Home: rows after Recently played. Sections: rows under the section's chips and filter icon.
+      const holder=document.getElementById('radio-rows-holder')||radioHome.root.parentElement;
+      const tools=document.querySelector('#sp-grid-section .radio-directory-tools'),recents=document.getElementById('sp-recents-section');
+      const anchor=cat==='all'?recents:tools;if(anchor&&anchor.nextElementSibling!==holder)anchor.after(holder);
+      radioHome.render(cat==='all'?buildRadioHome():buildSectionRows(cat));
     }
     function initRadioDirectory(){
       mountBandChips();
@@ -3031,11 +3054,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     // --- 11. Category Loader ---
     // Back (media/nav-stack.js): user-opened categories, filters and pages record how to return.
     let radioNav=null;
-    function radioPlace(){return {cat:appConfig.activeCategory,filters:{...(appConfig.catalogFilters||{})},view:document.documentElement.dataset.radioView,shell:spotifyShell?.state().page||null,scroll:document.querySelector('main.sp-canvas-bg')?.scrollTop||0};}
+    function radioPlace(){return {list:radioListView,cat:appConfig.activeCategory,filters:{...(appConfig.catalogFilters||{})},view:document.documentElement.dataset.radioView,shell:spotifyShell?.state().page||null,scroll:document.querySelector('main.sp-canvas-bg')?.scrollTop||0};}
     function rememberRadioPlace(){
       if(!radioNav||radioNav.isRestoring())return;const place=radioPlace();
       radioNav.push(()=>{
-        appConfig.catalogFilters=place.filters;loadCategory(place.cat,true);document.documentElement.dataset.radioView=place.view;
+        appConfig.catalogFilters=place.filters;radioListView=Boolean(place.list);radioHomeKey='';loadCategory(place.cat,true);document.documentElement.dataset.radioView=place.view;
         if(place.shell)spotifyShell?.show(place.shell);else spotifyShell?.hide();
         refreshRadioDirectory();requestAnimationFrame(()=>document.querySelector('main.sp-canvas-bg')?.scrollTo({top:place.scroll,behavior:'instant'}));
       });
@@ -3045,6 +3068,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       // A chip tap opens that section fresh: filters set by a Home row, playlist or the filter panel stay
       // with the section they were set in, so another section never opens filtered down to nothing.
       if(!skipSave&&Object.values(appConfig.catalogFilters||{}).some(v=>Array.isArray(v)?v.length:Boolean(v))){appConfig.catalogFilters={};}
+      if(!skipSave)radioListView=false;
       searchRevision++;
       searchAbort?.abort();
       radioSearchQuery = '';

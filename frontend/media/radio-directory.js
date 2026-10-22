@@ -9,6 +9,7 @@
  const languageMatch=(station,filters)=>!filters.language||(filters.language==='__other'?!(station.languages||[]).some(l=>(filters.otherOf||[]).includes(l)):(station.languages||[]).includes(filters.language));
  const match=(station,filters={})=>languageMatch(station,filters)&&(!filters.zone||zoneOf(station)===filters.zone)&&(!filters.country||station.country===filters.country)&&(!filters.tag||(station.tags||[]).includes(filters.tag))&&(!filters.group||(station.groups||[]).includes(filters.group))&&(!filters.region||station.region===filters.region)&&(!filters.secure||station.streamUrl?.startsWith('https:'));
  const title=text=>String(text).toLowerCase().replace(/(^|[\s(&-])\w/g,m=>m.toUpperCase());
+ const INDIAN=new Set(['hindi','telugu','tamil','malayalam','kannada','marathi','bengali','punjabi','urdu','gujarati','odia','assamese','konkani','sanskrit','bhojpuri','rajasthani']);
  const stationCount=n=>{n=Number(n)||0;return `${n.toLocaleString()} ${n===1?'station':'stations'}`;};
  function mount({getConfig,onFilter,onSources,catalog,artwork,onPlay}){
   const doc=document,controls=[],dialog=doc.createElement('dialog');dialog.className='radio-source-dialog';dialog.setAttribute('aria-label','Radio sources');
@@ -147,6 +148,8 @@
     block.querySelector('[data-clear-filters]').hidden=!anyFilter;
     const active=[filters.language,filters.country,filters.tag,filters.region,filters.zone,filters.secure,filters.group].filter(Boolean).length,badge=block.querySelector('.radio-filter-count');badge.hidden=!active;badge.textContent=String(active);
     renderSubChips(block,basePool,filters,counts);
+    // Genre chips only for international sections; Indian ones (Akashvani, Telugu, Tamil, an Indian language) skip them.
+    block.querySelector('.radio-genre-chips').hidden=['akashvani','telugu','tamil'].includes(getConfig().activeCategory)||INDIAN.has(filters.language);
     for(const field of ['language','country','tag','region']){
      const select=block.querySelector(`[data-filter="${field}"]`);if(doc.activeElement===select)continue;
      const options=[['',`All ${field==='tag'?'genres':field==='country'?'countries':field==='region'?'states':'languages'}`],...[...counts[field]].sort((a,b)=>a[0].localeCompare(b[0])).map(([key,count])=>[key,`${field==='region'?title(key):key} (${count.toLocaleString()})`])];

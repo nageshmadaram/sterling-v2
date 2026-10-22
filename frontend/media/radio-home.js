@@ -3,7 +3,7 @@
    cards. A row is rebuilt only when its content changes. */
 (()=>{
  const BATCH=12,CAP=300;
- function mount({container,artwork,onPlay}){
+ function mount({container,artwork,onPlay,fallback}){
   const doc=document,root=doc.createElement('div');root.id='radio-home-shelves';container.append(root);
   const rows=new Map();
   const grow=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)rows.get(entry.target.dataset.row)?.more();},{root:null,rootMargin:'0px 600px 0px 0px'});
@@ -11,7 +11,9 @@
    const b=doc.createElement('button');b.type='button';
    if(item.kind==='station'){
     b.className='rh-card';b.setAttribute('aria-label',`Play ${item.station.title}`);
-    const img=doc.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src=artwork(item.station);img.addEventListener('error',()=>{img.style.visibility='hidden';},{once:true});
+    const img=doc.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.src=artwork(item.station);
+    // A broken logo falls back to the generated station badge instead of a blank square.
+    img.addEventListener('error',()=>{const next=fallback?.(item.station);if(next&&next!==img.src)img.src=next;else img.style.visibility='hidden';},{once:true});
     const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.station.title;small.textContent=item.station.freqKhz?`${item.station.freqKhz} kHz · ${item.station.country||''}`:(item.station.country||item.station.subtitle||'');
     b.append(img,strong,small);b.addEventListener('click',()=>onPlay(item.station.id));
    }else{
@@ -26,7 +28,7 @@
    return b;
   }
   function row(def){
-   const section=doc.createElement('section');section.className='rh-row';section.dataset.row=def.id;
+   const section=doc.createElement('section');section.className='rh-row'+(def.size==='large'?' rh-row-large':'');section.dataset.row=def.id;
    const head=doc.createElement('header'),h2=doc.createElement('h2');h2.textContent=def.title;head.append(h2);
    if(def.open){const all=doc.createElement('button');all.type='button';all.className='rh-all';all.textContent='Show all';all.addEventListener('click',def.open);head.append(all);}
    const strip=doc.createElement('div');strip.className='rh-strip';const end=doc.createElement('span');end.className='rh-end';end.dataset.row=def.id;
@@ -38,7 +40,7 @@
    const seen=new Set();let previous=null;
    for(const def of defs){
     if(!def.items.length)continue;seen.add(def.id);
-    const signature=def.title+'|'+def.items.length+'|'+def.items.slice(0,BATCH).map(i=>i.key).join(',');
+    const signature=def.title+'|'+(def.size||'')+'|'+def.items.length+'|'+def.items.slice(0,BATCH).map(i=>i.key).join(',');
     let state=rows.get(def.id);
     if(!state||state.signature!==signature){const fresh=row(def);fresh.signature=signature;if(state)state.section.replaceWith(fresh.section);state=fresh;rows.set(def.id,state);}
     else state.def=def;
