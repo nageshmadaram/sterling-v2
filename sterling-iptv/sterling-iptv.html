@@ -4515,7 +4515,14 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
         syncPlayPauseIcons(false);
         updateVolIcon(video.muted);
         document.getElementById('mobile-unmute-pill')?.classList.toggle('hidden', !video.muted);
-      }).catch(() => {if(generation===playbackGeneration&&!tvUserPaused)showTvPlaybackPrompt('Tap to retry playback');});
+      }).catch(error => {
+        if(generation!==playbackGeneration||tvUserPaused)return;
+        // A play() interrupted by the stream (re)loading is not a failure: play once it can.
+        if(error?.name==='AbortError'){video.addEventListener('canplay',()=>{if(generation===playbackGeneration&&!tvUserPaused&&video.paused)video.play().catch(()=>{});},{once:true});return;}
+        // Sound blocked until a gesture: wait for the next tap quietly, no overlay.
+        if(error?.name==='NotAllowedError'){syncPlayPauseIcons(true);resumeOnNextGesture();return;}
+        showTvPlaybackPrompt('Tap to retry playback');
+      });
     }
 
     function safeAutoplayVideo(video) {
