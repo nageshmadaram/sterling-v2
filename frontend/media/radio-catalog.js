@@ -5,7 +5,8 @@
  const WORLD='https://de1.api.radio-browser.info/json/stations',MAX_SOURCES=60,CATEGORIES=['akashvani','shortwave'];
  const defaults=[{id:'radio-browser',name:'Radio Browser · World directory',url:WORLD,kind:'directory',enabled:true,group:'world',category:''}];
  const presets=()=>window.SterlingRadioPresets?.sources?.()||defaults.map(row=>({...row}));
- const RB_MIRRORS=['de1.api.radio-browser.info','fr1.api.radio-browser.info','at1.api.radio-browser.info'];
+ // fr1, at1, nl1 and fi1 no longer exist (checked 2026-10-22); de1 and de2 do.
+ const RB_MIRRORS=['de1.api.radio-browser.info','de2.api.radio-browser.info'];
  const isRadioBrowser=address=>{try{return /(^|\.)api\.radio-browser\.info$/.test(new URL(address).hostname);}catch{return false;}};
  // Radio Browser serves the same query as JSON with tags, language, country and logo; M3U only has names.
  function radioBrowserJson(address){

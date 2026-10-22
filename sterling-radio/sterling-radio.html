@@ -180,7 +180,8 @@
  const WORLD='https://de1.api.radio-browser.info/json/stations',MAX_SOURCES=60,CATEGORIES=['akashvani','shortwave'];
  const defaults=[{id:'radio-browser',name:'Radio Browser · World directory',url:WORLD,kind:'directory',enabled:true,group:'world',category:''}];
  const presets=()=>window.SterlingRadioPresets?.sources?.()||defaults.map(row=>({...row}));
- const RB_MIRRORS=['de1.api.radio-browser.info','fr1.api.radio-browser.info','at1.api.radio-browser.info'];
+ // fr1, at1, nl1 and fi1 no longer exist (checked 2026-10-22); de1 and de2 do.
+ const RB_MIRRORS=['de1.api.radio-browser.info','de2.api.radio-browser.info'];
  const isRadioBrowser=address=>{try{return /(^|\.)api\.radio-browser\.info$/.test(new URL(address).hostname);}catch{return false;}};
  // Radio Browser serves the same query as JSON with tags, language, country and logo; M3U only has names.
  function radioBrowserJson(address){
@@ -1815,6 +1816,7 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
  .mode-spotify :is(#sp-recents-carousel,#sp-suggested-carousel,#sp-mostplayed-carousel)>.snap-card{width:142px}
 }
 .rh-row header,.rnp-more header,.radio-youtube header{padding:0!important}
+[id^="sp-chip-"][hidden],[id^="sp-mchip-"][hidden],[id^="ytm-chip-"][hidden]{display:none!important}
 
 </style>
   <script>
@@ -3639,8 +3641,7 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
 
     const RADIO_MIRRORS = [
       'https://de1.api.radio-browser.info/json',
-      'https://fr1.api.radio-browser.info/json',
-      'https://at1.api.radio-browser.info/json'
+      'https://de2.api.radio-browser.info/json'
     ];
 
     // =========================================================================
@@ -3939,7 +3940,8 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
       const keys={all:['all','All'],shortwave:['sw','Shortwave'],mediumwave:['mw','AM / MW'],longwave:['lw','Longwave'],ham:['ham','Ham'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],tamil:['ta','Tamil'],featured:['feat','World FM']};
       for(const [cat,[suffix,label]] of Object.entries(keys))for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
         const button=document.getElementById(prefix+suffix);if(!button)continue;
-        const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;
+        // Each chip shows its category's total; filters belong to the section being viewed, not to every chip.
+        const count=radioDirectoryBase(cat).length,caption=`${label} ${count.toLocaleString()}`;
         if(['mediumwave','longwave','ham'].includes(cat))button.hidden=count===0&&appConfig.activeCategory!==cat;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
       }
     }
@@ -4697,6 +4699,9 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
     }
     function loadCategory(cat, skipSave = false) {
       if(!skipSave&&cat!==appConfig.activeCategory)rememberRadioPlace();
+      // A chip tap opens that section fresh: filters set by a Home row, playlist or the filter panel stay
+      // with the section they were set in, so another section never opens filtered down to nothing.
+      if(!skipSave&&Object.values(appConfig.catalogFilters||{}).some(v=>Array.isArray(v)?v.length:Boolean(v))){appConfig.catalogFilters={};}
       searchRevision++;
       searchAbort?.abort();
       radioSearchQuery = '';

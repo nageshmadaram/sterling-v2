@@ -1982,8 +1982,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     const RADIO_MIRRORS = [
       'https://de1.api.radio-browser.info/json',
-      'https://fr1.api.radio-browser.info/json',
-      'https://at1.api.radio-browser.info/json'
+      'https://de2.api.radio-browser.info/json'
     ];
 
     // =========================================================================
@@ -2282,7 +2281,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const keys={all:['all','All'],shortwave:['sw','Shortwave'],mediumwave:['mw','AM / MW'],longwave:['lw','Longwave'],ham:['ham','Ham'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],tamil:['ta','Tamil'],featured:['feat','World FM']};
       for(const [cat,[suffix,label]] of Object.entries(keys))for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
         const button=document.getElementById(prefix+suffix);if(!button)continue;
-        const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;
+        // Each chip shows its category's total; filters belong to the section being viewed, not to every chip.
+        const count=radioDirectoryBase(cat).length,caption=`${label} ${count.toLocaleString()}`;
         if(['mediumwave','longwave','ham'].includes(cat))button.hidden=count===0&&appConfig.activeCategory!==cat;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
       }
     }
@@ -3040,6 +3040,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function loadCategory(cat, skipSave = false) {
       if(!skipSave&&cat!==appConfig.activeCategory)rememberRadioPlace();
+      // A chip tap opens that section fresh: filters set by a Home row, playlist or the filter panel stay
+      // with the section they were set in, so another section never opens filtered down to nothing.
+      if(!skipSave&&Object.values(appConfig.catalogFilters||{}).some(v=>Array.isArray(v)?v.length:Boolean(v))){appConfig.catalogFilters={};}
       searchRevision++;
       searchAbort?.abort();
       radioSearchQuery = '';
