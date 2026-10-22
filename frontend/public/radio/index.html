@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/media/fonts.css">
   <script src="/media/hls.min.js"></script>
   <script src="/media/radio-sources.js"></script>
+  <script src="/media/radio-bands.js"></script>
   <script src="/media/radio-catalog.js"></script>
   <script src="/media/radio-directory.js"></script>
   <script src="/media/spotify-shell.js"></script>
@@ -551,7 +552,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
               <button data-radio-click="39" class="w-8 h-8 rounded-md bg-[#242424] hover:bg-[#303030] text-[#b3b3b3] hover:text-white flex items-center justify-center transition" title="Next Station">
                 <i class="fa-solid fa-chevron-right text-[10px]"></i>
               </button>
-              <button data-radio-click="74" aria-label="Open radio tuner" title="Open SW / AM tuner" class="h-8 px-3 rounded-md bg-[#242424] text-white text-xs font-semibold">Tuner</button>
+              <button data-radio-click="74" aria-label="Open radio tuner" title="Full-screen tuner" class="h-8 px-3 rounded-md bg-[#242424] text-white text-xs font-semibold">Full tuner</button>
               <button data-radio-click="37" id="sw-expand-btn" class="h-8 px-3 rounded-md bg-[#242424] hover:bg-[#303030] text-xs font-medium text-white flex items-center gap-1.5 transition">
                 <span>Tuner</span>
                 <i id="sw-expand-icon" class="fa-solid fa-chevron-down text-[10px] text-[#b3b3b3] transition-transform duration-200"></i>
@@ -563,15 +564,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           <div id="sw-tuner-drawer" class="hidden border-t border-[#262626] bg-[#141414] px-3.5 py-3 space-y-3">
             <!-- Band Selector Row + Fine Step Controls -->
             <div class="flex flex-wrap items-center justify-between gap-2">
-              <div class="flex items-center gap-1 overflow-x-auto no-scrollbar">
-                <button data-radio-click="40" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 738</button>
-                <button data-radio-click="41" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">MW 1071</button>
-                <button data-radio-click="42" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">49m</button>
-                <button data-radio-click="43" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">41m</button>
-                <button data-radio-click="44" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">31m</button>
-                <button data-radio-click="45" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">25m</button>
-                <button data-radio-click="46" class="px-2.5 py-1 rounded text-[11px] font-mono-num font-medium bg-[#222222] hover:bg-white hover:text-black text-[#b3b3b3] transition">19m</button>
-              </div>
+              <div id="sw-band-marks" class="flex items-center gap-1 overflow-x-auto no-scrollbar" aria-label="Band markers"></div>
 
               <div class="flex items-center gap-1.5">
                 <button data-radio-click="47" class="px-2.5 py-1 rounded bg-[#222222] hover:bg-[#303030] text-[11px] font-mono-num text-[#b3b3b3] hover:text-white">-5 kHz</button>
@@ -581,15 +574,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
             <!-- Monochrome Precision Scale Ruler -->
             <div class="bg-[#0c0c0c] border border-[#262626] rounded-md px-3 py-2">
-              <div class="flex justify-between text-[10px] font-mono-num text-[#777777] mb-1">
-                <span>530</span>
-                <span>3000</span>
-                <span>6000</span>
-                <span>9410</span>
-                <span>12000</span>
-                <span>15580</span>
-                <span>18000 kHz</span>
-              </div>
+              <div id="sw-ruler-labels" class="flex justify-between text-[10px] font-mono-num text-[#777777] mb-1"></div>
               <div class="relative h-9 tuner-ruler-ticks flex items-center">
                 <input id="sw-freq-slider" type="range" min="530" max="18000" step="5" value="9410"
                   data-radio-input="49"
@@ -2062,7 +2047,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
           if(typeof clean.muted!=='boolean')delete clean.muted;
           if(!['spotify','ytmusic','netflix'].includes(clean.appMode))delete clean.appMode;
-          if(!['all','shortwave','akashvani','telugu','tamil','featured','podcasts'].includes(clean.activeCategory))delete clean.activeCategory;
+          if(!['all','shortwave','mediumwave','longwave','ham','akashvani','telugu','tamil','featured','podcasts'].includes(clean.activeCategory))delete clean.activeCategory;
           if(!['last','custom','quiet'].includes(clean.bootBehavior))delete clean.bootBehavior;
           if(clean.lastStationSnapshot&&!station(clean.lastStationSnapshot))delete clean.lastStationSnapshot;
           return clean;
@@ -2284,7 +2269,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let radioCatalog=null,radioDirectoryUi=null,radioDirectorySnapshot=null,radioRefreshTimer=0,radioRefreshAt=0;
     const radioDirectoryIndexed=new WeakSet();
     function radioDirectoryBase(cat=appConfig.activeCategory) {
-      if(cat==='shortwave')return MASTER_POOL.filter(station=>station.category==='shortwave');
+      if(BAND_CATEGORIES.includes(cat))return bandStations(RADIO_BANDS?.BY_CATEGORY[cat]);
       if(cat==='akashvani')return MASTER_POOL.filter(station=>station.category==='akashvani'||/akashvani|all india radio/i.test(station.title));
       if(cat==='telugu'||cat==='tamil')return MASTER_POOL.filter(station=>station.category===cat||(station.languages||[]).includes(cat));
       if(cat==='featured')return MASTER_POOL.filter(station=>station.category!=='shortwave');
@@ -2292,10 +2277,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function radioDirectoryFiltered(pool){return window.SterlingRadioDirectory?pool.filter(station=>window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{})):pool;}
     function updateRadioDirectoryCounts(){
-      const keys={all:['all','All'],shortwave:['sw','SW / AM'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],tamil:['ta','Tamil'],featured:['feat','World FM']};
+      const keys={all:['all','All'],shortwave:['sw','Shortwave'],mediumwave:['mw','AM / MW'],longwave:['lw','Longwave'],ham:['ham','Ham'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],tamil:['ta','Tamil'],featured:['feat','World FM']};
       for(const [cat,[suffix,label]] of Object.entries(keys))for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
         const button=document.getElementById(prefix+suffix);if(!button)continue;
-        const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
+        const count=radioDirectoryFiltered(radioDirectoryBase(cat)).length,caption=`${label} ${count.toLocaleString()}`;
+        if(['mediumwave','longwave','ham'].includes(cat))button.hidden=count===0&&appConfig.activeCategory!==cat;if(button.textContent!==caption)button.textContent=caption;button.setAttribute('aria-label',`${label}: ${count} stations`);
       }
     }
     // The "All" grid is titled after its filter: a source group, Akashvani state, language or genre.
@@ -2333,7 +2319,19 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         appConfig.catalogSourcesVersion=presets.version;saveAppConfig();
       }
     }
+    // One chip per band next to Shortwave, in each chip bar (desktop, phone, YouTube-style theme).
+    function mountBandChips(){
+      for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
+        const sw=document.getElementById(prefix+'sw');if(!sw||document.getElementById(prefix+'mw'))continue;
+        let after=sw;
+        for(const [cat,suffix,label] of [['mediumwave','mw','AM / MW'],['longwave','lw','Longwave'],['ham','ham','Ham']]){
+          const chip=document.createElement('button');chip.type='button';chip.id=prefix+suffix;chip.className=sw.className;chip.textContent=label;chip.hidden=true;
+          chip.addEventListener('click',()=>loadCategory(cat));after.after(chip);after=chip;
+        }
+      }
+    }
     function initRadioDirectory(){
+      mountBandChips();
       if(!window.SterlingRadioCatalog||!window.SterlingRadioDirectory)return;
       upgradeRadioSources();
       if(radioCatalog){void radioCatalog.reload(appConfig.catalogSources);return;}
@@ -2595,35 +2593,47 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     // =========================================================================
     // 7. SHORTWAVE / AM TUNER LOGIC (AUTO-LOCKS & PLAYS ON TUNE)
     // =========================================================================
+    // Band tuner (media/radio-bands.js): Shortwave, Medium wave (AM), Longwave and Ham each tune over
+    // their own range and step, across every station of that band that states a frequency.
+    const RADIO_BANDS=window.SterlingRadioBands;
+    const BAND_CATEGORIES=RADIO_BANDS?Object.keys(RADIO_BANDS.BY_CATEGORY):['shortwave'];
+    let radioBand=RADIO_BANDS?.BANDS.sw||null,radioBandCache={key:'',list:[]};
+    function bandStations(band=radioBand){
+      if(!band)return SHORTWAVE_AM_STATIONS;
+      const key=band.id+'|'+MASTER_POOL.length;if(radioBandCache.key===key)return radioBandCache.list;
+      // Before any source has loaded, the built-in stations of that band still fill the list.
+      const pool=MASTER_POOL.some(s=>s.band===band.id)?MASTER_POOL:SHORTWAVE_AM_STATIONS.map(s=>s.band?s:{...s,...(()=>{const t=RADIO_BANDS?.classify(s,null)||{};return {band:t.band,freqKhz:s.freqKhz||t.khz};})()});
+      const list=pool.filter(s=>s.band===band.id).sort((x,y)=>(x.freqKhz||1e9)-(y.freqKhz||1e9)||String(x.title).localeCompare(String(y.title)));
+      radioBandCache={key,list};return list;
+    }
+    function tunerPool(){const pool=bandStations().filter(s=>s.freqKhz);return pool.length?pool:SHORTWAVE_AM_STATIONS.filter(s=>s.freqKhz);}
     function findClosestSwStation(khzVal) {
       const khz = parseInt(khzVal, 10);
-      let closest = SHORTWAVE_AM_STATIONS[0];
+      let closest = tunerPool()[0];
       let minDiff = Infinity;
-      for (const s of SHORTWAVE_AM_STATIONS) {
-        const d = Math.abs((s.freqKhz || 9410) - khz);
-        if (d < minDiff) {
-          minDiff = d;
-          closest = s;
-        }
+      for (const s of tunerPool()) {
+        const d = Math.abs(s.freqKhz - khz);
+        if (d < minDiff) { minDiff = d; closest = s; }
       }
       return { closest, minDiff, khz };
     }
 
     function previewSwDial(val) {
       const { closest, khz } = findClosestSwStation(val);
-      const band = khz < 1700 ? 'MW Band' : khz < 6200 ? '49m Band' : khz < 7600 ? '41m Band' : khz < 10100 ? '31m Band' : khz < 12200 ? '25m Band' : '19m Band';
+      const mark = RADIO_BANDS?.meterBand(radioBand?.id, khz);
+      const band = [radioBand?.short, mark && mark !== radioBand?.short ? mark : ''].filter(Boolean).join(' · ');
 
       document.getElementById('sw-freq-pill').textContent = `${khz} kHz`;
       document.getElementById('sw-band-badge').textContent = band;
       document.getElementById('sw-freq-slider').value = khz;
-      document.getElementById('sw-nearest-title').textContent = closest.title;
+      document.getElementById('sw-nearest-title').textContent = closest?.title || 'No station with a known frequency';
 
       const ytmFreq = document.getElementById('ytm-sw-freq');
       const ytmSlider = document.getElementById('ytm-sw-slider');
       const ytmTitle = document.getElementById('ytm-sw-title');
       if (ytmFreq) ytmFreq.textContent = `${khz} kHz`;
       if (ytmSlider) ytmSlider.value = khz;
-      if (ytmTitle) ytmTitle.textContent = closest.title;
+      if (ytmTitle) ytmTitle.textContent = closest?.title || '';
     }
 
     function commitSwTune(val) {
@@ -2640,26 +2650,52 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       commitSwTune(khz);
     }
 
-    function stepSwFreq(deltaKhz) {
+    function stepSwFreq(direction) {
       const slider = document.getElementById('sw-freq-slider');
-      const nextVal = Math.max(530, Math.min(18000, parseInt(slider.value, 10) + deltaKhz));
+      const band = radioBand || { min: 530, max: 18000, step: 5 };
+      const nextVal = Math.max(band.min, Math.min(band.max, parseInt(slider.value, 10) + Math.sign(direction) * band.step));
       previewSwDial(nextVal);
       commitSwTune(nextVal);
     }
 
     function seekSwStation(dir) {
       safeHaptic(10);
-      const curKhz = activeStream?.freqKhz || parseInt(document.getElementById('sw-freq-slider').value, 10);
-      const sorted = [...SHORTWAVE_AM_STATIONS].sort((a, b) => a.freqKhz - b.freqKhz);
-
-      let target = sorted[0];
-      if (dir > 0) {
-        target = sorted.find(s => s.freqKhz > curKhz + 10) || sorted[0];
-      } else {
-        const rev = [...sorted].reverse();
-        target = rev.find(s => s.freqKhz < curKhz - 10) || rev[0];
-      }
+      const curKhz = activeStream?.band === radioBand?.id && activeStream?.freqKhz ? activeStream.freqKhz : parseInt(document.getElementById('sw-freq-slider').value, 10);
+      const sorted = tunerPool();
+      if (!sorted.length) return;
+      let target;
+      if (dir > 0) target = sorted.find(s => s.freqKhz > curKhz) || sorted[0];
+      else target = [...sorted].reverse().find(s => s.freqKhz < curKhz) || sorted[sorted.length - 1];
       jumpAndPlaySw(target.freqKhz);
+    }
+
+    // Shape the tuner for the chosen band: range, step, markers and colour (data-band on the deck).
+    function configureBandTuner(cat){
+      if(!RADIO_BANDS){renderBandList();return;}radioBand=RADIO_BANDS.BY_CATEGORY[cat]||radioBand||RADIO_BANDS.BANDS.sw;const band=radioBand;
+      for(const id of ['sw-tuner-deck','ytm-sw-deck','sw-player-window']){const el=document.getElementById(id);if(el)el.dataset.band=band.id;}
+      for(const id of ['sw-freq-slider','ytm-sw-slider']){const slider=document.getElementById(id);if(!slider)continue;slider.min=band.min;slider.max=band.max;slider.step=band.step;slider.setAttribute('aria-label',`${band.label} frequency in kilohertz`);}
+      const marks=document.getElementById('sw-band-marks');
+      if(marks){marks.replaceChildren(...band.marks.map(([label,from,to])=>{const b=document.createElement('button');b.type='button';b.className='radio-band-mark';b.textContent=label;b.title=`${from}–${to} kHz`;b.addEventListener('click',()=>jumpAndPlaySw(Math.round((from+to)/2)));return b;}));}
+      const ruler=document.getElementById('sw-ruler-labels');
+      if(ruler){const n=6,labels=Array.from({length:n+1},(_,i)=>Math.round(band.min+(band.max-band.min)*i/n));ruler.replaceChildren(...labels.map((v,i)=>{const span=document.createElement('span');span.textContent=i===n?`${v} kHz`:String(v);return span;}));}
+      for(const [action,dir] of [['47',-1],['48',1]])document.querySelectorAll(`[data-radio-click="${action}"]`).forEach(b=>{b.textContent=`${dir<0?'−':'+'}${band.step} kHz`;});
+      document.querySelectorAll('[data-band-title]').forEach(el=>{el.textContent=band.title;});
+      document.querySelectorAll('[data-band-label]').forEach(el=>{el.textContent=band.label;});
+      const pool=tunerPool(),start=activeStream?.band===band.id&&activeStream.freqKhz?activeStream.freqKhz:(pool.find(s=>s.freqKhz>=band.start)||pool[0])?.freqKhz||band.start;
+      previewSwDial(Math.max(band.min,Math.min(band.max,start)));
+      renderBandList();
+    }
+    // Every station of the band under the phone tuner, frequency order, 80 at a time.
+    let bandListShown=80;
+    function renderBandList(reset=true){
+      const panel=document.getElementById('sw-player-window');if(!panel)return;
+      const box=panel.querySelector('.sw-player-presets');if(!box)return;
+      if(reset)bandListShown=80;const list=bandStations();
+      panel.querySelector('.sw-player-list-title').textContent=`${radioBand?.label||'Shortwave'} · ${list.length.toLocaleString()} ${list.length===1?'station':'stations'}`;
+      box.replaceChildren(...list.slice(0,bandListShown).map(station=>{const button=document.createElement('button');button.type='button';button.dataset.stationId=station.id;
+        const freq=document.createElement('b');freq.textContent=station.freqKhz?`${station.freqKhz} kHz`:'—';const name=document.createElement('span');name.textContent=station.title;const where=document.createElement('small');where.textContent=station.country||station.subtitle||'';
+        button.append(freq,name,where);button.addEventListener('click',()=>{startPlayback(station);if(station.freqKhz)previewSwDial(station.freqKhz);});return button;}));
+      const more=panel.querySelector('.sw-player-more');more.hidden=list.length<=bandListShown;more.textContent=`Show more (${(list.length-bandListShown).toLocaleString()} left)`;
     }
 
     // =========================================================================
@@ -2970,10 +3006,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       const swDeck = document.getElementById('sw-tuner-deck');
       const ytmSwDeck = document.getElementById('ytm-sw-deck');
-      if (swDeck) swDeck.classList.toggle('hidden', cat !== 'shortwave');
-      if (ytmSwDeck) ytmSwDeck.classList.toggle('hidden', cat !== 'shortwave');
+      const bandView = BAND_CATEGORIES.includes(cat);
+      if (swDeck) swDeck.classList.toggle('hidden', !bandView);
+      if (ytmSwDeck) ytmSwDeck.classList.toggle('hidden', !bandView);
+      if (bandView) configureBandTuner(cat);
 
-      const chipKeys = { all:'all', shortwave: 'sw', akashvani: 'air', telugu: 'te', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
+      const chipKeys = { all:'all', shortwave: 'sw', mediumwave: 'mw', longwave: 'lw', ham: 'ham', akashvani: 'air', telugu: 'te', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
       Object.entries(chipKeys).forEach(([k, suffix]) => {
         const spEl = document.getElementById(`sp-chip-${suffix}`);
         if (spEl) spEl.className = (k === cat)
@@ -2994,9 +3032,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (cat === 'all') {
         setHeadings('Explore all stations');
         catalogItems = [...MASTER_POOL];
-      } else if (cat === 'shortwave') {
-        setHeadings('Shortwave & AM World Radio');
-        catalogItems = [...SHORTWAVE_AM_STATIONS];
+      } else if (BAND_CATEGORIES.includes(cat)) {
+        setHeadings(`${RADIO_BANDS?.BY_CATEGORY[cat]?.label || 'Shortwave'} stations`);
+        catalogItems = [...radioDirectoryBase(cat)];
       } else if (cat === 'akashvani') {
         setHeadings('Akashvani (All India Radio)');
         catalogItems = [...AKASHVANI_NATIONAL];
@@ -3908,13 +3946,13 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function syncSwPlayer() {
       const panel=document.getElementById('sw-player-window');if(!panel)return;
-      const station=activeStream?.freqKhz?activeStream:findStationById(panel.dataset.stationId)||SHORTWAVE_AM_STATIONS[6];
+      const station=activeStream?.freqKhz?activeStream:findStationById(panel.dataset.stationId)||tunerPool()[0]||SHORTWAVE_AM_STATIONS[6];
       panel.dataset.stationId=station.id;
       const playing=isPlaying&&activeStream?.id===station.id;
       panel.querySelector('.sw-player-title').textContent=station.title;
       panel.querySelector('.sw-player-sub').textContent=station.subtitle;
       panel.querySelector('.sw-player-frequency').textContent=(station.freqKhz||9410)+' kHz';
-      panel.querySelector('input[type=range]').value=station.freqKhz||9410;
+      const range=panel.querySelector('input[type=range]');if(radioBand){range.min=radioBand.min;range.max=radioBand.max;range.step=radioBand.step;}range.value=station.freqKhz||radioBand?.start||9410;
       panel.querySelector('.sw-player-art').src=getStationIdentityThumbnail(station);
       panel.querySelector('.sw-main-play').setAttribute('aria-label',playing?'Pause radio':'Play radio');
       panel.querySelector('.sw-main-play').innerHTML='<i class="fa-solid fa-'+(playing?'pause':'play')+'"></i>';
@@ -3925,14 +3963,14 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       let panel=document.getElementById('sw-player-window');
       if(!panel){
         panel=document.createElement('section');panel.id='sw-player-window';panel.setAttribute('role','dialog');panel.setAttribute('aria-modal','true');panel.setAttribute('aria-label','Shortwave and AM player');
-        panel.innerHTML=`<header><button type="button" data-radio-click="81" aria-label="Close shortwave player"><i class="fa-solid fa-chevron-down"></i></button><div><small>WORLD BAND RECEIVER</small><strong>Shortwave & AM</strong></div><button type="button" data-radio-click="29" aria-label="Radio audio settings"><i class="fa-solid fa-sliders"></i></button></header><img class="sw-player-art" alt="Station artwork"/><div class="sw-receiver"><span>ON AIR · LIVE BROADCAST</span><div class="sw-player-frequency"></div><div class="sw-dial-marks" aria-hidden="true"></div><label>Tune frequency<input type="range" min="530" max="26000" step="1" aria-label="Shortwave frequency in kilohertz"/></label></div><h2 class="sw-player-title"></h2><p class="sw-player-sub"></p><div class="sw-player-controls"><button type="button" data-radio-click="38" aria-label="Previous shortwave station"><i class="fa-solid fa-backward-step"></i></button><button type="button" class="sw-main-play" aria-label="Play radio"></button><button type="button" data-radio-click="39" aria-label="Next shortwave station"><i class="fa-solid fa-forward-step"></i></button></div><h3>World band presets</h3><div class="sw-player-presets"></div>`;
+        panel.innerHTML=`<header><button type="button" data-radio-click="81" aria-label="Close shortwave player"><i class="fa-solid fa-chevron-down"></i></button><div><small data-band-title>WORLD BAND RECEIVER</small><strong data-band-label>Shortwave</strong></div><button type="button" data-radio-click="29" aria-label="Radio audio settings"><i class="fa-solid fa-sliders"></i></button></header><img class="sw-player-art" alt="Station artwork"/><div class="sw-receiver"><span>ON AIR · LIVE BROADCAST</span><div class="sw-player-frequency"></div><div class="sw-dial-marks" aria-hidden="true"></div><label>Tune frequency<input type="range" min="530" max="26000" step="1" aria-label="Shortwave frequency in kilohertz"/></label></div><h2 class="sw-player-title"></h2><p class="sw-player-sub"></p><div class="sw-player-controls"><button type="button" data-radio-click="38" aria-label="Previous shortwave station"><i class="fa-solid fa-backward-step"></i></button><button type="button" class="sw-main-play" aria-label="Play radio"></button><button type="button" data-radio-click="39" aria-label="Next shortwave station"><i class="fa-solid fa-forward-step"></i></button></div><h3 class="sw-player-list-title">Stations</h3><div class="sw-player-presets"></div><button type="button" class="sw-player-more" hidden>Show more</button>`;
         panel.querySelector('.sw-main-play').addEventListener('click',()=>{const station=findStationById(panel.dataset.stationId);if(station&&activeStream?.id!==station.id)startPlayback(station);else togglePlayPause();});
         const slider=panel.querySelector('input');slider.addEventListener('input',()=>{panel.querySelector('.sw-player-frequency').textContent=slider.value+' kHz';previewSwDial(slider.value);});slider.addEventListener('change',()=>commitSwTune(slider.value));
-        for(const station of SHORTWAVE_AM_STATIONS){const button=document.createElement('button');button.type='button';button.textContent=station.title+' · '+station.freqKhz+' kHz';button.addEventListener('click',()=>startPlayback(station));panel.querySelector('.sw-player-presets').append(button);}
+        panel.querySelector('.sw-player-more').addEventListener('click',()=>{bandListShown+=80;renderBandList(false);});
         panel.addEventListener('keydown',event=>{if(event.key==='Escape'){closeSwPlayer();return;}if(event.key==='Tab'){const items=[...panel.querySelectorAll('button,input')],first=items[0],last=items[items.length-1];if(event.shiftKey&&document.activeElement===first){last.focus();event.preventDefault();}else if(!event.shiftKey&&document.activeElement===last){first.focus();event.preventDefault();}}});
         document.body.append(panel);
       }
-      panel.classList.remove('hidden');document.querySelectorAll('#spotify-app,#ytmusic-app').forEach(app=>app.inert=true);syncSwPlayer();panel.querySelector('button').focus();
+      panel.classList.remove('hidden');document.querySelectorAll('#spotify-app,#ytmusic-app').forEach(app=>app.inert=true);configureBandTuner(appConfig.activeCategory);syncSwPlayer();panel.querySelector('button').focus();
       if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
     }
     function closeSwPlayer() {

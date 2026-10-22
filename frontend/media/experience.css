@@ -361,3 +361,21 @@ body.theme-spotify #tv-mobile-shell {background:#121212;}
 @keyframes mx-in{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
 @media(max-width:600px){.mx-dialog{width:100%;max-width:100%;margin:auto 0 0;border-radius:24px 24px 0 0;padding:20px 20px calc(24px + env(safe-area-inset-bottom))}}
 @media(prefers-reduced-motion:reduce){.mx-dialog{animation:none}.mx-quick button{transition:none}}
+/* Band tuners: one look per band (data-band on the deck and the phone tuner). */
+#sw-tuner-deck,#ytm-sw-deck,#sw-player-window{--band:#1ed760;--band-soft:#1ed76022}
+:is(#sw-tuner-deck,#ytm-sw-deck,#sw-player-window)[data-band=mw]{--band:#f5a524;--band-soft:#f5a52422}:is(#sw-tuner-deck,#ytm-sw-deck,#sw-player-window)[data-band=lw]{--band:#4aa3ff;--band-soft:#4aa3ff22}:is(#sw-tuner-deck,#ytm-sw-deck,#sw-player-window)[data-band=ham]{--band:#ff6b3d;--band-soft:#ff6b3d22}
+#sw-tuner-deck{border-color:var(--band-soft)!important;box-shadow:inset 3px 0 0 var(--band)}
+#sw-freq-pill,#ytm-sw-freq{background:var(--band-soft)!important;color:var(--band)!important}
+#sw-band-badge{color:var(--band)!important}
+.radio-band-mark{flex:none;padding:4px 10px;border-radius:6px;background:#222;color:#b3b3b3;font:600 11px ui-monospace,monospace;transition:background .12s,color .12s}
+.radio-band-mark:hover,.radio-band-mark:focus-visible{background:var(--band);color:#000}
+#sw-tuner-deck .tuner-ruler-slider,#ytm-sw-slider{accent-color:var(--band)}
+#sw-player-window .sw-player-frequency{color:var(--band)}
+#sw-player-window .sw-player-presets{display:flex;flex-direction:column;gap:2px}
+#sw-player-window .sw-player-presets button{display:grid;grid-template-columns:76px 1fr;grid-template-rows:auto auto;column-gap:10px;align-items:center;text-align:left;padding:8px 6px;border-radius:8px;min-height:48px}
+#sw-player-window .sw-player-presets button:hover,#sw-player-window .sw-player-presets button:focus-visible{background:#ffffff10}
+#sw-player-window .sw-player-presets b{grid-row:1/3;font:700 12px ui-monospace,monospace;color:var(--band)}
+#sw-player-window .sw-player-presets span{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sw-player-window .sw-player-presets small{font-size:11px;color:#a7a7a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sw-player-window .sw-player-more{display:block;margin:12px auto 0;padding:8px 18px;border-radius:18px;border:1px solid #ffffff40;color:#fff;font-size:12px}
+#sw-player-window .sw-player-more[hidden]{display:none}

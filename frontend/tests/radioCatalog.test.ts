@@ -78,3 +78,15 @@ it('loads a built-in playlist and merges groups when sources overlap',async()=>{
  expect(news).toMatchObject({category:'akashvani',country:'India',groups:['akashvani','india'],region:'DELHI',languages:['hindi','english']});
  expect(service.snapshot().sources.map((row:any)=>row.count)).toEqual([5,1]);
 });
+function withBands(){const serviceApi=api();const dom=opened.at(-1)!;new Script(readFileSync('media/radio-bands.js','utf8')).runInContext(dom.getInternalVMContext());return {serviceApi,bands:(dom.window as any).SterlingRadioBands};}
+it('splits AM, shortwave, longwave and ham stations and reads their frequencies',()=>{
+ const {bands}=withBands();
+ expect(bands.classify({title:'WABC 770 AM',tags:['news']},{id:'tag-am'})).toEqual({band:'mw',khz:770});
+ expect(bands.classify({title:'AIR Madurai AM1269',tags:[]},null)).toEqual({band:'mw',khz:1269});
+ expect(bands.classify({title:'WRMI Radio Miami International (9955 kHz)',tags:[]},{id:'intl-shortwave'})).toEqual({band:'sw',khz:9955});
+ expect(bands.classify({title:'Radio Free Asia 11.7 MHz',tags:['shortwave']},null)).toEqual({band:'sw',khz:11700});
+ expect(bands.classify({title:'Longwave 198 kHz',tags:['longwave']},null)).toEqual({band:'lw',khz:198});
+ expect(bands.classify({title:'Ham net',tags:['ham radio']},{id:'tag-ham'})).toEqual({band:'ham',khz:null});
+ expect(bands.classify({title:'Station 1010 AM',tags:[]},{id:'tag-shortwave'}).band).toBe('mw');
+ expect(bands.meterBand('sw',9410)).toBe('31m');
+});

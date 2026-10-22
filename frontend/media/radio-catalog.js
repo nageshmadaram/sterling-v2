@@ -38,9 +38,10 @@
   if(!stream||!name)return null;
   const languages=words(row.language||row.languages),tags=words(row.tags||row.group);
   const country=countryName(row.country||row.countrycode||(source.category==='akashvani'?'India':'')).slice(0,100),region=typeof row.state==='string'?row.state.replace(/\s+/g,' ').trim().toUpperCase().slice(0,60):'';
-  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
+  const tuned=window.SterlingRadioBands?.classify({title:name,tags,freqKhz:row.freqKhz},source)||{};
+  return {id:`directory-${String(row.stationuuid||row.id||stream).slice(0,4000)}`,kind:'radio',band:tuned.band||null,freqKhz:tuned.khz||null,category:source.category||(languages.includes('telugu')?'telugu':languages.includes('tamil')?'tamil':'directory'),title:name,groups:source.group?[source.group]:[],region,
    subtitle:[country,languages.slice(0,2).map(word=>word.replace(/\b\w/g,c=>c.toUpperCase())).join(', ')].filter(Boolean).join(' · ')||'Live radio',
-   streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:'LIVE',freqLabel:'Live radio'};
+   streamUrl:stream,backupUrls:[],artwork:url(row.favicon||row.artwork||row.logo),languages,tags,country,sourceId:source.id,shortFreq:tuned.khz?String(tuned.khz):'LIVE',freqLabel:tuned.khz?`${tuned.khz} kHz`:'Live radio'};
  }
  function playlist(text,source){
   if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/.test(text)){const item=station({name:source.name,url:source.url},source,0);return item?[item]:[];}
@@ -70,7 +71,8 @@
  function create({seeds=[],sources:initial,onUpdate=()=>{},fetcher=(...args)=>fetch(...args)}={}){
   let configured=sources(initial),revision=0,controller=null,loading=false,reportedTotal=0,records=new Map(),states=[];
   const seedRows=seeds.map(row=>({...row,languages:row.languages||(['telugu','tamil'].includes(row.category)?[row.category]:[]),tags:words(row.tags),country:row.country||(['telugu','tamil','akashvani'].includes(row.category)?'India':'')}));
-  function reset(){records=new Map(seedRows.map(row=>[row.streamUrl,{...row,groups:[...(row.groups||[])]}]));states=configured.map(source=>({...source,status:source.enabled?'waiting':'disabled',offset:0,count:0,done:!source.enabled,error:'',fingerprint:''}));reportedTotal=0;}
+  const tuneSeed=row=>{const tuned=window.SterlingRadioBands?.classify(row,null)||{};return {...row,band:row.band||tuned.band||null,freqKhz:row.freqKhz||tuned.khz||null};};
+  function reset(){records=new Map(seedRows.map(row=>[row.streamUrl,{...tuneSeed(row),groups:[...(row.groups||[])]}]));states=configured.map(source=>({...source,status:source.enabled?'waiting':'disabled',offset:0,count:0,done:!source.enabled,error:'',fingerprint:''}));reportedTotal=0;}
   function snapshot(){return {stations:[...records.values()],sources:states.map(row=>({...row})),loading,reportedTotal,complete:states.every(row=>row.done)};}
   const emit=()=>onUpdate(snapshot());
   async function request(address,signal){
@@ -86,6 +88,7 @@
     for(const group of row.groups)if(!existing.groups?.includes(group))(existing.groups||(existing.groups=[])).push(group);
     if(state.category&&!CATEGORIES.includes(existing.category))existing.category=state.category;
     if(!existing.region&&row.region)existing.region=row.region;
+    if(row.band&&(!existing.band||(row.freqKhz&&!existing.freqKhz))){existing.band=row.band;if(row.freqKhz)existing.freqKhz=row.freqKhz;}
    }
   }
   function pause(){revision++;controller?.abort();loading=false;for(const state of states)if(state.status==='loading')state.status='paused';emit();}

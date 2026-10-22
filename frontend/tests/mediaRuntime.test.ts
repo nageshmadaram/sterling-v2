@@ -23,7 +23,7 @@ function boot(kind:'tv'|'radio') {
   w.HTMLCanvasElement.prototype.toDataURL=()=> 'data:image/png;base64,iVBORw0KGgo=';
   w.fetch=(async()=>({ok:true,text:async()=> '#EXTM3U',json:async()=>[]})) as any;
   w.addEventListener('error',event=>errors.push(event.message));
-  if(kind==='radio')for(const file of ['radio-catalog.js','radio-directory.js'])new Script(readFileSync(resolve(process.cwd(),'media',file),'utf8')).runInContext(dom.getInternalVMContext());
+  if(kind==='radio')for(const file of ['radio-bands.js','radio-catalog.js','radio-directory.js'])new Script(readFileSync(resolve(process.cwd(),'media',file),'utf8')).runInContext(dom.getInternalVMContext());
   for(const script of [...w.document.querySelectorAll('script:not([src])')]) {
     // Direct-navigation redirect is deliberately excluded from an embedded-frame boot.
     if(script.textContent?.includes('window.top === window.self'))continue;
