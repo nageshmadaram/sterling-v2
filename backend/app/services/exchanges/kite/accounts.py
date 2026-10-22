@@ -1360,6 +1360,10 @@ def clear() -> None:
     _validated_at.clear()
     _loaded = True
     from app.services import db
+    if not db.is_disposable_path(db._DB_PATH):
+        # Never wipe a real store: this hook once deleted the live Kite account.
+        log.error("kite_accounts.clear() refused for non-test database %s", db._DB_PATH)
+        return
     if getattr(db, "_available", False):
         try:
             with db._conn() as c:

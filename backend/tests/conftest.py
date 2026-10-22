@@ -38,8 +38,15 @@ from tests.hermetic_env import isolate_dotenv as _isolate_dotenv
 _isolate_dotenv(_runtime_env)
 
 # Ensure pytest NEVER writes to or reads from the live sterling_paper.db.
-# All tests execute against an isolated temporary test database.
-if "STERLING_DB_PATH" not in os.environ:
+# All tests execute against an isolated temporary test database, even when the
+# shell running pytest exported the operator's STERLING_DB_PATH. The flag below is
+# inherited by subprocesses, so app.services.db refuses the live file there too.
+os.environ["STERLING_UNDER_TEST"] = "1"
+_inherited_db = os.environ.get("STERLING_DB_PATH", "")
+if not _inherited_db or not (
+    _inherited_db == ":memory:"
+    or os.path.realpath(_inherited_db).startswith(os.path.realpath(tempfile.gettempdir()) + os.sep)
+):
     _TEST_DB = tempfile.NamedTemporaryFile(suffix="_sterling_test.db", delete=False)
     _TEST_DB.close()
     os.environ["STERLING_DB_PATH"] = _TEST_DB.name

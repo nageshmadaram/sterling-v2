@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from dataclasses import dataclass
 from typing import Optional
 
@@ -252,6 +253,9 @@ def _env_flag(name: str, default: bool) -> bool:
     return raw in ("1", "true", "yes", "on")
 
 
+_PLACEHOLDER_KEY = re.compile(r"paper|placeholder|example|your|changeme|dummy|xxx", re.IGNORECASE)
+
+
 def seed_from_env() -> Optional[str]:
     """Adopt Kite credentials — and optionally a live token — from the environment.
 
@@ -274,6 +278,11 @@ def seed_from_env() -> Optional[str]:
     api_secret = (os.environ.get("KITE_API_SECRET")
                   or os.environ.get("ZERODHA_API_SECRET") or "").strip()
     if not api_key or not api_secret:
+        return None
+    if _PLACEHOLDER_KEY.search(api_key):
+        # A template value such as "paper_dev_key" would otherwise become a
+        # broken account (shown as "Kite (Paper Mode)") whenever the store is empty.
+        log.warning("Ignoring KITE_API_KEY from the environment: it is a placeholder, not a Kite API key")
         return None
 
     from .models import KiteAccountCreate, KiteAccountUpdate

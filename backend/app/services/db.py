@@ -7,6 +7,8 @@ Set to :memory: for tests (not recommended — use mock instead; see test_persis
 import json
 import os
 import sqlite3
+import sys
+import tempfile
 import time
 from contextlib import contextmanager
 from typing import List
@@ -29,6 +31,29 @@ def _resolve_default_db_path() -> str:
 
 _DB_PATH = _resolve_default_db_path()
 _available = False
+
+
+def under_test() -> bool:
+    """True inside pytest and in any process a test spawned (conftest exports the flag)."""
+    return os.environ.get("STERLING_UNDER_TEST") == "1" or "pytest" in sys.modules
+
+
+def is_disposable_path(path: str) -> bool:
+    """A database a test may create, fill and wipe: in memory, under the temp dir, or named *test*."""
+    if not path or path == ":memory:" or path.startswith("file::memory:"):
+        return True
+    real = os.path.realpath(path)
+    tmp = os.path.realpath(tempfile.gettempdir())
+    return real.startswith(tmp + os.sep) or "test" in os.path.basename(real).lower()
+
+
+def _refuse_live_db_under_test() -> None:
+    # 2026-10-22: a test run opened the operator's live sterling_paper.db and
+    # kite_accounts.clear() deleted the real Kite account. Tests never touch it.
+    if under_test() and not is_disposable_path(_DB_PATH):
+        raise RuntimeError(
+            f"refusing to open {_DB_PATH} under test: tests must use a temporary database"
+        )
 
 
 class ControlPlaneUnavailableError(RuntimeError):
@@ -679,6 +704,7 @@ def init() -> bool:
     global _available
     conn = None
     try:
+        _refuse_live_db_under_test()
         conn = sqlite3.connect(_DB_PATH, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
@@ -699,6 +725,7 @@ def init() -> bool:
 
 @contextmanager
 def _conn():
+    _refuse_live_db_under_test()
     c = sqlite3.connect(_DB_PATH, timeout=30.0)
     c.row_factory = sqlite3.Row
     _configure(c)
