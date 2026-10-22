@@ -3701,7 +3701,9 @@ html:not([data-radio-home="1"]) #radio-home-shelves{display:none}
         if(key==='omnicast_v11_config'&&value&&typeof value==='object'&&!Array.isArray(value)){
           const clean={...value};
           if('catalogSources' in clean)clean.catalogSources=window.SterlingRadioCatalog?.normalizeSources(clean.catalogSources);
-          const filters=clean.catalogFilters;clean.catalogFilters=filters&&typeof filters==='object'?{group:typeof filters.group==='string'?filters.group.slice(0,40):'',region:typeof filters.region==='string'?filters.region.slice(0,60):'',language:typeof filters.language==='string'?filters.language.slice(0,100):'',country:typeof filters.country==='string'?filters.country.slice(0,100):'',tag:typeof filters.tag==='string'?filters.tag.slice(0,100):'',secure:filters.secure===true}:{};
+          // Filters belong to the visit: a section or playlist filter saved last time (e.g. "Indian languages")
+          // would otherwise reopen Radio narrowed down, with most sections reading 0.
+          clean.catalogFilters={};
           if(!Number.isInteger(clean.catalogSourcesVersion))delete clean.catalogSourcesVersion;
           for(const field of ['volume','bass','mid','treble'])if(!Number.isFinite(clean[field]))delete clean[field];
           if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
