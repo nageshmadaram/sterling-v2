@@ -98,6 +98,7 @@ test('real Node gateway isolates TV document on direct URLs and preserves tradin
     assert.match(radioCsp,/sandbox allow-scripts allow-forms allow-downloads allow-presentation/);
     assert.match(radioCsp,/script-src-attr 'unsafe-inline'/);
     assert.doesNotMatch(radioCsp,/allow-same-origin/);
+    assert.match(radioCsp,/allow-popups allow-popups-to-escape-sandbox/);
     assert.match(radioCsp,/media-src https: http: data: blob:/);
     assert.match(radioCsp,/connect-src https: http:/);
     assert.match(radioCsp,/style-src 'self' 'unsafe-inline'/);

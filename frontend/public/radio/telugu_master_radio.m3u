@@ -1,0 +1,134 @@
+#EXTM3U
+
+# ==========================================================
+# 1. TELUGU LO-FI, SLOWED + REVERB & COMPOSER JUKEBOXES (MPV / VLC)
+# ==========================================================
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu Lo-Fi Vol. 1 - Aditya Music Jukebox
+https://www.youtube.com/watch?v=hVOEQc2pFIg
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu Lofi Love Melodies (DJ Harshit & DJ MHD IND)
+https://www.youtube.com/watch?v=sIcY_1Q3k1M
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu Lofi Love Mixes (Slowed & Chill Remixes)
+https://www.youtube.com/watch?v=jrHKoxl64Q0
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu LOFI Retros (80s & 90s Classic Flips)
+https://www.youtube.com/watch?v=WA_3YnUSbh4
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu LoFi Retro Rewind
+https://www.youtube.com/watch?v=BdR-8SVC4MQ
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu Lofi Joy & Breeze Mixes
+https://www.youtube.com/watch?v=-kt6hqF0vTk
+
+#EXTINF:-1 group-title="Telugu Lo-Fi & Chill Mixes",Telugu Lofi Complete Playlist (Non-Stop Queue)
+https://www.youtube.com/playlist?list=PLJb27GXzPW8eoxoL6z0urHXd9_vgyx5WB
+
+
+# ==========================================================
+# 2. 24/7 TELUGU MELODY, RETRO & HITS (DIRECT ICECAST / ZENOFM)
+# ==========================================================
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Melody Radio Telugu (24/7 Soft Melodies)
+https://a1.asurahosting.com:9580/radio.mp3
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Radio Ala 90.8 FM (Kakinada - Telugu Classics & Melodies)
+https://mahi.radioca.st/stream
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Hungama Telugu Hits & Evergreens
+http://103.16.47.70:9444/stream/1/
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",TORI - Telugu One Radio (Primary 24/7 Stream)
+https://stream.teluguoneradio.com:9700/;stream/1
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Telugu NRI Radio (24/7 Telugu Beats)
+http://stream.zeno.fm/fd411yenzxquv
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",London Telugu Radio (24/7 Melodies & Tollywood)
+https://c8.radioboss.fm/stream/33
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Virijallu Telugu Radio (UK / Global Telugu)
+https://26453.live.streamtheworld.com/SAM02AAC10_SC
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Radio City Telugu Gold / Retro (Zeno Relay)
+http://stream.zeno.fm/r8k697tdzxquv
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Mana Radio Telugu (Melodies & Talk)
+http://stream.zeno.fm/0r0xa792kwzuv
+
+#EXTINF:-1 group-title="Telugu 24/7 Hits & Melody",Swara Radio Telugu (24/7 Music & Culture)
+http://stream.zeno.fm/u7m4g292kwzuv
+
+
+# ==========================================================
+# 3. TELANGANA & ANDHRA PRADESH AKASHVANI (COMPLETE REGIONAL)
+# ==========================================================
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Hyderabad FM Rainbow (101.9 FM)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio031/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Hyderabad A (738 kHz MW - Primary Telugu)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Hyderabad B / Vividh Bharati (1377 kHz MW / 102.8 FM)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio033/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Adilabad (Telangana Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio218/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Kothagudem (Telangana Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio151/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Nizamabad (Telangana Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio222/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Warangal (Telangana Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio154/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Vijayawada A (837 kHz MW - Primary Telugu)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio036/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Vijayawada FM Rainbow (102.2 FM)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio037/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Visakhapatnam (927 kHz MW)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio038/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Visakhapatnam FM Rainbow
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio039/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Tirupati (107.5 FM - Rayalaseema & Devotional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio040/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Kurnool (Rayalaseema Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio035/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Kadapa (900 kHz MW - Rayalaseema Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio034/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Anantapur (Rayalaseema Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio153/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Nellore (Coastal AP)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio152/playlist.m3u8
+
+#EXTINF:-1 group-title="Telangana & AP Akashvani",AIR Markapur (Prakasam Regional)
+https://air.pc.cdn.bitgravity.com/air/live/pbaudio221/playlist.m3u8
+
+
+# ==========================================================
+# 4. TELUGU DEVOTIONAL, CLASSICAL & SPIRITUAL
+# ==========================================================
+
+#EXTINF:-1 group-title="Telugu Devotional & Classical",SVBC TTD Radio (Tirumala Tirupati Devasthanams Live)
+http://stream.zeno.fm/4d68507tdzxquv
+
+#EXTINF:-1 group-title="Telugu Devotional & Classical",Shirdi Sai Baba Telugu Radio
+http://stream.zeno.fm/c1r6u07tdzxquv
+
+#EXTINF:-1 group-title="Telugu Devotional & Classical",Radio Sai Global Harmony (Telugu Stream - Prasanthi Nilayam)
+http://stream.radiosai.net:8008/
+
+#EXTINF:-1 group-title="Telugu Devotional & Classical",Hungama Carnatic Classical
+http://103.16.47.70:8111/stream/1/

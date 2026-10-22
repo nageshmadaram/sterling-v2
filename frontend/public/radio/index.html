@@ -2049,7 +2049,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
           if(typeof clean.muted!=='boolean')delete clean.muted;
           if(!['spotify','ytmusic','netflix'].includes(clean.appMode))delete clean.appMode;
-          if(!['all','shortwave','mediumwave','longwave','ham','akashvani','telugu','tamil','featured','podcasts'].includes(clean.activeCategory))delete clean.activeCategory;
+          if(!['all','shortwave','mediumwave','longwave','ham','akashvani','telugu','music-mixes','tamil','featured','podcasts'].includes(clean.activeCategory))delete clean.activeCategory;
           if(!['last','custom','quiet'].includes(clean.bootBehavior))delete clean.bootBehavior;
           if(clean.lastStationSnapshot&&!station(clean.lastStationSnapshot))delete clean.lastStationSnapshot;
           return clean;
@@ -2271,7 +2271,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let radioCatalog=null,radioDirectoryUi=null,radioDirectorySnapshot=null,radioRefreshTimer=0,radioRefreshAt=0;
     const radioDirectoryIndexed=new WeakSet();
     function isHyderabadStation(s){return /hyderabad|\bhyd\b|secunderabad/i.test([s.title,s.subtitle,s.region,s.city,...(s.tags||[])].filter(Boolean).join(' '));}
+    const MUSIC_MIX_GROUPS=window.SterlingRadioPresets?.musicMixGroups||['telugu-live','ilaiyaraaja','rahman','retro','bollywood-lofi'];
     function radioDirectoryBase(cat=appConfig.activeCategory) {
+      if(cat==='music-mixes')return MASTER_POOL.filter(station=>(station.groups||[]).some(group=>MUSIC_MIX_GROUPS.includes(group)));
       if(BAND_CATEGORIES.includes(cat))return bandStations(RADIO_BANDS?.BY_CATEGORY[cat]);
       if(cat==='akashvani')return MASTER_POOL.filter(station=>station.category==='akashvani'||/akashvani|all india radio/i.test(station.title));
       // A language section holds stations IN that language: its own category, or that language first.
@@ -2286,7 +2288,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function radioDirectoryFiltered(pool){return window.SterlingRadioDirectory?pool.filter(station=>window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{})):pool;}
     function updateRadioDirectoryCounts(){
-      const keys={all:['all','All'],shortwave:['sw','Shortwave'],mediumwave:['mw','AM / MW'],longwave:['lw','Longwave'],ham:['ham','Ham'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],tamil:['ta','Tamil'],featured:['feat','World FM']};
+      const keys={all:['all','All'],shortwave:['sw','Shortwave'],mediumwave:['mw','AM / MW'],longwave:['lw','Longwave'],ham:['ham','Ham'],akashvani:['air','Akashvani'],telugu:['te','Telugu'],'music-mixes':['mix','Music Mixes'],tamil:['ta','Tamil'],featured:['feat','World FM']};
       for(const [cat,[suffix,label]] of Object.entries(keys))for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
         const button=document.getElementById(prefix+suffix);if(!button)continue;
         // Each chip shows its category's total; filters belong to the section being viewed, not to every chip.
@@ -2335,6 +2337,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       // Chip order in every bar: All, Telugu, Akashvani, World FM, then the rest.
       for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const all=document.getElementById(prefix+'all'),te=document.getElementById(prefix+'te'),air=document.getElementById(prefix+'air'),feat=document.getElementById(prefix+'feat');if(all&&te){all.after(te);let last=te;if(air){te.after(air);last=air;}if(feat)last.after(feat);}}
       for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
+        const te=document.getElementById(prefix+'te');
+        if(te&&!document.getElementById(prefix+'mix')){const chip=document.createElement('button');chip.type='button';chip.id=prefix+'mix';chip.className=te.className;chip.textContent='Music Mixes';chip.addEventListener('click',()=>loadCategory('music-mixes'));te.after(chip);}
         const sw=document.getElementById(prefix+'sw');if(!sw||document.getElementById(prefix+'mw'))continue;
         let after=sw;
         for(const [cat,suffix,label] of [['mediumwave','mw','AM / MW'],['longwave','lw','Longwave'],['ham','ham','Ham']]){
@@ -2391,6 +2395,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function buildSectionRows(cat){
       const pool=radioDirectoryBase(cat),station=s=>({kind:'station',key:s.id,station:s});
+      if(cat==='music-mixes')return [
+        ...MUSIC_MIX_GROUPS.map(group=>({id:group,title:window.SterlingRadioPresets.groupLabel(group),items:pool.filter(s=>(s.groups||[]).includes(group)).sort((a,b)=>(b.pop||0)-(a.pop||0)).map(station),open:()=>openRadioSection({group},cat)})),
+        {id:'telugu-youtube-lofi',title:'Telugu Lo-Fi & Chill · YouTube',items:(window.SterlingRadioPresets.youtubeMixes||[]).map(mix=>({kind:'external',key:mix.url,title:mix.title,url:mix.url,badge:'▶',subtitle:'Open on YouTube ↗'}))},
+        {id:'telugu-youtube-discovery',title:'Artist & Mood Discovery · YouTube',items:(window.SterlingRadioPresets.youtubeSearches||[]).map(mix=>({kind:'external',key:mix.url,title:mix.title,url:mix.url,badge:'♫',subtitle:'Find mixes on YouTube ↗'}))},
+      ];
       // In Telugu, Hyderabad stations lead every row; otherwise rows are by popularity.
       const hyd=cat==='telugu'?s=>isHyderabadStation(s)?1:0:()=>0,byPop=(a,b)=>hyd(b)-hyd(a)||(b.pop||0)-(a.pop||0);
       const languageSection=cat==='telugu'||cat==='tamil';
@@ -2435,7 +2444,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         MASTER_POOL.length=0;for(const station of snapshot.stations){MASTER_POOL.push(station);if(!radioDirectoryIndexed.has(station)){radioSearchFields(station);radioDirectoryIndexed.add(station);}}
         // While the directory streams in (one batch per second or so), redraw at most every 2.5 s;
         // the last batch and every user action still redraw at once.
-        radioDirectorySnapshot=snapshot;clearTimeout(radioRefreshTimer);
+        radioDirectorySnapshot=snapshot;radioHomeKey='';clearTimeout(radioRefreshTimer);
         const now=performance.now();
         const active=Boolean(radioSearchQuery.trim())||Object.values(appConfig.catalogFilters||{}).some(Boolean);
         if(!snapshot.loading||!radioDirectoryUi){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
@@ -3133,7 +3142,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (ytmSwDeck) ytmSwDeck.classList.toggle('hidden', !bandView);
       if (bandView) configureBandTuner(cat);
 
-      const chipKeys = { all:'all', shortwave: 'sw', mediumwave: 'mw', longwave: 'lw', ham: 'ham', akashvani: 'air', telugu: 'te', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
+      const chipKeys = { all:'all', shortwave: 'sw', mediumwave: 'mw', longwave: 'lw', ham: 'ham', akashvani: 'air', telugu: 'te', 'music-mixes':'mix', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
       Object.entries(chipKeys).forEach(([k, suffix]) => {
         const spEl = document.getElementById(`sp-chip-${suffix}`);
         if (spEl) spEl.className = (k === cat)
@@ -3164,6 +3173,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         setHeadings('Telugu Radio Channels');
         catalogItems = [...TELUGU_STATIONS];
         if(!window.SterlingRadioCatalog)appendLiveLanguageStations('telugu');
+      } else if (cat === 'music-mixes') {
+        setHeadings('Music Mixes');
+        catalogItems = [...radioDirectoryBase(cat)];
       } else if (cat === 'tamil') {
         setHeadings('Tamil Radio Channels');
         catalogItems = [...TAMIL_STATIONS];

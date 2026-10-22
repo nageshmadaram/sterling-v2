@@ -2,7 +2,7 @@
    to the host's existing owner-scoped Radio configuration. */
 (()=>{
  const PAGE=1000,MAX_BYTES=16*1024*1024;
- const WORLD='https://de1.api.radio-browser.info/json/stations',MAX_SOURCES=60,CATEGORIES=['akashvani','shortwave'];
+ const WORLD='https://de1.api.radio-browser.info/json/stations',MAX_SOURCES=100,CATEGORIES=['akashvani','shortwave'];
  const defaults=[{id:'radio-browser',name:'Radio Browser · World directory',url:WORLD,kind:'directory',enabled:true,group:'world',category:''}];
  const presets=()=>window.SterlingRadioPresets?.sources?.()||defaults.map(row=>({...row}));
  // fr1, at1, nl1 and fi1 no longer exist (checked 2026-10-22); de1 and de2 do.
@@ -96,7 +96,7 @@
   async function run(){
    if(loading)return;const generation=++revision;controller=new AbortController();const signal=controller.signal;loading=true;emit();
    // Small lists first so Akashvani, bands and top stations appear before the 45,000-station directory finishes.
-   for(const state of [...states].sort((a,b)=>(a.kind==='directory')-(b.kind==='directory'))){
+   for(const state of [...states].sort((a,b)=>((a.kind==='directory'?2:a.kind==='builtin'?0:1)-(b.kind==='directory'?2:b.kind==='builtin'?0:1)))){
     if(generation!==revision)return;if(state.done||!state.enabled)continue;state.status='loading';state.error='';emit();
     if(state.kind==='builtin'){const text=window.SterlingRadioPresets?.playlists?.[state.url.slice(8)];if(text)add(playlist(text,state),state);else{state.status='error';state.error='This built-in list is not available in this build.';emit();continue;}state.done=true;state.status='ready';emit();continue;}
     if(state.kind==='stream'){const item=station({name:state.name,url:state.url},state,0);if(item&&!records.has(item.streamUrl)){records.set(item.streamUrl,item);state.count=1;}state.done=true;state.status='ready';emit();continue;}

@@ -249,6 +249,29 @@ export function closedReasonText(
   return { text: 'Closed', hint: 'The trend ended. Kept for your record; you cannot trade it.' };
 }
 
+/**
+ * One buyable plan per contract per day. When a stock signals again, the newer signal's leg
+ * for the same contract is the plan to follow; the older leg stays visible (it may be a
+ * position someone holds) but is marked replaced and cannot be bought, so a trader never
+ * sees two buyable plans with different stops for one option.
+ * Returns the set of `${timestamp_ms}|${option_symbol}` legs that a newer plan replaced.
+ */
+export function supersededLegKeys(rows: readonly { timestamp_ms: number; horizon_mode?: string; legs?: { option_symbol?: string }[] }[]): Set<string> {
+  const newest = new Map<string, number>();
+  for (const row of rows) for (const leg of row.legs ?? []) {
+    if (!leg.option_symbol) continue;
+    const key = `${sessionDayKey(row.timestamp_ms)}|${row.horizon_mode ?? 'swing'}|${leg.option_symbol}`;
+    newest.set(key, Math.max(newest.get(key) ?? 0, row.timestamp_ms ?? 0));
+  }
+  const out = new Set<string>();
+  for (const row of rows) for (const leg of row.legs ?? []) {
+    if (!leg.option_symbol) continue;
+    const key = `${sessionDayKey(row.timestamp_ms)}|${row.horizon_mode ?? 'swing'}|${leg.option_symbol}`;
+    if ((row.timestamp_ms ?? 0) < (newest.get(key) ?? 0)) out.add(`${row.timestamp_ms}|${leg.option_symbol}`);
+  }
+  return out;
+}
+
 export function supertrendLegToBoard(
   row: EngineSignalRow,
   leg: OptionLeg,
@@ -330,6 +353,9 @@ export function supertrendLegToBoard(
     executionEligible: (
       row.is_replay !== true
       && row.view_only !== true
+      // Buyable only with a stop below the entry: that stop is armed at Zerodha after the fill.
+      && price(leg.entry_sl ?? leg.premium_sl) != null && price(leg.premium_spot) != null
+      && price(leg.entry_sl ?? leg.premium_sl)! < price(leg.premium_spot)!
       && (leg.is_active ?? row.is_active ?? false) === true
       && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
     ),
@@ -425,6 +451,9 @@ function supertrendSignalToBoard(
  */
 function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterOptions): BoardOrigin[] {
   const flags: BoardOrigin[] = [];
+  const st = leg.entry_sl ?? leg.premium_sl, en = leg.premium_spot;
+  if (st == null || !(st > 0)) flags.push({ label: 'NO STOP', tone: 'amber', hint: 'This leg has no stop, so it cannot be bought from the board.' });
+  else if (en != null && st >= en) flags.push({ label: 'STOP ≥ ENTRY', tone: 'amber', hint: `The stop (${st}) is at or above the entry (${en}); buying would sell at once.` });
   if (row.view_only) {
     flags.push({ label: 'VIEW ONLY', tone: 'dim', hint: 'A signal from a mode SuperTrend is not set to trade. To trade it, switch SuperTrend to this mode in Settings.' });
   }
@@ -530,8 +559,14 @@ export function supertrendToBoard(
   rows: readonly EngineSignalRow[],
   opts: SuperTrendAdapterOptions = {},
 ): BoardSignal[] {
+  const replaced = supersededLegKeys(rows);
   return rows.map((row, i) => {
-    const legs = (row.legs ?? []).map((leg, j) => supertrendLegToBoard(row, leg, j, opts));
+    const legs = (row.legs ?? []).map((leg, j) => {
+      const board = supertrendLegToBoard(row, leg, j, opts);
+      if (!replaced.has(`${row.timestamp_ms}|${leg.option_symbol}`)) return board;
+      return { ...board, executionEligible: false,
+        flags: [...(board.flags ?? []), { label: 'REPLACED', tone: 'dim' as const, hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' }] };
+    });
     // Each row carries its own mode: other modes' rows are on the board too (view-only).
     return withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(row.horizon_mode ?? opts.mode));
   });

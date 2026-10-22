@@ -120,7 +120,7 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
     <iframe key={version} ref={frameRef}
       title="Sterling Radio player" data-testid="sterling-radio-frame"
       src="/radio/index.html"
-      sandbox="allow-scripts allow-forms allow-downloads allow-presentation"
+      sandbox="allow-scripts allow-forms allow-downloads allow-presentation allow-popups allow-popups-to-escape-sandbox"
       referrerPolicy="no-referrer"
       allow="autoplay; encrypted-media" loading="eager"
       onLoad={hydrate}

@@ -60,6 +60,8 @@ export function useBoardRowActions({ onOpenChart }: {
       lotSize: lotSize || 1,
       lastPrice: planPx,
       tag: signal.engine.toUpperCase(),
+      fromSignal: side === 'BUY',
+      planStop: signal.levels.stop ?? signal.levels.trail ?? null,
       ...(planned ? {
         initialQty: signal.sizing.quantity ?? undefined,
         initialSlPct: levelPct(signal.levels.entry, signal.levels.stop),

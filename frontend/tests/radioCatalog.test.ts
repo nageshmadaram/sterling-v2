@@ -90,3 +90,45 @@ it('splits AM, shortwave, longwave and ham stations and reads their frequencies'
  expect(bands.classify({title:'Station 1010 AM',tags:[]},{id:'tag-shortwave'}).band).toBe('mw');
  expect(bands.meterBand('sw',9410)).toBe('31m');
 });
+it('integrates the five requested feeds as distinct playable home playlists',async()=>{
+ const serviceApi=withPresets(),presets=(opened.at(-1)!.window as any).SterlingRadioPresets;
+ const feeds=[['lang-telugu','bylanguageexact/telugu','telugu-live'],['rb-ilaiyaraaja','byname/ilaiyaraaja','ilaiyaraaja'],['rb-rahman','byname/rahman','rahman'],['rb-spb','byname/spb','retro'],['rb-bollywood-lofi','byname/bollywood%20lofi','bollywood-lofi']];
+ const list=serviceApi.defaults();
+ for(const [id,path,group] of feeds){
+  const feed=list.find((item:any)=>item.id===id);
+  expect(feed).toMatchObject({url:`https://de1.api.radio-browser.info/m3u/stations/${path}?hidebroken=true`,enabled:true,kind:'m3u',group});
+  expect(presets.homePlaylists).toContain(group);
+ }
+ const requested=feeds.map(([id])=>list.find((item:any)=>item.id===id));
+ // Overlapping results stay playable once, with membership in every requested playlist.
+ const service=serviceApi.create({sources:requested,fetcher:async(address:string)=>{
+  expect(address).toContain('/json/stations/');expect(new URL(address).searchParams.get('hidebroken')).toBe('true');
+  return response([row(1)]);
+ }});
+ await service.load();const state=service.snapshot();
+ expect(state.complete).toBe(true);expect(state.stations).toHaveLength(1);
+ expect(state.stations[0].groups).toEqual(feeds.map(feed=>feed[2]));
+ expect(state.stations[0].streamUrl).toBe('https://stream.fixture/1.mp3');
+});
+it('imports all supplied direct stations in five Music Mixes groups and keeps YouTube out of audio',async()=>{
+ const serviceApi=withPresets(),presets=(opened.at(-1)!.window as any).SterlingRadioPresets;
+ const counts={'telugu-247':4,'telugu-nri':6,'telangana-air':7,'andhra-air':10,'telugu-devotional':4};
+ const sources=serviceApi.defaults().filter((s:any)=>s.kind==='builtin'&&s.group in counts);
+ expect(sources).toHaveLength(5);
+ const service=serviceApi.create({sources,fetcher:()=>{throw Error('built-in lists must not fetch');}});
+ await service.load();const state=service.snapshot();
+ expect(state.stations).toHaveLength(31);expect(state.complete).toBe(true);
+ for(const [group,count] of Object.entries(counts)){
+  expect(state.stations.filter((s:any)=>s.groups.includes(group))).toHaveLength(count);
+  expect(presets.musicMixGroups).toContain(group);
+ }
+ expect(state.stations.some((s:any)=>s.streamUrl.includes('youtube.com'))).toBe(false);
+ expect(presets.youtubeMixes).toHaveLength(7);
+ expect(presets.youtubeMixes.filter((s:any)=>s.url.includes('/playlist?'))).toHaveLength(1);
+ for(const artist of ['chithra','janaki','ghantasala']){
+  expect(serviceApi.defaults().find((s:any)=>s.id===`rb-${artist}`)).toMatchObject({enabled:true,group:artist,url:`https://de1.api.radio-browser.info/m3u/stations/byname/${artist}?hidebroken=true`});
+ }
+ // The expanded library must leave room for existing personal sources during migration.
+ const personal={...source,id:'personal',kind:'m3u'};
+ expect(serviceApi.normalizeSources([...serviceApi.defaults(),personal]).at(-1).id).toBe('personal');
+});

@@ -23,7 +23,7 @@ function boot(kind:'tv'|'radio') {
   w.HTMLCanvasElement.prototype.toDataURL=()=> 'data:image/png;base64,iVBORw0KGgo=';
   w.fetch=(async()=>({ok:true,text:async()=> '#EXTM3U',json:async()=>[]})) as any;
   w.addEventListener('error',event=>errors.push(event.message));
-  for(const file of kind==='radio'?['radio-bands.js','radio-catalog.js','radio-directory.js','sheet-swipe.js']:['sheet-swipe.js'])new Script(readFileSync(resolve(process.cwd(),'media',file),'utf8')).runInContext(dom.getInternalVMContext());
+  for(const file of kind==='radio'?['radio-sources.js','radio-bands.js','radio-catalog.js','radio-directory.js','sheet-swipe.js']:['sheet-swipe.js'])new Script(readFileSync(resolve(process.cwd(),'media',file),'utf8')).runInContext(dom.getInternalVMContext());
   for(const script of [...w.document.querySelectorAll('script:not([src])')]) {
     // Direct-navigation redirect is deliberately excluded from an embedded-frame boot.
     if(script.textContent?.includes('window.top === window.self'))continue;
@@ -316,5 +316,26 @@ it.each(['radio','tv'] as const)('opens the %s URL source manager through its ho
  w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'sources'}}));
  if(kind==='radio')expect((w.document.querySelector('.radio-source-dialog') as HTMLDialogElement).open).toBe(true);
  else expect(w.document.getElementById('source-manager-modal')?.classList.contains('hidden')).toBe(false);
+ expect(errors).toEqual([]);
+});
+
+it('Music Mixes chips open categorized stations and safe YouTube links across all headers',async()=>{
+ const {w,errors,flush}=boot('radio');
+ (w as any).IntersectionObserver=class {observe(){} unobserve(){} disconnect(){}};
+ new Script(readFileSync('media/radio-home.js','utf8')).runInContext(opened.at(-1)!.getInternalVMContext());
+ await w.eval("radioCatalog.reload(window.SterlingRadioPresets.sources().filter(s=>s.kind==='builtin'&&MUSIC_MIX_GROUPS.includes(s.group)))");
+ for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
+  (w.document.getElementById(prefix+'mix') as HTMLElement).click();flush();
+  expect(w.document.documentElement.dataset.radioCategory).toBe('music-mixes');
+  const home=w.document.getElementById('radio-home-shelves')!;
+  expect(home.textContent).toContain('Telangana · Akashvani');
+  expect(home.textContent).toContain('Andhra Pradesh · Akashvani');
+  expect(home.textContent).toContain('Telugu Web & NRI Radio');
+  expect(home.textContent).toContain('Telugu Devotional & Classical');
+  const links=home.querySelectorAll('a[target="_blank"]');expect(links).toHaveLength(10);
+  for(const link of links){expect(link.getAttribute('rel')).toBe('noopener noreferrer');expect(link.getAttribute('href')).toMatch(/^https:\/\/www\.youtube\.com\//);}
+ }
+ const all=w.document.getElementById('sp-mchip-all') as HTMLElement;all.click();
+ expect(w.document.documentElement.dataset.radioCategory).toBe('all');
  expect(errors).toEqual([]);
 });

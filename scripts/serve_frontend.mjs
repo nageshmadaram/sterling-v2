@@ -147,7 +147,7 @@ const server = http.createServer((req,res) => {
   // It must remain origin-opaque, just like TV, while the trading SPA keeps
   // its strict first-party CSP. Never add allow-same-origin here.
   const radioCsp = [
-    'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
+    'sandbox allow-scripts allow-forms allow-downloads allow-presentation allow-popups allow-popups-to-escape-sandbox',
     "default-src 'none'",
     `script-src 'self' 'nonce-${nonce}'`,
     // The bundled media player contains inline onclick/oninput attributes.

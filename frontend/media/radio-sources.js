@@ -1,4 +1,4 @@
-/* Built-in Radio source library: grouped presets, two curated playlists and the
+/* Built-in Radio source library: grouped presets, curated playlists and the
    default on/off state. Users toggle, edit, delete and restore these in the
    Station sources dialog. Checked 2026-10-22; empty Radio Browser tags start off. */
 (()=>{
@@ -7,7 +7,7 @@
  const groups=[
   ['world','World directory'],['akashvani','Akashvani · Prasar Bharati'],['india','India'],['languages','Indian languages'],
   ['indian-genres','Indian genres'],['bands','Shortwave · AM · MW · LW'],['top','Top stations worldwide'],['mixes','Curated mixes'],
-  ['telugu-247','Telugu 24/7'],['retro','Retro: SPB, Ilaiyaraaja & classics'],['rahman','A.R. Rahman'],['lofi','Lo-fi & chill'],['desi-chill','Desi chill & classical'],
+  ['telugu-live','All Working Telugu Stations'],['ilaiyaraaja','Ilaiyaraaja 24/7 Melodies'],['bollywood-lofi','Bollywood / Hindi Lofi'],['telugu-247','Telugu Hits & Melodies'],["telugu-nri", "Telugu Web & NRI Radio"],["telangana-air", "Telangana · Akashvani"],["andhra-air", "Andhra Pradesh · Akashvani"],["telugu-devotional", "Telugu Devotional & Classical"],["chithra", "K.S. Chithra Melodies"],["janaki", "S. Janaki Classics"],["ghantasala", "Ghantasala Classics"],['retro','S.P. Balasubrahmanyam (SPB) Retro'],['rahman','A.R. Rahman 24/7 Streams'],['lofi','Lo-fi & chill'],['desi-chill','Desi chill & classical'],
  ];
  // [id, name, url, group, enabled, category, note]
  const rows=[
@@ -23,7 +23,7 @@
   ['bollywood','Bollywood · Worldwide',rb('search?tag=bollywood&order=clickcount&reverse=true'),'indian-genres',true,'',''],
   ['junguler-india','India mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/india.m3u','indian-genres',false,'',''],
   ...['hindi','telugu','tamil','malayalam','kannada','marathi','bengali','punjabi','urdu','gujarati','odia'].map(lang=>
-   [`lang-${lang}`,`${lang[0].toUpperCase()+lang.slice(1)}`,rb(`bylanguageexact/${lang}`),'languages',['hindi','telugu','tamil'].includes(lang),'','']),
+   [`lang-${lang}`,lang==='telugu'?'All Working Telugu Stations':`${lang[0].toUpperCase()+lang.slice(1)}`,rb(`bylanguageexact/${lang}`),lang==='telugu'?'telugu-live':'languages',['hindi','telugu','tamil'].includes(lang),'','']),
   ['intl-shortwave','International broadcasters (shortwave)','builtin:intl-shortwave','bands',true,'shortwave','BBC WS, RNZ Pacific, WRMI, RRI, RFI, DW, NHK World, ABC Radio Australia.'],
   ['tag-am','AM stations',rb('bytagexact/am'),'bands',true,'shortwave',''],
   ['tag-am-english','English news on AM',rb('search?language=english&tag=am&order=clickcount&reverse=true'),'bands',false,'shortwave',''],
@@ -41,18 +41,27 @@
   ['junguler-talk','Talk mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/talk.m3u','mixes',false,'',''],
   ['junguler-world','World mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/world.m3u','mixes',false,'',''],
   // Playlists on the Radio home page. Each group is one playlist; several searches can feed it.
-  ['telugu-247','Telugu 24/7 melodies','builtin:telugu-247','telugu-247',true,'','Melody Radio Telugu, Radio Ala, London Telugu Radio, TORI, AIR Hyderabad A.'],
+  ['telugu-247','Telugu Hits & Melodies','builtin:telugu-247','telugu-247',true,'','User-supplied streams; availability varies.'],
   ['desi-chill','Desi chill & classical','builtin:desi-chill','desi-chill',true,'','SomaFM Suburbs of Goa and Akashvani Raagam.'],
   ['rb-spb-tag','SPB · Radio Browser tag',rb('search?tag=spb'),'retro',true,'',''],
   ['rb-spb','SPB · Radio Browser name',rb('byname/spb'),'retro',true,'',''],
-  ['rb-ilaiyaraaja','Ilaiyaraaja · Radio Browser name',rb('byname/ilaiyaraaja'),'retro',true,'','Few stations carry this exact spelling today.'],
-  ['rb-ilayaraja','Ilayaraja · Radio Browser search',rb('search?name=ilayaraja'),'retro',true,'',''],
+  ['rb-ilaiyaraaja','Ilaiyaraaja 24/7 Melodies',rb('byname/ilaiyaraaja'),'ilaiyaraaja',true,'','Few stations carry this exact spelling today.'],
+  ['rb-ilayaraja','Ilayaraja · Radio Browser search',rb('search?name=ilayaraja'),'ilaiyaraaja',true,'',''],
   ['rb-india-retro','Indian retro',rb('search?tag=retro&countrycode=IN'),'retro',true,'',''],
   ['rb-rahman','A.R. Rahman · Radio Browser name',rb('byname/rahman'),'rahman',true,'',''],
   ['rb-rahman-tag','A.R. Rahman · Radio Browser tag',rb('search?tag=rahman'),'rahman',true,'',''],
   ['rb-lofi-tag','Lo-fi · tag',rb('search?tag=lofi&order=clickcount&reverse=true'),'lofi',true,'',''],
   ['rb-lofi-name','Lo-fi · name',rb('search?name=lofi&order=clickcount&reverse=true'),'lofi',true,'',''],
-  ['rb-bollywood-lofi','Bollywood lo-fi',rb('byname/bollywood%20lofi'),'lofi',true,'','Few stations carry this exact name today.'],
+  ['rb-bollywood-lofi','Bollywood / Hindi Lofi',rb('byname/bollywood%20lofi'),'bollywood-lofi',true,'','Few stations carry this exact name today.'],
+  ["telugu-nri", "Telugu Web & NRI Radio", "builtin:telugu-nri", "telugu-nri", true, "", "From the supplied master list; station labels and availability are unverified."],
+  ["telangana-air", "Telangana · Akashvani", "builtin:telangana-air", "telangana-air", true, "akashvani", "From the supplied master list; station labels and availability are unverified."],
+  ["andhra-air", "Andhra Pradesh · Akashvani", "builtin:andhra-air", "andhra-air", true, "akashvani", "From the supplied master list; station labels and availability are unverified."],
+  ["telugu-devotional", "Telugu Devotional & Classical", "builtin:telugu-devotional", "telugu-devotional", true, "", "From the supplied master list; station labels and availability are unverified."],
+  ["rb-chithra", "K.S. Chithra Melodies", "https://de1.api.radio-browser.info/m3u/stations/byname/chithra?hidebroken=true", "chithra", true, "", ""],
+  ["rb-janaki", "S. Janaki Classics", "https://de1.api.radio-browser.info/m3u/stations/byname/janaki?hidebroken=true", "janaki", true, "", ""],
+  ["rb-ghantasala", "Ghantasala Classics", "https://de1.api.radio-browser.info/m3u/stations/byname/ghantasala?hidebroken=true", "ghantasala", true, "", ""],
+  ["rb-tag-telugu", "Telugu · Tagged stations", "https://de1.api.radio-browser.info/m3u/stations/bytag/telugu?hidebroken=true", "telugu-live", true, "", ""],
+  ["rb-tag-tollywood", "Tollywood · Tagged stations", "https://de1.api.radio-browser.info/m3u/stations/bytag/tollywood?hidebroken=true", "telugu-live", true, "", ""],
   ['junguler-oldies','Oldies mix (junguler playlists)','https://raw.githubusercontent.com/junguler/m3u-radio-music-playlists/main/oldies.m3u','mixes',false,'',''],
  ];
  const kindOf=url=>url.startsWith('builtin:')?'builtin':/\/json\/stations$/.test(url)?'directory':/\.json(?:\?|$)/.test(url)?'json':'m3u';
@@ -66,15 +75,84 @@
    pb('005','Akashvani FM Gold Delhi','Hindi;English','Akashvani FM'),
    pb('139','Akashvani Raagam Classical','Classical','Akashvani Classical'),
    pb('137','Akashvani Odia','Odia','Akashvani Regional')].join('\n'),
-  // From the user's list, 2026-10-22. Zeno (401), Virijallu (403) and both Hungama streams (no
-  // response) were down when checked and are left out; TORI timed out but is kept.
-  'telugu-247':['#EXTM3U',
-   ...[['Melody Radio Telugu','https://a1.asurahosting.com:9580/radio.mp3'],
-    ['Radio Ala 90.8 FM Kakinada','https://mahi.radioca.st/stream'],
-    ['TORI · Telugu One Radio','https://stream.teluguoneradio.com:9700/;stream/1'],
-    ['London Telugu Radio','https://c8.radioboss.fm/stream/33'],
-    ['AIR Hyderabad A (738 kHz MW)','https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8'],
-   ].map(([name,url])=>`#EXTINF:-1 tvg-country="IN" tvg-language="Telugu" group-title="Telugu 24/7",${name}\n${url}`)].join('\n'),
+  // Supplied master list, 2026-10-22; labels and availability are not independently verified.
+  "telugu-247":[
+   "#EXTM3U",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Hits & Melodies\",Melody Radio Telugu (24/7 Soft Melodies)",
+   "https://a1.asurahosting.com:9580/radio.mp3",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Hits & Melodies\",Radio Ala 90.8 FM (Kakinada - Telugu Classics & Melodies)",
+   "https://mahi.radioca.st/stream",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Hits & Melodies\",Hungama Telugu Hits & Evergreens",
+   "http://103.16.47.70:9444/stream/1/",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Hits & Melodies\",Radio City Telugu Gold / Retro (Zeno Relay)",
+   "http://stream.zeno.fm/r8k697tdzxquv"
+  ].join('\n'),
+  "telugu-nri":[
+   "#EXTM3U",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Web & NRI Radio\",TORI - Telugu One Radio (Primary 24/7 Stream)",
+   "https://stream.teluguoneradio.com:9700/;stream/1",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Web & NRI Radio\",Telugu NRI Radio (24/7 Telugu Beats)",
+   "http://stream.zeno.fm/fd411yenzxquv",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Web & NRI Radio\",London Telugu Radio (24/7 Melodies & Tollywood)",
+   "https://c8.radioboss.fm/stream/33",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Web & NRI Radio\",Virijallu Telugu Radio (UK / Global Telugu)",
+   "https://26453.live.streamtheworld.com/SAM02AAC10_SC",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Web & NRI Radio\",Mana Radio Telugu (Melodies & Talk)",
+   "http://stream.zeno.fm/0r0xa792kwzuv",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Web & NRI Radio\",Swara Radio Telugu (24/7 Music & Culture)",
+   "http://stream.zeno.fm/u7m4g292kwzuv"
+  ].join('\n'),
+  "telangana-air":[
+   "#EXTM3U",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Hyderabad FM Rainbow (101.9 FM)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio031/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Hyderabad A (738 kHz MW - Primary Telugu)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio032/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Hyderabad B / Vividh Bharati (1377 kHz MW / 102.8 FM)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio033/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Adilabad (Telangana Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio218/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Kothagudem (Telangana Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio151/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Nizamabad (Telangana Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio222/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telangana · Akashvani\",AIR Warangal (Telangana Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio154/playlist.m3u8"
+  ].join('\n'),
+  "andhra-air":[
+   "#EXTM3U",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Vijayawada A (837 kHz MW - Primary Telugu)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio036/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Vijayawada FM Rainbow (102.2 FM)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio037/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Visakhapatnam (927 kHz MW)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio038/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Visakhapatnam FM Rainbow",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio039/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Tirupati (107.5 FM - Rayalaseema & Devotional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio040/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Kurnool (Rayalaseema Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio035/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Kadapa (900 kHz MW - Rayalaseema Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio034/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Anantapur (Rayalaseema Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio153/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Nellore (Coastal AP)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio152/playlist.m3u8",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Andhra Pradesh · Akashvani\",AIR Markapur (Prakasam Regional)",
+   "https://air.pc.cdn.bitgravity.com/air/live/pbaudio221/playlist.m3u8"
+  ].join('\n'),
+  "telugu-devotional":[
+   "#EXTM3U",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Devotional & Classical\",SVBC TTD Radio (Tirumala Tirupati Devasthanams Live)",
+   "http://stream.zeno.fm/4d68507tdzxquv",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Devotional & Classical\",Shirdi Sai Baba Telugu Radio",
+   "http://stream.zeno.fm/c1r6u07tdzxquv",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Devotional & Classical\",Radio Sai Global Harmony (Telugu Stream - Prasanthi Nilayam)",
+   "http://stream.radiosai.net:8008/",
+   "#EXTINF:-1 tvg-language=\"Telugu\" group-title=\"Telugu Devotional & Classical\",Hungama Carnatic Classical",
+   "http://103.16.47.70:8111/stream/1/"
+  ].join('\n'),
   'desi-chill':['#EXTM3U',
    '#EXTINF:-1 tvg-country="US" tvg-language="English" group-title="Desi Chill",SomaFM · Suburbs of Goa\nhttps://ice1.somafm.com/suburbsofgoa-128-mp3',
    '#EXTINF:-1 tvg-country="IN" tvg-language="Classical" group-title="Desi Chill",Akashvani Raagam (24/7 classical)\nhttps://air.pc.cdn.bitgravity.com/air/live/pbaudio139/playlist.m3u8'].join('\n'),
@@ -89,6 +167,6 @@
     ['AU','English','ABC Radio Australia','https://mediaserviceslive.akamaized.net/hls/live/2038266/ramulti/masterhq.m3u8'],
    ].map(([country,lang,name,url])=>`#EXTINF:-1 tvg-country="${country}" tvg-language="${lang}" group-title="International Shortwave",${name}\n${url}`)].join('\n'),
  };
- window.SterlingRadioPresets=Object.freeze({version:3,homePlaylists:['telugu-247','retro','rahman','lofi','desi-chill'],groups:groups.map(([id,label])=>({id,label})),sources:()=>sources.map(row=>({...row})),playlists,
+ window.SterlingRadioPresets=Object.freeze({version:5,youtubeSearches:[{"title": "Mani Sharma & DSP · 2000s Lo-Fi", "url": "https://www.youtube.com/results?search_query=mani%20sharma%20devi%20sri%20prasad%20telugu%20lofi%20slowed%20reverb%20jukebox"}, {"title": "Ilaiyaraaja & SPB · Vintage Lo-Fi", "url": "https://www.youtube.com/results?search_query=ilaiyaraaja%20spb%20telugu%20lofi%20retro%20mix"}, {"title": "Midnight Rain & Acoustic Chill", "url": "https://www.youtube.com/results?search_query=telugu%20rain%20lofi%20chill%20mashup%20jukebox"}],musicMixGroups:["telugu-247", "telugu-nri", "telangana-air", "andhra-air", "telugu-devotional", "telugu-live", "ilaiyaraaja", "rahman", "retro", "chithra", "janaki", "ghantasala", "bollywood-lofi"],youtubeMixes:[{"title": "Telugu Lo-Fi Vol. 1 - Aditya Music Jukebox", "url": "https://www.youtube.com/watch?v=hVOEQc2pFIg"}, {"title": "Telugu Lofi Love Melodies (DJ Harshit & DJ MHD IND)", "url": "https://www.youtube.com/watch?v=sIcY_1Q3k1M"}, {"title": "Telugu Lofi Love Mixes (Slowed & Chill Remixes)", "url": "https://www.youtube.com/watch?v=jrHKoxl64Q0"}, {"title": "Telugu LOFI Retros (80s & 90s Classic Flips)", "url": "https://www.youtube.com/watch?v=WA_3YnUSbh4"}, {"title": "Telugu LoFi Retro Rewind", "url": "https://www.youtube.com/watch?v=BdR-8SVC4MQ"}, {"title": "Telugu Lofi Joy & Breeze Mixes", "url": "https://www.youtube.com/watch?v=-kt6hqF0vTk"}, {"title": "Telugu Lofi Complete Playlist (Non-Stop Queue)", "url": "https://www.youtube.com/playlist?list=PLJb27GXzPW8eoxoL6z0urHXd9_vgyx5WB"}],homePlaylists:['telugu-live','ilaiyaraaja','rahman','retro','bollywood-lofi','telugu-247','lofi','desi-chill'],groups:groups.map(([id,label])=>({id,label})),sources:()=>sources.map(row=>({...row})),playlists,
   groupLabel:id=>(groups.find(row=>row[0]===id)||[])[1]||id||'My sources'});
 })();

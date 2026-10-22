@@ -363,6 +363,36 @@ def seed_from_env() -> Optional[str]:
 
 
 # ─── Background keeper ───────────────────────────────────────────────────────
+_login_reminded: dict = {}
+
+
+async def _remind_daily_login(acct) -> None:
+    """Telegram once per trading morning when a live account has no usable session.
+
+    Accounts without a refresh token need Zerodha's daily login. On 22 Oct 2026 nobody
+    logged in until 11:42, so nothing traded for the first 2.5 hours and nothing said so.
+    From 08:30 to 15:30 IST on weekdays, a missing or expired session sends one reminder.
+    """
+    from datetime import datetime, timedelta, timezone
+    ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    if acct.is_paper or ist.weekday() >= 5 or not (8 * 60 + 30 <= ist.hour * 60 + ist.minute <= 15 * 60 + 30):
+        return
+    expires_at = acct.token_expires_at
+    if acct.access_token_enc and expires_at is not None and not kite_session.is_expired(expires_at):
+        return
+    day = ist.date().isoformat()
+    if _login_reminded.get(acct.id) == day:
+        return
+    _login_reminded[acct.id] = day
+    try:
+        from app.services.notifications import telegram
+        await telegram.send(
+            f"Kite is not logged in ({acct.label or acct.id}). No prices and no orders until you log in: "
+            f"Sterling → Tools → Connect → Log in to Kite. Do it before 09:15.")
+    except Exception as exc:  # noqa: BLE001 - a reminder must never break the keeper
+        log.warning("Kite login reminder could not be sent: %s", exc)
+
+
 async def session_keeper_loop(interval_s: int = 600) -> None:
     """Keep every stored account's session alive without a browser in the loop.
 
@@ -377,6 +407,7 @@ async def session_keeper_loop(interval_s: int = 600) -> None:
         try:
             for acct in kite_accounts.all_accounts():
                 if not acct.has_refresh_token or not acct.api_key:
+                    await _remind_daily_login(acct)
                     continue
                 expires_at = acct.token_expires_at
                 due = (

@@ -11,6 +11,7 @@ import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './board/emaTren
 const SnapbackBoard = lazy(() => import('./board/SnapbackBoard').then(m => ({ default: m.SnapbackBoard })));
 import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
 import { StrategyGuide } from './board/StrategyGuide';
+import { KiteSessionBar } from './board/KiteSessionBar';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
 import { supertrendToBoard } from './board/supertrendAdapter';
 import { ACTIONABLE, type BoardSignal, type EngineId } from './board/boardTypes';
@@ -273,6 +274,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           </span>
         </PaneHeaderActions>
       </div>
+      <KiteSessionBar />
       <StrategyGuide engine={engine} />
 
       {settingsOpen && (

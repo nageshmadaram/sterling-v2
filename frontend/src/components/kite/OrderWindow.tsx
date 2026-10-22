@@ -24,6 +24,27 @@ import {
   buildOrderBody, buildMarginOrder, parseMargin, buildProtectionGtt, chargeLines,
 } from './orderTicket';
 
+/**
+ * Every answer to a placed order, in plain words. A refusal from Zerodha (funds, IP, session)
+ * or from Sterling's own checks is a real, verified outcome: the order path worked and the
+ * reply says why nothing was bought.
+ */
+export function explainOrderOutcome(raw: string): { title: string; detail: string; tone: 'info' | 'error' } {
+  const m = String(raw || '').trim();
+  const l = m.toLowerCase();
+  if (/insufficient|margin|funds|capital_unavailable|capital/.test(l))
+    return { title: 'Not bought: not enough funds', detail: `Zerodha or Sterling checked the account and the funds do not cover this order. Reply: ${m}`, tone: 'info' };
+  if (/\bip\b|whitelist|static ip|ip address|egress/.test(l))
+    return { title: 'Zerodha refused: IP not registered', detail: `This server's IP is not registered for API orders on your Zerodha account. Reply: ${m}`, tone: 'info' };
+  if (/token|session|log ?in|access_token|api_key/.test(l))
+    return { title: 'Kite session expired', detail: `Log in to Kite again, then place the order. Reply: ${m}`, tone: 'info' };
+  if (/market is closed|after market|amo/.test(l))
+    return { title: 'Market closed', detail: `Place it as an After Market Order, or wait for the open. Reply: ${m}`, tone: 'info' };
+  if (/daily.?loss|halt|kill switch|safe mode|admission|blocked|refus/.test(l))
+    return { title: 'Stopped by a safety check', detail: m, tone: 'info' };
+  return { title: 'Order failed', detail: m || 'No reply from the broker.', tone: 'error' };
+}
+
 interface Props {
   options: OrderWindowOptions;
   onClose: () => void;
@@ -251,6 +272,7 @@ export function OrderWindow({ options, onClose }: Props) {
   const submit = () => {
     setError(null);
     if (nudge?.blocked) { setError(nudge.message); return; }
+    if (planBlock) { setError(planBlock); return; }
     const err = validateTicket({ side, exchange: instr.exchange, quantity: qty, lotSize: instr.lotSize, orderType, price, trigger, ltp: instr.lastPrice });
     if (err) { setError(err); return; }
     placeOrder.mutate(buildOrderBody(args), {
@@ -276,7 +298,21 @@ export function OrderWindow({ options, onClose }: Props) {
   const required = margin ? margin.total : null;
   const insufficient = required != null && Number.isFinite(available) && required > available;
   const placing = placeOrder.isPending;
-  const buyDisabled = placing || !!nudge?.blocked || (amoConfirmNeeded && !amoConfirmed);
+  // A strategy plan's stop must exist and sit below the buy price: Sterling arms it at
+  // Zerodha after the fill, so a missing or higher stop means an unprotected or instantly
+  // stopped trade.
+  const planStop = options.planStop;
+  const entryPx = needsPrice(orderType) && price > 0 ? price : instr.lastPrice;
+  const planBlock = options.fromSignal && side === 'BUY'
+    ? (planStop == null || !(planStop > 0)
+      ? 'This signal has no stop, so the buy would not be protected. Pick a leg that shows a stop.'
+      : entryPx > 0 && planStop >= entryPx
+        ? `This plan's stop (${planStop.toFixed(2)}) is at or above the price (${entryPx.toFixed(2)}), so it would sell at once. Skip this leg.`
+        : null)
+    : null;
+  const buyDisabled = placing || !!nudge?.blocked || (amoConfirmNeeded && !amoConfirmed) || !!planBlock;
+  const buyHint = planBlock
+    || (amoConfirmNeeded && !amoConfirmed ? 'Tick "After Market Order" above to place it for the next session.' : '');
 
   const addToBasket = useKiteBasketStore((s) => s.add);
   const addCurrentToBasket = () => {
@@ -464,7 +500,16 @@ export function OrderWindow({ options, onClose }: Props) {
               </div>
             )}
 
-            {error && <div style={{ padding: '8px 16px', background: tint(k.red, 10), color: k.red, fontSize: 12 }}>{error}</div>}
+            {options.fromSignal && side === 'BUY' && !planBlock && planStop != null && (
+              <div style={{ padding: '8px 16px', background: tint(k.green, 10), color: k.text, fontSize: 12 }}>
+                Stop <b>{planStop.toFixed(2)}</b> is placed at Zerodha automatically after the buy fills (from the signal plan).
+              </div>
+            )}
+            {error && (() => { const o = explainOrderOutcome(error); return (
+              <div role="status" style={{ padding: '8px 16px', background: tint(o.tone === 'error' ? k.red : k.amber, 12), color: o.tone === 'error' ? k.red : 'var(--k-warn-ink)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <b>{o.title}</b><span>{o.detail}</span>
+              </div>); })()}
+            {!error && buyHint && <div style={{ padding: '6px 16px', color: k.dim, fontSize: 11.5 }}>{buyHint}</div>}
 
             {amoConfirmNeeded && (
               <div style={{ padding: '8px 16px', background: tint(k.amber, 12), color: 'var(--k-warn-ink)', fontSize: 12 }}>
@@ -479,7 +524,7 @@ export function OrderWindow({ options, onClose }: Props) {
             {tab === 'quick' ? (
               <div style={{ borderTop: `1px solid ${k.border}`, background: k.surface, padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {reqAvail}
-                <button onClick={submit} disabled={buyDisabled} style={{ ...primaryBtn, background: accent, opacity: buyDisabled ? 0.55 : 1, cursor: buyDisabled ? 'not-allowed' : 'pointer' }}>{placing ? 'Placing…' : side === 'BUY' ? 'Buy' : 'Sell'}</button>
+                <button onClick={submit} disabled={buyDisabled} title={buyHint || undefined} style={{ ...primaryBtn, background: accent, opacity: buyDisabled ? 0.55 : 1, cursor: buyDisabled ? 'not-allowed' : 'pointer' }}>{placing ? 'Placing…' : side === 'BUY' ? 'Buy' : 'Sell'}</button>
                 <button onClick={onClose} style={cancelBtnWide}>Cancel</button>
               </div>
             ) : (
@@ -487,7 +532,7 @@ export function OrderWindow({ options, onClose }: Props) {
                 {reqAvail}
                 <div style={{ marginLeft: 'auto', paddingLeft: 28, display: 'flex', gap: 10 }}>
                   <button onClick={addCurrentToBasket} title="Add to basket instead of placing now" style={{ ...cancelBtnWide, width: 'auto', padding: '9px 16px', fontSize: 12.5 }}>+ Basket</button>
-                  <button onClick={submit} disabled={buyDisabled} style={{ ...primaryBtn, width: 'auto', padding: '9px 28px', fontSize: 13.5, background: accent, opacity: buyDisabled ? 0.55 : 1, cursor: buyDisabled ? 'not-allowed' : 'pointer' }}>{placing ? '…' : side === 'BUY' ? 'Buy' : 'Sell'}</button>
+                  <button onClick={submit} disabled={buyDisabled} title={buyHint || undefined} style={{ ...primaryBtn, width: 'auto', padding: '9px 28px', fontSize: 13.5, background: accent, opacity: buyDisabled ? 0.55 : 1, cursor: buyDisabled ? 'not-allowed' : 'pointer' }}>{placing ? '…' : side === 'BUY' ? 'Buy' : 'Sell'}</button>
                   <button onClick={onClose} style={{ ...cancelBtnWide, width: 'auto', padding: '9px 22px' }}>Cancel</button>
                 </div>
               </div>

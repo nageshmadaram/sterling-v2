@@ -6,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ToolbarButton } from './board/EngineToolbar';
 import { ColumnsMenu, FilterToggle, ModeFilter } from './board/BoardFilters';
-import { closedReasonText } from './board/supertrendAdapter';
+import { closedReasonText, supersededLegKeys } from './board/supertrendAdapter';
 import { normalizeMode, MODE_LABEL, type TradeMode } from './board/boardTypes';
 import { useSavedSelection } from '../../hooks/useSavedSelection';
 // The row's geometry and columns now live beside the shared board, so every
@@ -806,6 +806,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                             initialSlPct: slPercentage,
                             initialTgtPct: tgtPercentage,
                             tag: 'SUPERTREND',
+                            fromSignal: true,
+                            planStop: (leg.entry_sl ?? leg.premium_sl) ?? null,
                           });
                         } : undefined}
                         onSell={rowTradeAllowed ? () => {
@@ -947,6 +949,9 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
           const exitColor = !legExitState ? k.dim : exitReds <= 0 ? k.dim : exitReds >= exitThr ? k.red : k.orange;
           const ended = legIsExited(leg);
           const legActive = !ended;
+          // A plan is only buyable with a stop below its entry (Sterling arms that stop after the fill).
+          const legStop = (leg.entry_sl ?? leg.premium_sl) ?? null;
+          const legPlanOk = !(leg as any).replaced && legStop != null && legStop > 0 && leg.premium_spot != null && legStop < leg.premium_spot;
           // Distinguish WHY it ended for the tooltip: the cached SuperTrend flipped vs. the
           // live premium fell through the (entry-snapshot) stop between scans.
           const liveExited = lastPx != null && slPx != null && slPx > 0 && lastPx <= slPx;
@@ -988,6 +993,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
               initialSlPct: slPercentage,
               initialTgtPct: tgtPercentage,
               tag: 'SUPERTREND',
+              fromSignal: true,
+              planStop: (leg.entry_sl ?? leg.premium_sl) ?? null,
             });
           };
           const legSell = (e: React.MouseEvent) => {
@@ -1117,6 +1124,13 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                                  <span style={{ fontSize: ROW_METRICS.cellFontSize, fontWeight: 600, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                    {why.text}
                                  </span>
+                               </Tip>
+                             );
+                           }
+                           if ((leg as any).replaced) {
+                             return (
+                               <Tip text="A newer signal on this stock has its own plan for this contract. Follow the newer one; this one cannot be bought.">
+                                 <span style={{ fontSize: ROW_METRICS.cellFontSize, fontWeight: 600, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0 }}>Replaced</span>
                                </Tip>
                              );
                            }
@@ -1403,7 +1417,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                       spotPx={spot || undefined}
                       instrumentName={<InstrumentLabel symbol={leg.option_symbol} />}
                       greeks={greeks ?? undefined}
-                      onBuy={rowTradeAllowed && !ended ? () => {
+                      onBuy={rowTradeAllowed && !ended && legPlanOk ? () => {
                         openOrderWindow({
                           symbol: leg.option_symbol,
                           exchange: row.exchange,
@@ -2042,7 +2056,11 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const stModes = React.useMemo(() => (stModesRaw ? stModesRaw.split(',') : []) as TradeMode[], [stModesRaw]);
   const stMode = normalizeMode(cfg?.horizon_mode);
   const filteredRows = React.useMemo(() => {
-    let result = [...rows];
+    // Mark legs a newer same-day signal replaced, so only the newest plan for a contract is buyable.
+    const replaced = supersededLegKeys(rows);
+    let result = replaced.size ? rows.map((r) => (r.legs ?? []).some((l: any) => replaced.has(`${r.timestamp_ms}|${l.option_symbol}`))
+      ? { ...r, legs: r.legs.map((l: any) => replaced.has(`${r.timestamp_ms}|${l.option_symbol}`) ? { ...l, replaced: true } : l) }
+      : r) : [...rows];
     if (stModes.length) result = result.filter((r) => stModes.includes((normalizeMode(r.horizon_mode) ?? stMode) as TradeMode));
     if (signalMode === 'navigator') {
       result = result.filter((r) => r.navigator != null);

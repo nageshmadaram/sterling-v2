@@ -12,6 +12,10 @@ export interface OrderWindowOptions {
   initialSlPct?: number;                // prefilled Stoploss % for protective GTT
   initialTgtPct?: number;               // prefilled Target % for protective GTT
   tag?: string;                         // ≤20-char audit tag
+  /** The signal plan's premium stop. Sterling arms it at Zerodha after a buy; null = the plan has none. */
+  planStop?: number | null;
+  /** True when the ticket was opened from a strategy signal (so its plan rules apply). */
+  fromSignal?: boolean;
   onPlaced?: (orderId: string) => void; // fired after a successful placement
 }
 

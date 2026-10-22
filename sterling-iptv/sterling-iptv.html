@@ -496,7 +496,8 @@
   const art=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){art.unobserve(entry.target);const station=entry.target._station;if(station){pending.push([entry.target,station]);if(!drawing)drawing=requestAnimationFrame(drawSome);}}},{root:null,rootMargin:'200px 400px'});
   const grow=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)rows.get(entry.target.dataset.row)?.more();},{root:null,rootMargin:'0px 600px 0px 0px'});
   function card(item,state){
-   const b=doc.createElement('button');b.type='button';
+   const b=doc.createElement(item.kind==='external'?'a':'button');if(item.kind!=='external')b.type='button';
+   if(item.kind==='external'){const address=new URL(item.url);if(address.protocol!=='https:'||address.hostname!=='www.youtube.com')throw Error('Unsupported mix link');b.href=address.href;b.target='_blank';b.rel='noopener noreferrer';b.style.display='block';b.style.textDecoration='none';}
    if(item.kind==='station'){
     b.className='rh-card';b.setAttribute('aria-label',`Play ${item.station.title}`);
     const img=doc.createElement('img');img.alt='';img.decoding='async';img._station=item.station;art.observe(img);
@@ -511,7 +512,7 @@
     // Initials sit behind the artwork, so a tile whose logos fail to load still reads clearly.
     const big=doc.createElement('b');big.textContent=item.badge||item.title.split(/[\s:,&]+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase();art.prepend(big);
     const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.title;small.textContent=item.subtitle||'';
-    b.append(art,strong,small);b.addEventListener('click',()=>item.open());
+    b.append(art,strong,small);if(item.kind!=='external')b.addEventListener('click',()=>item.open());
    }
    return b;
   }
