@@ -166,9 +166,14 @@
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
   let sheetReturnFocus=null;
   let sheetNav=null;
+  window.SterlingSheetSwipe?.register('#tv-mobile-sheet.tm-sheet-open .tm-sheet-content',()=>closeSheet());
   function closeSheet() { const open=sheet.classList.contains('tm-sheet-open');sheet.classList.remove('tm-sheet-open');sheetReturnFocus?.focus();if(open&&sheetNav&&!tvNav?.isRestoring())tvNav?.drop(sheetNav);sheetNav=null; }
+  // Back minimizes Now Playing: opening it records one step on the Back stack.
+  let nowNav=null;
   function setExpanded(value) {
     if(!value){now.scrollTop=0;document.body.style.setProperty('--tm-now-scroll','0px');}
+    if(value&&!expanded&&!nowNav)nowNav=tvNav?.push(()=>{nowNav=null;setExpanded(false);})||null;
+    if(!value&&nowNav){if(!tvNav?.isRestoring())tvNav?.drop(nowNav);nowNav=null;}
     expanded=value;sync();
     if(value){returnFocus=document.activeElement;now.querySelector('button').focus();}
     else mini.querySelector('button').focus();
@@ -203,12 +208,14 @@
     sheet.querySelector('.tm-sheet-title').insertAdjacentHTML('beforeend',action('resize-sheet','Expand menu','screen'));
     const handle=sheet.querySelector('.tm-sheet-handle');
     handle.tabIndex=0;handle.setAttribute('role','slider');handle.setAttribute('aria-label','Menu height');handle.setAttribute('aria-valuemin','40');handle.setAttribute('aria-valuemax','95');
-    const resize=height=>{const value=Math.max(40,Math.min(95,height));sheet.style.setProperty('--tm-sheet-height',value+'dvh');handle.setAttribute('aria-valuenow',String(Math.round(value)));};
+    // One style write per frame while dragging the grip; pointer events arrive far faster.
+    let pending=null,frame=0;
+    const resize=height=>{pending=Math.max(40,Math.min(95,height));if(frame)return;frame=requestAnimationFrame(()=>{frame=0;sheet.style.setProperty('--tm-sheet-height',pending+'dvh');handle.setAttribute('aria-valuenow',String(Math.round(pending)));});};
     resize(72);
     let drag=null;
     handle.addEventListener('pointerdown',e=>{drag={y:e.clientY,height:sheet.querySelector('.tm-sheet-content').getBoundingClientRect().height};handle.setPointerCapture(e.pointerId);});
     handle.addEventListener('pointermove',e=>{if(drag)resize((drag.height+drag.y-e.clientY)/innerHeight*100);});
-    ['pointerup','pointercancel','lostpointercapture'].forEach(name=>handle.addEventListener(name,()=>{drag=null;}));
+    ['pointerup','pointercancel','lostpointercapture'].forEach(name=>handle.addEventListener(name,e=>{if(drag&&name==='pointerup'&&e.clientY-drag.y>innerHeight*.25)closeSheet();drag=null;}));
     handle.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','Home','End'].includes(e.key)){e.preventDefault();resize(e.key==='Home'?40:e.key==='End'?95:Number(handle.getAttribute('aria-valuenow'))+(e.key==='ArrowUp'?10:-10));}});
     sheet.classList.add('tm-sheet-open');sheet.querySelector('button')?.focus();
   }

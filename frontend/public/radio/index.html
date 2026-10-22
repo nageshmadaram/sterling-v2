@@ -20,6 +20,7 @@
   <script src="/media/spotify-shell.js"></script>
   <script src="/media/extras.js"></script>
   <script src="/media/nav-stack.js"></script>
+  <script src="/media/sheet-swipe.js"></script>
   <link rel="stylesheet" href="/media/icons.css" />
 
   <style>
@@ -4045,7 +4046,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       input.addEventListener('keydown',event=>{if(event.key==='Escape')document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());if(event.key==='ArrowDown'){event.preventDefault();input.parentElement.querySelector('.radio-search-suggestions button')?.focus();}});
     });
     let radioSheetReturnFocus=null;
+    // Back minimizes the player: opening it records one step on the Back stack.
+    let radioPlayerNav=null;
+    function rememberPlayerOpen(){if(!radioPlayerNav)radioPlayerNav=radioNav?.push(()=>{radioPlayerNav=null;closeMobileSheet();})||null;}
+    function forgetPlayerOpen(){if(radioPlayerNav&&!radioNav?.isRestoring())radioNav?.drop(radioPlayerNav);radioPlayerNav=null;}
     function openMobileSheet() {
+      rememberPlayerOpen();
       if(activeStream?.freqKhz){openMobileTuner();return;}
       renderPersonalizedShelves();
       radioSheetReturnFocus=document.activeElement;
@@ -4059,6 +4065,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function closeMobileSheet() {
+      forgetPlayerOpen();
       closeSwPlayer();
       const s = document.getElementById('mobile-player-sheet');
       s.classList.remove('drawer-visible');
@@ -4081,6 +4088,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       panel.querySelector('.sw-main-play').innerHTML='<i class="fa-solid fa-'+(playing?'pause':'play')+'"></i>';
     }
     function openMobileTuner() {
+      rememberPlayerOpen();
       const music=document.getElementById('mobile-player-sheet');music.classList.remove('drawer-visible');music.classList.add('drawer-hidden');music.removeAttribute('aria-modal');
       radioSheetReturnFocus=document.activeElement;
       let panel=document.getElementById('sw-player-window');
@@ -4097,6 +4105,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if(window.parent!==window)window.parent.postMessage({type:'sterling.radio.player-state',expanded:true},'*');
     }
     function closeSwPlayer() {
+      forgetPlayerOpen();
       document.getElementById('sw-player-window')?.classList.add('hidden');
       document.querySelectorAll('#spotify-app,#ytmusic-app').forEach(app=>app.inert=false);
       radioSheetReturnFocus?.focus();
@@ -4105,20 +4114,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function bindTouchSheet() {
       const sheet = document.getElementById('mobile-player-sheet');
-      const handle = sheet.firstElementChild;
-      let sheetGesture=null;
-      sheet.addEventListener('touchstart',e=>{
-        sheetGesture=null;
-        if(e.touches.length!==1||sheet.scrollTop>0||e.target.closest('button,input,select,a'))return;
-        sheetGesture={x:e.touches[0].clientX,y:e.touches[0].clientY};
-      },{passive:true});
-      sheet.addEventListener('touchend',e=>{
-        if(!sheetGesture||!e.changedTouches.length)return;
-        const dx=e.changedTouches[0].clientX-sheetGesture.x,dy=e.changedTouches[0].clientY-sheetGesture.y;
-        sheetGesture=null;
-        if(dy>90&&Math.abs(dx)<dy/2&&sheet.scrollTop===0)closeMobileSheet();
-      },{passive:true});
-      sheet.addEventListener('touchcancel',()=>{sheetGesture=null;},{passive:true});
+      // Swipe down to close follows the finger (media/sheet-swipe.js), for every overlay here.
+      window.SterlingSheetSwipe?.register('#mobile-player-sheet.drawer-visible',()=>closeMobileSheet());
+      window.SterlingSheetSwipe?.register('#sw-player-window:not(.hidden)',()=>closeSwPlayer());
+      window.SterlingSheetSwipe?.register('#startup-modal:not(.hidden)>div',()=>closeStartupModal());
+      window.SterlingSheetSwipe?.register('#audio-dsp-modal:not(.hidden)>div',()=>closeDspModal());
       // Compact player swipes reopen Now Playing, without intercepting playback buttons.
       document.querySelectorAll('[data-radio-click="0"]').forEach(mini=>{
         let gesture=null;
@@ -4134,22 +4134,6 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         },{passive:true});
         mini.addEventListener('touchcancel',()=>{gesture=null;},{passive:true});
       });
-      let start = null;
-      // Drag only the header: scrolling the sheet or changing volume must not
-      // dismiss it or steal station/control taps.
-      handle.addEventListener('touchstart', e => {
-        start = null;
-        if(e.touches.length !== 1 || e.target.closest('button,input,a,select'))return;
-        start = {x:e.touches[0].clientX,y:e.touches[0].clientY};
-      }, {passive:true});
-      handle.addEventListener('touchend', e => {
-        if(start && e.changedTouches.length){
-          const dx=e.changedTouches[0].clientX-start.x,dy=e.changedTouches[0].clientY-start.y;
-          if(dy>85 && Math.abs(dx)<dy/2)closeMobileSheet();
-        }
-        start=null;
-      }, {passive:true});
-      handle.addEventListener('touchcancel',()=>{start=null;},{passive:true});
     }
 
     function startSpectrumLoop() {
