@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ToolbarButton } from './board/EngineToolbar';
 import { ColumnsMenu, FilterToggle, ModeFilter } from './board/BoardFilters';
+import { closedReasonText } from './board/supertrendAdapter';
 import { normalizeMode, MODE_LABEL, type TradeMode } from './board/boardTypes';
 import { useSavedSelection } from '../../hooks/useSavedSelection';
 // The row's geometry and columns now live beside the shared board, so every
@@ -783,7 +784,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                         defaultExit={roundToTick(row.target)}
                         currentLtp={roundToTick(lastPx)}
                         optionType={leg.option_type as 'CE' | 'PE'}
-                        exitState={legEnded ? 'Closed' : (row.exit_state || 'Trailing SuperTrend')}
+                        exitState={legEnded ? closedReasonText(row.exit_reason, legLtp(leg), leg.premium_sl).text : (row.exit_state || 'Trailing SuperTrend')}
                         allowOrder={rowTradeAllowed && !legEnded}
                       />
                       <QuoteDetail
@@ -1106,15 +1107,27 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                              </Tip>
                            );
                          }
-                         case 'exit':
-                           // Red-counter progress toward the auto-exit rule (row-level).
+                         case 'exit': {
+                           // Running: red-counter progress toward the exit. Closed: why it closed
+                           // (a closed leg still reading "0/3 red" looked like it closed for nothing).
+                           if (ended) {
+                             const why = closedReasonText(row.exit_reason, legLtp(leg), leg.premium_sl);
+                             return (
+                               <Tip text={why.hint}>
+                                 <span style={{ fontSize: ROW_METRICS.cellFontSize, fontWeight: 600, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                   {why.text}
+                                 </span>
+                               </Tip>
+                             );
+                           }
                            return (
-                             <Tip text="Red-counter progress toward the auto-exit rule (exit_mode)">
+                             <Tip text="How close the trade is to closing: lines turned red out of the number that closes it.">
                                <span style={{ fontSize: ROW_METRICS.cellFontSize, fontWeight: 600, color: exitColor, width: '100%', textAlign: 'right', flexShrink: 0 }}>
                                  {legExitState ?? '—'}
                                </span>
                              </Tip>
                            );
+                         }
                          case 'target':
                            // SuperTrend rows are trend-following: no fixed take-profit, exit
                            // is owned by the trail (TSL) + the red counter (Exit). Navigator

@@ -224,6 +224,31 @@ function signalMs(row: EngineSignalRow, openMs: number | null): number | null {
   return row.is_replay ? openMs : barCloseMs(openMs);
 }
 
+/**
+ * Why a SuperTrend trade closed, in plain words. Two rules close it, whichever comes first:
+ * the red counter (with "one red" the first line turning red is enough, so "1/3 red" IS the
+ * exit) and the trailing stop (the premium touched the trail, so a row can read "0/3 red").
+ */
+export function closedReasonText(
+  exitReason: string | null | undefined, ltp: number | null | undefined, trail: number | null | undefined,
+): { text: string; hint: string } {
+  const r = (exitReason || '').toLowerCase();
+  if (r.startsWith('trail breach')) {
+    // The reason is per stock; each leg has its own premium stop, so show the leg's.
+    const level = trail != null && trail > 0 ? trail.toFixed(2) : (exitReason || '').match(/[\d.]+\s*\)?$/)?.[0]?.replace(')', '').trim();
+    return { text: `Stop hit${level ? ' ' + level : ''}`, hint: `Closed by the trailing stop: the price fell to ${level || 'the stop'}. The red counter had not fired; whichever rule comes first closes the trade.` };
+  }
+  if (r.startsWith('red count')) {
+    return { text: 'Trend turned red', hint: 'Closed by the red counter: with the "one red" exit, the first SuperTrend line turning red closes the trade. Change the exit rule in SuperTrend settings to wait for more lines.' };
+  }
+  if (r.startsWith('time decay')) return { text: 'Stalled', hint: 'Closed because the price stopped moving for too long (option value was decaying).' };
+  if (r.startsWith('time stop')) return { text: 'Time limit', hint: 'Closed at the time limit for this mode.' };
+  if (ltp != null && trail != null && trail > 0 && ltp <= trail) {
+    return { text: `Stop hit ${trail.toFixed(2)}`, hint: `Closed: the live price ${ltp.toFixed(2)} is at or below the trailing stop ${trail.toFixed(2)}.` };
+  }
+  return { text: 'Closed', hint: 'The trend ended. Kept for your record; you cannot trade it.' };
+}
+
 export function supertrendLegToBoard(
   row: EngineSignalRow,
   leg: OptionLeg,
@@ -310,8 +335,10 @@ export function supertrendLegToBoard(
     ),
     origin: originOf(row),
     marks: marksOf(row, opts),
-    // The red counter, e.g. "0/3 red". A count, not a price.
-    exitProgress: row.exit_state || null,
+    // The red counter, e.g. "0/3 red", while the trade runs; once closed, WHY it closed.
+    exitProgress: status(row, leg) === 'ended'
+      ? closedReasonText(row.exit_reason, price((opts.quotes?.[quoteKey]?.last_price as number | undefined) ?? (leg as any).ltp), price(leg.premium_sl)).text
+      : (row.exit_state || null),
     flags: flagsFor(row, leg, opts),
     // Solved from the live quote, not replayed from the scan. Omitted rather
     // than guessed when the implied volatility has no solution — a delta the
