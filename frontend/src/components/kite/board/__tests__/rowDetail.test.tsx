@@ -53,17 +53,19 @@ describe('entry shows what the position has done', () => {
 });
 
 describe('a closed row reads as a record', () => {
-  it('dims and strikes it, so it cannot be mistaken for actionable', () => {
+  it('dims it and labels it Closed, without a strike-through users read as an error', () => {
     const { container } = show([sig({ status: 'ended' })]);
     const row = container.querySelector('.sb-row') as HTMLElement;
-    expect(row.style.textDecoration).toBe('line-through');
+    expect(row.style.textDecoration).not.toBe('line-through');
+    expect(row.textContent).toContain('Closed');
     expect(Number(row.style.opacity)).toBeLessThan(1);
   });
 
   it('leaves a live row alone', () => {
     const { container } = show([sig({ status: 'running' })]);
     const row = container.querySelector('.sb-row') as HTMLElement;
-    expect(row.style.textDecoration).toBe('none');
+    expect(row.style.textDecoration).not.toBe('line-through');
+    expect(Number(row.style.opacity || 1)).toBe(1);
   });
 });
 

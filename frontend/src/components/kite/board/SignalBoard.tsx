@@ -603,7 +603,7 @@ function cellContent(
     case 'exitState':
       // Plain ink: this is a state, and colouring it would compete with the
       // status pill that already carries how the row is doing.
-      return { node: signal.exitProgress || (signal.levels.exit != null ? fmtPx(signal.levels.exit) : '—'), color: k.dim };
+      return { node: signal.exitProgress || (signal.levels.exit != null ? fmtPx(signal.levels.exit) : signal.status === 'ended' ? 'Closed' : '—'), color: k.dim };
     case 'chg':
     case 'chgPct': {
       const move = signal.dayMove;
@@ -1009,10 +1009,9 @@ function Row({
           // shade so a group reads as a block rather than a stripe pattern.
           background: open ? k.surfaceHover : signal.instrument.kind === 'option' ? LEG_BG : striped ? LEG_BG : k.bg,
           fontWeight: isParent ? 600 : 400,
-          // An ended row is a record, not a live position. Dimming and striking
-          // it keeps it readable without letting it read as actionable.
+          // A closed row is a record, not a live position: dimmed and labelled
+          // "Closed" in its Exit rule cell. No strike-through; users read it as an error.
           opacity: signal.status === 'ended' ? 0.62 : 1,
-          textDecoration: signal.status === 'ended' ? 'line-through' : 'none',
           // Off, the row clips and the operator hides columns to fit -- which is
           // what this board has always done. The scrollbar itself is hidden in
           // CSS; a bar under every row would out-shout the data.

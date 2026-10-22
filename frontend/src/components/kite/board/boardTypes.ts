@@ -67,7 +67,7 @@ export const STATUS_LABEL: Record<BoardStatus, string> = {
   armed: 'Ready',
   running: 'Open',
   weakening: 'Exiting',
-  ended: 'Exited',
+  ended: 'Closed',
   watching: 'Watching',
   error: 'Blocked',
 };

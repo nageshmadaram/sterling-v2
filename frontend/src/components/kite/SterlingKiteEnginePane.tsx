@@ -730,8 +730,8 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                     <span style={{ fontSize: 10, color: k.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 70 }}><InstrumentLabel symbol={leg.option_symbol} /></span>
                     {!legEnded && slPx != null && <span style={{ fontSize: 10, color: k.dim }}>SL {slPx.toFixed(1)}</span>}
                     {legEnded && (
-                      <Tip text="Trend ended — past setup, not a live order">
-                        <span style={{ fontSize: 10, color: k.dim }}>ended</span>
+                      <Tip text="Closed: the trend ended. Kept for your record; you cannot trade it.">
+                        <span style={{ fontSize: 10, color: k.dim }}>closed</span>
                       </Tip>
                     )}
                   </div>
@@ -767,7 +767,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                         defaultExit={roundToTick(row.target)}
                         currentLtp={roundToTick(lastPx)}
                         optionType={leg.option_type as 'CE' | 'PE'}
-                        exitState={legEnded ? 'Ended' : (row.exit_state || 'Trailing SuperTrend')}
+                        exitState={legEnded ? 'Closed' : (row.exit_state || 'Trailing SuperTrend')}
                         allowOrder={rowTradeAllowed && !legEnded}
                       />
                       <QuoteDetail
@@ -1049,7 +1049,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                            // spot-source row (no per-leg premium) so the column stays aligned.
                            return (
                              <Tip text={snapTitle}>
-                               <span style={{ fontSize: ROW_METRICS.cellFontSize, fontWeight: 500, color: ended ? k.dim : (entryPx != null ? accent : k.dim), width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: ended ? 'line-through' : 'none', opacity: ended ? 0.65 : 1 }}>
+                               <span style={{ fontSize: ROW_METRICS.cellFontSize, fontWeight: 500, color: ended ? k.dim : (entryPx != null ? accent : k.dim), width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: 'none', opacity: ended ? 0.65 : 1 }}>
                                  {entryPx != null ? entryPx.toFixed(2) : '—'}
                                  {entryDiff != null && (
                                    <span style={{ fontSize: ROW_METRICS.cellFontSize, marginLeft: 3, fontWeight: 600, textDecoration: 'none', color: entryDiff >= 0 ? k.green : k.red }}>
@@ -1068,7 +1068,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                              <Tip text={row.source === 'navigator'
                                ? 'Stop from the AVWAP proposal that originated this signal'
                                : 'Initial stop at entry (fast SuperTrend line)'}>
-                               <span data-testid="leg-sl" data-cell="stop" style={{ fontSize: ROW_METRICS.cellFontSize, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: ended ? 'line-through' : 'none', opacity: ended ? 0.65 : 1 }}>
+                               <span data-testid="leg-sl" data-cell="stop" style={{ fontSize: ROW_METRICS.cellFontSize, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: 'none', opacity: ended ? 0.65 : 1 }}>
                                  {initSlPx != null ? initSlPx.toFixed(1) : '—'}
                                </span>
                              </Tip>
@@ -1084,7 +1084,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                              <Tip text={isNav
                                ? 'Navigator signals do not trail — the single stop is in the SL column'
                                : 'Trailing stop — ratchets tighter as SuperTrend lines flip red'}>
-                               <span data-testid="leg-tsl" data-cell="trail" style={{ fontSize: ROW_METRICS.cellFontSize, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: ended ? 'line-through' : 'none', opacity: ended ? 0.65 : 1 }}>
+                               <span data-testid="leg-tsl" data-cell="trail" style={{ fontSize: ROW_METRICS.cellFontSize, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: 'none', opacity: ended ? 0.65 : 1 }}>
                                  {isNav ? '—' : (slPx != null ? slPx.toFixed(1) : '—')}
                                </span>
                              </Tip>
@@ -1106,7 +1106,7 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                            // R-multiple of the accepted stop and rejects the signal without it.
                            return targetPx != null ? (
                              <Tip text={`Target ₹${targetPx.toFixed(2)} — Navigator's AVWAP stop/target proposal (an R-multiple of its accepted stop)`}>
-                               <span style={{ fontSize: ROW_METRICS.cellFontSize, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: ended ? 'line-through' : 'none', opacity: ended ? 0.65 : 1 }}>
+                               <span style={{ fontSize: ROW_METRICS.cellFontSize, color: k.dim, width: '100%', textAlign: 'right', flexShrink: 0, textDecoration: 'none', opacity: ended ? 0.65 : 1 }}>
                                  {targetPx.toFixed(1)}
                                </span>
                              </Tip>
