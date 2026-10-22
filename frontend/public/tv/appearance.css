@@ -77,9 +77,11 @@ button {touch-action:manipulation;}
   .theme-youtube .channel-grid-card>div:last-child:not(.preview-thumb-box) {padding-left:0!important;}
   .theme-youtube.tm-watch-view #left-watch-column {display:grid;grid-template-columns:56% 44%;}
   .theme-youtube.tm-watch-view #video-surface-card {max-height:calc(100dvh - 85px)!important;}
-  .theme-spotify.tm-now-open #player-stage {top:62px;width:52%;left:16px;}
-  .theme-spotify.tm-now-open #video-surface-card {max-height:calc(100dvh - 80px)!important;}
-  .tm-now-copy,.tm-timeline,.tm-now-controls,.tm-now-footer {margin-left:57%;}
+  /* The video fills the left side edge to edge; close, Playing from and more sit with the controls on the right. */
+  .theme-spotify.tm-now-open #player-stage {top:0;left:0;width:calc(58% - 8px);height:100dvh;background:#000;}
+  .theme-spotify.tm-now-open :is(#watch-columns,#left-watch-column,#mobile-sticky-player-wrap) {height:100%;}
+  .theme-spotify.tm-now-open #video-surface-card {height:100dvh!important;max-height:100dvh!important;aspect-ratio:auto!important;border-radius:0!important;box-shadow:none!important;}
+  .tm-now-head,.tm-now-copy,.tm-timeline,.tm-now-controls,.tm-now-footer {margin-left:calc(60% - 8px);}
   .tm-now-copy h2 {font-size:20px;}
   .tm-now-controls {gap:4px;}.tm-now-controls .tm-icon {min-width:36px;}
   .tm-now-footer>span {max-width:80px;}

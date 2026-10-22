@@ -250,14 +250,6 @@
       #mobile-player-sheet.drawer-visible {visibility:visible;}
       .group button.opacity-0 {opacity:1;}
     }
-    @media(max-width:1023px) and (orientation:landscape) {
-      #mobile-player-sheet {display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px 24px;align-content:start;}
-      #mobile-player-sheet>div:first-child {grid-column:1/-1;}
-      #mobile-player-sheet>div:nth-child(2) {grid-column:1;grid-row:2/4;padding:0;margin:0;}
-      #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(35vw,210px);height:min(35vw,210px);margin-bottom:12px;}
-      #mobile-player-sheet>div:nth-child(3) {grid-column:2;grid-row:2;}
-      #mobile-player-sheet>div:last-child {grid-column:2;grid-row:3;}
-    }
   </style>
 <link rel="stylesheet" href="/radio/appearance.css">
 
@@ -280,8 +272,20 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
   #mobile-player-sheet .radio-mobile-art img{width:100%;height:100%;object-fit:cover;}
   #mobile-player-sheet [data-radio-click="56"]{width:68px;min-height:68px;}
 }
+/* Landscape: the artwork fills the left side edge to edge; close, Playing from, the station and the
+   controls stack on the right, as in the TV player. Up next and More like this follow below. */
 @media(max-width:1023px) and (orientation:landscape) {
-  #mobile-player-sheet .radio-mobile-art{width:min(39vw,250px)!important;height:min(39vw,250px)!important;max-height:56dvh!important;}
+  #mobile-player-sheet{padding:0!important;}
+  #mobile-player-sheet .rnp-main{display:grid;grid-template-columns:calc(58% - 8px) minmax(0,1fr);grid-template-rows:auto auto 1fr;column-gap:24px;align-content:start;min-height:100dvh;}
+  #mobile-player-sheet .rnp-main>div:first-child{grid-column:2;grid-row:1;min-height:52px;padding:calc(4px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) 0 0;}
+  #mobile-player-sheet .rnp-main>div:nth-child(2){display:contents;}
+  #mobile-player-sheet .radio-mobile-art{grid-column:1;grid-row:1/-1;width:100%!important;height:100dvh!important;max-height:100dvh!important;aspect-ratio:auto;margin:0!important;border-radius:0!important;box-shadow:none!important;background:#0000002e!important;}
+  #mobile-player-sheet .radio-mobile-art img{object-fit:contain;}
+  #mobile-player-sheet .rnp-main>div:nth-child(2)>div:last-child{grid-column:2;grid-row:2;align-self:start;margin-top:6px;padding-right:calc(16px + env(safe-area-inset-right,0px));}
+  #mobile-player-sheet .rnp-main>div:nth-child(3){grid-column:2;grid-row:3;align-self:start;padding:12px calc(16px + env(safe-area-inset-right,0px)) 12px 0;}
+  #mobile-player-sheet .rnp-main>div:nth-child(3)>*+*{margin-top:12px!important;}
+  #mobile-player-sheet .rnp-more{margin:22px 16px 0;}
+  #mobile-player-sheet [data-radio-click="56"]{width:56px;min-height:56px;}
 }
 @media(prefers-reduced-motion:reduce){#mobile-player-sheet{transition:none!important;}}
 </style>

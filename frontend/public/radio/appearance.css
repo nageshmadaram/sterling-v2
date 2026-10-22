@@ -58,13 +58,7 @@ button:focus-visible,[data-radio-click]:focus-visible {outline:2px solid #1ed760
   #spotify-app .snap-card {width:142px;}
   #sp-cards-grid,#ytm-cards-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
   #ytm-quick-picks {grid-auto-columns:calc(50% - 16px);}
-  #mobile-player-sheet {gap:10px 24px;padding:8px 24px 18px;}
-  #mobile-player-sheet>div:first-child {min-height:44px;}
-  #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(30vw,180px);max-height:none;margin-bottom:10px;}
-  #mobile-player-sheet>div:nth-child(2) {grid-row:2/4;}
-  #mobile-player-sheet>div:nth-child(3) {grid-column:2;grid-row:2;}
   #sheet-title {font-size:20px;}
-  #mobile-player-sheet>div:nth-child(3) .space-y-5>*+* {margin-top:12px;}
 }
 @media(prefers-reduced-motion:reduce) {*,*::before,*::after {animation:none!important;transition:none!important;scroll-behavior:auto!important;}}
 .radio-searching #spotify-app main>section:not(:last-child),
