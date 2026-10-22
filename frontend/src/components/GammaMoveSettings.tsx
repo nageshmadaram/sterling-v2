@@ -35,15 +35,6 @@ function setTime(values: string[], index: number, value: string) {
   const next = [...values]; next[index] = value; return next;
 }
 
-const GAMMA_MODE_OPTIONS: Array<{ value: NonNullable<GammaMoveConfig['trade_mode']>; label: string; hint: string }> = [
-  { value: 'auto', label: 'Auto', hint: 'Expiry within 1 day trades Intraday, otherwise Swing. Tested.' },
-  { value: 'ultra_scalping', label: 'Ultra scalp', hint: 'Stop at base low. Sell all at +20%. Out within 20 minutes. Practice only.' },
-  { value: 'scalping', label: 'Scalp', hint: 'Stop at base low. +20% moves stop to entry, +40% sells. Out within 60 minutes. Practice only.' },
-  { value: 'intraday', label: 'Intraday', hint: 'Stop at base low. +20% moves stop to entry, +40% sells. Out by 15:20. Tested.' },
-  { value: 'overnight', label: 'Overnight', hint: 'Daily-close zone stop. Up to 2 days. Never held over weekends or holidays. Practice only.' },
-  { value: 'swing', label: 'Swing', hint: 'Daily-close zone stop. Up to 5 days or expiry. Tested.' },
-];
-
 export function GammaMoveSettings() {
   const { data, isLoading } = useGammaMoveConfig();
   const setCfg = useUpdateGammaMove();
@@ -89,14 +80,9 @@ export function GammaMoveSettings() {
     </span></ConfigNote>
     {(data.warnings ?? []).map((w) => <ConfigNote key={w}><span>{w}</span></ConfigNote>)}
 
-    <Section title="Trading mode" description="Same entry signal in every mode; the mode sets how the trade is held and closed."
-      summary={GAMMA_MODE_OPTIONS.find((o) => o.value === (cfg.trade_mode ?? 'auto'))?.label ?? 'Auto'} defaultOpen persistKey="gamma-modes">
-      <Field label="Mode" hint={GAMMA_MODE_OPTIONS.find((o) => o.value === (cfg.trade_mode ?? 'auto'))?.hint}>
-        <ChoiceRow value={cfg.trade_mode ?? 'auto'} options={GAMMA_MODE_OPTIONS} onChange={(v) => patch({ trade_mode: v })} />
-      </Field>
-      <ModeAvailability available={['ultra_scalping', 'scalping', 'intraday', 'overnight', 'swing']}
-        active={cfg.trade_mode && cfg.trade_mode !== 'auto' ? [cfg.trade_mode] : ['intraday', 'swing']}
-        note="Ultra scalp, Scalp and Overnight are practice only: real-money entries are refused until they are tested." />
+    <Section title="Trading modes" description="Which of the five modes this strategy trades." summary="Intraday · Swing" defaultOpen persistKey="gamma-modes">
+      <ModeAvailability available={['intraday', 'swing']}
+        note="Picked by expiry: expiry within 1 day trades Intraday, otherwise Swing. Other modes are not built yet." />
     </Section>
     <Section title="Execution adapter" description="Sterling-only controls around the unchanged signal tier."
       summary={String(cfg.execution_lots) + ' lot(s) · ' + (cfg.auto_execute ? 'ALGO' : 'manual') + ' · ' + cfg.stop_mode}

@@ -1,8 +1,8 @@
 /** Mirrors the strategy-owned /api/v1/ema-trend contract. Decimal values arrive as strings. */
-export type EmaTrendMode = 'swing' | 'overnight' | 'intraday' | 'scalping' | 'ultra_scalping';
+export type EmaTrendMode = 'swing' | 'intraday' | 'scalping' | 'ultra_scalping';
 export type DecimalValue = string | number;
 export const EMA_TREND_MODE_LABEL: Record<EmaTrendMode, string> = {
-  swing: 'Swing', overnight: 'Overnight', intraday: 'Intraday', scalping: 'Scalp', ultra_scalping: 'Ultra scalp',
+  swing: 'Swing', intraday: 'Intraday', scalping: 'Scalp', ultra_scalping: 'Ultrascalp',
 };
 export interface EmaTrendProfile {
   mode: EmaTrendMode; signal_minutes: number; context_minutes: number; product: 'CNC' | 'MIS' | 'NRML';

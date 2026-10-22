@@ -131,7 +131,7 @@ export function EmaTrendSettings() {
       </details>
       <ConfigNote>Changes wait for Apply. Indices are watch only. No orders are sent.</ConfigNote>
       <Field label="Enabled profiles" hint="Pick at least one mode. One name trades in one mode at a time.">
-        <ModeAvailability available={modes.map(m => m as TradeMode)} active={cfg.modes.map(m => m as TradeMode)} note="Tick the modes to scan below. Practice trades only." />
+        <ModeAvailability available={modes.map(m => m as TradeMode)} active={cfg.modes.map(m => m as TradeMode)} note="Tick the modes to scan below. Overnight is not built yet." />
         <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
           <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
             onChange={() => patch({ modes: cfg.modes.includes(mode) ? cfg.modes.filter(m => m !== mode) : [...cfg.modes, mode] })} />{EMA_TREND_MODE_LABEL[mode]}

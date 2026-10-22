@@ -21,8 +21,6 @@ export interface GammaMoveConfig {
   stock_contracts: boolean;
   execution_lots: number;
   stop_mode: StopMode;
-  /** 'auto' = expiry within 1 day trades Intraday, otherwise Swing. */
-  trade_mode?: 'auto' | 'ultra_scalping' | 'scalping' | 'intraday' | 'overnight' | 'swing';
 
   zone_pivot_len: number;
   zone_atr_len: number;
@@ -155,8 +153,6 @@ export interface GammaEntryGate {
   /** Operator-facing reason, empty when eligible. */
   reason: string;
   hold: 'intraday' | 'swing';
-  /** Trading mode the entry would use. */
-  mode?: string;
 }
 
 export interface GammaSignalRow {
@@ -227,8 +223,6 @@ export interface GammaPositionRow {
   entered_ms: number;
   entry_day: string;
   hold: 'intraday' | 'swing';
-  /** Trading mode the position was opened in (empty on older rows). */
-  mode?: string;
   trade_state: 'OPEN' | 'T1_TRAIL' | 'CLOSED';
   zone_edge: number;
   base_low: number;

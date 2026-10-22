@@ -2540,8 +2540,6 @@ def session_status(uid: str) -> Optional[dict]:
             "entered_ms": pos.entered_ms,
             "entry_day": pos.entry_day,
             "hold": pos.hold,
-            "mode": getattr(pos, "mode", "") or pos.hold,
-            "time_limit_min": int(getattr(pos, "time_limit_min", 0) or 0),
             "trade_state": pos.trade_state,
             "zone_edge": pos.zone_edge,
             "base_low": pos.base_low,
