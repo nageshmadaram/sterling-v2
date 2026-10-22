@@ -429,7 +429,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     <!-- SPOTIFY DESKTOP HEADER (lg+) -->
     <header class="hidden lg:flex h-16 px-4 items-center justify-between bg-black shrink-0 z-30">
       <div class="flex items-center gap-2.5">
-        <button data-radio-click="20" class="w-10 h-10 flex items-center justify-center text-white" title="Spotify">
+        <button data-radio-click="20" class="w-10 h-10 flex items-center justify-center text-white" title="Sterling Radio" aria-label="Sterling Radio">
           <i class="fa-brands fa-spotify text-[32px]"></i>
         </button>
         <button data-radio-click="80" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
@@ -437,7 +437,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         </button>
 
         <!-- Search Input -->
-        <div class="relative w-72 xl:w-[360px]">
+        <div class="relative w-[min(480px,40vw)]">
           <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-[#b3b3b3] text-sm pointer-events-none"></i>
           <input id="sp-search-desktop" type="text" placeholder="What do you want to play?"
             data-radio-input="21"
@@ -449,26 +449,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         </div>
       </div>
 
-      <!-- Category Pills -->
-      <div class="radio-header-chips flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
-        <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
-        <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
-        <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
-        <button data-radio-click="24" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
-        <button data-radio-click="25" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
-        <button data-radio-click="26" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
-        <button data-radio-click="27" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
-      </div>
-
-      <!-- Right Controls -->
-      <div class="flex items-center gap-2">
-        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Station sources, equalizer, sleep timer, alarm and more (?)">⚙ Settings</button>
-        <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
-        <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
-        <button data-radio-click="30" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
-          <span class="w-4 h-4 btn-circle bg-[#ff0033]"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
-          <span>YouTube Music</span>
-        </button>
+      <!-- Right Controls: icon buttons, labels in tooltips -->
+      <div class="radio-header-actions flex items-center gap-1.5">
+        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="radio-head-icon" title="Settings: station sources, sleep timer, alarm and more" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+        <button data-radio-click="28" class="radio-head-icon" title="Startup station" aria-label="Startup station"><i class="fa-solid fa-thumbtack"></i></button>
+        <button data-radio-click="29" class="radio-head-icon" title="Equalizer" aria-label="Equalizer"><i class="fa-solid fa-sliders"></i></button>
+        <button data-radio-click="30" class="radio-head-icon" title="Switch player style" aria-label="Switch player style"><i class="fa-solid fa-palette"></i></button>
       </div>
     </header>
 
@@ -530,6 +516,16 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- PANE 2: CENTER MAIN BROWSE CANVAS -->
       <main class="flex-1 sp-canvas-bg lg:rounded-lg overflow-y-auto px-3.5 sm:px-6 pt-3 pb-36 lg:pb-8 min-h-0">
+        <!-- Category chips: under the header, at the top of the content (desktop) -->
+        <div class="radio-header-chips radio-desktop-chips hidden lg:flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
+          <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
+          <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
+          <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
+          <button data-radio-click="24" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
+          <button data-radio-click="25" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
+          <button data-radio-click="26" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
+          <button data-radio-click="27" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
+        </div>
 
         <!-- =================================================================
              REDESIGNED SLEEK COLLAPSIBLE SW / AM TUNER BAR (BRAUN / TE STYLE)
@@ -2554,8 +2550,12 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function bootRadioApplication() {
       if (radioBooted) return;
       radioBooted = true;
-      audio.volume = appConfig.volume ?? 0.85;
-      audio.muted = !!appConfig.muted;
+      // Volume carries over; mute does not. Each visit starts with sound, so
+      // the radio is only ever silent because the user muted it this session.
+      if (!(appConfig.volume > 0)) appConfig.volume = 0.85;
+      appConfig.muted = false;
+      audio.volume = appConfig.volume;
+      audio.muted = false;
       document.getElementById('sp-vol-slider').value = audio.volume;
       document.getElementById('ytm-vol-slider').value = audio.volume;
 
@@ -2630,7 +2630,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         // A slow parent hydration may arrive after the standalone fallback
         // started. Apply stored preferences without installing duplicate loops
         // or restarting an already-playing station.
-        audio.muted=!!appConfig.muted;
+        appConfig.muted=audio.muted;if(!(appConfig.volume>0))appConfig.volume=0.85;
         applyAcousticContourToAudio();
         ['sp-vol-slider','ytm-vol-slider'].forEach(id=>{
           const slider=document.getElementById(id);

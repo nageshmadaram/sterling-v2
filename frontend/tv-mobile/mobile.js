@@ -422,8 +422,10 @@
       if(typeof saved.language==='string'&&saved.language.length<=40)catalogLanguage=saved.language;
       catalogScope=view==='library'?'favs':view==='history'?'recently_played':'all';
       const v=document.getElementById('video-player');
-      if(typeof saved.volume==='number'&&saved.volume>=0&&saved.volume<=1)v.volume=saved.volume;
-      if(typeof saved.muted==='boolean'){preferredTvMuted=saved.muted;v.muted=saved.muted;}
+      // Volume carries over; mute does not. Each visit starts with sound, so
+      // the TV is only ever silent because the user muted it this session.
+      if(typeof saved.volume==='number'&&saved.volume>0&&saved.volume<=1)v.volume=saved.volume;
+      preferredTvMuted=false;v.muted=false;
       if(['fit-contain','fit-cover','fit-zoom'].includes(saved.fit)){currentFitMode=saved.fit;v.classList.remove('fit-contain','fit-cover','fit-zoom');v.classList.add(saved.fit);}
       hideUnavailableChannels=saved.hideUnavailable===true;
       if(Array.isArray(saved.failedChannels))for(const entry of saved.failedChannels.slice(-80)){if(Array.isArray(entry)&&typeof entry[0]==='string'&&entry[0].length<=2048&&typeof entry[1]==='number'&&entry[1]<=Date.now()&&Date.now()-entry[1]<CHANNEL_FAILURE_TTL)unavailableChannels.set(entry[0],entry[1]);}

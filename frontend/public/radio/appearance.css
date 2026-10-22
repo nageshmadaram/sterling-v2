@@ -141,3 +141,13 @@ body.mode-netflix #ytm-queue-drawer {
 body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix #ytm-stage-art {
   background:#101010!important;object-fit:cover;
 }
+
+/* Desktop header: logo, home and search on the left; icon actions on the right.
+   Category chips sit at the top of the content, as in the Spotify desktop app. */
+@media(min-width:1024px) {
+  .radio-head-icon {width:40px;height:40px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#1f1f1f;color:#b3b3b3;font-size:15px;transition:background .15s,color .15s,transform .15s;}
+  .radio-head-icon:hover {background:#2a2a2a;color:#fff;transform:scale(1.04);}
+  .radio-head-icon:focus-visible {outline:2px solid #fff;outline-offset:2px;}
+  .radio-desktop-chips {position:sticky;top:-12px;z-index:5;margin:-12px -24px 8px;padding:12px 24px 10px;background:linear-gradient(180deg,rgba(var(--ambient-rgb,28,90,56),.55),rgba(18,18,18,.92));backdrop-filter:blur(8px);}
+  .radio-desktop-chips>button {font-size:13px;padding:7px 14px;border-radius:999px;}
+}

@@ -1330,6 +1330,16 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
   background:#101010!important;object-fit:cover;
 }
 
+/* Desktop header: logo, home and search on the left; icon actions on the right.
+   Category chips sit at the top of the content, as in the Spotify desktop app. */
+@media(min-width:1024px) {
+  .radio-head-icon {width:40px;height:40px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#1f1f1f;color:#b3b3b3;font-size:15px;transition:background .15s,color .15s,transform .15s;}
+  .radio-head-icon:hover {background:#2a2a2a;color:#fff;transform:scale(1.04);}
+  .radio-head-icon:focus-visible {outline:2px solid #fff;outline-offset:2px;}
+  .radio-desktop-chips {position:sticky;top:-12px;z-index:5;margin:-12px -24px 8px;padding:12px 24px 10px;background:linear-gradient(180deg,rgba(var(--ambient-rgb,28,90,56),.55),rgba(18,18,18,.92));backdrop-filter:blur(8px);}
+  .radio-desktop-chips>button {font-size:13px;padding:7px 14px;border-radius:999px;}
+}
+
 </style>
 
 <style id="sterling-radio-mobile-recovery">
@@ -2098,7 +2108,7 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     <!-- SPOTIFY DESKTOP HEADER (lg+) -->
     <header class="hidden lg:flex h-16 px-4 items-center justify-between bg-black shrink-0 z-30">
       <div class="flex items-center gap-2.5">
-        <button data-radio-click="20" class="w-10 h-10 flex items-center justify-center text-white" title="Spotify">
+        <button data-radio-click="20" class="w-10 h-10 flex items-center justify-center text-white" title="Sterling Radio" aria-label="Sterling Radio">
           <i class="fa-brands fa-spotify text-[32px]"></i>
         </button>
         <button data-radio-click="80" class="w-11 h-11 btn-circle bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition" title="Home">
@@ -2106,7 +2116,7 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
         </button>
 
         <!-- Search Input -->
-        <div class="relative w-72 xl:w-[360px]">
+        <div class="relative w-[min(480px,40vw)]">
           <i class="fa-solid fa-magnifying-glass absolute left-4 top-3.5 text-[#b3b3b3] text-sm pointer-events-none"></i>
           <input id="sp-search-desktop" type="text" placeholder="What do you want to play?"
             data-radio-input="21"
@@ -2118,26 +2128,12 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
         </div>
       </div>
 
-      <!-- Category Pills -->
-      <div class="radio-header-chips flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
-        <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
-        <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
-        <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
-        <button data-radio-click="24" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
-        <button data-radio-click="25" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
-        <button data-radio-click="26" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
-        <button data-radio-click="27" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
-      </div>
-
-      <!-- Right Controls -->
-      <div class="flex items-center gap-2">
-        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="px-3 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition whitespace-nowrap" title="Station sources, equalizer, sleep timer, alarm and more (?)">⚙ Settings</button>
-        <button data-radio-click="28" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition" title="Startup Channel">Startup</button>
-        <button data-radio-click="29" class="px-3 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] hover:bg-[#2a2a2a] text-[#b3b3b3] hover:text-white transition">Equalizer</button>
-        <button data-radio-click="30" class="flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-[#1f1f1f] hover:bg-[#2a2a2a] text-white transition">
-          <span class="w-4 h-4 btn-circle bg-[#ff0033]"><i class="fa-solid fa-play text-[7px] text-white ml-0.5"></i></span>
-          <span>YouTube Music</span>
-        </button>
+      <!-- Right Controls: icon buttons, labels in tooltips -->
+      <div class="radio-header-actions flex items-center gap-1.5">
+        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="radio-head-icon" title="Settings: station sources, sleep timer, alarm and more" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+        <button data-radio-click="28" class="radio-head-icon" title="Startup station" aria-label="Startup station"><i class="fa-solid fa-thumbtack"></i></button>
+        <button data-radio-click="29" class="radio-head-icon" title="Equalizer" aria-label="Equalizer"><i class="fa-solid fa-sliders"></i></button>
+        <button data-radio-click="30" class="radio-head-icon" title="Switch player style" aria-label="Switch player style"><i class="fa-solid fa-palette"></i></button>
       </div>
     </header>
 
@@ -2199,6 +2195,16 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
 
       <!-- PANE 2: CENTER MAIN BROWSE CANVAS -->
       <main class="flex-1 sp-canvas-bg lg:rounded-lg overflow-y-auto px-3.5 sm:px-6 pt-3 pb-36 lg:pb-8 min-h-0">
+        <!-- Category chips: under the header, at the top of the content (desktop) -->
+        <div class="radio-header-chips radio-desktop-chips hidden lg:flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
+          <button data-radio-click="80" id="sp-chip-all" class="radio-all-chip">All</button>
+          <button data-radio-click="20" id="sp-chip-sw" class="px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition">Shortwave & AM</button>
+          <button data-radio-click="23" id="sp-chip-air" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Akashvani</button>
+          <button data-radio-click="24" id="sp-chip-te" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Telugu</button>
+          <button data-radio-click="25" id="sp-chip-ta" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Tamil</button>
+          <button data-radio-click="26" id="sp-chip-feat" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Global FM</button>
+          <button data-radio-click="27" id="sp-chip-pod" class="px-3.5 py-1.5 rounded-full text-xs font-medium bg-[#1f1f1f] text-white hover:bg-[#2a2a2a] transition">Podcasts</button>
+        </div>
 
         <!-- =================================================================
              REDESIGNED SLEEK COLLAPSIBLE SW / AM TUNER BAR (BRAUN / TE STYLE)
@@ -4223,8 +4229,12 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     function bootRadioApplication() {
       if (radioBooted) return;
       radioBooted = true;
-      audio.volume = appConfig.volume ?? 0.85;
-      audio.muted = !!appConfig.muted;
+      // Volume carries over; mute does not. Each visit starts with sound, so
+      // the radio is only ever silent because the user muted it this session.
+      if (!(appConfig.volume > 0)) appConfig.volume = 0.85;
+      appConfig.muted = false;
+      audio.volume = appConfig.volume;
+      audio.muted = false;
       document.getElementById('sp-vol-slider').value = audio.volume;
       document.getElementById('ytm-vol-slider').value = audio.volume;
 
@@ -4299,7 +4309,7 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
         // A slow parent hydration may arrive after the standalone fallback
         // started. Apply stored preferences without installing duplicate loops
         // or restarting an already-playing station.
-        audio.muted=!!appConfig.muted;
+        appConfig.muted=audio.muted;if(!(appConfig.volume>0))appConfig.volume=0.85;
         applyAcousticContourToAudio();
         ['sp-vol-slider','ytm-vol-slider'].forEach(id=>{
           const slider=document.getElementById(id);

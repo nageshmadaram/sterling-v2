@@ -90,7 +90,7 @@ describe('Actual sandboxed media documents on mobile',()=>{
     expect(w.document.getElementById(kind==='tv'?'active-title':'sheet-title')?.textContent).toContain(kind==='tv'?'Red Bull':'BBC');
     expect(errors).toEqual([]);
   });
-  it('keeps temporary autoplay muting separate from the chosen sound setting',async()=>{
+  it('never mutes on its own when the browser blocks autoplay; it asks for a tap',async()=>{
     const {w}=boot('tv');
     await new Promise(resolve=>setTimeout(resolve,0));
     const video=w.document.getElementById('video-player') as HTMLVideoElement;
@@ -98,8 +98,9 @@ describe('Actual sandboxed media documents on mobile',()=>{
     w.HTMLMediaElement.prototype.play=()=>Promise.reject(new w.DOMException('Gesture required','NotAllowedError'));
     w.eval('safeAutoplayVideo(document.getElementById("video-player"))');
     await new Promise(resolve=>setTimeout(resolve,0));
-    expect(video.muted).toBe(true);
+    expect(video.muted).toBe(false);
     expect(w.eval('preferredTvMuted')).toBe(false);
+    expect(w.document.getElementById('tv-mobile-play')?.classList.contains('hidden')).toBe(false);
     w.HTMLMediaElement.prototype.play=()=>Promise.resolve();
     w.eval('resumeTvPlayback()');await Promise.resolve();
     expect(video.muted).toBe(false);
