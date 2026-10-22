@@ -61,8 +61,12 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     const {searched}=mount('radio');
     fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
     const field=screen.getByRole('combobox',{name:'Search radio stations'});
+    vi.useFakeTimers();
     fireEvent.change(field,{target:{value:'Telugu'}});
     expect(field).toHaveValue('Telugu');
+    // The page filter waits for a pause in typing.
+    expect(searched).not.toHaveBeenCalledWith('Telugu');
+    act(()=>vi.advanceTimersByTime(400));
     expect(searched).toHaveBeenCalledWith('Telugu');
     fireEvent.click(screen.getByRole('button',{name:'Clear search'}));
     expect(screen.getByRole('combobox')).toHaveValue('');
@@ -165,7 +169,9 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     fireEvent.click(screen.getByRole('button',{name:'Close search'}));
     fireEvent.click(screen.getByRole('button',{name:'Search radio stations'}));
     expect(screen.getByRole('combobox')).toHaveValue('');
+    vi.useFakeTimers();
     fireEvent.change(screen.getByRole('combobox'),{target:{value:'BBC'}});
+    act(()=>vi.advanceTimersByTime(400));
     expect(searched).toHaveBeenLastCalledWith('BBC');
   });
 

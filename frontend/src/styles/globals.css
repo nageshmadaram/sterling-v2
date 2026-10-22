@@ -1829,8 +1829,14 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
 .sterling-media-suggestions strong {font-size:14px;color:white;font-weight:600;}
 .sterling-media-suggestions small {font-size:12px;color:#aaa;margin-top:4px;}
 @media(max-width:767px){
- .sterling-media-expanded-search {border:0;border-radius:28px;background:#2a2a2a;}
- .sterling-media-suggestions {background:#121212;border:0;border-radius:12px;max-height:calc(100dvh - 170px);padding:16px 10px;}
- .sterling-media-suggestions [role=option] {min-height:76px;}
+ /* Phone search is a full screen, like Spotify: the box across the top, results filling the rest. */
+ .sterling-media-expanded-search {position:fixed!important;left:10px!important;right:10px!important;top:calc(8px + env(safe-area-inset-top,0px))!important;width:auto!important;height:56px;border:0;border-radius:28px;background:#2a2a2a;z-index:2147482000;}
+ .sterling-media-expanded-search input {font-size:17px!important;}
+ .sterling-media-suggestions {position:fixed!important;left:0!important;right:0!important;top:calc(72px + env(safe-area-inset-top,0px))!important;bottom:0!important;max-height:none!important;background:#121212;border:0;border-radius:0;padding:12px 14px calc(16px + env(safe-area-inset-bottom,0px));overscroll-behavior:contain;-webkit-overflow-scrolling:touch;box-shadow:none;}
+ .sterling-media-suggestions::before {content:'';position:fixed;inset:0 0 auto 0;height:calc(72px + env(safe-area-inset-top,0px));background:#121212;z-index:-1;}
+ .sterling-media-suggestions>p {font-size:20px;margin:4px 4px 12px;}
+ .sterling-media-suggestions [role=option] {min-height:72px;gap:14px;}
  .sterling-media-suggestions img,.sterling-suggestion-art {width:56px;height:56px;}
+ .sterling-media-suggestions strong {font-size:16px;}
+ .sterling-media-suggestions small {font-size:13px;}
 }
