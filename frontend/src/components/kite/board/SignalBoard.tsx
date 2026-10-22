@@ -390,6 +390,13 @@ function cellContent(
   detailsOnly = false,
 ): { node: React.ReactNode; color?: string } {
   const dirTone = signal.direction === 'long' ? k.green : k.red;
+  // A level the engine states as a rule (or on the underlying) instead of a
+  // premium: say it rather than print a dash.
+  if ((id === 'ltp' || id === 'entry' || id === 'stop' || id === 'trail' || id === 'target')
+    && signal.levels[id] == null && signal.levelNotes?.[id]) {
+    const note = signal.levelNotes[id]!;
+    return { node: <span title={note.hint}>{note.text}</span>, color: k.dim };
+  }
   switch (id) {
     case 'instrument': {
       // Inside a group the header already names the instrument, states where
@@ -574,13 +581,8 @@ function cellContent(
         ),
       };
     }
-    case 'stop':
-    case 'trail': {
-      const value = signal.levels[id];
-      const note = signal.levelNotes?.[id];
-      if (value == null && note) return { node: <span title={note.hint}>{note.text}</span>, color: k.dim };
-      return { node: num(value) };
-    }
+    case 'stop': return { node: num(signal.levels.stop) };
+    case 'trail': return { node: num(signal.levels.trail) };
     case 'target': return { node: num(signal.levels.target) };
     case 'exit': return { node: num(signal.levels.exit) };
     case 'qty': return { node: signal.sizing.quantity ?? '—' };

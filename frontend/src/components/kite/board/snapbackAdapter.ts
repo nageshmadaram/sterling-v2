@@ -353,6 +353,19 @@ const STATUS: Record<string, BoardStatus> = {
   error: 'error',
 };
 
+/** Underlying-level stand-ins for a setup with no listed contract ("U" = underlying). */
+function underlyingNotes(row: SnapbackRow): BoardSignal['levelNotes'] {
+  const u = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? `U ${v.toFixed(2)}` : null);
+  const why = row.reason || 'No listed contract was resolved for this setup.';
+  const notes: NonNullable<BoardSignal['levelNotes']> = {};
+  const ltp = u(row.spot), entry = u(row.level), target = u(row.mean_target);
+  if (ltp) notes.ltp = { text: ltp, hint: 'Underlying spot at the scan. No option contract to quote.' };
+  if (entry) notes.entry = { text: entry, hint: 'The 20-session extreme the close broke. The trade is an option on this move.' };
+  if (target) notes.target = { text: target, hint: 'The 20-session mean the setup expects price to return to.' };
+  notes.stop = { text: 'no contract', hint: `The stop is a premium level, set once a contract is chosen. ${why}` };
+  return notes;
+}
+
 export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
   const status: BoardStatus = STATUS[row.state] ?? 'watching';
   const o = row.outcome;
@@ -402,6 +415,8 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
       // still inside its holding period would claim it was over.
       exit: o && !o.open ? price(o.exit_premium) : null,
     },
+    // No contract resolved: the thesis still has underlying levels worth showing.
+    levelNotes: !row.contract && !o ? underlyingNotes(row) : undefined,
     sizing: {
       lots: row.lots || null,
       quantity,

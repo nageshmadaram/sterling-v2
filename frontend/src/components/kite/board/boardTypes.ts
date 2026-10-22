@@ -248,7 +248,7 @@ export interface BoardSignal {
    * e.g. a swing stop that is an underlying daily close, or a trail that only
    * starts at T1. Shown in place of "—" so the row explains itself.
    */
-  levelNotes?: Partial<Record<'stop' | 'trail', { text: string; hint: string }>>;
+  levelNotes?: Partial<Record<'ltp' | 'entry' | 'stop' | 'trail' | 'target', { text: string; hint: string }>>;
   /**
    * Short inline badges an engine wants on the row itself.
    *
