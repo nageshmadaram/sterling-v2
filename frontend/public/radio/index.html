@@ -277,16 +277,21 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
    controls stack on the right, as in the TV player. Up next and More like this follow below. */
 @media(max-width:1023px) and (orientation:landscape) {
   #mobile-player-sheet{padding:0!important;}
-  #mobile-player-sheet .rnp-main{display:grid;grid-template-columns:calc(58% - 8px) minmax(0,1fr);grid-template-rows:auto auto 1fr;column-gap:24px;align-content:start;min-height:100dvh;}
-  #mobile-player-sheet .rnp-main>div:first-child{grid-column:2;grid-row:1;min-height:52px;padding:calc(4px + env(safe-area-inset-top,0px)) calc(16px + env(safe-area-inset-right,0px)) 0 0;}
+  #mobile-player-sheet .rnp-main{display:grid;grid-template-columns:56vw minmax(0,1fr);grid-template-rows:1fr auto auto auto 1fr;column-gap:16px;min-height:100dvh;}
+  #mobile-player-sheet .rnp-main>div:first-child{grid-column:2;grid-row:2;min-height:52px;padding:4px calc(16px + env(safe-area-inset-right,0px)) 0 0;}
   #mobile-player-sheet .rnp-main>div:nth-child(2){display:contents;}
-  #mobile-player-sheet .radio-mobile-art{grid-column:1;grid-row:1/-1;width:100%!important;height:100dvh!important;max-height:100dvh!important;aspect-ratio:auto;margin:0!important;border-radius:0!important;box-shadow:none!important;background:#0000002e!important;}
-  #mobile-player-sheet .radio-mobile-art img{object-fit:contain;}
-  #mobile-player-sheet .rnp-main>div:nth-child(2)>div:last-child{grid-column:2;grid-row:2;align-self:start;margin-top:6px;padding-right:calc(16px + env(safe-area-inset-right,0px));}
-  #mobile-player-sheet .rnp-main>div:nth-child(3){grid-column:2;grid-row:3;align-self:start;padding:12px calc(16px + env(safe-area-inset-right,0px)) 12px 0;}
-  #mobile-player-sheet .rnp-main>div:nth-child(3)>*+*{margin-top:12px!important;}
+  /* Artwork is portrait's rounded square card, centred on the player gradient (no side bars). */
+  #mobile-player-sheet .radio-mobile-art{grid-column:1;grid-row:1/-1;align-self:center;justify-self:center;width:min(calc(56vw - 32px),calc(100dvh - 32px))!important;height:min(calc(56vw - 32px),calc(100dvh - 32px))!important;max-height:none!important;aspect-ratio:1;margin:16px!important;border-radius:10px!important;box-shadow:0 18px 45px #0006!important;}
+  #mobile-player-sheet .radio-mobile-art img{object-fit:cover;}
+  #mobile-player-sheet .rnp-main>div:nth-child(2)>div:last-child{grid-column:2;grid-row:3;margin-top:4px;padding-right:calc(16px + env(safe-area-inset-right,0px));}
+  #mobile-player-sheet .rnp-main>div:nth-child(3){grid-column:2;grid-row:4;padding:10px calc(16px + env(safe-area-inset-right,0px)) 8px 0;}
+  #mobile-player-sheet .rnp-main>div:nth-child(3)>*+*{margin-top:10px!important;}
+  #mobile-player-sheet #sheet-title{font-size:22px!important;letter-spacing:-.6px;}
+  #mobile-player-sheet #sheet-sub{font-size:12px!important;margin-top:4px!important;}
   #mobile-player-sheet .rnp-more{margin:22px 16px 0;}
-  #mobile-player-sheet [data-radio-click="56"]{width:56px;min-height:56px;}
+  #mobile-player-sheet .radio-np-controls [data-radio-click="56"]{width:56px!important;height:56px!important;min-height:56px;}
+  #mobile-player-sheet .radio-np-head button:focus:not(:focus-visible){outline:none;box-shadow:none;}
+}
 }
 @media(prefers-reduced-motion:reduce){#mobile-player-sheet{transition:none!important;}}
 </style>
@@ -2323,8 +2328,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     // One chip per band next to Shortwave, in each chip bar (desktop, phone, YouTube-style theme).
     function mountBandChips(){
-      // Chip order in every bar: All, Telugu, World FM, then the rest.
-      for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const all=document.getElementById(prefix+'all'),te=document.getElementById(prefix+'te'),feat=document.getElementById(prefix+'feat');if(all&&te){all.after(te);if(feat)te.after(feat);}}
+      // Chip order in every bar: All, Telugu, Akashvani, World FM, then the rest.
+      for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){const all=document.getElementById(prefix+'all'),te=document.getElementById(prefix+'te'),air=document.getElementById(prefix+'air'),feat=document.getElementById(prefix+'feat');if(all&&te){all.after(te);let last=te;if(air){te.after(air);last=air;}if(feat)last.after(feat);}}
       for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
         const sw=document.getElementById(prefix+'sw');if(!sw||document.getElementById(prefix+'mw'))continue;
         let after=sw;
