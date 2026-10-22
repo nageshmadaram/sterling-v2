@@ -2339,7 +2339,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     /* Spotify-style home (media/radio-home.js): playlists, languages, Akashvani zones, bands and genres
        as horizontal rows. The long grid only appears inside a section. */
-    let radioHome=null,radioHomeKey='',radioHomeAt=0,radioListView=false;
+    // The row a station was played from becomes the queue (Next, Previous, Up next), like Spotify.
+    let radioHome=null,radioHomeKey='',radioHomeAt=0,radioListView=false,radioRowQueue=null;
+    function radioQueue(){return radioRowQueue&&activeStream&&radioRowQueue.some(ch=>ch.id===activeStream.id)?radioRowQueue:(catalogItems.length?catalogItems:MASTER_POOL);}
     const HOME_COLORS=['#8d67ab','#1e3264','#e8115b','#148a08','#bc5900','#509bf5','#af2896','#27856a','#e91429','#477d95'];
     // Rows (Spotify style) on Home and in every section; the vertical list only for Show all, filters and search.
     function radioIsHome(){const f=appConfig.catalogFilters||{};return !radioListView&&appConfig.activeCategory!=='podcasts'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&['home','collection'].includes(document.documentElement.dataset.radioView);}
@@ -2397,7 +2399,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
       if(!home||!window.SterlingRadioHome)return;
       const cat=appConfig.activeCategory||'all',key=cat+'|'+MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
-      if(!radioHome){const holder=document.createElement('div');holder.id='radio-rows-holder';radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,fallback:s=>getStationIdentityThumbnail({...s,artwork:null}),onPlay:id=>playStationById(id)});}
+      if(!radioHome){const holder=document.createElement('div');holder.id='radio-rows-holder';radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,fallback:s=>getStationIdentityThumbnail({...s,artwork:null}),onPlay:(id,stations)=>{radioRowQueue=stations?.length?stations:null;playStationById(id);}});}
       // Home: rows after Recently played. Sections: rows under the section's chips and filter icon.
       const holder=document.getElementById('radio-rows-holder')||radioHome.root.parentElement;
       const tools=document.querySelector('#sp-grid-section .radio-directory-tools'),recents=document.getElementById('sp-recents-section');
@@ -3903,7 +3905,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function renderSheetMore(){
       if(!activeStream)return;
-      const queue=catalogItems.length?catalogItems:MASTER_POOL,at=queue.findIndex(ch=>ch.id===activeStream.id);
+      const queue=radioQueue(),at=queue.findIndex(ch=>ch.id===activeStream.id);
       const next=at<0?queue.slice(0,5):[...queue.slice(at+1),...queue.slice(0,at)].slice(0,5);
       const up=document.getElementById('sheet-up-next');if(up)up.innerHTML=next.map(ch=>rnpRow(ch,'data-rnp-play')).join('');
       if(rnpFor===activeStream.id)return;rnpFor=activeStream.id;rnpPool=radioMoreLike(activeStream);rnpShown=0;
@@ -3922,10 +3924,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     })();
     function stepRadioQueue(direction) {
       const episodes=activeStream?.kind==='podcast_episode'&&episodeList.some(ch=>ch.id===activeStream.id);
-      const queue=episodes?episodeList:catalogItems;if(!queue.length)return;
+      const queue=episodes?episodeList:radioQueue();if(!queue.length)return;
       const current=queue.findIndex(ch=>ch.id===activeStream?.id);
       const next=current<0?(direction>0?0:queue.length-1):(current+direction+queue.length)%queue.length;
-      if(episodes)startPlayback(queue[next]);else selectChannel(next);
+      if(episodes||queue!==catalogItems)startPlayback(queue[next]);else selectChannel(next);
     }
     function playNextChannel() {stepRadioQueue(1);}
     function playPrevChannel() {stepRadioQueue(-1);}

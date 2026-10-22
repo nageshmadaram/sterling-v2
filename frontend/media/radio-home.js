@@ -7,7 +7,7 @@
   const doc=document,root=doc.createElement('div');root.id='radio-home-shelves';container.append(root);
   const rows=new Map();
   const grow=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)rows.get(entry.target.dataset.row)?.more();},{root:null,rootMargin:'0px 600px 0px 0px'});
-  function card(item){
+  function card(item,state){
    const b=doc.createElement('button');b.type='button';
    if(item.kind==='station'){
     b.className='rh-card';b.setAttribute('aria-label',`Play ${item.station.title}`);
@@ -15,7 +15,7 @@
     // A broken logo falls back to the generated station badge instead of a blank square.
     img.addEventListener('error',()=>{const next=fallback?.(item.station);if(next&&next!==img.src)img.src=next;else img.style.visibility='hidden';},{once:true});
     const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.station.title;small.textContent=item.station.freqKhz?`${item.station.freqKhz} kHz · ${item.station.country||''}`:(item.station.country||item.station.subtitle||'');
-    b.append(img,strong,small);b.addEventListener('click',()=>onPlay(item.station.id));
+    b.append(img,strong,small);b.addEventListener('click',()=>onPlay(item.station.id,state?.def.items.filter(i=>i.kind==='station').map(i=>i.station)||[]));
    }else{
     b.className='rh-card rh-tile';b.style.setProperty('--tile',item.color||'#1e3264');b.setAttribute('aria-label',`Open ${item.title}`);
     const art=doc.createElement('span');art.className='rh-mosaic';
@@ -33,7 +33,7 @@
    if(def.open){const all=doc.createElement('button');all.type='button';all.className='rh-all';all.textContent='Show all';all.addEventListener('click',def.open);head.append(all);}
    const strip=doc.createElement('div');strip.className='rh-strip';const end=doc.createElement('span');end.className='rh-end';end.dataset.row=def.id;
    section.append(head,strip);let shown=0;
-   const state={def,section,more(){const next=state.def.items.slice(shown,Math.min(shown+BATCH,CAP));if(!next.length)return;end.remove();strip.append(...next.map(card));shown+=next.length;if(shown<Math.min(state.def.items.length,CAP))strip.append(end);}};
+   const state={def,section,more(){const next=state.def.items.slice(shown,Math.min(shown+BATCH,CAP));if(!next.length)return;end.remove();strip.append(...next.map(item=>card(item,state)));shown+=next.length;if(shown<Math.min(state.def.items.length,CAP))strip.append(end);}};
    grow.observe(end);state.more();return state;
   }
   function render(defs){

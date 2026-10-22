@@ -4522,10 +4522,13 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     document.body.style.setProperty('--tv-channel-hue',String(hue));
   }
   const channelButton=(ch,quick=false)=>`<button type="button" class="${quick?'':'tm-album'}" data-tm-channel="${escapeAttr(ch.url)}" aria-label="Watch ${escapeAttr(ch.name)}">${quick?`<img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span>${escapeHtml(ch.name)}</span>`:`<div class="tm-cover"><img src="${escapeAttr(artwork(ch))}" alt="" loading="lazy"/><span class="tm-live">LIVE TV</span></div><strong>${escapeHtml(ch.name)}</strong><small>${escapeHtml(ch.group || 'Television')} · ${escapeHtml(ch.lang || 'Global')}</small>`}</button>`;
+  // Each Home shelf's channels, so a tap queues that shelf (see the data-tm-channel click handler).
+  const shelfPools=new Map();
   function shelf(title,pool,filter) {
     pool=pool.filter(isChannelVisible);
     if(!pool.length)return '';
-    return `<section><div class="tm-section-title"><h2>${title}<small class="media-shelf-count">${pool.length.toLocaleString()} ${filter==='all'?(pool.length===1?'pick':'picks'):(pool.length===1?'channel':'channels')}</small></h2><button data-tm-category="${filter}">${filter==='all'?'Browse all':'Show all'}</button></div><div class="tm-shelf">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
+    shelfPools.set(String(filter),pool);
+    return `<section><div class="tm-section-title"><h2>${title}<small class="media-shelf-count">${pool.length.toLocaleString()} ${filter==='all'?(pool.length===1?'pick':'picks'):(pool.length===1?'channel':'channels')}</small></h2><button data-tm-category="${filter}">${filter==='all'?'Browse all':'Show all'}</button></div><div class="tm-shelf" data-tm-shelf="${escapeAttr(String(filter))}">${pool.slice(0,10).map(ch=>channelButton(ch)).join('')}</div></section>`;
   }
   let lastHomeCatalog=null,lastHomeKey='';
   function renderHome() {
@@ -4696,7 +4699,10 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     if(!on)return;
     const pool=computeFilteredCatalogPool(),key=[catalogScope,catalogCategory,catalogLanguage,pool.length,allChannels.length].join('|');
     if(!tvRows){const holder=document.createElement('div');holder.id='tv-rows-holder';document.getElementById('sticky-chip-bar')?.after(holder);
-      tvRows=window.SterlingRadioHome.mount({container:holder,artwork:s=>artwork(s.ch),fallback:s=>{rejectedArtwork.add(artwork(s.ch));return artwork(s.ch);},onPlay:url=>{const ch=findChannel(url);if(ch){playStream(ch,0);if(currentTheme==='spotify')setExpanded(true);}}});}
+      tvRows=window.SterlingRadioHome.mount({container:holder,artwork:s=>artwork(s.ch),fallback:s=>{rejectedArtwork.add(artwork(s.ch));return artwork(s.ch);},onPlay:(url,stations)=>{const ch=findChannel(url);if(!ch)return;
+        // Up next follows the row the channel was picked from (e.g. Browse › Movies queues every Movies channel).
+        const row=(stations||[]).map(s=>s.ch).filter(Boolean);if(row.length){playbackQueue=row;playQueuedChannel(ch);}else playStream(ch,0);
+        if(currentTheme==='spotify')setExpanded(true);}});}
     if(key===tvRowsKey)return;tvRowsKey=key;tvRows.render(buildTvRows(pool));
   }
   // Back: every place opened from here records how to return (media/nav-stack.js).
@@ -4833,7 +4839,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
     if(!button){if(isMobile()&&event.target.closest('.channel-grid-card')){if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmEq){applyAudioPreset(button.dataset.tmEq);closeSheet();return;}
     if(button.dataset.tmQuality){setHlsQualityLevel(Number(button.dataset.tmQuality));closeSheet();return;}
-    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);if(ch){if(button.dataset.tmRelated){playbackQueue=[...relatedPool];playQueuedChannel(ch);}else if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);if(button.closest('#tv-now-playing'))now.scrollTo({top:0,behavior:'smooth'});clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
+    if(button.dataset.tmChannel){const ch=allChannels.find(c=>c.url===button.dataset.tmChannel)||recentHistory.find(c=>c.url===button.dataset.tmChannel)||favorites.find(c=>c.url===button.dataset.tmChannel);const shelfPool=shelfPools.get(button.closest('[data-tm-shelf]')?.dataset.tmShelf);
+      if(ch){if(shelfPool?.length){playbackQueue=[...shelfPool];playQueuedChannel(ch);}else if(button.dataset.tmRelated){playbackQueue=[...relatedPool];playQueuedChannel(ch);}else if(button.dataset.tmQueued)playQueuedChannel(ch);else playStream(ch,0);if(button.closest('#tv-now-playing'))now.scrollTo({top:0,behavior:'smooth'});clearSelectionSearch();closeSheet();if(currentTheme==='spotify')setExpanded(true);else{view='watch';sync();document.getElementById('main-scroll').scrollTo({top:0,behavior:'smooth'});}}return;}
     if(button.dataset.tmCategory){const cat=button.dataset.tmCategory;if(cat==='recent')run('history');else if(cat==='verified')catalog('live','verified');else if(cat==='all')catalog('live','all');else if(cat==='indian')run('indian');else if(cat==='favs')run('library');else catalog('live','all',cat);return;}
     run(button.dataset.tmAction);
   });

@@ -509,7 +509,7 @@
   const doc=document,root=doc.createElement('div');root.id='radio-home-shelves';container.append(root);
   const rows=new Map();
   const grow=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)rows.get(entry.target.dataset.row)?.more();},{root:null,rootMargin:'0px 600px 0px 0px'});
-  function card(item){
+  function card(item,state){
    const b=doc.createElement('button');b.type='button';
    if(item.kind==='station'){
     b.className='rh-card';b.setAttribute('aria-label',`Play ${item.station.title}`);
@@ -517,7 +517,7 @@
     // A broken logo falls back to the generated station badge instead of a blank square.
     img.addEventListener('error',()=>{const next=fallback?.(item.station);if(next&&next!==img.src)img.src=next;else img.style.visibility='hidden';},{once:true});
     const strong=doc.createElement('strong'),small=doc.createElement('small');strong.textContent=item.station.title;small.textContent=item.station.freqKhz?`${item.station.freqKhz} kHz · ${item.station.country||''}`:(item.station.country||item.station.subtitle||'');
-    b.append(img,strong,small);b.addEventListener('click',()=>onPlay(item.station.id));
+    b.append(img,strong,small);b.addEventListener('click',()=>onPlay(item.station.id,state?.def.items.filter(i=>i.kind==='station').map(i=>i.station)||[]));
    }else{
     b.className='rh-card rh-tile';b.style.setProperty('--tile',item.color||'#1e3264');b.setAttribute('aria-label',`Open ${item.title}`);
     const art=doc.createElement('span');art.className='rh-mosaic';
@@ -535,7 +535,7 @@
    if(def.open){const all=doc.createElement('button');all.type='button';all.className='rh-all';all.textContent='Show all';all.addEventListener('click',def.open);head.append(all);}
    const strip=doc.createElement('div');strip.className='rh-strip';const end=doc.createElement('span');end.className='rh-end';end.dataset.row=def.id;
    section.append(head,strip);let shown=0;
-   const state={def,section,more(){const next=state.def.items.slice(shown,Math.min(shown+BATCH,CAP));if(!next.length)return;end.remove();strip.append(...next.map(card));shown+=next.length;if(shown<Math.min(state.def.items.length,CAP))strip.append(end);}};
+   const state={def,section,more(){const next=state.def.items.slice(shown,Math.min(shown+BATCH,CAP));if(!next.length)return;end.remove();strip.append(...next.map(item=>card(item,state)));shown+=next.length;if(shown<Math.min(state.def.items.length,CAP))strip.append(end);}};
    grow.observe(end);state.more();return state;
   }
   function render(defs){
@@ -4014,7 +4014,9 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     }
     /* Spotify-style home (media/radio-home.js): playlists, languages, Akashvani zones, bands and genres
        as horizontal rows. The long grid only appears inside a section. */
-    let radioHome=null,radioHomeKey='',radioHomeAt=0,radioListView=false;
+    // The row a station was played from becomes the queue (Next, Previous, Up next), like Spotify.
+    let radioHome=null,radioHomeKey='',radioHomeAt=0,radioListView=false,radioRowQueue=null;
+    function radioQueue(){return radioRowQueue&&activeStream&&radioRowQueue.some(ch=>ch.id===activeStream.id)?radioRowQueue:(catalogItems.length?catalogItems:MASTER_POOL);}
     const HOME_COLORS=['#8d67ab','#1e3264','#e8115b','#148a08','#bc5900','#509bf5','#af2896','#27856a','#e91429','#477d95'];
     // Rows (Spotify style) on Home and in every section; the vertical list only for Show all, filters and search.
     function radioIsHome(){const f=appConfig.catalogFilters||{};return !radioListView&&appConfig.activeCategory!=='podcasts'&&!radioSearchQuery.trim()&&!Object.values(f).some(v=>Array.isArray(v)?v.length:Boolean(v))&&['home','collection'].includes(document.documentElement.dataset.radioView);}
@@ -4072,7 +4074,7 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
       const home=radioIsHome();document.documentElement.dataset.radioHome=home?'1':'0';
       if(!home||!window.SterlingRadioHome)return;
       const cat=appConfig.activeCategory||'all',key=cat+'|'+MASTER_POOL.length+'|'+(window.SterlingRadioPresets?.version||0);if(radioHome&&key===radioHomeKey)return;radioHomeKey=key;radioHomeAt=performance.now();
-      if(!radioHome){const holder=document.createElement('div');holder.id='radio-rows-holder';radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,fallback:s=>getStationIdentityThumbnail({...s,artwork:null}),onPlay:id=>playStationById(id)});}
+      if(!radioHome){const holder=document.createElement('div');holder.id='radio-rows-holder';radioHome=window.SterlingRadioHome.mount({container:holder,artwork:getStationIdentityThumbnail,fallback:s=>getStationIdentityThumbnail({...s,artwork:null}),onPlay:(id,stations)=>{radioRowQueue=stations?.length?stations:null;playStationById(id);}});}
       // Home: rows after Recently played. Sections: rows under the section's chips and filter icon.
       const holder=document.getElementById('radio-rows-holder')||radioHome.root.parentElement;
       const tools=document.querySelector('#sp-grid-section .radio-directory-tools'),recents=document.getElementById('sp-recents-section');
@@ -5578,7 +5580,7 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     }
     function renderSheetMore(){
       if(!activeStream)return;
-      const queue=catalogItems.length?catalogItems:MASTER_POOL,at=queue.findIndex(ch=>ch.id===activeStream.id);
+      const queue=radioQueue(),at=queue.findIndex(ch=>ch.id===activeStream.id);
       const next=at<0?queue.slice(0,5):[...queue.slice(at+1),...queue.slice(0,at)].slice(0,5);
       const up=document.getElementById('sheet-up-next');if(up)up.innerHTML=next.map(ch=>rnpRow(ch,'data-rnp-play')).join('');
       if(rnpFor===activeStream.id)return;rnpFor=activeStream.id;rnpPool=radioMoreLike(activeStream);rnpShown=0;
@@ -5597,10 +5599,10 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     })();
     function stepRadioQueue(direction) {
       const episodes=activeStream?.kind==='podcast_episode'&&episodeList.some(ch=>ch.id===activeStream.id);
-      const queue=episodes?episodeList:catalogItems;if(!queue.length)return;
+      const queue=episodes?episodeList:radioQueue();if(!queue.length)return;
       const current=queue.findIndex(ch=>ch.id===activeStream?.id);
       const next=current<0?(direction>0?0:queue.length-1):(current+direction+queue.length)%queue.length;
-      if(episodes)startPlayback(queue[next]);else selectChannel(next);
+      if(episodes||queue!==catalogItems)startPlayback(queue[next]);else selectChannel(next);
     }
     function playNextChannel() {stepRadioQueue(1);}
     function playPrevChannel() {stepRadioQueue(-1);}
