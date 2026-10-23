@@ -8,7 +8,7 @@
 export function UnknownState({ reason }: { reason?: string | null }) {
   return (
     <span
-      style={{ color: 'var(--k-warn, #f59e0b)', fontSize: 11, fontWeight: 600 }}
+      style={{ color: 'var(--k-warn-ink, #f59e0b)', fontSize: 11, fontWeight: 600 }}
       aria-label={reason ? `unknown: ${reason}` : 'unknown'}
     >
       UNKNOWN{reason ? ` — ${reason}` : ''}

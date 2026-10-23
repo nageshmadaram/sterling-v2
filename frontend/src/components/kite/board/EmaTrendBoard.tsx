@@ -268,6 +268,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         onToggle={id => setOpenId(previous => previous === id ? null : id)}
         onOpenDetail={onOpenDetail}
         renderTrade={signal => signal.emaTrend?.signalId ? <KiteActionButtons className="sb-row-trade"
+          buyLabel="Paper"
           buyAriaLabel={`Practice buy ${signal.instrument.symbol}`}
           buyDisabled={historical || signal.status !== 'armed' || !signal.executionEligible}
           disabledHint={historical ? 'Past signals are view only.' : 'Not ready to enter.'}

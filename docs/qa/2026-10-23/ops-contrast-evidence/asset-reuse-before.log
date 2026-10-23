@@ -1,0 +1,72 @@
+F.                                                                       [100%]
+=================================== FAILURES ===================================
+__ test_committed_publish_is_atomic_and_failed_build_keeps_last_success[True] __
+
+tmp_path = PosixPath('/dev/shm/sterling-ops-contrast-uhq69o7v/probe/pytest-of-nageshmadaram/pytest-0/test_committed_publish_is_atom0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x75811ef22960>
+allow_links = True
+
+    @pytest.mark.parametrize('allow_links',[True,False])
+    def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_path,monkeypatch,allow_links):
+     from types import SimpleNamespace
+     state=tmp_path/'release-state'
+     state.mkdir()
+     monkeypatch.setattr(stack,'STATE',state)
+     publisher=stack.CommittedFrontend()
+     if not allow_links:
+      import errno
+      def unsupported_link(*args,**kwargs):raise OSError(errno.EOPNOTSUPP,'hard links unavailable')
+      monkeypatch.setattr(stack.os,'link',unsupported_link)
+     current=['a'*40]
+     monkeypatch.setattr(publisher,'resolve_commit',lambda:current[0])
+     def committed_extract(sha):
+      publisher.frontend.mkdir(parents=True,exist_ok=True)
+      (publisher.frontend/'package-lock.json').write_text('{"lockfileVersion":3}')
+      # Deliberately leave stale contents: promotion must clear them before build.
+      (publisher.frontend/'dist').mkdir(exist_ok=True)
+      (publisher.frontend/'dist/leftover.js').write_text('STALE')
+     monkeypatch.setattr(publisher,'_extract',committed_extract)
+     monkeypatch.setattr(publisher,'_dependencies',lambda:None)
+     fail=[False]
+     def simulated_build(command,**kwargs):
+      assert command==['npm','run','build']
+      assert kwargs['env']['STERLING_BUILD_SHA']==current[0]
+      assert not (publisher.frontend/'dist/leftover.js').exists()
+      if fail[0]:
+       raise subprocess.CalledProcessError(1,command)
+      (publisher.frontend/'dist').mkdir(exist_ok=True)
+      (publisher.frontend/'dist/index.html').write_text(f'BUILD {current[0]}')
+      (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
+      (publisher.frontend/'dist/assets'/f'{current[0]}.js').write_text(f'ASSET {current[0]}')
+      return SimpleNamespace(returncode=0)
+     monkeypatch.setattr(stack.subprocess,'run',simulated_build)
+     sha,changed=publisher.publish()
+     assert changed and sha=='a'*40
+     assert publisher.current()==sha
+     assert (publisher.pointer/'index.html').read_text()==f'BUILD {sha}'
+     current[0]='b'*40
+     fail[0]=True
+     with pytest.raises(subprocess.CalledProcessError):
+      publisher.publish()
+     assert publisher.current()=='a'*40
+     assert (publisher.pointer/'index.html').read_text()=='BUILD '+('a'*40)
+     fail[0]=False
+     sha,changed=publisher.publish()
+     assert changed and sha=='b'*40
+     assert publisher.current()=='b'*40
+     carried=publisher.pointer/'assets'/f"{'a'*40}.js"
+     original=publisher.releases/('a'*40)/'assets'/f"{'a'*40}.js"
+     assert carried.read_text()==original.read_text()=='ASSET '+('a'*40)
+>    assert (carried.stat().st_ino==original.stat().st_ino) is allow_links
+E    AssertionError: assert (25383 == 25368) is True
+E     +  where 25383 = os.stat_result(st_mode=33204, st_ino=25383, st_dev=29, st_nlink=1, st_uid=1000, st_gid=1000, st_size=46, st_atime=1792744479, st_mtime=1792744479, st_ctime=1792744479).st_ino
+E     +    where os.stat_result(st_mode=33204, st_ino=25383, st_dev=29, st_nlink=1, st_uid=1000, st_gid=1000, st_size=46, st_atime=1792744479, st_mtime=1792744479, st_ctime=1792744479) = stat()
+E     +      where stat = PosixPath('/dev/shm/sterling-ops-contrast-uhq69o7v/probe/pytest-of-nageshmadaram/pytest-0/test_committed_publish_is_atom0/release-state/published/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js').stat
+E     +  and   25368 = os.stat_result(st_mode=33204, st_ino=25368, st_dev=29, st_nlink=1, st_uid=1000, st_gid=1000, st_size=46, st_atime=1792744479, st_mtime=1792744479, st_ctime=1792744479).st_ino
+E     +    where os.stat_result(st_mode=33204, st_ino=25368, st_dev=29, st_nlink=1, st_uid=1000, st_gid=1000, st_size=46, st_atime=1792744479, st_mtime=1792744479, st_ctime=1792744479) = stat()
+E     +      where stat = PosixPath('/dev/shm/sterling-ops-contrast-uhq69o7v/probe/pytest-of-nageshmadaram/pytest-0/test_committed_publish_is_atom0/release-state/releases/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.js').stat
+
+tests/test_public_access_stack.py:802: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_public_access_stack.py::test_committed_publish_is_atomic_and_failed_build_keeps_last_success[True]
+1 failed, 1 passed, 79 deselected in 0.98s

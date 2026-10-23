@@ -20,7 +20,7 @@ export function ExternalPositionsTable({ positions }: { positions: ExternalPosit
     <section
       aria-label="Positions not managed by Sterling"
       style={{
-        border: '2px solid var(--k-err, #ef4444)',
+        border: '2px solid var(--k-red-crimson, #ef4444)',
         borderRadius: 4,
         background: 'rgba(239,68,68,0.06)',
         padding: 10,
@@ -32,18 +32,18 @@ export function ExternalPositionsTable({ positions }: { positions: ExternalPosit
           margin: '0 0 6px',
           fontSize: 11,
           letterSpacing: 0.6,
-          color: 'var(--k-err, #ef4444)',
+          color: 'var(--k-red-crimson, #ef4444)',
         }}
       >
         NOT MANAGED BY STERLING — {positions.length} POSITION
         {positions.length === 1 ? '' : 'S'}
       </h3>
-      <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--k-muted, #8b93a7)' }}>
+      <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--k-ink-4, #8b93a7)' }}>
         Sterling does not manage these. They have no order, fill or stop here. Act at the broker.
       </p>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
         <thead>
-          <tr style={{ color: 'var(--k-muted, #8b93a7)', textAlign: 'left' }}>
+          <tr style={{ color: 'var(--k-ink-4, #8b93a7)', textAlign: 'left' }}>
             <th scope="col" style={{ padding: '2px 4px' }}>Instrument</th>
             <th scope="col" style={{ padding: '2px 4px' }}>Qty</th>
             <th scope="col" style={{ padding: '2px 4px' }}>Product</th>
@@ -62,7 +62,7 @@ export function ExternalPositionsTable({ positions }: { positions: ExternalPosit
               <td style={{ ...mono, padding: '2px 4px' }}>{price(position.broker_avg_price)}</td>
               <td style={{ ...mono, padding: '2px 4px' }}>{price(position.last_price)}</td>
               <td style={{ ...mono, padding: '2px 4px' }}>{position.account}</td>
-              <td style={{ padding: '2px 4px', color: 'var(--k-muted, #8b93a7)' }}>
+              <td style={{ padding: '2px 4px', color: 'var(--k-ink-4, #8b93a7)' }}>
                 {position.discovery_reason}
               </td>
             </tr>

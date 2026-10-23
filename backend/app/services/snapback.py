@@ -811,10 +811,16 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
             index = next((i for i in universe if canonical(i.name) == MARKET_SYMBOL), None)
             if index is None:
                 raise UnreadableCandles("NIFTY daily tape is required for the market filter")
-            market_bars = to_bars(_drop_forming(await _candles(
-                client, st, index.token, index.tradingsymbol)))
-            market_gate = gate_for({MARKET_SYMBOL: market_bars},
-                                   market_filter=cfg.market_filter, ema_period=cfg.market_ema)
+            from app.core.async_work import run_blocking
+            market_raw = await _candles(client, st, index.token, index.tradingsymbol)
+
+            def _market_gate():
+                market_bars = to_bars(_drop_forming(market_raw))
+                return gate_for({MARKET_SYMBOL: market_bars},
+                                market_filter=cfg.market_filter, ema_period=cfg.market_ema)
+
+            # Indicator math over the NIFTY tape: off the event loop.
+            market_gate = await run_blocking(_market_gate)
             if not market_gate:
                 raise UnreadableCandles("NIFTY daily tape cannot establish the market filter")
         # The latest session whose daily bar is closed, used to separate a live signal
@@ -840,8 +846,9 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
             async with sem:
                 try:
                     if cfg.trading_mode == "swing":
-                        raw = _drop_forming(await _candles(client, st, item.token,
-                                                           item.tradingsymbol))
+                        from app.core.async_work import run_blocking
+                        raw = await run_blocking(_drop_forming, await _candles(
+                            client, st, item.token, item.tradingsymbol))
                     else:
                         raw = await _intraday_candles(client, st, item.token,
                                                       item.tradingsymbol, cfg)

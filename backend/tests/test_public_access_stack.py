@@ -748,12 +748,17 @@ def test_committed_frontend_extraction_ignores_modified_and_untracked_source(tmp
  assert (source/'untracked-secret.txt').is_file()
 
 
-def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_path,monkeypatch):
+@pytest.mark.parametrize('allow_links',[True,False])
+def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_path,monkeypatch,allow_links):
  from types import SimpleNamespace
  state=tmp_path/'release-state'
  state.mkdir()
  monkeypatch.setattr(stack,'STATE',state)
  publisher=stack.CommittedFrontend()
+ if not allow_links:
+  import errno
+  def unsupported_link(*args,**kwargs):raise OSError(errno.EOPNOTSUPP,'hard links unavailable')
+  monkeypatch.setattr(stack.os,'link',unsupported_link)
  current=['a'*40]
  monkeypatch.setattr(publisher,'resolve_commit',lambda:current[0])
  def committed_extract(sha):
@@ -774,7 +779,7 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
   (publisher.frontend/'dist').mkdir(exist_ok=True)
   (publisher.frontend/'dist/index.html').write_text(f'BUILD {current[0]}')
   (publisher.frontend/'dist/assets').mkdir(exist_ok=True)
-  (publisher.frontend/'dist/assets/old.js').write_text('OLD HASHED ASSET')
+  (publisher.frontend/'dist/assets'/f'{current[0]}.js').write_text(f'ASSET {current[0]}')
   return SimpleNamespace(returncode=0)
  monkeypatch.setattr(stack.subprocess,'run',simulated_build)
  sha,changed=publisher.publish()
@@ -791,7 +796,11 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
  sha,changed=publisher.publish()
  assert changed and sha=='b'*40
  assert publisher.current()=='b'*40
- assert (publisher.pointer/'assets/old.js').read_text()=='OLD HASHED ASSET'
+ carried=publisher.pointer/'assets'/f"{'a'*40}.js"
+ original=publisher.releases/('a'*40)/'assets'/f"{'a'*40}.js"
+ assert carried.read_text()==original.read_text()=='ASSET '+('a'*40)
+ assert (carried.stat().st_ino==original.stat().st_ino) is allow_links
+ assert (publisher.pointer/'assets'/f"{'b'*40}.js").read_text()=='ASSET '+('b'*40)
  assert publisher.publish()==('b'*40,False)
 
 

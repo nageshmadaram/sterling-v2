@@ -1,0 +1,84 @@
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx (12 tests | 7 failed) 358ms
+   ❯ Operations small-text contrast in light theme (6)
+     × keeps safety values, headings, labels and tri-state badges readable 180ms
+     × keeps the LIVE banner readable 19ms
+     × keeps the LIVE_HALTED banner readable 11ms
+     × keeps the RECOVERY_REQUIRED banner readable 11ms
+     × keeps the UNKNOWN banner readable 11ms
+     × keeps enabled operator actions readable without invoking them 36ms
+   ❯ Operations small-text contrast in dark theme (6)
+     × keeps enabled operator actions readable without invoking them 24ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in light theme > keeps safety values, headings, labels and tri-state badges readable
+AssertionError: RUNNING: expected 1.890165610602699 to be greater than or equal to 4.5
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx:57:85
+     55|     const nodes = [screen.getByText('RUNNING'), screen.getByRole('head…
+     56|       ...(['PASS', 'FAIL', 'UNKNOWN'] as const).map(status => screen.g…
+     57|     for (const node of nodes) expect(contrast(node, theme), node.textC…
+       |                                                                                     ^
+     58|   });
+     59|   it.each(['LIVE', 'LIVE_HALTED', 'RECOVERY_REQUIRED', 'UNKNOWN'] as c…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/7]⎯
+
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in light theme > keeps the LIVE banner readable
+AssertionError: expected 2.3089676801079255 to be greater than or equal to 4.5
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx:61:83
+     59|   it.each(['LIVE', 'LIVE_HALTED', 'RECOVERY_REQUIRED', 'UNKNOWN'] as c…
+     60|     render(<div style={{ color: 'var(--k-text)', background: 'var(--k-…
+     61|     expect(contrast(screen.getByRole('status', { name: 'trading mode' …
+       |                                                                                   ^
+     62|   });
+     63|   it('keeps enabled operator actions readable without invoking them', …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/7]⎯
+
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in light theme > keeps the LIVE_HALTED banner readable
+AssertionError: expected 2.9523254855960968 to be greater than or equal to 4.5
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx:61:83
+     59|   it.each(['LIVE', 'LIVE_HALTED', 'RECOVERY_REQUIRED', 'UNKNOWN'] as c…
+     60|     render(<div style={{ color: 'var(--k-text)', background: 'var(--k-…
+     61|     expect(contrast(screen.getByRole('status', { name: 'trading mode' …
+       |                                                                                   ^
+     62|   });
+     63|   it('keeps enabled operator actions readable without invoking them', …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/7]⎯
+
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in light theme > keeps the RECOVERY_REQUIRED banner readable
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in light theme > keeps the UNKNOWN banner readable
+AssertionError: expected 3.217823459969488 to be greater than or equal to 4.5
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx:61:83
+     59|   it.each(['LIVE', 'LIVE_HALTED', 'RECOVERY_REQUIRED', 'UNKNOWN'] as c…
+     60|     render(<div style={{ color: 'var(--k-text)', background: 'var(--k-…
+     61|     expect(contrast(screen.getByRole('status', { name: 'trading mode' …
+       |                                                                                   ^
+     62|   });
+     63|   it('keeps enabled operator actions readable without invoking them', …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/7]⎯
+
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in light theme > keeps enabled operator actions readable without invoking them
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in dark theme > keeps enabled operator actions readable without invoking them
+AssertionError: STOP ALL NEW TRADES: expected 4.377244303723885 to be greater than or equal to 4.5
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx:68:132
+     66|       <OperatorActions operator={{ resume_available: false } as never}…
+     67|     </div>);
+     68|     for (const name of ['STOP ALL NEW TRADES', 'Refresh now']) expect(…
+       |                                                                                                                                    ^
+     69|     expect(stop).not.toHaveBeenCalled(); expect(resume).not.toHaveBeen…
+     70|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/7]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  7 failed | 5 passed (12)
+   Start at  13:12:01
+   Duration  2.28s (environment 55%, tests 19%, transform 10%, import 8%, setup 8%, worker 1%)
+

@@ -51,8 +51,8 @@ export function BrokerExposureCard({ broker }: { broker: BrokerStatus }) {
             style={{
               marginTop: 8,
               padding: '4px 8px',
-              border: '1px solid var(--k-warn, #f59e0b)',
-              color: 'var(--k-warn, #f59e0b)',
+              border: '1px solid var(--k-warn-ink, #f59e0b)',
+              color: 'var(--k-warn-ink, #f59e0b)',
               fontSize: 11,
             }}
           >

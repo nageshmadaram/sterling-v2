@@ -48,8 +48,8 @@ export function DeploymentCard({
           style={{
             marginTop: 6,
             padding: '4px 8px',
-            border: '1px solid var(--k-err, #ef4444)',
-            color: 'var(--k-err, #ef4444)',
+            border: '1px solid var(--k-red-crimson, #ef4444)',
+            color: 'var(--k-red-crimson, #ef4444)',
             fontSize: 11,
             fontWeight: 600,
           }}

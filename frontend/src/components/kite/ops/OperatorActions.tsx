@@ -36,9 +36,9 @@ export function OperatorActions({
           disabled={pending}
           style={{
             padding: '6px 12px',
-            border: '1px solid var(--k-err, #ef4444)',
-            background: 'rgba(239,68,68,0.12)',
-            color: 'var(--k-err, #ef4444)',
+            border: '1px solid var(--k-red-crimson, #ef4444)',
+            background: 'var(--k-bg, #0f1115)',
+            color: 'var(--k-red-crimson, #ef4444)',
             fontWeight: 700,
             fontSize: 12,
             cursor: pending ? 'wait' : 'pointer',
@@ -57,7 +57,7 @@ export function OperatorActions({
               padding: '6px 12px',
               border: '1px solid var(--k-border, #23262f)',
               background: 'transparent',
-              color: 'var(--k-fg, #e6e8ee)',
+              color: 'var(--k-text, #e6e8ee)',
               fontSize: 12,
               cursor: operator.resume_available ? 'pointer' : 'not-allowed',
             }}
@@ -94,7 +94,7 @@ export function OperatorActions({
             padding: '6px 12px',
             border: '1px solid var(--k-border, #23262f)',
             background: 'transparent',
-            color: 'var(--k-muted, #8b93a7)',
+            color: 'var(--k-ink-4, #8b93a7)',
             fontSize: 12,
           }}
         >
@@ -106,7 +106,7 @@ export function OperatorActions({
         <div
           role="alert"
           aria-live="assertive"
-          style={{ marginTop: 8, color: 'var(--k-err, #ef4444)', fontSize: 11 }}
+          style={{ marginTop: 8, color: 'var(--k-red-crimson, #ef4444)', fontSize: 11 }}
         >
           {error}
         </div>

@@ -9,9 +9,9 @@
 import type { TriState } from '../../../types/liveOperations';
 
 const TOKENS: Record<TriState, { colour: string; mark: string }> = {
-  PASS: { colour: 'var(--k-ok, #10b981)', mark: '✓' },
-  FAIL: { colour: 'var(--k-err, #ef4444)', mark: '✗' },
-  UNKNOWN: { colour: 'var(--k-warn, #f59e0b)', mark: '?' },
+  PASS: { colour: 'var(--k-green-deep, #10b981)', mark: '✓' },
+  FAIL: { colour: 'var(--k-red-crimson, #ef4444)', mark: '✗' },
+  UNKNOWN: { colour: 'var(--k-warn-ink, #f59e0b)', mark: '?' },
 };
 
 export function StatusBadge({

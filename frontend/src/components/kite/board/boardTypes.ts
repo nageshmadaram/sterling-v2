@@ -732,7 +732,7 @@ export function underlyingQuoteKey(underlying: string): string {
  * than no stamp.
  */
 export interface ParentStamp {
-  /** e.g. "21 Jul 2026 09:15 AM" */
+  /** e.g. "21 Jul 2026 09:15" */
   absolute: string;
   /** e.g. "17 min ago". Null when the time is unknown or in the future. */
   relative: string | null;
@@ -747,10 +747,8 @@ export function parentStamp(atMs: number | null, nowMs: number): ParentStamp | n
       hour: '2-digit', minute: '2-digit', hour12: false,
       timeZone: 'Asia/Kolkata',
     })
-    // en-IN yields "21 Jul 2026, 09:15 am" — drop the comma and raise the marker,
-    // so it reads as one stamp rather than a date and a time bolted together.
-    .replace(',', '')
-    .replace(/\b(am|pm)\b/i, (m) => m.toUpperCase());
+    // Keep group headers consistent with the 24-hour row clock.
+    .replace(',', '');
 
   const deltaMs = nowMs - atMs;
   // A signal stamped in the future is a clock problem, not an age. Saying

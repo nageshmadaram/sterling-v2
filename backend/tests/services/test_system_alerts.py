@@ -21,6 +21,8 @@ def alerts_db(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_DB_PATH", path)
     monkeypatch.setattr(db, "_available", True)
     db.init()
+    # Failed-only tmp retention may reuse a path for the next parameter case.
+    outbox._initialised_paths.discard(path)
     outbox.clear_for_tests()
     sa.reset_for_tests()
     monkeypatch.setattr(sa, "_tenants", lambda: ["default"])

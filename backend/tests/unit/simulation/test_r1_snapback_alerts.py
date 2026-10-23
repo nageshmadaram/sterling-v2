@@ -19,7 +19,8 @@ _ = live_env   # registers the shared ``env`` fixture
 
 
 @pytest.fixture(autouse=True)
-def _clean_tenants():
+def _clean_tenants(tmp_path, monkeypatch):
+    # Keep the patched temporary database alive until tenant teardown is done.
     wipe_tenants()           # the virtual-position test leaves journal rows for the sim tenant in the shared db
     yield
     wipe_tenants()

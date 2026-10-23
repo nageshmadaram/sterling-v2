@@ -16,9 +16,9 @@ const BANNERS: Record<ProductionMode, { text: string; tone: 'ok' | 'warn' | 'err
 };
 
 const TONES = {
-  ok: { fg: 'var(--k-ok, #10b981)', bg: 'rgba(16,185,129,0.10)' },
-  warn: { fg: 'var(--k-warn, #f59e0b)', bg: 'rgba(245,158,11,0.10)' },
-  err: { fg: 'var(--k-err, #ef4444)', bg: 'rgba(239,68,68,0.12)' },
+  ok: { fg: 'var(--k-green-deep, #10b981)', bg: 'rgba(16,185,129,0.10)' },
+  warn: { fg: 'var(--k-warn-ink, #f59e0b)', bg: 'rgba(245,158,11,0.10)' },
+  err: { fg: 'var(--k-red-crimson, #ef4444)', bg: 'rgba(239,68,68,0.04)' },
 };
 
 export function ModeBanner({

@@ -1,0 +1,9 @@
+
+ RUN  v5.0.3 /home/nageshmadaram/.codex/worktrees/ops-theme-contrast/Sterling/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  54 passed (54)
+   Start at  13:15:12
+   Duration  3.75s (environment 41%, tests 26%, transform 18%, import 10%, setup 4%, worker 1%)
+
