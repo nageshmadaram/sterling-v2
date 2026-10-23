@@ -343,10 +343,16 @@ def load_signal_cache(uid:str):
     # long ago. They must not be hydrated back as live signals.
     cutoff=int(time.time()*1000)-SIGNAL_RETENTION_MS
     from app.core.mode_execution import timeframe_minutes
-    cfg = get_config(uid)
-    tf = timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes)
+    if "|view:" in uid:
+        # A view-only preview slot holds another mode's rows at that mode's default timeframe.
+        mode = uid.split("|view:", 1)[1]
+        tf = timeframe_minutes(mode, None)
+    else:
+        cfg = get_config(uid)
+        mode = cfg.horizon_mode
+        tf = timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes)
     return [r for r in rows if (_row_ts(r)<=0 or _row_ts(r)>=cutoff)
-            and r.get('horizon_mode', 'swing') == cfg.horizon_mode
+            and r.get('horizon_mode', 'swing') == mode
             and r.get('signal_timeframe_minutes', 60) == tf],gen
 
 def reset(uid:str="")->None:

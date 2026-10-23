@@ -2525,9 +2525,17 @@ def preview_rows(uid: str, active_mode: str) -> list:
     for mode in PREVIEW_MODES:
         if mode == active_mode:
             continue
-        us = scanner._users.get(preview_key(uid, mode))
+        key = preview_key(uid, mode)
+        # After a restart the slot is empty until that mode's turn comes round
+        # (up to four scan cycles); read its saved rows instead of showing nothing.
+        us = scanner._users.get(key)
         if us is None:
-            continue
+            from app.core.mode_execution import timeframe_minutes
+            us = scanner.snapshot(key)
+            # Stamp the slot with its own mode, or the next preview scan sees a
+            # mismatch and wipes the saved rows before it has new ones.
+            us.horizon_mode = mode
+            us.timeframe_minutes = timeframe_minutes(mode, None)
         out.extend(r.model_copy(update={"view_only": True}) for r in us.rows)
     return out
 
