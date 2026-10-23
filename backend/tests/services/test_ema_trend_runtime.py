@@ -55,15 +55,21 @@ def test_invalid_store_is_disabled_but_not_silently_repaired():
     assert "INVALID_PERSISTED_CONFIG" in result["blockers"]
 
 
-def test_tape_does_not_renumber_or_silently_accept_restatement():
+def test_tape_does_not_renumber_and_records_every_restatement():
     def bar(i):
         return Bar(open_ms=1000+i*60000,close_ms=61000+i*60000,available_ms=61000+i*60000,
             open=100,high=101,low=99,close=100,volume=100)
     old=scanner.anchored_tape("alice","NSE:INFY:ultra_scalping:signal",[bar(1),bar(2)])
     new=scanner.anchored_tape("alice","NSE:INFY:ultra_scalping:signal",[bar(0),bar(2),bar(3)])
     assert new[0]==old[0] and [b.open_ms for b in new]==[bar(i).open_ms for i in (1,2,3)]
-    with pytest.raises(ValueError,match="RESTATED"):
-        scanner.anchored_tape("alice","NSE:INFY:ultra_scalping:signal",[bar(2).model_copy(update={"close":100.5})])
+    # A broker correction is accepted (refusing left the symbol unscannable for good), but
+    # never silently: the before/after bars are kept on the tape.
+    fixed=bar(2).model_copy(update={"close":100.5})
+    tape=scanner.anchored_tape("alice","NSE:INFY:ultra_scalping:signal",[fixed])
+    assert [b for b in tape if b.open_ms==fixed.open_ms][0].close==100.5
+    doc=scanner.repo.get("alice","tape","NSE:INFY:ultra_scalping:signal")
+    assert doc["restatements"][-1]["open_ms"]==fixed.open_ms
+    assert doc["restatements"][-1]["before"]["close"]==100 and doc["restatements"][-1]["after"]["close"]==100.5
 
 
 def test_store_rollback_and_tenant_document_access():

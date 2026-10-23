@@ -507,6 +507,7 @@ export function OrderWindow({ options, onClose }: Props) {
             {options.fromSignal && side === 'BUY' && !planBlock && planStop != null && (
               <div style={{ padding: '8px 16px', background: tint(k.green, 10), color: k.text, fontSize: 12 }}>
                 Stop <b>{planStop.toFixed(2)}</b> is placed at Zerodha automatically after the buy fills (from the signal plan).
+                {entryPx > planStop && qty > 0 && <> Max loss if it hits: <b>{inr((entryPx - planStop) * qty)}</b> ({(((entryPx - planStop) / entryPx) * 100).toFixed(0)}% of the premium).</>}
               </div>
             )}
             {error && (() => { const o = explainOrderOutcome(error); return (

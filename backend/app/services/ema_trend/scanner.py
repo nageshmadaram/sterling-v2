@@ -26,6 +26,9 @@ _tasks: dict[str, asyncio.Task] = {}
 # Reuse Sterling's index master. These are spot signal sources, never paper
 # equity/future/option contracts and never admission into execution.build_plan.
 from app.services.kite_engine.universe import load_cfg as _index_universe_cfg
+import logging
+
+log = logging.getLogger(__name__)
 _INDEX_SPOTS = {
     f'{"BSE" if item["option_exchange"]=="BFO" else "NSE"}:{item["spot_symbol"]}': (
         "BSE" if item["option_exchange"]=="BFO" else "NSE",
@@ -166,12 +169,21 @@ def anchored_tape(uid: str, key: str, bars: list[Bar], instrument_meta: dict|Non
             raise ValueError("INSTRUMENT_METADATA_CHANGED_RECONCILIATION_REQUIRED")
         anchor = old["anchor"]
         prior = {int(b["open_ms"]): Bar.model_validate(b) for b in old["bars"]}
+        restatements = list(old.get("restatements") or [])
         for stamp, bar in current.items():
             if stamp < anchor:
                 continue
             if stamp in prior and prior[stamp] != bar:
-                raise ValueError("HISTORICAL_BAR_RESTATED_RECONCILIATION_REQUIRED")
+                # Kite corrects past candles (volume, late prints). Refusing left the
+                # symbol unscannable for good (38 symbol/profile pairs on 22 Oct) with no
+                # way to reconcile from the app. The broker's corrected bar is accepted,
+                # and the change is recorded on the tape, never applied silently.
+                restatements.append({"open_ms": stamp, "before": prior[stamp].model_dump(mode="json"),
+                                     "after": bar.model_dump(mode="json")})
             prior[stamp] = bar
+        if len(restatements) > len(old.get("restatements") or []):
+            log.info("EMA tape %s: accepted %d restated bar(s) from the broker (recorded on the tape)",
+                     key, len(restatements) - len(old.get("restatements") or []))
         current = prior
     if not current:
         return []
@@ -180,6 +192,7 @@ def anchored_tape(uid: str, key: str, bars: list[Bar], instrument_meta: dict|Non
     result = sorted(current.values(), key=lambda b: b.open_ms)
     repo.put(uid, "tape", key, {"anchor": result[0].open_ms,
              "instrument":instrument_meta or (old or {}).get("instrument"),
+             "restatements": (restatements if old else [])[-200:],
              "bars": [b.model_dump(mode="json") for b in result]}, old["revision"] if old else 0)
     return result
 
