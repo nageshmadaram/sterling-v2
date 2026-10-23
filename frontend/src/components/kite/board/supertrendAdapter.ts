@@ -568,6 +568,7 @@ export function supertrendToBoard(
         flags: [...(board.flags ?? []), { label: 'REPLACED', tone: 'dim' as const, hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' }] };
     });
     // Each row carries its own mode: other modes' rows are on the board too (view-only).
-    return withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(row.horizon_mode ?? opts.mode));
+    const board = withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(row.horizon_mode ?? opts.mode));
+    return row.view_only ? { ...board, viewOnly: true, children: board.children?.map((c) => ({ ...c, viewOnly: true })) } : board;
   });
 }

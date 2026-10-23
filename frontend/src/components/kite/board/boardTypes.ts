@@ -245,6 +245,8 @@ export interface BoardSignal {
   exitProgress?: string | null;
   /** Replaces the time cell, e.g. a daily-candle signal shown as its date and "day close". */
   timeLabel?: string;
+  /** A signal from a mode the strategy is not set to trade: shown for the Modes filter, never buyable. */
+  viewOnly?: boolean;
   /**
    * What a level column says when the engine has a rule rather than a premium,
    * e.g. a swing stop that is an underlying daily close, or a trail that only

@@ -476,7 +476,7 @@ function cellContent(
             {!detailsOnly && <Pill tone={dirTone} title={`${signal.direction} ${contractLabel(signal) ?? 'position'}`}>
               {[contractLabel(signal), signal.direction.toUpperCase()].filter(Boolean).join(' · ')}
             </Pill>}
-            {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
+            {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title={signal.viewOnly ? "Signal from a mode this strategy is not set to trade. Switch the strategy to this mode in Settings to trade it." : "Trading mode"}>{MODE_LABEL[signal.mode]}{signal.viewOnly ? " · view only" : ""}</Pill>}
             
             {!detailsOnly && signal.origin && (
               <Tip text={`${signal.origin.label} — ${signal.origin.hint}`}>
@@ -821,7 +821,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
           )}
         </span>
 
-        {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title="Trading mode">{MODE_LABEL[signal.mode]}</Pill>}
+        {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title={signal.viewOnly ? "Signal from a mode this strategy is not set to trade. Switch the strategy to this mode in Settings to trade it." : "Trading mode"}>{MODE_LABEL[signal.mode]}{signal.viewOnly ? " · view only" : ""}</Pill>}
         {/* Right-aligned and tabular so the decimal points line up down the
             column, the same rule the leg cells follow. */}
         <span style={{
