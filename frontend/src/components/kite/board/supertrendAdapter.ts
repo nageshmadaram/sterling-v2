@@ -451,6 +451,15 @@ function supertrendSignalToBoard(
  */
 function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterOptions): BoardOrigin[] {
   const flags: BoardOrigin[] = [];
+  // A swing plan holds 3-10 sessions (overnight 1-3); a contract that expires sooner is
+  // squared off the day before expiry, before the plan can play out.
+  const holdDays = row.horizon_mode === 'swing' ? 5 : row.horizon_mode === 'overnight' ? 2 : 0;
+  if (holdDays && leg.expiry) {
+    const days = Math.ceil((Date.parse(`${leg.expiry}T15:30:00+05:30`) - (opts.nowMs ?? Date.now())) / 86_400_000);
+    if (Number.isFinite(days) && days >= 0 && days <= holdDays) {
+      flags.push({ label: 'EXPIRES SOON', tone: 'amber', hint: `Expires in ${days} day${days === 1 ? '' : 's'}: shorter than this mode's planned hold, so it would be closed the day before expiry. Prefer the next expiry.` });
+    }
+  }
   const st = leg.entry_sl ?? leg.premium_sl, en = leg.premium_spot;
   if (st == null || !(st > 0)) flags.push({ label: 'NO STOP', tone: 'amber', hint: 'This leg has no stop, so it cannot be bought from the board.' });
   else if (en != null && st >= en) flags.push({ label: 'STOP ≥ ENTRY', tone: 'amber', hint: `The stop (${st}) is at or above the entry (${en}); buying would sell at once.` });

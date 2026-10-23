@@ -744,7 +744,7 @@ export function parentStamp(atMs: number | null, nowMs: number): ParentStamp | n
   const absolute = new Date(atMs)
     .toLocaleString('en-IN', {
       day: '2-digit', month: 'short', year: 'numeric',
-      hour: '2-digit', minute: '2-digit', hour12: true,
+      hour: '2-digit', minute: '2-digit', hour12: false,
       timeZone: 'Asia/Kolkata',
     })
     // en-IN yields "21 Jul 2026, 09:15 am" — drop the comma and raise the marker,

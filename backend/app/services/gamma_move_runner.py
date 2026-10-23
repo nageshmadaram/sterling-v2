@@ -2437,9 +2437,20 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
         # Position maintenance stays alive even while the signal engine is OFF.
         await _reference_time_sweeps(uid, now)
         await _subscribe_watched(uid, session)
+        if _last_failure.pop(uid, None) is not None:
+            log.info("gamma_unwind cycle recovered for %s", uid)
     except Exception as exc:
-        log.warning("gamma_unwind cycle failed for %s: %s", uid, exc)
+        # The cycle runs every few seconds; while logged out it failed the same way 4,000
+        # times a day and buried every other warning. Log a reason once, then every 10 min.
+        reason, now_s = str(exc), time.monotonic()
+        prev = _last_failure.get(uid)
+        if prev is None or prev[0] != reason or now_s - prev[1] >= 600:
+            log.warning("gamma_unwind cycle failed for %s: %s", uid, exc)
+            _last_failure[uid] = (reason, now_s)
         out[uid] = {"error": str(exc)}
+
+
+_last_failure: dict[str, tuple[str, float]] = {}
 
 
 async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:

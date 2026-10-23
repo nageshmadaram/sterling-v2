@@ -20,9 +20,9 @@ const IST_OFFSET = (5 * 60 + 30) * 60_000;
 const AT = Date.UTC(2026, 6, 21, 9, 15) - IST_OFFSET;
 
 describe('parentStamp', () => {
-  it('formats the moment as day, month, year and a 12-hour clock', () => {
+  it('formats the moment as day, month, year and a 24-hour clock, like the rows', () => {
     const s = parentStamp(AT, AT);
-    expect(s!.absolute).toBe('21 Jul 2026 09:15 AM');
+    expect(s!.absolute).toBe('21 Jul 2026 09:15');
   });
 
   it('reads as one stamp, not a date bolted to a time', () => {
