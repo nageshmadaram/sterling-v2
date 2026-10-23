@@ -709,7 +709,9 @@ async def intraday_history(sessions: int = 5,
     """
     uid = _intraday_uid(user)
     from app.services.intraday import recent_signals
-    rows = recent_signals(uid, sessions=max(1, min(int(sessions), 30)))
+    from app.core.async_work import run_blocking
+    # A full replay per request: off the event loop, or every order and exit waits on it.
+    rows = await run_blocking(recent_signals, uid, sessions=max(1, min(int(sessions), 30)))
     return {"sessions": sessions, "signals": rows, "count": len(rows)}
 
 
@@ -945,8 +947,10 @@ async def snapback_history(sessions: int = 30,
     pack.
     """
     from app.services.snapback import recent_signals
-    rows = recent_signals(_snapback_uid(user),
-                          sessions=max(1, min(int(sessions), 180)))
+    from app.core.async_work import run_blocking
+    # A full backtest replay per request (22 event-loop stalls on 22-23 Oct): run it off the loop.
+    rows = await run_blocking(recent_signals, _snapback_uid(user),
+                              sessions=max(1, min(int(sessions), 180)))
     return {"sessions": sessions, "signals": rows, "count": len(rows)}
 
 

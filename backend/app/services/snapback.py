@@ -809,7 +809,11 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
                     if not raw:
                         st.failures.append(f"{item.name}: no {cfg.trading_mode} candles")
                         return
-                    for sig in evaluate_symbol(raw, cfg, item.name, market_gate=market_gate):
+                    # Per-symbol indicator math over ~200 names: off the event loop.
+                    from app.core.async_work import run_blocking
+                    sigs = await run_blocking(
+                        lambda: list(evaluate_symbol(raw, cfg, item.name, market_gate=market_gate)))
+                    for sig in sigs:
                         if record_evidence:
                             # Explicit opt-in only. Production background/UI scans
                             # keep this false; the post-close prospective scanner is
