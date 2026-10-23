@@ -26,9 +26,9 @@ export function SafetyAdmissionCard({ safety }: { safety: SafetyStatus }) {
           style={{
             padding: '4px 8px',
             marginBottom: 8,
-            background: 'rgba(239,68,68,0.12)',
-            border: '1px solid var(--k-err, #ef4444)',
-            color: 'var(--k-err, #ef4444)',
+            background: 'var(--k-surface, #12141a)',
+            border: '1px solid var(--k-red-crimson, #ef4444)',
+            color: 'var(--k-red-crimson, #ef4444)',
             fontSize: 11,
             fontWeight: 700,
             letterSpacing: 0.5,
@@ -65,7 +65,7 @@ export function SafetyAdmissionCard({ safety }: { safety: SafetyStatus }) {
           style={{ margin: '8px 0 0', paddingLeft: 16, fontSize: 11, lineHeight: 1.5 }}
         >
           {safety.blockers.map((blocker) => (
-            <li key={blocker.code} style={{ color: 'var(--k-err, #ef4444)' }}>
+            <li key={blocker.code} style={{ color: 'var(--k-red-crimson, #ef4444)' }}>
               <strong>{blocker.code}</strong>
               {blocker.message ? ` — ${blocker.message}` : ''}
             </li>

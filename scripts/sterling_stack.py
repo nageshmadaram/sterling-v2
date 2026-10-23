@@ -666,7 +666,10 @@ class CommittedFrontend:
                 new_assets.mkdir(exist_ok=True)
                 for item in old_assets.iterdir():
                     if item.is_file() and not (new_assets/item.name).exists():
-                        shutil.copy2(item,new_assets/item.name)
+                        # Published assets are immutable. Share retained files
+                        # instead of allocating another copy on every release.
+                        try:os.link(item,new_assets/item.name)
+                        except OSError:shutil.copy2(item,new_assets/item.name)
             staged.rename(existing)
         tmp=STATE/'published.next'
         tmp.unlink(missing_ok=True)

@@ -1,0 +1,47 @@
+{
+  "checked_at": "2026-10-23T09:24:05.613888+00:00",
+  "source": "backend/logs/backend.log",
+  "backend_pid": 1113515,
+  "start_marker_found": true,
+  "lines_reviewed": 14814,
+  "observed_stalls": 7,
+  "max_seconds": 5.8,
+  "db_stack_count": 0,
+  "observations": [
+    {
+      "seconds": 5.1,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    },
+    {
+      "seconds": 5.1,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    },
+    {
+      "seconds": 5.1,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    },
+    {
+      "seconds": 5.5,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    },
+    {
+      "seconds": 5.6,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    },
+    {
+      "seconds": 5.8,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    },
+    {
+      "seconds": 5.7,
+      "db_in_stack": false,
+      "snapback_in_stack": true
+    }
+  ]
+}

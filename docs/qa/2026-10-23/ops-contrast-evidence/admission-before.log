@@ -1,0 +1,48 @@
+
+> sterling-frontend@0.1.0 pretest
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 1262ms.
+
+> sterling-frontend@0.1.0 test
+> vitest --run src/components/kite/__tests__/OperationsContrast.test.tsx --maxWorkers=2
+
+
+ RUN  v5.0.3 /home/nageshmadaram/.codex/worktrees/ops-theme-contrast/Sterling/frontend
+
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx (16 tests | 2 failed) 282ms
+   ❯ Operations small-text contrast in dark theme (8)
+     × keeps admission warning readable when permission is false 12ms
+     × keeps admission warning readable when permission is null 8ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in dark theme > keeps admission warning readable when permission is false
+ FAIL  src/components/kite/__tests__/OperationsContrast.test.tsx > Operations small-text contrast in dark theme > keeps admission warning readable when permission is null
+AssertionError: expected 4.053256877931427 to be greater than or equal to 4.5
+ ❯ src/components/kite/__tests__/OperationsContrast.test.tsx:70:56
+     68|         blockers: [{ code: 'OPERATOR_STOP', message: 'Operator stop en…
+     69|     </div>);
+     70|     expect(contrast(screen.getByRole('alert'), theme)).toBeGreaterThan…
+       |                                                        ^
+     71|     expect(contrast(screen.getByText('OPERATOR_STOP'), theme)).toBeGre…
+     72|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 14 passed (16)
+   Start at  14:45:39
+   Duration  1.64s (environment 54%, tests 20%, transform 14%, import 7%, setup 5%, worker 1%)
+

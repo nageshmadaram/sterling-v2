@@ -69,8 +69,8 @@ export function LiveOperationsPanel() {
           style={{
             padding: '6px 10px',
             marginBottom: 10,
-            border: '1px solid var(--k-err, #ef4444)',
-            color: 'var(--k-err, #ef4444)',
+            border: '1px solid var(--k-red-crimson, #ef4444)',
+            color: 'var(--k-red-crimson, #ef4444)',
             fontSize: 12,
           }}
         >
@@ -80,7 +80,7 @@ export function LiveOperationsPanel() {
       )}
 
       {!payload && !unreachable && (
-        <div style={{ fontSize: 12, color: 'var(--k-muted, #8b93a7)' }}>Loading…</div>
+        <div style={{ fontSize: 12, color: 'var(--k-ink-4, #8b93a7)' }}>Loading…</div>
       )}
 
       {payload && (
@@ -92,7 +92,7 @@ export function LiveOperationsPanel() {
               gap: 10,
               marginBottom: 10,
               fontSize: 11,
-              color: unreachable ? 'var(--k-muted, #8b93a7)' : 'inherit',
+              color: unreachable ? 'var(--k-ink-4, #8b93a7)' : 'inherit',
               opacity: unreachable ? 0.6 : 1,
             }}
           >

@@ -90,7 +90,8 @@ export function KiteActionButtons({ onBuy, onSell, onDepth, onChart, onDelete, o
       {onBuy && (
         <button className="kite-buy-action"
           aria-label={buyAriaLabel}
-          style={buyDisabled ? disabledStyle('var(--k-blue)') : { ...buySellStyle, background: 'var(--k-blue)' }}
+          style={{ ...(buyDisabled ? disabledStyle('var(--k-blue)') : { ...buySellStyle, background: 'var(--k-blue)' }),
+            ...(variant === 'short' && (buyLabel?.length ?? 0) > 3 ? { width: 'auto', minWidth: 44, padding: '0 6px' } : {}) }}
           title={buyDisabled ? (disabledHint || 'Not available on this row') : (buyLabel || 'Buy')}
           disabled={buyDisabled}
           onClick={buyDisabled ? undefined : onBuy}

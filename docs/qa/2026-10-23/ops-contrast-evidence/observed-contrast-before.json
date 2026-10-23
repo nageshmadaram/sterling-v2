@@ -1,0 +1,18 @@
+{
+  "observed_in": "authenticated deployed Operations Safety region, light theme",
+  "foreground_rgb": [
+    68,
+    71,
+    70
+  ],
+  "background_rgb": [
+    18,
+    20,
+    26
+  ],
+  "contrast_ratio": 1.95978496891003,
+  "minimum_small_text_contrast": 4.5,
+  "panel_variable": "--k-panel",
+  "panel_variable_defined": false,
+  "root_release": "fb3356135a2cef30af4d47802b23f3886185d60d"
+}

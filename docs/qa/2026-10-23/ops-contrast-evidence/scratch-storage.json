@@ -1,0 +1,9 @@
+{
+  "final_fixture_storage": "executable memory-backed scratch directory",
+  "temporary_fixture_retention": "pytest failed-only retention",
+  "assertions_excluded": 0,
+  "initial_disk_backed_runs": "interrupted with SIGINT; not completed or used for failure-set comparison",
+  "probe_test_passed": 1,
+  "production_data_moved": false,
+  "baseline_source_storage": "temporary RAM-backed worktree; original queued path kept as a symlink"
+}

@@ -13,7 +13,7 @@ export function Card({
   children: ReactNode;
 }) {
   const border =
-    tone === 'alert' ? 'var(--k-err, #ef4444)' : 'var(--k-border, #23262f)';
+    tone === 'alert' ? 'var(--k-red-crimson, #ef4444)' : 'var(--k-border, #23262f)';
   return (
     <section
       aria-label={title}
@@ -21,7 +21,8 @@ export function Card({
         border: `1px solid ${border}`,
         borderWidth: tone === 'alert' ? 2 : 1,
         borderRadius: 4,
-        background: 'var(--k-panel, #12141a)',
+        background: 'var(--k-surface, #12141a)',
+        color: 'var(--k-text, #e6e8ee)',
         padding: 10,
         minWidth: 0,
       }}
@@ -41,7 +42,7 @@ export function Card({
             fontSize: 11,
             letterSpacing: 0.6,
             textTransform: 'uppercase',
-            color: 'var(--k-muted, #8b93a7)',
+            color: 'var(--k-ink-4, #8b93a7)',
           }}
         >
           {title}
@@ -65,7 +66,7 @@ export function Row({ label, children }: { label: string; children: ReactNode })
         fontSize: 12,
       }}
     >
-      <span style={{ color: 'var(--k-muted, #8b93a7)' }}>{label}</span>
+      <span style={{ color: 'var(--k-ink-4, #8b93a7)' }}>{label}</span>
       <span style={{ textAlign: 'right', minWidth: 0 }}>{children}</span>
     </div>
   );

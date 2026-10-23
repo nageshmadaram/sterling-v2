@@ -578,7 +578,7 @@ describe('a collapsed parent states its time', () => {
     board({ signals: [parent()] });
     // The absolute stamp is quotable against the broker's log; the relative one
     // is what you read while trading.
-    expect(screen.getByText(/\d{2} \w{3} \d{4} \d{2}:\d{2} (AM|PM)/)).toBeInTheDocument();
+    expect(screen.getByText(/^\d{2} \w{3} \d{4} \d{2}:\d{2}$/)).toBeInTheDocument();
     expect(screen.getByText(/just now|min ago|h ago|d ago/)).toBeInTheDocument();
   });
 

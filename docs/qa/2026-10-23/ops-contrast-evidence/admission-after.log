@@ -1,0 +1,28 @@
+
+> sterling-frontend@0.1.0 pretest
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 2040ms.
+
+> sterling-frontend@0.1.0 test
+> vitest --run src/components/kite/__tests__/OperationsContrast.test.tsx --maxWorkers=2
+
+
+ RUN  v5.0.3 /home/nageshmadaram/.codex/worktrees/ops-theme-contrast/Sterling/frontend
+
+
+ Test Files  1 passed (1)
+      Tests  16 passed (16)
+   Start at  14:46:44
+   Duration  2.42s (environment 40%, setup 21%, import 16%, tests 15%, transform 7%, worker 1%)
+
