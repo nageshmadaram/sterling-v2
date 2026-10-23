@@ -1119,6 +1119,12 @@ def _make_place_cb(client, uid: str):
                 state.log(uid, "info", f"{trade_symbol} sizing → {sized.reason}")
 
         from app.services.shared_risk import bounded_quantity
+        if not use_futures and (stop_px <= 0 or (entry_px > 0 and stop_px >= entry_px)):
+            # A bought option needs a stop below its entry; otherwise it is unprotected or
+            # stopped out on fill (live 22 Oct: HDFCBANK 680 PE entry 2.10, stop 2.18).
+            state.log(uid, "order_blocked",
+                      f"{row.underlying}: stop {stop_px:.2f} is missing or not below entry {entry_px:.2f}; not entering")
+            return
         qty = bounded_quantity(uid, "supertrend", qty, entry_px, trade_lot)
         if qty <= 0:
             state.log(uid, "order_blocked", f"{trade_symbol}: no whole lot fits shared risk limits")

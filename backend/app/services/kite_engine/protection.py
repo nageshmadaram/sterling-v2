@@ -65,7 +65,9 @@ class LegPlan:
 
     @property
     def protectable(self) -> bool:
-        return self.stop_premium > 0
+        # A bought option's stop must sit below its entry. A stop at or above the entry
+        # (seen live: HDFCBANK 680 PE entry 2.10, stop 2.18) sells the moment it fills.
+        return self.stop_premium > 0 and (self.entry_premium <= 0 or self.stop_premium < self.entry_premium)
 
 
 def _rows_for(uid: str) -> list:
