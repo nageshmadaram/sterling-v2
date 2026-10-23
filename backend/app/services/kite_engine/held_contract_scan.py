@@ -64,6 +64,10 @@ def held_contract_specs(
     """
 
     today = today or datetime.now(_IST).date()
+    held = [p for p in ((positions_raw or {}).get("net", []) or []) if _position_qty(p) != 0]
+    if not held:
+        # Indexing ~100k instrument rows for nothing stalled the event loop every scan.
+        return []
     by_key = {}
     for exchange, rows in (("NFO", nfo_rows), ("BFO", bfo_rows)):
         for row in rows:
@@ -186,7 +190,8 @@ async def _held_contract_body(
     except Exception:
         return
 
-    specs = held_contract_specs(positions_raw, nfo_rows, bfo_rows)
+    from app.core.async_work import run_blocking
+    specs = await run_blocking(held_contract_specs, positions_raw, nfo_rows, bfo_rows)
     if not specs:
         return
 
@@ -281,6 +286,9 @@ def install() -> None:
         # derivative rows would violate the selected mode. An empty list still means
         # derivative mode and should scan broker-held contracts.
         if kwargs.get("deriv_universe") is None:
+            return
+        # View-only previews of other modes never manage positions.
+        if "|view:" in str(kwargs.get("uid", "")):
             return
         await _append_held_contract_signals(
             self,
