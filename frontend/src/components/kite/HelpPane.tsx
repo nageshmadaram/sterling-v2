@@ -56,7 +56,7 @@ export function HelpPane() {
             <Row term="Exit">Planned stop and target on the option premium, or the hold horizon.</Row>
             <Row term="Swing timing">Signals use daily closes: a 20-session extreme, 1.5 ATR stretch, and the configured market filter. Replay fills at the next session open. History rows are observations, never entry authority.</Row>
             <Row term="Scalp">Uses completed minute bars, quoted liquidity, a broker stop, premium target, hold limit and session square-off. Swing evidence does not validate scalp.</Row>
-            <Row term="Intraday">Research only. Use scalp for the supported short-horizon live lane.</Row>
+            <Row term="Modes">Each mode has its own signal timing and execution readiness. Read the selected mode’s broker, protection and risk blockers before arming; research results do not certify live execution.</Row>
             <Row term="Execute">The Trade column publishes a server-owned plan and arms its exact revision. Reconnect Kite or resolve the displayed risk/data reason if the button is unavailable.</Row>
             <Row term="Size">Risk percent of capital, capped by lots and cash.</Row>
           </Section>

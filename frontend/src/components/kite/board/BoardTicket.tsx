@@ -54,7 +54,13 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
   const quote = key && !historical ? (data as Record<string, any> | undefined)?.[key] : undefined;
   const openOrderWindow = useOrderWindowStore((s) => s.openOrderWindow);
 
-  const live = quote?.last_price ?? signal.levels.ltp ?? null;
+  const observed = quote?.last_price ?? signal.levels.ltp;
+  const live = typeof observed === 'number' && Number.isFinite(observed) && observed > 0 ? observed : null;
+  const entry = signal.levels.entry;
+  const entryKnown = typeof entry === 'number' && Number.isFinite(entry) && entry > 0;
+  const difference = live != null && entryKnown ? (live-entry)/entry*100 : null;
+  const stop = signal.levels.stop;
+  const atOrBelowStop = live != null && typeof stop === 'number' && Number.isFinite(stop) && stop > 0 && live <= stop;
   const { strike, expiry, optionType, lotSize, symbol, exchange } = signal.instrument;
 
   // The underlying's price, which the Greeks need. Adapters put it on the
@@ -76,8 +82,8 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
     return computeGreeksFromLeg(strike, expiry, optionType, spot, quote, lotSize ?? null);
   }, [strike, expiry, optionType, spot, quote, lotSize]);
 
-  const genericTradeAllowed = allowTrade && !historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move' && signal.engine !== 'ema_trend';
-  const buyAllowed = genericTradeAllowed && (signal.status === 'armed' || (signal.engine === 'supertrend' && signal.status === 'running')) && (lotSize ?? 0) > 0;
+  const genericTradeAllowed = allowTrade && !historical && signal.executionEligible !== false && signal.engine !== 'snapback' && signal.engine !== 'gamma_move' && signal.engine !== 'ema_trend' && signal.engine !== 'adaptive_edge';
+  const buyAllowed = genericTradeAllowed && live != null && !atOrBelowStop && (signal.status === 'armed' || (signal.engine === 'supertrend' && signal.status === 'running')) && (lotSize ?? 0) > 0;
   const sellAllowed = false; // Exits use confirmed owned holdings from Positions.
   // A planned row opens its own ticket: qty and SL from the plan, priced off
   // the PLAN entry so a live premium move cannot silently resize the risk. A
@@ -102,6 +108,12 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
 
   return (
     <>
+      {!historical && <div style={{padding: '8px 10px', fontSize: 12, lineHeight: 1.6, color: 'var(--k-text)', background: 'var(--k-surface)', border: '1px solid var(--k-border)', borderRadius: 4}}>
+        <div>{difference == null ? 'Observed premium vs plan: unavailable. A current premium and a valid plan entry are required.'
+          : `Observed premium vs plan: ₹${live!.toFixed(2)} vs ₹${entry!.toFixed(2)} (${difference >= 0 ? '+' : ''}${difference.toFixed(2)}%).`}</div>
+        <div style={{color: 'var(--k-dim)', fontSize: 11}}>This comparison does not change the plan or set a price tolerance. The server rechecks quote freshness, the exact plan and risk before entry.</div>
+        {atOrBelowStop && <div role="alert" style={{color: 'var(--k-text)', borderLeft: '2px solid var(--k-amber)', paddingLeft: 6}}>The observed premium is at or below the plan stop. Refresh the plan before a new entry.</div>}
+      </div>}
       <AdaptiveEdgePositionCalculator
         key={signal.id}
         symbol={symbol}
@@ -122,6 +134,8 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
         allowOrder={buyAllowed}
         executionAction={executionAction}
         unavailableReason={historical ? 'Historical signals are read-only.'
+          : atOrBelowStop ? 'The observed premium is at or below the plan stop.'
+          : live == null ? 'A current premium could not be verified.'
           : signal.executionEligible === false && signal.reason ? signal.reason
           : signal.status !== 'armed' ? 'A fresh armed entry signal is required.'
           : 'Use the strategy-owned Buy action.'}

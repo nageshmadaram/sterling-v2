@@ -46,6 +46,52 @@ def summarize(lines, day):
                                'Observe Snapback restored real signal rows read-only, then a fresh scan and AUTO-toggle retention.']}
 
 
+
+def session_coverage(samples, day):
+    """Verify a complete regular NFO session, never infer coverage from silence."""
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
+    from app.core.session_calendar import is_trading_session, CALENDAR_VERSION
+    try:
+        calendar_ok = is_trading_session(date.fromisoformat(day), 'NFO')
+    except LookupError:
+        calendar_ok = False
+    ist = ZoneInfo('Asia/Kolkata')
+    opening = datetime.combine(date.fromisoformat(day), time(9, 15), ist)
+    closing = datetime.combine(date.fromisoformat(day), time(15, 30), ist)
+    parsed, malformed = [], 0
+    for sample in samples:
+        try:
+            at = datetime.fromisoformat(sample['at'])
+            if at.tzinfo is None:
+                raise ValueError('timestamp timezone required')
+            at = at.astimezone(ist)
+            if opening-timedelta(seconds=90) <= at <= closing+timedelta(seconds=90):
+                parsed.append((at, sample))
+        except (KeyError, TypeError, ValueError):
+            malformed += 1
+    parsed.sort(key=lambda x: x[0])
+    before = [x for x in parsed if x[0] <= opening]
+    after = [x for x in parsed if x[0] >= closing]
+    bounded = bool(before and after)
+    rows = [x for x in parsed if before[-1][0] <= x[0] <= after[0][0]] if bounded else parsed
+    gaps = [(b[0]-a[0]).total_seconds() for a, b in zip(rows, rows[1:])]
+    releases = sorted({str(x.get('release')) for _, x in rows})
+    healthy = bool(rows) and all(x.get('backend_ok') is True and isinstance(x.get('pid'), int)
+                    and x['pid'] > 1 and re.fullmatch(r'[a-f0-9]{40,64}', str(x.get('release','')))
+                    for _, x in rows)
+    verified = bool(calendar_ok and bounded and not malformed and healthy
+                    and len(releases) == 1 and gaps and max(gaps) <= 90)
+    return {'verified': verified, 'calendar_verified': calendar_ok, 'calendar_version': CALENDAR_VERSION,
+            'normal_session': '09:15–15:30 IST; special sessions require separate acceptance',
+            'samples': len(rows), 'malformed_samples': malformed,
+            'first': rows[0][0].isoformat() if rows else None,
+            'last': rows[-1][0].isoformat() if rows else None,
+            'max_gap_seconds': max(gaps, default=None),
+            'releases': releases, 'pids': sorted({x['pid'] for _, x in rows if isinstance(x.get('pid'), int)})}
+
 def stored_observations(path):
     path = Path(path).resolve(strict=True)
     with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as conn:
@@ -64,9 +110,17 @@ def main():
     parser.add_argument('--log', required=True, type=Path)
     parser.add_argument('--day', required=True)
     parser.add_argument('--db', type=Path)
+    parser.add_argument('--probes', type=Path, help='JSONL from the read-only session probe')
     args = parser.parse_args()
     with args.log.open(errors='replace') as stream:
         report = summarize(stream, args.day)
+    if args.probes:
+        with args.probes.open() as stream:
+            samples = [json.loads(line) for line in stream if line.strip()]
+        coverage = session_coverage(samples, args.day)
+        report['session_coverage'] = coverage
+        report['coverage'] = 'verified' if coverage['verified'] else 'unverified'
+        report['market_load_accepted'] = bool(coverage['verified'] and report['observed_threshold_met'])
     if args.db:
         report['stored_observations'] = stored_observations(args.db)
     report['generated_at'] = datetime.now().astimezone().isoformat()

@@ -72,3 +72,5 @@ Run it locally: `bash backend/scripts/regression_gate.sh main`.
 ## Frontend
 
 `cd frontend && npx tsc --noEmit` (type-check) is part of `make verify`.
+
+Frontend full verification: `cd frontend && npm test -- --run --maxWorkers=2`. The npm pretest hook generates the ignored media styles/fonts needed by the media integration tests; a fresh worktree needs `npm run media:styles` before invoking Vitest directly. Market-candle UI fixtures must use an explicit market-hour clock, not the wall clock of an overnight test run.

@@ -17,6 +17,7 @@ import { SpectrumNavigation } from '../components/sim/SpectrumNavigation';
 import { SimBanner } from '../components/sim/SimBanner';
 import '../styles/terminal.css';
 import { MobileExperienceMenu } from '../components/kite/MobileExperienceMenu';
+import { KiteSessionBar } from '../components/kite/board/KiteSessionBar';
 import { useMobileExperience } from '../store/useMobileExperience';
 import { useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { useSimStatus, isOwnerDenied } from '../hooks/useSim';
@@ -30,6 +31,8 @@ export function SimpleTerminal() {
   const [showSettings, setShowSettings] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [spectrum, setSpectrum] = useState<'kite' | 'tv' | 'radio'>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'live' && notificationDestination(params.get('notification'))) return 'kite';
     const home = useExperienceOptions.getState().options.spectrumHome;
     return home === 'tv' || home === 'radio' ? home : 'kite';
   });
@@ -395,6 +398,7 @@ export function SimpleTerminal() {
           }
         }} />}
       {spectrum === 'kite' && <SimBanner />}
+      {spectrum === 'kite' && selectedView === 'live' && <KiteSessionBar />}
 
       {/* ── Content ──────────────────────────────────────────────── */}
       <div id="sterling-kite-surface" role="tabpanel" aria-label="KITE workspace"

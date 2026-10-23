@@ -1,0 +1,16 @@
+[Unit]
+Description=Read-only Sterling session availability evidence
+After=sterling-backend.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Sterling
+ExecStart=%h/Sterling/backend/.venv/bin/python %h/Sterling/scripts/trading_session_probe.py --output %h/Sterling/.runtime/qa/session-probes.jsonl
+Restart=on-failure
+RestartSec=10
+UMask=0077
+Nice=10
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

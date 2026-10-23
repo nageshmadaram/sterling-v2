@@ -13,8 +13,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ROW_METRICS } from '../signalRowSpec';
 
-// BoardTicket pulls a live quote; the parity being tested is structural.
-vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: () => ({ data: {} }) }));
+// Structural ticket parity uses a valid observed premium; unknown-price
+// refusal is exercised separately in BoardTicket.priceReview.test.tsx.
+vi.mock('../../../../hooks/useKite', () => ({ useKiteQuote: (keys: string[] = []) => ({ data: Object.fromEntries(keys.map(key => [key, {last_price: 210}])) }) }));
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { SignalBoard, BOARD_COLUMNS, DEFAULT_HIDDEN_COLUMNS, visibleColumns, COLUMNS, type ColumnId } from '../SignalBoard';

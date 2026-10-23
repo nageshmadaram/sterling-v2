@@ -449,3 +449,13 @@ it('blocks manual execution during session pause without promising AMO', () => {
   expect(buyBtn).toBeDisabled();
 });
 
+
+
+it('does not present a research promotion as live execution certification', () => {
+  snap = {data: snapshot({strategy: {name: 'Snapback', validation: {...VALIDATION, promoted: true}}}), isLoading: false, error: null};
+  renderEvidence(<SnapbackBoard nowMs={1_789_009_200_000} />);
+  act(() => {screen.getAllByText(/NIFTY/)[0].click();});
+  expect(screen.getByText(/Research model/)).toBeInTheDocument();
+  expect(screen.getByText(/not live execution certification/i)).toBeInTheDocument();
+  expect(screen.queryByText(/^VALIDATED$/)).toBeNull();
+});
