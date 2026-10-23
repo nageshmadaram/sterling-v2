@@ -3131,10 +3131,13 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
         else:
+            # With no readable capital the rupee figure is a placeholder, not 3% of anything.
+            cap_text = (f"-₹{loss_limit_inr:,.0f}" if cap > 0
+                        else "rupee amount shown once Zerodha funds are readable")
             checks["circuit_breaker"] = {
                 "name": "Daily Loss Circuit Breaker",
                 "status": "ok",
-                "detail": f"Today's PnL ₹{day_pnl:,.2f} within {loss_pct}% cap (-₹{loss_limit_inr:,.0f}).",
+                "detail": f"Today's PnL ₹{day_pnl:,.2f} within {loss_pct}% cap ({cap_text}).",
                 "data": {"day_pnl_inr": day_pnl, "max_daily_loss_pct": loss_pct, "limit_inr": loss_limit_inr},
             }
 
