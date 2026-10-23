@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 
+vi.mock('../../components/kite/board/KiteSessionBar', () => ({ KiteSessionBar: () => <div data-testid="global-kite-session">Session status</div> }));
+
 vi.mock('../../components/kite/KiteTab', () => ({
   KiteTab: () => <div data-testid="kite-trading-docks">Trading docks</div>,
 }));
@@ -57,7 +59,7 @@ beforeEach(() => {
   useExperienceOptions.setState({ options: readExperienceOptions() });
 });
 afterEach(() => {
-  cleanup(); resetDraftGuard(); vi.restoreAllMocks();
+  cleanup(); resetDraftGuard(); vi.restoreAllMocks(); window.history.replaceState({}, '', '/');
 });
 
 describe('Sterling Spectrum navigation and Home', () => {
@@ -206,5 +208,24 @@ describe('Sterling Spectrum navigation and Home', () => {
     fireEvent.click(screen.getByTestId('spectrum-tv-tab'));
     expect(confirm).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId('fake-tv-content')).toBeNull();
+  });
+});
+
+
+describe('live-account notification and session visibility', () => {
+  it.each(['tv', 'radio'] as const)('opens a signal notification in KITE even when %s is home', (home) => {
+    useExperienceOptions.getState().update({spectrumHome: home});
+    window.history.replaceState({}, '', '/?view=live&notification=signals');
+    render(<SimpleTerminal />);
+    expect(screen.getByRole('tabpanel', {name: 'KITE workspace'})).toBeVisible();
+    expect(screen.queryByRole('tabpanel', {name: /TV workspace|Radio workspace/})).toBeNull();
+    expect(screen.getByTestId('global-kite-session')).toBeVisible();
+    expect(useViewStore.getState().view).toBe('live');
+  });
+  it('shows the session notice in live KITE independently of sidebar visibility', () => {
+    render(<SimpleTerminal />);
+    expect(screen.getByTestId('global-kite-session')).toBeVisible();
+    fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
+    expect(screen.queryByTestId('global-kite-session')).toBeNull();
   });
 });

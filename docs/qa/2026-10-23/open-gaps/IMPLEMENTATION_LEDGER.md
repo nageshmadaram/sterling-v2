@@ -25,3 +25,5 @@ This continues both the prior trader QA work and every item in the operator-supp
 Prior work remains tracked in `../PASTED_REPORT_RECONCILIATION.md`, `../OPS_THEME_FOLLOWUP.md`, `../SYNC_AND_FOLLOWUP.md` and `../../2026-10-22/FIX_IMPLEMENTATION.md`. This ledger will reconcile their stale states against final source/runtime evidence, retaining any unresolved original finding.
 
 Final automated results and source paths: [VALIDATION.md](VALIDATION.md). Deployment identity is recorded separately after integration.
+
+Subsequent remaining-gap work: [CONTINUATION.md](../remaining-gaps/CONTINUATION.md). This adds global session visibility, correct notification workspace routing, truthful research/help copy, expanded-ticket current-price safety/distance, exact 38-pair EMA recovery evidence, logged-out scheduler verification and continuous read-only session coverage. Live-day and authoritative research requirements remain explicitly pending.

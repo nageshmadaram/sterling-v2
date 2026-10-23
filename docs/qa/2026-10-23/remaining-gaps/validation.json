@@ -1,0 +1,56 @@
+{
+  "baseline": "78f2565cd4dd07a72dd54649f7ed4055eb6f271f",
+  "backend_baseline_passed": 11719,
+  "backend_head_passed": 11730,
+  "backend_skipped": 30,
+  "frontend_passed": 2308,
+  "frontend_files": 248,
+  "failure_sets": {
+    "baseline-verify.log": [],
+    "make-verify.log": []
+  },
+  "logs": {
+    "baseline-verify.log": {
+      "sha256": "0f15159cff80b0fc4c70370cb6da1d0a335e5a5e9328ccb94b053147d06d0558",
+      "summaries": [
+        "11719 passed, 30 skipped in 1536.20s (0:25:36)",
+        "VERIFY OK"
+      ]
+    },
+    "make-verify.log": {
+      "sha256": "55fa2b254a61bb4ac9d775b7eaf608a892240f4b1d1f09dd66d504fae2481d67",
+      "summaries": [
+        "11730 passed, 30 skipped in 1108.38s (0:18:28)",
+        "VERIFY OK"
+      ]
+    },
+    "frontend-release.log": {
+      "sha256": "f3e27b0b96341a78f7e8e2f2334b1f36b258529449e3f3275b3391c6481266bb",
+      "summaries": [
+        " Test Files  248 passed (248)",
+        "      Tests  2308 passed (2308)"
+      ]
+    },
+    "frontend-repaired-fixtures.log": {
+      "sha256": "52086fa15a25a109eeb09c7162b94ac9dc2f9055c135e1b3e765454ed1f6e1d9",
+      "summaries": [
+        " Test Files  4 passed (4)",
+        "      Tests  43 passed (43)"
+      ]
+    },
+    "price-review-final.log": {
+      "sha256": "aa0898eb8fe352433b82c1ced9c6a86e757a98b6f1342e4bb76404e19f903f8e",
+      "summaries": [
+        " Test Files  2 passed (2)",
+        "      Tests  22 passed (22)"
+      ]
+    },
+    "final-warning-targeted.log": {
+      "sha256": "1b2d4f12a94de3f03d9b854956ab28c2d4f904d4b9d82775ba7d05f286a1db8b",
+      "summaries": [
+        " Test Files  2 passed (2)",
+        "      Tests  8 passed (8)"
+      ]
+    }
+  }
+}

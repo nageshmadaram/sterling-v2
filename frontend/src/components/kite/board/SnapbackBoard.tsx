@@ -52,20 +52,10 @@ const CHECK_LABEL: Record<string, string> = {
 };
 
 const CHECK_HINT: Record<string, string> = {
-  beats_random_timing:
-    'Against random entries with identical exposure — same symbols, same count, '
-    + 'same holding period, same contract rule — these dates win. This is the '
-    + 'test every other strategy in this repo has failed.',
-  deflated_sharpe:
-    'The deflated Sharpe prices in how many variants were tried to find this. '
-    + 'Nothing in this repo has ever cleared it, and a small sample cannot.',
-  priced_edge:
-    'The break-even vol multiple: how dear the option can be before the trade '
-    + 'stops paying, against the 1.15–1.30x of realised vol the market charges.',
-  mean_proven:
-    'The day-clustered confidence interval still includes zero. The DIRECTION '
-    + 'of the edge is established; its SIZE is not, and that is a sample-size '
-    + 'fact rather than a finding against it.',
+  beats_random_timing: 'The research harness reports a random-entry comparison. Its dataset and exposure-matching assumptions must be reviewed separately.',
+  deflated_sharpe: 'Adjusts the reported Sharpe for the number of strategy variants tried.',
+  priced_edge: 'A model sensitivity to assumed option costs; actual premiums, spreads and fills can differ.',
+  mean_proven: 'Checks the confidence interval reported by the research harness. An interval containing zero does not establish a positive mean return.',
 };
 
 function Evidence({ v }: { v: SnapbackValidation }) {
@@ -80,14 +70,15 @@ function Evidence({ v }: { v: SnapbackValidation }) {
     }}>
       <div style={{ color: k.text }}>
         <strong style={{ color: v.promoted ? k.green : k.amber }}>
-          {v.promoted ? 'VALIDATED' : `PASSES ${v.passed} OF ${v.total_checks} CHECKS`}
+          Research model · {v.promoted ? 'HARNESS GATE PASSED' : `PASSES ${v.passed} OF ${v.total_checks} CHECKS`}
         </strong>{' '}
-        Out of sample it took {v.oos_trades} trades on {v.oos_entry_days} distinct
+        Modelled out of sample it took {v.oos_trades} trades on {v.oos_entry_days} distinct
         entry days, returning {v.oos_mean_day_return_pct >= 0 ? '+' : ''}
         {v.oos_mean_day_return_pct.toFixed(2)}% per entry day at a Sharpe of{' '}
         {v.sharpe.toFixed(2)}, worst drawdown {v.max_drawdown_pct.toFixed(1)}% at{' '}
         {v.allocation_pct}% of capital per position.
       </div>
+      <div style={{ marginTop: 4, color: k.dim }}>Research results are not live execution certification. Current broker, protection and risk readiness are checked separately.</div>
       <div style={{ marginTop: 4 }}>
         {entries.map(([key, ok]) => (
           <span
@@ -113,8 +104,8 @@ function Evidence({ v }: { v: SnapbackValidation }) {
       <div style={{ marginTop: 4, color: k.dim }}>
         Measured {v.measured_at} on {v.span} across {v.universe.length} instruments,
         at {v.slippage_pct ?? '—'}% slippage per leg. Break-even vol multiple{' '}
-        <b style={{ color: k.text }}>{v.breakeven_vrp ?? '—'}x</b> against a market
-        that charges 1.15–1.30x. Entry-timing p{' '}
+        <b style={{ color: k.text }}>{v.breakeven_vrp ?? '—'}x</b> against the model’s assumed
+        1.15–1.30x band. Entry-timing p{' '}
         <b style={{ color: k.text }}>{v.permutation_p ?? '—'}</b>.
       </div>
     </div>

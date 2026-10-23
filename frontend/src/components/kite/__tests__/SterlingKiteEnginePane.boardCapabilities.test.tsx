@@ -374,3 +374,7 @@ describe('the shared renderer asks for this engine’s columns', () => {
     }
   });
 });
+
+// UI fixtures represent market candles, independent of the hour tests run.
+beforeEach(() => { vi.useFakeTimers({toFake: ['Date']}); vi.setSystemTime(new Date('2026-10-23T13:30:00+05:30')); });
+afterEach(() => { vi.useRealTimers(); });

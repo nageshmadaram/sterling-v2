@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
@@ -270,3 +270,7 @@ describe('SterlingKiteEnginePane — table-only settings', () => {
     expect(screen.getByText('111.30')).toBeInTheDocument();
   });
 });
+
+// UI fixtures represent market candles, independent of the hour tests run.
+beforeEach(() => { vi.useFakeTimers({toFake: ['Date']}); vi.setSystemTime(new Date('2026-10-23T13:30:00+05:30')); });
+afterEach(() => { vi.useRealTimers(); });
