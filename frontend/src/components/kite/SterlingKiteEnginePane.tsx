@@ -188,6 +188,28 @@ function legHasExited(
 // A row is "running" once reconciled against live LTP: any derivative leg still live, or
 // — for spot rows that carry no per-leg premium/stop — the row's scan-time flag. Shared
 // by the card visuals and the Active-now/history bucketing so they never disagree.
+/**
+ * Tags that decide whether a leg may be traded, shown on the row itself: another mode's
+ * signal, a missing or too-high stop, a plan a newer signal replaced, a contract that
+ * expires before the planned hold.
+ */
+export function legSafetyTags(row: EngineSignalRow, leg: any, ended: boolean): { label: string; hint: string }[] {
+  const tags: { label: string; hint: string }[] = [];
+  const mode = normalizeMode(row.horizon_mode);
+  if (row.view_only) tags.push({ label: `VIEW ONLY · ${mode ? MODE_LABEL[mode] : row.horizon_mode}`, hint: `Signal from SuperTrend's ${mode ? MODE_LABEL[mode] : ''} mode, which it is not set to trade. Switch SuperTrend to that mode in Settings to trade it.` });
+  if (ended) return tags;
+  if (leg.replaced) tags.push({ label: 'REPLACED', hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' });
+  const stop = leg.entry_sl ?? leg.premium_sl;
+  if (stop == null || !(stop > 0)) tags.push({ label: 'NO STOP', hint: 'This leg has no stop, so it cannot be bought.' });
+  else if (leg.premium_spot != null && stop >= leg.premium_spot) tags.push({ label: 'STOP ≥ ENTRY', hint: `The stop (${Number(stop).toFixed(2)}) is at or above the entry (${Number(leg.premium_spot).toFixed(2)}); buying would sell at once.` });
+  const holdDays = row.horizon_mode === 'swing' ? 5 : row.horizon_mode === 'overnight' ? 2 : 0;
+  if (holdDays && leg.expiry) {
+    const days = Math.ceil((Date.parse(`${leg.expiry}T15:30:00+05:30`) - Date.now()) / 86_400_000);
+    if (Number.isFinite(days) && days >= 0 && days <= holdDays) tags.push({ label: 'EXPIRES SOON', hint: `Expires in ${days} day${days === 1 ? '' : 's'}, before this mode's planned hold ends; it would be closed the day before expiry. Prefer the next expiry.` });
+  }
+  return tags;
+}
+
 function rowIsRunning(row: EngineSignalRow, quotes: any): boolean {
   // Gated on whether the row actually CARRIES a premium plan, not on source ==
   // 'derivatives'. A confluence row carries one too (the card's own `hasPremium` says
@@ -1054,6 +1076,13 @@ function SignalCard({ row, onClick, onSelectSignal, onOpenChart, quotes, viewLay
                          </span>
                        </Tip>
                      )}
+                     {legSafetyTags(row, leg, ended).map((tag) => (
+                       <Tip key={tag.label} text={tag.hint}>
+                         <span style={{ fontSize: 8, fontWeight: 700, color: k.amber, border: `1px solid ${k.amber}`, borderRadius: 2, padding: '0 3px', lineHeight: '13px', flexShrink: 0 }}>
+                           {tag.label}
+                         </span>
+                       </Tip>
+                     ))}
                    </span>
                    {(() => {
                      const renderLeftCell = (key: string) => {

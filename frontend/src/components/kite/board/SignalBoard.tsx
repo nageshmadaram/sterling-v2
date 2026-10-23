@@ -374,6 +374,9 @@ function contractLabel(signal: BoardSignal): string | null {
 }
 
 /** The value of one column for one signal, plus how to colour it. */
+/** Flags that decide whether a row may be traded: always shown on the row, never only in its details. */
+const SAFETY_FLAGS: ReadonlySet<string> = new Set(['NO STOP', 'STOP ≥ ENTRY', 'EXPIRES SOON', 'REPLACED', 'VIEW ONLY']);
+
 /** Trading modes belong to SuperTrend and Snapback only; other strategies run their original settings. */
 const MODE_ENGINES: ReadonlySet<string> = new Set(['supertrend', 'snapback']);
 
@@ -492,7 +495,7 @@ function cellContent(
             {/* Whatever else this engine wants read without opening the row. */}
             {!detailsOnly && <Marks marks={signal.marks} />}
             {/* Strategy-specific tags live in the expanded row, so collapsed rows read the same on every board. */}
-            {!detailsOnly && signal.flags?.map((flag) => (
+            {(detailsOnly ? signal.flags?.filter((f) => SAFETY_FLAGS.has(f.label)) : signal.flags)?.map((flag) => (
               <Tip key={flag.label} text={`${flag.label} — ${flag.hint}`}>
                 <span tabIndex={0} style={{
                   fontSize: 8, fontWeight: 700, letterSpacing: '.04em',
@@ -886,7 +889,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
       </span>
 
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        {!detailsOnly && signal.flags?.map((flag) => (
+        {(detailsOnly ? signal.flags?.filter((f) => SAFETY_FLAGS.has(f.label)) : signal.flags)?.map((flag) => (
           <Tip key={flag.label} text={`${flag.label} — ${flag.hint}`}>
             <span tabIndex={0} style={{
               fontSize: 9, fontWeight: 700, color: ORIGIN_TONE[flag.tone],
