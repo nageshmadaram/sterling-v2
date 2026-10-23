@@ -10,34 +10,59 @@ import argparse
 from collections import Counter
 from datetime import date, datetime, time
 import json
+import math
 from pathlib import Path
 import re
 import sqlite3
 
+_TIMESTAMP = re.compile(r'^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)')
 _STALL = re.compile(r'^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d).*Event loop stalled ([\d.]+)s; locations=(.*)')
 
 
 def summarize(lines, day):
     date.fromisoformat(day)
     market, closed = [], []
-    recovery_errors = sim_timeouts = 0
+    recovery_errors = sim_timeouts = unparsed_stalls = 0
+    first = last = None
+    dated_lines = 0
     for line in lines:
-        if not line.startswith(day):
+        timestamp = _TIMESTAMP.match(line)
+        try:
+            at = datetime.fromisoformat(timestamp[1]) if timestamp else None
+        except ValueError:
+            at = None
+        if at is not None:
+            first = min(first, at) if first else at
+            last = max(last, at) if last else at
+            dated_lines += 1
+        match = _STALL.match(line)
+        try:
+            duration = float(match[3]) if match else None
+        except ValueError:
+            duration = None
+        if 'Event loop stalled' in line and (at is None or duration is None or not math.isfinite(duration)):
+            unparsed_stalls += 1
+            continue
+        if at is None or at.date().isoformat() != day:
             continue
         if 'gamma_unwind cycle failed' in line and 'historical' in line:
             recovery_errors += 1
         if 'simulation gamma pass' in line and 'timed out' in line:
             sim_timeouts += 1
-        match = _STALL.match(line)
         if match:
             when = time.fromisoformat(match[2])
-            record = (float(match[3]), ' > '.join(match[4].split(' > ')[-3:]))
+            record = (duration, ' > '.join(match[4].split(' > ')[-3:]))
             (market if time(9, 15) <= when <= time(15, 30) else closed).append(record)
     def stats(records):
         return {'count': len(records), 'max_seconds': max((s for s, _ in records), default=None),
                 'locations': dict(Counter(frame for _, frame in records).most_common())}
-    observed = len(market) < 3 and all(s <= 5 for s, _ in market)
-    return {'day': day, 'timezone': 'Asia/Kolkata', 'market_stalls': stats(market),
+    observed = unparsed_stalls == 0 and len(market) < 3 and all(s <= 5 for s, _ in market)
+    opening = datetime.combine(date.fromisoformat(day), time(9, 15))
+    closing = datetime.combine(date.fromisoformat(day), time(15, 30))
+    log_coverage = {'dated_lines': dated_lines, 'first': first.isoformat() if first else None,
+                    'last': last.isoformat() if last else None,
+                    'covers_market_session': bool(first and last and first <= opening and last >= closing)}
+    return {'day': day, 'log_coverage': log_coverage, 'unparsed_stall_lines': unparsed_stalls, 'timezone': 'Asia/Kolkata', 'market_stalls': stats(market),
             'after_hours_stalls': stats(closed), 'gamma_historical_failures': recovery_errors,
             'simulation_gamma_timeouts': sim_timeouts, 'observed_threshold_met': observed,
             'coverage': 'unverified', 'full_session_accepted': False,
@@ -119,8 +144,9 @@ def main():
             samples = [json.loads(line) for line in stream if line.strip()]
         coverage = session_coverage(samples, args.day)
         report['session_coverage'] = coverage
-        report['coverage'] = 'verified' if coverage['verified'] else 'unverified'
-        report['market_load_accepted'] = bool(coverage['verified'] and report['observed_threshold_met'])
+        complete = coverage['verified'] and report['log_coverage']['covers_market_session']
+        report['coverage'] = 'verified' if complete else 'unverified'
+        report['market_load_accepted'] = bool(complete and report['observed_threshold_met'])
     if args.db:
         report['stored_observations'] = stored_observations(args.db)
     report['generated_at'] = datetime.now().astimezone().isoformat()

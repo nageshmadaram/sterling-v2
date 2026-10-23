@@ -33,8 +33,42 @@ def test_real_audit_opens_existing_database_without_mutation(tmp_path):
     import sqlite3,hashlib
     path=tmp_path/'scans.sqlite'
     with sqlite3.connect(path) as c:
-        c.execute('CREATE TABLE ema_trend_documents(kind TEXT,updated_ms INTEGER,data_json TEXT)')
+        c.execute('CREATE TABLE ema_trend_documents(owner_uid TEXT,kind TEXT,updated_ms INTEGER,data_json TEXT)')
     before=hashlib.sha256(path.read_bytes()).hexdigest()
     result=audit.audit(path)
     assert result['database_read_only'] and result['status']=='UNAVAILABLE'
+    assert before==hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_success_from_a_different_owner_never_resolves_the_failed_owner():
+    pair={'symbol':'NSE:TEST','mode':'swing'}
+    scans=[{'owner_uid':'alice','updated_ms':1,'status':'FAILED','errors':[{**pair,'reason':'HISTORICAL_BAR_RESTATED_RECONCILIATION_REQUIRED'}]},
+           {'owner_uid':'bob','updated_ms':2,'status':'COMPLETED','results':[pair]}]
+    result=audit.compare(scans)
+    assert result['status']=='PENDING' and result['unresolved_pairs']==[pair]
+
+
+def test_newer_failed_terminal_scan_does_not_inherit_an_older_completed_pass():
+    pair={'symbol':'NSE:TEST','mode':'swing'}
+    scans=[{'id':'historical','updated_ms':1,'status':'FAILED','errors':[{**pair,'reason':'HISTORICAL_BAR_RESTATED_RECONCILIATION_REQUIRED'}]},
+           {'id':'passed','updated_ms':2,'status':'COMPLETED','results':[pair]},
+           {'id':'failed-later','updated_ms':3,'status':'FAILED','results':[], 'errors':[{**pair,'reason':'PROVIDER_UNAVAILABLE'}]}]
+    result=audit.compare(scans)
+    assert result['status']=='PENDING' and result['unresolved_pairs']==[pair]
+    assert result['latest_terminal_job']=='failed-later' and result['latest_terminal_status']=='FAILED'
+
+
+def test_database_owner_filter_and_embedded_owner_cannot_be_spoofed(tmp_path):
+    import json,sqlite3,hashlib
+    pair={'symbol':'NSE:TEST','mode':'swing'}
+    path=tmp_path/'scans.sqlite'
+    with sqlite3.connect(path) as c:
+        c.execute('CREATE TABLE ema_trend_documents(owner_uid TEXT,kind TEXT,updated_ms INTEGER,data_json TEXT)')
+        c.executemany('INSERT INTO ema_trend_documents VALUES (?, ?, ?, ?)', [
+            ('alice','scan',1,json.dumps({'owner_uid':'bob','id':'old','status':'FAILED','errors':[{**pair,'reason':'HISTORICAL_BAR_RESTATED_RECONCILIATION_REQUIRED'}]})),
+            ('bob','scan',2,json.dumps({'owner_uid':'alice','status':'COMPLETED','results':[pair]}))])
+    before=hashlib.sha256(path.read_bytes()).hexdigest()
+    assert audit.audit(path,owner='alice')['status']=='PENDING'
+    assert audit.audit(path,owner='bob')['status']=='UNAVAILABLE'
+    assert audit.audit(path)['status']=='UNAVAILABLE'
     assert before==hashlib.sha256(path.read_bytes()).hexdigest()
