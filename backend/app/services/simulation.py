@@ -1479,6 +1479,8 @@ class SimulationRunner:
         # a superseded loop and must not touch shared state.
         self._run_generation: int = 0
         self._recorded_signals: List[Dict[str, Any]] = []
+        # Canonical replay can report missing history before start() has run.
+        self._strategy_notes: Dict[str, str] = {}
         self._supertrend_hourly = {}
         self._supertrend_seen = {}
         self._gamma_replay_days = {}

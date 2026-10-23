@@ -16,6 +16,8 @@ Two rules shape the whole file:
 """
 from __future__ import annotations
 
+from app.core.async_work import run_blocking
+
 import asyncio
 import time
 from datetime import datetime, timedelta, timezone
@@ -1243,13 +1245,13 @@ async def check_rules(uid: str) -> int:
             token = int(pos.underlying_token or 0)
             if token <= 0:
                 continue       # no series to test it on; the price stop still holds
-            raw = _drop_forming(
+            raw = await run_blocking(_drop_forming,
                 await client.get_candles(_inst(pos.underlying, token),
                                          cfg.timeframe, LOOKBACK_BARS), cfg)
             if not raw:
                 continue
-            bars = to_bars(resample_for(raw, cfg))
-            done, why = thesis_broken(bars, cfg, pos.strategy, pos.thesis)
+            bars = await run_blocking(lambda: to_bars(resample_for(raw, cfg)))
+            done, why = await run_blocking(thesis_broken, bars, cfg, pos.strategy, pos.thesis)
         except Exception as exc:                                   # noqa: BLE001
             log.debug("intraday: rule check failed for %s: %s",
                       pos.contract.tradingsymbol, exc)
@@ -1259,7 +1261,7 @@ async def check_rules(uid: str) -> int:
             # strategies actually state — the premium trail protects the money,
             # this protects the idea, and neither replaces the other.
             moved, trail_why = spot_trail(pos, cfg, spot=float(bars.close[-1]),
-                                          **_trail_inputs(bars, cfg))
+                                          **(await run_blocking(_trail_inputs, bars, cfg)))
             if moved != pos.spot_stop:
                 pos.spot_stop = moved
                 store.put(uid, pos)

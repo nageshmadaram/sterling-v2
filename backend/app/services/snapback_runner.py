@@ -9,6 +9,8 @@ broker order execution methods (place_order, modify_order, cancel_order).
 """
 from __future__ import annotations
 
+from app.core.async_work import run_blocking
+
 import asyncio
 from datetime import datetime, time, timezone, timedelta
 from typing import Any, Dict, Optional
@@ -45,7 +47,7 @@ EOD_WINDOW_END = time(15, 30)
 
 def _is_nse_trading_day(d: Any) -> bool:
     """Check if given date is an active NSE trading day using official calendar.
-    
+
     Fails closed (returns False) if calendar lookup fails or is unavailable.
     """
     try:
@@ -87,7 +89,7 @@ async def tick(uid: str = "default") -> Dict[str, Any]:
                     SnapbackObservationWarehouse,
                 )
 
-                if not SnapbackObservationWarehouse().get_active_paper_positions():
+                if not await run_blocking(lambda: SnapbackObservationWarehouse().get_active_paper_positions()):
                     return {
                         "status": "disabled",
                         "date": str(today),

@@ -1027,7 +1027,7 @@ class KiteEngineScanner:
                     return
                 option_rows = nfo_rows if item.option_exchange == "NFO" else bfo_rows
                 _expiry = expiry_types_indices if (expiry_types_indices is not None and item.is_index) else expiry_types_stocks if (expiry_types_stocks is not None and not item.is_index) else expiry_types
-                
+
                 latest_ts = candles[-1].timestamp_ms
                 # Surface running/just-fired setups PLUS the most-recent recently-ended
                 # one, so signals don't vanish the instant a trend breaks (they show as
@@ -1076,7 +1076,7 @@ class KiteEngineScanner:
                     except Exception as exc:  # noqa: BLE001
                         log.warning("kite-engine deriv spot-anchor fail %s: %s", item.name, exc)
                         under = []
-                
+
                 spot = float(under[-1].close) if under else 0.0
                 # Underlying spot at each 1H bar, so a derivative signal can report the
                 # spot at its trigger timestamp (the premium chart alone never carries it).
@@ -1378,7 +1378,13 @@ async def build_setup_chart(
     from app.core.mode_execution import timeframe_minutes
     tf = timeframe_minutes(cfg.horizon_mode, cfg.signal_timeframe_minutes)
     interval = '1H' if tf == 60 else f'{tf}m'
-    candles = drop_forming(await client.get_candles(_inst(item), interval, _LOOKBACK_BARS), timeframe_ms=tf * 60_000)
+    candles = await client.get_candles(_inst(item), interval, _LOOKBACK_BARS)
+    return await run_blocking(_build_setup_chart, candles, token, underlying, cfg, tf)
+
+
+def _build_setup_chart(candles, token, underlying, cfg, tf):
+    """Pure chart calculations; the async caller owns fetching and publication."""
+    candles = drop_forming(candles, timeframe_ms=tf * 60_000)
     o = np.array([c.open for c in candles], float)
     h = np.array([c.high for c in candles], float)
     l = np.array([c.low for c in candles], float)

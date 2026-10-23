@@ -390,3 +390,19 @@ def _default_live_account_posture_for_unrelated_tests(monkeypatch, request):
     from app.services.exchanges.kite import accounts as kite_accounts
 
     monkeypatch.setattr(kite_accounts, "_assert_live_account_posture", lambda: None)
+
+
+@pytest.fixture(scope="session")
+def _gamma_history_test_root(tmp_path_factory):
+    return tmp_path_factory.mktemp("gamma-history-cache")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_gamma_history_cache(_gamma_history_test_root, request, monkeypatch):
+    """Isolate fake-account data without forcing tmp_path on every suite test.
+
+    Paths are unique per complete node ID and created lazily by cache writes.
+    """
+    import hashlib
+    key = hashlib.sha256(request.node.nodeid.encode()).hexdigest()
+    monkeypatch.setenv("STERLING_GAMMA_CACHE_DIR", str(_gamma_history_test_root / key))

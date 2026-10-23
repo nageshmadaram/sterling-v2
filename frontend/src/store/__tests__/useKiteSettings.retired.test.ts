@@ -23,3 +23,12 @@ describe('kite settings migration drops retired strategies', () => {
     for (const id of out.engineOrder as string[]) expect(ENGINE_ORDER).toContain(id);
   });
 });
+
+it('removes the retired renderer choice without resetting capabilities', () => {
+  const migrate = useKiteSettings.persist.getOptions().migrate!;
+  const state = migrate({ boardRenderer: 'classic', boardRowScroll: false, boardRowActions: false }, 13) as any;
+  expect(state).not.toHaveProperty('boardRenderer');
+  expect(state.boardRowScroll).toBe(false);
+  expect(state.boardRowActions).toBe(false);
+  expect(useKiteSettings.getState()).not.toHaveProperty('setBoardRenderer');
+});

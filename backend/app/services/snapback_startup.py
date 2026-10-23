@@ -17,10 +17,31 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import threading
+from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass, field
 from typing import Any, Callable, List, Optional
 
 log = logging.getLogger(__name__)
+_halt_log_days: dict[tuple[str, tuple[str, ...]], str] = {}
+_halt_log_lock = threading.Lock()
+
+
+def _preflight_log_day() -> str:
+    return datetime.now(timezone(timedelta(hours=5, minutes=30))).date().isoformat()
+
+
+def _log_halt_once(status: str, errors: list[str]) -> None:
+    day = _preflight_log_day()
+    key = (status, tuple(sorted(set(errors))))
+    with _halt_log_lock:
+        for stale in [k for k, value in _halt_log_days.items() if value != day]:
+            _halt_log_days.pop(stale, None)
+        if _halt_log_days.get(key) == day:
+            return
+        _halt_log_days[key] = day
+    log.error("Snapback preflight FAILED (%s): %s", status, errors)
+
 
 # The config hash frozen into the Snapback reality manifest.
 FROZEN_CONFIG_HASH = "6ecbeb53e9768a91"
@@ -185,7 +206,7 @@ def run_startup_preflight(
         return PreflightResult(status="READY", may_start_runner=True, details=details)
 
     status = "RECOVERY_REQUIRED" if recovery else "HALTED"
-    log.error("Snapback preflight FAILED (%s): %s", status, errors)
+    _log_halt_once(status, errors)
     return PreflightResult(
         status=status, may_start_runner=False, errors=errors, details=details
     )

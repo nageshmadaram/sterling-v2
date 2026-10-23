@@ -2924,6 +2924,50 @@ async def auto_scan_loop(interval_s: float = SCAN_INTERVAL_S) -> None:
         _auto_running = False
 
 
+def _lot_ceiling_diagnostic(rows, mode, max_lots, hard_halt, now_ms):
+    """Observed signal stop risk, not a position size or a guaranteed loss bound."""
+    from statistics import median
+    ist = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.fromtimestamp(now_ms / 1000, ist).date()
+    def value(obj, key, default=None):
+        return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+    samples = {}
+    for row in sorted(rows, key=lambda row: value(row, 'timestamp_ms', 0) or 0):
+        at = value(row, 'timestamp_ms', 0) or 0
+        if (not at or at > now_ms or datetime.fromtimestamp(at / 1000, ist).date() != today
+                or value(row, 'horizon_mode') != mode or value(row, 'view_only', False)
+                or not value(row, 'is_active', False)):
+            continue
+        for leg in value(row, 'legs', []) or []:
+            if value(leg, 'is_active', True) is False or value(leg, 'view_only', False):
+                continue
+            symbol = value(leg, 'option_symbol')
+            entry = value(leg, 'premium_spot')
+            stop = value(leg, 'entry_sl')
+            if stop is None:
+                stop = value(leg, 'premium_sl')
+            lot = value(leg, 'lot_size')
+            try:
+                entry, stop, lot = float(entry), float(stop), int(lot)
+            except (ValueError, TypeError):
+                continue
+            if symbol and math.isfinite(entry) and math.isfinite(stop) and 0 < stop < entry and lot > 0:
+                samples[symbol] = (entry-stop)*lot
+    med = float(median(samples.values())) if samples else None
+    ceiling = med*int(max_lots) if med is not None else None
+    data = {'max_lots': int(max_lots), 'lot_cap_is_ceiling': True, 'sample_contracts': len(samples),
+            'median_one_lot_stop_inr': round(med, 2) if med is not None else None,
+            'lot_ceiling_stop_inr': round(ceiling, 2) if ceiling is not None else None,
+            'sample_session': today.isoformat()}
+    warning = None
+    if ceiling is not None and hard_halt > 0 and ceiling > hard_halt:
+        warning = (f"Max lots ({int(max_lots)}) is a ceiling, not a target. At the median current "
+                   f"one-lot plan stop of ₹{med:,.0f}, that ceiling represents ₹{ceiling:,.0f}, "
+                   f"above the account halt of ₹{hard_halt:,.0f}. Actual quantity must pass risk sizing; "
+                   "these estimates exclude gaps, slippage and charges.")
+    return data, warning
+
+
 async def check_live_readiness(client, uid: str) -> dict:
     """Comprehensive pre-flight health and safety diagnostic for live production trading.
 
@@ -3162,6 +3206,13 @@ async def check_live_readiness(client, uid: str) -> dict:
         data = {"enabled": bool(acct_loss.enabled), "hard_halt_inr": -acct_halt,
                 "soft_warn_inr": float(acct_loss.soft_warn_inr), "is_account_override": has_override,
                 "risk_budget_per_trade_inr": round(risk_budget, 2)}
+        scan_state = scanner._users.get(uid)
+        ceiling_data, ceiling_warning = _lot_ceiling_diagnostic(
+            list(scan_state.rows) if scan_state else [], cfg.horizon_mode,
+            cfg.max_lots, acct_halt, now_ms)
+        data.update(ceiling_data)
+        if ceiling_warning and acct_loss.enabled:
+            warnings.append(ceiling_warning)
         if not acct_loss.enabled:
             msg = ("The account-level daily-loss halt is DISABLED; only the per-strategy cap "
                    "limits a bad day.")
@@ -3183,6 +3234,9 @@ async def check_live_readiness(client, uid: str) -> dict:
                 "name": "Account Daily-Loss Limit", "status": "ok",
                 "detail": f"Hard halt at -₹{acct_halt:,.0f} for the day, across every strategy.",
                 "data": data}
+        if ceiling_warning and acct_loss.enabled:
+            checks["account_daily_loss"]["status"] = "warning"
+            checks["account_daily_loss"]["detail"] += " " + ceiling_warning
     except Exception as exc:  # noqa: BLE001 - an unreadable limit is itself worth saying
         warnings.append(f"The account daily-loss limit could not be read: {exc}")
         checks["account_daily_loss"] = {

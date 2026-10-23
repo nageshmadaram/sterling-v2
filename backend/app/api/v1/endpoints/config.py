@@ -797,8 +797,8 @@ async def snapback_snapshot(user: UserContext = Depends(get_current_user)) -> di
     uid = _snapback_uid(user)
     if simulation_runner.has_session_view and getattr(simulation_runner, '_uid', None) == uid:
         return simulation_runner.get_snapback_snapshot()
-    from app.services.snapback import snapshot
-    return snapshot(uid)
+    from app.services.snapback import snapshot_async
+    return await snapshot_async(uid)
 
 
 @router.post("/snapback/scan")
@@ -872,7 +872,8 @@ async def snapback_readiness(user: UserContext = Depends(get_current_user)) -> d
     uid = _snapback_uid(user)
     cfg = get_config(uid)
     st = status(uid)
-    cond = live_conditions(uid, cfg)
+    from app.core.async_work import run_blocking
+    cond = await run_blocking(live_conditions, uid, cfg)
     config_reasons = unsupported_config_reasons(cfg)
 
     codes = [*config_reasons, *cond.blockers]

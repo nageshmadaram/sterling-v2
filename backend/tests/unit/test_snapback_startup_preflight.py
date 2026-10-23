@@ -94,3 +94,20 @@ def test_config_load_exception_halts_rather_than_defaulting():
     assert result.status == "HALTED"
     assert result.may_start_runner is False
     assert any(e.startswith("config_load_failed") for e in result.errors)
+
+
+def test_repeated_halt_logs_once_per_ist_day_and_reason(monkeypatch, caplog):
+    import logging
+    from app.services import snapback_startup as startup
+    day = ['2026-10-23']
+    monkeypatch.setattr(startup, '_halt_log_days', {}, raising=False)
+    monkeypatch.setattr(startup, '_preflight_log_day', lambda: day[0], raising=False)
+    with caplog.at_level(logging.ERROR, logger=startup.__name__):
+        for _ in range(3):
+            result = startup.run_startup_preflight(**_ok_kwargs(config_hash_fn=lambda cfg: 'different'))
+            assert result.status == 'HALTED' and not result.may_start_runner
+        day[0] = '2026-10-26'
+        startup.run_startup_preflight(**_ok_kwargs(config_hash_fn=lambda cfg: 'different'))
+        startup.run_startup_preflight(**_ok_kwargs(config_store_available_fn=lambda: False))
+    errors = [r for r in caplog.records if 'preflight FAILED' in r.message]
+    assert len(errors) == 3

@@ -1,3 +1,5 @@
+> Historical record. Current implementation and verification: [open-gaps/IMPLEMENTATION_LEDGER.md](open-gaps/IMPLEMENTATION_LEDGER.md) and [VALIDATION.md](open-gaps/VALIDATION.md). Old failures/deployment states below are retained as history.
+
 # Merge, synchronization and follow-up fixes — 23 October 2026
 
 The trading QA changes are being integrated through `codex/trader-qa-remediation`. The base is `ff137155a083b2c52981545ff94400764ad6c188`; at the initial fetch, local and remote `main` and `dev` all pointed at that commit. This report supplements [the original audit and remediation](../2026-10-22/FIX_IMPLEMENTATION.md).

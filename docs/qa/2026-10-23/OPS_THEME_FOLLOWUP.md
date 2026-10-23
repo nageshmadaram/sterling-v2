@@ -1,3 +1,5 @@
+> Historical record. Current implementation and verification: [open-gaps/IMPLEMENTATION_LEDGER.md](open-gaps/IMPLEMENTATION_LEDGER.md) and [VALIDATION.md](open-gaps/VALIDATION.md). Old failures/deployment states below are retained as history.
+
 # Operations contrast and release asset storage follow-up — 23 October 2026
 
 The authenticated Operations page correctly reported matching frontend/backend release identity after the backend restart, but its safety cards were difficult to read in light theme. Browser-computed styles showed a dark fallback surface (`rgb(18,20,26)`) beneath dark inherited text (`rgb(68,71,70)`), only **1.96:1 contrast**. The panel referenced an undefined `--k-panel` token. Other status and label tokens also fell back to colours unsuitable for the active theme.

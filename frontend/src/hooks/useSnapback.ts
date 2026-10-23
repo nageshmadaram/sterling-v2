@@ -1,3 +1,5 @@
+import { useConfirm } from '../components/kite/ConfirmDialog';
+import { snapbackPlanReviewText, SnapbackReviewCancelled } from './snapbackPlanReview';
 import { useSimNowMs, useReplayStore } from './useReplayStore';
 /**
  * Snapback — daily swing and minute-bar research plans.
@@ -454,6 +456,7 @@ export interface SnapbackPlanArmResponse {
  */
 export function useExecuteSnapbackSignal() {
   const qc = useQueryClient();
+  const confirm = useConfirm();
   return useMutation({
     mutationFn: async (signalId: string) => {
       const published = await api.post<SnapbackPlanPublishResponse>(
@@ -464,6 +467,12 @@ export function useExecuteSnapbackSignal() {
       const revision = Number(published.revision || 0);
       if (!published.ok || !planId || !Number.isInteger(revision) || revision < 1) {
         throw new Error('Snapback plan was not published');
+      }
+      const ownedPlan = await api.get(`/api/v1/snapback/plans/${encodeURIComponent(planId)}`);
+      const body = snapbackPlanReviewText(ownedPlan, planId, revision);
+      if (!await confirm({ title: 'Review Snapback real entry', body,
+        confirmLabel: 'Arm this revision', cancelLabel: 'Leave unarmed' })) {
+        throw new SnapbackReviewCancelled();
       }
       const idempotencyKey = `snapback-ui:${planId}:${revision}`;
       const armed = await api.post<SnapbackPlanArmResponse>(
@@ -492,8 +501,8 @@ export function useExecuteSnapbackSignal() {
     },
     onError: (err: any) => {
       notifyOrder({
-        kind: 'error',
-        title: 'Snapback blocked',
+        kind: err instanceof SnapbackReviewCancelled ? 'info' : 'error',
+        title: err instanceof SnapbackReviewCancelled ? 'Snapback not armed' : 'Snapback blocked',
         message: err?.message || 'Could not publish and arm the Snapback plan.',
       });
     },

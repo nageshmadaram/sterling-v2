@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 from types import SimpleNamespace
 import pytest
 from app.services import snapback as service
@@ -8,7 +9,7 @@ async def test_multimode_previews_do_not_change_configuration_or_arm_other_modes
     uid='multi-mode-fixture'
     cfg=SimpleNamespace(trading_mode='scalp')
     monkeypatch.setattr(service,'get_config',lambda uid:cfg)
-    monkeypatch.setattr(service,'snapshot',lambda uid:{'rows':service.status(uid).preview_rows})
+    monkeypatch.setattr(service,'snapshot_async',AsyncMock(side_effect=lambda uid:{'rows':service.status(uid).preview_rows}))
     calls=[]
     async def scan(uid, **kwargs):
         calls.append(kwargs.get('mode_override'))
@@ -25,7 +26,7 @@ async def test_stop_cancels_owned_scan_and_cleans_task_registry(monkeypatch):
     uid='cancel-mode-fixture'
     entered=asyncio.Event()
     monkeypatch.setattr(service,'get_config',lambda uid:SimpleNamespace(trading_mode='scalp'))
-    monkeypatch.setattr(service,'snapshot',lambda uid:{'scanning':uid in service._interactive_scans})
+    monkeypatch.setattr(service,'snapshot_async',AsyncMock(side_effect=lambda uid:{'scanning':uid in service._interactive_scans}))
     async def scan(uid, **kwargs):
         entered.set()
         await asyncio.Event().wait()

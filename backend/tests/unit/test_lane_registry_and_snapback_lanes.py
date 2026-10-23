@@ -63,7 +63,7 @@ def test_live_execution_defaults_off_without_operator_authorization():
     env.pop("STERLING_LIVE_EXECUTION", None)
     result = subprocess.check_output(
         [sys.executable, "-c", "from app.core.lane_registry import LIVE_EXECUTION_ENABLED; print(int(LIVE_EXECUTION_ENABLED))"],
-        env=env, text=True,
+        env=env, text=True, cwd=__import__("pathlib").Path(__file__).resolve().parents[2],
     )
     assert result.strip() == "0"
 

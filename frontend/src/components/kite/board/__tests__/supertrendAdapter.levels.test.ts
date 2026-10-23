@@ -77,3 +77,22 @@ describe('signal time', () => {
     expect(supertrendLegToBoard(r, l, 0, {}).atMs).toBe(open1015 + 3_600_000);
   });
 });
+
+
+describe('signal price reference clarity', () => {
+  it('shows this leg strike distance and strike-step classification at signal time', () => {
+    const other = { ...leg, moneyness: 'OTM1', strike: 24200 };
+    const signal = supertrendLegToBoard(row, other, 0, {});
+    const facts = signal.sections.flatMap(section => section.stats);
+    expect(facts.find(f => f.label === 'Strike − signal spot')?.value).toBe('+100.00 pts');
+    expect(facts.find(f => f.label === 'Moneyness (strike steps)')?.value).toBe('OTM1');
+  });
+  it('blocks a new entry when the known live premium is already below its hard stop', () => {
+    const nowMs = Date.UTC(2026, 9, 12, 8);
+    const active = { ...row, timestamp_ms: Date.UTC(2026, 9, 12, 4) };
+    const signal = supertrendLegToBoard(active, leg, 0, { nowMs,
+      quotes: { 'NFO:NIFTY26OCT24000CE': { last_price: 75 } } });
+    expect(signal.executionEligible).toBe(false);
+    expect(signal.flags?.some(flag => flag.label === 'PRICE ≤ STOP')).toBe(true);
+  });
+});

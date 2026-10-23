@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone, time as dtime
 from typing import Optional
 
+from app.core.async_work import run_blocking
 from app.core.logging import get_logger
 from app.engines.gamma_move import (
     Candle, ContractEngine, GammaMoveConfig, GammaSignal, InstrumentRef, WatchContract,
@@ -256,6 +257,13 @@ def _to_candles(rows, *, oi: bool = False) -> list[Candle]:
 
 async def _historical(client, pacer: Pacer, token: int, interval: str,
                       frm: str, to: str, oi: bool) -> list:
+    from app.services.gamma_move_history_cache import historical
+    return await historical(client, token, interval, frm, to, oi,
+        lambda start, end: _historical_uncached(client, pacer, token, interval, start, end, oi))
+
+
+async def _historical_uncached(client, pacer: Pacer, token: int, interval: str,
+                              frm: str, to: str, oi: bool) -> list:
     # These are idempotent market-data GETs; order writes never enter this retry.
     import httpx
     from app.services.exchanges.kite.errors import KiteNetworkError
@@ -394,10 +402,10 @@ async def _level_stage(uid: str, cfg: GammaMoveConfig, client, today: date):
         bars = _closed_daily(_to_candles(raw), today)[-cfg.zone_daily_bars:]
         if len(bars) < 2 * cfg.zone_pivot_len + cfg.zone_atr_len:
             continue
-        state = compute_zones(bars, cfg)
+        state = await run_blocking(compute_zones, bars, cfg)
         levels[name] = pick_levels(state, spot)
         spots[name] = spot
-        atrs[name] = daily_atr_pct(bars)
+        atrs[name] = await run_blocking(daily_atr_pct, bars)
         underlying[name] = (token, bars)
     if errors:
         # A partial broker/history outage is not evidence that the failed
@@ -562,6 +570,133 @@ async def _watchlist_stage(uid: str, cfg: GammaMoveConfig, client,
     return watches
 
 
+def _build_runtime(watch, cfg, bars, underlying_bars, spot, recorded_signals, recorded_inputs, today):
+    """Replay into a new local engine; publish the result only on the owning loop."""
+    engine = ContractEngine(watch, cfg)
+    # Reference restart parity: replay today's closed bars and already
+    # recorded E1s in timestamp order. E1 is applied BEFORE the close of
+    # the bar in which it happened, exactly as the client resume path does.
+    recorded = sorted(
+        (
+            sig for sig in (recorded_signals or [])
+            if sig.contract.instrument.tradingsymbol
+                == watch.instrument.tradingsymbol
+            and datetime.fromtimestamp(sig.at_ms / 1000, IST).date()
+                == today
+        ),
+        key=lambda sig: sig.at_ms,
+    )
+    sig_idx = 0
+    replay_day: date | None = None
+    for index in range(cfg.warmup_bars - 1, len(bars)):
+        bar_day = datetime.fromtimestamp(
+            bars[index].ts_ms / 1000, IST
+        ).date()
+        if replay_day is not None and bar_day != replay_day:
+            # The client resets its E2/cycle state every session. Historical
+            # warm-up spans multiple days, so the restart path must do the
+            # same or yesterday's ARMED base can leak into today's ticks.
+            engine.reset_day()
+        replay_day = bar_day
+        close_ms = bars[index].ts_ms + 5 * 60_000
+        while sig_idx < len(recorded) and recorded[sig_idx].at_ms < close_ms:
+            engine.restore_recorded_e1(recorded[sig_idx])
+            sig_idx += 1
+        exact = recorded_inputs.get((
+            int(watch.instrument.instrument_id),
+            bars[index].ts_ms,
+        ))
+        if exact is not None:
+            engine.on_bar_close(
+                bars[:index + 1],
+                oi_now=exact[0],
+                oi_peak_value=exact[1],
+            )
+        else:
+            engine.on_bar_close(bars[:index + 1])
+    # E1s inside the currently forming bar happened after the last close
+    # but before restart/rebuild; close their cycles silently as well.
+    while sig_idx < len(recorded):
+        engine.restore_recorded_e1(recorded[sig_idx])
+        sig_idx += 1
+    today_bars = [
+        b for b in bars
+        if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == today
+    ]
+    token = int(watch.instrument.instrument_id)
+    exact_peaks = [
+        values[1]
+        for (tok, _ts), values in recorded_inputs.items()
+        if tok == token and values[1] > 0
+    ]
+    return RuntimeWatch(
+        watch, engine, bars, underlying_bars,
+        spot,
+        oi_peak_today=(
+            max(exact_peaks)
+            if exact_peaks
+            else max((b.oi for b in today_bars if b.oi > 0), default=0.0)
+        ),
+        oi_peak_day=today,
+    )
+
+
+async def _runtime_inputs(uid, day):
+    key = (uid, day.isoformat())
+    if key not in _bar_inputs_cache:
+        read = await run_blocking(_read_bar_inputs, uid, day)
+        _bar_inputs_cache.setdefault(key, read)
+    return _load_bar_inputs(uid, day)
+
+
+async def reuse_owner_market_data(uid, cfg, *, now, recorded_signals=None):
+    """Seed only market facts into a separate virtual engine; never copy fills/E1s."""
+    from app.services.simulation.identity import is_sim_uid, owner_uid
+    from app.services.gamma_move import get_config
+    if not is_sim_uid(uid):
+        return None
+    owner = owner_uid(uid)
+    day = now.astimezone(IST).date()
+    parent_cfg = await run_blocking(get_config, owner)
+    if parent_cfg.as_dict() != cfg.as_dict() or not completed_scan_for_day(owner, day):
+        return None
+    parent = dict(_runtime.get(owner) or {})
+    if not parent:
+        return None
+    now_ms = int(now.timestamp() * 1000)
+    snapshots = []
+    for token, rt in parent.items():
+        bars = list(rt.closed_bars)
+        if (rt.oi_peak_day != day or rt.engine.cfg.as_dict() != cfg.as_dict() or not bars):
+            return None
+        close_ms = bars[-1].ts_ms + 5 * 60_000
+        if close_ms > now_ms or now_ms-close_ms > 10 * 60_000:
+            return None
+        snapshots.append((token, rt.contract, bars, list(rt.underlying_bars), float(rt.spot)))
+    owner_inputs = await _runtime_inputs(owner, day)
+    own_inputs = await _runtime_inputs(uid, day)
+    inputs = {**owner_inputs, **own_inputs}
+    new = {token: rt for token, rt in _runtime.get(uid, {}).items()
+           if rt.oi_peak_day == day and rt.engine.cfg.as_dict() == cfg.as_dict()}
+    for token, watch, bars, underlying_bars, spot in snapshots:
+        if token not in new:
+            new[token] = await run_blocking(_build_runtime, watch, cfg, bars, underlying_bars,
+                                            spot, list(recorded_signals or []), inputs, day)
+    _runtime[uid] = new
+    parent_stats = _stats[owner]
+    _stats[uid] = {
+        **parent_stats, 'last_run_ms': now_ms, 'issue': '',
+        'recovery_source': 'owner_market_data',
+        'selection_built_at_ms': parent_stats.get('last_run_ms'),
+        'market_data_asof_ms': min(rt.closed_bars[-1].ts_ms+5*60_000 for rt in new.values()),
+        'stage_c': {'watched': len(new), 'armed': sum(rt.engine.state.value == 'ARMED' for rt in new.values()),
+                    'historical_requests': 0, 'seconds': 0},
+    }
+    _issue.pop(uid, None)
+    return {'watching': len(new), 'watchlist': [watch_view(rt) for rt in new.values()],
+            'recovery_source': 'owner_market_data'}
+
+
 async def _prime_runtime(
     uid: str,
     cfg: GammaMoveConfig,
@@ -591,7 +726,7 @@ async def _prime_runtime(
     underlying_5m: dict[str, list[Candle]] = {}
     underlying_failures: dict[str, str] = {}
     failures: list[str] = []
-    recorded_inputs = _load_bar_inputs(uid, today)
+    recorded_inputs = await _runtime_inputs(uid, today)
     for watch in watches:
         if (watch.underlying, watch.list_name) in retained_pairs:
             continue
@@ -627,73 +762,10 @@ async def _prime_runtime(
         if watch.underlying in underlying_failures:
             failures.append(underlying_failures[watch.underlying])
             continue
-        engine = ContractEngine(watch, cfg)
-        # Reference restart parity: replay today's closed bars and already
-        # recorded E1s in timestamp order. E1 is applied BEFORE the close of
-        # the bar in which it happened, exactly as the client resume path does.
-        recorded = sorted(
-            (
-                sig for sig in (recorded_signals or [])
-                if sig.contract.instrument.tradingsymbol
-                    == watch.instrument.tradingsymbol
-                and datetime.fromtimestamp(sig.at_ms / 1000, IST).date()
-                    == today
-            ),
-            key=lambda sig: sig.at_ms,
-        )
-        sig_idx = 0
-        replay_day: date | None = None
-        for index in range(cfg.warmup_bars - 1, len(bars)):
-            bar_day = datetime.fromtimestamp(
-                bars[index].ts_ms / 1000, IST
-            ).date()
-            if replay_day is not None and bar_day != replay_day:
-                # The client resets its E2/cycle state every session. Historical
-                # warm-up spans multiple days, so the restart path must do the
-                # same or yesterday's ARMED base can leak into today's ticks.
-                engine.reset_day()
-            replay_day = bar_day
-            close_ms = bars[index].ts_ms + 5 * 60_000
-            while sig_idx < len(recorded) and recorded[sig_idx].at_ms < close_ms:
-                engine.restore_recorded_e1(recorded[sig_idx])
-                sig_idx += 1
-            exact = recorded_inputs.get((
-                int(watch.instrument.instrument_id),
-                bars[index].ts_ms,
-            ))
-            if exact is not None:
-                engine.on_bar_close(
-                    bars[:index + 1],
-                    oi_now=exact[0],
-                    oi_peak_value=exact[1],
-                )
-            else:
-                engine.on_bar_close(bars[:index + 1])
-        # E1s inside the currently forming bar happened after the last close
-        # but before restart/rebuild; close their cycles silently as well.
-        while sig_idx < len(recorded):
-            engine.restore_recorded_e1(recorded[sig_idx])
-            sig_idx += 1
-        today_bars = [
-            b for b in bars
-            if datetime.fromtimestamp(b.ts_ms / 1000, IST).date() == today
-        ]
-        token = int(watch.instrument.instrument_id)
-        exact_peaks = [
-            values[1]
-            for (tok, _ts), values in recorded_inputs.items()
-            if tok == token and values[1] > 0
-        ]
-        new[token] = RuntimeWatch(
-            watch, engine, bars, underlying_5m[watch.underlying],
-            spots.get(watch.underlying, watch.ref_price),
-            oi_peak_today=(
-                max(exact_peaks)
-                if exact_peaks
-                else max((b.oi for b in today_bars if b.oi > 0), default=0.0)
-            ),
-            oi_peak_day=today,
-        )
+        new[int(watch.instrument.instrument_id)] = await run_blocking(
+            _build_runtime, watch, cfg, bars, underlying_5m[watch.underlying],
+            spots.get(watch.underlying, watch.ref_price), recorded_signals,
+            recorded_inputs, today)
     _runtime[uid] = new
     return list(dict.fromkeys(failures))
 
@@ -712,6 +784,7 @@ async def scan_once(
     client = await accounts.acquire_client(acct)
     day = today or datetime.now(IST).date()
     started = time.monotonic()
+    started_at = datetime.now(IST)
     _issue.pop(uid, None)
     if (not getattr(client, "_access_token", "")
             and getattr(client, "_is_paper", None) is not True):
@@ -792,6 +865,14 @@ async def scan_once(
         except Exception as exc:
             log.warning("gamma_unwind history persist failed for %s: %s", uid, exc)
         raise RuntimeError(message)
+    from app.services.gamma_move_scan_cache import save_slot
+    for clock in cfg.build_watchlists_times:
+        slot = datetime.combine(day, dtime(*map(int, clock.split(':'))), IST)
+        if 0 <= (started_at - slot).total_seconds() <= 90:
+            try:
+                await run_blocking(save_slot, uid, cfg, slot, watches, underlying, spots)
+            except Exception as exc:
+                log.warning('Gamma selection cache write unavailable: %s', type(exc).__name__)
     near = sum(
         1 for level in levels.values()
         if any(_approaching(level, cfg))
@@ -868,9 +949,16 @@ async def recover_scheduled_watchlist(
     started = time.monotonic()
     _issue.pop(uid, None)
 
-    dump, contexts, errors, master_notes = await historical_underlyings(
-        uid, cfg, client, day
-    )
+    from app.services.gamma_move_scan_cache import load_slot, save_slot
+    due_slots = [datetime.combine(day, dtime(*map(int, clock.split(':'))), IST)
+                 for clock in sorted(cfg.build_watchlists_times)]
+    due_slots = [slot for slot in due_slots if slot <= build_time]
+    cached_slots = {slot: await run_blocking(load_slot, uid, cfg, slot) for slot in due_slots}
+    if due_slots and all(value is not None for value in cached_slots.values()):
+        dump, contexts, errors, master_notes = [], {}, [], []
+    else:
+        dump, contexts, errors, master_notes = await historical_underlyings(uid, cfg, client, day)
+    cached_underlying, cached_spots = {}, {}
     # Recover every already-due additive build, not just the last slot. A
     # restart must not forget a morning watch that later left its zone.
     watches = []
@@ -881,17 +969,32 @@ async def recover_scheduled_watchlist(
         slot_ms = int(datetime.combine(day, dtime(hour, minute), IST).timestamp() * 1000)
         if slot_ms > build_ms:
             continue
-        selected, failures = await historical_watches_at(
-            uid, cfg, client, day, dump, contexts, slot_ms
-        )
+        slot = datetime.fromtimestamp(slot_ms / 1000, IST)
+        cached = cached_slots.get(slot)
+        if cached is not None:
+            selected, saved_underlying, saved_spots = cached
+            cached_underlying.update(saved_underlying)
+            cached_spots.update(saved_spots)
+            failures = []
+        else:
+            selected, failures = await historical_watches_at(uid, cfg, client, day, dump, contexts, slot_ms)
+            from app.services.gamma_move_historical import UNTRADED_NOTE
+            if not errors and not any(not str(f).startswith(UNTRADED_NOTE) for f in failures):
+                slot_underlying = {name: (int(ctx.token), list(ctx.daily)) for name, ctx in contexts.items()}
+                slot_spots = {name: float(bar.close) for name, ctx in contexts.items()
+                              if (bar := historical_last_closed(ctx.five, slot_ms, 5)) is not None and bar.close > 0}
+                try:
+                    await run_blocking(save_slot, uid, cfg, slot, selected, slot_underlying, slot_spots)
+                except Exception as exc:
+                    log.warning('Gamma selection cache write unavailable: %s', type(exc).__name__)
         fresh_pairs = {(w.underlying, w.list_name) for w in selected} - recovered_pairs
         watches.extend(w for w in selected if (w.underlying, w.list_name) in fresh_pairs)
         recovered_pairs.update(fresh_pairs)
         watch_failures.extend(failures)
     coverage = [*master_notes, *errors, *watch_failures]
 
-    spots: dict[str, float] = {}
-    underlying: dict[str, tuple[int, list[Candle]]] = {}
+    spots: dict[str, float] = dict(cached_spots)
+    underlying: dict[str, tuple[int, list[Candle]]] = dict(cached_underlying)
     for name, ctx in contexts.items():
         bar = historical_last_closed(ctx.five, build_ms, 5)
         if bar is not None and bar.close > 0:
@@ -938,6 +1041,7 @@ async def recover_scheduled_watchlist(
         "total_seconds": elapsed,
         "recovered_slot": build_time.strftime("%H:%M"),
         "recovery_source": "scheduled_history",
+        "cached_build_slots": sum(value is not None for value in cached_slots.values()),
         "coverage": list(dict.fromkeys(
             str(v) for v in [*coverage, *prime_failures] if v
         ))[:20],

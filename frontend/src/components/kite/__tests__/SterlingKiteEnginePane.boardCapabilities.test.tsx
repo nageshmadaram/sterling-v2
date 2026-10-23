@@ -20,7 +20,7 @@ import React from 'react';
  * These tests write to the PERSISTED settings store, which means localStorage.
  *
  * Left behind, that is a booby trap for whatever file runs next: a stray
- * `boardRenderer: 'shared'` makes a later test render a different component than
+ * `` makes a later test render a different component than
  * it was written against, and the failure surfaces far from its cause. This
  * suite already has a history of order-dependent flakes for exactly this reason,
  * so each file clears up after itself rather than only before itself.
@@ -252,14 +252,14 @@ describe('the settings panel offers all three', () => {
 describe('the board renderer', () => {
   beforeEach(() => { localStorage.clear(); vi.resetModules(); });
 
-  it('draws the classic table until the shared one is at parity', async () => {
+  it('draws the shared leg table by default', async () => {
     mockPane();
     await renderPane();
     expect(legRow(), 'the bespoke row is what renders').not.toBeNull();
   });
 
-  it('switches to the shared board when chosen', async () => {
-    (await store()).setState({ boardRenderer: 'shared' });
+  it('uses the shared board consistently', async () => {
+    (await store()).setState({ });
     mockPane();
     await renderPane();
     // The shared board's own row class, and none of the bespoke one's.
@@ -271,12 +271,12 @@ describe('the board renderer', () => {
     mockPane();
     await renderSettingsPanel();
     expect(screen.queryByText('Shared board renderer')).toBeNull();
-    expect((await store()).getState().boardRenderer).toBe('shared');
+    expect((await store()).getState()).not.toHaveProperty('boardRenderer');
   });
 
   it('carries the capability settings into the shared board', async () => {
     // The three features exist on both renderers or the choice is not free.
-    (await store()).setState({ boardRenderer: 'shared', boardRowScroll: true, boardRowActions: true });
+    (await store()).setState({ boardRowScroll: true, boardRowActions: true });
     mockPane();
     await renderPane();
     // The LEG row, not the parent. A parent is a summary — `justify-content:
@@ -289,7 +289,7 @@ describe('the board renderer', () => {
   });
 
   it('drops the shared board’s row actions when the setting is off', async () => {
-    (await store()).setState({ boardRenderer: 'shared', boardRowActions: false });
+    (await store()).setState({ boardRowActions: false });
     mockPane();
     await renderPane();
     expect(document.querySelector('.sb-row')).not.toBeNull();
@@ -311,7 +311,7 @@ describe('the two renderers do not both draw furniture', () => {
   beforeEach(() => { localStorage.clear(); vi.resetModules(); });
 
   it('draws exactly one heading strip on the shared renderer', async () => {
-    (await store()).setState({ boardRenderer: 'shared' });
+    (await store()).setState({ });
     mockPane();
     await renderPane();
     expect(document.querySelectorAll('.st-header-row').length,
@@ -320,7 +320,7 @@ describe('the two renderers do not both draw furniture', () => {
            'the shared strip draws once').toBe(1);
   });
 
-  it('draws exactly one on the classic renderer', async () => {
+  it('draws exactly one header for the migrated renderer', async () => {
     mockPane();
     await renderPane();
     expect(document.querySelectorAll('.st-header-row').length).toBe(0);
@@ -328,7 +328,7 @@ describe('the two renderers do not both draw furniture', () => {
   });
 
   it('never renders both row implementations at once', async () => {
-    (await store()).setState({ boardRenderer: 'shared' });
+    (await store()).setState({ });
     mockPane();
     await renderPane();
     expect(document.querySelectorAll('.st-leg-row').length).toBe(0);
@@ -353,7 +353,7 @@ describe('the shared renderer asks for this engine’s columns', () => {
     [...document.querySelectorAll('.sb-head-row .sb-head')].map((h) => h.textContent!.trim());
 
   it('does not add the shared board’s generic columns', async () => {
-    (await store()).setState({ boardRenderer: 'shared' });
+    (await store()).setState({ });
     mockPane();
     await renderPane();
     const heads = headings();
@@ -363,7 +363,7 @@ describe('the shared renderer asks for this engine’s columns', () => {
   });
 
   it('shows the ones it does have, in the operator’s order', async () => {
-    (await store()).setState({ boardRenderer: 'shared' });
+    (await store()).setState({ });
     mockPane();
     await renderPane();
     const heads = headings();
