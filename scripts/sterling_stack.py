@@ -717,6 +717,26 @@ def acquire_manager_lock(lock, *, foreground):
         return True
 
 
+def public_phase(verified):
+    values=list(verified.values())
+    return 'ready' if values and all(values) else 'degraded' if any(values) else 'reconnecting'
+
+
+def verified_urls(state):
+    ready=state.get('public_ready') or {}
+    urls=dict(state.get('urls') or {})
+    if ready.get('cloudflare'):
+        urls.setdefault('cloudflare',state.get('cloudflare_url') or state.get('app_url',''))
+    if ready.get('ngrok'):
+        urls.setdefault('ngrok',state.get('ngrok_url') or (state.get('app_url','') if state.get('mode')=='ngrok' else ''))
+    return {provider:url for provider,url in urls.items() if ready.get(provider) and url}
+
+
+def verified_origin(state):
+    urls=verified_urls(state)
+    return urls.get('cloudflare') or urls.get('ngrok') or ''
+
+
 class Stack:
     def __init__(self,args):
         self.args=args;self.children={};self.logs=[];self.urls=queue.Queue();self.stopping=False;self.rotate=False
@@ -855,15 +875,16 @@ class Stack:
         ],cwd=ROOT/'frontend',env=env,stdout=log,stderr=log,start_new_session=True)
 
     def publish(self):
-        origin=self.status['app_url']
-        secondary=self.status.get('ngrok_url','') if self.args.provider=='both' and self.status['public_ready'].get('ngrok') else ''
+        origin=verified_origin(self.status)
+        if not origin:return False
+        secondary=next((url for url in verified_urls(self.status).values() if url!=origin),'')
         mode='both' if self.args.provider=='both' else self.status['mode']
         result=subprocess.run([str(self.python),str(ROOT/'scripts/publish_public_access.py'),origin,mode,secondary],
                               cwd=ROOT/'backend',env=clean_env(),capture_output=True,text=True,timeout=40)
         try:data=json.loads(result.stdout.strip().splitlines()[-1])
         except (ValueError,IndexError):data={}
         if result.returncode or not data.get('published'):return False
-        self.status.update(phase='ready',mini_app_url=origin+'/tma',callback_url=origin+'/api/v1/kite/callback',
+        self.status.update(phase=public_phase(self.status.get('public_ready',{})),mini_app_url=origin+'/tma',callback_url=origin+'/api/v1/kite/callback',
                            last_verified_at=time.time(),telegram_menu_updated=data.get('telegram_menu_updated',False))
         self.last_public_signature=(origin,secondary)
         self.published=True;self.last_publish=time.monotonic()
@@ -1053,16 +1074,16 @@ class Stack:
                 # before the optional Telegram-menu publication can block.
                 self.status['children']={name:proc.pid for name,proc in self.children.items()}
                 save_state(self.status)
-                if primary_ready:
-                    self.status['phase']='ready'
+                self.status['phase']=public_phase(self.status['public_ready'])
+                if primary_ready or ngrok_ready:
                     self.failures=0
                     self.status['last_verified_at']=time.time()
-                    signature=(primary,secondary if ngrok_ready else '')
+                    chosen=verified_origin(self.status)
+                    signature=(chosen,next((u for u in self.status['urls'].values() if u!=chosen),''))
                     if (signature!=self.last_public_signature or
                             (not self.status.get('telegram_menu_updated') and now-self.last_publish>60)):
                         self.publish()
                 else:
-                    self.status['phase']='reconnecting'
                     # Do not rotate on backend failure. Only replace an
                     # unavailable public transport after repeated probes.
                     self.failures=(self.failures+1
@@ -1215,7 +1236,7 @@ def main():
             # a slow but still-bound trading process must never be replaced.
             backend_missing=(state.get('phase')!='starting'
                              and not _backend_listener_present())
-            if not backend_missing and (state.get('phase')!='ready'
+            if not backend_missing and (state.get('phase') not in {'ready','degraded'}
                                         or _managed_web_owns_port(state)):
                 state=wait_for_up_status(state['manager_pid'],
                     seconds=os.environ.get('STERLING_UP_WAIT_SECONDS','60'),

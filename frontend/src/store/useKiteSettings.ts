@@ -125,8 +125,6 @@ export interface KiteSettingsState {
    * marks supplied by the engine, alongside `renderRowActions`. Until then this
    * setting is a way to see the shared renderer, not a recommendation.
    */
-  boardRenderer: 'shared' | 'classic';
-  setBoardRenderer: (r: 'shared' | 'classic') => void;
   /**
    * List or cards, for the signal table.
    *
@@ -224,7 +222,6 @@ export const useKiteSettings = create<KiteSettingsState>()(
       boardDragColumns: true,
       boardRowScroll: true,
       boardRowActions: true,
-      boardRenderer: 'shared',
       signalViewLayout: 'list',
       // Everything included by default: an operator who has never opened this
       // should get the behaviour the button has always had.
@@ -249,7 +246,6 @@ export const useKiteSettings = create<KiteSettingsState>()(
       setChgType: (t) => set({ chgType: t }),
       toggleShow: (key) => set((state) => ({ [key]: !state[key] })),
       toggleBoardCapability: (key) => set((state) => ({ [key]: !state[key] })),
-      setBoardRenderer: (r) => set({ boardRenderer: r }),
       setSignalViewLayout: (l) => set({ signalViewLayout: l }),
       // Absent means included, so the map only ever holds exclusions. That keeps
       // a new engine included the day it appears, rather than silently missing
@@ -282,7 +278,6 @@ export const useKiteSettings = create<KiteSettingsState>()(
         boardDragColumns: true,
         boardRowScroll: true,
         boardRowActions: true,
-        boardRenderer: 'shared',
         signalViewLayout: 'list',
         rescanStrategies: {},
         showPriceChange: true,
@@ -298,7 +293,7 @@ export const useKiteSettings = create<KiteSettingsState>()(
     }),
     {
       name: 'kite-settings',
-      version: 13,
+      version: 14,
       migrate: (persisted: any) => {
         const loaderStyle = (() => {
           const legacy = persisted?.loaderStyle;
@@ -326,19 +321,6 @@ export const useKiteSettings = create<KiteSettingsState>()(
         // the in-row order buttons all switched off, having chosen nothing.
         for (const key of ['boardDragColumns', 'boardRowScroll', 'boardRowActions'] as const) {
           if (typeof next[key] !== 'boolean') next = { ...next, [key]: true };
-        }
-
-        // v6 introduces the shared renderer as an OPT-IN, not the default.
-        //
-        // Switching it on by default would have been the wrong kind of "done":
-        // the shared board groups by trading day, so the classic table's
-        // "Active now" and "Today (ended)" buckets vanish, and a signal whose
-        // strike resolved to nothing loses the message explaining why. Twenty-
-        // seven existing tests said so. Those describe behaviour, not markup, so
-        // the answer is to close the gaps before flipping the default — not to
-        // update the tests and call the difference gone.
-        if (next.boardRenderer !== 'shared' && next.boardRenderer !== 'classic') {
-          next = { ...next, boardRenderer: 'shared' };
         }
 
         // v8 puts Trade and Chart in the signal table's column list.
@@ -407,7 +389,9 @@ export const useKiteSettings = create<KiteSettingsState>()(
         }
         next = { ...next, engineOrder: next.engineOrder.filter((id: string) => ENGINE_ORDER.includes(id)) };
 
-        return { ...next, boardRenderer: 'shared' };
+        // v14 retires the renderer choice; shared-board capabilities remain intact.
+        const { boardRenderer: _oldRenderer, setBoardRenderer: _oldSetter, ...current } = next;
+        return current;
       },
     },
   ),

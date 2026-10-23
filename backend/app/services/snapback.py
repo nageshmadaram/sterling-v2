@@ -20,6 +20,8 @@ lost forever if the scan that would have seen it did not run.
 """
 from __future__ import annotations
 
+from app.core.async_work import run_blocking
+
 import asyncio
 import json
 import math
@@ -779,9 +781,9 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
     if not cfg.enabled:
         st.rows = []
         st.last_error = "engine disabled"
-        return snapshot(uid)
+        return await snapshot_async(uid)
     if st.scanning or (mode_override is None and uid in _interactive_scans and asyncio.current_task() is not _interactive_scans[uid]):
-        return snapshot(uid)
+        return await snapshot_async(uid)
 
     st.scanning = True
     start_gen = st.config_generation
@@ -880,8 +882,8 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
                                     latest_closed_session=latest_closed_session,
                                     dataset_start=dataset_start(),
                                 )
-                                collector = SnapbackProspectiveCollector()
-                                collector.record_signal_at_close(
+                                collector = await run_blocking(SnapbackProspectiveCollector)
+                                await run_blocking(collector.record_signal_at_close,
                                     sig, cfg, source=verdict.source
                                 )
                             except Exception as collector_exc:
@@ -942,7 +944,7 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
             st.rows = []
             st.signals = {}
             log.info("%s: config changed during scan; discarding stale scan result", STRATEGY_ID)
-            return snapshot(uid)
+            return await snapshot_async(uid)
         rows.sort(key=lambda r: (r["state"] != "armed", -abs(r["stretch"]),
                                  r["symbol"]))
         st.rows = rows
@@ -972,7 +974,7 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
         st.scanning = False
     if mode_override is not None:
         return {"rows": st.rows, "scanned": st.scanned, "last_error": st.last_error}
-    return snapshot(uid)
+    return await snapshot_async(uid)
 
 
 def extract_raw_quote_event(contract_id: str, quote_dict: dict) -> Optional[RawQuoteEvent]:
@@ -1101,9 +1103,9 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
         from app.services.navigator.calendar import next_trading_day
         from app.services.kite_engine.futures import pick_futures_contract
         from app.services.kite_engine.strikes import chain_rows_for, filter_chain_by_expiry_types, _expiry_date_set
-        collector = SnapbackProspectiveCollector()
+        collector = await run_blocking(SnapbackProspectiveCollector)
 
-        pending = collector.warehouse.get_pending_opportunities()
+        pending = await run_blocking(collector.warehouse.get_pending_opportunities)
         if not pending or not client:
             return 0
 
@@ -1128,8 +1130,8 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                 continue
 
             if curr_date > expected_t1_date:
-                collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE")
-                collector.warehouse.record_decision(
+                await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE")
+                await run_blocking(collector.warehouse.record_decision,
                     decision_id=f"DECISION-{opp_id}",
                     opportunity_id=opp_id,
                     symbol=symbol,
@@ -1141,7 +1143,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                 continue
 
             # An opportunity fills at most once, ever.
-            if collector.warehouse.opportunity_already_filled(opp_id):
+            if await run_blocking(collector.warehouse.opportunity_already_filled, opp_id):
                 log.debug("Skipping %s: already filled", opp_id)
                 continue
 
@@ -1166,7 +1168,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     decision=continuity.reasons[0],
                     reason_codes=continuity.reasons,
                 )
-                collector.warehouse.update_opportunity_status(opp_id, continuity.reasons[0])
+                await run_blocking(collector.warehouse.update_opportunity_status, opp_id, continuity.reasons[0])
                 log.warning(
                     "Skipping T+1 fill for %s: opening window not continuously observed (%s)",
                     opp_id, ", ".join(continuity.reasons),
@@ -1175,7 +1177,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                 continue
 
             # Atomically lock opportunity using lease token (guards against duplicate processing)
-            locked, lease_token = collector.warehouse.try_lock_pending_opportunity(opp_id)
+            locked, lease_token = await run_blocking(collector.warehouse.try_lock_pending_opportunity, opp_id)
             if not locked:
                 log.debug("Skipping pending opportunity %s: already processing or non-pending", opp_id)
                 continue
@@ -1188,8 +1190,8 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     identity = identity_from_opportunity(opp)
                 except IdentityError as ident_exc:
                     log.warning("Skipping T+1 fill for %s: %s", opp_id, ident_exc)
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE_IDENTITY")
-                    collector.warehouse.record_decision(
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE_IDENTITY")
+                    await run_blocking(collector.warehouse.record_decision,
                         decision_id=f"DECISION-{opp_id}-IDENTITY-{now_ms_for_decision()}",
                         opportunity_id=opp_id, symbol=symbol,
                         decision="INCONCLUSIVE_IDENTITY", reason=str(ident_exc),
@@ -1226,7 +1228,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                         "Skipping T+1 fill for %s: INCONCLUSIVE_UNDERLYING_QUOTE (%s)",
                         opp_id, getattr(spot_decision, "reason_codes", ["missing_quote"]),
                     )
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE_UNDERLYING_QUOTE")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE_UNDERLYING_QUOTE")
                     record_attempt(
                         collector.warehouse, opportunity_id=opp_id,
                         session_date=str(curr_date), continuous=True,
@@ -1247,14 +1249,14 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
 
                 chain = chain_rows_for(rows or [], symbol, ist_today())
                 if not chain:
-                    collector.warehouse.update_opportunity_status(opp_id, "NO_FILL")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "NO_FILL")
                     processed += 1
                     continue
 
                 # Filter chain to ONLY verified monthly expiries
                 chain = filter_chain_by_expiry_types(chain, ["monthly"], ist_today())
                 if not chain:
-                    collector.warehouse.update_opportunity_status(opp_id, "NO_FILL")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "NO_FILL")
                     processed += 1
                     continue
 
@@ -1278,7 +1280,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                         "to price the chain on a substituted vol",
                         opp_id, raw_signal_iv,
                     )
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE")
                     processed += 1
                     continue
 
@@ -1317,7 +1319,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     ))
 
                 if not cand_symbols:
-                    collector.warehouse.update_opportunity_status(opp_id, "NO_FILL")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "NO_FILL")
                     processed += 1
                     continue
 
@@ -1340,7 +1342,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     except Exception:
                         continue
                 if not candidate_expiries:
-                    collector.warehouse.update_opportunity_status(opp_id, "NO_FILL")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "NO_FILL")
                     processed += 1
                     continue
 
@@ -1350,8 +1352,8 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     )
                 except HedgeContractError as hedge_exc:
                     log.warning("Skipping T+1 fill for %s: %s", opp_id, hedge_exc)
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE_HEDGE_CONTRACT")
-                    collector.warehouse.record_decision(
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE_HEDGE_CONTRACT")
+                    await run_blocking(collector.warehouse.record_decision,
                         decision_id=f"DECISION-{opp_id}-HEDGE-{now_ms_for_decision()}",
                         opportunity_id=opp_id,
                         symbol=symbol,
@@ -1367,7 +1369,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     venue = venue_from_opportunity(opp)
                 except VenueUnknown as venue_exc:
                     log.warning("Skipping T+1 fill for %s: %s", opp_id, venue_exc)
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE_VENUE_IDENTITY")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE_VENUE_IDENTITY")
                     processed += 1
                     continue
                 fut_key = venue.derivative_key(futures_symbol)
@@ -1376,7 +1378,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                 fut_event = extract_raw_quote_event(futures_symbol, q_fut_raw)
                 if not fut_event:
                     log.warning("Skipping T+1 fill for %s: missing genuine futures exchange quote event for %s", opp_id, futures_symbol)
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE")
                     processed += 1
                     continue
 
@@ -1428,7 +1430,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                         "Skipping T+1 fill for %s: %s (%s)",
                         opp_id, beta_snapshot.status, beta_snapshot.reason_codes,
                     )
-                    collector.warehouse.update_opportunity_status(opp_id, "INCONCLUSIVE_CAUSAL_BETA")
+                    await run_blocking(collector.warehouse.update_opportunity_status, opp_id, "INCONCLUSIVE_CAUSAL_BETA")
                     processed += 1
                     continue
 
@@ -1441,7 +1443,7 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
                     quantity=int(fut_lot_size or 0),
                 )
 
-                entry_result = collector.execute_pending_entry(
+                entry_result = await run_blocking(collector.execute_pending_entry,
                     opportunity_id=opp_id,
                     cfg=cfg,
                     available_capital=frozen_capital,
@@ -1472,9 +1474,9 @@ async def process_prospective_pending_entries(client, cfg: SnapbackConfig) -> in
 
             except Exception as opp_exc:
                 log.debug("Pending prospective entry processing failed for %s: %s", opp_id, opp_exc)
-                opp_st = collector.warehouse.get_opportunity_by_id(opp_id)
+                opp_st = await run_blocking(collector.warehouse.get_opportunity_by_id, opp_id)
                 if opp_st and opp_st.get("status") == "PROCESSING_ENTRY":
-                    collector.warehouse.release_locked_opportunity(opp_id, processing_token=lease_token)
+                    await run_blocking(collector.warehouse.release_locked_opportunity, opp_id, processing_token=lease_token)
 
     except Exception as exc:
         log.warning("Prospective pending entry cycle skipped: %s", exc)
@@ -1486,15 +1488,14 @@ async def process_prospective_daily_mtm_and_exits(client, cfg: SnapbackConfig) -
     processed = 0
     try:
         from app.services.snapback_prospective_collector import SnapbackProspectiveCollector
-        collector = SnapbackProspectiveCollector()
+        collector = await run_blocking(SnapbackProspectiveCollector)
 
-        active_positions = collector.warehouse.get_active_paper_positions()
+        active_positions = await run_blocking(collector.warehouse.get_active_paper_positions)
         if not active_positions or not client:
             return 0
 
         now_ms = int(time.time() * 1000)
         session_date = datetime.now(_IST).strftime("%Y-%m-%d")
-        venue_cache: dict = {}
 
         for pos in active_positions:
             if pos.get("status") == "EXIT_PENDING":
@@ -1505,7 +1506,7 @@ async def process_prospective_daily_mtm_and_exits(client, cfg: SnapbackConfig) -
             opp_id = pos["opportunity_id"]
 
             # Idempotency guard: if MTM already recorded for (opp_id, session_date), skip duplicate run!
-            if collector.warehouse.has_daily_mtm_for_session(opp_id, session_date):
+            if await run_blocking(collector.warehouse.has_daily_mtm_for_session, opp_id, session_date):
                 log.debug("Skipping daily MTM/exit cycle for %s on %s: already recorded for session", opp_id, session_date)
                 continue
 
@@ -1514,7 +1515,7 @@ async def process_prospective_daily_mtm_and_exits(client, cfg: SnapbackConfig) -
             fut_sym = pos["futures_symbol"]
             try:
                 try:
-                    venue = resolve_position_venue(collector.warehouse, pos, cache=venue_cache)
+                    venue = await run_blocking(resolve_position_venue, collector.warehouse, pos)
                 except VenueUnknown as venue_exc:
                     # A position whose venue is unknown cannot be marked at all.
                     # Guessing NSE/NFO here is exactly how a BFO position gets
@@ -1611,7 +1612,7 @@ async def process_prospective_daily_mtm_and_exits(client, cfg: SnapbackConfig) -
                 curr_opt_delta = -abs(curr_d_raw) if opt_type_str == "PE" else abs(curr_d_raw)
 
                 # Execute MTM, hedge rebalancing, and frozen exit rule evaluation
-                mtm_res = collector.rebalance_and_mtm(
+                mtm_res = await run_blocking(collector.rebalance_and_mtm,
                     opportunity_id=opp_id,
                     session_date=session_date,
                     symbol=symbol,
@@ -1641,7 +1642,7 @@ async def process_prospective_daily_mtm_and_exits(client, cfg: SnapbackConfig) -
                     exit_reason = "EXPIRY_APPROACHING"
 
                 if should_close:
-                    collector.close_opportunity(
+                    await run_blocking(collector.close_opportunity,
                         opportunity_id=opp_id,
                         symbol=symbol,
                         exit_reason=exit_reason,
@@ -1675,7 +1676,7 @@ async def process_prospective_daily_mtm_and_exits(client, cfg: SnapbackConfig) -
 
 async def process_prospective_intraday_risk(client, cfg: SnapbackConfig) -> int:
     """Phase B: Intraday Risk Monitor (Market hours 09:15-15:30 IST).
-    
+
     Monitors active positions on fresh market quotes for premium stop and runner giveback rules.
     Does NOT write daily MTM, perform daily hedge rebalance, or increment session count.
     Once an intraday exit rule triggers, the position is immediately closed in the ledger.
@@ -1684,14 +1685,13 @@ async def process_prospective_intraday_risk(client, cfg: SnapbackConfig) -> int:
     try:
         from app.services.snapback_prospective_collector import SnapbackProspectiveCollector
         from app.services.snapback_market_data import evaluate_quote_quality
-        collector = SnapbackProspectiveCollector()
+        collector = await run_blocking(SnapbackProspectiveCollector)
 
-        active_positions = collector.warehouse.get_active_paper_positions()
+        active_positions = await run_blocking(collector.warehouse.get_active_paper_positions)
         if not active_positions or not client:
             return 0
 
         receive_now_ms = int(time.time() * 1000)
-        venue_cache: dict = {}
 
         for pos in active_positions:
             opp_id = pos["opportunity_id"]
@@ -1700,7 +1700,7 @@ async def process_prospective_intraday_risk(client, cfg: SnapbackConfig) -> int:
             fut_sym = pos["futures_symbol"]
             try:
                 try:
-                    venue = resolve_position_venue(collector.warehouse, pos, cache=venue_cache)
+                    venue = await run_blocking(resolve_position_venue, collector.warehouse, pos)
                 except VenueUnknown as venue_exc:
                     log.warning("Skipping intraday risk for %s: %s", opp_id, venue_exc)
                     continue
@@ -1771,7 +1771,7 @@ async def process_prospective_intraday_risk(client, cfg: SnapbackConfig) -> int:
                     if exit_reason:
                         # LATCH: immediately persist EXIT_PENDING status so position can NEVER recover to OPEN strategy evaluation
                         now_iso = datetime.now(timezone.utc).isoformat()
-                        collector.warehouse.set_paper_position_pending_exit(
+                        await run_blocking(collector.warehouse.set_paper_position_pending_exit,
                             opportunity_id=opp_id,
                             pending_exit_reason=exit_reason,
                             pending_exit_option_bid=curr_bid,
@@ -1831,7 +1831,7 @@ async def process_prospective_intraday_risk(client, cfg: SnapbackConfig) -> int:
                         processed += 1
                         continue
 
-                    collector.close_opportunity(
+                    await run_blocking(collector.close_opportunity,
                         opportunity_id=opp_id,
                         symbol=symbol,
                         exit_reason=exit_reason,
@@ -2284,9 +2284,30 @@ def _live_capabilities(uid: str, cfg: SnapbackConfig, conditions) -> dict:
 
 
 def snapshot(uid: str) -> dict:
-    """Config, what the last scan found, and every reason nothing is armed."""
-    cfg = get_effective_config(uid)
-    st = status(uid)
+    """Synchronous facade for existing worker-thread callers."""
+    return _snapshot_readonly(uid, get_effective_config(uid), status(uid))
+
+
+async def snapshot_async(uid: str) -> dict:
+    """Probe disk/clock in a worker using a detached board-state view.
+
+    Scan-state publication remains on the loop. Readiness is informational;
+    order admission always rechecks its authoritative gates.
+    """
+    from copy import copy, deepcopy
+    cfg = await run_blocking(get_effective_config, uid)
+    if uid not in _state:
+        restored = await run_blocking(_restored_rows, uid)
+        _state.setdefault(uid, ScanState(rows=restored))
+    view = copy(_state[uid])
+    view.rows = deepcopy(view.rows)
+    view.preview_rows = deepcopy(view.preview_rows)
+    view.failures = list(view.failures)
+    return await run_blocking(_snapshot_readonly, uid, cfg, view)
+
+
+def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState) -> dict:
+    """Config, detached rows, and durable readiness; never publishes scan state."""
     conditions = None
     try:
         from app.services.snapback_readiness import live_conditions
@@ -2354,7 +2375,7 @@ _interactive_scans: dict[str, asyncio.Task] = {}
 
 async def scan_modes(uid: str, modes: list[str] | None = None) -> dict:
     if uid in _interactive_scans or status(uid).scanning:
-        return snapshot(uid)
+        return await snapshot_async(uid)
     selected = list(dict.fromkeys(modes or [get_config(uid).trading_mode]))
     if not selected or any(mode not in ('swing', 'scalp', 'intraday', 'ultra_scalping', 'overnight') for mode in selected):
         raise ValueError('Choose supported Snapback scan modes')
@@ -2383,7 +2404,7 @@ async def scan_modes(uid: str, modes: list[str] | None = None) -> dict:
     finally:
         if _interactive_scans.get(uid) is task:
             _interactive_scans.pop(uid, None)
-    return snapshot(uid)
+    return await snapshot_async(uid)
 
 async def stop_scan(uid: str) -> dict:
     task = _interactive_scans.get(uid)
@@ -2395,4 +2416,4 @@ async def stop_scan(uid: str) -> dict:
             pass
         if _interactive_scans.get(uid) is task:
             _interactive_scans.pop(uid, None)
-    return snapshot(uid)
+    return await snapshot_async(uid)

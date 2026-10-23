@@ -17,10 +17,12 @@ from app.services.navigator import config_store, runtime, service as nav_service
 
 
 @pytest.fixture(autouse=True)
-def isolated_db():
+def isolated_db(monkeypatch):
     fd, path = tempfile.mkstemp()
     os.close(fd)
-    db._DB_PATH = path
+    # Restore both bindings after this temporary database is removed.
+    monkeypatch.setattr(db, "_DB_PATH", path)
+    monkeypatch.setattr(db, "_available", db._available)
     db.init()
     db.set_config_strict("archived_strategy_enabled:user-1:navigator", "true")
     kite_state.reset("user-1")

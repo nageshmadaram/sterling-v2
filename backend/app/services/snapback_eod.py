@@ -14,6 +14,8 @@ records EOD_EVIDENCE_GAP. Both are honest; inventing a close mark is not.
 
 from __future__ import annotations
 
+from app.core.async_work import run_blocking
+
 import logging
 import math
 import time as _time
@@ -153,7 +155,7 @@ async def collect_eod_observations(
     result = EodObservationResult()
 
     try:
-        positions = warehouse.get_active_paper_positions() or []
+        positions = await run_blocking(warehouse.get_active_paper_positions) or []
     except Exception as exc:
         result.errors.append(f"positions_unreadable:{exc}")
         return result
@@ -198,7 +200,7 @@ async def collect_eod_observations(
         option_symbol = str(pos.get("option_symbol") or "")
         futures_symbol = str(pos.get("futures_symbol") or "")
         try:
-            venue = resolve_position_venue(warehouse, pos, cache=venue_cache)
+            venue = await run_blocking(resolve_position_venue, warehouse, pos)
             legs = []
             if option_symbol:
                 legs.append(("OPTION", option_symbol, venue.derivative_key(option_symbol)))
@@ -210,7 +212,7 @@ async def collect_eod_observations(
             result.errors.append(f"{opp}:venue:{exc}")
             for leg, contract in (("OPTION", option_symbol), ("FUTURES", futures_symbol)):
                 if contract:
-                    _record(pos, leg, contract, None, None, False)
+                    await run_blocking(_record, pos, leg, contract, None, None, False)
                     result.rejected += 1
             continue
         for leg, contract, key in legs:
@@ -236,7 +238,7 @@ async def collect_eod_observations(
         opp = str(pos["opportunity_id"])
         if key in failed:
             result.errors.append(f"{opp}:{leg}:{failed[key]}")
-            _record(pos, leg, contract, None, None, False)
+            await run_blocking(_record, pos, leg, contract, None, None, False)
             result.rejected += 1
             continue
 
@@ -250,7 +252,7 @@ async def collect_eod_observations(
             decision = evaluate_quote_quality(event, cfg, now_ms=now_ms)
         accepted = bool(decision and decision.accepted_for_execution)
 
-        _record(
+        await run_blocking(_record,
             pos, leg, contract, event, decision, accepted,
             price=(float(event.last_price) if (accepted and leg == "UNDERLYING") else None),
         )

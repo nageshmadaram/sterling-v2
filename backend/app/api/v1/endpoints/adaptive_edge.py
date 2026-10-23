@@ -10,6 +10,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.async_work import run_blocking
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
 from app.engines.adaptive_edge.execution_gate import evaluate_execution_gate
@@ -531,7 +532,7 @@ async def _sync_live_5m_candles_if_needed(uid: str, scan_idx_list: list[str]) ->
 
     needed: list[str] = []
     for idx_name in scan_idx_list:
-        candles = get_candles(idx_name, "5m", limit=30)
+        candles = await run_blocking(get_candles, idx_name, "5m", limit=30)
         today_c = [c for c in candles if datetime.fromtimestamp(c["time"], ist).strftime("%Y-%m-%d") == today_iso]
         if len(today_c) < 3:
             needed.append(idx_name)
@@ -579,7 +580,7 @@ async def _sync_live_5m_candles_if_needed(uid: str, scan_idx_list: list[str]) ->
                     }
                     for c in k_candles
                 ]
-                upsert_candles(idx_name, "5m", c_dicts)
+                await run_blocking(upsert_candles, idx_name, "5m", c_dicts)
     except Exception as exc:
         log.warning("Live 5m candle sync failed for Adaptive Edge: %s", exc)
 

@@ -1,0 +1,103 @@
+{
+  "day": "2026-10-23",
+  "timezone": "Asia/Kolkata",
+  "market_stalls": {
+    "count": 15,
+    "max_seconds": 10.2,
+    "locations": {
+      "snapback.py:275:evaluate_symbol > models.py:90:to_bars > models.py:90:<genexpr>": 3,
+      "daily_sessions.py:22:closed_daily_candles > models.py:90:to_bars > models.py:90:<genexpr>": 1,
+      "snapback.py:286:evaluate_symbol > strategy.py:108:features > strategy.py:145:_rolling_pct": 1,
+      "snapback.py:300:_drop_forming > daily_sessions.py:22:closed_daily_candles > models.py:90:to_bars": 1,
+      "snapback.py:812:one > snapback.py:275:evaluate_symbol > models.py:90:to_bars": 1,
+      "daily_sessions.py:27:closed_daily_candles > daily_sessions.py:12:is_session_day > calendar.py:96:is_trading_day": 1,
+      "snapback.py:812:one > snapback.py:275:evaluate_symbol > models.py:92:to_bars": 1,
+      "strategy.py:75:features > atr.py:58:compute_atr > atr.py:25:true_range": 1,
+      "models.py:79:to_bars > main.py:1038:__getattr__ > _model_construction.py:290:__getattr__": 1,
+      "routing.py:352:run_endpoint_function > pcr.py:349:pcr_session > db.py:874:set_config": 1,
+      "db.py:873:set_config > contextlib.py:144:__exit__ > db.py:742:_conn": 1,
+      "snapback_alert_outbox.py:96:__init__ > snapback_observation_warehouse.py:211:__init__ > snapback_observation_warehouse.py:843:init_db": 1,
+      "db.py:759:connection > contextlib.py:144:__exit__ > db.py:742:_conn": 1
+    }
+  },
+  "after_hours_stalls": {
+    "count": 21,
+    "max_seconds": 30.8,
+    "locations": {
+      "snapback_alert_outbox.py:96:__init__ > snapback_observation_warehouse.py:211:__init__ > snapback_observation_warehouse.py:843:init_db": 4,
+      "sim_runtime.py:298:status > ledger.py:515:account_view > ledger.py:243:ensure_account": 2,
+      "snapback_family_ops.py:79:get_family_evidence_verdict > snapback_observation_warehouse.py:211:__init__ > snapback_observation_warehouse.py:843:init_db": 2,
+      "db.py:759:connection > contextlib.py:144:__exit__ > db.py:742:_conn": 2,
+      "snapback_health.py:457:get_prospective_health > snapback_observation_warehouse.py:211:__init__ > snapback_observation_warehouse.py:849:init_db": 2,
+      "snapback.py:804:one > snapback.py:300:_drop_forming > daily_sessions.py:30:closed_daily_candles": 1,
+      "snapback_family_ops.py:79:get_family_evidence_verdict > snapback_observation_warehouse.py:211:__init__ > snapback_observation_warehouse.py:849:init_db": 1,
+      "contextlib.py:137:__enter__ > db.py:734:_conn > db.py:699:_configure": 1,
+      "db.py:759:connection > contextlib.py:144:__exit__ > db.py:737:_conn": 1,
+      "db.py:873:set_config > contextlib.py:144:__exit__ > db.py:742:_conn": 1,
+      "trigger.py:77:zero_volume_slots > trigger.py:78:<genexpr> > trigger.py:61:_session_open_ms": 1,
+      "snapback_health.py:457:get_prospective_health > snapback_observation_warehouse.py:211:__init__ > snapback_observation_warehouse.py:843:init_db": 1,
+      "subprocess.py:1209:communicate > subprocess.py:2115:_communicate > selectors.py:415:select": 1,
+      "held_contract_scan.py:163:_append_held_contract_signals > held_contract_scan.py:189:_held_contract_body > held_contract_scan.py:70:held_contract_specs": 1
+    }
+  },
+  "gamma_historical_failures": 10,
+  "simulation_gamma_timeouts": 9,
+  "observed_threshold_met": false,
+  "coverage": "unverified",
+  "full_session_accepted": false,
+  "remaining_proof": [
+    "Verify the log covers the full exchange trading session and the deployed PID/release.",
+    "Observe Gamma watched > 0 after a midday restart on two consecutive trading days.",
+    "Observe Snapback restored real signal rows read-only, then a fresh scan and AUTO-toggle retention."
+  ],
+  "stored_observations": {
+    "snapback_saved_rows": 0,
+    "snapback_saved_ms": 1792760439554,
+    "snapback_saved_bytes": 39,
+    "daily_coverage": [
+      {
+        "resolution": "15m",
+        "symbols": 394,
+        "rows": 105945,
+        "first_epoch": 1789962300,
+        "last_epoch": 1792749600
+      },
+      {
+        "resolution": "1d",
+        "symbols": 204,
+        "rows": 128437,
+        "first_epoch": 1712169000,
+        "last_epoch": 1792693800
+      },
+      {
+        "resolution": "1h",
+        "symbols": 1024,
+        "rows": 130777,
+        "first_epoch": 1785469500,
+        "last_epoch": 1792748700
+      },
+      {
+        "resolution": "1m",
+        "symbols": 568,
+        "rows": 328259,
+        "first_epoch": 1791536700,
+        "last_epoch": 1792750140
+      },
+      {
+        "resolution": "3m",
+        "symbols": 200,
+        "rows": 104025,
+        "first_epoch": 1791272700,
+        "last_epoch": 1791799020
+      },
+      {
+        "resolution": "5m",
+        "symbols": 592,
+        "rows": 261097,
+        "first_epoch": 1790567100,
+        "last_epoch": 1792749900
+      }
+    ]
+  },
+  "generated_at": "2026-10-23T18:45:19.468430+05:30"
+}

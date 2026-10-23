@@ -47,7 +47,7 @@ export function useBoardRowActions({ onOpenChart }: {
     // Gamma-Unwind exposure must pass its own /gamma-move/arm authority. The
     // generic order window cannot enforce ENTRY-only tiering, D68 swing
     // protection, canonical intent identity or the live-swing fail-closed rule.
-    if (signal.engine === 'gamma_move' || signal.engine === 'snapback' || signal.engine === 'ema_trend') return null;
+    if (signal.engine === 'gamma_move' || signal.engine === 'snapback' || signal.engine === 'ema_trend' || signal.engine === 'adaptive_edge') return null;
     const { symbol, exchange, lotSize } = signal.instrument;
     const manualStatusAllowed = signal.status === 'armed' || (signal.engine === 'supertrend' && signal.status === 'running');
     const disabled = !manualStatusAllowed || signal.executionEligible === false || !signal.instrument.quoteKey || (lotSize ?? 0) <= 0 || signal.historical === true;

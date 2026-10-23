@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
+from app.core.async_work import run_blocking
 from app.engines.gamma_move import (
     Candle,
     ContractEngine,
@@ -174,8 +175,8 @@ async def _underlyings(uid: str, cfg: GammaMoveConfig, client, day: date):
                 token=token,
                 daily=daily,
                 five=five,
-                zones=compute_zones(daily, cfg),
-                atr_pct=daily_atr_pct(daily),
+                zones=await run_blocking(compute_zones, daily, cfg),
+                atr_pct=await run_blocking(daily_atr_pct, daily),
             )
         except Exception as exc:  # noqa: BLE001
             notes = "; ".join(map(str, getattr(exc, "__notes__", [])[:2]))[:160]

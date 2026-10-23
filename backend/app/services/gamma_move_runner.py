@@ -45,6 +45,7 @@ _position_ltp_ms: dict[tuple[str, str], int] = {}
 
 # E1 is a live tick event. An ENTRY row older than this is history, not an order
 # ticket: price, OI and the forming 5m bar have all moved on.
+SIM_GAMMA_TIMEOUT_S = 1500.0
 ENTRY_SIGNAL_MAX_AGE_S = 180
 _ENTRY_CLOCK_SKEW_S = 60
 # One exit attempt in flight per position, and a short back-off after a failed
@@ -355,6 +356,12 @@ async def scan_once(
         session = session_for(uid, cfg)
         from app.services import gamma_move_scanner as scanner
         now = _now()
+        if is_sim_uid(uid):
+            shared = await scanner.reuse_owner_market_data(uid, cfg, now=now,
+                recorded_signals=list(session.signals.values()))
+            if shared is not None:
+                await _subscribe_watched(uid, session)
+                return {**shared, 'signals': [signal.as_dict() for signal in session.signals.values()]}
         slot_name = scheduled_slot
         if slot_name is None:
             due = [
@@ -2399,10 +2406,14 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
             if cfg.enabled else None
         )
 
+        shared = None
+        if cfg.enabled and is_sim_uid(uid):
+            shared = await scanner.reuse_owner_market_data(uid, cfg, now=now,
+                recorded_signals=list(session.signals.values()))
         if level_slot is not None:
-            out.setdefault(uid, {})["levels"] = await scanner.mark_levels(
+            out.setdefault(uid, {})["levels"] = (shared if shared is not None else await scanner.mark_levels(
                 uid, cfg, today=now.date()
-            )
+            ))
             _complete_slot(uid, now, "levels", level_slot)
 
         recover_missing = (
@@ -2412,7 +2423,7 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
             and dtime(9, 20) <= now.time() <= dtime(15, 20)
         )
         if build_slot is not None or recover_missing:
-            built = await scan_once(uid, scheduled_slot=build_slot)
+            built = shared if shared is not None else await scan_once(uid, scheduled_slot=build_slot)
             if uid in out and isinstance(out[uid], dict):
                 out[uid]["watchlist"] = built
             else:
@@ -2463,7 +2474,8 @@ async def scan_all_once(*, respect_interval: bool = False) -> dict[str, dict]:
     # The virtual tenant never sits in the live walk: its pass runs in its own lane (single flight, timed
     # out), so a slow one cannot delay the live reconcile, protection resync and reference-time sweeps.
     for uid in virtual:
-        sim_scan_lane.spawn("gamma", uid, lambda uid=uid: _scan_uid(uid, _now(), {}))
+        sim_scan_lane.spawn("gamma", uid, lambda uid=uid: _scan_uid(uid, _now(), {}),
+                            timeout_s=SIM_GAMMA_TIMEOUT_S)
     return out
 
 

@@ -54,7 +54,7 @@ async def test_scan_calculations_run_off_the_event_loop(monkeypatch, mode, filte
     monkeypatch.setattr(snapback, "to_bars", bars)
     monkeypatch.setattr(regime, "gate_for", gate)
     monkeypatch.setattr(snapback, "evaluate_symbol", evaluate)
-    monkeypatch.setattr(snapback, "snapshot", lambda uid: {"scanned": snapback.status(uid).scanned, "failures": snapback.status(uid).failures, "last_error": snapback.status(uid).last_error})
+    monkeypatch.setattr(snapback, "snapshot_async", AsyncMock(side_effect=lambda uid: {"scanned": snapback.status(uid).scanned, "failures": snapback.status(uid).failures, "last_error": snapback.status(uid).last_error}))
     uid = f"offload-{mode}-{filtered}"
     monkeypatch.setitem(snapback._state, uid, snapback.ScanState())
     result = await snapback.scan_once(uid)

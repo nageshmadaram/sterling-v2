@@ -22,7 +22,7 @@ import type { AlignmentChip, EngineSignalRow, OptionLeg } from '../../../types/k
 import { computeGreeksFromLeg } from '../../../utils/computeGreeks';
 import { k } from '../../../styles/kiteUI';
 import type { BoardDayMove, BoardOrigin, BoardSection, BoardSignal, BoardStatus, EngineId } from './boardTypes';
-import { barCloseMs, parseTimestampMs, sessionDayKey, normalizeMode, withMode } from './boardTypes';
+import { barCloseMs, parseTimestampMs, sessionDayKey, normalizeMode, withMode, MODE_LABEL } from './boardTypes';
 
 /**
  * A tradable price, or nothing.
@@ -136,7 +136,7 @@ function status(row: EngineSignalRow, leg: OptionLeg): BoardStatus {
 }
 
 /** Trend evidence — what the engine saw, as opposed to what it decided. */
-function evidenceSection(row: EngineSignalRow): BoardSection {
+function evidenceSection(row: EngineSignalRow, leg?: OptionLeg): BoardSection {
   return {
     title: 'Trend & volatility',
     layout: 'tiles',
@@ -149,12 +149,14 @@ function evidenceSection(row: EngineSignalRow): BoardSection {
       { label: 'Alignment', value: alignmentText(row.alignment), hint: 'Fast / mid / slow SuperTrend, in that order' },
       { label: 'Regime', value: row.regime },
       { label: 'Source', value: row.source ?? undefined, hint: 'Which scan surfaced this — spot, derivatives, confluence or Navigator' },
-      { label: 'Moneyness', value: leg_moneyness(row) },
+      ...(leg ? [{ label: 'Moneyness (strike steps)', value: leg.moneyness,
+        hint: 'ITM/OTM is the engine strike-step label at signal time, not a delta classification.' }] : []),
+      ...(leg?.strike != null && Number.isFinite(leg.strike) && price(row.spot) != null
+        ? [{ label: 'Strike − signal spot', value: `${leg.strike > row.spot ? '+' : ''}${(leg.strike - row.spot).toFixed(2)} pts`,
+          hint: `Strike ${leg.strike.toFixed(2)} minus underlying ${row.spot.toFixed(2)} at this row's signal time. Delta is a separate model estimate from available quote/spot inputs.` }] : []),
     ],
   };
 }
-
-const leg_moneyness = (row: EngineSignalRow) => row.legs?.[0]?.moneyness;
 
 /** The three lines as arrows, in fast/mid/slow order. */
 function alignmentText(chip: AlignmentChip | null | undefined): string | undefined {
@@ -284,7 +286,7 @@ export function supertrendLegToBoard(
     leg.entry_timestamp_ms ?? leg.signal_timestamp_ms ?? row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date
   );
   const atMs = signalMs(row, openMs);
-  const sections = [evidenceSection(row), exitSection(row, leg), navigatorSection(row)]
+  const sections = [evidenceSection(row, leg), exitSection(row, leg), navigatorSection(row)]
     .filter(Boolean) as BoardSection[];
   const quantity = leg.lot_size ?? null;
   const quoteKey = `${row.exchange}:${leg.option_symbol}`;
@@ -353,6 +355,7 @@ export function supertrendLegToBoard(
     executionEligible: (
       row.is_replay !== true
       && row.view_only !== true
+      && !priceAtOrBelowStop(row, leg, opts)
       // Buyable only with a stop below the entry: that stop is armed at Zerodha after the fill.
       && price(leg.entry_sl ?? leg.premium_sl) != null && price(leg.premium_spot) != null
       && price(leg.entry_sl ?? leg.premium_sl)! < price(leg.premium_spot)!
@@ -449,23 +452,36 @@ function supertrendSignalToBoard(
  * "TSL exit" are different failures and reading one as the other sends you
  * looking at the wrong rule.
  */
-function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterOptions): BoardOrigin[] {
-  const flags: BoardOrigin[] = [];
-  // A swing plan holds 3-10 sessions (overnight 1-3); a contract that expires sooner is
-  // squared off the day before expiry, before the plan can play out.
+export function legSafetyTags(row: EngineSignalRow, leg: any, ended: boolean, nowMs = Date.now()): { label: string; hint: string }[] {
+  const tags: { label: string; hint: string }[] = [];
+  const mode = normalizeMode(row.horizon_mode);
+  if (row.view_only) tags.push({ label: `VIEW ONLY · ${mode ? MODE_LABEL[mode] : row.horizon_mode}`, hint: `Signal from SuperTrend's ${mode ? MODE_LABEL[mode] : ''} mode, which it is not set to trade. Switch SuperTrend to that mode in Settings to trade it.` });
+  if (ended) return tags;
+  if (leg.replaced) tags.push({ label: 'REPLACED', hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' });
+  const stop = leg.entry_sl ?? leg.premium_sl;
+  if (stop == null || !(stop > 0)) tags.push({ label: 'NO STOP', hint: 'This leg has no stop, so it cannot be bought.' });
+  else if (leg.premium_spot != null && stop >= leg.premium_spot) tags.push({ label: 'STOP ≥ ENTRY', hint: `The stop (${Number(stop).toFixed(2)}) is at or above the entry (${Number(leg.premium_spot).toFixed(2)}); buying would sell at once.` });
   const holdDays = row.horizon_mode === 'swing' ? 5 : row.horizon_mode === 'overnight' ? 2 : 0;
   if (holdDays && leg.expiry) {
-    const days = Math.ceil((Date.parse(`${leg.expiry}T15:30:00+05:30`) - (opts.nowMs ?? Date.now())) / 86_400_000);
-    if (Number.isFinite(days) && days >= 0 && days <= holdDays) {
-      flags.push({ label: 'EXPIRES SOON', tone: 'amber', hint: `Expires in ${days} day${days === 1 ? '' : 's'}: shorter than this mode's planned hold, so it would be closed the day before expiry. Prefer the next expiry.` });
-    }
+    const days = Math.ceil((Date.parse(`${leg.expiry}T15:30:00+05:30`) - nowMs) / 86_400_000);
+    if (Number.isFinite(days) && days >= 0 && days <= holdDays) tags.push({ label: 'EXPIRES SOON', hint: `Expires in ${days} day${days === 1 ? '' : 's'}, before this mode's planned hold ends; it would be closed the day before expiry. Prefer the next expiry.` });
   }
-  const st = leg.entry_sl ?? leg.premium_sl, en = leg.premium_spot;
-  if (st == null || !(st > 0)) flags.push({ label: 'NO STOP', tone: 'amber', hint: 'This leg has no stop, so it cannot be bought from the board.' });
-  else if (en != null && st >= en) flags.push({ label: 'STOP ≥ ENTRY', tone: 'amber', hint: `The stop (${st}) is at or above the entry (${en}); buying would sell at once.` });
-  if (row.view_only) {
-    flags.push({ label: 'VIEW ONLY', tone: 'dim', hint: 'A signal from a mode SuperTrend is not set to trade. To trade it, switch SuperTrend to this mode in Settings.' });
-  }
+  return tags;
+}
+
+function priceAtOrBelowStop(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterOptions): boolean {
+  if (row.is_replay) return false;
+  const live = price(opts.quotes?.[`${row.exchange}:${leg.option_symbol}`]?.last_price ?? (leg as any).last_price ?? (leg as any).ltp);
+  const stop = price(leg.entry_sl ?? leg.premium_sl);
+  return live != null && stop != null && live <= stop;
+}
+
+function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterOptions): BoardOrigin[] {
+  const flags: BoardOrigin[] = legSafetyTags(row, leg, status(row, leg) === 'ended', opts.nowMs)
+    .map(tag => ({ ...tag, tone: tag.label.startsWith('VIEW ONLY') ? 'dim' : 'amber' }));
+  if (status(row, leg) !== 'ended' && priceAtOrBelowStop(row, leg, opts)) flags.push({
+    label: 'PRICE ≤ STOP', tone: 'amber', hint: 'The known premium is at or below this plan’s hard stop. Refresh the plan before a new entry; server admission remains authoritative.',
+  });
 
   const reason = row.exit_reason;
   if (reason?.startsWith('trail breach')) {
@@ -574,7 +590,7 @@ export function supertrendToBoard(
       const board = supertrendLegToBoard(row, leg, j, opts);
       if (!replaced.has(`${row.timestamp_ms}|${leg.option_symbol}`)) return board;
       return { ...board, executionEligible: false,
-        flags: [...(board.flags ?? []), { label: 'REPLACED', tone: 'dim' as const, hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' }] };
+        flags: [...(board.flags ?? []).filter(flag => flag.label !== 'REPLACED'), { label: 'REPLACED', tone: 'dim' as const, hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' }] };
     });
     // Each row carries its own mode: other modes' rows are on the board too (view-only).
     const board = withMode(supertrendSignalToBoard(row, legs, i, opts), normalizeMode(row.horizon_mode ?? opts.mode));

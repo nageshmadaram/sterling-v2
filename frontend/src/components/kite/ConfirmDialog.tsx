@@ -83,6 +83,7 @@ export function ConfirmDialog({
     >
       <div
         className={`cdlg-panel${danger ? ' cdlg-panel--danger' : ''}`}
+        style={{ maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto' }}
         role="alertdialog"
         aria-labelledby="cdlg-title"
         aria-describedby={body ? 'cdlg-body' : undefined}
@@ -106,7 +107,7 @@ export function ConfirmDialog({
         {/* Text */}
         <div className="cdlg-content">
           <h2 id="cdlg-title" className="cdlg-title">{title}</h2>
-          {body && <p id="cdlg-body" className="cdlg-body">{body}</p>}
+          {body && <p id="cdlg-body" className="cdlg-body" style={{ whiteSpace: 'pre-line', maxHeight: '55dvh', overflowY: 'auto', color: 'var(--k-text)', textAlign: 'left' }}>{body}</p>}
         </div>
 
         {/* Actions */}
@@ -114,6 +115,7 @@ export function ConfirmDialog({
           <button
             ref={cancelRef}
             className="cdlg-btn cdlg-btn-cancel"
+            style={{ color: 'var(--k-ink-4)' }}
             onClick={onCancel}
           >
             {cancelLabel}
@@ -121,6 +123,7 @@ export function ConfirmDialog({
           <button
             ref={confirmRef}
             className={`cdlg-btn cdlg-btn-confirm${danger ? ' cdlg-btn-confirm--danger' : ''}`}
+            style={danger ? undefined : { color: 'var(--k-text)' }}
             onClick={onConfirm}
           >
             {confirmLabel}

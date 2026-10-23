@@ -1353,3 +1353,11 @@ def test_adaptive_edge_snapshot_parity_with_simulation_trades_in_spot_scan_v2():
 
 
 
+
+
+def test_new_runner_reports_missing_hourly_history_before_first_start():
+    from app.services.simulation import SimulationRunner
+    from app.services.replay_strategy_views import supertrend_entry
+    runner = SimulationRunner()
+    assert supertrend_entry(runner, "NIFTY", 1_787_908_500_000) == []
+    assert "history is unavailable" in runner._strategy_notes["supertrend"]

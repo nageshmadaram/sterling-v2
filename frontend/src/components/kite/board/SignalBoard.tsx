@@ -558,7 +558,11 @@ function cellContent(
       // Never the contract name: the instrument cell carries that on a leg and
       // on a standalone row alike, and repeating it here printed it twice.
       const { strike, expiry, moneyness } = signal.instrument;
-      const parts = [strike ?? null, expiry ?? null].filter(Boolean).join(' · ');
+      const reference = signal.sections.flatMap(section => section.stats).find(stat => stat.label === 'Strike − signal spot');
+      const parts = [strike ?? null, expiry ?? null,
+        reference ? `${reference.label}: ${reference.value}. ${reference.hint ?? ''}` : null,
+        moneyness ? 'ITM/OTM is the strategy strike label; delta is a separate sensitivity estimate.' : null,
+      ].filter(Boolean).join(' · ');
       const delta = signal.delta == null ? null : `(Δ${Math.abs(signal.delta).toFixed(2)})`;
       const text = [moneyness, delta].filter(Boolean).join(' ');
       return { node: <span title={parts || undefined}>{text || '—'}</span>, color: k.dim };

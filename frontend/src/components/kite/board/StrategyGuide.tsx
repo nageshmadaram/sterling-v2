@@ -25,7 +25,12 @@ const readHidden = (engine: string) => {
 export function StrategyGuide({ engine }: { engine: string }) {
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const what = WHAT[engine as EngineId];
-  if (!what || hidden[engine] || readHidden(engine)) return null;
+  const practice = engine === 'ema_trend' || engine === 'adaptive_edge';
+  const notice = <strong>Practice only — no real orders</strong>;
+  if (!what) return null;
+  if (hidden[engine] || readHidden(engine)) return practice
+    ? <div role="note" aria-label="Practice only" style={{ padding: '8px 12px', color: k.text, fontSize: 12 }}>{notice}</div>
+    : null;
   const hide = () => {
     try { localStorage.setItem(storageKey(engine), '1'); } catch { /* storage blocked: hide for this visit */ }
     setHidden(h => ({ ...h, [engine]: true }));
@@ -36,12 +41,13 @@ export function StrategyGuide({ engine }: { engine: string }) {
       borderBottom: `1px solid ${k.border}`, background: 'var(--k-bg-2, transparent)', fontSize: 11.5, lineHeight: 1.45, color: k.text,
     }}>
       <div style={{ flex: 1, minWidth: 0 }}>
+        {practice && <div style={{ marginBottom: 3 }}>{notice}</div>}
         <div>{what}</div>
-        <div style={{ color: k.dim, marginTop: 3 }}>
+        {practice ? <div style={{ color: k.dim, marginTop: 3 }}>Open a row for research and practice details. Real orders and automatic live trading are unavailable.</div> : <div style={{ color: k.dim, marginTop: 3 }}>
           <strong style={{ color: k.text }}>1</strong> Tap a row to see the plan ·{' '}
           <strong style={{ color: k.text }}>2</strong> Press <strong style={{ color: k.green }}>B</strong> to buy it yourself ·{' '}
           <strong style={{ color: k.text }}>3</strong> To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
-        </div>
+        </div>}
       </div>
       <button type="button" onClick={hide} aria-label="Hide this guide" style={{
         flexShrink: 0, border: `1px solid ${k.border}`, borderRadius: 4, background: 'transparent', color: k.dim,

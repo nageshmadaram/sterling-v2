@@ -17,10 +17,12 @@ _UNDERLYINGS = ["NIFTY 50", "NIFTY BANK"]
 
 
 @pytest.fixture(autouse=True)
-def isolated_db():
+def isolated_db(monkeypatch):
     fd, path = tempfile.mkstemp()
     os.close(fd)
-    db._DB_PATH = path
+    # Restore both bindings after this temporary database is removed.
+    monkeypatch.setattr(db, "_DB_PATH", path)
+    monkeypatch.setattr(db, "_available", db._available)
     db.init()
     yield
     os.unlink(path)

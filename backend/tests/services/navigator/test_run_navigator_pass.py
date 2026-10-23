@@ -27,10 +27,12 @@ _ALIGN = AlignmentChip(fast=1, mid=1, slow=1)
 
 
 @pytest.fixture(autouse=True)
-def isolated_db_and_cache():
+def isolated_db_and_cache(monkeypatch):
     fd, path = tempfile.mkstemp()
     os.close(fd)
-    db._DB_PATH = path
+    # Restore both bindings after this temporary database is removed.
+    monkeypatch.setattr(db, "_DB_PATH", path)
+    monkeypatch.setattr(db, "_available", db._available)
     db.init()
     nav_service.clear_cache("user-1")
     yield

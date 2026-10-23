@@ -4,11 +4,10 @@ import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './emaTrendAdapter';
 import type { BoardSignal } from './boardTypes';
 import { useSignalMarketData } from './useSignalMarketData';
-import { SignalBoard } from './SignalBoard';
+import { SignalBoard, type ColumnId } from './SignalBoard';
 import { BoardFilters } from './BoardFilters';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { useSignalColumns } from './useSignalColumns';
-import { KiteActionButtons } from '../KiteActionButtons';
 import { useBoardView } from './useBoardView';
 import { EmaTrendTicket } from './EmaTrendTicket';
 import { EmaTrendOperations } from './EmaTrendOperations';
@@ -262,17 +261,11 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         <p role="status" style={{ padding: '4px 12px', fontSize: 11 }}>
           Not enabled for new scans: {unavailableSelected.map(mode => EMA_TREND_MODE_LABEL[mode]).join(', ')}. Any existing history is still shown.
         </p>}
-      {visible.length > 0 ? <SignalBoard signals={visible} columns={commonColumns.columns} hidden={commonColumns.hidden}
+      {visible.length > 0 ? <SignalBoard signals={visible} columns={commonColumns.columns} hidden={new Set<ColumnId>([...commonColumns.hidden, 'trade'])}
         onReorderColumn={commonColumns.onReorderColumn} rowScroll={commonColumns.rowScroll}
         isHistoricalSim={historical} strategyDetailsInExpansion openId={openId}
         onToggle={id => setOpenId(previous => previous === id ? null : id)}
         onOpenDetail={onOpenDetail}
-        renderTrade={signal => signal.emaTrend?.signalId ? <KiteActionButtons className="sb-row-trade"
-          buyLabel="Paper"
-          buyAriaLabel={`Practice buy ${signal.instrument.symbol}`}
-          buyDisabled={historical || signal.status !== 'armed' || !signal.executionEligible}
-          disabledHint={historical ? 'Past signals are view only.' : 'Not ready to enter.'}
-          onBuy={() => setOpenId(signal.id)} /> : null}
         renderChart={signal => onOpenChart && <button type="button" className="sb-tool"
           disabled={historical || signal.historical} aria-label={`Chart ${signal.instrument.symbol}`}
           onClick={event => { event.stopPropagation(); onOpenChart(signal.instrument.quoteKey!, signal.emaTrend!.mode, signal); }}>↗</button>}

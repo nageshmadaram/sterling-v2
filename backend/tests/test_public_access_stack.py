@@ -1193,3 +1193,21 @@ def test_ngrok_quota_error_is_reported_without_echoing_provider_page(monkeypatch
  out=capsys.readouterr().out
  assert 'Monthly bandwidth exhausted (ERR_NGROK_725)' in out
  assert 'UNAVAILABLE' in out and 'private provider text' not in out
+
+@pytest.mark.parametrize('verified,expected',[
+ ({'cloudflare':True,'ngrok':True},'ready'),
+ ({'cloudflare':True,'ngrok':False},'degraded'),
+ ({'cloudflare':False,'ngrok':True},'degraded'),
+ ({'cloudflare':False,'ngrok':False},'reconnecting'),
+ ({'cloudflare':True},'ready'),
+])
+def test_provider_phase_reports_partial_availability(verified,expected):
+ assert stack.public_phase(verified)==expected
+
+
+def test_publication_selects_only_a_verified_provider():
+ state={'app_url':'https://primary.example','public_ready':{'cloudflare':False,'ngrok':True},
+        'urls':{'ngrok':'https://working.example'}}
+ assert stack.verified_origin(state)=='https://working.example'
+ state['public_ready']['ngrok']=False
+ assert stack.verified_origin(state)==''
