@@ -205,8 +205,13 @@ def _structural_candidates(rows: list[dict], side: str, spot: float,
     return out
 
 
+#: Prefix of a coverage line that is information, not a recovery failure.
+UNTRADED_NOTE = "untraded at build: "
+
+
 async def _historical_contract_quote(client, pacer: Pacer, row: dict,
-                                     day: date, at_ms: int) -> dict | None:
+                                     day: date, at_ms: int,
+                                     fetch_errors: list | None = None) -> dict | None:
     token = int(row.get("instrument_token") or 0)
     if not token:
         return None
@@ -214,7 +219,9 @@ async def _historical_contract_quote(client, pacer: Pacer, row: dict,
     to = datetime.fromtimestamp(at_ms / 1000, IST).strftime("%Y-%m-%d %H:%M:%S")
     try:
         raw = await _historical(client, pacer, token, "5minute", frm, to, True)
-    except Exception:
+    except Exception as exc:
+        if fetch_errors is not None:
+            fetch_errors.append(exc)
         return None
     bars = _day_rows(_to_candles(raw, oi=True), day)
     last = _last_closed(bars, at_ms, 5)
@@ -243,6 +250,7 @@ async def _watches_at(uid: str, cfg: GammaMoveConfig, client, day: date,
 
     watches: list[WatchContract] = []
     coverage: list[str] = []
+    notes: list[str] = []
     pacer = Pacer(_HIST_RATE)
 
     for name, ctx in contexts.items():
@@ -299,13 +307,23 @@ async def _watches_at(uid: str, cfg: GammaMoveConfig, client, day: date,
                 instrument_rows, spec.side, spot, edge, cfg
             )
             selectable: list[dict] = []
+            fetch_errors: list = []
             for row in structural:
                 item = await _historical_contract_quote(
-                    client, pacer, row, day, build_ms
+                    client, pacer, row, day, build_ms, fetch_errors
                 )
                 if item is not None:
                     selectable.append(item)
-            if structural and not selectable:
+            if structural and not selectable and not fetch_errors:
+                # Kite answered, but none of these strikes had traded with OI by the
+                # build time. That is the market, not missing data: this list simply
+                # has nothing to watch. Counting it as a recovery failure cleared
+                # EVERY watch, so one quiet strike kept Gamma dark for the whole day.
+                notes.append(
+                    f"{UNTRADED_NOTE}{name}/{spec.list_name}: no strike had traded with "
+                    "open interest by the build time"
+                )
+            elif structural and not selectable:
                 coverage.append(
                     f"{name}/{spec.list_name}: option contracts existed in the "
                     "date-effective master but historical option candles/OI are "
@@ -350,7 +368,7 @@ async def _watches_at(uid: str, cfg: GammaMoveConfig, client, day: date,
                     chain_ltp=float(pick.get("last_price") or 0),
                     dte=trading_days_between(day, spec.expiry_date),
                 ))
-    return watches, coverage
+    return watches, [*coverage, *notes]
 
 
 def _underlying_spot(one_minute: list[Candle], event_ms: int,

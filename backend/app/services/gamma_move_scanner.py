@@ -904,7 +904,9 @@ async def recover_scheduled_watchlist(
     )) or []
 
     elapsed = round(time.monotonic() - started, 2)
-    hard_failures = [*errors, *watch_failures, *prime_failures]
+    from app.services.gamma_move_historical import UNTRADED_NOTE
+    hard_failures = [*errors, *(f for f in watch_failures if not str(f).startswith(UNTRADED_NOTE)),
+                     *prime_failures]
     issue = ""
     if hard_failures:
         issue = f"historical watchlist recovery incomplete: {hard_failures[0]}"
