@@ -218,6 +218,7 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
         st.candle_wall = {}
         st.preview_rows = []
         st.config_generation += 1
+        _save_last_rows(uid, [])
     return cfg
 
 
@@ -247,11 +248,42 @@ class ScanState:
 _state: dict[str, ScanState] = {}
 
 
+_LAST_ROWS_KEY = "snapback.last_rows.v1"
+
+
 def status(uid: str) -> ScanState:
     st = _state.get(uid)
     if st is None:
         st = _state[uid] = ScanState()
+        st.rows = _restored_rows(uid)
     return st
+
+
+def _restored_rows(uid: str) -> list[dict]:
+    """The previous process's last scan, shown read-only until the first scan lands.
+
+    Without this the board sat empty for the ~10 minutes the first scan takes after
+    every restart. Restored rows can never be acted on: ``_aged_rows`` refuses them.
+    """
+    try:
+        from app.services import db
+        raw = json.loads(db.get_config(f"{_LAST_ROWS_KEY}:{uid}", "{}") or "{}")
+    except Exception:                                              # noqa: BLE001
+        return []
+    rows = []
+    for r in raw.get("rows") or []:
+        if isinstance(r, dict):
+            rows.append({**r, "restored": True, "execution_eligible": False})
+    return rows
+
+
+def _save_last_rows(uid: str, rows: list[dict]) -> None:
+    try:
+        from app.services import db
+        db.set_config(f"{_LAST_ROWS_KEY}:{uid}",
+                      json.dumps({"saved_ms": ist_now_ms(), "rows": rows}, default=str))
+    except Exception as exc:                                       # noqa: BLE001
+        log.debug("%s: last rows not saved: %s", STRATEGY_ID, exc)
 
 
 def signal_id_for(symbol: str, side: str, bar_ms: int) -> str:
@@ -903,6 +935,8 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
         st.signals = {r["signal_id"]: r for r in rows if r["state"] == "armed"}
         st.scanned = len(universe)
         st.last_scan_ms = ist_now_ms()
+        from app.core.async_work import run_blocking
+        await run_blocking(_save_last_rows, uid, rows)
 
         # The interactive scan observes only. Entry, risk and end-of-day processing
         # belong to the autonomous runner: a browser refresh must never advance a
@@ -2179,6 +2213,13 @@ def _aged_rows(rows: list[dict], cfg: SnapbackConfig, *, conditions=None,
             from app.services.snapback_readiness import row_execution_state
 
             eligible, why = row_execution_state(row, cfg, conditions)
+            if row.get("restored"):
+                # From before the last restart: show it, never act on it.
+                eligible = False
+                why = ["restored_from_last_scan", *why]
+                if row.get("state") == "armed":
+                    row["state"] = "watching"
+                    row["reason"] = "from the last scan before a restart; rescanning now"
             row["execution_eligible"] = bool(eligible)
             row["execution_block_reasons"] = why[:6]
             from app.services.snapback_readiness import reason_text

@@ -306,6 +306,7 @@ class LiveConditions:
 
 #: What each short reason code means to an operator.
 REASON_TEXT: Dict[str, str] = {
+    "restored_from_last_scan": "Shown from the last scan before a restart. A fresh scan is running; wait for it.",
     "engine_disabled": "Snapback is switched off.",
     "auto_off": "Automatic entry is not switched on (per-strategy AUTO and the shared master AUTO).",
     "kill_switch": "New entries are halted by the operator kill switch (STERLING_LIVE_EXECUTION).",
