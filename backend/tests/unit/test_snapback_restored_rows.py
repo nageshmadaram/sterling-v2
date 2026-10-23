@@ -20,6 +20,18 @@ def test_last_scan_rows_survive_a_restart_read_only(monkeypatch):
 def test_settings_change_forgets_saved_rows(monkeypatch):
     uid = "restore-user-2"
     snapback._save_last_rows(uid, [{"signal_id": "s1", "symbol": "TCS", "state": "watching"}])
-    snapback.set_config({}, uid=uid)
+    cur = snapback.get_config(uid)
+    snapback.set_config({"premium_pct_of_capital": cur.premium_pct_of_capital / 2}, uid=uid)
     monkeypatch.setattr(snapback, "_state", {})
     assert snapback.status(uid).rows == []
+
+
+def test_on_off_and_auto_switches_keep_the_board(monkeypatch):
+    uid = "restore-user-3"
+    snapback.set_config({}, uid=uid)
+    st = snapback.status(uid)
+    st.rows = [{"signal_id": "s1", "symbol": "SBIN", "state": "watching"}]
+    cur = snapback.get_config(uid)
+    snapback.set_config({"enabled": not cur.enabled}, uid=uid)
+    snapback.set_config({"auto_execute": not cur.auto_execute}, uid=uid)
+    assert [r["symbol"] for r in snapback.status(uid).rows] == ["SBIN"]

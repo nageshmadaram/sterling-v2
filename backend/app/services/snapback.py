@@ -183,6 +183,9 @@ def prospective_experiment_active() -> bool:
         return True
 
 
+_SWITCH_ONLY_KEYS = frozenset({"enabled", "auto_execute"})
+
+
 def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig:
     """Persist a partial change. Validation is the engine's, not a second copy.
 
@@ -208,9 +211,13 @@ def set_config(values: dict[str, Any], uid: str | None = None) -> SnapbackConfig
     from app.services import db
     db.set_config(f"{_CONFIG_KEY}:{uid}" if uid else _CONFIG_KEY,
                   json.dumps(cfg.as_dict(), separators=(",", ":")))
-    # A row's eligibility and quote plan belong to the configuration that
-    # produced it, including its timeframe. Never reuse it after a settings edit.
-    if uid:
+    # A row's quote plan belongs to the configuration that produced it, including
+    # its timeframe. Never reuse it after a settings edit. The on/off and AUTO
+    # switches change no row (eligibility is re-judged on every read), so flipping
+    # them must not empty the board for the ~10 minutes a rescan takes.
+    before, after = current.as_dict(), cfg.as_dict()
+    changed = {k for k in set(before) | set(after) if before.get(k) != after.get(k)}
+    if uid and changed - _SWITCH_ONLY_KEYS:
         st = status(uid)
         st.rows = []
         st.signals = {}
