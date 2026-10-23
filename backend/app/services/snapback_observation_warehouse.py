@@ -203,12 +203,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_INITIALISED: set[str] = set()
+
+
 class SnapbackObservationWarehouse:
     """SQLite prospective warehouse for Snapback real-time & paper observed evidence."""
 
     def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path or DEFAULT_OBSERVATIONS_DB_PATH
-        self.init_db()
+        # The schema DDL + migrations take seconds on the live file and every
+        # request builds a warehouse; run them once per file per process.
+        key = os.path.abspath(self.db_path)
+        if key not in _INITIALISED or not os.path.exists(key):
+            self.init_db()
+            _INITIALISED.add(key)
 
     def _get_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=15.0)

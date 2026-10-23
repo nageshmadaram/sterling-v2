@@ -138,7 +138,10 @@ def test_old_db_auto_migrates(temp_warehouse):
     conn.commit()
     conn.close()
 
-    # Re-initialize warehouse — must migrate schema automatically without error
+    # Re-initialize warehouse in a fresh process (schema init is cached per process)
+    # — must migrate schema automatically without error
+    import app.services.snapback_observation_warehouse as warehouse_module
+    warehouse_module._INITIALISED.clear()
     migrated_wh = SnapbackObservationWarehouse(db_path=db_path)
     conn = migrated_wh._get_connection()
     try:
