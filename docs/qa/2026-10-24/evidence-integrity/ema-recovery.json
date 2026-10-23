@@ -1,0 +1,174 @@
+{
+  "status": "RESOLVED",
+  "failure_reason": "HISTORICAL_BAR_RESTATED_RECONCILIATION_REQUIRED",
+  "historical_job": "4eff47285db0352c7e6fcf07",
+  "historical_updated_ms": 1792694375447,
+  "historical_pair_count": 38,
+  "historical_error_count": 38,
+  "latest_terminal_job": "501e8158ff6374353e610b7f",
+  "latest_terminal_status": "COMPLETED",
+  "completed_job": "501e8158ff6374353e610b7f",
+  "completed_updated_ms": 1792781158839,
+  "completed_result_count": 60,
+  "completed_error_count": 0,
+  "resolved_pairs": [
+    {
+      "symbol": "NSE:AXISBANK",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:AXISBANK",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:BAJFINANCE",
+      "mode": "scalping"
+    },
+    {
+      "symbol": "NSE:BAJFINANCE",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:BAJFINANCE",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:BHARTIARTL",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:BHARTIARTL",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:HDFCBANK",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:HDFCBANK",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:HINDUNILVR",
+      "mode": "scalping"
+    },
+    {
+      "symbol": "NSE:HINDUNILVR",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:HINDUNILVR",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:ICICIBANK",
+      "mode": "intraday"
+    },
+    {
+      "symbol": "NSE:ICICIBANK",
+      "mode": "scalping"
+    },
+    {
+      "symbol": "NSE:ICICIBANK",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:ICICIBANK",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:INFY",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:INFY",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:ITC",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:KOTAKBANK",
+      "mode": "intraday"
+    },
+    {
+      "symbol": "NSE:KOTAKBANK",
+      "mode": "scalping"
+    },
+    {
+      "symbol": "NSE:KOTAKBANK",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:KOTAKBANK",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:LT",
+      "mode": "intraday"
+    },
+    {
+      "symbol": "NSE:LT",
+      "mode": "scalping"
+    },
+    {
+      "symbol": "NSE:LT",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:LT",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:RELIANCE",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:RELIANCE",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:SBIN",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:SBIN",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:SUNPHARMA",
+      "mode": "scalping"
+    },
+    {
+      "symbol": "NSE:SUNPHARMA",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:SUNPHARMA",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:TCS",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:TCS",
+      "mode": "ultra_scalping"
+    },
+    {
+      "symbol": "NSE:WIPRO",
+      "mode": "swing"
+    },
+    {
+      "symbol": "NSE:WIPRO",
+      "mode": "ultra_scalping"
+    }
+  ],
+  "unresolved_pairs": [],
+  "scope": "Persisted broker-data scan coverage only; no fills, edge or live promotion is inferred.",
+  "generated_at": "2026-10-23T18:48:06.753215+00:00",
+  "database_read_only": true,
+  "provider_requests": 0,
+  "broker_mutations": 0
+}

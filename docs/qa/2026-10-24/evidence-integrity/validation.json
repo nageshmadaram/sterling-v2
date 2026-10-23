@@ -1,0 +1,38 @@
+{
+  "baseline_commit": "1df5351b728661200798fd0ec62b4bed529de4ab",
+  "baseline_tested_commit": "006c3cb16d48764c9db43c7f35df143aa4fdb954",
+  "baseline_tree_identical": true,
+  "baseline_log_sha256": "55fa2b254a61bb4ac9d775b7eaf608a892240f4b1d1f09dd66d504fae2481d67",
+  "frontend_reused": {
+    "reason": "No frontend files changed from the fully tested baseline",
+    "passed": 2308,
+    "files": 248,
+    "log_sha256": "f3e27b0b96341a78f7e8e2f2334b1f36b258529449e3f3275b3391c6481266bb"
+  },
+  "tested_source_sha256": {
+    "scripts/ema_scan_audit.py": "37aa0ec5d90a072df583ab75009a1820f06fc774337eac3fe2933ce4ae0532c1",
+    "scripts/trading_session_audit.py": "c44dba6dd1e449602091b1e6d050e499d31b4a7e9168d832981fc8ed3105a285",
+    "backend/tests/test_ema_scan_audit.py": "0dfe37dff50fe8761a62cba27e849408eeea46e2be9a33c9a93a1c7900ab12f2",
+    "backend/tests/test_trading_session_coverage.py": "4b5384c615a7b4c39703d8958bd25adc01b468c23f2449bd135783476a84753d"
+  },
+  "logs": {
+    "baseline": {
+      "sha256": "55fa2b254a61bb4ac9d775b7eaf608a892240f4b1d1f09dd66d504fae2481d67",
+      "summary": "11730 passed, 30 skipped in 1108.38s (0:18:28)",
+      "verify_ok": true,
+      "failures": []
+    },
+    "head": {
+      "sha256": "edcccd59477cdaae6c1f223596ea181f127b472b8dfbd0c555a7efc9b4eb157a",
+      "summary": "11737 passed, 30 skipped in 873.06s (0:14:33)",
+      "verify_ok": true,
+      "failures": []
+    }
+  },
+  "new_failures": [],
+  "skip_reasons_unchanged": true,
+  "focused_passed": 16,
+  "tdd_red_initial": 5,
+  "tdd_red_malformed_duration": 1,
+  "broker_mutations": 0
+}
