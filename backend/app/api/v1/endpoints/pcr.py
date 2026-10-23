@@ -304,7 +304,8 @@ async def pcr_session(_user: UserContext = Depends(get_current_user)) -> dict[st
                 try:
                     import json
                     from app.services import db
-                    db.set_config('pcr.last_session.v1', json.dumps(cached))
+                    from app.core.async_work import run_blocking
+                    await run_blocking(db.set_config, 'pcr.last_session.v1', json.dumps(cached))
                 except Exception:
                     pass
         series = cached.get('series') or {}
@@ -346,7 +347,8 @@ async def pcr_session(_user: UserContext = Depends(get_current_user)) -> dict[st
             try:
                 import json
                 from app.services import db
-                db.set_config('pcr.last_session.v1', json.dumps(result))
+                from app.core.async_work import run_blocking
+                await run_blocking(db.set_config, 'pcr.last_session.v1', json.dumps(result))
             except Exception:
                 pass  # In-memory/browser history remains available if DB storage fails.
         return result
