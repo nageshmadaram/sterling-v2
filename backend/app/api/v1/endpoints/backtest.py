@@ -68,7 +68,7 @@ async def get_unified_strategies() -> List[Dict[str, Any]]:
         {
             "id": "ema_trend", "name": "10/21 EMA + Supertrend",
             "category": "Selected Instrument Trend Following",
-            "description": "Causal four-mode equity/derivative lifecycle with quarter exits, add-backs and estimated costs. Research only.",
+            "description": "Original Daily/Weekly EMA lifecycle with quarter exits, add-backs and estimated costs. Research only.",
             "default_timeframe": "day", "default_stop_points": 0.0,
             "default_target_points": 0.0, "default_trail_points": 0.0,
             "result_format": "EMA_TREND_LIFECYCLE_V1",
@@ -300,7 +300,8 @@ async def _run_ema_trend_backtest(body: UnifiedBacktestRequest, user: UserContex
     if body.data_source != "kite":
         raise HTTPException(status_code=422, detail="EMA Trend requires explicit Kite data; no synthetic/provider fallback")
     try:
-        mode = canonical_mode(body.strategy_params.get("mode", "swing"))
+        from app.services.ema_trend.original_policy import require_original
+        mode = require_original(body.strategy_params.get("mode", "swing"))
         profile = PROFILES[mode]
         expected_tf = {1440: {"day", "D", "1d"}, 60: {"60m", "1h"}, 15: {"15m"}, 3: {"3m"}, 1: {"1m"}}[profile.signal_minutes]
         if body.timeframe not in expected_tf:

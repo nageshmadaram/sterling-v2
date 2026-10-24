@@ -70,7 +70,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 const ROWS: Array<{ label: string; note: string }> = [
   { label: 'SuperTrend', note: 'Triple SuperTrend across the configured universe' },
   { label: 'Gamma Unwind', note: 'Daily zones → HOI-1 → hidden 5m E2 → live E1 → four gates' },
-  { label: 'EMA Trend', note: 'Cash-equity paper trends on four independent profiles' },
+  { label: 'EMA Trend', note: 'Original Daily EMA signals with Weekly SuperTrend context · practice only' },
   { label: 'Snapback', note: 'Daily swing and intraday scans on the active config' },
 ];
 

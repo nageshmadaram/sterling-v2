@@ -13,6 +13,8 @@ def current(row: dict, settings: dict, now: datetime) -> dict:
     profile = PROFILES[row["mode"]]
     exchange = row["symbol"].split(":", 1)[0]
     blockers = ["INDEX_SPOT_WATCH_ONLY_NO_ORDERS"] if row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY" else []
+    if row['mode'] not in settings['config'].get('modes', []):
+        blockers.append('CONFIG_MODE_RETIRED_OR_DISABLED')
     expiry = None
     if row["close_ms"] > int(now.timestamp()*1000):
         blockers.append("SIGNAL_NOT_CLOSED")

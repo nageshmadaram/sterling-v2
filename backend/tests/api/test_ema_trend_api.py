@@ -507,3 +507,57 @@ def test_live_order_observation_reads_exact_order_but_never_writes(client,monkey
     assert body["unprojected_value"]=="200"
     assert "UNPROJECTED_BROKER_FILL_PRESENT" in body["blockers"]
     assert body["live_orders_enabled"] is False and body["read_only"]
+
+
+@pytest.mark.parametrize('mode', ['intraday', 'scalping', 'ultra_scalping'])
+def test_original_ema_refuses_added_operational_modes(client, monkeypatch, mode):
+    from app.services.ema_trend import scanner, execution
+    base = '/api/v1/ema-trend'
+    forbidden = lambda *a, **kw: pytest.fail('Retired mode reached an entry/scan adapter')
+    monkeypatch.setattr(scanner, 'start_scan', forbidden)
+    monkeypatch.setattr(execution, 'build_plan', forbidden)
+    monkeypatch.setattr(execution, 'arm', forbidden)
+    repo.put('alice', 'signal', 'retired', {'mode': mode}, 0)
+    repo.put('alice', 'plan', 'retired', {'mode': mode}, 0)
+    for endpoint, payload in [('/config', {'expected_revision': 0, 'changes': {'modes': [mode]}}),
+                              ('/scan', {'expected_revision': 0, 'modes': [mode]}),
+                              ('/plans', {'expected_config_revision': 0, 'signal_id': 'retired'}),
+                              ('/plans/retired/arm', {'expected_revision': 1, 'idempotency_key': 'retired'})]:
+        response = (client.patch if endpoint == '/config' else client.post)(base+endpoint, json=payload)
+        assert response.status_code == 422, response.text
+        assert 'EMA_ORIGINAL_DAILY_WEEKLY_ONLY' in response.text
+    assert repo.get('alice', 'signal', 'retired')['mode'] == mode
+
+
+def test_original_ema_response_keeps_legacy_config_recoverable(client):
+    from app.services.ema_trend import config_store
+    saved = config_store.update('alice', 0, {'modes': ['swing', 'ultra_scalping'], 'allocation_inr': '12345'})
+    result = client.get('/api/v1/ema-trend/config').json()
+    assert result['config']['modes'] == ['swing']
+    assert set(result['profiles']) == set(result['strategy']['profiles']) == {'swing'}
+    assert result['config']['allocation_inr'] == '12345'
+    assert config_store.get('alice')['revision'] == saved['revision']
+    assert config_store.get('alice')['config']['modes'] == ['swing', 'ultra_scalping']
+    assert result['retired_config_modes'] == ['ultra_scalping']
+    result = client.patch('/api/v1/ema-trend/config', json={'expected_revision': 1, 'changes': {'enabled': True}})
+    assert result.status_code == 200
+    assert config_store.get('alice')['config']['modes'] == ['swing']
+    assert config_store.get('alice')['config']['allocation_inr'] == '12345'
+
+
+@pytest.mark.parametrize('mode', ['intraday', 'scalping', 'ultra_scalping'])
+def test_original_ema_blocks_new_replays_but_keeps_recorded_history(client, mode):
+    repo.put('alice', 'run', 'legacy-run', {'mode': mode, 'status': 'COMPLETED'}, 0)
+    result = client.post('/api/v1/ema-trend/replay', json={'symbol': 'NSE:INFY', 'mode': mode,
+        'expected_config_revision': 0})
+    assert result.status_code == 422 and 'EMA_ORIGINAL_DAILY_WEEKLY_ONLY' in result.text
+    assert client.get('/api/v1/ema-trend/runs/legacy-run').json()['mode'] == mode
+
+
+@pytest.mark.parametrize('modes', [[], ['swing','swing']])
+def test_original_scan_cannot_fall_back_to_legacy_config(client, monkeypatch, modes):
+    from app.services.ema_trend import scanner
+    monkeypatch.setattr(scanner, 'start_scan', lambda *a: pytest.fail('Invalid selection reached legacy fallback'))
+    response = client.post('/api/v1/ema-trend/scan', json={'expected_revision':0, 'modes':modes})
+    assert response.status_code == 422
+    assert 'EMA_ORIGINAL_DAILY_WEEKLY_ONLY' in response.text

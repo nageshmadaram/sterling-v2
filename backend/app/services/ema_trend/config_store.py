@@ -52,8 +52,14 @@ def pause(uid: str, paused: bool) -> dict:
 
 def response(uid: str) -> dict:
     current = get(uid)
-    return {**current, "defaults": EmaTrendConfig().model_dump(mode="json"),
-            "strategy": descriptor(), "profiles": {k: v.model_dump(mode="json") for k,v in PROFILES.items()},
+    # Operational presentation only: retain stored legacy config for audit/export.
+    # Applying any config through the API durably selects the original profile.
+    retired = [mode for mode in current['config']['modes'] if mode != 'swing']
+    original = {**current, 'config': {**current['config'], 'modes': ['swing']}}
+    strategy = descriptor()
+    strategy = {**strategy, 'profiles': {'swing': strategy['profiles']['swing']}}
+    return {**original, 'retired_config_modes': retired, "defaults": EmaTrendConfig().model_dump(mode="json"),
+            "strategy": strategy, "profiles": {"swing": PROFILES["swing"].model_dump(mode="json")},
             "capabilities": {"paper": True, "live": False, "broker_protection": False,"execution_venues":["NSE","BSE","NFO","BFO"],
                              "blocked_venues":{"MCX":"MULTIPLIER_CALENDAR_ACCOUNTING_NOT_IMPLEMENTED"}},
             "blockers": current.get("blockers", []) + descriptor()["blockers"]}

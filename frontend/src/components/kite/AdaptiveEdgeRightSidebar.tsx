@@ -82,7 +82,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const engineSignals = useEngineSignals();
   const gmSnapshot = useGammaMoveSnapshot();
   const sbSnapshot = useSnapbackSnapshot();
-  const emaSnapshot = useEmaTrendSnapshot();
+  const emaSnapshot = useEmaTrendSnapshot(['swing']);
   const stCfg = useEngineConfig();
 
 

@@ -1,5 +1,7 @@
 # EMA Trend: family operator guide
 
+**24 October 2026 operational update:** only the original Daily signals / Weekly SuperTrend profile is available for new work. Intraday/Scalp/Ultrascalp profiles below are retained historical documentation; they cannot originate new operational scans, plans or entries. Held legacy campaigns remain supervised, with reductions/exits available. See [current strategy guide](../STRATEGY_MODE_GUIDE.md#ema-original-dailyweekly-only).
+
 Updated 2026-10-17. This release is **PAPER ONLY**. Virtual profits are not income; economic validation is inconclusive. Live execution is blocked in the server, not just hidden in the interface.
 
 For the short handover, read [START_HERE.md](START_HERE.md). Current release boundaries are in [READINESS_REPORT.md](READINESS_REPORT.md).

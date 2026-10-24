@@ -263,3 +263,17 @@ def test_eod_closes_and_roundtrip_costs_are_charged_once(monkeypatch):
     t = r["trades"][0]
     assert r["complete"] and t["exit_reason"] == "session_exit"
     assert t["gross_pnl_inr"] == 150 and t["estimated_cost_inr"] == 90 and t["net_pnl_inr"] == 60
+
+
+@pytest.mark.parametrize("ema_on,adx_on,cutoff", [(False,False,25.), (True,True,25.), (False,False,20.)])
+def test_signal_reasons_only_claim_enabled_confirmation(monkeypatch, ema_on, adx_on, cutoff):
+    b = setup()
+    monkeypatch.setattr(intraday, "adx", lambda *a: np.full(len(b), 18.))
+    cfg = replace(CFG, use_ema_confirmation=ema_on, use_adx_filter=adx_on, scalp_max_adx=cutoff)
+    signal = intraday.evaluate_intraday(b, cfg, asof=b.time[-1]+60)[0]
+    reasons = " ".join(signal.reasons)
+    assert ("EMA9" in reasons) == ema_on
+    assert ("ADX14" in reasons) == (adx_on or cutoff < 25.)
+    if adx_on or cutoff < 25.:
+        assert f"{cutoff:g}" in reasons
+    assert "Closed candle confirms reversal inside the Bollinger band" in reasons

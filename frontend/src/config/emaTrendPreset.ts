@@ -12,6 +12,5 @@ export const NSE_EQUITY_STARTER = [
   'NSE:WIPRO',
 ] as const;
 
-// Limit the one-click, all-four-profile onboarding to five stocks (20 pairs)
-// rather than sending 60 symbol/profile queries at first launch.
+// Keep original Daily/Weekly onboarding bounded to five stocks.
 export const EMA_TREND_QUICKSTART = NSE_EQUITY_STARTER.slice(0, 5);

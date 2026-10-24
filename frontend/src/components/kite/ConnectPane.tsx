@@ -1055,7 +1055,7 @@ const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
     pageDescription: 'Daily zones, HOI-1 watchlists, 5-minute E2, E1 breakout and four-gate tiering.' },
   { id: 'snapback', label: 'Snapback', eyebrow: 'Stretched-breakout fade', group: 'Signal engines',
     pageDescription: 'Daily and intraday Snapback scans, history and replay.' },
-  { id: 'emaTrend', label: 'EMA Trend', eyebrow: '10/21 EMA · ST10,3', group: 'Signal engines', pageDescription: 'Cash-equity paper trend campaigns, four profiles, partial exits and add-backs.' },
+  { id: 'emaTrend', label: 'EMA Trend', eyebrow: '10/21 EMA · ST10,3', group: 'Signal engines', pageDescription: 'Original Daily/Weekly EMA strategy, partial exits and add-backs. Practice only.' },
   { id: 'priceRules', label: 'Price Rules', eyebrow: 'Manual & one-shot entries', group: 'Signal engines',
     pageDescription: 'Exact option contracts, individually armed price conditions and owned exits.' },
   { id: 'archived', label: 'Archived', eyebrow: 'Optional strategy scanners', group: 'Signal engines',
