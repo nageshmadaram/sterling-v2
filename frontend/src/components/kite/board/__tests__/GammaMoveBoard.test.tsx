@@ -604,3 +604,14 @@ it('keeps historical-date controls disabled in replay without background history
   expect(historicalLoadState.mutate).not.toHaveBeenCalled();
   expect(backfillState.mutate).not.toHaveBeenCalled();
 });
+
+it('labels retained non-session archives in the date selector and timeline', () => {
+  snap.data = data({ history_days: [{ day: '2026-10-18', signals: 1, watches: 2, source: 'live_recorded', is_trading_day: false }] });
+  renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+  expect(screen.getByRole('option', { name: /2026-10-18 · Non-session archive/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByText('History, coverage & strategy details'));
+  expect(screen.getByRole('button', { name: /2026-10-18.*Non-session archive/ })).toBeVisible();
+  expect(scanState.mutate).not.toHaveBeenCalled();
+  expect(armState.mutate).not.toHaveBeenCalled();
+});

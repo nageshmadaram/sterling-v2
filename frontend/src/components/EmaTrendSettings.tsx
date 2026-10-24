@@ -1,3 +1,4 @@
+import { StrategyModeInfo } from './kite/board/StrategyModeInfo';
 import React from 'react';
 import { useEmaTrendConfig, useUpdateEmaTrend, useEmaTrendLiveReadiness } from '../hooks/useEmaTrend';
 import { EMA_TREND_MODE_LABEL, type EmaTrendConfig, type EmaTrendMode } from '../types/emaTrend';
@@ -79,6 +80,7 @@ export function EmaTrendSettings() {
       on={cfg.enabled} liveOn={server.config.enabled} busy={save.isPending} onToggle={() => patch({ enabled: !cfg.enabled })}
       runningNote="Scanning on. Open trades stay managed if you turn it off."
       offNote="Scanning off. Practice trades only, no real orders." />
+    <StrategyModeInfo engine="ema_trend" />
     <Section title="Execution and evidence" summary="Paper only" description="Practice trades only. No real orders." defaultOpen persistKey="ema-trend-execution">
       <Field label="Automatic paper entry" hint="Separate from scanning. Safety checks still apply.">
         <Switch label="EMA Trend automatic paper entry" checked={cfg.auto_execute} onChange={() => patch({ auto_execute: !cfg.auto_execute })} />

@@ -1,3 +1,4 @@
+import { StrategyModeInfo } from './board/StrategyModeInfo';
 import {useSavedSelection} from '../../hooks/useSavedSelection';
 const PriceRulesBoard = lazy(() => import('./board/PriceRulesBoard').then(m => ({ default: m.PriceRulesBoard })));
 import { openSettingsSection } from './config/registry';
@@ -273,6 +274,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           </span>
         </PaneHeaderActions>
       </div>
+      <StrategyModeInfo bounded engine={engine} st={stCfg.data} sb={sbSnapshot.data?.config} />
       <StrategyGuide engine={engine} />
 
       {settingsOpen && (

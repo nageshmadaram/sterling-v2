@@ -241,7 +241,7 @@ function ColumnPicker({ view, available, columnLabels }: {
 export function ModeFilter({ modes, onChange }: { modes: readonly TradeMode[]; onChange: (next: TradeMode[]) => void }) {
   const on = (m: TradeMode) => modes.length === 0 || modes.includes(m);
   return <ColumnsMenu buttonText={modes.length === 0 || modes.length === TRADE_MODES.length ? 'MODES' : `MODES ${modes.length}`}
-    menuLabel="Trading modes shown" buttonTitle="Show only some trading modes. Does not change scanning or orders."
+    menuLabel="Trading modes shown (view filter only)" buttonTitle="Show only some trading modes. Does not change scanning or orders."
     showAllText="Show all modes"
     items={TRADE_MODES.map((m) => ({
       id: m as unknown as ColumnId, label: MODE_LABEL[m], on: on(m),

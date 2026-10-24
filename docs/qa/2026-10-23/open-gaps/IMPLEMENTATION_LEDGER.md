@@ -33,3 +33,7 @@ Subsequent remaining-gap work: [CONTINUATION.md](../remaining-gaps/CONTINUATION.
 24 October readiness follow-up: [Public readiness diagnostics](../../2026-10-24/readiness-diagnostics/CONTINUATION.md) reproduces missing timeout/route reasons and the stale supervisor-recovery warning after API recovery. It adds bounded, credential-safe diagnostics and fresh-health status filtering while retaining the current temporary tunnel and trading controls. It does not certify the outstanding live-market or external acceptance items.
 
 24 October historical UI follow-up: [Gamma history access and request status](../../2026-10-24/gamma-history-status/CONTINUATION.md) restores the unreachable day/coverage controls, distinguishes background backfill from selected-day loading and adds a dated, explicit retry. Historical/replay entry guards and Gamma original rules remain unchanged. Live-session and external acceptance requirements remain open.
+
+### 24 October — default/mode clarity continuation
+
+See [default tags and effective mode configuration](../../2026-10-24/mode-default-clarity/CONTINUATION.md). Default labels and mode configuration explanations are implemented; release validation is recorded with that continuation. Real-session acceptance remains separate.

@@ -166,3 +166,9 @@ AMO rejection can prove a request reached the broker; it cannot prove a fill, pr
 - `frontend/src/components/SnapbackSettings.tsx`: actual selector presets.
 - `backend/app/engines/ema_trend/config.py`, `setups.py`, `state_machine.py`: current EMA profiles and campaign lifecycle.
 - `docs/qa/2026-10-23/open-gaps/IMPLEMENTATION_LEDGER.md` and `docs/qa/2026-10-24/board-contract-provenance/CONTINUATION.md`: fixes versus remaining observed acceptance.
+
+## In-app default labels and configuration comparison
+
+Settings and the signal workspace display **Default / Original** separately from **Selected**. A default tag identifies the factory/original strategy; it is not proof that the account currently uses that mode. Expand **Compare modes and configuration** for preset intervals, permitted overrides and holding limits. The selected line reports effective candle size and candle type. Settings readouts follow the draft until Apply; board readouts show saved settings. A row or open position can carry a different frozen mode. The board MODES menu only filters displayed rows. EMA and Gamma show **Default · Original only**, without additional horizon choices.
+
+For a beginner: **OHLC** means actual open, high, low and close prices for the candle interval. **Heikin-Ashi** transforms those values to read the trend; its displayed values are not executable prices. **Signal timeframe** is the interval the strategy evaluates; a chart's display interval can be separate. **ATR period 21** means 21 candles of the selected signal interval, not always 21 hours. **Bars** in a Snapback hold limit use that mode's candle size, and earlier stops, expiry and session ceilings still apply. Default does not mean active, validated or recommended for every account.
