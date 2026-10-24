@@ -57,10 +57,18 @@ const price = (v: number | null | undefined): number | null =>
  * - **Navigator's verdict**, when it has one, because the two systems can
  *   disagree and the row otherwise shows only SuperTrend's view.
  */
-function marksOf(row: EngineSignalRow, opts: SuperTrendAdapterOptions): BoardOrigin[] {
+function contractExitReason(row: EngineSignalRow, leg?: OptionLeg): string | null | undefined {
+  return leg && row.source === 'derivatives' ? leg.exit_reason : row.exit_reason;
+}
+
+function contractExitState(row: EngineSignalRow, leg: OptionLeg): string | null | undefined {
+  return row.source === 'derivatives' ? leg.exit_state : leg.exit_state ?? row.exit_state;
+}
+
+function marksOf(row: EngineSignalRow, opts: SuperTrendAdapterOptions, leg?: OptionLeg): BoardOrigin[] {
   const marks: BoardOrigin[] = [];
 
-  const reason = row.exit_reason;
+  const reason = row.source === 'derivatives' && !leg ? null : contractExitReason(row, leg);
   if (reason) {
     const trail = reason.startsWith('trail breach');
     const theta = reason.startsWith('time decay');
@@ -68,7 +76,7 @@ function marksOf(row: EngineSignalRow, opts: SuperTrendAdapterOptions): BoardOri
       label: trail ? 'TSL exit' : theta ? 'Theta exit' : 'counter exit',
       tone: trail ? 'amber' : theta ? 'amber' : 'dim',
       hint: trail
-        ? `Closed by the trailing stop — ${reason}.`
+        ? leg ? closedReasonText(reason, null, price(leg.premium_sl)).hint : `Underlying signal exit: ${reason}. Contract stop levels are shown on each leg.`
         : theta
           ? `Closed by the time-decay limit — ${reason}. Price consolidated without expanding momentum.`
           : `Closed by the red counter — ${reason}.`,
@@ -125,13 +133,15 @@ const engineOf = (row: EngineSignalRow): EngineId =>
  * combination that is a call to action rather than a running position.
  */
 function status(row: EngineSignalRow, leg: OptionLeg): BoardStatus {
-  if (row.exit_reason) return 'ended';
+  if (contractExitReason(row, leg)) return 'ended';
   const active = leg.is_active ?? row.is_active ?? false;
   if (!active) return 'ended';
-  if (row.is_fresh) return 'armed';
+  const ownFresh = row.source !== 'derivatives'
+    || parseTimestampMs(leg.entry_timestamp_ms ?? leg.signal_timestamp_ms) === parseTimestampMs(row.timestamp_ms);
+  if (row.is_fresh && ownFresh) return 'armed';
   // The red counter is the exit rule counting against an open position:
   // anything above zero means the thesis is being withdrawn.
-  const reds = Number((leg.exit_state ?? row.exit_state ?? '').split('/')[0]);
+  const reds = Number((contractExitState(row, leg) ?? '').split('/')[0]);
   return Number.isFinite(reds) && reds > 0 ? 'weakening' : 'running';
 }
 
@@ -142,11 +152,11 @@ function evidenceSection(row: EngineSignalRow, leg?: OptionLeg): BoardSection {
     layout: 'tiles',
     summary: row.regime,
     stats: [
-      { label: 'Spot', value: row.spot?.toFixed(2), hint: 'Underlying price at signal time' },
+      { label: 'Spot', value: (row.source === 'derivatives' ? price(row.underlying_spot) : price(row.spot))?.toFixed(2) ?? '—', hint: 'Underlying price at signal time' },
       { label: 'Score', value: row.score?.toFixed(0), hint: 'Engine conviction, 0-100' },
       { label: 'ADX', value: row.adx == null ? undefined : row.adx.toFixed(1), hint: 'Trend strength at signal time' },
       { label: 'ATR pct', value: row.atr_pct == null ? undefined : `${row.atr_pct.toFixed(0)}%`, hint: 'Volatility rank against recent history' },
-      { label: 'Alignment', value: alignmentText(row.alignment), hint: 'Fast / mid / slow SuperTrend, in that order' },
+      { label: 'Alignment', value: row.source === 'derivatives' ? (leg?.alignment ? alignmentText(leg.alignment) : '—') : alignmentText(row.alignment), hint: 'Fast / mid / slow SuperTrend, in that order' },
       { label: 'Regime', value: row.regime },
       { label: 'Source', value: row.source ?? undefined, hint: 'Which scan surfaced this — spot, derivatives, confluence or Navigator' },
       ...(leg ? [{ label: 'Moneyness (strike steps)', value: leg.moneyness,
@@ -173,15 +183,17 @@ function alignmentText(chip: AlignmentChip | null | undefined): string | undefin
  * why `exit_reason` is shown beside it rather than instead of it.
  */
 function exitSection(row: EngineSignalRow, leg: OptionLeg): BoardSection | null {
-  const exitState = leg.exit_state ?? row.exit_state;
-  if (!exitState && !row.exit_reason && row.target == null) return null;
+  const exitState = contractExitState(row, leg);
+  const reason = contractExitReason(row, leg);
+  if (!exitState && !reason && !row.exit_reason && row.target == null) return null;
   return {
     title: 'Exit rule',
     layout: 'rows',
     summary: exitState ?? undefined,
     stats: [
       { label: 'Red counter', value: exitState ?? '—', hint: 'SuperTrend lines turned against the position, out of the threshold' },
-      { label: 'Why it ended', value: row.exit_reason ?? '—', hint: 'The trail and the counter are separate rules; either can close a trade' },
+      { label: 'Why it ended', value: reason ? closedReasonText(reason, null, price(leg.premium_sl)).text : '—', hint: reason ? closedReasonText(reason, null, price(leg.premium_sl)).hint : 'The trail and the counter are separate rules; either can close a trade' },
+      { label: row.source === 'derivatives' ? 'Group exit reason' : 'Underlying exit reason', value: row.exit_reason ?? '—', hint: 'Raw engine diagnostic for the underlying signal; a quoted threshold may belong to another contract.' },
       { label: 'Underlying target', value: row.target == null ? '—' : row.target.toFixed(2), hint: 'Navigator quotes one; SuperTrend does not' },
       { label: 'Resolution', value: leg.resolution_note ?? row.resolution_reason ?? '—' },
     ],
@@ -236,8 +248,9 @@ export function closedReasonText(
 ): { text: string; hint: string } {
   const r = (exitReason || '').toLowerCase();
   if (r.startsWith('trail breach')) {
-    // The reason is per stock; each leg has its own premium stop, so show the leg's.
-    const level = trail != null && trail > 0 ? trail.toFixed(2) : (exitReason || '').match(/[\d.]+\s*\)?$/)?.[0]?.replace(')', '').trim();
+    // The shared spot/confluence reason or contract-local derivative reason
+    // may name a different unit/level. Only show this leg's known premium trail.
+    const level = trail != null && Number.isFinite(trail) && trail > 0 ? trail.toFixed(2) : null;
     return { text: `Stop hit${level ? ' ' + level : ''}`, hint: `Closed by the trailing stop: the price fell to ${level || 'the stop'}. The red counter had not fired; whichever rule comes first closes the trade.` };
   }
   if (r.startsWith('red count')) {
@@ -282,7 +295,8 @@ export function supertrendLegToBoard(
 ): BoardSignal {
   if (row.is_replay) opts = { ...opts, quotes: undefined, spotOf: undefined };
   const engine = engineOf(row);
-  const openMs = parseTimestampMs(
+  const localOpenMs = parseTimestampMs(leg.entry_timestamp_ms ?? leg.signal_timestamp_ms);
+  const openMs = row.source === 'derivatives' ? localOpenMs : parseTimestampMs(
     leg.entry_timestamp_ms ?? leg.signal_timestamp_ms ?? row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date
   );
   const atMs = signalMs(row, openMs);
@@ -355,6 +369,7 @@ export function supertrendLegToBoard(
     executionEligible: (
       row.is_replay !== true
       && row.view_only !== true
+      && (row.source !== 'derivatives' || parseTimestampMs(leg.entry_timestamp_ms ?? leg.signal_timestamp_ms) != null)
       && !priceAtOrBelowStop(row, leg, opts)
       // Buyable only with a stop below the entry: that stop is armed at Zerodha after the fill.
       && price(leg.entry_sl ?? leg.premium_sl) != null && price(leg.premium_spot) != null
@@ -363,11 +378,11 @@ export function supertrendLegToBoard(
       && (opts.nowMs == null || sessionDayKey(atMs) === sessionDayKey(opts.nowMs))
     ),
     origin: originOf(row),
-    marks: marksOf(row, opts),
+    marks: marksOf(row, opts, leg),
     // The red counter, e.g. "0/3 red", while the trade runs; once closed, WHY it closed.
     exitProgress: status(row, leg) === 'ended'
-      ? closedReasonText(row.exit_reason, price((opts.quotes?.[quoteKey]?.last_price as number | undefined) ?? (leg as any).ltp), price(leg.premium_sl)).text
-      : (row.exit_state || null),
+      ? closedReasonText(contractExitReason(row, leg), null, price(leg.premium_sl)).text
+      : (contractExitState(row, leg) || null),
     flags: flagsFor(row, leg, opts),
     // Solved from the live quote, not replayed from the scan. Omitted rather
     // than guessed when the implied volatility has no solution — a delta the
@@ -379,7 +394,11 @@ export function supertrendLegToBoard(
       const g = computeGreeksFromLeg(leg.strike, leg.expiry, leg.option_type, spot, q, leg.lot_size ?? null);
       return g && Number.isFinite(g.iv) && g.iv > 0 ? g.delta : null;
     })(),
-    reason: row.exit_reason ?? row.resolution_reason ?? null,
+    reason: row.source === 'derivatives'
+      ? leg.exit_reason ?? (localOpenMs == null
+        ? 'Contract signal time is unavailable. Wait for a fresh scan before entry.'
+        : leg.resolution_note ?? null)
+      : row.exit_reason ?? row.resolution_reason ?? null,
     sections,
   };
 }
@@ -430,15 +449,18 @@ function supertrendSignalToBoard(
         row.timestamp_ms ?? (row as any).timestamp ?? (row as any).created_at ?? (row as any).entered_at ?? (row as any).session_date,
       )),
     // The live underlying where we have it; the scan's spot otherwise.
-    underlyingPrice: (row.is_replay ? null : opts.spotOf?.(row.underlying)) ?? (row.spot > 0 ? row.spot : null),
+    underlyingPrice: (row.is_replay ? null : opts.spotOf?.(row.underlying))
+      ?? (row.source === 'derivatives' ? price(row.underlying_spot) : price(row.spot)),
     levels: { ltp: null, entry: null, stop: null, trail: null, target: null, exit: null },
     sizing: { lots: null, quantity: null, atRiskInr: null, deployedInr: null },
     score: row.score ?? null,
     origin: originOf(row),
     marks: marksOf(row, opts),
     // The red counter, e.g. "0/3 red". A count, not a price.
-    exitProgress: row.exit_state || null,
-    reason: row.exit_reason ?? row.resolution_reason ?? null,
+    exitProgress: row.source === 'derivatives' ? 'Per contract' : row.exit_state || null,
+    reason: row.source === 'derivatives'
+      ? (status === 'ended' ? 'Closed contracts; see each contract for its exit rule.' : null)
+      : row.exit_reason ?? row.resolution_reason ?? null,
     sections: [evidenceSection(row), navigatorSection(row)].filter(Boolean) as BoardSection[],
     children: legs,
   };
@@ -483,16 +505,16 @@ function flagsFor(row: EngineSignalRow, leg: OptionLeg, opts: SuperTrendAdapterO
     label: 'PRICE ≤ STOP', tone: 'amber', hint: 'The known premium is at or below this plan’s hard stop. Refresh the plan before a new entry; server admission remains authoritative.',
   });
 
-  const reason = row.exit_reason;
+  const reason = contractExitReason(row, leg);
   if (reason?.startsWith('trail breach')) {
-    flags.push({ label: 'TSL exit', tone: 'amber', hint: `Closed by the trailing stop — ${reason}. The red counter had not fired; whichever rule triggers first ends the trade.` });
+    flags.push({ label: 'TSL exit', tone: 'amber', hint: closedReasonText(reason, null, price(leg.premium_sl)).hint });
   } else if (reason?.startsWith('time decay')) {
     flags.push({ label: 'Theta exit', tone: 'amber', hint: `Closed on the time-decay limit — ${reason}. Price consolidated without expanding, so the trade closed rather than bleed theta.` });
   } else if (reason) {
     flags.push({ label: 'counter exit', tone: 'dim', hint: `Closed by the red counter — ${reason}.` });
   }
 
-  const counter = leg.exit_state ?? row.exit_state;
+  const counter = contractExitState(row, leg);
   if (counter && !reason) {
     flags.push({ label: counter, tone: 'dim', hint: 'Red lines now, out of how many close the trade.' });
   }

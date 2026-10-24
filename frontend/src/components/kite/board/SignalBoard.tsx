@@ -1135,7 +1135,7 @@ function Row({
             </StatCardGrid>
           )}
           {signal.reason && (
-            <p style={{ margin: 0, fontSize: 10.5, color: k.dim, lineHeight: 1.55 }}>{signal.reason}</p>
+            <p style={{ margin: 0, fontSize: 10.5, color: k.dim, lineHeight: 1.55 }}>{signal.status === 'ended' && signal.engine === 'supertrend' ? signal.exitProgress || signal.reason : signal.reason}</p>
           )}
         </div>
       )}

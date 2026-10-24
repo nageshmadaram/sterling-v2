@@ -1,0 +1,21 @@
+{
+  "scope": "Real PcrPane with offline fixture feed/quotes; two 390px containers, not a real broker/session observation.",
+  "panels": [
+    {
+      "background": "rgb(255, 255, 255)",
+      "color": "rgb(68, 68, 68)",
+      "scrollWidth": 358,
+      "text": "Historical PCR \u00b7 2026-10-23 15:30:00+05:30 \u00b7 not current",
+      "width": 358,
+      "contrast_ratio": 9.74
+    },
+    {
+      "background": "rgb(15, 17, 21)",
+      "color": "rgb(230, 232, 238)",
+      "scrollWidth": 358,
+      "text": "Historical PCR \u00b7 2026-10-23 15:30:00+05:30 \u00b7 not current",
+      "width": 358,
+      "contrast_ratio": 15.42
+    }
+  ]
+}

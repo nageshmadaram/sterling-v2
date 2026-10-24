@@ -333,24 +333,28 @@ def _compile_rows(rows: List[EngineSignalRow]) -> List[EngineSignalRow]:
         key = (r.underlying, r.option_type)
         for source_leg in (r.legs or []):
             leg = source_leg.model_copy(deep=True)
-            # Premiums are stamped at birth by evaluate_derivative_contract; fill them
-            # here only for a leg that arrived without them (legacy cached rows). On a
-            # re-compile the parent's spot/stop_loss are 0, so these stay no-ops.
-            if not leg.premium_spot:
-                leg.premium_spot = r.spot or leg.premium_spot
-            if not leg.premium_sl:
-                leg.premium_sl = r.stop_loss or leg.premium_sl
-            leg.token = leg.token or r.token
-            leg.signal_timestamp_ms = int(leg.signal_timestamp_ms or r.timestamp_ms)
-            leg.entry_timestamp_ms = int(leg.entry_timestamp_ms or r.timestamp_ms)
-            leg.alignment = leg.alignment or r.alignment
-            leg.exit_state = leg.exit_state or r.exit_state
-            if leg.current_reds is None:
-                leg.current_reds = r.current_reds
-            # Per-leg, not the row's: a parent's timestamp_ms is the MAX across its
-            # legs, so using it to age-compare individual strikes would let the
-            # newest leg's stamp shadow an older one on the next merge.
-            stamp = int(leg.signal_timestamp_ms or r.timestamp_ms)
+            # Only an ungrouped premium row owns these fallback values.
+            # A compiled parent is a display summary (spot/stop_loss are zero),
+            # so its first leg must never supply another contract's token,
+            # timestamp, alignment, red counter or exit diagnostic.
+            raw_contract = len(r.legs) == 1 and r.spot > 0
+            if raw_contract:
+                if not leg.premium_spot:
+                    leg.premium_spot = r.spot or leg.premium_spot
+                if not leg.premium_sl:
+                    leg.premium_sl = r.stop_loss or leg.premium_sl
+                leg.token = leg.token or r.token
+                leg.signal_timestamp_ms = int(leg.signal_timestamp_ms or r.timestamp_ms)
+                leg.entry_timestamp_ms = int(leg.entry_timestamp_ms or r.timestamp_ms)
+                leg.alignment = leg.alignment or r.alignment
+                leg.exit_state = leg.exit_state or r.exit_state
+                if leg.exit_reason is None and not leg.is_active:
+                    leg.exit_reason = r.exit_reason
+                if leg.current_reds is None:
+                    leg.current_reds = r.current_reds
+            # Unknown legacy dates must not shadow a dated, authoritative scan
+            # of this contract merely because another leg has a newer trigger.
+            stamp = int(leg.signal_timestamp_ms or leg.entry_timestamp_ms or 0)
             sym_key = (*key, leg.option_symbol)
             if key not in grouped_derivs:
                 parent = r.model_copy(deep=True)
@@ -499,6 +503,7 @@ def evaluate_derivative_contract(
                             signal_timestamp_ms=ts, entry_timestamp_ms=ts,
                             alignment=AlignmentChip(fast=int(r.t_fast[i]), mid=int(r.t_mid[i]), slow=int(r.t_slow[i])),
                             exit_state=_exit_state_str(r, "long", end_idx, cfg),
+                            exit_reason=exit_reason or None,
                             # Per CONTRACT: grouping puts many legs under one parent, so
                             # a position on any strike but the first must read its own.
                             current_reds=r.red_line_count("long", last_idx),

@@ -239,7 +239,10 @@ export function PcrPane() {
           ? Math.round((pcr - prev.pcr) * 100) / 100
           : (last?.delta ?? null);
       const row = payload?.series[u.id];
-      const q = liveQuotes?.[underlyingQuoteKey(u.id)];
+      // A saved PCR session must keep its recorded spot/change; mixing it with
+      // today's quote changes the historical interpretation of that OI book.
+      const currentFeed = payload?.source === 'live' && payload.marketOpen !== false && sessionIso === todayIso;
+      const q = currentFeed ? liveQuotes?.[underlyingQuoteKey(u.id)] : undefined;
       const liveLtp = typeof q?.last_price === "number" && q.last_price > 0 ? q.last_price : null;
       const close = typeof q?.ohlc?.close === "number" && q.ohlc.close > 0 ? q.ohlc.close : null;
       const liveChg =
@@ -285,6 +288,14 @@ export function PcrPane() {
       };
     });
   }, [metricBoards, payload, sessionIso, todayIso, liveQuotes, indexTapes]);
+  const observedAt = payload?.asOf?.replace('T', ' ') || 'time unknown';
+  const pcrStatus = !payload
+    ? (error ? 'PCR unavailable · no current observation' : 'Waiting for PCR data')
+    : error ? `Feed unavailable · last PCR ${observedAt} · not current`
+    : payload.source === 'snapshot' ? `Historical PCR · ${observedAt} · not current`
+    : payload.marketOpen === false ? `Market closed · PCR as of ${observedAt}`
+    : sessionIso !== todayIso ? `Historical PCR · ${observedAt} · not current`
+    : `PCR observation · ${observedAt}`;
   const picked = prefs.indices;
   const pathOn = prefs.path;
   const showAll = picked.length === PCR_INDICES.length;
@@ -324,6 +335,7 @@ export function PcrPane() {
       <style>{PCR_CSS}</style>
       <div className="kp-desk">
         <header className="kp-head">
+          <p role="status" aria-label="PCR data status" style={{margin: '0 0 6px', fontSize: 12, color: 'var(--k-text)', overflowWrap: 'anywhere'}}>{pcrStatus}</p>
           <div className="kp-head-row">
             <h1 className="kp-title">PCR Desk</h1>
             <div className="kp-tabs" role="tablist" aria-label="PCR metric">

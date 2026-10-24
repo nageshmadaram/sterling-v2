@@ -1,0 +1,52 @@
+{
+  "baseline_commit": "35ad7a15a14833fa6741f9f915e1089c1b9a8ce4",
+  "baseline_tested_commit": "74af4ad1aba49e18e22b6027802798a71e417c3c",
+  "baseline_tree_identical": true,
+  "baseline_backend_log_sha256": "edcccd59477cdaae6c1f223596ea181f127b472b8dfbd0c555a7efc9b4eb157a",
+  "tested_source_sha256": {
+    "backend/app/engines/sterling_kite_engine/schemas.py": "111a844e5c9275eb34201da85ca260acec574dedd70de73006aeab44808e99d3",
+    "backend/app/services/kite_engine/scanner.py": "39cc6facba5464f87d3ae1db3b6a405b9a8fd810c54d79ef6242222cac89a119",
+    "backend/tests/engines/sterling_kite_engine/test_scanner.py": "450e64707fd6347ef0f4b5576decf885509e64c23673bf3643d8b9996800a3be",
+    "frontend/src/components/kite/PcrPane.tsx": "fc261a712a354b832cbab742beecf5b358f52e3e5a414bbad6ce492b6aa9bc19",
+    "frontend/src/components/kite/board/SignalBoard.tsx": "49e74cfd573285e284e7d8786ba5bcb0284cbf5bf9de198583595d55fabd7983",
+    "frontend/src/components/kite/board/supertrendAdapter.ts": "ec3db9987eba25ea190a0957b57377f26ff293ac9563b1c417583c3ab006129f",
+    "frontend/src/components/kite/board/useBoardRowActions.tsx": "24807a59ae7b4e42c7f76030688ca4981d29c5e95e69f38f037a30b18d20b307",
+    "frontend/src/types/kiteEngine.ts": "c6fb9bdc998e4059b60444b3c997d5984ac408f363a641df435fce62803399c9",
+    "frontend/src/components/kite/PcrDataStatus.test.tsx": "e0fa7aa364376e5ae6ab925cfd9528d2a325bc90e36d1c9278b3445304d71643",
+    "frontend/src/components/kite/board/__tests__/contractExitHints.test.tsx": "4473ea91f9da69de6463bf915493c446e0a16cb4f08742b318add90b6aa74774"
+  },
+  "final_frontend_refinement": "During the unchanged final backend run, frontend-only legacy date/refusal and derivative group-summary fixes were added with failing regressions. Full final frontend rerun; make verify TypeScript runs after backend completion on this final source.",
+  "logs": {
+    "baseline": {
+      "sha256": "edcccd59477cdaae6c1f223596ea181f127b472b8dfbd0c555a7efc9b4eb157a",
+      "summaries": [
+        "11737 passed, 30 skipped in 873.06s (0:14:33)",
+        "VERIFY OK"
+      ],
+      "failures": []
+    },
+    "head": {
+      "sha256": "be324459d5cdd79766e5eb0418947d0d994518cec59fde40416194928a9dac08",
+      "summaries": [
+        "11742 passed, 30 skipped in 1388.28s (0:23:08)",
+        "VERIFY OK"
+      ],
+      "failures": []
+    },
+    "frontend": {
+      "sha256": "b5a37ad3283a56548f5addabc9fb2ba348091b9327518c5a8f547979f83067fc",
+      "summaries": [
+        " Test Files  250 passed (250)",
+        "      Tests  2322 passed (2322)"
+      ],
+      "failures": []
+    }
+  },
+  "new_failures": [],
+  "skip_reasons_unchanged": true,
+  "focused_backend_passed": 245,
+  "focused_new_ui_passed": 14,
+  "broker_mutations": 0,
+  "initial_combined_gate": "Backend 11737/30 skipped and frontend 2316/250 files passed before expanded contract-local changes; TypeScript then rejected incomplete test fixture types. Not a release pass.",
+  "intermediate_runs": "Two partial full-gate attempts interrupted to expand contract-state/running-counter/freshness fixes. Logs retained; not acceptance."
+}

@@ -1782,3 +1782,74 @@ def test_the_derivative_scope_never_invents_a_series_the_user_excluded():
     scope = ["monthly"]
     narrowed = [e for e in allowed if e in scope]
     assert narrowed == []          # empty → the scanner keeps `allowed` untouched
+
+
+def test_compiled_derivatives_keep_contract_exit_reasons_through_recompile():
+    from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
+    def raw(symbol, reason, active):
+        return EngineSignalRow(underlying='NIFTY',token=1,exchange='NFO',regime='BULL',
+            alignment=AlignmentChip(fast=1,mid=1,slow=1),direction='long',option_type='CE',
+            legs=[OptionLeg(moneyness='ATM',option_type='CE',option_symbol=symbol,strike=24000,
+                            expiry='2026-10-27',is_active=active)],spot=200,stop_loss=185,
+            score=82,timestamp_ms=1000,source='derivatives',is_active=active,exit_reason=reason)
+    rows=[raw('STOP','trail breach (≤ 185.00)',False),raw('RED','red count exit 1/1',False),raw('RUNNING',None,True)]
+    before=[r.model_dump() for r in rows]
+    first=_compile_rows(rows)
+    second=_compile_rows(first)
+    expected={'STOP':'trail breach (≤ 185.00)','RED':'red count exit 1/1','RUNNING':None}
+    assert {leg.option_symbol:getattr(leg,'exit_reason',None) for leg in first[0].legs}==expected
+    assert {leg.option_symbol:getattr(leg,'exit_reason',None) for leg in second[0].legs}==expected
+    assert [r.model_dump() for r in rows]==before
+
+
+def test_old_grouped_cache_never_assigns_parent_exit_to_unrelated_legs():
+    from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
+    row=EngineSignalRow(underlying='NIFTY',token=1,exchange='NFO',regime='BULL',
+        alignment=AlignmentChip(fast=1,mid=1,slow=1),direction='long',option_type='CE',
+        legs=[OptionLeg(moneyness='ATM',option_type='CE',option_symbol=s,strike=24000,
+                        expiry='2026-10-27',is_active=False) for s in ['A','B']],
+        spot=0,stop_loss=0,score=82,timestamp_ms=1000,source='derivatives',is_active=False,
+        exit_reason='trail breach (≤ 100.00)')
+    result=_compile_rows([row])[0]
+    assert all(getattr(leg,'exit_reason',None) is None for leg in result.legs)
+
+
+def test_derivative_exit_reason_is_stamped_before_grouping(monkeypatch):
+    from app.services.kite_engine import scanner as scanner_module
+    cfg=SterlingKiteEngineConfig()
+    item=UniverseItem('NIFTY 50','NIFTY',256265,'INDICES','NFO',is_index=True)
+    pick=OptionPick(option_symbol='NIFTY25JUN24500CE',strike=24500.0,option_type='CE',
+                    expiry='2026-06-26',dte=8,lot_size=75,token=44001)
+    candles=_trim_to_transition(_candles(_fresh_long_path()),cfg,'long')
+    monkeypatch.setattr(scanner_module.exits,'resolve_exit',lambda *a,**k:(len(candles)-1,'red count exit 1/1'))
+    rows=evaluate_derivative_contract(item,'ATM',pick,candles,cfg)
+    assert rows and rows[-1].exit_reason=='red count exit 1/1'
+    assert getattr(rows[-1].legs[0],'exit_reason',None)=='red count exit 1/1'
+
+
+def test_legacy_group_never_invents_contract_counter_or_alignment():
+    from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
+    row=EngineSignalRow(underlying='NIFTY',token=1,exchange='NFO',regime='BULL',
+        alignment=AlignmentChip(fast=-1,mid=-1,slow=-1),direction='long',option_type='CE',
+        legs=[OptionLeg(moneyness='ATM',option_type='CE',option_symbol=s,strike=24000,
+                        expiry='2026-10-27',is_active=True) for s in ['A','B']],
+        spot=0,stop_loss=0,score=82,timestamp_ms=1000,source='derivatives',is_active=True,
+        current_reds=3,exit_state='3/3 red')
+    result=_compile_rows([row])[0]
+    assert all(leg.current_reds is None and leg.exit_state is None and leg.alignment is None
+               and leg.token is None and leg.signal_timestamp_ms is None
+               and leg.entry_timestamp_ms is None for leg in result.legs)
+
+
+def test_dated_contract_scan_replaces_unknown_legacy_leg_despite_group_timestamp():
+    from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
+    parent=EngineSignalRow(underlying='NIFTY',token=1,exchange='NFO',regime='BULL',
+        alignment=AlignmentChip(fast=1,mid=1,slow=1),direction='long',option_type='CE',
+        legs=[OptionLeg(moneyness='ATM',option_type='CE',option_symbol=s,strike=24000,
+                        expiry='2026-10-27',is_active=True) for s in ['A','B']],
+        spot=0,stop_loss=0,score=82,timestamp_ms=9999,source='derivatives',is_active=True)
+    own=parent.model_copy(deep=True,update={'legs':[parent.legs[0].model_copy(deep=True)],
+                                         'spot':200,'stop_loss':185,'timestamp_ms':1000})
+    result=_compile_rows([parent,own])[0]
+    leg=next(x for x in result.legs if x.option_symbol=='A')
+    assert leg.premium_spot==200 and leg.entry_timestamp_ms==1000
