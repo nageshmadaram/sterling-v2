@@ -1,0 +1,50 @@
+{
+  "baseline_commit": "2d00474b323864858b9f8d9103216014d0354d92",
+  "backend_summary": "11782 passed, 30 skipped in 819.30s (0:13:39)",
+  "baseline_failures": [],
+  "head_failures": [],
+  "skip_lines": [
+    "SKIPPED [11] tests/services/test_intraday_runner.py: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:163: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:182: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:204: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_simulation.py:235: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:278: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:353: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:638: no kite_engine_signals for 2026-09-07 in this environment",
+    "SKIPPED [1] tests/api/test_simulation_replay_clock.py:242: Actual NIFTY hourly cache unavailable; no generated replacement",
+    "SKIPPED [1] tests/engines/intraday/test_backtest.py:408: vwap_supertrend does not trade this tape",
+    "SKIPPED [1] tests/engines/snapback/test_strategy.py:327: this tape did not produce a setup to filter",
+    "SKIPPED [1] tests/services/test_adaptive_edge_evidence.py:132: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:482: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:520: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:155: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:387: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_strategy_bridge.py:299: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_intraday_runner.py:874: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:207: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:233: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)"
+  ],
+  "skips_unchanged": true,
+  "frontend_summary": "Tests  2349 passed (2349)",
+  "frontend_files": 253,
+  "new_backend_cases": 0,
+  "new_frontend_cases": 8,
+  "focused_ui_passed": 25,
+  "typescript": true,
+  "make_verify": true,
+  "final_source_hashes": {
+    "frontend/src/components/kite/SuperTrendSharedBoard.tsx": "b9fbc7dadc8cd31f77320bb5e618fa7f12e6aac48e38d4a019cb4ecce39271bf",
+    "frontend/src/store/useSignalMarkers.ts": "13f353ad8bab470122d78047fa736fb299fa9d54966a16ddc298e64841027a3d",
+    "frontend/src/components/kite/__tests__/SuperTrendSharedBoard.markers.test.tsx": "4dc3bf7420196724323906e703a77de06ddcf2d41ab77c52cf1f7ded753acf73",
+    "frontend/src/store/__tests__/useSignalMarkers.test.ts": "e5a0f6dab877a94cf5b35454f8d0e40a2b6530aa498bd76f740119e94a8b0c4b"
+  },
+  "logs_sha256": {
+    "verify.log": "aa9ce6b24a069ef4e6bfdb1589fd47a8f11c01e5d0557e006d51360e89eb69ee",
+    "frontend-full.log": "c70bb0e8c831592f83a11902e437f38ea08729749a845001bb0e094b204ed8b8"
+  },
+  "broker_mutations": 0,
+  "strategy_math_changed": false,
+  "runtime_controls_changed": false,
+  "visual_proof": "Real shared board and adapter in HTTP-disabled before/after harness, 150 signals and 600 option legs; notification counts in browser-summary.json; single frame timings do not establish latency acceptance."
+}

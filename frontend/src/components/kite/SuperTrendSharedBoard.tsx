@@ -5,7 +5,7 @@ import type { SignalChartData } from '../../types/kiteEngine';
 import React from 'react';
 import { SignalBoard, DEFAULT_SORT, type ColumnId, type SortState } from './board/SignalBoard';
 import { supertrendToBoard } from './board/supertrendAdapter';
-import { markLegs, underlyingQuoteKey, sessionDayKey, type BoardSignal } from './board/boardTypes';
+import { markLegs, underlyingQuoteKey, sessionDayKey, normalizeMode, type BoardSignal } from './board/boardTypes';
 import {
   BOARD_COL_TO_SIGNAL, SIGNAL_COL_TO_BOARD, SIGNAL_LEFT_COLUMNS, SIGNAL_RIGHT_COLUMNS,
   signalColGroup, type SignalColKey,
@@ -94,13 +94,15 @@ export function SuperTrendSharedBoard({
     [rows, quotes, originalEntryMs, spotOf, s.chgType, signalMode, nowMs, isHistoricalSim, stMode],
   );
 
-  const publishMarkers = useSignalMarkers(state => state.publish);
-  const clearMarkers = useSignalMarkers(state => state.clear);
+  const replaceMarkers = useSignalMarkers(state => state.replaceRows);
+  const markerOwner = React.useId();
+  const markerKeys = React.useRef<string[]>([]);
   React.useEffect(() => {
-    const keys: string[] = [];
+    const batch: Record<string, Record<string, Marker>> = {};
     signals.forEach((signal, index) => {
       const row = rows[index];
-      const key = `${row.source ?? 'spot'}:${row.token}:${row.option_type}:${row.timestamp_ms}`;
+      const lane = normalizeMode(row.horizon_mode ?? stMode) ?? 'swing';
+      const key = `${markerOwner}:${row.source ?? 'spot'}:${row.token}:${row.option_type}:${lane}:${row.signal_timeframe_minutes ?? 'default'}:${row.timestamp_ms}`;
       const entries: Record<string, Marker> = {};
       const comparisons = markLegs(signal.children ?? []);
       (signal.children ?? []).forEach(leg => {
@@ -109,10 +111,16 @@ export function SuperTrendSharedBoard({
           rr: marks.has('bestRR'), delta: marks.has('bestDelta'),
         };
       });
-      publishMarkers(key, entries); keys.push(key);
+      batch[key] = entries;
     });
-    return () => keys.forEach(clearMarkers);
-  }, [signals, rows, publishMarkers, clearMarkers]);
+    // No clear/re-publish cycle during refresh: consumers see one consistent map.
+    replaceMarkers(markerKeys.current, batch);
+    markerKeys.current = Object.keys(batch);
+  }, [signals, rows, stMode, markerOwner, replaceMarkers]);
+  React.useEffect(() => () => {
+    replaceMarkers(markerKeys.current, {});
+    markerKeys.current = [];
+  }, [replaceMarkers]);
 
   const toggleGroup = React.useCallback((id: string) => {
     setCollapsed((prev) => {
@@ -186,7 +194,7 @@ export function SuperTrendSharedBoard({
             <span style={{ padding: '1px 6px', borderRadius: 4, background: 'rgba(255, 255, 255, 0.06)', fontSize: 10, fontFamily: 'monospace' }}>0 new entries</span>
           </span>
           <span style={{ fontSize: 10.5, color: 'var(--k-dim, #888)' }}>
-            No new 1H SuperTrend transitions today · Active positions from earlier sessions are tracked below
+            No new SuperTrend transitions today · Active positions from earlier sessions are tracked below
           </span>
         </div>
       )}
