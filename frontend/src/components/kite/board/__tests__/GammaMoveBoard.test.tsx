@@ -509,3 +509,98 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
     expect(screen.queryByText('PAPER')).toBeNull();
   });
 });
+
+describe('Gamma historical request status', () => {
+  it('distinguishes other-day background work from the displayed recorded day', () => {
+    snap.data = data({ day: '2026-10-02', historical: true, source: 'historical_replay', candidates: [signal()] });
+    backfillState.isPending = true;
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+    fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
+    expect(screen.getByText('Loading recent trading days in the background…')).toBeInTheDocument();
+    expect(screen.queryByText('Loading historical signals…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Execute Gamma Unwind/ })).toBeDisabled();
+  });
+
+  it('names the requested date when its load is still running after selection changes', () => {
+    snap.data = data({ day: '2026-10-02', historical: true, source: 'historical_replay' });
+    historicalLoadState.isPending = true;
+    historicalLoadState.variables = { day: '2026-09-30' };
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+    fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
+    expect(screen.getByText('Loading historical signals for 2026-09-30…')).toBeInTheDocument();
+    expect(screen.queryByText('Loading historical signals for 2026-10-02…')).not.toBeInTheDocument();
+  });
+
+  it('offers one explicit retry for the failed selected day without an automatic retry loop', () => {
+    snap.data = data({ day: '2026-10-02', historical: true, recorded: false, replay_available: true });
+    const view = renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+    fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
+    expect(historicalLoadState.mutate).toHaveBeenCalledTimes(1);
+    historicalLoadState.variables = { day: '2026-10-02' };
+    historicalLoadState.error = new Error('Broker history timed out');
+    view.rerender(<GammaMoveBoard nowMs={MORNING} />);
+    expect(screen.getByRole('alert')).toHaveTextContent('Historical load failed for 2026-10-02');
+    expect(historicalLoadState.mutate).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Retry historical day' }));
+    expect(historicalLoadState.mutate).toHaveBeenCalledTimes(2);
+    expect(historicalLoadState.mutate).toHaveBeenLastCalledWith({ day: '2026-10-02' });
+  });
+
+  it('does not assign a previous day failure to the newly selected recorded day', () => {
+    snap.data = data({ day: '2026-10-02', historical: true, source: 'historical_replay' });
+    historicalLoadState.variables = { day: '2026-09-30' };
+    historicalLoadState.error = new Error('Failed old request');
+    renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+    fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
+    expect(screen.queryByText(/Historical load failed/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry historical day' })).not.toBeInTheDocument();
+  });
+});
+
+it('keeps failed-day retry reachable after closing history and restores keyboard focus', () => {
+  snap.data = data({ day: '2026-10-02', historical: true, recorded: false, replay_available: true });
+  const view = renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+  const trigger = screen.getByRole('button', { name: 'Gamma history and coverage' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  expect(screen.getByRole('dialog', { name: 'Gamma history and coverage' })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
+  historicalLoadState.variables = { day: '2026-10-02' };
+  historicalLoadState.error = new Error('Temporary timeout');
+  view.rerender(<GammaMoveBoard nowMs={MORNING} />);
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(document.activeElement).toBe(trigger);
+  expect(screen.getByRole('alert')).toHaveTextContent('2026-10-02');
+  fireEvent.click(screen.getByRole('button', { name: 'Retry historical day' }));
+  expect(historicalLoadState.mutate).toHaveBeenLastCalledWith({ day: '2026-10-02' });
+});
+
+it('returns from historical selection to the current session without scanning or arming', () => {
+  snap.data = data({ day: '2026-10-02', historical: true, recorded: true });
+  renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+  fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
+  expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
+  fireEvent.click(screen.getByRole('button', { name: 'Reset strategy view' }));
+  expect(snapshotArgs).toEqual([true, 3000, undefined]);
+  expect(scanState.mutate).not.toHaveBeenCalled();
+  expect(armState.mutate).not.toHaveBeenCalled();
+});
+
+it('keeps historical-date controls disabled in replay without background history work', () => {
+  replayClock.now = MORNING;
+  snap.data = data({ day: '2026-10-02', historical: true, recorded: true });
+  backfillState.isPending = true;
+  renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+  expect(screen.getByLabelText('Gamma history date')).toBeDisabled();
+  expect(screen.getByLabelText('Gamma trading day')).toBeDisabled();
+  expect(screen.queryByText('Loading recent trading days in the background…')).not.toBeInTheDocument();
+  expect(historicalLoadState.mutate).not.toHaveBeenCalled();
+  expect(backfillState.mutate).not.toHaveBeenCalled();
+});

@@ -487,9 +487,14 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
             {scan.isPending ? 'Scanning…' : 'Scan now'}
           </button>
         )}
-        {selectedDay && (historicalLoad.isPending || backfill.isPending) && (
+        {!replay && historicalLoad.isPending && (
           <span style={{ fontSize: 11, color: k.blue }}>
-            Loading historical signals…
+            Loading historical signals for {historicalLoad.variables?.day || selectedDay || 'the selected day'}…
+          </span>
+        )}
+        {!replay && backfill.isPending && (
+          <span style={{ fontSize: 11, color: k.dim }}>
+            Loading recent trading days in the background…
           </span>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: k.dim }}>
@@ -565,8 +570,19 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
       {scan.error && (
         <p style={{ ...note, color: k.red }}>Scan failed: {(scan.error as Error).message}</p>
       )}
-      {historicalLoad.error && (
-        <p style={{ ...note, color: k.red }}>Historical load failed: {(historicalLoad.error as Error).message}</p>
+      {!replay && selectedDay && historicalLoad.variables?.day === selectedDay && historicalLoad.error && (
+        <p role="alert" style={{ ...note, color: k.red }}>
+          Historical load failed for {selectedDay}: {(historicalLoad.error as Error).message}
+          {' '}{data?.historical && data.day === selectedDay && data.replay_available && data.is_trading_day !== false && (
+            <button type="button" className="sb-tool" disabled={historicalLoad.isPending}
+              style={{ minHeight: 32, padding: '6px 8px', marginLeft: 6,
+                border: `1px solid ${k.border}`, borderRadius: 5,
+                background: k.bg, color: k.text, fontFamily: k.fontFamily, fontSize: 11 }}
+              onClick={() => historicalLoad.mutate({ day: selectedDay })}>
+              Retry historical day
+            </button>
+          )}
+        </p>
       )}
       {arm.data && !arm.data.ok && (
         <p style={{ ...note, color: k.amber }}>Not entered — {arm.data.message}</p>
