@@ -36,6 +36,8 @@ export interface OptionLeg {
   entry_timestamp_ms?: number | null;
   alignment?: AlignmentChip | null;
   exit_state?: string | null;
+  /** Own derivative-contract exit; null/absent legacy data stays unknown. */
+  exit_reason?: string | null;
   resolution_note?: string | null;
 }
 
@@ -63,6 +65,8 @@ export interface EngineSignalRow {
   option_type: 'CE' | 'PE';
   legs: OptionLeg[];
   spot: number;
+  /** Recorded underlying reference for derivative groups; spot itself is a premium/zero summary. */
+  underlying_spot?: number | null;
   stop_loss: number;       // live ratcheting trail stop (TSL column)
   entry_sl?: number;       // initial hard stop at the entry bar (SL column)
   exit_state?: string;     // red-counter progress "<reds>/<threshold> red" (Exit column)

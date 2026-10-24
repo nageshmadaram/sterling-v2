@@ -43,6 +43,9 @@ class OptionLeg(BaseModel):
     #: first. A position holding any other strike must read its own leg, not that one.
     #: None = unknown (see EngineSignalRow.current_reds).
     current_reds: Optional[int] = None
+    # Contract-local exit diagnostic; a grouped parent may describe another leg.
+    # None in legacy grouped caches means unknown, not the parent's exit.
+    exit_reason: Optional[str] = None
     resolution_note: Optional[str] = None
 
 

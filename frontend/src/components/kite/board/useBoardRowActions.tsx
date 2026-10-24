@@ -73,7 +73,7 @@ export function useBoardRowActions({ onOpenChart }: {
         className="sb-row-trade"
         onBuy={order('BUY')}
         buyDisabled={disabled}
-        disabledHint={signal.reason || 'This row is not execution eligible.'}
+        disabledHint={(signal.status === 'ended' ? signal.exitProgress : null) || signal.reason || 'This row is not execution eligible.'}
       />
     );
   }, [openOrderWindow]);
