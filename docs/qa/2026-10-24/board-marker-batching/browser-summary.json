@@ -1,0 +1,45 @@
+{
+  "fixture": {
+    "signals": 150,
+    "option_legs": 600,
+    "real_shared_board": true,
+    "broker_http_disabled": true,
+    "timing": "single observations under concurrent full test load; not a latency acceptance result"
+  },
+  "before": {
+    "clock": {
+      "notifications": 300,
+      "single_observation_ms": 211
+    },
+    "changedWinner": {
+      "notifications": 300,
+      "single_observation_ms": 439
+    },
+    "tools": {
+      "notifications": 300,
+      "single_observation_ms": 377
+    },
+    "unmount": {
+      "notifications": 150,
+      "single_observation_ms": 76
+    }
+  },
+  "after": {
+    "clock": {
+      "notifications": 0,
+      "single_observation_ms": 151
+    },
+    "changedWinner": {
+      "notifications": 1,
+      "single_observation_ms": 354
+    },
+    "tools": {
+      "notifications": 0,
+      "single_observation_ms": 358
+    },
+    "unmount": {
+      "notifications": 1,
+      "single_observation_ms": 140
+    }
+  }
+}
