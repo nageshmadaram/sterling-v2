@@ -1,6 +1,6 @@
 import React from 'react';
 import { useRunUnifiedBacktest } from '../../hooks/useUnifiedBacktest';
-import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../types/emaTrend';
+import { type EmaTrendMode } from '../../types/emaTrend';
 import { EmaTrendReport } from './EmaTrendReport';
 
 const TF: Record<EmaTrendMode, string> = { swing: 'day', intraday: '15m', scalping: '3m', ultra_scalping: '1m' };
@@ -24,7 +24,7 @@ export function EmaTrendBacktestPanel({ onBack }: { onBack: () => void }) {
         stt_pct: 0, session_cutoff_hour: 15, session_cutoff_min: 15, strategy_params: { mode } });
     }} style={{ display: 'flex', gap: 12, alignItems: 'end', flexWrap: 'wrap' }}>
       <label>Cash equity<input aria-label="Backtest exact instrument" value={symbol} onChange={event => setSymbol(event.target.value.toUpperCase())} required /></label>
-      <label>Profile<select aria-label="Backtest EMA Trend profile" value={mode} onChange={event => setMode(event.target.value as EmaTrendMode)}>{Object.entries(EMA_TREND_MODE_LABEL).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+      <label>Profile<select aria-label="Backtest EMA Trend profile" value={mode} onChange={event => setMode(event.target.value as EmaTrendMode)}>{Object.entries({ swing: 'Original · Daily / Weekly' }).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
       <label>Paper capital (₹)<input type="number" aria-label="Backtest paper capital" min={1} max={100000000} value={capital} onChange={event => setCapital(Number(event.target.value))} /></label>
       <label>History days<input type="number" aria-label="Backtest history days" min={1} max={3650} value={lookback} onChange={event => setLookback(Number(event.target.value))} /></label>
       <button type="submit" className="sb-tool" disabled={!valid || run.isPending}>{run.isPending ? 'Replaying…' : 'Run EMA Trend backtest'}</button>

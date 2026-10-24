@@ -154,3 +154,13 @@ it('allows a cash stock outside curated F&O registry only after exact broker loo
   fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
   await waitFor(() => expect(response.config.symbols).toContain('NSE:VOLTAS'));
 });
+
+it('offers only the original Daily/Weekly strategy even with a legacy four-profile response', async () => {
+  show();
+  await screen.findByLabelText('EMA Trend instruments');
+  expect(screen.queryByRole('checkbox', { name: 'Intraday' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: 'Scalp' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('checkbox', { name: 'Ultrascalp' })).not.toBeInTheDocument();
+  expect(screen.getByText(/Daily signals.*completed weekly/)).toBeInTheDocument();
+  expect(screen.queryByText(/Overnight is not built yet/)).not.toBeInTheDocument();
+});

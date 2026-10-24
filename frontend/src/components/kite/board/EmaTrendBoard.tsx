@@ -16,7 +16,7 @@ import { openSettingsSection } from '../config/registry';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend';
 import { EMA_TREND_QUICKSTART } from '../../../config/emaTrendPreset';
 
-const MODES: EmaTrendMode[] = ['swing', 'intraday', 'scalping', 'ultra_scalping'];
+const MODES: EmaTrendMode[] = ['swing'];
 const AUTO_SCAN_INTERVAL_MS = 60_000;
 const INITIAL_FETCH_ROWS_PER_MODE = 200;
 const INITIAL_RENDER_ROWS = 80;
@@ -47,9 +47,8 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
 }) {
   const historical = useSimNowMs() !== null;
   const config = useEmaTrendConfig();
-  // Profiles is a multi-select *view*, independent of enabled scan modes.
-  // Each selected profile has its own server-filtered page, so high-volume
-  // histories from one mode cannot starve another.
+  // New scans use only the original Daily/Weekly profile. All held campaigns
+  // remain visible below, including historical retired profiles.
   const [selectedModes, setSelectedModes] = React.useState<EmaTrendMode[]>([...MODES]);
   const [fetchLimit, setFetchLimit] = React.useState(INITIAL_FETCH_ROWS_PER_MODE);
   const [renderLimit, setRenderLimit] = React.useState(INITIAL_RENDER_ROWS);
@@ -64,7 +63,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const [openId, setOpenId] = React.useState<string | null>(null);
   const lastAutoRequest = React.useRef<{ key: string; at: number } | null>(null);
 
-  const activeModes = config.data?.config.modes || [];
+  const activeModes: EmaTrendMode[] = (config.data?.config.modes || []).filter(mode => mode === 'swing');
   const hasSymbols = Boolean(config.data &&
     ((config.data.config.scan_stocks_enabled !== false && config.data.config.symbols.length > 0) ||
       (config.data.config.scan_indices?.length || 0) > 0));
@@ -137,13 +136,6 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   };
   const selectedEnabled = selectedModes.filter(mode => activeModes.includes(mode));
   const unavailableSelected = selectedModes.filter(mode => !activeModes.includes(mode));
-  const toggleMode = (mode: EmaTrendMode) => {
-    setSelectedModes(previous => previous.includes(mode)
-      ? previous.length > 1 ? previous.filter(value => value !== mode) : previous
-      : MODES.filter(value => previous.includes(value) || value === mode));
-    setOpenId(null);
-    setRenderLimit(INITIAL_RENDER_ROWS);
-  };
   const resetProfiles = () => { setSelectedModes([...MODES]); setOpenId(null); setRenderLimit(INITIAL_RENDER_ROWS); };
   const currentScan = job.data || snapshot.data?.scan || null;
   const scanError = (currentScan?.errors || []).map(error => {
@@ -175,12 +167,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         {scanning && <button type="button" className="sb-tool"
           disabled={cancel.isPending || !job.data?.id}
           onClick={() => { if (job.data?.id) cancel.mutate(job.data.id); }}>Stop scan</button>}
-        <details className="strategy-scan-modes"><summary>Modes · {selectedModes.length}</summary>
-          <div role="group" aria-label="EMA Trend visible modes">
-            {MODES.map(mode => <label key={mode}><input type="checkbox" checked={selectedModes.includes(mode)}
-              disabled={selectedModes.length === 1 && selectedModes.includes(mode)}
-              onChange={() => toggleMode(mode)} />{EMA_TREND_MODE_LABEL[mode]}</label>)}
-          </div></details>
+        <span style={{ fontSize: 11 }}>Original · Daily / Weekly</span>
         <span role="status" style={{ fontSize: 11, color: 'var(--k-dim)' }}>{status}</span>
         <a href="#" className="sb-tool" onClick={(e) => { e.preventDefault(); openSettingsSection('emaTrend'); }}>Settings</a>
         {signals.some(row => row.emaTrend?.campaignId && row.status !== 'ended') &&
@@ -232,7 +219,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
         <div role="region" aria-label="Set up EMA Trend signals" style={{ padding: 14, display: 'grid', gap: 8,
           border: '1px solid var(--k-border)', borderRadius: 8, margin: 10 }}>
           <strong>No names picked for EMA Trend.</strong>
-          <span>Pick names in Settings, or start with 5 NSE stocks in all modes. Scans only; no trades.</span>
+          <span>Pick names in Settings, or start with 5 NSE stocks using the original Daily/Weekly strategy. Scans only; no trades.</span>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="sb-tool" type="button" onClick={startReadOnlyScanner}
               disabled={quickstart.isPending || !config.data}>

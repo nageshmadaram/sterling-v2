@@ -375,8 +375,9 @@ async def test_flatten_refuses_reserved_buy_before_virtual_broker_submission(vir
     assert repo.get("alice","outbox",pending.id)["status"]=="RESERVED"
 
 
+@pytest.mark.parametrize("flatten_requested", [True, False])
 @pytest.mark.asyncio
-async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual,monkeypatch):
+async def test_runner_cancels_flattened_or_retired_reserved_buy_without_submitting(virtual,monkeypatch,flatten_requested):
     from app.services.ema_trend import runner
     async def forbid_quote(*args,**kwargs):
         raise AssertionError("closed campaign must not need a quote")
@@ -389,7 +390,7 @@ async def test_runner_cancels_flattened_reserved_buy_without_submitting(virtual,
         config_hash=cfg.config_hash,config_revision=1,
         config_snapshot=cfg.model_dump(mode="json"),budget=Decimal("250"),
         initial_stop=Decimal("95"),stop=Decimal("95"),
-        entry_index=1,state="CLOSING",flatten_requested=True)
+        entry_index=1,state="CLOSING" if flatten_requested else "ENTRY_PENDING",flatten_requested=flatten_requested)
     pending=make_action(campaign,"ENTRY","BUY",4,1,repo.now_ms(),Decimal("100"))
     campaign.state="CLOSING"
     campaign.reason="FLATTEN_REQUESTED_PENDING_RECONCILIATION"
@@ -859,3 +860,27 @@ async def test_index_spot_requires_exact_broker_master_and_cannot_create_a_trade
               "watch_only":True,"signal_source":"INDEX_SPOT_WATCH_ONLY"},0)
     with pytest.raises(ValueError,match="INDEX_SPOT_WATCH_ONLY_NO_ORDERS"):
         await execution.build_plan("alice","index-watch",0)
+
+
+@pytest.mark.asyncio
+async def test_original_scheduler_ignores_retired_config_and_signals(monkeypatch):
+    from app.services.ema_trend import runner
+    from app.services.kite_engine import state
+    modes = ['swing', 'intraday', 'scalping', 'ultra_scalping']
+    settings = config_store.update('alice', 0, {'enabled': True, 'auto_execute': True,
+        'symbols': ['NSE:INFY'], 'modes': modes})
+    for mode in modes:
+        repo.put('alice', 'signal', mode, {'mode': mode, 'status': 'armed', 'config_revision': 1}, 0)
+    scans, plans = [], []
+    monkeypatch.setattr(scanner, 'start_scan', lambda uid, selected, revision: scans.append(selected))
+    monkeypatch.setattr(state, 'get_config', lambda uid: SimpleNamespace(auto_execute=True))
+    async def plan(uid, ident, revision):
+        plans.append(ident)
+        return {'id': 'blocked-original', 'status': 'BLOCKED', 'blockers': [], 'revision': 1}
+    monkeypatch.setattr(execution, 'build_plan', plan)
+    runner._last_scan.pop('alice', None)
+    result = await runner.run_user('alice')
+    assert result['errors'] == []
+    assert scans == [['swing']]
+    assert plans == ['swing']
+    assert config_store.get('alice')['config']['modes'] == modes

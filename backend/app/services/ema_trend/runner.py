@@ -10,6 +10,7 @@ from datetime import datetime
 from decimal import Decimal,ROUND_CEILING,ROUND_FLOOR
 import logging
 
+from .original_policy import ORIGINAL_MODE, scan_modes
 from app.engines.ema_trend.config import EmaTrendConfig,PROFILES,stable_id
 from app.engines.ema_trend.contracts import Bar
 from app.engines.ema_trend.features import build_features,aggregate_completed_bars
@@ -52,7 +53,7 @@ async def manage_campaign(uid,document,client):
             pending_action=next((a for a in (c.pending,c.pending_close) if a and a.id==pending_id),None)
             settings=(await run_blocking(config_store.get, uid))
             expired=repo.now_ms()>int(row.get("expires_ms",repo.now_ms()+1))
-            if pending_action and pending_action.side=="BUY" and (c.flatten_requested or expired or settings.get("paused") or
+            if pending_action and pending_action.side=="BUY" and (c.mode != ORIGINAL_MODE or c.flatten_requested or expired or settings.get("paused") or
                     (pending_action.kind=="ENTRY" and settings["revision"]!=c.config_revision)):
                 pending_action.status="CANCELLED"
                 if c.pending and c.pending.id==pending_id:
@@ -127,7 +128,7 @@ async def manage_campaign(uid,document,client):
     else:
         settings=(await run_blocking(config_store.get, uid))
         from app.services.kite_engine import state as shared_state
-        allowed_add=(settings["config"]["enabled"] and settings["config"]["auto_execute"]
+        allowed_add=(c.mode == ORIGINAL_MODE and settings["config"]["enabled"] and settings["config"]["auto_execute"]
                      and bool(shared_state.get_config(c.uid).auto_execute)
                      and not settings.get("paused") and c.mode in settings["config"]["modes"]
                      and c.symbol in settings["config"]["symbols"] and not risk_codes)
@@ -198,17 +199,18 @@ async def run_user(uid:str):
                     errors.append({"campaign_id":doc["id"],"reason":str(exc)})
                     (await run_blocking(repo.event, uid,stable_id(doc["id"],"management-error",repo.now_ms()//60000),doc["id"],"MANAGEMENT_BLOCKED",{"reason":str(exc)}))
         now=repo.now_ms()
-        interval=60000 if any(m!="swing" for m in cfg.modes) else 300000
+        selected = scan_modes(cfg)
+        interval=300000
         scans=(await run_blocking(repo.list_documents, uid,"scan",limit=1))
         scanning=bool(scans and scans[0]["status"] in {"QUEUED","RUNNING"})
-        if cfg.enabled and scanner.watch_symbols(cfg) and not scanning and now-_last_scan.get(uid,0)>=interval:
+        if cfg.enabled and selected and scanner.watch_symbols(cfg) and not scanning and now-_last_scan.get(uid,0)>=interval:
             _last_scan[uid]=now
-            scanner.start_scan(uid,cfg.modes,settings["revision"])
+            scanner.start_scan(uid,selected,settings["revision"])
         from app.services.kite_engine import state as shared_state
         master=bool(shared_state.get_config(execution.sim_uid(uid)).auto_execute)
         if cfg.enabled and cfg.auto_execute and master and not settings.get("paused"):
             for row in (await run_blocking(repo.list_documents, uid,"signal",limit=100)):
-                if row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY":
+                if row.get("mode") != ORIGINAL_MODE or row.get("watch_only") or row.get("signal_source")=="INDEX_SPOT_WATCH_ONLY":
                     continue  # Spot indices are evidence only; no virtual or live order.
                 if row["status"]!="armed" or row["config_revision"]!=settings["revision"]:
                     continue

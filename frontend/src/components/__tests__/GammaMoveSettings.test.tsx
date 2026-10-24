@@ -116,3 +116,10 @@ it('offers only supported Gamma stock controls and retains a custom selection in
   fireEvent.click(screen.getByRole('button', { name: 'Apply changes' }));
   expect(updateState.mutate.mock.calls[0][0].scan_stocks).toEqual(['RELIANCE']);
 });
+
+it('keeps Gamma expiry-based without offering added horizon modes', () => {
+  render(<GammaMoveSettings />);
+  expect(screen.getByText('Original holding rules')).toBeInTheDocument();
+  expect(screen.queryByRole('group', { name: 'Trading modes' })).not.toBeInTheDocument();
+  expect(screen.getByText(/Expiry within 1 trading day uses the original Intraday hold/)).toBeInTheDocument();
+});

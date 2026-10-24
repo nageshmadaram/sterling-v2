@@ -10,6 +10,8 @@ from app.engines.ema_trend.config import MODES,PROFILES,canonical_mode,descripto
 from app.engines.ema_trend.contracts import Bar
 from app.services.ema_trend import config_store,execution,repository as repo,scanner,snapshot,replay,live_preflight,live_observer
 
+from app.services.ema_trend.original_policy import require_original
+
 router=APIRouter(prefix="/ema-trend",tags=["ema-trend"])
 
 
@@ -94,7 +96,11 @@ async def get_config(user:UserContext=Depends(get_current_user)):
 @router.patch("/config")
 async def patch_config(body:ConfigPatch,user:UserContext=Depends(get_current_user)):
     try:
-        config_store.update(uid(user),body.expected_revision,body.changes)
+        if 'modes' in body.changes:
+            if body.changes['modes'] != ['swing']:
+                raise ValueError('EMA_ORIGINAL_DAILY_WEEKLY_ONLY')
+        changes = {**body.changes, 'modes': ['swing']} if body.changes else body.changes
+        config_store.update(uid(user),body.expected_revision,changes)
         return config_store.response(uid(user))
     except Exception as exc:
         raise refusal(exc) from exc
@@ -103,7 +109,7 @@ async def patch_config(body:ConfigPatch,user:UserContext=Depends(get_current_use
 @router.get("/instruments")
 async def instruments(query:str=Query(min_length=2,max_length=80),mode:str="swing",user:UserContext=Depends(get_current_user)):
     try:
-        return await scanner.search_instruments(uid(user),query,canonical_mode(mode))
+        return await scanner.search_instruments(uid(user),query,require_original(mode))
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -131,7 +137,10 @@ async def get_dataset(dataset_id:str,user:UserContext=Depends(get_current_user))
 @router.post("/scan")
 async def post_scan(body:ScanRequest,user:UserContext=Depends(get_current_user)):
     try:
-        return scanner.start_scan(uid(user),body.modes,body.expected_revision)
+        selected = [require_original(mode) for mode in (body.modes if body.modes is not None else ['swing'])]
+        if selected != ['swing']:
+            raise ValueError('EMA_ORIGINAL_DAILY_WEEKLY_ONLY')
+        return scanner.start_scan(uid(user),selected,body.expected_revision)
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -155,7 +164,9 @@ async def cancel_scan(job_id:str,user:UserContext=Depends(get_current_user)):
 @router.post("/plans")
 async def post_plan(body:PlanRequest,user:UserContext=Depends(get_current_user)):
     try:
-        return await execution.build_plan(uid(user),body.signal_id,body.expected_config_revision)
+        owner = uid(user)
+        require_original(repo.get(owner, 'signal', body.signal_id)['mode'])
+        return await execution.build_plan(owner,body.signal_id,body.expected_config_revision)
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -163,7 +174,9 @@ async def post_plan(body:PlanRequest,user:UserContext=Depends(get_current_user))
 @router.post("/plans/{plan_id}/arm")
 async def arm_plan(plan_id:str,body:ArmRequest,user:UserContext=Depends(get_current_user)):
     try:
-        return await execution.arm(uid(user),plan_id,body.expected_revision,body.idempotency_key,body.execution_mode)
+        owner = uid(user)
+        require_original(repo.get(owner, 'plan', plan_id)['mode'])
+        return await execution.arm(owner,plan_id,body.expected_revision,body.idempotency_key,body.execution_mode)
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -278,7 +291,7 @@ async def live_order_observation(intent_key:str,user:UserContext=Depends(get_cur
 async def validation(user:UserContext=Depends(get_current_user)):
     owner=uid(user)
     return {"status":"INCONCLUSIVE","paper_only":True,"live_capable":False,
-            "profiles":{mode:{"status":"INCONCLUSIVE","live_capable":False} for mode in MODES},
+            "profiles":{mode:{"status":"INCONCLUSIVE","live_capable":False} for mode in ("swing",)},
             "blockers":descriptor()["blockers"]+["PAPER_MONITOR_ONLY","CORPORATE_ACTION_POLICY_UNVERIFIED"],
             "fee_schedule":config_store.config(owner).fee_schedule}
 
@@ -287,7 +300,7 @@ async def validation(user:UserContext=Depends(get_current_user)):
 async def check_readiness(body:ReadinessRequest,user:UserContext=Depends(get_current_user)):
     from app.services.ema_trend.readiness import check
     try:
-        return await check(uid(user),body.symbol,canonical_mode(body.mode),body.expected_config_revision)
+        return await check(uid(user),body.symbol,require_original(body.mode),body.expected_config_revision)
     except Exception as exc:
         raise refusal(exc) from exc
 
@@ -331,7 +344,7 @@ async def chart(symbol:str,mode:str,signal_id:str|None=None,expected_config_revi
 async def post_replay(body:ReplayRequest,user:UserContext=Depends(get_current_user)):
     try:
         owner=uid(user)
-        mode=canonical_mode(body.mode)
+        mode=require_original(body.mode)
         bars=body.bars
         context=body.context_bars
         if bars is None:

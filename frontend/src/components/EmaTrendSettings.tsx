@@ -1,5 +1,3 @@
-import { ModeAvailability } from './kite/config/ModeAvailability';
-import type { TradeMode } from './kite/board/boardTypes';
 import React from 'react';
 import { useEmaTrendConfig, useUpdateEmaTrend, useEmaTrendLiveReadiness } from '../hooks/useEmaTrend';
 import { EMA_TREND_MODE_LABEL, type EmaTrendConfig, type EmaTrendMode } from '../types/emaTrend';
@@ -67,7 +65,7 @@ export function EmaTrendSettings() {
   if (query.isError) return <PanelCard><p role="alert">EMA Trend settings unavailable: {(query.error as Error).message}</p><button onClick={() => query.refetch()}>Retry</button></PanelCard>;
   if (!cfg || !server) return <PanelCard>Loading EMA Trend settings…</PanelCard>;
   const conflict = draft !== null && draft.revision !== server.revision;
-  const modes = Object.keys(server.profiles || server.strategy.profiles) as EmaTrendMode[];
+  const modes: EmaTrendMode[] = ['swing'];
   return <>
     <SettingsDraftBar dirty={dirty} saving={save.isPending} applyDisabled={conflict} hasDraft={draft !== null} resetConfirm={resetConfirm}
       onApply={() => { if (draft && dirty) save.mutate({ expected_revision: draft.revision, changes }, { onSuccess: () => { setDraft(null); setSymbolsText(null); } }); }}
@@ -109,14 +107,14 @@ export function EmaTrendSettings() {
         </p>)}
       </details>
       <ConfigNote>Version {server.strategy.version} · rule {server.strategy.rule_hash}</ConfigNote>
-      <EmaTrendReadiness symbols={server.config.symbols} modes={server.config.modes} revision={server.revision} />
+      <EmaTrendReadiness symbols={server.config.symbols} modes={modes} revision={server.revision} />
       <button type="button" className="sb-tool" disabled={exporting} onClick={exportRecords}>{exporting ? 'Exporting…' : 'Export saved paper records'}</button>
       {exportError && <p role="alert">Export failed: {exportError}</p>}
       <ConfigNote>Exports settings, trades and records. No passwords. Not a Zerodha backup.</ConfigNote>
     </Section>
-    <Section title="Scan universe" summary={`${cfg.scan_indices?.length || 0} indices · ${cfg.scan_stocks_enabled === false ? 0 : cfg.symbols.length} instruments · ${cfg.modes.length} profiles`}
+    <Section title="Scan universe" summary={`${cfg.scan_indices?.length || 0} indices · ${cfg.scan_stocks_enabled === false ? 0 : cfg.symbols.length} instruments · original Daily/Weekly`}
       description="Pick indices, F&O stocks, or exact contracts." defaultOpen persistKey="ema-trend-universe">
-      <EmaTrendInstrumentPicker symbols={cfg.symbols} mode={cfg.modes[0]}
+      <EmaTrendInstrumentPicker symbols={cfg.symbols} mode="swing"
         indices={cfg.scan_indices || []} stockScanEnabled={cfg.scan_stocks_enabled !== false}
         onIndicesChange={scan_indices => patch({ scan_indices })}
         onStockScanEnabledChange={scan_stocks_enabled => patch({ scan_stocks_enabled })}
@@ -130,13 +128,7 @@ export function EmaTrendSettings() {
         </Field>
       </details>
       <ConfigNote>Changes wait for Apply. Indices are watch only. No orders are sent.</ConfigNote>
-      <Field label="Enabled profiles" hint="Pick at least one mode. One name trades in one mode at a time.">
-        <ModeAvailability available={modes.map(m => m as TradeMode)} active={cfg.modes.map(m => m as TradeMode)} note="Tick the modes to scan below. Overnight is not built yet." />
-        <div role="group" aria-label="EMA Trend profiles">{modes.map(mode => <label key={mode} style={{ display: 'inline-flex', gap: 6, marginRight: 14 }}>
-          <input type="checkbox" checked={cfg.modes.includes(mode)} disabled={cfg.modes.length === 1 && cfg.modes.includes(mode)}
-            onChange={() => patch({ modes: cfg.modes.includes(mode) ? cfg.modes.filter(m => m !== mode) : [...cfg.modes, mode] })} />{EMA_TREND_MODE_LABEL[mode]}
-        </label>)}</div>
-      </Field>
+      <ConfigNote>Original strategy only: Daily signals with completed Weekly SuperTrend context. No added trading modes.</ConfigNote>
       {modes.map(mode => { const p = (server.profiles || server.strategy.profiles)[mode]; return <ConfigNote key={mode}>
         <strong>{EMA_TREND_MODE_LABEL[mode]}</strong>: {p.signal_minutes === 1440 ? 'Daily' : `${p.signal_minutes}m`} signals / {p.context_minutes === 10080 ? 'completed weekly' : `${p.context_minutes}m`} context · {mode === 'swing' ? 'CNC equities / NRML derivatives' : p.product} · {p.require_green ? 'green ST required' : 'ST context only'} · {p.force_close ? `close by ${p.force_close} IST` : 'condition-based holding'}{p.max_hold_bars ? ` · maximum ${p.max_hold_bars} bars` : ''}.
       </ConfigNote>; })}
@@ -149,7 +141,7 @@ export function EmaTrendSettings() {
     <Section title="Frozen strategy rules" summary="10 / 21 / 50 · ST(10,3)" description="Fixed values, shown for reference." persistKey="ema-trend-rules">
       <ConfigNote>Entry: EMA 10 crosses above EMA 21, then a retest or a breakout from a 3–5 candle pause. Stop below the last swing low.</ConfigNote>
       <ConfigNote>Exit: sell a quarter at 4R, then a part on each second close below each EMA. A lower high after a bearish cross closes the rest. Adds need fresh strength; never averages down.</ConfigNote>
-      <ConfigNote>Uses EMA 10, EMA 21, DEMA 50 and SuperTrend (10,3). Intraday, Scalp and Ultra scalp are still being tested.</ConfigNote>
+      <ConfigNote>Uses EMA 10, EMA 21, DEMA 50 and SuperTrend (10,3). Daily EMA signals drive execution; Weekly SuperTrend provides context.</ConfigNote>
     </Section>
   </>;
 }

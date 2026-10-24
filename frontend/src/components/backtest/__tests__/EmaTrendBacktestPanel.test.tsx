@@ -10,13 +10,13 @@ beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 describe('EMA Trend native unified backtest', () => {
   it('sends an explicit spot-equity/profile request and presents campaigns and fill legs', async () => {
-    vi.mocked(api.post).mockResolvedValue({ format: 'EMA_TREND_LIFECYCLE_V1', strategy: 'ema_trend', report: emaReport('scalping') });
+    vi.mocked(api.post).mockResolvedValue({ format: 'EMA_TREND_LIFECYCLE_V1', strategy: 'ema_trend', report: emaReport('swing') });
     render(<QueryClientProvider client={new QueryClient()}><EmaTrendBacktestPanel onBack={() => {}} /></QueryClientProvider>);
     fireEvent.change(screen.getByLabelText('Backtest exact instrument'), { target: { value: 'NSE:TCS' } });
-    fireEvent.change(screen.getByLabelText('Backtest EMA Trend profile'), { target: { value: 'scalping' } });
+    fireEvent.change(screen.getByLabelText('Backtest EMA Trend profile'), { target: { value: 'swing' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run EMA Trend backtest' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/v1/backtest/unified/run', expect.objectContaining({
-      strategy: 'ema_trend', symbol: 'NSE:TCS', contract_type: 'spot', lot_size: 1, timeframe: '3m', strategy_params: { mode: 'scalping' },
+      strategy: 'ema_trend', symbol: 'NSE:TCS', contract_type: 'spot', lot_size: 1, timeframe: 'day', strategy_params: { mode: 'swing' },
     })));
     expect(await screen.findByText('Open at dataset end')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Fill legs · read-only' })).toBeInTheDocument();
@@ -35,4 +35,9 @@ it('shows dataset issues while keeping the economic result inconclusive', async 
   fireEvent.click(screen.getByRole('button', { name: 'Run EMA Trend backtest' }));
   expect(await screen.findByRole('region', { name: 'Recorded dataset quality' })).toHaveTextContent('MISSING EXPECTED BAR: 2');
   expect(screen.getByText('INCONCLUSIVE')).toBeInTheDocument();
+});
+
+it('does not offer added EMA profiles for new backtests', () => {
+  render(<QueryClientProvider client={new QueryClient()}><EmaTrendBacktestPanel onBack={() => {}} /></QueryClientProvider>);
+  expect(screen.getAllByRole('option').map(option => option.getAttribute('value'))).toEqual(['swing']);
 });

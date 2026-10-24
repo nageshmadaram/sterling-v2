@@ -138,3 +138,20 @@ def test_ema_provider_mismatch_rejected_without_legacy_fallback(monkeypatch):
         "contract_type":"spot","instrument_scope":"single","data_source":"truedata","timeframe":"1d"})
     assert response.status_code==422
     assert "no synthetic/provider fallback" in response.json()["detail"]
+
+
+def test_ema_unified_backtest_rejects_added_modes_before_market_access(monkeypatch):
+    from types import SimpleNamespace
+    from app.core.auth import get_current_user
+    from app.services.ema_trend import scanner
+    async def forbidden(*args, **kwargs):
+        raise AssertionError('Retired EMA backtest reached market data')
+    monkeypatch.setattr(scanner, 'market_client', forbidden)
+    client = get_client()
+    client.app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(user_id='alice')
+    for mode, timeframe in [('intraday','15m'), ('scalping','3m'), ('ultra_scalping','1m')]:
+        response = client.post('/api/v1/backtest/unified/run', json={'strategy':'ema_trend',
+            'symbol':'NSE:INFY', 'instrument_scope':'single', 'contract_type':'spot',
+            'data_source':'kite', 'timeframe':timeframe, 'strategy_params':{'mode':mode}})
+        assert response.status_code == 422, response.text
+        assert 'EMA_ORIGINAL_DAILY_WEEKLY_ONLY' in response.text

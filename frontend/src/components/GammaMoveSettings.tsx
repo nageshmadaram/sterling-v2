@@ -4,7 +4,6 @@ import {
   type DirectionMode, type GammaMoveConfig, type StopMode,
 } from '../hooks/useGammaMove';
 import { ChoiceRow, Field, NumberField, Section, Switch, DIM } from './kite/kiteSettingsPrimitives';
-import { ModeAvailability } from './kite/config/ModeAvailability';
 import { AdvancedSection, ConfigNote, PanelCard, SettingsDraftBar } from './kite/config/ConfigPrimitives';
 import { useUnsavedDraftGuard } from './kite/config/unsavedDraftGuard';
 import { InstrumentsGroup } from './kite/config/ScanSettings';
@@ -80,9 +79,8 @@ export function GammaMoveSettings() {
     </span></ConfigNote>
     {(data.warnings ?? []).map((w) => <ConfigNote key={w}><span>{w}</span></ConfigNote>)}
 
-    <Section title="Trading modes" description="Which of the five modes this strategy trades." summary="Intraday · Swing" defaultOpen persistKey="gamma-modes">
-      <ModeAvailability available={['intraday', 'swing']}
-        note="Picked by expiry: expiry within 1 day trades Intraday, otherwise Swing. Other modes are not built yet." />
+    <Section title="Original holding rules" description="Hold is determined by contract expiry, not a selectable horizon mode." summary="Expiry-based · unchanged" defaultOpen persistKey="gamma-modes">
+      <ConfigNote>Expiry within 1 trading day uses the original Intraday hold; otherwise Swing. The original signal and exit rules are unchanged.</ConfigNote>
     </Section>
     <Section title="Execution adapter" description="Sterling-only controls around the unchanged signal tier."
       summary={String(cfg.execution_lots) + ' lot(s) · ' + (cfg.auto_execute ? 'ALGO' : 'manual') + ' · ' + cfg.stop_mode}
