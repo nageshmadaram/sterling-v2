@@ -37,3 +37,7 @@ Subsequent remaining-gap work: [CONTINUATION.md](../remaining-gaps/CONTINUATION.
 ### 24 October — default/mode clarity continuation
 
 See [default tags and effective mode configuration](../../2026-10-24/mode-default-clarity/CONTINUATION.md). Default labels and mode configuration explanations are implemented; release validation is recorded with that continuation. Real-session acceptance remains separate.
+
+### 24 October — marker refresh and ownership continuation
+
+[Atomic marker updates and independent board/mode ownership](../../2026-10-24/board-marker-batching/CONTINUATION.md) fixes confirmed refresh churn, temporary marker disappearance, simultaneous mode/timeframe collisions and cross-board unmount clearing. It also removes the remaining hardcoded hourly empty notice. Synthetic before/after browser counts and final automated validation accompany the continuation; full-session and external acceptance remain open.
