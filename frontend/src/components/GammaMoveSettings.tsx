@@ -1,3 +1,4 @@
+import { StrategyModeInfo } from './kite/board/StrategyModeInfo';
 import React from 'react';
 import {
   useGammaMoveConfig, useUpdateGammaMove,
@@ -79,6 +80,7 @@ export function GammaMoveSettings() {
     </span></ConfigNote>
     {(data.warnings ?? []).map((w) => <ConfigNote key={w}><span>{w}</span></ConfigNote>)}
 
+    <StrategyModeInfo engine="gamma_move" />
     <Section title="Original holding rules" description="Hold is determined by contract expiry, not a selectable horizon mode." summary="Expiry-based · unchanged" defaultOpen persistKey="gamma-modes">
       <ConfigNote>Expiry within 1 trading day uses the original Intraday hold; otherwise Swing. The original signal and exit rules are unchanged.</ConfigNote>
     </Section>

@@ -1,3 +1,4 @@
+import { StrategyModeInfo } from './kite/board/StrategyModeInfo';
 import React from 'react';
 import {
   useSnapbackConfig,
@@ -121,7 +122,7 @@ const TRADING_MODES: Array<{ value: SnapbackTradingMode; label: string; hint: st
   { value: 'scalp', label: 'Scalp', hint: '1-minute candles. Short hold; a strong move can run a little longer.' },
   { value: 'intraday', label: 'Intraday', hint: '15-minute candles. Out by day end.' },
   { value: 'overnight', label: 'Overnight', hint: 'Hourly candles. Up to 3 days. Stop at Zerodha. Never held over weekends or holidays.' },
-  { value: 'swing', label: 'Swing', hint: 'Daily candles. Held for days.' },
+  { value: 'swing', label: 'Swing · Default', hint: 'Daily candles. Held for days.' },
 ];
 
 export function SnapbackSettings() {
@@ -209,6 +210,8 @@ export function SnapbackSettings() {
           : 'Scanning daily bars for instruments stretched past a 20-session extreme.'}
         offNote="Off. Nothing is scanned and no orders can be placed."
       />
+
+      <StrategyModeInfo engine="snapback" sb={cfg} />
 
       <Section title="Trading mode" description="Pick a style. Each loads its own candle and hold settings."
         summary={TRADING_MODES.find((mode) => mode.value === (cfg.trading_mode ?? 'swing'))?.label ?? 'Daily swing'} defaultOpen persistKey="snapback-mode">

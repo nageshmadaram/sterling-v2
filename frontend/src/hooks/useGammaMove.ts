@@ -289,6 +289,7 @@ export interface GammaModeState {
 }
 
 export interface GammaHistoryDay {
+  is_trading_day?: boolean;
   day: string;
   signals: number;
   watches: number;

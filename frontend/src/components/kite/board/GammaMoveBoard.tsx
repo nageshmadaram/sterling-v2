@@ -97,6 +97,7 @@ function GammaSessionTimeline({
     strong_watchlist?: number;
     source?: string;
     issue?: string;
+    is_trading_day?: boolean;
   }>;
   selectedDay: string;
   today?: string;
@@ -135,7 +136,7 @@ function GammaSessionTimeline({
               {row.strong_watchlist != null ? ` · ${row.strong_watchlist} STRONG` : ''}
             </div>
             <div style={{ fontSize: 9, color: row.issue ? k.amber : k.dim, marginTop: 1 }}>
-              {row.issue ? 'coverage issue' : source}
+              {row.is_trading_day === false ? 'Non-session archive' : row.issue ? 'coverage issue' : source}
             </div>
           </button>
         );
@@ -521,7 +522,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
               .filter((row) => row.day !== data?.today)
               .map((row) => (
                 <option key={row.day} value={row.day}>
-                  {row.day} · {row.signals} E1 · {row.watches} watches
+                  {row.day}{row.is_trading_day === false ? ' · Non-session archive' : ''} · {row.signals} E1 · {row.watches} watches
                 </option>
               ))}
           </select>

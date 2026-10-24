@@ -1,3 +1,4 @@
+import { StrategyModeInfo } from './board/StrategyModeInfo';
 import React from 'react';
 import {
   useEngineConfig, useResetEngineConfig, useRunScan, useSetEngineConfig,
@@ -121,12 +122,13 @@ export function SuperTrendEnginePanel() {
         offNote="Scanning is off. Open trades keep their stops and exits."
       />
 
+      <StrategyModeInfo engine="supertrend" st={cfg} />
       <PanelCard>
         <Section title="Trading horizon" summary={cfg.horizon_mode ?? 'swing'} description="Candle size and hold time. Close open trades before changing." defaultOpen persistKey="st-horizon">
           <Field label="Mode" hint="Intraday exits by 15:20. Overnight holds up to 3 days, never over weekends.">
             <ChoiceRow value={cfg.horizon_mode ?? 'swing'} options={[
               { value: 'ultra_scalping', label: 'Ultra scalp' }, { value: 'scalping', label: 'Scalp' },
-              { value: 'intraday', label: 'Intraday' }, { value: 'overnight', label: 'Overnight' }, { value: 'swing', label: 'Swing' },
+              { value: 'intraday', label: 'Intraday' }, { value: 'overnight', label: 'Overnight' }, { value: 'swing', label: 'Swing · Default' },
             ]} onChange={value => patch({ horizon_mode: value as EngineConfigModel['horizon_mode'], signal_timeframe_minutes: null })} />
           </Field>
           <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
@@ -160,26 +162,12 @@ export function SuperTrendEnginePanel() {
                 onChange={(v) => patch({ deriv_expiries: v === 'monthly' ? ['monthly'] : null })}
               />
               <ConfigNote>
-                {derivMonthlyOnly ? (
-                  <>
-                    <strong>Monthly only.</strong> The derivatives source charts each
-                    contract&apos;s <em>own premium</em>, and the three SuperTrends need 21
-                    bars before any of them can read. A monthly contract spends 3.5 of its
-                    22 sessions warming up, so <strong>84%</strong> of its life can signal.
-                    Weekly contracts are skipped by this source; they are still traded
-                    normally by the spot and confluence sources.
-                  </>
-                ) : (
-                  <>
-                    <strong>Weeklies included — expect far fewer signals per contract.</strong>{' '}
-                    A weekly has 5 sessions and 3.5 of them go to the 21-bar warmup, so it
-                    can only signal for the last <strong>1.5 sessions (30% of its life)</strong>
-                    {' '}— the stretch where time decay is worst. Nothing breaks and no
-                    signal is faked: the contract is simply silent until it has enough
-                    history. Worth choosing only if you move this engine to a timeframe
-                    faster than 1H, where a weekly warms up in well under a day.
-                  </>
-                )}
+                Each contract needs at least 21 completed candles to warm up the indicators.
+                The selected signal interval determines the elapsed time: 21 minutes at 1m,
+                105 minutes at 5m, or 21 trading hours at 60m (about 3.5 sessions).
+                {derivMonthlyOnly
+                  ? ' This source scans monthly contracts only; the other sources retain their configured expiry choices.'
+                  : ' Weekly contracts have less history before expiry and can remain silent until warmup completes.'}
               </ConfigNote>
             </Field>
           )}
@@ -313,7 +301,7 @@ export function SuperTrendEnginePanel() {
           </Field>
           <ConfigNote>
             Entry is fixed: all three SuperTrend lines must be green and the signal fresh on the
-            latest closed 1H bar. Filters that can refuse an automatic entry live under{' '}
+            latest completed candle of the selected mode. Filters that can refuse an automatic entry live under{' '}
             <b>Automatic rules</b>. A position already held by the server-side tick monitor has its
             trail enforced regardless of the board exit rule.
           </ConfigNote>

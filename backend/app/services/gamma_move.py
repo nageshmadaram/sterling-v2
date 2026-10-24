@@ -345,7 +345,7 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
     """Board snapshot for live today or one read-only historical day.
 
     Historical evidence is typed: live_recorded is exact runtime evidence;
-    historical_replay is a conservative one-minute-close reconstruction.
+    historical_replay describes its saved reconstruction resolution explicitly.
     """
     from app.services import gamma_move_history
     from app.services import gamma_move_positions as positions_store
@@ -383,6 +383,8 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "source": "available_replay",
             "resolution": "1minute_ohlcv_proxy",
         })
+    for row in indexed_days.values():
+        row["is_trading_day"] = is_trading_day(date.fromisoformat(row["day"]))
     history_days = sorted(
         indexed_days.values(),
         key=lambda row: row["day"],
@@ -425,9 +427,16 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             "Gamma-Unwind 0.8.6 selects HOI-1 and HOI-2 OTM contracts within the 2.5% zone radius.",
         ]
         if source == "historical_replay":
+            resolution = replay.get("resolution")
+            proxy = {
+                "1minute_ohlcv_proxy": (
+                    "minute highs and end-of-minute volume; intraminute ordering is unknown"
+                ),
+                "5minute_close_proxy": "five-minute closes",
+            }.get(resolution, "an unverified archived resolution")
             warnings.insert(
                 0,
-                "Historical signal reconstruction uses one-minute option closes as the E1 proxy "
+                f"Historical signal reconstruction uses {proxy} as the E1 proxy "
                 "because Kite has no historical tick endpoint. It is read-only "
                 "and never execution evidence.",
             )
@@ -435,6 +444,12 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
             warnings.insert(
                 0,
                 "Historical view contains exact Gamma-Unwind runtime events recorded live.",
+            )
+        if not is_trading_day(selected):
+            warnings.insert(
+                0,
+                "This archive is outside the Gamma reference trading calendar. "
+                "Recorded rows are retained for audit; they do not establish a valid trading session.",
             )
         return {
             "day": selected.isoformat(),
