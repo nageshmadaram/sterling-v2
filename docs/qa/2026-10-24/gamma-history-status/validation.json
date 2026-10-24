@@ -1,0 +1,49 @@
+{
+  "baseline_commit": "78064018f6e7c1a387dd8b60fcac9459bab39ac9",
+  "backend_summary": "11778 passed, 30 skipped in 867.07s (0:14:27)",
+  "baseline_failures": [],
+  "head_failures": [],
+  "skips_unchanged": true,
+  "skip_lines": [
+    "SKIPPED [11] tests/services/test_intraday_runner.py: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:163: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:182: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:204: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_simulation.py:235: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:278: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:353: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:638: no kite_engine_signals for 2026-09-07 in this environment",
+    "SKIPPED [1] tests/api/test_simulation_replay_clock.py:242: Actual NIFTY hourly cache unavailable; no generated replacement",
+    "SKIPPED [1] tests/engines/intraday/test_backtest.py:408: vwap_supertrend does not trade this tape",
+    "SKIPPED [1] tests/engines/snapback/test_strategy.py:327: this tape did not produce a setup to filter",
+    "SKIPPED [1] tests/services/test_adaptive_edge_evidence.py:132: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:482: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:520: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:155: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:387: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_strategy_bridge.py:299: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_intraday_runner.py:874: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:207: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:233: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)"
+  ],
+  "frontend_summary": "Tests  2332 passed (2332)",
+  "frontend_files": 250,
+  "frontend_new_cases": 7,
+  "gamma_focused_passed": 28,
+  "typescript": true,
+  "make_verify": true,
+  "backend_and_strategy_sources_unchanged": true,
+  "final_frontend_source_hashes": {
+    "frontend/src/components/kite/board/GammaMoveBoard.tsx": "de2c76a36dfc392e832412611dae6af339d177e5ba78d75cdbf56abb679a6826",
+    "frontend/src/components/kite/board/StrategyBoardFooter.tsx": "6118fb22de64fe016f26ccb4e15bfc78990aef67bffc0932bacf43e36889ae93",
+    "frontend/src/components/kite/board/__tests__/GammaMoveBoard.test.tsx": "b78fe74a9e645442c1d74eb4259b987d18b0ab9dcf09a95caa640e808e15e941"
+  },
+  "frontend_rerun_after_retry_button_theme_change": true,
+  "logs_sha256": {
+    "make-verify.log": "b0e2e0f0eeeba71ecdae066eff80982972caf114781a1e790231f3b08050ddda",
+    "frontend-full-final.log": "e10a509b80f3b7ddef21838e59e27adfae0c6ba301c1b3c9f2266b002c319792"
+  },
+  "broker_mutations": 0,
+  "runtime_controls_changed": false,
+  "visual_proof": "Real components with mocked data and HTTP disabled; 390x660 iframe, light/dark history error/retry; separate background-work label."
+}
