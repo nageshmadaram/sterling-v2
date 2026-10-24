@@ -1211,3 +1211,87 @@ def test_publication_selects_only_a_verified_provider():
  assert stack.verified_origin(state)=='https://working.example'
  state['public_ready']['ngrok']=False
  assert stack.verified_origin(state)==''
+
+@pytest.mark.parametrize('route,expected',[
+ ('/','APP_TIMEOUT'),('/tma','TELEGRAM_TIMEOUT'),('/health','HEALTH_TIMEOUT'),
+ ('/api/v1/tma/data','PRIVATE_API_TIMEOUT'),
+])
+def test_public_probe_reports_timeout_route_without_private_details(monkeypatch,route,expected):
+ def fetch(url):
+  if url.endswith(route) and (route!='/' or url.endswith('.test/')):
+   raise urllib.error.URLError(TimeoutError('private token=never-log'))
+  if url.endswith('/data'):raise urllib.error.HTTPError(url,401,'',{},None)
+  if url.endswith('/health'):return 200,'{"status":"ok"}'
+  return 200,'id="root" Telegram Mini App'
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert stack.probe_public_endpoint('https://probe.example.test')==(False,expected)
+
+@pytest.mark.parametrize('route,payload,expected',[
+ ('/','unexpected login page','APP_SHELL_INVALID'),
+ ('/tma','unexpected login page','TELEGRAM_SHELL_INVALID'),
+ ('/health','not-json','HEALTH_PAYLOAD_INVALID'),
+ ('/health','[]','HEALTH_PAYLOAD_INVALID'),
+ ('/health','{"status":"starting"}','HEALTH_NOT_READY'),
+ ('/api/v1/tma/data','{"private":"data"}','PRIVATE_API_AUTH_REQUIRED'),
+])
+def test_public_probe_explains_failed_route_contract(monkeypatch,route,payload,expected):
+ def fetch(url):
+  if url=='https://probe.example.test'+route:return 200,payload
+  if url.endswith('/data'):raise urllib.error.HTTPError(url,401,'',{},None)
+  if url.endswith('/health'):return 200,'{"status":"ok"}'
+  return 200,'id="root" Telegram Mini App'
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert stack.probe_public_endpoint('https://probe.example.test')==(False,expected)
+
+def test_healthy_backend_clears_stale_recovery_warning_in_live_status(monkeypatch):
+ cached={'phase':'degraded','backend_error':'EXTERNAL_SUPERVISOR_RECOVERY_PENDING'}
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda s:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:True)
+ actual=stack.live_presentation_status(cached,True)
+ assert actual['backend_ready'] is True
+ assert 'backend_error' not in actual
+ assert cached['backend_error']=='EXTERNAL_SUPERVISOR_RECOVERY_PENDING'
+
+@pytest.mark.parametrize('listening,healthy',[(False,False),(True,False)])
+def test_backend_recovery_warning_remains_until_health_confirmed(monkeypatch,listening,healthy):
+ cached={'phase':'degraded','backend_error':'EXTERNAL_SUPERVISOR_RECOVERY_PENDING'}
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda s:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:listening)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:healthy)
+ assert stack.live_presentation_status(cached,True)['backend_error']=='EXTERNAL_SUPERVISOR_RECOVERY_PENDING'
+
+@pytest.mark.parametrize('failure,expected',[
+ (TimeoutError('private URL token=secret'),'HEALTH_TIMEOUT'),
+ (urllib.error.URLError('private URL token=secret'),'HEALTH_URLError'),
+ (OSError(28,'private URL token=secret'),'HEALTH_OSError(errno=28)'),
+])
+def test_public_probe_transport_diagnostics_never_echo_error_text(monkeypatch,failure,expected):
+ def fetch(url):
+  if url.endswith('/health'):raise failure
+  if url.endswith('/data'):raise urllib.error.HTTPError(url,401,'',{},None)
+  return 200,'id="root" Telegram Mini App'
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert stack.probe_public_endpoint('https://probe.example.test')==(False,expected)
+
+def test_public_probe_names_http_failure_route_without_echoing_page(monkeypatch):
+ import io
+ def fetch(url):
+  if url.endswith('/health'):
+   raise urllib.error.HTTPError(url,503,'private message',{},io.BytesIO(b'private URL token=secret'))
+  if url.endswith('/data'):raise urllib.error.HTTPError(url,401,'',{},None)
+  return 200,'id="root" Telegram Mini App'
+ monkeypatch.setattr(stack,'fetch',fetch)
+ assert stack.probe_public_endpoint('https://probe.example.test')==(False,'HEALTH_HTTP_503')
+
+def test_public_probe_keeps_unrelated_backend_warning_after_recovery(monkeypatch):
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda s:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:True)
+ cached={'phase':'degraded','backend_error':'BACKEND_OWNERSHIP_UNVERIFIED'}
+ assert stack.live_presentation_status(cached,True)['backend_error']=='BACKEND_OWNERSHIP_UNVERIFIED'
+
+def test_public_probe_reports_executor_failure_and_stays_fail_closed(monkeypatch):
+ def unavailable(*a,**k):raise RuntimeError('private URL token=secret')
+ monkeypatch.setattr(stack,'ThreadPoolExecutor',unavailable)
+ assert stack.probe_public_endpoint('https://probe.example.test')==(False,'PUBLIC_RuntimeError')
