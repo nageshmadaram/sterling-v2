@@ -49,42 +49,47 @@ def public_ready(origin, *, on_error=None):
     Each request retains fetch()'s bounded timeout and full TLS certificate
     verification. Parallel checks avoid serial timeout delays on a bad tunnel.
     """
-    if not isinstance(origin, str) or not origin.startswith('https://'):
-        return False
-    try:
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            index_task = pool.submit(fetch, origin + '/')
-            desk_task = pool.submit(fetch, origin + '/tma')
-            private_task = pool.submit(fetch, origin + '/api/v1/tma/data')
-            backend_task = pool.submit(fetch, origin + '/health')
-            index_status, index = index_task.result()
-            desk_status, desk = desk_task.result()
-            backend_status, health_payload = backend_task.result()
-            try:
-                backend_healthy = backend_status == 200 and json.loads(health_payload).get('status') == 'ok'
-            except (TypeError, ValueError, AttributeError):
-                backend_healthy = False
-            # A reachable HTML shell is not a usable Sterling app. Require
-            # the actual backend health route through the SAME public proxy.
-            if (index_status != 200 or desk_status != 200 or not backend_healthy or
-                    'id="root"' not in index or 'Telegram Mini App' not in desk):
-                return False
-            try:
-                private_task.result()
-            except urllib.error.HTTPError as error:
-                return error.code == 401
-            return False
-    except urllib.error.HTTPError as error:
-        code=f'HTTP_{error.code}'
-        try:
-            match=re.search(r'ERR_NGROK_\d+',error.read(32_000).decode('utf-8',errors='replace'))
-            if match:code=match.group(0)
-        except OSError:
-            pass
+    def failed(code):
         if on_error is not None:on_error(code)
         return False
-    except Exception:
-        return False
+    if not isinstance(origin, str) or not origin.startswith('https://'):
+        return failed('PUBLIC_ORIGIN_INVALID')
+    routes=[('APP','/'),('TELEGRAM','/tma'),
+            ('HEALTH','/health'),('PRIVATE_API','/api/v1/tma/data')]
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            tasks=[(role,pool.submit(fetch,origin+path)) for role,path in routes]
+            for role,task in tasks:
+                try:
+                    status,body=task.result()
+                except urllib.error.HTTPError as error:
+                    if role=='PRIVATE_API' and error.code==401:continue
+                    code=f'{role}_HTTP_{error.code}'
+                    try:
+                        match=re.search(r'ERR_NGROK_\d+',error.read(32_000).decode('utf-8',errors='replace'))
+                        if match:code=match.group(0)
+                    except OSError:
+                        pass
+                    return failed(code)
+                except Exception as error:
+                    cause=error.reason if isinstance(error,urllib.error.URLError) else error
+                    # Exception messages and provider bodies can contain tokens.
+                    code=('TIMEOUT' if isinstance(cause,TimeoutError) else
+                          error_code(cause if isinstance(cause,BaseException) else error))
+                    return failed(f'{role}_{code}')
+                if status!=200:return failed(f'{role}_HTTP_{status}')
+                if role=='APP' and 'id="root"' not in body:return failed('APP_SHELL_INVALID')
+                if role=='TELEGRAM' and 'Telegram Mini App' not in body:return failed('TELEGRAM_SHELL_INVALID')
+                if role=='HEALTH':
+                    try:
+                        payload=json.loads(body)
+                        if not isinstance(payload,dict):return failed('HEALTH_PAYLOAD_INVALID')
+                    except (TypeError,ValueError):return failed('HEALTH_PAYLOAD_INVALID')
+                    if payload.get('status')!='ok':return failed('HEALTH_NOT_READY')
+                if role=='PRIVATE_API':return failed('PRIVATE_API_AUTH_REQUIRED')
+        return True
+    except Exception as error:
+        return failed(f'PUBLIC_{error_code(error)}')
 
 
 def probe_public_endpoint(origin):
@@ -445,7 +450,7 @@ def live_presentation_status(state, running):
     # callback URLs if the broker API fails a fresh local health check.
     live_verified={name:bool(ok) for name,ok in verified.items()} if gateway and backend_ready else {}
     urls=state.get('urls') or {}
-    return {
+    reported = {
         **state,
         'manager_running':bool(running),
         'gateway_running':gateway,
@@ -458,6 +463,9 @@ def live_presentation_status(state, running):
         'callback_url':state.get('callback_url','') if live_verified.get(
             'ngrok' if state.get('mode')=='ngrok' else 'cloudflare') else '',
     }
+    if backend_ready and reported.get('backend_error')=='EXTERNAL_SUPERVISOR_RECOVERY_PENDING':
+        reported.pop('backend_error')
+    return reported
 
 
 def save_state(data):
