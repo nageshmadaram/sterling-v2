@@ -22,7 +22,7 @@ import { useMobileExperience } from '../store/useMobileExperience';
 import { useMobileBackLayer } from '../hooks/useMobileBackLayer';
 import { useSimStatus, isOwnerDenied } from '../hooks/useSim';
 
-function notificationDestination(value:string|null):NavItem|null{return value==='pcr'?'pcr':value==='alerts'?'positions':value==='signals'?'dashboard':null;}
+import { notificationDestination } from '../lib/notificationDestination';
 
 export function SimpleTerminal() {
   const mobileStyle = useMobileExperience(s => s.style);

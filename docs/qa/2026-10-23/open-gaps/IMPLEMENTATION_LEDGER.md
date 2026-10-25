@@ -49,3 +49,7 @@ See [default tags and effective mode configuration](../../2026-10-24/mode-defaul
 ### 25 October — broker read availability
 
 [Unknown inventory, retained snapshot warnings and safe outputs](../../2026-10-25/broker-read-visibility/CONTINUATION.md) fixes false empty orders/portfolio states, a missing-data Positions render loop and analysis/CSV output from failed reads. Existing exits and strategy policy remain unchanged. A successful login is distinguished from unreadable positions/orders broker endpoints; runtime promotion and external acceptance remain separately recorded.
+
+### 25 October — notification pane destination and device recovery
+
+[Notification destination continuation](../../2026-10-25/notification-destination/CONTINUATION.md) records user-confirmed receipt/navigation after replacing a retired-origin device registration. It also fixes a separate reproduced mismatch between the shell's notification destination and KiteTab's saved/default pane. Final validation and runtime promotion are recorded separately; other real-session and external acceptance gates remain open.
