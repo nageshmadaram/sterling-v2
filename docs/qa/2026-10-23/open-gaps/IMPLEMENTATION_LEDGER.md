@@ -57,3 +57,9 @@ See [default tags and effective mode configuration](../../2026-10-24/mode-defaul
 ### 25 October — session evidence after restart
 
 [Damaged probe input and durable writes](../../2026-10-25/probe-log-recovery/CONTINUATION.md) fixes the session-audit CLI crash on a real damaged JSONL record. Malformed evidence remains explicitly unverified; raw input is archived unchanged. Standalone probe writes are synced, and an archived/new-segment boundary is recorded separately rather than repairing history. Runtime and full regression results accompany the continuation; live-session acceptance remains pending.
+
+### 25 October — Gamma scheduler calendar admission
+
+[Automatic scan calendar guard](../../2026-10-25/gamma-session-calendar/CONTINUATION.md) reproduces scheduled history/selection on closed exchange days. Verified-calendar admission now skips automatic scan work on closed/unknown days while retaining reconciliation and owned-position maintenance. Existing historical evidence is preserved; real market-day acceptance remains pending.
+
+The same continuation includes the operator's actual phone screenshot: Positions visible beneath a stale PCR heading. Shared saved-page initialization and early visible-pane title subscription fix the reproduced shell mismatch. Signals/default-label and final-device visual acceptance remain pending; the screenshot does not establish them.

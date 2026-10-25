@@ -5,8 +5,14 @@ import '@testing-library/jest-dom/vitest';
 
 vi.mock('../../components/kite/board/KiteSessionBar', () => ({ KiteSessionBar: () => <div data-testid="global-kite-session">Session status</div> }));
 
+const mobileTitleFixture = vi.hoisted(() => ({ initial: '' }));
 vi.mock('../../components/kite/KiteTab', () => ({
-  KiteTab: () => <div data-testid="kite-trading-docks">Trading docks</div>,
+  KiteTab: () => {
+    React.useEffect(() => {
+      if (mobileTitleFixture.initial) window.dispatchEvent(new CustomEvent('kite-mobile-pane-title', {detail:mobileTitleFixture.initial}));
+    }, []);
+    return <div data-testid="kite-trading-docks">Trading docks</div>;
+  },
 }));
 vi.mock('../../components/radio/RadioWorkspace', () => ({
   RadioWorkspace: () => <div data-testid="fake-radio-content">Radio content</div>,
@@ -52,6 +58,7 @@ import { SimpleTerminal } from '../SimpleTerminal';
 import { resetDraftGuard, setDraftDirty } from '../../components/kite/config/unsavedDraftGuard';
 
 beforeEach(() => {
+  mobileTitleFixture.initial = '';
   localStorage.clear();
   sessionStorage.clear();
   resetDraftGuard();
@@ -227,5 +234,47 @@ describe('live-account notification and session visibility', () => {
     expect(screen.getByTestId('global-kite-session')).toBeVisible();
     fireEvent.click(screen.getByTestId('spectrum-cycle-switch'));
     expect(screen.queryByTestId('global-kite-session')).toBeNull();
+  });
+});
+
+
+describe('phone header matches the restored page and visible pane', () => {
+  const title = () => document.querySelector('.sterling-mobile-current-section');
+  it.each(['positions', 'orders', 'holdings'])('restores the saved %s header over configured PCR', (nav) => {
+    sessionStorage.setItem('sterling.page.workspace.nav', JSON.stringify(nav));
+    render(<SimpleTerminal />);
+    expect(title()).toHaveTextContent(nav.charAt(0).toUpperCase()+nav.slice(1));
+  });
+  it.each(['Signals', 'Watchlist', 'Terminal'])('receives the initial child %s pane title', (pane) => {
+    mobileTitleFixture.initial = pane;
+    render(<SimpleTerminal />);
+    expect(title()).toHaveTextContent(pane);
+  });
+  it('shows a detail title then returns to the actual selected section', () => {
+    sessionStorage.setItem('sterling.page.workspace.nav', JSON.stringify('positions'));
+    render(<SimpleTerminal />);
+    fireEvent(window, new CustomEvent('kite-mobile-pane-title', {detail:'ICICIBANK · Chart'}));
+    expect(title()).toHaveTextContent('ICICIBANK · Chart');
+    fireEvent(window, new CustomEvent('kite-mobile-pane-title', {detail:''}));
+    expect(title()).toHaveTextContent('Positions');
+  });
+  it('clears a previous pane title on page navigation', () => {
+    render(<SimpleTerminal />);
+    fireEvent(window, new CustomEvent('kite-mobile-pane-title', {detail:'Signals'}));
+    expect(title()).toHaveTextContent('Signals');
+    fireEvent(window, new CustomEvent('kite-nav-click', {detail:'orders'}));
+    expect(title()).toHaveTextContent('Orders');
+  });
+  it.each(['?notification=alerts&view=simulation', '?notification=alerts'])('ignores an unrelated notification scope %s', (query) => {
+    sessionStorage.setItem('sterling.page.workspace.nav', JSON.stringify('orders'));
+    window.history.replaceState({}, '', '/'+query);
+    render(<SimpleTerminal />);
+    expect(title()).toHaveTextContent('Orders');
+  });
+  it('keeps an explicit live notification ahead of a saved page', () => {
+    sessionStorage.setItem('sterling.page.workspace.nav', JSON.stringify('orders'));
+    window.history.replaceState({}, '', '/?notification=alerts&view=live');
+    render(<SimpleTerminal />);
+    expect(title()).toHaveTextContent('Positions');
   });
 });
