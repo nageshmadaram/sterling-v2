@@ -53,3 +53,7 @@ See [default tags and effective mode configuration](../../2026-10-24/mode-defaul
 ### 25 October — notification pane destination and device recovery
 
 [Notification destination continuation](../../2026-10-25/notification-destination/CONTINUATION.md) records user-confirmed receipt/navigation after replacing a retired-origin device registration. It also fixes a separate reproduced mismatch between the shell's notification destination and KiteTab's saved/default pane. Final validation and runtime promotion are recorded separately; other real-session and external acceptance gates remain open.
+
+### 25 October — session evidence after restart
+
+[Damaged probe input and durable writes](../../2026-10-25/probe-log-recovery/CONTINUATION.md) fixes the session-audit CLI crash on a real damaged JSONL record. Malformed evidence remains explicitly unverified; raw input is archived unchanged. Standalone probe writes are synced, and an archived/new-segment boundary is recorded separately rather than repairing history. Runtime and full regression results accompany the continuation; live-session acceptance remains pending.

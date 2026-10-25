@@ -77,3 +77,38 @@ def test_invalid_stall_duration_does_not_crash_or_pass(tmp_path,monkeypatch,caps
             f'2026-10-23 09:14:00 [INFO] ready\n2026-10-23 10:00:00 Event loop stalled {duration}s; locations=a\n2026-10-23 15:31:00 [INFO] ready\n')
         assert result['market_load_accepted'] is False
         assert result['unparsed_stall_lines']==1
+
+
+import pytest
+
+
+@pytest.mark.parametrize('damaged', [
+    b'\0' * 201 + b'private-test-canary\n',
+    b'\xff\xfeprivate-test-canary\n',
+    b'{"at":"private-test-canary"\n',
+], ids=['nul-sector', 'invalid-utf8', 'truncated-json'])
+def test_damaged_probe_input_returns_unverified_report_without_disclosing_raw_data(
+    tmp_path, monkeypatch, capsys, damaged,
+):
+    import hashlib, json, sys
+    log = tmp_path / 'backend.log'
+    log.write_text('2026-10-23 09:14:00 [INFO] ready\n2026-10-23 15:31:00 [INFO] ready\n')
+    records = [json.dumps(row).encode() + b'\n' for row in samples()]
+    records.insert(5, damaged)
+    probes = tmp_path / 'probes.jsonl'
+    original = b''.join(records)
+    probes.write_bytes(original)
+    monkeypatch.setattr(sys, 'argv', ['session-audit', '--log', str(log), '--day', '2026-10-23', '--probes', str(probes)])
+    audit.main()
+    output = capsys.readouterr().out
+    result = json.loads(output)
+    assert result['coverage'] == 'unverified'
+    assert result['market_load_accepted'] is False
+    assert result['session_coverage']['verified'] is False
+    assert result['session_coverage']['malformed_samples'] == 1
+    assert result['probe_input']['invalid_json_lines'] == [
+        {'line': 6, 'sha256': hashlib.sha256(damaged).hexdigest()},
+    ]
+    assert result['probe_input']['json_records'] == len(samples())
+    assert 'private-test-canary' not in output
+    assert probes.read_bytes() == original
