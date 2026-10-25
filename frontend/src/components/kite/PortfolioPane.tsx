@@ -1,3 +1,4 @@
+import {BrokerReadStatus} from './BrokerReadStatus';
 import { fmtMoney, fmtPnl } from '../../lib/format';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -66,14 +67,16 @@ function SearchIcon() {
   );
 }
 
-function ToolbarLink({ children, onClick, muted = false }: { children: React.ReactNode; onClick: () => void; muted?: boolean }) {
+function ToolbarLink({ children, onClick, muted = false, disabled = false }: { children: React.ReactNode; onClick: () => void; muted?: boolean; disabled?: boolean }) {
   return (
     <button
       type="button"
+      disabled={disabled}
+      title={disabled ? 'Broker data is unavailable or still loading. Retry the broker read first.' : undefined}
       onClick={onClick}
       style={{
-        border: 0, background: 'transparent', padding: 0, color: muted ? COLORS.muted : COLORS.blue,
-        cursor: 'pointer', font: 'inherit', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4,
+        border: 0, background: 'transparent', padding: 0, color: muted || disabled ? COLORS.muted : COLORS.blue,
+        cursor: disabled ? 'not-allowed' : 'pointer', font: 'inherit', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4,
       }}
     >
       {children}
@@ -227,8 +230,8 @@ function PositionBreakdown({ positions }: { positions: any[] }) {
 }
 
 export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
-  const { data: holdings } = useKiteHoldings(true);
-  const { data: positionResponse } = useKitePositions(true);
+  const { data: holdings, error: holdingsError, refetch: retryHoldings, isFetching: fetchingHoldings } = useKiteHoldings(true);
+  const { data: positionResponse, error: positionsError, refetch: retryPositions, isFetching: fetchingPositions } = useKitePositions(true);
   const rawPositions = (positionResponse?.net ?? []).filter((p: any) => num(p.quantity) !== 0 || num(p.pnl) !== 0);
   const posSymbols = useMemo(() => Array.from(new Set(rawPositions.map((p: any) => `${p.exchange}:${p.tradingsymbol}`))), [rawPositions]);
   const { data: liveLtp } = useKiteLtp(posSymbols, posSymbols.length > 0);
@@ -473,7 +476,7 @@ export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
       {showPositions && (
         <section className="portfolio-section">
           <div className="portfolio-toolbar">
-            <h2 className="portfolio-title">Positions <span>({positions.length})</span></h2>
+            <h2 className="portfolio-title">Positions <span>({positionResponse == null || positionsError ? '—' : positions.length})</span></h2>
             <div className="portfolio-tools">
               {selectedPos.size > 0 && (
                 <button type="button" onClick={exitSelected} disabled={exitingSelected} style={{ background: COLORS.red, color: 'var(--k-bg)', border: 0, borderRadius: 3, padding: '5px 11px', fontSize: 11, cursor: exitingSelected ? 'wait' : 'pointer', opacity: exitingSelected ? .65 : 1 }}>
@@ -481,13 +484,14 @@ export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
                 </button>
               )}
               <div className="portfolio-search"><SearchIcon /><input aria-label="Search positions" placeholder="Search" value={posQuery} onChange={(event) => setPosQuery(event.target.value)} /></div>
-              <ToolbarLink onClick={() => setAnalyticsView('positions')}>◉ Analyze</ToolbarLink>
+              <ToolbarLink disabled={positionResponse == null || !!positionsError} onClick={() => setAnalyticsView('positions')}>◉ Analyze</ToolbarLink>
               <ToolbarLink muted onClick={() => setSettingsOpen(true)}>⚙ Settings</ToolbarLink>
-              <ToolbarLink onClick={downloadPositions}>⇩ Download</ToolbarLink>
+              <ToolbarLink disabled={positionResponse == null || !!positionsError} onClick={downloadPositions}>⇩ Download</ToolbarLink>
             </div>
           </div>
 
-          {!positions.length ? <div style={S.hint}>No open positions.</div> : (
+          <BrokerReadStatus label="positions" error={positionsError} hasData={positionResponse != null} retry={retryPositions} isFetching={fetchingPositions} />
+          {!positions.length ? (!positionsError && positionResponse != null ? <div style={S.hint}>No open positions.</div> : null) : (
             <>
               <div className="portfolio-table-scroll">
                 <table className="portfolio-table" style={{ minWidth: 780 }}>
@@ -551,15 +555,16 @@ export function PortfolioPane({ view }: { view?: 'holdings' | 'positions' }) {
       {showHoldings && (
         <section className="portfolio-section">
           <div className="portfolio-toolbar">
-            <h2 className="portfolio-title">Holdings <span>({holdings?.length || 0})</span></h2>
+            <h2 className="portfolio-title">Holdings <span>({holdings == null || holdingsError ? '—' : holdings.length})</span></h2>
             <div className="portfolio-tools">
               <div className="portfolio-search"><SearchIcon /><input aria-label="Search holdings" placeholder="Search" value={holdQuery} onChange={(event) => setHoldQuery(event.target.value)} /></div>
-              <ToolbarLink onClick={() => setAnalyticsView('holdings')}>◉ Analyze</ToolbarLink>
-              <ToolbarLink onClick={downloadHoldings}>⇩ Download</ToolbarLink>
+              <ToolbarLink disabled={holdings == null || !!holdingsError} onClick={() => setAnalyticsView('holdings')}>◉ Analyze</ToolbarLink>
+              <ToolbarLink disabled={holdings == null || !!holdingsError} onClick={downloadHoldings}>⇩ Download</ToolbarLink>
               <AuthoriseHoldingsButton />
             </div>
           </div>
-          {!holdings?.length ? <div style={S.hint}>No equity holdings.</div> : (
+          <BrokerReadStatus label="holdings" error={holdingsError} hasData={holdings != null} retry={retryHoldings} isFetching={fetchingHoldings} />
+          {!holdings?.length ? (!holdingsError && holdings != null ? <div style={S.hint}>No equity holdings.</div> : null) : (
             <div className="portfolio-table-scroll">
               <table className="portfolio-table" style={{ minWidth: 820 }}>
                 <thead><tr>

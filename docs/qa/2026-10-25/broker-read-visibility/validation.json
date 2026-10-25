@@ -1,0 +1,67 @@
+{
+  "baseline_commit": "cb74544f202cd97c76212311020aecadac5bf769",
+  "backend_summary": "11783 passed, 30 skipped in 1119.98s (0:18:39)",
+  "frontend_tests": 2370,
+  "frontend_files": 256,
+  "baseline_backend_failures": [],
+  "head_backend_failures": [],
+  "baseline_frontend_failures": [],
+  "head_frontend_failures": [],
+  "skip_lines": [
+    "SKIPPED [11] tests/services/test_intraday_runner.py: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:163: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:182: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:204: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_simulation.py:235: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:278: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:353: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:638: no kite_engine_signals for 2026-09-07 in this environment",
+    "SKIPPED [1] tests/api/test_simulation_replay_clock.py:242: Actual NIFTY hourly cache unavailable; no generated replacement",
+    "SKIPPED [1] tests/engines/intraday/test_backtest.py:408: vwap_supertrend does not trade this tape",
+    "SKIPPED [1] tests/engines/snapback/test_strategy.py:327: this tape did not produce a setup to filter",
+    "SKIPPED [1] tests/services/test_adaptive_edge_evidence.py:132: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:482: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:520: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:155: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:387: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_strategy_bridge.py:299: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_intraday_runner.py:874: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:207: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:233: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)"
+  ],
+  "skips_unchanged": true,
+  "make_verify": true,
+  "typescript": true,
+  "focused_tests": 38,
+  "focused_files": 5,
+  "new_frontend_cases": 10,
+  "initial_red_cases": 10,
+  "export_red_checks": 6,
+  "backend_source_unchanged": true,
+  "prior_17_fix_source_hashes_preserved": true,
+  "broker_mutations": 0,
+  "strategy_policy_changed": false,
+  "final_source_hashes": {
+    "frontend/src/components/kite/BrokerReadStatus.tsx": "7a9b33f760d31d978f9fad2a66ac215f7aba3d2164ec05d3ea60b7865f77910b",
+    "frontend/src/components/kite/OrdersPane.tsx": "cee6abad4d9b23f2a247a8775612b1ea021114bab4fb289758e0fe2c76e0e28b",
+    "frontend/src/components/kite/PositionsPane.tsx": "8e2ab60ccf999dddd103d4f005b187891073ba54f7074489dba3c1611d3483c6",
+    "frontend/src/components/kite/PortfolioPane.tsx": "98c3849a2bf8bf0ba28937c3369a9f1fe577861e7e11f6378b2f21637dd8e798",
+    "frontend/src/components/kite/__tests__/BrokerReadVisibility.test.tsx": "8449163b865e7acd1d737f470bd73b513c13c50986cf71e1332d455ba1725de3"
+  },
+  "browser_final_proof": {
+    "analyzeEnabled": false,
+    "downloadEnabled": false,
+    "afterRetry": {
+      "analyzeEnabled": true,
+      "downloadEnabled": true
+    }
+  },
+  "superseded_frontend_run_before_export_gating": true,
+  "logs_sha256": {
+    "verify.log": "eac3abbe08aad6a886718e21290aebfb46677262525fa4e1d28d881eb2824eb3",
+    "frontend-full.log": "cf89ad5934550b04c63043686a638f17bca8078b1be83753a1469f602d163206",
+    "red.log": "e9805f859e75929bef39558e400d585575c999e3a4e52064b0573796ba5d0990",
+    "export-red.log": "50b804a1a118383806f9ba7751375fd995bd48e6463306b20e6c05ae8af4048c",
+    "focused-final.log": "c31a1534b054d1499075b163d4aab61c82697a0b97dbff983a6e7c9b6db62b8d"
+  }
+}
