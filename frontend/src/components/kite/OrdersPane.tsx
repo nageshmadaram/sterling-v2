@@ -1,3 +1,4 @@
+import {BrokerReadStatus} from './BrokerReadStatus';
 import {useSavedSelection} from '../../hooks/useSavedSelection';
 import { formatInstrument } from '../../lib/instrument';
 import React, { useState, useEffect } from 'react';
@@ -41,7 +42,7 @@ function statusStyle(status: string): React.CSSProperties {
 const MODIFIABLE_STATUSES = new Set(['OPEN', 'TRIGGER PENDING']);
 
 function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
-  const { data: orders } = useKiteOrders(true);
+  const { data: orders, error, refetch, isFetching } = useKiteOrders(true);
   const cancelOrder = useCancelKiteOrder();
   const [modifyOrder, setModifyOrder] = useState<any | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -53,6 +54,9 @@ function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
       setModifyOrder(null);
     }
   }, [orders, modifyOrder]);
+
+  const readStatus = <BrokerReadStatus label="orders" error={error} hasData={orders != null} retry={refetch} isFetching={isFetching} />;
+  if ((!orders || !orders.length) && (error || orders == null)) return readStatus;
 
   if (!orders || orders.length === 0) {
     return (
@@ -78,6 +82,7 @@ function OrdersSubPane({ onOpenBasket }: { onOpenBasket: () => void }) {
   // Fallback to table if there are orders
   return (
     <div style={{ padding: '0 16px' }}>
+      {readStatus}
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead><tr>
           <th style={S.th}>Time</th><th style={S.th}>Type</th><th style={S.th}>Instrument</th>

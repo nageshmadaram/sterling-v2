@@ -45,3 +45,7 @@ See [default tags and effective mode configuration](../../2026-10-24/mode-defaul
 ### 25 October — manual ticket handoff and user-TV synchronization
 
 [Manual entry ticket provenance, new-plan reset and delayed-response isolation](../../2026-10-25/manual-ticket-plan/CONTINUATION.md) fixes confirmed client handoff defects while retaining server admission and strategy-owned execution. It also preserves the operator's standalone TV update in the hosted canonical source and restores compile/embed/export idempotence, with the isolated subtitle preference bridge. Final automated results accompany the continuation; all real-session/external acceptance stays open.
+
+### 25 October — broker read availability
+
+[Unknown inventory, retained snapshot warnings and safe outputs](../../2026-10-25/broker-read-visibility/CONTINUATION.md) fixes false empty orders/portfolio states, a missing-data Positions render loop and analysis/CSV output from failed reads. Existing exits and strategy policy remain unchanged. A successful login is distinguished from unreadable positions/orders broker endpoints; runtime promotion and external acceptance remain separately recorded.

@@ -1,3 +1,4 @@
+import {BrokerReadStatus} from './BrokerReadStatus';
 import { fmtPnl } from '../../lib/format';
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -24,6 +25,7 @@ const C = {
   blue: 'var(--k-blue-kite)', green: 'var(--k-green)', red: 'var(--k-red)',
 };
 
+const EMPTY_POSITIONS: any[] = [];
 const num = (v: unknown) => Number(v ?? 0);
 const keyOf = (p: any) => `${p.exchange}:${p.tradingsymbol}:${p.product || ''}`;
 const money = (v: number) => fmtPnl(v);
@@ -77,8 +79,8 @@ function PositionInfo({ position, onClose }: { position: any; onClose: () => voi
 }
 
 export function PositionsPane({ onOpenInstrument }: { onOpenInstrument?: (symbol: string, tab: InstrumentTab | 'chart' | 'option-chain') => void }) {
-  const { data: response } = useKitePositions(true);
-  const brokerRows = response?.net ?? [];
+  const { data: response, error, refetch, isFetching } = useKitePositions(true);
+  const brokerRows = response?.net ?? EMPTY_POSITIONS;
   const symbols = useMemo(() => Array.from(new Set(brokerRows.map((p: any) => `${p.exchange}:${p.tradingsymbol}`))), [brokerRows]);
   const { data: ltp } = useKiteLtp(symbols, symbols.length > 0);
   const rows = useMemo(() => brokerRows.map((p: any) => {
@@ -173,16 +175,18 @@ export function PositionsPane({ onOpenInstrument }: { onOpenInstrument?: (symbol
       `}</style>
       <div style={{ maxWidth: 1120, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 400 }}>Positions <span style={{ color: C.muted }}>({rows.length})</span> <span style={{ color: C.green, fontSize: 11, marginLeft: 7 }}>{openRows.length} open</span></h2>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 400 }}>Positions <span style={{ color: C.muted }}>({response == null || error ? '—' : rows.length})</span> <span style={{ color: response == null || error ? C.muted : C.green, fontSize: 11, marginLeft: 7 }}>{response == null || error ? 'Exposure unknown' : `${openRows.length} open`}</span></h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 11, flexWrap: 'wrap' }}>
             {selected.size > 0 && <button disabled={exiting} onClick={exitSelected} style={{ border: 0, borderRadius: 3, background: C.red, color: 'var(--k-bg)', padding: '5px 10px', fontSize: 11, cursor: exiting ? 'wait' : 'pointer' }}>{exiting ? 'Exiting…' : `Exit Selected (${selected.size})`}</button>}
             <input aria-label="Search positions" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 125, height: 27, border: `1px solid ${C.border}`, borderRadius: 3, padding: '4px 8px', fontSize: 11 }} />
-            <button onClick={() => setAnalyticsOpen(true)} style={{ border: 0, background: 'transparent', color: C.blue, fontSize: 11, cursor: 'pointer' }}>Analyze</button>
+            <button disabled={response == null || !!error} onClick={() => setAnalyticsOpen(true)} style={{ border: 0, background: 'transparent', color: response == null || error ? C.muted : C.blue, fontSize: 11, cursor: response == null || error ? 'not-allowed' : 'pointer' }}>Analyze</button>
             <button onClick={() => setSettingsOpen(true)} style={{ border: 0, background: 'transparent', color: C.muted, fontSize: 11, cursor: 'pointer' }}>Settings</button>
-            <button onClick={download} style={{ border: 0, background: 'transparent', color: C.blue, fontSize: 11, cursor: 'pointer' }}>Download</button>
+            <button disabled={response == null || !!error} onClick={download} style={{ border: 0, background: 'transparent', color: response == null || error ? C.muted : C.blue, fontSize: 11, cursor: response == null || error ? 'not-allowed' : 'pointer' }}>Download</button>
           </div>
         </div>
 
+        <BrokerReadStatus label="positions" error={error} hasData={response != null} retry={refetch} isFetching={isFetching} />
+        {response != null && <>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', minWidth: 790, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
             <colgroup><col style={{ width: 38 }} /><col style={{ width: 76 }} /><col style={{ width: '31%' }} /><col style={{ width: 74 }} /><col style={{ width: 88 }} /><col style={{ width: 88 }} /><col style={{ width: 110 }} /><col style={{ width: 82 }} /><col style={{ width: 30 }} /></colgroup>
@@ -206,6 +210,7 @@ export function PositionsPane({ onOpenInstrument }: { onOpenInstrument?: (symbol
 
         <div style={{ marginTop: 18, borderTop: `1px solid ${C.border}` }}><button onClick={() => setHistoryOpen((x) => !x)} style={{ width: '100%', padding: '13px 0', border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: C.text, fontSize: 12 }}>Day&apos;s history {historyOpen ? '⌃' : '⌄'}</button>{historyOpen && <div style={{ color: C.muted, fontSize: 11, paddingBottom: 14 }}>{closedRows.length} closed position{closedRows.length === 1 ? '' : 's'} with realised P&amp;L are included in the table. Only the {openRows.length} non-zero quantity row{openRows.length === 1 ? '' : 's'} are open.</div>}</div>
         <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 18 }}><h3 style={{ fontSize: 12, fontWeight: 400 }}>Breakdown</h3>{rows.filter((p: any) => num(p.pnl) !== 0).sort((a: any, b: any) => num(a.pnl) - num(b.pnl)).map((p: any) => { const max = Math.max(...rows.map((x: any) => Math.abs(num(x.pnl))), 1); const w = `${Math.max(1, Math.abs(num(p.pnl)) / max * 100)}%`; return <div key={`b:${keyOf(p)}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(100px, 210px) minmax(0,1fr)', alignItems: 'center', gap: 10, marginBottom: 8 }}><div style={{ textAlign: 'right', color: 'var(--k-ink-5)', fontSize: 9 }}><InstrumentLabel symbol={p.tradingsymbol} /> ({p.product})</div><div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', position: 'relative', height: 7 }}><div style={{ display: 'flex', justifyContent: 'flex-end' }}>{num(p.pnl) < 0 && <span style={{ width: w, background: C.red }} />}</div><div>{num(p.pnl) > 0 && <span style={{ display: 'block', width: w, height: 7, background: C.blue }} />}</div><i style={{ position: 'absolute', left: '50%', width: 1, top: -1, bottom: -1, background: 'var(--k-border-strong-3)' }} /></div></div>; })}</div>
+        </>}
         <details open={engineOpen} onToggle={(e) => setEngineOpen((e.currentTarget as HTMLDetailsElement).open)} style={{ borderTop: `1px solid ${C.border}`, marginTop: 22, paddingTop: 10 }}><summary style={{ cursor: 'pointer', fontSize: 12 }}>Engine Positions</summary><EnginePositionsPane /></details>
       </div>
 
