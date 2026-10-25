@@ -93,6 +93,8 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
     symbol,
     exchange,
     initialSide: side,
+    fromSignal: true,
+    planStop: signal.levels.stop ?? signal.levels.trail ?? null,
     lotSize: lotSize || 1,
     initialQty: signal.sizing.quantity ?? undefined,
     lastPrice: planPx,
@@ -130,6 +132,7 @@ export function BoardTicket({ signal, tag, allowTrade = true, executionAction }:
         optionType={(optionType ?? 'CE') as 'CE' | 'PE'}
         exitState={signal.status === 'ended' ? 'EXIT' : signal.exitProgress || 'HOLD'}
         tag={tag}
+        signalPlanStop={signal.levels.stop ?? signal.levels.trail ?? null}
         hideTsl={signal.noTrailingStop === true}
         allowOrder={buyAllowed}
         executionAction={executionAction}

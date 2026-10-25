@@ -99,7 +99,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
       key: 'streamos_stats_v14', value: 'X'.repeat(500_001),
     });
     expect(localStorage.getItem(storagePrefix + 'streamos_stats_v14')).toBeNull();
-    expect(TV_STORAGE_KEYS).toHaveLength(9);
+    expect(TV_STORAGE_KEYS).toHaveLength(10);
   });
 
   it('does not revive unowned v13 subscriptions when mounting a player', () => {
@@ -178,4 +178,16 @@ it('enforces the server byte budget for Unicode TV preferences',()=>{
  render(<TvWorkspace />);sendFromFrame('sterling.tv.ready');
  sendFromFrame('sterling.tv.save',{key:'streamos_favs_v14',value:'త'.repeat(170000)});
  expect(localStorage.getItem(storagePrefix+'streamos_favs_v14')).toBeNull();
+});
+
+it('hydrates and persists the subtitle appearance preference through the isolated bridge',()=>{
+ const key='streamos_sub_style_v14';const initial=JSON.stringify({size:125,color:'#ffffff',bg:0.7});
+ localStorage.setItem(storagePrefix+key,initial);
+ render(<TvWorkspace/>);
+ const frame=screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
+ const post=vi.spyOn(frame.contentWindow!,'postMessage');sendFromFrame('sterling.tv.ready');
+ expect(post.mock.calls[0][0].values[key]).toBe(initial);
+ const changed=JSON.stringify({size:150,color:'#ffcc00',bg:0.5});
+ sendFromFrame('sterling.tv.save',{key,value:changed});
+ expect(localStorage.getItem(storagePrefix+key)).toBe(changed);
 });

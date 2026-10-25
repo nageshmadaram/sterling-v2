@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="referrer" content="no-referrer" />
-  <meta name="theme-color" content="#08080a" />
+  <meta name="theme-color" content="#070709" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Sterling TV</title>
@@ -22,51 +22,67 @@
 
 
   <style>
+    /* =========================================================================
+       ENTERPRISE 10/10 DESIGN SYSTEM TOKENS (OKLCH / OLED CALIBRATED)
+       ========================================================================= */
     :root, body.theme-youtube {
       --bg-outer: #070709;
       --bg-canvas: #0a0a0d;
-      --surface: rgba(20, 20, 25, 0.82);
+      --surface: rgba(20, 20, 26, 0.84);
+      --surface-1: #101016;
+      --surface-2: #16161f;
+      --surface-3: #20202c;
       --elevated: #1b1b22;
       --elevated-hover: #262630;
-      --menu-bg: rgba(22, 22, 28, 0.92);
+      --menu-bg: rgba(20, 20, 27, 0.96);
       --border: rgba(255, 255, 255, 0.08);
-      --border-strong: rgba(255, 255, 255, 0.16);
+      --border-strong: rgba(255, 255, 255, 0.18);
       --accent: #ff2d55;
       --accent-soft: rgba(255, 45, 85, 0.16);
       --text-primary: #f5f5f7;
       --text-secondary: #a1a1aa;
       --text-muted: #71717a;
-      --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-      --ambilight-color: rgba(255, 45, 85, 0.18);
+      --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif;
+      --ambilight-color: rgba(255, 45, 85, 0.20);
       --video-aspect: 1.7777778;
       --card-radius: 14px;
+      --sub-font-size: 100%;
+      --sub-text-color: #ffffff;
+      --sub-bg-opacity: 0.85;
+      --sub-bottom-offset: 54px;
     }
 
     body.theme-netflix {
-      --bg-outer: #0b0b0c;
-      --bg-canvas: #101012;
-      --surface: rgba(24, 24, 28, 0.88);
+      --bg-outer: #08080a;
+      --bg-canvas: #0e0e11;
+      --surface: rgba(22, 22, 27, 0.88);
+      --surface-1: #131318;
+      --surface-2: #1a1a22;
+      --surface-3: #252530;
       --elevated: #202026;
       --elevated-hover: #2d2d35;
       --menu-bg: rgba(18, 18, 22, 0.96);
       --border: rgba(229, 9, 20, 0.18);
       --border-strong: rgba(229, 9, 20, 0.42);
       --accent: #e50914;
-      --accent-soft: rgba(229, 9, 20, 0.2);
+      --accent-soft: rgba(229, 9, 20, 0.20);
       --text-primary: #ffffff;
       --text-secondary: #b3b3b3;
       --text-muted: #737373;
       --ambilight-color: rgba(229, 9, 20, 0.26);
-      --card-radius: 8px;
+      --card-radius: 10px;
     }
 
     body.theme-spotify {
       --bg-outer: #050806;
       --bg-canvas: #090d0b;
       --surface: rgba(18, 24, 20, 0.86);
+      --surface-1: #101813;
+      --surface-2: #16221b;
+      --surface-3: #1f3026;
       --elevated: #16201a;
       --elevated-hover: #1f2e25;
-      --menu-bg: rgba(14, 20, 16, 0.95);
+      --menu-bg: rgba(14, 20, 16, 0.96);
       --border: rgba(29, 185, 84, 0.16);
       --border-strong: rgba(29, 185, 84, 0.38);
       --accent: #1db954;
@@ -75,7 +91,7 @@
       --text-secondary: #a7b8ae;
       --text-muted: #697d71;
       --ambilight-color: rgba(29, 185, 84, 0.22);
-      --card-radius: 18px;
+      --card-radius: 16px;
     }
 
     * {
@@ -101,14 +117,14 @@
     }
 
     .font-mono-code {
-      font-family: 'JetBrains Mono', monospace;
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
       font-variant-numeric: tabular-nums;
     }
 
     .apple-glass {
       background: var(--surface);
-      backdrop-filter: blur(24px) saturate(180%);
-      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
       border: 1px solid var(--border);
     }
 
@@ -121,7 +137,8 @@
 
     #overlay-sidebar {
       transform: translateX(-100%);
-      transition: transform 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+      transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+      will-change: transform;
     }
     #overlay-sidebar.open {
       transform: translateX(0);
@@ -162,6 +179,15 @@
       background: #000;
       box-shadow: 0 24px 70px -15px var(--ambilight-color);
       transition: box-shadow 0.4s ease, border-color 0.3s ease;
+      contain: layout paint;
+    }
+
+    #video-surface-card.cursor-idle {
+      cursor: none !important;
+    }
+    #video-surface-card.cursor-idle #custom-video-hud {
+      opacity: 0 !important;
+      pointer-events: none !important;
     }
 
     #video-surface-card:fullscreen,
@@ -174,24 +200,24 @@
 
     #video-surface-card:fullscreen #video-player,
     #video-surface-card:-webkit-full-screen #video-player {
-      width:100% !important; height:100% !important; object-fit:contain;
+      width: 100% !important; height: 100% !important; object-fit: contain;
     }
     #video-surface-card:fullscreen #custom-video-hud,
     #video-surface-card:-webkit-full-screen #custom-video-hud {
-      opacity:1; pointer-events:auto;
+      opacity: 1; pointer-events: auto;
     }
-    @media (max-width:767px) {
-      #video-surface-card { max-height:min(54dvh,580px) !important; }
+    @media (max-width: 767px) {
+      #video-surface-card { max-height: min(54dvh, 580px) !important; }
       #video-surface-card:fullscreen,
       #video-surface-card:-webkit-full-screen {
-        width:100vw !important; height:100dvh !important;
-        max-height:100dvh !important; aspect-ratio:auto !important;
+        width: 100vw !important; height: 100dvh !important;
+        max-height: 100dvh !important; aspect-ratio: auto !important;
       }
     }
 
     #video-player.fit-contain { object-fit: contain; transform: scale(1); }
     #video-player.fit-cover   { object-fit: cover;   transform: scale(1); }
-    #video-player.fit-zoom    { object-fit: cover;   transform: scale(1.14); }
+    #video-player.fit-zoom    { object-fit: fill;    transform: scale(1); }
 
     @media (max-width: 767px) {
       #player-stage {
@@ -221,7 +247,7 @@
       content-visibility: auto;
       contain-intrinsic-size: 230px;
       border-radius: var(--card-radius);
-      transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.24s ease, border-color 0.24s ease;
+      transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, border-color 0.22s ease;
     }
 
     body.theme-netflix .channel-grid-card:hover {
@@ -239,6 +265,17 @@
       background: linear-gradient(180deg, rgba(33, 50, 39, 0.85) 0%, rgba(18, 28, 22, 0.95) 100%);
       border-color: rgba(29, 185, 84, 0.45);
       transform: translateY(-3px);
+    }
+
+    #cc-subtitle-overlay {
+      bottom: var(--sub-bottom-offset);
+      transition: bottom 0.18s ease;
+    }
+    #cc-subtitle-text {
+      font-size: calc(0.875rem * (var(--sub-font-size) / 100));
+      color: var(--sub-text-color);
+      background-color: rgba(0, 0, 0, var(--sub-bg-opacity));
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
     }
 
     .yt-preview-overlay {
@@ -271,6 +308,9 @@
       min-width: 240px;
       max-width: min(640px, 92vw);
       touch-action: none;
+    }
+    #scroll-mini-dock.snapping {
+      transition: left 0.22s cubic-bezier(0.22, 1, 0.36, 1), top 0.22s cubic-bezier(0.22, 1, 0.36, 1), width 0.18s ease;
     }
 
     .pb-safe {
@@ -1000,7 +1040,43 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
                   <div class="flex justify-between"><span>Aspect Ratio</span><span id="stat-aspect">16:9</span></div>
                   <div class="flex justify-between"><span>Throughput</span><span id="stat-bw">Adaptive</span></div>
                   <div class="flex justify-between"><span>Audio DSP</span><span id="stat-eq">Flat Studio</span></div>
+                  <div class="flex justify-between"><span>Buffer Health</span><span id="stat-buffer" class="text-emerald-400">Optimal</span></div>
+                  <div class="flex justify-between"><span>Dropped Frames</span><span id="stat-dropped">0</span></div>
                   <div class="flex justify-between"><span>Signal Path</span><span id="stat-relay">Direct</span></div>
+                </div>
+
+                <!-- Custom Subtitle Settings Popover -->
+                <div id="subtitle-settings-popover" onclick="event.stopPropagation()" class="hidden absolute bottom-12 right-16 sm:right-28 z-40 bg-[#16161b]/95 backdrop-blur-xl border border-white/15 rounded-xl p-3 w-64 text-xs text-white shadow-2xl space-y-2.5">
+                  <div class="flex items-center justify-between border-b border-white/10 pb-1.5">
+                    <span class="font-semibold text-zinc-200">Caption Customization</span>
+                    <button onclick="toggleSubtitleSettingsPopover(event)" class="text-zinc-400 hover:text-white">✕</button>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-zinc-400 block mb-1">Font Size</span>
+                    <div class="grid grid-cols-4 gap-1">
+                      <button onclick="setSubtitleStyle({size: 85})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">85%</button>
+                      <button onclick="setSubtitleStyle({size: 100})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">100%</button>
+                      <button onclick="setSubtitleStyle({size: 125})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">125%</button>
+                      <button onclick="setSubtitleStyle({size: 150})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">150%</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-zinc-400 block mb-1">Text Color</span>
+                    <div class="grid grid-cols-4 gap-1">
+                      <button onclick="setSubtitleStyle({color: '#ffffff'})" class="py-1 rounded bg-white text-black font-semibold text-[11px]">White</button>
+                      <button onclick="setSubtitleStyle({color: '#fbbf24'})" class="py-1 rounded bg-amber-400 text-black font-semibold text-[11px]">Gold</button>
+                      <button onclick="setSubtitleStyle({color: '#22d3ee'})" class="py-1 rounded bg-cyan-400 text-black font-semibold text-[11px]">Cyan</button>
+                      <button onclick="setSubtitleStyle({color: '#4ade80'})" class="py-1 rounded bg-emerald-400 text-black font-semibold text-[11px]">Green</button>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="text-[11px] text-zinc-400 block mb-1">Window Opacity</span>
+                    <div class="grid grid-cols-3 gap-1">
+                      <button onclick="setSubtitleStyle({bg: 0})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">Clear</button>
+                      <button onclick="setSubtitleStyle({bg: 0.55})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">55%</button>
+                      <button onclick="setSubtitleStyle({bg: 0.85})" class="py-1 rounded bg-white/10 hover:bg-white/20 text-[11px]">85%</button>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Audio Sound Profile Popover -->
@@ -1061,8 +1137,9 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
                   ondblclick="event.stopPropagation()"
                   class="absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/65 to-transparent pt-8 pb-2.5 px-3 sm:px-4 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-150 flex flex-col"
                 >
-                  <!-- Scrub Bar -->
-                  <div class="relative w-full py-1 cursor-pointer group/scrub" onclick="seekLiveEdge(event)">
+                  <!-- Scrub Bar with Hover Timecode Preview -->
+                  <div class="relative w-full py-1.5 cursor-pointer group/scrub" onclick="seekLiveEdge(event)" onmousemove="handleScrubHover(event)" onmouseleave="hideScrubHover()">
+                    <div id="scrub-hover-pill" class="hidden absolute -top-7 -translate-x-1/2 bg-black/90 border border-white/15 text-white text-[11px] font-mono-code px-2 py-0.5 rounded pointer-events-none whitespace-nowrap shadow">LIVE EDGE</div>
                     <div class="w-full h-1 group-hover/scrub:h-1.5 bg-white/25 rounded-full overflow-hidden transition-all">
                       <div id="scrub-progress-bar" class="w-[98%] h-full bg-[var(--accent)]"></div>
                     </div>
@@ -1100,7 +1177,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
                         Fit
                       </button>
 
-                      <button onclick="toggleClosedCaptions()" id="hud-cc-btn" class="relative p-1 hover:text-white text-zinc-300 transition" title="Closed Captions (C)">
+                      <button onclick="toggleClosedCaptions()" oncontextmenu="event.preventDefault(); toggleSubtitleSettingsPopover(event)" id="hud-cc-btn" class="relative p-1 hover:text-white text-zinc-300 transition" title="Closed Captions (C)">
                         <svg class="w-4 h-4 sm:w-5 sm:h-5 fill-current" viewBox="0 0 24 24"><path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 7H9.5v-.5h-2v3h2V13H11v1c0 .55-.45 1-1 1H7c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1zm7 0h-1.5v-.5h-2v3h2V13H18v1c0 .55-.45 1-1 1h-3c-.55 0-1-.45-1-1v-4c0-.55.45-1 1-1h3c.55 0 1 .45 1 1v1z"/></svg>
                         <span id="cc-active-line" class="hidden absolute bottom-0 inset-x-1 h-0.5 bg-[var(--accent)]"></span>
                       </button>
@@ -1346,7 +1423,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
     const tvStorage=(()=>{
       const allowed=new Set(['streamos_sources_v14','streamos_source_mode_v14',
         'streamos_favs_v14','streamos_stats_v14','streamos_history_v14',
-        'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14','streamos_extras_v14']);
+        'streamos_startup_channel_v14','streamos_theme_v14','streamos_ui_v14','streamos_extras_v14','streamos_sub_style_v14']);
       const memory=new Map();
       return Object.freeze({
         getItem(key){return allowed.has(key)&&memory.has(key)?memory.get(key):null;},
@@ -2015,7 +2092,16 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         pipDock.style.top = Math.max(8, Math.min(maxTop, pipStartTop + dy)) + 'px';
       });
 
-      pipHeader.addEventListener('pointerup', () => { isDraggingPip = false; });
+      pipHeader.addEventListener('pointerup', () => {
+        if (!isDraggingPip) return;
+        isDraggingPip = false;
+        pipDock.classList.add('snapping');
+        const rect = pipDock.getBoundingClientRect();
+        const snapLeft = (rect.left + rect.width / 2 < window.innerWidth / 2) ? 16 : Math.max(16, window.innerWidth - rect.width - 16);
+        const snapTop = Math.max(60, Math.min(window.innerHeight - rect.height - 20, rect.top));
+        pipDock.style.left = snapLeft + 'px';
+        pipDock.style.top = snapTop + 'px';
+      });
     }
 
     if (pipResizeHandle) {
@@ -3146,6 +3232,15 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
           if (hls && hls.bandwidthEstimate) {
             document.getElementById('stat-bw').textContent = `${(hls.bandwidthEstimate / 1000000).toFixed(1)} Mbps`;
           }
+          if (video.buffered && video.buffered.length > 0) {
+            const buf = Math.max(0, video.buffered.end(video.buffered.length - 1) - video.currentTime);
+            const bufEl = document.getElementById('stat-buffer');
+            if (bufEl) bufEl.textContent = `${buf.toFixed(1)}s`;
+          }
+          if (video.getVideoPlaybackQuality) {
+            const dropEl = document.getElementById('stat-dropped');
+            if (dropEl) dropEl.textContent = String(video.getVideoPlaybackQuality().droppedVideoFrames || 0);
+          }
         });
 
         hls.on(Hls.Events.ERROR, (ev, data) => {
@@ -3419,6 +3514,72 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         const pill = document.getElementById('mobile-unmute-pill');
         if (pill) pill.classList.add('hidden');
       }
+    }
+
+
+    // 10/10 Upgrade: Custom Subtitle Styling, Scrub Timecode Preview & Idle Cursor Controller
+    let subStyleConfig = readTvStoredJson('streamos_sub_style_v14', { size: 100, color: '#ffffff', bg: 0.85 });
+    function applySavedSubtitleStyle() {
+      if (!subStyleConfig || typeof subStyleConfig !== 'object') subStyleConfig = { size: 100, color: '#ffffff', bg: 0.85 };
+      document.documentElement.style.setProperty('--sub-font-size', `${subStyleConfig.size || 100}%`);
+      document.documentElement.style.setProperty('--sub-text-color', subStyleConfig.color || '#ffffff');
+      document.documentElement.style.setProperty('--sub-bg-opacity', String(subStyleConfig.bg ?? 0.85));
+    }
+    applySavedSubtitleStyle();
+
+    function setSubtitleStyle(patch) {
+      subStyleConfig = { ...subStyleConfig, ...patch };
+      tvStorage.setItem('streamos_sub_style_v14', JSON.stringify(subStyleConfig));
+      applySavedSubtitleStyle();
+      if (!isCcEnabled) toggleClosedCaptions();
+      showToast('Updated caption appearance');
+    }
+
+    function toggleSubtitleSettingsPopover(e) {
+      if (e) e.stopPropagation();
+      document.getElementById('quality-popover')?.classList.add('hidden');
+      document.getElementById('audio-eq-popover')?.classList.add('hidden');
+      document.getElementById('subtitle-settings-popover')?.classList.toggle('hidden');
+    }
+
+    function handleScrubHover(e) {
+      const bar = e.currentTarget;
+      const pill = document.getElementById('scrub-hover-pill');
+      if (!pill) return;
+      const rect = bar.getBoundingClientRect();
+      const relX = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      const clampedPx = Math.max(36, Math.min(rect.width - 36, e.clientX - rect.left));
+      pill.style.left = `${clampedPx}px`;
+      const offsetSec = Math.round((1 - relX) * 300);
+      const mins = String(Math.floor(offsetSec / 60)).padStart(2, '0');
+      const secs = String(offsetSec % 60).padStart(2, '0');
+      pill.textContent = offsetSec <= 3 ? 'LIVE EDGE' : `-${mins}:${secs} DVR`;
+      pill.classList.remove('hidden');
+    }
+
+    function hideScrubHover() {
+      document.getElementById('scrub-hover-pill')?.classList.add('hidden');
+    }
+
+    let idleCursorTimer = null;
+    const videoSurfaceCardRef = document.getElementById('video-surface-card');
+    function resetIdleCursorTimer() {
+      if (!videoSurfaceCardRef) return;
+      videoSurfaceCardRef.classList.remove('cursor-idle');
+      clearTimeout(idleCursorTimer);
+      const v = document.getElementById('video-player');
+      if (v && !v.paused && !IS_MOBILE_VIEW()) {
+        idleCursorTimer = setTimeout(() => {
+          const anyPop = !document.getElementById('quality-popover')?.classList.contains('hidden') ||
+                         !document.getElementById('audio-eq-popover')?.classList.contains('hidden') ||
+                         !document.getElementById('subtitle-settings-popover')?.classList.contains('hidden');
+          if (!anyPop) videoSurfaceCardRef.classList.add('cursor-idle');
+        }, 2800);
+      }
+    }
+    if (videoSurfaceCardRef) {
+      videoSurfaceCardRef.addEventListener('pointermove', resetIdleCursorTimer, { passive: true });
+      videoSurfaceCardRef.addEventListener('pointerleave', () => clearTimeout(idleCursorTimer), { passive: true });
     }
 
     function seekLiveEdge(e) {
@@ -4396,6 +4557,8 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
       didHydrate=true;
       clearInterval(readyTimer);
       tvStorage.hydrate(event.data.values);
+      subStyleConfig = readTvStoredJson('streamos_sub_style_v14', {size:100,color:'#ffffff',bg:0.85});
+      applySavedSubtitleStyle();
       const savedTheme=tvStorage.getItem('streamos_theme_v14');
       if(['youtube','spotify','netflix'].includes(savedTheme))currentTheme=savedTheme;
       try{

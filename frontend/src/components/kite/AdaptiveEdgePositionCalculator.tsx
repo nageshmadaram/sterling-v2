@@ -30,6 +30,8 @@ interface Props {
   exitState?: string | null;
   tag?: string;
   hideTsl?: boolean;
+  /** Canonical signal stop, independent of editable sizing; undefined means a generic preview. */
+  signalPlanStop?: number | null;
   /** False makes the calculator a read-only plan viewer: no generic order ticket. */
   allowOrder?: boolean;
   /** Strategy-owned action replaces the generic ticket without bypassing admission. */
@@ -53,6 +55,7 @@ export function AdaptiveEdgePositionCalculator({
   exitState,
   tag = 'ADAPTIVE_EDGE',
   hideTsl = false,
+  signalPlanStop,
   allowOrder = true,
   executionAction,
   unavailableReason,
@@ -180,6 +183,7 @@ export function AdaptiveEdgePositionCalculator({
       lotSize,
       initialSlPct: slPercentage,
       initialTgtPct: tgtPercentage,
+      ...(signalPlanStop !== undefined ? {fromSignal: true, planStop: signalPlanStop} : {}),
       tag,
     });
   };

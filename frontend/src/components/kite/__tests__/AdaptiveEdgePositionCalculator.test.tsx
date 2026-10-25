@@ -1,4 +1,5 @@
 import React from 'react';
+import {useOrderWindowStore} from '../../../store/useOrderWindowStore';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -198,4 +199,14 @@ it('does not copy an invented zero reward multiple when the target is missing', 
   fireEvent.click(screen.getByRole('button', { name: /Copy Plan/ }));
   expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Risk/Reward: Unknown'));
   expect(writeText.mock.calls[0][0]).not.toContain('1 : 0.00 R');
+});
+
+it('carries a canonical signal stop into its ticket after an editable SL change',()=>{
+ useOrderWindowStore.setState({isOpen:false,options:null});
+ const props:any={symbol:'TESTCE',exchange:'NFO',lotSize:50,defaultEntryPrice:100,defaultSl:80,defaultExit:150,signalPlanStop:80};
+ render(<AdaptiveEdgePositionCalculator {...props}/>);
+ const stopInput=screen.getAllByRole('spinbutton').find(el=>(el as HTMLInputElement).value==='80')!;
+ fireEvent.change(stopInput,{target:{value:'90'}});
+ fireEvent.click(screen.getByRole('button',{name:/Place BUY/}));
+ expect(useOrderWindowStore.getState().options).toMatchObject({fromSignal:true,planStop:80,lastPrice:100,initialSlPct:-10});
 });
