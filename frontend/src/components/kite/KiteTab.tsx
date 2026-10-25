@@ -1,5 +1,6 @@
 import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { useSavedSelection } from '../../hooks/useSavedSelection';
+import { notificationDestination } from '../../lib/notificationDestination';
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { KiteLayout, NavItem, MoreTab } from './KiteLayout';
 import { KiteDashboard } from './KiteDashboard';
@@ -116,8 +117,10 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
 
 export function KiteTab() {
   const preferredSection = useKiteSettings((s) => s.defaultSection);
-  const userNavigatedRef = useRef((()=>{try{return Boolean(sessionStorage.getItem('sterling.page.workspace.nav'));}catch{return false;}})());
-  const [nav, setNav] = useSavedSelection<NavItem>('workspace.nav', useKiteSettings.getState().defaultSection || 'dashboard');
+  const params = new URLSearchParams(window.location.search);
+  const notificationNav = params.get('view') === 'live' ? notificationDestination(params.get('notification')) : null;
+  const userNavigatedRef = useRef(Boolean(notificationNav) || (()=>{try{return Boolean(sessionStorage.getItem('sterling.page.workspace.nav'));}catch{return false;}})());
+  const [nav, setNav] = useSavedSelection<NavItem>('workspace.nav', useKiteSettings.getState().defaultSection || 'dashboard', notificationNav);
   const [moreTab, setMoreTab] = useSavedSelection<MoreTab>('workspace.moreTab', 'bids');
   const [instrumentView, setInstrumentView] = useState<{ symbol: string; tab: InstrumentTab; trailTarget?: 'fast' | 'mid' | 'slow'; signalData?: SignalChartData } | null>(null);
   const [setupView, setSetupView] = useState<{ token: number; underlying: string } | null>(null);
