@@ -39,3 +39,18 @@ def test_probe_appends_private_jsonl_evidence(tmp_path):
     probe.append(path,{'backend_ok':True})
     assert [json.loads(x) for x in path.read_text().splitlines()]==[{'backend_ok':False},{'backend_ok':True}]
     assert path.stat().st_mode & 0o777==0o600
+
+
+def test_probe_flushes_complete_record_before_durable_sync(tmp_path, monkeypatch):
+    path = tmp_path / 'samples.jsonl'
+    synced = []
+    real_sync = probe.os.fsync
+    def sync(fd):
+        raw = path.read_bytes()
+        assert raw.endswith(b'\n')
+        assert json.loads(raw) == {'backend_ok': True}
+        synced.append(fd)
+        real_sync(fd)
+    monkeypatch.setattr(probe.os, 'fsync', sync)
+    probe.append(path, {'backend_ok': True})
+    assert len(synced) == 1

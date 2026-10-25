@@ -47,6 +47,8 @@ def append(output, record):
     with os.fdopen(fd, 'a') as stream:
         stream.write(json.dumps(record, sort_keys=True) + '\n')
         stream.flush()
+        # This standalone QA process can sync evidence without blocking trading.
+        os.fsync(stream.fileno())
 
 
 def main():

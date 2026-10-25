@@ -10,6 +10,7 @@ import argparse
 from collections import Counter
 from datetime import date, datetime, time
 import json
+import hashlib
 import math
 from pathlib import Path
 import re
@@ -130,6 +131,26 @@ def stored_observations(path):
                     conn.execute("SELECT resolution,count(DISTINCT symbol),count(*),min(time),max(time) FROM ohlcv GROUP BY resolution")]}
 
 
+def load_probes(stream):
+    """Keep damaged records visible to coverage; never repair or echo raw input."""
+    samples, invalid = [], []
+    json_records = 0
+    for number, raw in enumerate(stream, 1):
+        if not raw.strip():
+            continue
+        encoded = raw if isinstance(raw, bytes) else raw.encode('utf-8')
+        try:
+            value = json.loads(encoded.decode('utf-8'))
+        except (ValueError, UnicodeError):
+            invalid.append({'line': number, 'sha256': hashlib.sha256(encoded).hexdigest()})
+            # A missing timestamp is malformed evidence, so coverage stays false.
+            samples.append({'_invalid_json_line': number})
+        else:
+            samples.append(value)
+            json_records += 1
+    return samples, {'json_records': json_records, 'invalid_json_lines': invalid}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--log', required=True, type=Path)
@@ -140,8 +161,8 @@ def main():
     with args.log.open(errors='replace') as stream:
         report = summarize(stream, args.day)
     if args.probes:
-        with args.probes.open() as stream:
-            samples = [json.loads(line) for line in stream if line.strip()]
+        with args.probes.open('rb') as stream:
+            samples, report['probe_input'] = load_probes(stream)
         coverage = session_coverage(samples, args.day)
         report['session_coverage'] = coverage
         complete = coverage['verified'] and report['log_coverage']['covers_market_session']
