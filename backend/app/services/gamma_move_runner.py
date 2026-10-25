@@ -2389,11 +2389,28 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
         if rec.get("error"):
             out.setdefault(uid, {})["reconcile_error"] = rec["error"]
 
+        # Scheduled history/selection work belongs to verified exchange days.
+        # This is scan admission only: broker truth and owned-position upkeep
+        # must keep running when the market is closed or its calendar is unknown.
+        scan_enabled = cfg.enabled
+        if scan_enabled:
+            try:
+                from app.core.session_calendar import is_trading_session
+                scan_enabled = is_trading_session(now.date(), "NFO")
+                if not scan_enabled:
+                    out.setdefault(uid, {})["scan_skipped"] = "non_trading_day"
+            except Exception as exc:
+                scan_enabled = False
+                out.setdefault(uid, {}).update(
+                    scan_skipped="calendar_unavailable",
+                    scan_calendar_error_type=type(exc).__name__,
+                )
+
         level_slot = (
             _claim_latest_due_slot(
                 uid, now, "levels", cfg.mark_levels_times,
             )
-            if cfg.enabled else None
+            if scan_enabled else None
         )
         build_slot = (
             _claim_latest_due_slot(
@@ -2403,11 +2420,11 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
                 cfg.build_watchlists_times,
                 not_after=dtime(15, 20),
             )
-            if cfg.enabled else None
+            if scan_enabled else None
         )
 
         shared = None
-        if cfg.enabled and is_sim_uid(uid):
+        if scan_enabled and is_sim_uid(uid):
             shared = await scanner.reuse_owner_market_data(uid, cfg, now=now,
                 recorded_signals=list(session.signals.values()))
         if level_slot is not None:
@@ -2417,7 +2434,7 @@ async def _scan_uid(uid: str, now: datetime, out: dict[str, dict]) -> None:
             _complete_slot(uid, now, "levels", level_slot)
 
         recover_missing = (
-            cfg.enabled
+            scan_enabled
             and not scanner.has_watchers(uid)
             and not scanner.completed_scan_for_day(uid, now.date())
             and dtime(9, 20) <= now.time() <= dtime(15, 20)

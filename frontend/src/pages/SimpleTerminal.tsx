@@ -2,7 +2,7 @@ import { useViewStore, type AppView } from '../store/useViewStore';
 import { ProfileMenu, useSterlingProfile } from '../components/kite/ProfileMenu';
 import { useExperienceOptions, orderedNavigation } from '../store/useExperienceOptions';
 import { groupPrimaryNavigation } from '../components/kite/navigationDensity';
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { SimpleSettingsDrawer } from '../components/SimpleSettings';
 import { KiteTab } from '../components/kite/KiteTab';
 import { TvWorkspace } from '../components/tv/TvWorkspace';
@@ -11,6 +11,7 @@ import { MediaHeaderControls, type MediaTheme } from '../components/media/MediaH
 import { ThemeToggle } from '../components/kite/ThemeToggle';
 import type { NavItem } from '../components/kite/KiteLayout';
 import { useKiteSettings } from '../store/useKiteSettings';
+import { useSavedSelection } from '../hooks/useSavedSelection';
 import { hasUnsavedDraft } from '../components/kite/config/unsavedDraftGuard';
 import { SterlingLogo } from '../components/SterlingLogo';
 import { SpectrumNavigation } from '../components/sim/SpectrumNavigation';
@@ -83,8 +84,19 @@ export function SimpleTerminal() {
   };
   const toolsRef = useRef<HTMLDivElement>(null);
   const preferredSection = useKiteSettings((s) => s.defaultSection);
-  const userNavigatedRef = useRef(!!notificationDestination(new URLSearchParams(window.location.search).get('notification')));
-  const [kiteNav, setKiteNav] = useState<NavItem>(() => notificationDestination(new URLSearchParams(window.location.search).get('notification')) || useKiteSettings.getState().defaultSection || 'dashboard');
+  const notificationParams = new URLSearchParams(window.location.search);
+  const notificationNav = notificationParams.get('view') === 'live' ? notificationDestination(notificationParams.get('notification')) : null;
+  const userNavigatedRef = useRef(Boolean(notificationNav) || (() => { try { return Boolean(sessionStorage.getItem('sterling.page.workspace.nav')); } catch { return false; } })());
+  const [kiteNav, setKiteNav] = useSavedSelection<NavItem>('workspace.nav', useKiteSettings.getState().defaultSection || 'dashboard', notificationNav);
+  const [mobilePaneTitle, setMobilePaneTitle] = useState('');
+  useLayoutEffect(() => {
+    // Subscribe before child passive effects publish their initial pane title.
+    // A new page/workspace must not retain the previous pane or chart label.
+    setMobilePaneTitle('');
+    const update = (event: Event) => setMobilePaneTitle(String((event as CustomEvent).detail || ''));
+    window.addEventListener('kite-mobile-pane-title', update);
+    return () => window.removeEventListener('kite-mobile-pane-title', update);
+  }, [kiteNav, spectrum]);
   const navOptions=useExperienceOptions(s=>s.options);
   useEffect(() => {
     if (!initialHomePendingRef.current) return;
@@ -383,7 +395,7 @@ export function SimpleTerminal() {
         </div>
         {spectrum === 'kite' && (
           <div className="sterling-mobile-command-row" aria-label="Mobile navigation and search">
-            <span className="sterling-mobile-current-section">{navigation.find(item => item.id === kiteNav)?.label ?? kiteNav}</span>
+            <span className="sterling-mobile-current-section">{mobilePaneTitle || (navigation.find(item => item.id === kiteNav)?.label ?? kiteNav)}</span>
             <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />
           </div>
         )}
