@@ -10,7 +10,9 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 @pytest.mark.asyncio
 async def test_completed_day_history_survives_a_fresh_reader(tmp_path, monkeypatch):
+    from app.services import gamma_move_history_cache as cache
     monkeypatch.setenv('STERLING_GAMMA_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(cache, '_now', lambda: datetime(2026, 10, 23, 16, 0, tzinfo=IST))
     rows = [['2026-10-22T09:15:00+0530', 10, 12, 9, 11, 100]]
     first = SimpleNamespace(_account_id='owner-a', get_historical=AsyncMock(return_value=rows))
     second = SimpleNamespace(_account_id='owner-a', get_historical=AsyncMock(side_effect=AssertionError('duplicate history request')))
@@ -47,6 +49,7 @@ async def test_corrupt_coverage_is_rebuilt_instead_of_trusted(tmp_path, monkeypa
     import json
     from app.services import gamma_move_history_cache as cache
     monkeypatch.setenv('STERLING_GAMMA_CACHE_DIR', str(tmp_path))
+    monkeypatch.setattr(cache, '_now', lambda: datetime(2026, 10, 23, 16, 0, tzinfo=IST))
     rows = [['2026-10-22T09:15:00+0530', 10, 12, 9, 11, 100]]
     client = SimpleNamespace(_account_id='owner', get_historical=AsyncMock(return_value=rows))
     pacer = SimpleNamespace(wait=AsyncMock())

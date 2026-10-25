@@ -250,6 +250,8 @@ export function OrderWindow({ options, onClose }: Props) {
     setSlOn(false); setSlPct(0); setTgtOn(false); setTgtPct(0);
     setError(null); setNudgeOpen(true);
     setAmoConfirmed(false);
+    // Replies for a previous instrument or sizing request cannot populate this ticket.
+    reqId.current += 1; setMargin(null); setCharges(null);
     // Note: we intentionally do NOT close the search here — picking a result
     // updates the ticket but keeps the list open. Only an outside click closes it.
   };
@@ -261,7 +263,9 @@ export function OrderWindow({ options, onClose }: Props) {
 
   // If the store reopens the window for a different instrument/side while it's
   // still open (user clicks another row's Buy/Sell), swap the ticket in place.
-  const optKey = `${options.symbol}|${options.exchange}|${options.initialSide}`;
+  const optKey = JSON.stringify([options.symbol, options.exchange, options.initialSide,
+    options.initialQty, options.lotSize, options.lastPrice, options.product,
+    options.initialSlPct, options.initialTgtPct, options.fromSignal, options.planStop, options.tag]);
   const didMount = useRef(false);
   useEffect(() => {
     if (!didMount.current) { didMount.current = true; return; }
@@ -269,6 +273,11 @@ export function OrderWindow({ options, onClose }: Props) {
       symbol: options.symbol, exchange: options.exchange, lotSize: options.lotSize,
       lastPrice: options.lastPrice, side: options.initialSide, product: options.product, qty: options.initialQty,
     });
+    setTab(options.initialSlPct != null || options.initialTgtPct != null ? 'regular' : 'quick');
+    setSlOn(options.initialSlPct != null && options.initialSlPct !== 0);
+    setSlPct(options.initialSlPct ?? 0);
+    setTgtOn(options.initialTgtPct != null && options.initialTgtPct !== 0);
+    setTgtPct(options.initialTgtPct ?? 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [optKey]);
 
@@ -304,9 +313,10 @@ export function OrderWindow({ options, onClose }: Props) {
   // A strategy plan's stop must exist and sit below the buy price: Sterling arms it at
   // Zerodha after the fill, so a missing or higher stop means an unprotected or instantly
   // stopped trade.
-  const planStop = options.planStop;
+  const fromSignal = options.fromSignal === true && instr.symbol === options.symbol && instr.exchange === options.exchange;
+  const planStop = fromSignal ? options.planStop : undefined;
   const entryPx = needsPrice(orderType) && price > 0 ? price : instr.lastPrice;
-  const planBlock = options.fromSignal && side === 'BUY'
+  const planBlock = fromSignal && side === 'BUY'
     ? (planStop == null || !(planStop > 0)
       ? 'This signal has no stop, so the buy would not be protected. Pick a leg that shows a stop.'
       : entryPx > 0 && planStop >= entryPx
@@ -504,7 +514,7 @@ export function OrderWindow({ options, onClose }: Props) {
               </div>
             )}
 
-            {options.fromSignal && side === 'BUY' && !planBlock && planStop != null && (
+            {fromSignal && side === 'BUY' && !planBlock && planStop != null && (
               <div style={{ padding: '8px 16px', background: tint(k.green, 10), color: k.text, fontSize: 12 }}>
                 Stop <b>{planStop.toFixed(2)}</b> is placed at Zerodha automatically after the buy fills (from the signal plan).
                 {entryPx > planStop && qty > 0 && <> Max loss if it hits: <b>{inr((entryPx - planStop) * qty)}</b> ({(((entryPx - planStop) / entryPx) * 100).toFixed(0)}% of the premium).</>}

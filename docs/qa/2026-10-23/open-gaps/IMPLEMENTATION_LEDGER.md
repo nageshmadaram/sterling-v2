@@ -41,3 +41,7 @@ See [default tags and effective mode configuration](../../2026-10-24/mode-defaul
 ### 24 October — marker refresh and ownership continuation
 
 [Atomic marker updates and independent board/mode ownership](../../2026-10-24/board-marker-batching/CONTINUATION.md) fixes confirmed refresh churn, temporary marker disappearance, simultaneous mode/timeframe collisions and cross-board unmount clearing. It also removes the remaining hardcoded hourly empty notice. Synthetic before/after browser counts and final automated validation accompany the continuation; full-session and external acceptance remain open.
+
+### 25 October — manual ticket handoff and user-TV synchronization
+
+[Manual entry ticket provenance, new-plan reset and delayed-response isolation](../../2026-10-25/manual-ticket-plan/CONTINUATION.md) fixes confirmed client handoff defects while retaining server admission and strategy-owned execution. It also preserves the operator's standalone TV update in the hosted canonical source and restores compile/embed/export idempotence, with the isolated subtitle preference bridge. Final automated results accompany the continuation; all real-session/external acceptance stays open.

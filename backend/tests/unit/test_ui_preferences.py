@@ -78,3 +78,16 @@ def test_radio_source_urls_and_filters_persist_for_the_logged_in_owner(client):
     assert c.get('/preferences').json()['values'][key] == settings
     assert c.patch('/preferences', json={'values': {key: '{"catalogSources":[]}'}}).status_code == 200
     assert c.get('/preferences').json()['values'][key] == '{"catalogSources":[]}'
+
+
+def test_tv_subtitle_appearance_is_durable_and_owner_scoped(client):
+    c, app = client
+    key = 'sterling.tv.streamos_sub_style_v14'
+    value = '{"size":125,"color":"#ffcc00","bg":0.7}'
+    assert c.patch('/preferences', json={'values': {key: value}}).status_code == 200
+    assert c.get('/preferences').json()['values'][key] == value
+    app.dependency_overrides[get_current_user] = lambda: UserContext('bob')
+    assert key not in c.get('/preferences').json()['values']
+    assert c.patch('/preferences', json={'values': {'sterling.tv.auth': 'secret'}}).status_code == 422
+    app.dependency_overrides[get_current_user] = lambda: UserContext('alice')
+    assert c.get('/preferences').json()['values'][key] == value

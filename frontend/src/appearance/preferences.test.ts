@@ -62,3 +62,15 @@ it('does not stall first sync on an oversized Unicode media cache',async()=>{
  get.mockResolvedValue({values:{},initialized:false});patch.mockImplementation(async(_url,body)=>({values:body.values,initialized:true}));
  await startPreferenceSync('alice');expect(patch.mock.calls.every(call=>call[1].values[key]===undefined)).toBe(true);expect(localStorage.getItem(key)).toBeNull();
 });
+
+it('saves caption appearance for its owner and clears it on an account change',async()=>{
+ const key='sterling.tv.streamos_sub_style_v14';const saved=JSON.stringify({size:125,color:'#ffcc00',bg:0.7});
+ get.mockResolvedValue({values:{[key]:saved},initialized:true});
+ await startPreferenceSync('alice');await flushPreferences();
+ expect(localStorage.getItem(key)).toBe(saved);patch.mockClear();
+ const changed=JSON.stringify({size:150,color:'#ffffff',bg:0.5});
+ localStorage.setItem(key,changed);await flushPreferences();
+ expect(patch).toHaveBeenLastCalledWith('/api/v1/auth/preferences',{values:{[key]:changed}});
+ get.mockResolvedValue({values:{},initialized:true});await startPreferenceSync('bob');
+ expect(localStorage.getItem(key)).toBeNull();
+});
