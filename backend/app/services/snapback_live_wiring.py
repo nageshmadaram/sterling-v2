@@ -176,7 +176,10 @@ class SnapbackExecutionAdapter:
                         filled_price=average,
                         error="post-fill fee authority failed; reconcile before new entries",
                     )
-            if booked_ok and resolution.projection_version:
+            # A broker disagreement or still-working order cannot be sealed
+            # as fully projected merely because its partial fill was booked.
+            if (booked_ok and resolution.projection_version
+                    and resolution.settled and not resolution.reconciliation_required):
                 try:
                     fills.mark_projected(resolution)
                 except Exception as exc:  # noqa: BLE001
