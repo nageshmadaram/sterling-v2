@@ -160,7 +160,22 @@ class SnapbackExecutionAdapter:
             booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
             if booked_ok:
                 from app.services.fee_safety import refresh as refresh_fees
-                await refresh_fees(broker_client, request.uid, request.account_id)
+                try:
+                    await refresh_fees(broker_client, request.uid, request.account_id)
+                except Exception as exc:  # noqa: BLE001 - a booked fill exists; never resend
+                    log.error("Snapback fee authority failed after %s fill: %s",
+                              result.order_id, exc)
+                    engage_kill_switch(
+                        f"Snapback fee authority unavailable after {request.symbol} fill",
+                        request.uid,
+                    )
+                    return ExecutionResult(
+                        success=False, status="UNKNOWN",
+                        intent_key=resolution.intent_key or result.intent_key,
+                        order_id=result.order_id, filled_quantity=filled,
+                        filled_price=average,
+                        error="post-fill fee authority failed; reconcile before new entries",
+                    )
             if booked_ok and resolution.projection_version:
                 try:
                     fills.mark_projected(resolution)
