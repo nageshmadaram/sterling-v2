@@ -1,0 +1,77 @@
+# Snapback repair checkpoint — 27 October 2026
+
+**Worktree target:** draft PR #272 (`codex/implementation-spec-20261026`), not `main` or `dev`.  
+**Trading posture:** NO new real-money orders, and NO assertion of certified profitability.
+
+## Fault addressed
+
+The 22 October option-candle research artifact reported three per-contract
+`object of type 'int' has no len()` exceptions in both ultra-scalping and
+scalp modes (RELIANCE, HDFCBANK and SBIN put contracts). The underlying
+`replay_intraday` contract reports `rejected_plans` as an integer count;
+an old aggregation treated it as a collection.
+
+The modified runner now calls `app.engines.snapback.research_reporting`
+instead of inlining the unsafe length calculation. That module accepts
+the current nonnegative integer count (and older list-shaped values), rejects
+malformed counts, and validates all other replay metrics before reporting.
+
+Additional corrections in `backend/scripts/backtest_snapback_timeframes.py`:
+- Preserve raw duplicates in minute-tape inputs until full paired-session
+  coverage has audited them; do not silently deduplicate bad evidence.
+- Reuse identical ultra/scalp market-data reads to reduce broker historical
+  API requests, without raising request concurrency or rate limits.
+- Count **every requested underlying and CE/PE contract**. Missing historical
+  tokens, quotes, expiry data and contract metadata become explicit SKIPPED rows,
+  not invisible denominators.
+- Parse actual ISO exchange expiry dates; `None`, nonsense and expired options
+  cannot become the next expiry via lexical string comparison.
+- Refuse fractional token/lot-size values and choose the same nearest valid
+  strike regardless of instrument-dump ordering.
+- Mark open positions/unresolved replays as incomplete; exclude their realized
+  P&L from complete-contract totals while retaining their per-contract row.
+- Report contract errors, skipped contracts, unresolved positions and incomplete
+  paired-session coverage independently. Display totals explicitly as
+  **observed-candle simulation**, never real broker fill profits.
+- A new report uses exclusive creation; a rerun cannot silently overwrite a
+  dated research artifact.
+
+## Verification truth
+
+- The standalone `research_reporting.py` and
+  `test_research_reporting.py` source/test blobs were copied byte-for-byte
+  into an isolated offline Python test environment, with Git blob hashes
+  checked against the branch. **21 new unit test cases passed** there.
+- The user previously ran **108/108 focused tests** on the earlier source
+  commit `c83f44b0` (not the current Snapback commit).
+- These isolated tests **do not** constitute an executed end-to-end historical
+  Kite replay, full backend CI, browser test or live broker lifecycle test.
+- The original October 22 JSON artifact has **not** been rewritten, because
+  its missing contract outcomes cannot be reconstructed without rerunning the
+  historical data. Positive old totals remain non-promotable until full
+  coverage, sample selection and costs can be independently reproduced.
+- GitHub Actions remained blocked before runner assignment on the last
+  observed PR attempts (zero assigned runners/steps). Check each new head
+  separately when the Actions account is repaired.
+
+## Still required for a functioning, certified release
+
+1. Rerun the script in an authorized read-only Kite environment, with supported
+   historical data and adequate disk space; inspect all per-contract statuses
+   and verify the former exceptions do not recur. It must not submit orders.
+2. Run the new and existing Snapback engine, dispatcher, hedge/protection,
+   journal-idempotency, exit, fault-injection and restart recovery tests
+   on the exact release SHA; do not conflate tested unit code with a tested host.
+3. Obtain dated, exchange-correct option instrument masters and complete
+   historical/forward option quote tapes. Retrospective current-contract
+   selection and modelled swing prices are not promotion-eligible.
+4. Freeze hypotheses before OOS tests; apply all fees, spreads, latency,
+   slippage, missed-fill/limit/stop stress; require independent positive after-
+   cost bounds and meaningful forward observation. Positive small-sample
+   replays are not a profitability guarantee.
+5. Obtain real Zerodha static-egress, account identity, durable backup/restore,
+   order-fill-protection and reconciliation evidence, and separate owner
+   authorization before any tiny controlled real-money release.
+
+**Safety invariant:** master entry halt stays OFF for new risk while all
+monitoring and risk-reducing owned-position maintenance remain available.
