@@ -70,3 +70,32 @@ def test_complete_grid_with_off_interval_bar_is_not_promoted():
     report = audit(tape() + [out_of_grid], tape())
     assert "UNDERLYING_UNEXPECTED_BARS" in report["sessions"][0]["gap_codes"]
     assert report["accepted_timestamps"] == []
+
+
+def test_hourly_complete_bars_stop_before_market_close():
+    start = datetime.combine(DAY, datetime.min.time(), IST).replace(hour=9, minute=15)
+    # 9:15–10:15 through 14:15–15:15 are six complete 60-minute candles.
+    six = [[(start + timedelta(minutes=i * 60)).timestamp(), 100, 101, 99, 100, 1]
+           for i in range(6)]
+    report = audit(six, six, interval_minutes=60)
+    assert report["sessions"][0]["expected_bars"] == 6
+    assert report["all_sessions_complete"]
+    assert report["accepted_timestamps"] == [row[0] for row in six]
+
+
+def test_hourly_1515_partial_candle_must_not_enter_real_option_replay():
+    start = datetime.combine(DAY, datetime.min.time(), IST).replace(hour=9, minute=15)
+    six = [[(start + timedelta(minutes=i * 60)).timestamp(), 100, 101, 99, 100, 1]
+           for i in range(6)]
+    partial = [datetime.combine(DAY, datetime.min.time(), IST).replace(
+        hour=15, minute=15).timestamp(), 100, 101, 99, 100, 1]
+    report = audit(six, six + [partial], interval_minutes=60)
+    assert "OPTION_UNEXPECTED_BARS" in report["sessions"][0]["gap_codes"]
+    assert not report["all_sessions_complete"]
+    assert report["accepted_timestamps"] == []
+
+
+def test_15_minute_session_coverage_still_includes_final_full_interval():
+    report = audit(tape(), tape())
+    assert report["sessions"][0]["expected_bars"] == 25
+    assert report["all_sessions_complete"]
