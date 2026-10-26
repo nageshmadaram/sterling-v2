@@ -44,12 +44,18 @@ daily-loss halt at -1,500 INR by default.
    Kite from the Sterling UI before 09:15 IST. The first login binds the account to
    your Zerodha identity.
 2. Check `scripts/sterlingctl status`: NORMAL, broker connected, no unresolved orders.
-3. Confirm the caps in your environment file: `STERLING_LIVE_EXECUTION=true`,
-   `STERLING_LIVE_MINIMUM_MAX_LOTS=1`.
-4. Watch the first entry of each strategy in the Kite app: the order, the fill and
-   the protective stop must all be there. If anything surprises you, press
-   **Kill Switch & Halt** and read [EMERGENCY_CARD.md](EMERGENCY_CARD.md).
-5. Do not change size during the day.
+3. Keep `STERLING_LIVE_EXECUTION=false` while checking broker binding, capital
+   limits, stable/approved egress, current exposure, protection and restoration.
+   Configure the account-owner-approved caps, including
+   `STERLING_LIVE_MINIMUM_MAX_LOTS=1`, but **do not enable new entries yet**.
+4. Complete the strict release and broker lifecycle gates in
+   [the go-live runbook](../operations/FINAL_RELEASE_RUNBOOK.md). Only after
+   independent approval by the authorized account owner may the live-entry
+   setting be explicitly enabled for a tightly controlled session.
+5. When the first authorized entry actually occurs, watch the broker app directly
+   for the order, **actual fill**, and protective stop/GTT. If anything differs,
+   press **Kill Switch & Halt**, check the broker, and follow
+   [EMERGENCY_CARD.md](EMERGENCY_CARD.md). Do not increase size during the day.
 
 ## 4. The commands
 
