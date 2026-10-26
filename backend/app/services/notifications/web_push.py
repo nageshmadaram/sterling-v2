@@ -80,13 +80,18 @@ def _send(uid,event_key,title,body,category,*,force=False):
         try:
             webpush(subscription_info=json.loads(decrypt(row['subscription_enc'])),data=json.dumps(payload),vapid_private_key=Vapid.from_pem(pem.encode()),vapid_claims={'sub':os.environ.get('STERLING_PUSH_SUBJECT','https://sterling.local')},ttl=300,timeout=8)
             with db._conn() as c:
-                c.execute('INSERT OR IGNORE INTO push_deliveries VALUES(?,?,?)',(row['id'],event_key,int(time.time()*1000)));c.execute("UPDATE push_devices SET last_delivery_ms=?,last_error='' WHERE id=?",(int(time.time()*1000),row['id']))
+                # An accepted send must not recreate a removed device's dedupe
+                # or record the old owner's event against a transferred device.
+                c.execute('INSERT OR IGNORE INTO push_deliveries SELECT ?,?,? WHERE EXISTS (SELECT 1 FROM push_devices WHERE id=? AND uid=?)',(row['id'],event_key,int(time.time()*1000),row['id'],uid))
+                c.execute("UPDATE push_devices SET last_delivery_ms=?,last_error='' WHERE id=? AND uid=? AND subscription_enc=?",(int(time.time()*1000),row['id'],uid,row['subscription_enc']))
             count+=1
         except WebPushException as exc:
             status=getattr(getattr(exc,'response',None),'status_code',0)
-            with db._conn() as c:c.execute('UPDATE push_devices SET enabled=?,last_error=? WHERE id=?',(0 if status in (404,410) else 1,f'Push delivery failed ({status or "network"})',row['id']))
+            # A browser may refresh/transfer its registration while HTTP is in
+            # flight. An old failure must not disable or taint that new state.
+            with db._conn() as c:c.execute('UPDATE push_devices SET enabled=CASE WHEN ? THEN 0 ELSE enabled END,last_error=? WHERE id=? AND uid=? AND subscription_enc=?',(status in (404,410),f'Push delivery failed ({status or "network"})',row['id'],uid,row['subscription_enc']))
         except Exception:
-            with db._conn() as c:c.execute("UPDATE push_devices SET last_error='Push delivery unavailable' WHERE id=?",(row['id'],))
+            with db._conn() as c:c.execute("UPDATE push_devices SET last_error='Push delivery unavailable' WHERE id=? AND uid=? AND subscription_enc=?",(row['id'],uid,row['subscription_enc']))
     return count
 
 def _enabled_uids():
