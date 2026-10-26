@@ -1,5 +1,7 @@
 # Combined implementation and acceptance ledger
 
+26 October recovery timing follow-up: [bounded Gamma history reads](../../2026-10-26/gamma-recovery-pipeline/CONTINUATION.md) records an actual 242.65-second / 116-watch live recovery and the targeted two-read pipeline, retaining the original request rate, engine rules and partial-history guards. Released live duration and two-day/full-session acceptance remain separate requirements.
+
 Baseline inspected: `14c1875028c48bb27b8e81e1a953380ac172b919`.
 
 This continues both the prior trader QA work and every item in the operator-supplied implementation spec. Repository paths and existing fixes were rechecked; the spec's `bd783b1f` line numbers are historical. Earlier partial/failed test logs are not release passes. The user explicitly requested that enabled trading remain enabled; document suggestions to turn AUTO off do not override that instruction. No broker order/GTT mutations are part of QA.

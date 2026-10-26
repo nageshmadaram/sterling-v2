@@ -697,6 +697,29 @@ async def reuse_owner_market_data(uid, cfg, *, now, recorded_signals=None):
             'recovery_source': 'owner_market_data'}
 
 
+async def _option_history_batches(client, pacer, watches, frm, today, now_ms):
+    """Overlap at most two selected-contract reads; yield in selection order.
+
+    Every uncached attempt still uses the caller's single rate pacer. Finish
+    each bounded batch before replay or another batch, so cancellation drains
+    its reads and no background task can outlive this recovery operation.
+    """
+    async def read(watch):
+        try:
+            raw = await _historical(
+                client, pacer, int(watch.instrument.instrument_id),
+                "5minute", frm, today.isoformat(), True,
+            )
+            return watch, _completed(_to_candles(raw, oi=True), 5, now_ms), None
+        except Exception as exc:
+            return watch, [], exc
+
+    for offset in range(0, len(watches), 2):
+        results = await asyncio.gather(*(read(watch) for watch in watches[offset:offset + 2]))
+        for result in results:
+            yield result
+
+
 async def _prime_runtime(
     uid: str,
     cfg: GammaMoveConfig,
@@ -727,16 +750,12 @@ async def _prime_runtime(
     underlying_failures: dict[str, str] = {}
     failures: list[str] = []
     recorded_inputs = await _runtime_inputs(uid, today)
-    for watch in watches:
-        if (watch.underlying, watch.list_name) in retained_pairs:
-            continue
-        try:
-            raw = await _historical(
-                client, pacer, int(watch.instrument.instrument_id),
-                "5minute", frm, today.isoformat(), True
-            )
-            bars = _completed(_to_candles(raw, oi=True), 5, now_ms)
-        except Exception as exc:
+    pending = [watch for watch in watches
+               if (watch.underlying, watch.list_name) not in retained_pairs]
+    async for watch, bars, exc in _option_history_batches(
+        client, pacer, pending, frm, today, now_ms,
+    ):
+        if exc is not None:
             message = (
                 f"{watch.instrument.tradingsymbol}: option 5-minute history unavailable ({exc})"
             )

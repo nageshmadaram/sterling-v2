@@ -1,0 +1,64 @@
+{
+  "baseline_commit": "a0d72888a1ae9d09c1b0cb562a868c845d202d19",
+  "baseline_backend_tests": 11818,
+  "head_backend_tests": 11825,
+  "backend_summary": "11825 passed, 30 skipped in 1242.30s (0:20:42)",
+  "runtime_source_changes": [
+    "backend/app/services/gamma_move_scanner.py"
+  ],
+  "baseline_backend_failures": [],
+  "head_backend_failures": [],
+  "baseline_frontend_failures": [],
+  "frontend_source_unchanged": true,
+  "frontend_validation": {
+    "baseline_commit": "def6d126042703a50813dc49aa352d3bdbd63cb2",
+    "frontend_tree": "913383f0f894df60e633446e75dde3150d0a57da",
+    "source_changes": false,
+    "last_full_frontend_tests": 2391,
+    "last_full_frontend_files": 257,
+    "prior_full_log_sha256": "b1395f2f594fa1f1b40d0d4f8697db9b7aa0f001b88dfc66aa3f34103daeb094",
+    "prior_full_log": "/home/nageshmadaram/Sterling/.runtime/qa/2026-10-25/gamma-session-calendar/frontend-full.log",
+    "policy": "Reuse the verified identical frontend tree; make verify reruns TypeScript. No new frontend full run is claimed."
+  },
+  "skip_lines": [
+    "SKIPPED [11] tests/services/test_intraday_runner.py: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:163: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:182: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:204: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_simulation.py:235: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:278: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:353: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:638: no kite_engine_signals for 2026-09-07 in this environment",
+    "SKIPPED [1] tests/api/test_simulation_replay_clock.py:242: Actual NIFTY hourly cache unavailable; no generated replacement",
+    "SKIPPED [1] tests/engines/intraday/test_backtest.py:408: vwap_supertrend does not trade this tape",
+    "SKIPPED [1] tests/engines/snapback/test_strategy.py:327: this tape did not produce a setup to filter",
+    "SKIPPED [1] tests/services/test_adaptive_edge_evidence.py:132: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:482: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:520: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:155: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:387: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_strategy_bridge.py:299: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_intraday_runner.py:874: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:207: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:233: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)"
+  ],
+  "skip_set_unchanged": true,
+  "typescript_passed": true,
+  "verify_passed": true,
+  "focused_tests": 37,
+  "new_backend_tests": 7,
+  "initial_red_failures": 3,
+  "baseline_control_passes": 4,
+  "source_hashes": {
+    "backend/app/services/gamma_move_scanner.py": "d1404dac27761ebfb181bb49795a7525a9e2d3a053f53a7b7634f9a3e43ad5c9",
+    "backend/tests/services/test_gamma_prime_pipeline.py": "a965a384b402d0dce0c258c669e4173fae96a0cc6dc40213effa4a3313f8d616"
+  },
+  "broker_mutations": 0,
+  "test_notifications_sent": 0,
+  "production_settings_changed": false,
+  "logs_sha256": {
+    "pipeline-red.log": "fad7a5286cf9afc8b610710483dfc6f687051cc7b50def9dca393e2e2246f741",
+    "pipeline-green.log": "232555f563c10474364f03e6aca354173488ae98e35ebbe26c0173187ec5ac40",
+    "verify.log": "36f7ca3621e42ae73f0fbcaf6eeb9aeb75f0bc5564694e7b72238b5ae1c4126a"
+  }
+}
