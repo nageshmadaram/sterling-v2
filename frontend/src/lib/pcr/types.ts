@@ -57,6 +57,8 @@ export interface PcrSeries {
 
 export interface PcrSlot {
   hhmm: string;
+  /** Actual source-print clock; hhmm above is the bucket boundary. */
+  observedHhmm?: string | null;
   label: string;
   minutes: number;
   pcr: number | null;

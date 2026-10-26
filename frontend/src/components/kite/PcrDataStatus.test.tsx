@@ -46,3 +46,14 @@ it('keeps feed failure visible when no observation can be loaded',async()=>{
  render(<PcrPane/>);
  await waitFor(()=>expect(screen.getByRole('status',{name:'PCR data status'})).toHaveTextContent('PCR unavailable'));
 });
+
+it('shows the forming boundary and actual print time in the tile, heat and tape',async()=>{
+ vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date('2026-10-26T12:05:00+05:30'));
+ const mark=(hhmm:string,pcr:number)=>({hhmm,pcr,volumePcr:1,changeOiPcr:0,indexClose:22600});
+ vi.mocked(fetchPcrDesk).mockResolvedValue(data({asOf:'2026-10-26T12:05:00+05:30',source:'live',marketOpen:true,series:normalizePcrPayload({series:{NIFTY:{id:'NIFTY',expiry:'2026-10-27',livePcr:0.9,spot:{ltp:22600,changePer:0,maxPain:null,vix:null,timestamp:'2026-10-26T12:05:00+05:30'},marks:[mark('12:00',0.8)],latest:mark('12:05',0.9)}}})!.series}));
+ const {container}=render(<PcrPane/>);
+ const label='Forming until 12:15 · observed 12:05';
+ await waitFor(()=>expect(container.querySelector('.kp-tile')).toHaveTextContent(label));
+ expect(container.querySelector('.kp-heat-row[data-live="true"]')).toHaveTextContent(label);
+ expect(container.querySelector('.kp-tape-row[data-live="true"]')).toHaveTextContent(label);
+});

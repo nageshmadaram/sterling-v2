@@ -2,7 +2,7 @@ import time
 from fastapi import APIRouter, Depends, Request
 from app.core.auth import UserContext, require_admin
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 from app.core.config import settings
 
 router = APIRouter()
@@ -11,17 +11,20 @@ _start_ms = int(time.time() * 1000)
 
 
 class PositionsSummaryHealth(BaseModel):
-    open: int
-    partially_closed: int = 0
-    closed: int
+    status: Literal["not_checked"] = "not_checked"
+    open: Optional[int] = None
+    partially_closed: Optional[int] = None
+    closed: Optional[int] = None
 
 
 class AlertsSummaryHealth(BaseModel):
-    active: int
-    triggered: int
+    status: Literal["not_checked"] = "not_checked"
+    active: Optional[int] = None
+    triggered: Optional[int] = None
 
 
 class HealthResponse(BaseModel):
+    scope: Literal["liveness"] = "liveness"
     status: str
     version: str
     environment: str
@@ -34,7 +37,7 @@ class HealthResponse(BaseModel):
     alerts: AlertsSummaryHealth
     cache_keys: Optional[int] = None
     uptime_seconds: int
-    background_checker: str  # "running" | "disabled"
+    background_checker: Literal["not_checked"]
     timestamp_ms: int
 
 
@@ -52,11 +55,13 @@ def _live_execution_enabled() -> bool:
 
 @router.get("/health")
 async def health(request: Request) -> HealthResponse:
+    """Shallow process health, never evidence of broker connectivity or exposure.
+
+    Account/alert inventory is deliberately not read on this public probe. Unknown
+    counts stay null rather than implying a flat account or zero active alerts.
+    Use authenticated broker inventory and deep health for their respective facts.
+    """
     now_ms = int(time.time() * 1000)
-    from app.core.auth import DEFAULT_USER_ID
-    from app.services.exchanges.kite import accounts
-    account = accounts.get_active(DEFAULT_USER_ID)
-    exchange_ok = bool(account and account.connected)
 
     return HealthResponse(
         status="ok",
@@ -66,12 +71,12 @@ async def health(request: Request) -> HealthResponse:
         real_public_data=settings.real_public_data,
         default_underlying=settings.default_underlying,
         exchange_adapter="zerodha",
-        exchange_reachable=exchange_ok,
-        positions=PositionsSummaryHealth(open=0, closed=0),
-        alerts=AlertsSummaryHealth(active=0, triggered=0),
+        exchange_reachable=None,
+        positions=PositionsSummaryHealth(),
+        alerts=AlertsSummaryHealth(),
         cache_keys=None,
         uptime_seconds=int((now_ms - _start_ms) / 1000),
-        background_checker="running",
+        background_checker="not_checked",
         timestamp_ms=now_ms,
     )
 

@@ -56,9 +56,10 @@ class TestHealthV2:
         assert "uptime_seconds" in data
         assert data["uptime_seconds"] >= 0
 
-    def test_health_background_checker_field(self, client):
+    def test_shallow_health_does_not_claim_checker_observation(self, client):
         data = client.get("/health").json()
-        assert data["background_checker"] == "running"
+        assert data["scope"] == "liveness"
+        assert data["background_checker"] == "not_checked"
 
     def test_health_version_format(self, client):
         v = client.get("/health").json()["version"]

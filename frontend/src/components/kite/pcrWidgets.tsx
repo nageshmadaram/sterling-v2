@@ -219,6 +219,7 @@ export type DeskRow = {
   maxPain: number | null;
   hhmm: string;
   band: PcrBand;
+  observationLabel?: string;
   insight: PcrRead;
   flowAction?: PcrAction;
   flowWhy?: string;
@@ -253,7 +254,7 @@ export function IndexTile({ row, show }: { row: DeskRow; show: (id: TileField) =
               ) : null}
               {show("stamp") ? (
                 <div className="kp-tile-stamp">
-                  <span className="kp-tile-time">{row.hhmm || "—"}</span>
+                  <span className="kp-tile-time">{row.observationLabel ?? (row.hhmm || "—")}</span>
                   {row.band !== "empty" || row.pcr != null ? (
                     <span className="kp-tile-band"> · {bandLine(row.band)}</span>
                   ) : null}
