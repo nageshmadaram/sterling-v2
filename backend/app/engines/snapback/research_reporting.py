@@ -6,9 +6,13 @@ This module has no broker, runtime state, or persistence dependencies.
 """
 from __future__ import annotations
 
+import json
 import math
+import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 
@@ -148,3 +152,27 @@ def eligible_expiries(contracts: Sequence[Mapping[str, Any]], today: date) -> li
         if expiry > today:
             future.add(expiry.isoformat())
     return sorted(future)
+
+
+def write_research_report_once(path: Path, report: Mapping[str, Any]) -> None:
+    """Atomically create a dated diagnostic report, never overwrite evidence.
+
+    Write and fsync to an exclusive temporary file in the same directory, then
+    hardlink into its final name. The link operation is atomic and fails if
+    another run already published that date. Disk-full and JSON failures leave
+    no partial final JSON file. This is research, NOT an acceptance receipt.
+    """
+    if not isinstance(report, Mapping):
+        raise ValueError("Snapback report must be an object")
+    payload = (json.dumps(report, indent=2, allow_nan=False, default=str) + "\n").encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as out:
+            out.write(payload)
+            out.flush()
+            os.fsync(out.fileno())
+        # Unlike os.replace, link() cannot overwrite the historical report.
+        os.link(temporary, path)
+    finally:
+        os.unlink(temporary)
