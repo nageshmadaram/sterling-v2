@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import sys
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
@@ -34,6 +35,7 @@ load_sterling_env()
 from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
+from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
 OUT = Path(__file__).resolve().parents[2] / "docs" / "operations"
@@ -52,15 +54,28 @@ def _bars(rows) -> Bars:
 
 def _rows(payload) -> list[list[float]]:
     rows = payload.get("candles", (payload.get("data") or {}).get("candles", [])) if isinstance(payload, dict) else payload
+    if not isinstance(rows, (list, tuple)):
+        raise ValueError("historical candles must be a list of rows")
     out = []
     for r in rows or []:
+        if not isinstance(r, (list, tuple, dict)) or (isinstance(r, (list, tuple)) and len(r) < 6):
+            raise ValueError("historical candle row has no complete OHLCV")
         ts = r[0] if isinstance(r, (list, tuple)) else r["date"]
         if isinstance(ts, str):
             ts = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        elif type(ts) in (int, float) and math.isfinite(ts):
+            ts = datetime.fromtimestamp(ts, IST)
+        if not isinstance(ts, datetime):
+            raise ValueError("historical candle timestamp is invalid")
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=IST)
         vals = r[1:6] if isinstance(r, (list, tuple)) else [r["open"], r["high"], r["low"], r["close"], r.get("volume", 0)]
-        out.append([ts.timestamp(), *[float(v or 0) for v in vals]])
+        if any(v is None for v in vals):
+            raise ValueError("historical OHLCV is missing")
+        values = [float(v) for v in vals]
+        if not all(math.isfinite(v) for v in values):
+            raise ValueError("historical OHLCV must be finite")
+        out.append([ts.timestamp(), *values])
     return out
 
 
@@ -105,7 +120,10 @@ async def main() -> None:
     uid = str(acct.user_id)
     client = await accounts.acquire_client(acct)
     now = datetime.now(IST)
-    report: dict = {"generated": now.isoformat()}
+    report: dict = {"generated": now.isoformat(), "promotion_eligible": False,
+                    "limitations": ["Current-contract selection is retrospective, not a date-effective universe",
+                                    "Swing option prices are MODELLED; minute replay is REAL_MARKET_SIM, never broker fills",
+                                    "No independent OOS/forward acceptance is established by this script"]}
 
     tokens = dict(INDEX_TOKENS)
     for s in STOCKS:
@@ -179,26 +197,20 @@ async def main() -> None:
                     span = 55 if tf == 1 else 180
                     u = await history(client, tokens[und], interval, start, now, span)
                     o = await history(client, int(pick["instrument_token"]), interval, start, now, span)
-                    common = sorted(set(r[0] for r in u) & set(r[0] for r in o))
                     by_u = {r[0]: r for r in u}; by_o = {r[0]: r for r in o}
-                    # Keep only days where both tapes are complete and contiguous.
-                    days_map = {}
-                    for t in common:
-                        days_map.setdefault(datetime.fromtimestamp(t, IST).date(), []).append(t)
-                    keep = []
-                    for d, ts in sorted(days_map.items()):
-                        steps = np.diff(ts) if len(ts) > 1 else np.array([])
-                        if len(ts) >= 3 and (steps == tf * 60).all() and \
-                                len([t for t in by_u if datetime.fromtimestamp(t, IST).date() == d]) == len(ts):
-                            keep.extend(ts)
+                    coverage = paired_session_coverage(u, o, start=start.date(), end=now.date(),
+                                                       interval_minutes=tf, as_of=now)
+                    keep = coverage.pop("accepted_timestamps")
                     if len(keep) < 50:
-                        intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"], "skipped": "too few complete days"})
+                        intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
+                                               "coverage": coverage, "skipped": "too few complete days"})
                         continue
                     ub = _bars([by_u[t] for t in keep]); ob = _bars([by_o[t] for t in keep])
                     cfg = validate({"trading_mode": mode})
                     res = replay_intraday(ub, ob, cfg, und, option_type=kind,
                                           lot_size=int(pick.get("lot_size") or 1), option_symbol=pick["tradingsymbol"])
                     intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"], "bars": len(keep),
+                                           "coverage": coverage, "evidence_type": "REAL_MARKET_SIM",
                                            "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
                                            "trades": res["trade_count"], "win_rate_pct": round(res["win_rate_pct"], 1),
                                            "net_inr": round(res["net_pnl_inr"], 0), "return_pct": round(res["return_pct"], 2),

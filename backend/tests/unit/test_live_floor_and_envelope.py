@@ -83,7 +83,7 @@ def _entry(tag: str, *, quantity: int = 75, symbol: str = "NIFTY26OCT25000CE",
         uid=uid, account_id=account, strategy_id="sterling-kite",
         generation_id="g1", signal_id=f"sig-{tag}", exchange="NFO", symbol=symbol,
         side="BUY", quantity=quantity, order_type="LIMIT", price=price,
-        payload=payload or {},
+        payload={"lot_size": 75} if payload is None else payload,
     )
     approval = RiskApproval(
         approval_id=f"ap-{tag}", uid=uid, account_id=account,
@@ -253,7 +253,7 @@ async def test_a_lot_cap_refuses_a_bigger_entry(monkeypatch):
 async def test_a_lot_cap_with_an_unknown_lot_size_fails_closed(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     monkeypatch.setenv("STERLING_LIVE_MINIMUM_MAX_LOTS", "1")
-    request, approval, account = _entry("lotsize-unknown", quantity=75, price=50.0)
+    request, approval, account = _entry("lotsize-unknown", quantity=75, price=50.0, payload={})
     broker = _LiveBroker(account)
 
     result = await CanonicalExecutionService().submit_order(

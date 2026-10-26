@@ -42,9 +42,9 @@ export function LiveOperationsPanel() {
   const controls = useOperatorTradeHalt();
   const qc = useQueryClient();
 
-  const unreachable = query.isError;
   const payload = query.data;
   const age = dataAgeSeconds(payload?.generated_at);
+  const unreachable = query.isError || Boolean(payload && (age === null || age > 30));
 
   const refresh = () => qc.invalidateQueries({ queryKey: LIVE_OPERATIONS_KEY });
   const mutationError =
@@ -60,6 +60,20 @@ export function LiveOperationsPanel() {
         <div>Backend source fingerprint: {identity.data?.source_sha256_at_start || 'unknown'}</div>
       </div>
       <ModeBanner mode={payload?.production_mode ?? 'UNKNOWN'} unreachable={unreachable} />
+
+      <div aria-label="Operator status" data-testid="operator-four-statuses" style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: '8px 0', fontSize: 12 }}>
+        {(['BROKER', 'RISK', 'PROTECTION', 'AUTOMATION'] as const).map((name) => (
+          <div key={name}><strong>{name}</strong>: {unreachable || !payload?.operator_summary ? 'UNKNOWN' : payload.operator_summary[name]}</div>
+        ))}
+      </div>
+      {payload?.release_permission && (
+        <div role="status" data-testid="release-permission" style={{ fontSize: 12, paddingBottom: 8 }}>
+          {unreachable ? 'Release permission UNKNOWN' : payload.release_permission.status === 'AUTHORIZED' ? 'Release evidence recorded; current safety checks still apply' : 'Observation only — new live entries blocked'}
+          {!unreachable && payload.release_permission.strategies.map((row) => (
+            <div key={row.strategy_id}>{row.strategy_id}{row.mode ? ` / ${row.mode}` : ''}: R1 {row.r1_verified ? 'verified' : 'unverified'} · R2 {row.r2_verified ? 'verified' : 'unverified'} · R3 {row.r3_verified ? 'verified' : 'unverified'}{row.blockers.length > 0 ? ` · ${row.blockers.join(', ')}` : ''}</div>
+          ))}
+        </div>
+      )}
 
       {unreachable && (
         <div

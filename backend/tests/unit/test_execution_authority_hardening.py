@@ -57,10 +57,11 @@ def setup_db(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_real_kite_client_protocol_arguments():
+async def test_real_kite_client_protocol_arguments(monkeypatch):
     """Verify CanonicalExecutionService invokes KiteClient with exchange, product=NRML, allow_amo=False, trigger_price, and tag."""
     service = CanonicalExecutionService()
     placed_kwargs = {}
+    monkeypatch.setenv("STERLING_LIVE_MINIMUM_MAX_LOTS", "10")
 
     class MockRealKiteClient(KiteClient):
         def __init__(self):
@@ -72,6 +73,9 @@ async def test_real_kite_client_protocol_arguments():
         async def _place(self, **kwargs):
             placed_kwargs.update(kwargs)
             return {"order_id": "240916000999999"}
+
+        async def instrument_lot_sizes(self, keys):
+            return {key: 1 for key in keys}  # synthetic cash-equity metadata
 
     client = MockRealKiteClient()
     req = ExecutionRequest(

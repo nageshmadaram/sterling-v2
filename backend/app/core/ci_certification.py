@@ -17,6 +17,10 @@ network and a wrong answer cannot be blamed on an API.
 from __future__ import annotations
 
 import json
+import fcntl
+import os
+import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -66,20 +70,28 @@ class CIContextRecord:
     run_id: str = ""
     observed_at: str = ""
     url: str = ""
+    job_id: int = 0
+    runner_id: int = 0
+    executed_steps: int = 0
+
+    @property
+    def execution_observed(self) -> bool:
+        return self.job_id > 0 and self.runner_id > 0 and self.executed_steps > 0
 
     @property
     def passed(self) -> bool:
-        return self.conclusion == SUCCESS
+        return self.conclusion == SUCCESS and self.execution_observed
 
     @property
     def status(self) -> str:
-        if not self.conclusion:
+        if not self.conclusion or (self.conclusion == SUCCESS and not self.execution_observed):
             return "UNKNOWN"
         return "PASS" if self.passed else "FAIL"
 
     def as_dict(self) -> dict[str, Any]:
         return {"context": self.context, "conclusion": self.conclusion,
-                "run_id": self.run_id, "observed_at": self.observed_at, "url": self.url}
+                "run_id": self.run_id, "observed_at": self.observed_at, "url": self.url,
+                "job_id": self.job_id, "runner_id": self.runner_id, "executed_steps": self.executed_steps}
 
 
 class CIRecordStore:
@@ -89,6 +101,8 @@ class CIRecordStore:
         self.directory = Path(directory) if directory else _root() / CI_DIR
 
     def _path(self, sha: str) -> Path:
+        if not re.fullmatch(r"[0-9a-f]{40}", str(sha)):
+            raise ValueError("a CI record must name the exact 40-character commit")
         return self.directory / f"{sha}.json"
 
     def read(self, sha: str) -> dict[str, CIContextRecord]:
@@ -113,10 +127,14 @@ class CIRecordStore:
             run_id = str(row.get("run_id") or "").strip()
             observed_at = str(row.get("observed_at") or "").strip()
             url = str(row.get("url") or "").strip()
+            def positive_int(key: str) -> int:
+                value = row.get(key)
+                return value if type(value) is int and value > 0 else 0
+            job_id, runner_id, steps = (positive_int(key) for key in ("job_id", "runner_id", "executed_steps"))
 
             # Legacy/self-edited success rows without the GitHub run identity
             # that proves them are UNKNOWN, not PASS.
-            if conclusion == SUCCESS and (not run_id or not observed_at):
+            if conclusion == SUCCESS and (not run_id or not observed_at or not all((job_id, runner_id, steps))):
                 conclusion = ""
 
             out[context] = CIContextRecord(
@@ -125,6 +143,7 @@ class CIRecordStore:
                 run_id=run_id,
                 observed_at=observed_at,
                 url=url,
+                job_id=job_id, runner_id=runner_id, executed_steps=steps,
             )
         return out
 
@@ -137,6 +156,9 @@ class CIRecordStore:
         run_id: str,
         observed_at: str | None = None,
         url: str = "",
+        job_id: int = 0,
+        runner_id: int = 0,
+        executed_steps: int = 0,
     ) -> CIContextRecord:
         """Record one context's outcome against one commit.
 
@@ -150,24 +172,43 @@ class CIRecordStore:
                 f"{context!r} is not a required context; expected one of: "
                 + ", ".join(REQUIRED_CONTEXTS)
             )
-        if len(str(runtime_sha)) != 40:
+        if not re.fullmatch(r"[0-9a-f]{40}", str(runtime_sha)):
             raise ValueError("a CI record must name the exact 40-character commit")
+        conclusion = str(conclusion).strip().lower()
         if conclusion == SUCCESS and not str(run_id).strip():
             raise ValueError("a success must carry the run id that proves it")
+        for value in (job_id, runner_id, executed_steps):
+            if type(value) is not int or value < 0:
+                raise ValueError("CI job, runner and executed step counts must be nonnegative integers")
 
-        existing = self.read(runtime_sha)
-        existing[context] = CIContextRecord(
-            context=context, conclusion=str(conclusion).strip().lower(),
-            run_id=str(run_id).strip(), observed_at=observed_at or _now(), url=url,
-        )
         self.directory.mkdir(parents=True, exist_ok=True)
-        self._path(runtime_sha).write_text(
-            json.dumps({"runtime_sha": runtime_sha, "updated_at": _now(),
-                        "contexts": [r.as_dict() for r in existing.values()]},
-                       indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        return existing[context]
+        with (self.directory / f".{runtime_sha}.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            existing = self.read(runtime_sha)
+            existing[context] = CIContextRecord(
+                context=context, conclusion=str(conclusion).strip().lower(),
+                run_id=str(run_id).strip(), observed_at=observed_at or _now(), url=url,
+                job_id=job_id, runner_id=runner_id, executed_steps=executed_steps,
+            )
+            payload = json.dumps({"runtime_sha": runtime_sha, "updated_at": _now(),
+                            "contexts": [r.as_dict() for r in existing.values()]},
+                           indent=2, sort_keys=True) + "\n"
+            descriptor, temporary = tempfile.mkstemp(prefix=".ci-", dir=self.directory)
+            try:
+                with os.fdopen(descriptor, "w") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self._path(runtime_sha))
+                directory_fd = os.open(self.directory, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            finally:
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
+            return existing[context]
 
 
 @dataclass(frozen=True)
@@ -181,11 +222,11 @@ class CIReport:
 
     @property
     def failures(self) -> tuple[CIContextRecord, ...]:
-        return tuple(r for r in self.records if r.conclusion and not r.passed)
+        return tuple(r for r in self.records if r.status == "FAIL")
 
     @property
     def unknowns(self) -> tuple[CIContextRecord, ...]:
-        return tuple(r for r in self.records if not r.conclusion)
+        return tuple(r for r in self.records if r.status == "UNKNOWN")
 
     @property
     def all_passed(self) -> bool:

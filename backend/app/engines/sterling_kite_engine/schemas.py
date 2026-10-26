@@ -17,7 +17,11 @@ class AlignmentChip(BaseModel):
     slow: int
 
 
+ScanRefreshState = Literal["pending", "failed", "replaced"]
+
+
 class OptionLeg(BaseModel):
+    scan_refresh_state: Optional[ScanRefreshState] = None
     moneyness: str  # ATM / ITM1-5 / OTM1-5
     option_type: str  # CE / PE
     option_symbol: str
@@ -50,6 +54,7 @@ class OptionLeg(BaseModel):
 
 
 class EngineSignalRow(BaseModel):
+    scan_refresh_state: Optional[ScanRefreshState] = None
     horizon_mode: str = 'swing'
     signal_timeframe_minutes: int = 60
     underlying: str

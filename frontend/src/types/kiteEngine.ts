@@ -17,7 +17,10 @@ export interface AlignmentChip {
   slow: number;
 }
 
+export type ScanRefreshState = 'pending' | 'failed' | 'replaced';
+
 export interface OptionLeg {
+  scan_refresh_state?: ScanRefreshState | null;
   moneyness: string; // ATM / ITM1 / ITM2 / OTM1 / OTM2
   option_type: string; // CE / PE
   option_symbol: string;
@@ -56,6 +59,7 @@ export interface SignalChartData {
 }
 
 export interface EngineSignalRow {
+  scan_refresh_state?: ScanRefreshState | null;
   underlying: string;
   token: number;
   exchange: string; // option exchange (NFO / BFO)

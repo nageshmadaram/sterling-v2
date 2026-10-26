@@ -335,9 +335,9 @@ class KiteClient(TradingExchangeAdapter):
         with phase('client_acquisition', enabled=timed_history):
             client = await self._get_client()
         if method.upper() != "GET" and path.startswith("/orders"):
-            from app.services.snapback_family_mode import recheck_before_send
+            from app.services.snapback_family_mode import recheck_before_send_async
             self._require_session()
-            recheck_before_send()
+            await recheck_before_send_async()
         headers = dict(self._auth_headers())
         event('http_attempt', enabled=timed_history)
         with phase('http_request', enabled=timed_history):
@@ -533,8 +533,8 @@ class KiteClient(TradingExchangeAdapter):
 
         for attempt in range(3):
             await _GLOBAL_KITE_ORDER_LIMITER.acquire()
-            from app.services.snapback_family_mode import recheck_before_send
-            recheck_before_send()
+            from app.services.snapback_family_mode import recheck_before_send_async
+            await recheck_before_send_async()
             try:
                 return await self._auth_post(f"/orders/{variety}", body)
             except KiteError as exc:
@@ -544,7 +544,7 @@ class KiteClient(TradingExchangeAdapter):
                 # instead of failing the click. Flag the result so the UI can say so.
                 if allow_amo and variety == K.VARIETY_REGULAR and "switch_to_amo" in exc.hints:
                     await _GLOBAL_KITE_ORDER_LIMITER.acquire()
-                    recheck_before_send()
+                    await recheck_before_send_async()
                     result = await self._auth_post(f"/orders/{K.VARIETY_AMO}", body)
                     if isinstance(result, dict):
                         result["amo"] = True

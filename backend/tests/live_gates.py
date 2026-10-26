@@ -42,3 +42,10 @@ def satisfy_live_entry_gates(monkeypatch: Any, *, reason: str = "pytest verified
     monkeypatch.setattr(
         service.CanonicalExecutionService, "verify_production_account_binding",
         _verified_binding)
+
+    # Unrelated lifecycle fixtures carry synthetic release permission. The
+    # release-authority suite exercises the real gate and is excluded below.
+    from app.services import release_entry_authority
+    monkeypatch.setattr(release_entry_authority, "entry_refusal", lambda request, client, *args: None)
+    monkeypatch.setattr(release_entry_authority, "operator_release_status", lambda uid, account_id: {
+        "new_entries_allowed": True, "status": "AUTHORIZED", "blockers": [], "strategies": []})

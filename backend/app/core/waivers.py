@@ -1,21 +1,9 @@
-"""Which checks are advisory for this release, in exactly one place.
+"""Legacy observation/startup diagnostics that remain advisory.
 
-Sterling ships as a live-money product. The owner has waived the evidence and
-promotion gates that used to stand in front of real capital: the release
-certification table, the forward-sample verdict, frozen-identity bookkeeping and
-the rehearsal stages. Those checks still run and are still reported, because an
-operator is entitled to know what has and has not been proven -- but a failing
-or unreadable one is *advisory*: it is shown as ``waived`` and never changes an
-exit code, a start sequence or an admission decision.
-
-What is NOT waived is every real safety fact: the SafetySupervisor (safe mode,
-recovery state, unresolved intents, kill switch, daily-loss halt, external
-exposure), the broker account binding, fresh broker capital evidence, the
-production-secret rules, backup and clock and disk health. Those keep blocking.
-
-Keeping the list here, rather than scattering ``if name == ...`` through the
-CLI, the start sequence and the dashboard, means a check cannot be waived in
-one surface and enforced in another.
+These compatibility helpers do not authorize live risk. The 2026-10-26 release
+entry authority requires independently verified G0-G9 evidence for new broker
+exposure, even while an old doctor/rehearsal report remains informational.
+Safety, recovery, binding, capital, clock and storage checks continue to block.
 """
 from __future__ import annotations
 
@@ -35,7 +23,7 @@ __all__ = [
 
 #: One sentence an operator reads next to any waived result.
 WAIVER_NOTE: Final[str] = (
-    "waived for this release: reported for information, never blocking"
+    "waived for observation/startup diagnostics only; live entry authority remains mandatory"
 )
 
 #: Doctor / preflight check names that are evidence or release-identity

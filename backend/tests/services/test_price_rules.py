@@ -196,6 +196,7 @@ async def test_canonical_exit_uses_durable_inventory_and_live_reduction(env,monk
  assert runtime.remaining(p)==50 and p['gtt_qty']==50 and fill_ledger.inventory('A',UID,SYMBOL).net_quantity==50
 @pytest.mark.asyncio
 async def test_canonical_entry_with_verified_release_prerequisites(env,monkeypatch):
+ monkeypatch.setenv('STERLING_LIVE_MINIMUM_MAX_LOTS','2')  # this fixture deliberately requests two 50-unit lots
  from app.services.execution_service import CanonicalExecutionService
  from app.services import continuity_doctor
  r=await armed()
@@ -214,6 +215,31 @@ async def test_canonical_entry_with_verified_release_prerequisites(env,monkeypat
  assert p['state']=='SUBMITTED',p
  await runtime.cycle(UID);p=store.load(UID)['rules'][r['id']]
  assert p['state']=='OPEN' and p['gtt_qty']==100 and env.sends==1
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('strategy_id',['price_rules','PRICE_RULES'])
+async def test_global_off_during_transport_wait_prevents_a_price_rule_send(env,monkeypatch,strategy_id):
+ from dataclasses import replace
+ from app.services.execution_service import CanonicalExecutionService
+ from app.services.snapback_family_mode import recheck_before_send_async
+ monkeypatch.setenv('STERLING_LIVE_MINIMUM_MAX_LOTS','2')
+ r=await armed()
+ async def place(**kwargs):
+  store.mutate(UID,lambda doc:doc.update(enabled=False))
+  await recheck_before_send_async()
+  env.sends+=1
+  return {'order_id':'must-not-send'}
+ monkeypatch.setattr(env,'place_order',place,raising=False)
+ async def submit(request,**kwargs):
+  request=replace(request,strategy_id=strategy_id)
+  kwargs['risk_approval']=replace(kwargs['risk_approval'],strategy_id=strategy_id)
+  return await CanonicalExecutionService().submit_order(request,**kwargs)
+ monkeypatch.setattr(runtime.execution_service,'submit_order',submit)
+ await runtime.cycle(UID)
+ result=store.load(UID)['rules'][r['id']]
+ assert result['state']=='REFUSED' and 'disabled' in result['error']
+ assert env.sends==0
+ assert not order_journal.get(result['intent_key']).reconciliation_required
 @pytest.mark.asyncio
 async def test_application_emergency_flatten_dispatches_price_rules(env,monkeypatch):
  from unittest.mock import AsyncMock

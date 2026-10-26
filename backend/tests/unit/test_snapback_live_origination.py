@@ -417,7 +417,8 @@ def test_a_fade_down_call_is_hedged_with_a_short_future(env):
     assert pos.hedge_side == "SELL"
 
 
-def test_a_partial_entry_fill_is_hedged_and_protected_at_the_confirmed_size(env):
+def test_a_partial_entry_fill_is_hedged_and_protected_at_the_confirmed_size(env, monkeypatch):
+    monkeypatch.setenv("STERLING_LIVE_MINIMUM_MAX_LOTS", "2")  # partial-fill scenario needs two requested lots
     env.broker.mode = "partial"
     env.broker.hedge_mode = "fill"
     # two lots requested so a half fill is still a whole lot

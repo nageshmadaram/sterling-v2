@@ -6,11 +6,9 @@
 # than reimplementing it. `start` never bypasses recovery: it runs `doctor`
 # first and refuses on a blocking failure.
 #
-# Sterling is a live-money product with one execution mode. Release
-# certification, the forward-sample verdict and identity bookkeeping are waived
-# for this release: they are still reported, marked "waived", and never block.
-# Every real safety check (safe mode, the safety supervisor, the broker account
-# binding, unresolved exposure, production secrets) still does.
+# Legacy doctor/certification diagnostics may remain advisory for observation
+# and startup. They never authorize new live risk: canonical broker entry also
+# requires exact-release G0-G9 acceptance through release_entry_authority.
 #
 # Exit codes are the contract, because a script may read them:
 #   0  the thing succeeded, or the state is safe
@@ -126,7 +124,7 @@ Usage: sterlingctl <command>
 
 A doctor exit code of 2 means a blocking check could not be run. That is not a pass.
 Waived checks (release certification, forward-sample, identity bookkeeping) are
-listed under "waived" and never change an exit code.
+listed under "waived" for observation/startup. Live entries separately require G0-G9 acceptance.
 USAGE
 }
 
@@ -156,13 +154,25 @@ from app.core.lane_registry import live_execution_state, originator_rows
 
 live = live_execution_state()
 print()
-print(f"{'LIVE ENTRIES':<18}" + ("ENABLED" if live["enabled"] else
+print(f"{'MASTER SWITCH':<18}" + ("ON (release and safety gates still apply)" if live["enabled"] else
       "HALTED -- operator kill switch engaged (exits and protection still run)"))
 print(f"{'':<18}{live['source']}")
+try:
+    import os
+    from app.services.exchanges.kite import accounts
+    from app.services.release_entry_authority import operator_release_status
+    owner = os.environ.get("STERLING_FAMILY_USER_ID") or "default"
+    active = accounts.get_active(owner)
+    account_id = os.environ.get("STERLING_FAMILY_ACCOUNT_ID") or (active.id if active else "")
+    permission = operator_release_status(owner, account_id)
+    print(f"{'RELEASE ENTRIES':<18}" + ("AUTHORIZED (current safety still applies)" if permission["new_entries_allowed"]
+          else "BLOCKED: " + ", ".join(permission.get("blockers") or ["UNKNOWN"])))
+except Exception:
+    print(f"{'RELEASE ENTRIES':<18}UNKNOWN (release authority unavailable)")
 print()
-print("RELEASE ORIGINATORS")
+print("ENGINE CAPABILITIES (subject to release and runtime admission)")
 for row in originator_rows():
-    state = "live" if row["live_capable"] else f"blocked ({row['reason']})"
+    state = "supported" if row["live_capable"] else f"blocked ({row['reason']})"
     lanes = f" lanes: {', '.join(row['live_lanes'])}" if row["live_lanes"] else ""
     print(f"  {row['originator_id']:<16}{row['name']:<16}{state}{lanes}")
 PY

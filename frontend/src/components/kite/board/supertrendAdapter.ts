@@ -376,6 +376,7 @@ export function supertrendLegToBoard(
     executionEligible: (
       row.is_replay !== true
       && row.view_only !== true
+      && !leg.scan_refresh_state && !row.scan_refresh_state
       && (row.source !== 'derivatives' || parseTimestampMs(leg.entry_timestamp_ms ?? leg.signal_timestamp_ms) != null)
       && !priceAtOrBelowStop(row, leg, opts)
       // Buyable only with a stop below the entry: that stop is armed at Zerodha after the fill.
@@ -485,6 +486,15 @@ export function legSafetyTags(row: EngineSignalRow, leg: any, ended: boolean, no
   const tags: { label: string; hint: string }[] = [];
   const mode = normalizeMode(row.horizon_mode);
   if (row.view_only) tags.push({ label: `VIEW ONLY · ${mode ? MODE_LABEL[mode] : row.horizon_mode}`, hint: `Signal from SuperTrend's ${mode ? MODE_LABEL[mode] : ''} mode, which it is not set to trade. Switch SuperTrend to that mode in Settings to trade it.` });
+  const refresh = leg.scan_refresh_state ?? row.scan_refresh_state;
+  if (refresh) tags.push({
+    label: refresh === 'pending' ? 'REFRESHING' : refresh === 'failed' ? 'REFRESH FAILED' : 'LAST KNOWN',
+    hint: refresh === 'pending'
+      ? 'Last known signal; its scan has not finished. New entries are blocked until this contract is verified.'
+      : refresh === 'failed'
+        ? 'The scan could not verify this signal. Last known values are shown; new entries are blocked. Position protection and exits remain active.'
+        : 'This prior plan has not been renewed by the current scan. New entries are blocked; position protection and exits remain active.',
+  });
   if (ended) return tags;
   if (leg.replaced) tags.push({ label: 'REPLACED', hint: 'A newer signal on this stock has its own plan for this contract. Follow the newer one.' });
   const stop = leg.entry_sl ?? leg.premium_sl;
