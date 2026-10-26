@@ -35,6 +35,9 @@ load_sterling_env()
 from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
+from app.engines.snapback.research_reporting import (  # noqa: E402
+    contract_replay_summary, mode_totals,
+)
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -79,7 +82,8 @@ def _rows(payload) -> list[list[float]]:
     return out
 
 
-async def history(client, token: int, interval: str, start: datetime, end: datetime, span_days: int):
+async def history(client, token: int, interval: str, start: datetime, end: datetime,
+                  span_days: int, *, preserve_duplicates: bool = False):
     rows, cur = [], start
     while cur < end:
         stop = min(cur + timedelta(days=span_days), end)
@@ -88,8 +92,13 @@ async def history(client, token: int, interval: str, start: datetime, end: datet
         rows.extend(_rows(payload))
         cur = stop
         await asyncio.sleep(0.4)
+    ordered = sorted(rows)
+    if preserve_duplicates:
+        # Duplicate boundary bars are actual quality failures in paired replay;
+        # de-duplicating before the coverage audit would erase that evidence.
+        return ordered
     seen, uniq = set(), []
-    for r in sorted(rows):
+    for r in ordered:
         if r[0] not in seen:
             seen.add(r[0]); uniq.append(r)
     return uniq
@@ -171,6 +180,17 @@ async def main() -> None:
     # ── Part B: minute modes on real option candles ──────────────────────
     nfo = await client._load_nfo_instruments()
     intraday = {m: [] for m in MODES}
+    minute_cache: dict[tuple[int, str, int], list[list[float]]] = {}
+
+    async def minute_history(token: int, interval: str, days: int, tf: int):
+        # Ultra/scalp reuse one real tape rather than hammering Kite twice.
+        key = (int(token), interval, days)
+        if key not in minute_cache:
+            minute_cache[key] = await history(
+                client, token, interval, now - timedelta(days=days), now,
+                55 if tf == 1 else 180, preserve_duplicates=True)
+        return minute_cache[key]
+
     for und in INTRADAY_UNDERLYINGS:
         if und not in tokens:
             continue
@@ -194,38 +214,35 @@ async def main() -> None:
             for mode, (interval, tf, days) in MODES.items():
                 try:
                     start = now - timedelta(days=days)
-                    span = 55 if tf == 1 else 180
-                    u = await history(client, tokens[und], interval, start, now, span)
-                    o = await history(client, int(pick["instrument_token"]), interval, start, now, span)
+                    u = await minute_history(tokens[und], interval, days, tf)
+                    o = await minute_history(int(pick["instrument_token"]), interval, days, tf)
+                    # These maps are used ONLY after coverage validates there
+                    # were no duplicate or off-grid bars for accepted sessions.
                     by_u = {r[0]: r for r in u}; by_o = {r[0]: r for r in o}
                     coverage = paired_session_coverage(u, o, start=start.date(), end=now.date(),
                                                        interval_minutes=tf, as_of=now)
                     keep = coverage.pop("accepted_timestamps")
                     if len(keep) < 50:
                         intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
-                                               "coverage": coverage, "skipped": "too few complete days"})
+                                               "coverage": coverage, "skipped": "too few complete days",
+                                               "evidence_type": "REAL_MARKET_SIM", "replay_complete": False})
                         continue
                     ub = _bars([by_u[t] for t in keep]); ob = _bars([by_o[t] for t in keep])
                     cfg = validate({"trading_mode": mode})
                     res = replay_intraday(ub, ob, cfg, und, option_type=kind,
                                           lot_size=int(pick.get("lot_size") or 1), option_symbol=pick["tradingsymbol"])
-                    intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"], "bars": len(keep),
-                                           "coverage": coverage, "evidence_type": "REAL_MARKET_SIM",
+                    intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
+                                           "bars": len(keep), "coverage": coverage,
                                            "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
-                                           "trades": res["trade_count"], "win_rate_pct": round(res["win_rate_pct"], 1),
-                                           "net_inr": round(res["net_pnl_inr"], 0), "return_pct": round(res["return_pct"], 2),
-                                           "max_dd_inr": round(res["max_realized_drawdown_inr"], 0),
-                                           "rejected_plans": (lambda v: v if isinstance(v, int) else len(v or []))(res.get("rejected_plans"))})
+                                           **contract_replay_summary(res)})
                 except Exception as exc:  # noqa: BLE001
-                    intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"), "error": str(exc)[:160]})
+                    intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"),
+                                           "error": f"{type(exc).__name__}: {exc}"[:240],
+                                           "replay_complete": False})
                 print(mode, und, kind, intraday[mode][-1], flush=True)
-    totals = {}
-    for mode, rows in intraday.items():
-        ok = [r for r in rows if "trades" in r]
-        n = sum(r["trades"] for r in ok)
-        totals[mode] = {"contracts": len(ok), "trades": n, "net_inr": round(sum(r["net_inr"] for r in ok), 0),
-                        "profitable_contracts": sum(1 for r in ok if r["net_inr"] > 0),
-                        "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None}
+    totals = {mode: mode_totals(rows) for mode, rows in intraday.items()}
+    # Historical report outputs are diagnostic, and missing/failed contracts
+    # remain visible in counts instead of disappearing from profitable totals.
     report["minute_modes_real_options"] = {"totals": totals, "rows": intraday}
     path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
     path.write_text(json.dumps(report, indent=2, default=str))
