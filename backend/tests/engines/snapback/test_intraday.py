@@ -76,6 +76,12 @@ def test_forming_stale_or_prior_session_signal_is_rejected():
         assert intraday.evaluate_intraday(b, CFG, asof=b.time[-1]+delta) == []
 
 
+def test_empty_candle_tapes_cannot_be_reported_as_successful_replay():
+    empty = tape([])
+    with pytest.raises(ValueError, match="nonempty observed"):
+        replay(empty, empty)
+
+
 def test_partial_hourly_candle_cannot_be_consumed_as_a_completed_bar():
     start = datetime(2026, 9, 14, 9, 15, tzinfo=IST).timestamp()
     # Six complete hourly intervals: final one starts 14:15 and closes 15:15.
