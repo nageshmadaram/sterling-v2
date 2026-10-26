@@ -63,3 +63,7 @@ See [default tags and effective mode configuration](../../2026-10-24/mode-defaul
 [Automatic scan calendar guard](../../2026-10-25/gamma-session-calendar/CONTINUATION.md) reproduces scheduled history/selection on closed exchange days. Verified-calendar admission now skips automatic scan work on closed/unknown days while retaining reconciliation and owned-position maintenance. Existing historical evidence is preserved; real market-day acceptance remains pending.
 
 The same continuation includes the operator's actual phone screenshot: Positions visible beneath a stale PCR heading. Shared saved-page initialization and early visible-pane title subscription fix the reproduced shell mismatch. Signals/default-label and final-device visual acceptance remain pending; the screenshot does not establish them.
+
+### 25 October — push registration capacity
+
+[Owner-scoped and atomic push quotas](../../2026-10-25/push-device-quota/CONTINUATION.md) reproduces a foreign subscription bypassing the receiving owner's 16-device ceiling and concurrent registrations sharing the last slot. Owner-specific existing-device refresh remains allowed; one writer transaction protects allocation and transfer. Authorized removal clears old-owner dedupe; accepted/failed HTTP outcomes cannot recreate orphan/foreign dedupe, overwrite refreshed metadata or revive disabled registrations. Existing device settings and delivery policy remain unchanged; physical notification and market-session acceptance are not inferred.

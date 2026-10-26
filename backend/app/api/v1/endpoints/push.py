@@ -53,8 +53,10 @@ def subscribe(body:Subscription,user:UserContext=Depends(get_current_user)):
     identifier=hashlib.sha256(s['endpoint'].encode()).hexdigest()
     with db._conn() as c:
         push.init(c)
+        # Count and ownership transfer reserve capacity in one writer transaction.
+        c.execute('BEGIN IMMEDIATE')
         count=c.execute('SELECT count(*) FROM push_devices WHERE uid=?',(uid(user),)).fetchone()[0]
-        if count>=16 and not c.execute('SELECT 1 FROM push_devices WHERE id=?',(identifier,)).fetchone():raise HTTPException(409,'Device limit reached. Remove an old device first.')
+        if count>=16 and not c.execute('SELECT 1 FROM push_devices WHERE id=? AND uid=?',(identifier,uid(user))).fetchone():raise HTTPException(409,'Device limit reached. Remove an old device first.')
         prior=c.execute('SELECT uid FROM push_devices WHERE id=?',(identifier,)).fetchone()
         if prior and prior['uid']!=uid(user):c.execute('DELETE FROM push_deliveries WHERE device_id=?',(identifier,))
         c.execute('INSERT INTO push_devices(id,uid,label,subscription_enc,enabled,created_ms) VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET uid=excluded.uid,label=excluded.label,subscription_enc=excluded.subscription_enc,enabled=1',(identifier,uid(user),body.label,encrypt(json.dumps(s)),int(time.time()*1000)))
@@ -64,7 +66,10 @@ def subscribe(body:Subscription,user:UserContext=Depends(get_current_user)):
 def remove(device_id:str,user:UserContext=Depends(get_current_user)):
     require_db()
     with db._conn() as c:
-        push.init(c);c.execute('DELETE FROM push_devices WHERE id=? AND uid=?',(device_id,uid(user)))
+        push.init(c)
+        removed=c.execute('DELETE FROM push_devices WHERE id=? AND uid=?',(device_id,uid(user))).rowcount
+        if removed:
+            c.execute('DELETE FROM push_deliveries WHERE device_id=?',(device_id,))
     return {'removed':True}
 
 @router.post('/test')
