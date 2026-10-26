@@ -40,10 +40,14 @@ daily-loss halt at -1,500 INR by default.
 
 ## 3. Your first session
 
-1. Start the backend (`scripts/sterlingctl start`, or the systemd service) and log in to
-   Kite from the Sterling UI before 09:15 IST. The first login binds the account to
-   your Zerodha identity.
-2. Check `scripts/sterlingctl status`: NORMAL, broker connected, no unresolved orders.
+1. **Before starting or restarting**, inspect the protected environment configuration
+   and confirm `STERLING_LIVE_EXECUTION=false` for any session that has not been
+   separately approved. If positions are open, first consult the emergency runbook:
+   do not shut down a worker responsible for exits or broker protection.
+2. Start the backend (`scripts/sterlingctl start`, or its managed systemd service)
+   and log in to Kite through the Sterling UI. Account binding must match the
+   authorized Kite identity. Check `scripts/sterlingctl status`, current broker
+   exposure and unresolved orders before advancing.
 3. Keep `STERLING_LIVE_EXECUTION=false` while checking broker binding, capital
    limits, stable/approved egress, current exposure, protection and restoration.
    Configure the account-owner-approved caps, including
