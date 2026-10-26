@@ -52,3 +52,21 @@ def test_unknown_calendar_is_never_a_complete_session():
     result = audit([], [], start=date(2025, 10, 21), end=date(2025, 10, 21))
     assert result["sessions"][0]["gap_codes"] == ["CALENDAR_UNKNOWN"]
     assert not result["all_sessions_complete"]
+
+
+def test_complete_grid_with_after_close_candle_is_not_promoted():
+    extraneous = tape()
+    last = extraneous[-1].copy()
+    last[0] += 15 * 60  # 15:30 IST is outside the continuous trading session
+    report = audit(tape(), extraneous + [last])
+    assert "OPTION_UNEXPECTED_BARS" in report["sessions"][0]["gap_codes"]
+    assert report["accepted_timestamps"] == []
+    assert not report["all_sessions_complete"]
+
+
+def test_complete_grid_with_off_interval_bar_is_not_promoted():
+    out_of_grid = tape()[1].copy()
+    out_of_grid[0] += 60  # wrong candle-open for a 15-minute tape
+    report = audit(tape() + [out_of_grid], tape())
+    assert "UNDERLYING_UNEXPECTED_BARS" in report["sessions"][0]["gap_codes"]
+    assert report["accepted_timestamps"] == []
