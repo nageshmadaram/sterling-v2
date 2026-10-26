@@ -1,6 +1,8 @@
 """Kite market-data adapter for GAMMA-UNWIND client 0.8.2 / S1.6.0."""
 from __future__ import annotations
 
+from app.core.history_read_timing import history_scope, phase, event
+
 import asyncio
 import json
 import time
@@ -268,14 +270,18 @@ async def _historical_uncached(client, pacer: Pacer, token: int, interval: str,
     import httpx
     from app.services.exchanges.kite.errors import KiteNetworkError
     for attempt in range(1, 4):
-        await pacer.wait()
+        with phase('local_pacer'):
+            await pacer.wait()
         try:
+            event('fetch_attempt')
             raw = await client.get_historical(int(token), interval, frm, to, False, oi)
         except (TimeoutError, httpx.TransportError, KiteNetworkError) as exc:
             if attempt == 3:
                 exc.add_note(f"historical_read attempts=3 token={token} interval={interval}")
                 raise
-            await asyncio.sleep(0.25 * (2 ** (attempt - 1)))
+            event('transport_retry')
+            with phase('retry_backoff'):
+                await asyncio.sleep(0.25 * (2 ** (attempt - 1)))
             continue
         return (raw.get("candles") if isinstance(raw, dict) else raw) or []
 
@@ -709,10 +715,11 @@ async def _option_history_batches(client, pacer, watches, frm, today, now_ms, ti
     async def read(watch):
         timings['option_history_reads'] += 1
         try:
-            raw = await _historical(
-                client, pacer, int(watch.instrument.instrument_id),
-                "5minute", frm, today.isoformat(), True,
-            )
+            with history_scope(timings['history_detail'], 'option'):
+                raw = await _historical(
+                    client, pacer, int(watch.instrument.instrument_id),
+                    "5minute", frm, today.isoformat(), True,
+                )
             return watch, _completed(_to_candles(raw, oi=True), 5, now_ms), None
         except Exception as exc:
             return watch, [], exc
@@ -749,6 +756,7 @@ async def _prime_runtime(
                    engine_replays=0, retained_contracts=0,
                    option_history_batch_seconds=0.0, underlying_history_seconds=0.0,
                    engine_replay_wall_seconds=0.0, recorded_inputs_seconds=0.0)
+    timings['history_detail'] = {}
     pacer = Pacer(_HISTORICAL_RATE)
     frm = (today - timedelta(days=7)).isoformat()
     now_ms = int(datetime.now(IST).timestamp() * 1000)
@@ -784,10 +792,11 @@ async def _prime_runtime(
             read_started = time.monotonic()
             timings['underlying_history_reads'] += 1
             try:
-                raw = await _historical(
-                    client, pacer, watch.underlying_token,
-                    "5minute", frm, today.isoformat(), False
-                )
+                with history_scope(timings['history_detail'], 'underlying'):
+                    raw = await _historical(
+                        client, pacer, watch.underlying_token,
+                        "5minute", frm, today.isoformat(), False
+                    )
                 underlying_5m[watch.underlying] = _completed(
                     _to_candles(raw), 5, now_ms
                 )

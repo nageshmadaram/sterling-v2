@@ -235,7 +235,10 @@ function navigatorSection(row: EngineSignalRow): BoardSection | null {
  */
 function signalMs(row: EngineSignalRow, openMs: number | null): number | null {
   if (openMs == null || row.source === 'navigator') return openMs;
-  return row.is_replay ? openMs : barCloseMs(openMs);
+  const minutes = row.signal_timeframe_minutes;
+  const barMs = typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0
+    ? minutes * 60_000 : 3_600_000;
+  return row.is_replay ? openMs : barCloseMs(openMs, barMs);
 }
 
 /**

@@ -174,6 +174,8 @@ async def test_prime_phase_timings_count_logical_reads_without_changing_outcome(
     uid, watches, built = setup_prime
 
     async def history(client, pacer, token, interval, frm, to, oi):
+        from app.core.history_read_timing import event
+        event('observed_test_read')
         if failure == 'option' and token == 222:
             raise RuntimeError('option unavailable')
         if failure == 'underlying' and not oi:
@@ -183,6 +185,8 @@ async def test_prime_phase_timings_count_logical_reads_without_changing_outcome(
     monkeypatch.setattr(scanner, '_historical', history)
     timings = {}
     errors = await scanner._prime_runtime(uid, scanner.GammaMoveConfig(), object(), watches[:2], BASE.date(), {}, {}, timings=timings)
+    assert timings['history_detail']['option']['observed_test_read'] == 2
+    assert timings['history_detail']['underlying']['observed_test_read'] == 1
     assert timings['option_history_reads'] == 2
     assert timings['underlying_history_reads'] == 1
     assert timings['engine_replays'] == len(built)

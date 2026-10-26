@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { supertrendLegToBoard } from '../supertrendAdapter';
+import { supertrendLegToBoard, supertrendToBoard } from '../supertrendAdapter';
 import type { EngineSignalRow, OptionLeg } from '../../../../types/kiteEngine';
 
 const leg: OptionLeg = {
@@ -94,5 +94,22 @@ describe('signal price reference clarity', () => {
       quotes: { 'NFO:NIFTY26OCT24000CE': { last_price: 75 } } });
     expect(signal.executionEligible).toBe(false);
     expect(signal.flags?.some(flag => flag.label === 'PRICE ≤ STOP')).toBe(true);
+  });
+});
+
+
+describe('mode-specific completed signal timestamps', () => {
+  it.each([1, 5, 15, 60, 120])('uses the row candle size of %s minutes for parent and leg', minutes => {
+    const open = Date.UTC(2026, 9, 26, 4, 45);
+    const r = { ...row, timestamp_ms: open, signal_timeframe_minutes: minutes } as EngineSignalRow;
+    expect(supertrendToBoard([r], {})[0].atMs).toBe(open + minutes * 60_000);
+    expect(supertrendLegToBoard(r, { ...leg, entry_timestamp_ms: open }, 0, {}).atMs).toBe(open + minutes * 60_000);
+  });
+  it('keeps Navigator event timestamps and retained replay timestamps unchanged', () => {
+    const open = Date.UTC(2026, 9, 26, 4, 45);
+    for (const extra of [{ source: 'navigator' }, { is_replay: true }]) {
+      const r = { ...row, ...extra, timestamp_ms: open, signal_timeframe_minutes: 1 } as EngineSignalRow;
+      expect(supertrendToBoard([r], {})[0].atMs).toBe(open);
+    }
   });
 });
