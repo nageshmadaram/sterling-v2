@@ -80,3 +80,23 @@ async def test_durably_booked_fill_retains_normal_success_and_projection_ack(mon
     refresh.assert_awaited_once()
     ack.assert_called_once()
     kill.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fee_authority_failure_after_booked_fill_requires_reconciliation(monkeypatch):
+    a = adapter()
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=True))
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock(side_effect=OSError("fee cache unavailable")))
+    acknowledged = Mock()
+    monkeypatch.setattr(fills, "mark_projected", acknowledged)
+    killed = []
+    monkeypatch.setattr(wiring, "engage_kill_switch", lambda reason, uid: killed.append((reason, uid)))
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert not response.success and response.status == "UNKNOWN"
+    assert response.filled_quantity == 75
+    assert response.order_id == "BROKER-ORDER-1"
+    assert "fee authority" in response.error
+    assert killed and killed[0][1] == "operator"
+    acknowledged.assert_not_called()
