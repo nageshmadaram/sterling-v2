@@ -93,6 +93,30 @@ def test_canonical_signal_requires_loaded_scan_authority(monkeypatch):
     assert admission_blocker(request) == ('', '')
 
 
+def test_older_scan_result_never_reauthorizes_a_superseded_bar():
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    prior = RefreshBoard([], {('derivatives', 'A')})
+    prior.observe(row(stamp=200))
+    following = RefreshBoard([row(stamp=200)], {('derivatives', 'A')},
+                             previous=prior)
+    following.observe(row(stamp=100))
+    assert following.block_reason('derivatives', 'A-CE', 100, mode='swing', timeframe=60)
+    assert following.block_reason('derivatives', 'A-CE', 200, mode='swing', timeframe=60)
+    following.observe(row(stamp=300))
+    assert following.block_reason('derivatives', 'A-CE', 200, mode='swing', timeframe=60)
+    assert following.block_reason('derivatives', 'A-CE', 300, mode='swing', timeframe=60) == ''
+
+
+def test_removed_universe_row_is_visible_but_no_longer_entry_authority():
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    signal = row()
+    before = RefreshBoard([], {('derivatives', 'A')})
+    before.observe(signal)
+    after = RefreshBoard([signal], {('spot', 'B')}, previous=before)
+    assert [r.underlying for r in after.project([])] == ['A']
+    assert after.block_reason('derivatives', 'A-CE', 100, mode='swing', timeframe=60) == 'signal_refresh_unverified'
+
+
 def test_retained_row_refuses_entry_before_market_checks(monkeypatch):
     from app.services.kite_engine.service import entry_data_block_reason
     from app.services.kite_engine import market_hours
