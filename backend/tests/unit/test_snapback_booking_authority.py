@@ -1,0 +1,82 @@
+"""Snapback cannot treat broker-confirmed but unbooked exposure as success."""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from app.services import snapback_live_wiring as wiring
+from app.services import canonical_fill_reconciliation as fills
+from app.services import fee_safety
+
+
+def request():
+    return SimpleNamespace(
+        uid="operator", account_id="account", symbol="NIFTY_TEST_PE",
+        exchange="NFO", side="BUY", quantity=75, price=100.0,
+        payload={}, tag="snapback:plan",
+    )
+
+
+def resolved(*, quantity=75):
+    return SimpleNamespace(
+        filled_quantity=quantity, average_price=100.0,
+        status="COMPLETE", settled=True, reconciliation_required=False,
+        intent_key="intent", projection_version=3, reason="",
+    )
+
+
+def adapter(*, resolution=None):
+    canonical = SimpleNamespace(submit_order=AsyncMock(return_value=SimpleNamespace(
+        success=True, status="ACKNOWLEDGED",
+        order_id="BROKER-ORDER-1", intent_key="intent",
+    )))
+    async def resolver(**kwargs):
+        return resolution if resolution is not None else resolved()
+    return wiring.SnapbackExecutionAdapter(
+        plan_store=SimpleNamespace(), canonical=canonical, resolver=resolver,
+    )
+
+
+@pytest.mark.asyncio
+async def test_real_fill_with_failed_ledger_or_registry_booking_is_never_success(monkeypatch):
+    a = adapter()
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=False))
+    killed = []
+    monkeypatch.setattr(wiring, "engage_kill_switch", lambda reason, uid: killed.append((reason, uid)))
+    refresh = AsyncMock()
+    monkeypatch.setattr(fee_safety, "refresh", refresh)
+    ack = Mock()
+    monkeypatch.setattr(fills, "mark_projected", ack)
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.filled_quantity == 75
+    assert response.order_id == "BROKER-ORDER-1"
+    assert response.intent_key == "intent"
+    assert "reconcile" in response.error
+    assert len(killed) == 1 and killed[0][1] == "operator"
+    refresh.assert_not_awaited()
+    ack.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_durably_booked_fill_retains_normal_success_and_projection_ack(monkeypatch):
+    a = adapter()
+    booked = Mock(return_value=True)
+    monkeypatch.setattr(a, "_book_fill", booked)
+    refresh = AsyncMock()
+    monkeypatch.setattr(fee_safety, "refresh", refresh)
+    ack = Mock()
+    monkeypatch.setattr(fills, "mark_projected", ack)
+    kill = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", kill)
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert response.status == "FILLED" and response.success
+    assert response.filled_quantity == 75
+    booked.assert_called_once()
+    refresh.assert_awaited_once()
+    ack.assert_called_once()
+    kill.assert_not_called()
