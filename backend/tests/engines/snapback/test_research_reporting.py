@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from app.engines.snapback.research_reporting import (
     choose_option_contract, contract_replay_summary, eligible_expiries,
-    mode_totals, rejected_plan_count,
+    mode_totals, rejected_plan_count, write_research_report_once,
 )
 from datetime import date
 import pytest
@@ -154,3 +154,32 @@ def test_fractional_lot_or_instrument_token_is_not_truncated():
         {"strike": 100, "instrument_token": 123, "lot_size": 75.5, "tradingsymbol": "BADLOT"},
     ]
     assert choose_option_contract(bad, 100) is None
+
+
+def test_atomic_research_write_preserves_first_report_and_cleans_temp(tmp_path):
+    import json
+    path = tmp_path / "snapback.json"
+    write_research_report_once(path, {"research_only": True, "net_inr": 10})
+    assert json.loads(path.read_text())["net_inr"] == 10
+    with pytest.raises(FileExistsError):
+        write_research_report_once(path, {"research_only": True, "net_inr": 9999})
+    assert json.loads(path.read_text())["net_inr"] == 10
+    assert list(tmp_path.iterdir()) == [path]
+
+
+def test_invalid_report_json_does_not_create_partial_output(tmp_path):
+    path = tmp_path / "snapback.json"
+    with pytest.raises(ValueError):
+        write_research_report_once(path, {"research_only": True, "net_inr": float("nan")})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_failed_atomic_publish_cleans_temp_and_does_not_claim_evidence(tmp_path, monkeypatch):
+    from app.engines.snapback import research_reporting as reporting
+    path = tmp_path / "snapback.json"
+    def disk_refuses_link(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(reporting.os, "link", disk_refuses_link)
+    with pytest.raises(OSError, match="disk full"):
+        write_research_report_once(path, {"research_only": True})
+    assert list(tmp_path.iterdir()) == []
