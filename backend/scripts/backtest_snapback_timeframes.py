@@ -38,6 +38,7 @@ from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
     choose_option_contract, contract_replay_summary, eligible_expiries, mode_totals,
+    write_research_report_once,
 )
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
@@ -277,11 +278,9 @@ async def main() -> None:
     # remain visible in counts instead of disappearing from profitable totals.
     report["minute_modes_real_options"] = {"totals": totals, "rows": intraday}
     path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
-    # Historical diagnostics must never silently overwrite a prior evidence
-    # artifact for the same day. The operator can archive/rename it explicitly.
-    with path.open("x", encoding="utf-8") as handle:
-        json.dump(report, handle, indent=2, default=str)
-        handle.write("\n")
+    # Atomic no-overwrite publish: failed/disk-full research runs never
+    # leave a truncated file that could be mistaken for verified evidence.
+    write_research_report_once(path, report)
     print(json.dumps({"swing": swing, "minute_totals": totals}, indent=2, default=str))
     print("written", path)
 
