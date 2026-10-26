@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from datetime import date
 from typing import Any
 
 
@@ -120,8 +121,30 @@ def choose_option_contract(candidates: Sequence[Mapping[str, Any]],
             continue
         if not (math.isfinite(strike) and strike > 0 and token > 0 and lot > 0 and symbol):
             continue
-        # A bool token/lot isn't a meaningful exchange identity.
-        if isinstance(row.get("instrument_token"), bool) or isinstance(row.get("lot_size"), bool):
+        # Truncating fractional exchange identities (e.g. lot_size=75.5)
+        # would invent a different order unit.
+        raw_token, raw_lot = row.get("instrument_token"), row.get("lot_size")
+        if isinstance(raw_token, bool) or isinstance(raw_lot, bool):
+            continue
+        try:
+            if float(raw_token) != token or float(raw_lot) != lot:
+                continue
+        except (ValueError, TypeError, OverflowError):
             continue
         valid.append((abs(strike - spot), strike, symbol, row))
     return min(valid, key=lambda x: (x[0], x[1], x[2]))[3] if valid else None
+
+
+def eligible_expiries(contracts: Sequence[Mapping[str, Any]], today: date) -> list[str]:
+    """Exchange-date-valid future expiries only; 'None' is not a future date."""
+    future = set()
+    for row in contracts:
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            expiry = date.fromisoformat(str(row.get("expiry"))[:10])
+        except (ValueError, TypeError):
+            continue
+        if expiry > today:
+            future.add(expiry.isoformat())
+    return sorted(future)
