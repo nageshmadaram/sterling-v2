@@ -77,6 +77,11 @@ def _validate(bars: Bars, timeframe: int, *, contiguous: bool = False) -> None:
         if (not _SESSION_START <= minute < _SESSION_END
                 or not math.isclose((minute - _SESSION_START) % timeframe, 0, abs_tol=1e-8)):
             raise ValueError("Candles must be aligned intraday bars in the IST trading session")
+        # A 15:15 hourly print would finish at 16:15, after the 15:30
+        # underlying session close. It is a partial closing candle, not
+        # a complete 60-minute observation, even if the broker supplies it.
+        if minute + timeframe > _SESSION_END + 1e-8:
+            raise ValueError("Candle interval ends after the continuous market session")
         if i and ist_day(t) == ist_day(ts[i - 1]):
             delta = (t - ts[i - 1]) / (timeframe * 60)
             if (not math.isclose(delta, round(delta), abs_tol=1e-8)
