@@ -134,6 +134,23 @@ def test_economic_report_contract_accepts_only_full_independently_reviewed_evide
     assert gate_status(economic) == "VERIFIED"
 
 
+@pytest.mark.parametrize("corrupt", [
+    {"oos_windows": [None, {"start": "2026-04-01T00:00:00Z", "end": "2026-05-01T00:00:00Z", "net_expectancy": 1}]},
+    {"stress_expectancy": []},
+    {"stress_expectancy": "all scenarios passed"},
+])
+def test_malformed_economic_receipts_fail_closed(corrupt):
+    from app.core.economic_acceptance import validate_economic_report
+    with pytest.raises(ValueError):
+        validate_economic_report(economic_report(**corrupt), economic_report())
+
+
+def test_non_object_economic_report_is_rejected():
+    from app.core.economic_acceptance import validate_economic_report
+    with pytest.raises(ValueError):
+        validate_economic_report([], economic_report())
+
+
 @pytest.mark.parametrize("changes", [
     {"sessions_complete": False}, {"no_lookahead": False}, {"forward_evidence_type": "MODELLED"},
     {"expectancy_lower_bound": 0}, {"net_expectancy": -1}, {"net_expectancy": float("nan")},
