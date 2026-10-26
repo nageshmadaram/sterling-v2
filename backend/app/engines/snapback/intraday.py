@@ -372,6 +372,8 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
     tf = cfg.scalp_timeframe_minutes
     _validate(underlying, tf, contiguous=True)
     _validate(premium_bars, tf, contiguous=True)
+    if not len(underlying) or not len(premium_bars):
+        raise ValueError("Replay requires nonempty observed underlying and option tapes")
     if len(underlying) != len(premium_bars) or not np.array_equal(underlying.time, premium_bars.time):
         raise ValueError("Replay requires synchronized observed underlying and option candles; no gaps or synthetic prices")
     trades: list[dict[str, Any]] = []
