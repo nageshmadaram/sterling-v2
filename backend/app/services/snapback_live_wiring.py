@@ -168,6 +168,23 @@ class SnapbackExecutionAdapter:
                     log.error("Snapback live: projection ack failed for %s: %s",
                               result.order_id, exc)
 
+        if filled > 0 and not booked_ok:
+            # The broker filled real units, but the signed ledger or the owned
+            # position registry is missing them. Never report this as FILLED:
+            # the executor must protect known exposure, halt new entries and
+            # reconcile the missing book, without submitting the option twice.
+            engage_kill_switch(
+                f"Snapback filled {request.symbol} without complete durable booking",
+                request.uid,
+            )
+            return ExecutionResult(
+                success=False, status="UNKNOWN",
+                intent_key=resolution.intent_key or result.intent_key,
+                order_id=result.order_id, filled_quantity=filled,
+                filled_price=average,
+                error="confirmed broker fill not fully booked; reconcile before new entries",
+            )
+
         if resolution.reconciliation_required or (not resolution.settled and filled == 0):
             return ExecutionResult(
                 success=False, status="UNKNOWN", intent_key=resolution.intent_key,
