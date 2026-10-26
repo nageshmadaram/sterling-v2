@@ -134,11 +134,11 @@ export const PCR_CSS = `
 .kite-pcr .kp-tape-idx-group:last-child{padding-bottom:0;border-bottom:0}
 .kite-pcr .kp-tape-idx-title{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;color:var(--k-text)}
 .kite-pcr .kp-tile-tape{margin-top:6px;padding:8px 10px;background:var(--k-surface-hover);border:1px solid var(--k-border);display:flex;flex-direction:column;gap:6px}
-.kite-pcr .kp-tile-tape-title{display:flex;align-items:center;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--k-dim)}
+.kite-pcr .kp-tile-tape-title{display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:space-between;font-size:10px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--k-dim)}
 .kite-pcr .kp-tile-tape-list{display:flex;flex-direction:column;gap:6px}
 .kite-pcr .kp-tile-tape-item{font-size:11.5px;line-height:1.35;border-top:1px solid var(--k-border);padding-top:5px}
 .kite-pcr .kp-tile-tape-item:first-child{border-top:0;padding-top:0}
-.kite-pcr .kp-tile-tape-top{display:flex;align-items:center;gap:6px}
+.kite-pcr .kp-tile-tape-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .kite-pcr .kp-tile-tape-path{font-variant-numeric:tabular-nums;color:var(--k-dim);font-size:11px}
 .kite-pcr .kp-tile-tape-why{margin-top:2px;font-size:11px}
 .kite-pcr .kp-legend li{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.4;margin:0 0 7px;color:var(--k-text)}
@@ -189,7 +189,8 @@ export const PCR_CSS = `
 .kite-pcr .kp-tile-action.ce{color:var(--k-green)}
 .kite-pcr .kp-tile-action.pe{color:var(--k-red)}
 .kite-pcr .kp-tile-action.wait{color:var(--k-text);opacity:.88}
-.kite-pcr .kp-tile-stamp{font-size:14px;line-height:1.2;white-space:nowrap;font-variant-numeric:tabular-nums;display:flex;align-items:baseline;justify-content:flex-start;gap:2px;overflow:hidden;text-overflow:ellipsis;text-align:left}
+.kite-pcr .kp-tile-stamp{font-size:14px;line-height:1.2;white-space:normal;overflow-wrap:anywhere;font-variant-numeric:tabular-nums;display:flex;flex-wrap:wrap;align-items:baseline;justify-content:flex-start;gap:2px;text-align:left}
+.kite-pcr .kp-observation{display:block;white-space:normal;overflow-wrap:anywhere;font-size:10px;line-height:1.3;color:var(--k-dim)}
 .kite-pcr .kp-tile-time{font-weight:650;color:var(--k-text);opacity:.9}
 .kite-pcr .kp-tile-band{font-weight:500;color:var(--k-dim)}
 .kite-pcr .kp-tile h2{margin:4px 0 0;font-size:15px;font-weight:600;letter-spacing:-.02em;line-height:1.3}

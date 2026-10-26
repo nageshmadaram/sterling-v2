@@ -100,32 +100,6 @@ export interface KiteSettingsState {
   boardRowScroll: boolean;
   boardRowActions: boolean;
   /**
-   * Which component draws SuperTrend's rows.
-   *
-   * `shared` is `SignalBoard` — the same component the other four engines use,
-   * which is what makes the two tables identical by construction rather than by
-   * a list of matched properties. `classic` is the bespoke table this board grew
-   * up with, kept because it is the only view that has ever been used against a
-   * live account and I cannot see the shared one rendered behind the broker
-   * login. It is a way back, not a second product.
-   *
-   * `classic` is still the DEFAULT. Two of the three original gaps are closed —
-   * a signal that resolved to no contract now says so inline, and
-   * `hoistLiveFromToday` reproduces the Active-now section — but one remains, and
-   * it is the reason the default has not flipped:
-   *
-   * **Per-leg diagnostics.** The bespoke row distinguishes a trail close from a
-   * red-counter close in words ("TSL exit" vs "counter exit"), marks a re-entry,
-   * and prints the entry/stop premium snapshot inline. Twenty-five tests cover
-   * those, and they matter: the gap between "the premium is through its trail"
-   * and "the engine has not closed it yet" is exactly where an open drawdown
-   * builds. Moving them behind a click would be losing them.
-   *
-   * Closing it needs one more capability on the shared board — inline per-row
-   * marks supplied by the engine, alongside `renderRowActions`. Until then this
-   * setting is a way to see the shared renderer, not a recommendation.
-   */
-  /**
    * List or cards, for the signal table.
    *
    * It lived as local state inside SuperTrend's pane, written straight to

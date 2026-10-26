@@ -206,6 +206,8 @@ export function buildGrid(marks: PcrMark[], latest: PcrMark | null, nowMin: numb
     }
     return {
       hhmm,
+      observedHhmm: value == null ? null : live && latest && liveMin != null && liveMin >= minutes - SLOT_STEP
+        ? latest.hhmm : frozen?.hhmm ?? null,
       label: slotLabel(hhmm),
       minutes,
       pcr: value,
@@ -221,6 +223,12 @@ export function buildGrid(marks: PcrMark[], latest: PcrMark | null, nowMin: numb
     prev = slot.pcr;
   }
   return slots;
+}
+
+/** Disclose a forming bucket separately from the source observation clock. */
+export function slotObservationLabel(slot: PcrSlot | null | undefined): string {
+  if (!slot || slot.pcr == null) return "No PCR observation";
+  return `${slot.live ? 'Forming until' : 'Slot'} ${slot.hhmm} · observed ${slot.observedHhmm ?? 'time unavailable'}`;
 }
 
 /** Put share of total OI implied by PCR = put / call. */

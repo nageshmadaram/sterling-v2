@@ -37,10 +37,10 @@ export interface EngineTabState {
    * from "armed and holding" for the engines that are shown.
    */
   running: boolean;
-  /** Live rows: armed, running or weakening. Drives the count badge. */
+  /** Active display rows, including view-only modes; not executable entries. */
   live: number;
-  /** Total scanned, for the "0 of 18" case that means "working, nothing yet". */
-  scanned: number;
+  /** Records loaded into this board; not instruments processed by a scan. */
+  loadedRecords: number;
 }
 
 function StateDot({ running, live }: { running: boolean; live: number }) {
@@ -48,7 +48,7 @@ function StateDot({ running, live }: { running: boolean; live: number }) {
   return (
     <span
       aria-hidden
-      title={!running ? 'Not scanning' : live > 0 ? `${live} live` : 'Scanning, nothing live'}
+      title={!running ? 'Engine disabled' : live > 0 ? `${live} active rows` : 'Engine enabled; no active rows'}
       style={{
         width: 6, height: 6, borderRadius: '50%', background: tone, flexShrink: 0,
         // Only a live, armed engine pulses. Motion is reserved for the one
@@ -74,7 +74,8 @@ export function EngineTabs({ tabs, active, onSelect, trailingTab }: {
             key={tab.id}
             role="tab"
             aria-selected={on}
-            aria-label={`${ENGINE_LABEL[tab.id]}, ${tab.running ? `${tab.live} live of ${tab.scanned} scanned` : 'not scanning'}`}
+            aria-label={`${ENGINE_LABEL[tab.id]}, ${tab.running ? 'enabled' : 'disabled'}, ${tab.live} active rows, ${tab.loadedRecords} loaded records`}
+            title="Loaded records may include prior scans and view-only modes; not scan coverage or execution eligibility."
             onClick={() => onSelect(tab.id)}
             className="sb-tab"
             style={{

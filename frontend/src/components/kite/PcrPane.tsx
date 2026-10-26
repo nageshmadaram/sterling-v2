@@ -7,6 +7,7 @@ import {
   SESSION_CLOSE_MIN,
   SESSION_OPEN_MIN,
   buildGrid,
+  slotObservationLabel,
   describeFlow,
   expiryKind,
   flowPath,
@@ -194,7 +195,7 @@ export function PcrPane() {
           name: line.name,
           action: line.action,
           why: line.why,
-          clock: line.clock,
+          clock: slotObservationLabel(s),
           hhmm: line.hhmm,
           from: line.from,
           to: line.to,
@@ -211,7 +212,7 @@ export function PcrPane() {
             name: u.short,
             action: act,
             why: `Current PCR is ${last.pcr.toFixed(2)}. Waiting on 15m delta moves.`,
-            clock: formatHhmm12(last.hhmm),
+            clock: slotObservationLabel(last),
             hhmm: last.hhmm,
             from: last.pcr,
             to: last.pcr,
@@ -280,6 +281,7 @@ export function PcrPane() {
         expiryLong: row ? expiryLong(row.expiry, kind) : "—",
         maxPain: row?.spot.maxPain ?? null,
         hhmm: last?.hhmm ?? "",
+        observationLabel: last ? slotObservationLabel(last) : 'Observation time unavailable',
         band,
         insight,
         flowAction,
@@ -475,6 +477,7 @@ export function PcrPane() {
                               <td className="kp-pcr-cell num">
                                 <div className="kp-pcr-wrap">
                                   <span className="kp-pcr-val">{row.pcr != null ? formatPcr(row.pcr) : "—"}</span>
+                                  <small className="kp-observation">{row.observationLabel}</small>
                                   {row.pcr != null && row.flowAction ? (
                                     <span
                                       className={`kp-flow-pill kp-act ${ideaKind(row.flowAction)}`}
@@ -538,7 +541,7 @@ export function PcrPane() {
                     <tbody>
                       {heatSlots.map((slot, row) => (
                         <tr key={slot.hhmm} className="kp-heat-row" data-live={slot.live}>
-                          <th>{slot.hhmm}</th>
+                          <th>{slot.live ? `Forming until ${slot.hhmm}` : slot.hhmm}</th>
                           {cols.map((u) => {
                             const s = boards?.[u.id]?.[row];
                             const flow =
@@ -546,7 +549,7 @@ export function PcrPane() {
                                 ? describeFlow(u.short, s.hhmm, s.pcr, s.delta, metric)
                                 : null;
                             return (
-                              <td key={u.id}>
+                              <td key={u.id} aria-label={`${u.short}: ${slotObservationLabel(s)}`}>
                                 <span className={`kp-heat kp-band-${s?.band ?? "empty"}`}>
                                   <span className="kp-heat-val">{s?.pcr == null ? "" : formatPcr(s.pcr)}</span>
                                   {flow ? (
@@ -558,6 +561,7 @@ export function PcrPane() {
                                     </span>
                                   ) : null}
                                 </span>
+                                {s?.live && <small className="kp-observation">{slotObservationLabel(s)}</small>}
                               </td>
                             );
                           })}
@@ -616,7 +620,7 @@ export function PcrPane() {
                       {displayTapeSlots.length ? (
                         displayTapeSlots.map(({ slot, rowIdx }) => (
                           <tr key={slot.hhmm} className="kp-tape-row" data-live={slot.live}>
-                            <th>{formatHhmm12(slot.hhmm)}</th>
+                            <th>{slot.live ? `Forming until ${slot.hhmm}` : formatHhmm12(slot.hhmm)}</th>
                             {cols.map((u) => {
                               const s = boards?.[u.id]?.[rowIdx];
                               if (!s || s.pcr == null || !isValidPrint(s.pcr, "oi")) {
@@ -633,6 +637,7 @@ export function PcrPane() {
                               if (!flow) {
                                 return (
                                   <td key={u.id} className="kp-tape-td">
+                                    {s.live && <small className="kp-observation">{slotObservationLabel(s)}</small>}
                                     <div className="kp-tape-cell-quiet">
                                       <span className="kp-pcr-num">{s.pcr.toFixed(2)}</span>
                                       <span className="kp-muted">flat</span>
@@ -642,6 +647,7 @@ export function PcrPane() {
                               }
                               return (
                                 <td key={u.id} className="kp-tape-td">
+                                  {s.live && <small className="kp-observation">{slotObservationLabel(s)}</small>}
                                   <div className="kp-tape-cell">
                                     <div className="kp-tape-cell-head">
                                       <span className={`kp-act ${ideaKind(flow.action)}`}>{flow.action}</span>

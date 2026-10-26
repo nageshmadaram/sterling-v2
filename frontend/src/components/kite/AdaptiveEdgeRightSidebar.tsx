@@ -153,10 +153,10 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
     const ema = [...emaTrendSetupsToBoard(emaSnapshot.data?.rows || []), ...emaTrendCampaignsToBoard(emaSnapshot.data?.campaigns || [])];
     const live = (list: typeof st) => list.filter((s) => ACTIONABLE.includes(s.status)).length;
     const all: EngineTabState[] = [
-      { id: 'supertrend', running: engineOn.supertrend, live: live(st), scanned: st.length },
-      { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), scanned: gm.length },
-      { id: 'ema_trend', running: engineOn.ema_trend, live: live(ema), scanned: ema.length },
-      { id: 'snapback', running: engineOn.snapback, live: live(sb), scanned: sb.length },
+      { id: 'supertrend', running: engineOn.supertrend, live: live(st), loadedRecords: st.length },
+      { id: 'gamma_move', running: engineOn.gamma_move, live: live(gm), loadedRecords: gm.length },
+      { id: 'ema_trend', running: engineOn.ema_trend, live: live(ema), loadedRecords: ema.length },
+      { id: 'snapback', running: engineOn.snapback, live: live(sb), loadedRecords: sb.length },
     ];
     // A disabled scanner keeps its board available for history and controls.
     return orderEngines(all, engineOrder);
