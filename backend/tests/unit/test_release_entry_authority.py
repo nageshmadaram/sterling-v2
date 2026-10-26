@@ -128,6 +128,30 @@ def test_real_and_unlabelled_clients_fail_closed_when_evidence_is_absent(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_master_entry_halt_precedes_release_authority(monkeypatch):
+    """The production default-off gate stays enforced, even before G0-G9."""
+    from app.core import lane_registry
+    from app.services.execution_service import CanonicalExecutionService
+    from tests.unit.test_production_binding_execution_gate import _request, _approval
+    from app.services import fee_safety
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
+    async def no_fee_refresh(*args):
+        return None
+    monkeypatch.setattr(fee_safety, "refresh", no_fee_refresh)
+    def release_never_called(*args, **kwargs):
+        raise AssertionError("master kill switch must be checked first")
+    monkeypatch.setattr(authority, "entry_refusal", release_never_called)
+    request = _request(strategy_id="gamma_move")
+    client = SimpleNamespace(_is_paper=True, _account_id=request.account_id)
+    result = await CanonicalExecutionService().submit_order(
+        request, broker_client=client, risk_approval=_approval(request)
+    )
+    assert result.status == "HALTED"
+    assert result.intent_key == ""
+    assert "STERLING_LIVE_EXECUTION" in result.error
+
+
+@pytest.mark.asyncio
 async def test_canonical_entry_checks_release_authority_before_reserving_or_sending(monkeypatch):
     from app.services.execution_service import CanonicalExecutionService
     from tests.unit.test_production_binding_execution_gate import _request, _approval
@@ -135,6 +159,10 @@ async def test_canonical_entry_checks_release_authority_before_reserving_or_send
     from app.services.kite_engine import order_journal
     req = _request(strategy_id="gamma_move")
     client = SimpleNamespace(_is_paper=False, _account_id=req.account_id)
+    # Isolate release-authority rejection, which is downstream of the master
+    # transport switch. This patch affects only this test; never the process env.
+    from app.core import lane_registry
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     service = CanonicalExecutionService()
     monkeypatch.setattr(service, "verify_exposure_effect", lambda **kwargs: req.exposure_effect)
     monkeypatch.setattr(service, "is_trading_allowed", lambda **kwargs: (True, ""))
@@ -159,6 +187,13 @@ async def test_revocation_during_transport_wait_never_sends_or_becomes_unknown(t
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "journal.db"))
     monkeypatch.setattr(db, "_available", False)
     assert db.init()
+    # The transport-wait race must reach its in-memory broker double; otherwise
+    # the default-off operator kill switch rightly ends the test too early.
+    from app.core import lane_registry
+    from app.services import shared_risk
+    monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
+    monkeypatch.setattr(shared_risk, "entry_refusal", lambda *a, **k: None)
+    monkeypatch.setattr(shared_risk, "committed_value", lambda *a, **k: 2500.0)
     monkeypatch.setattr(CanonicalExecutionService, "is_trading_allowed", lambda *a, **k: (True, ""))
     revoked = False
     sends = []
