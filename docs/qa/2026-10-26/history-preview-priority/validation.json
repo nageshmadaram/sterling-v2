@@ -1,0 +1,63 @@
+{
+  "baseline_commit": "3aa677380d0cc8138d56b404b5358884495ece39",
+  "baseline_verified_equivalent_feature": "b6db2329d0bddc32bb4c319ecc73cc763488b2ba",
+  "baseline_backend_tests": 11852,
+  "head_backend_tests": 11858,
+  "backend_summary": "11858 passed, 30 skipped in 1914.72s (0:31:54)",
+  "baseline_backend_failures": [],
+  "head_backend_failures": [],
+  "skip_lines": [
+    "SKIPPED [11] tests/services/test_intraday_runner.py: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:163: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:182: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:204: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_simulation.py:235: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:278: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:353: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:638: no kite_engine_signals for 2026-09-07 in this environment",
+    "SKIPPED [1] tests/api/test_simulation_replay_clock.py:242: Actual NIFTY hourly cache unavailable; no generated replacement",
+    "SKIPPED [1] tests/engines/intraday/test_backtest.py:408: vwap_supertrend does not trade this tape",
+    "SKIPPED [1] tests/engines/snapback/test_strategy.py:327: this tape did not produce a setup to filter",
+    "SKIPPED [1] tests/services/test_adaptive_edge_evidence.py:132: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:482: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:520: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:155: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:387: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_strategy_bridge.py:299: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_intraday_runner.py:874: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:207: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:233: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)"
+  ],
+  "skip_set_unchanged": true,
+  "frontend_unchanged": false,
+  "frontend_baseline_tests": 2397,
+  "frontend_head_tests": 2402,
+  "frontend_files_passed": 258,
+  "new_frontend_cases": 5,
+  "frontend_partial_run": "stopped after a working-directory error prevented the initial source edit; exit 143 preserved; not a pass",
+  "typescript_passed": true,
+  "verify_passed": true,
+  "new_backend_tests": 6,
+  "focused_tests": 15,
+  "runtime_source_changes": [
+    "backend/app/services/kite_engine/service.py"
+  ],
+  "request_limiter_and_strategy_engine_sources_unchanged": true,
+  "source_hashes": {
+    "backend/app/services/kite_engine/service.py": "db7fdbd0aca09487b5b930ff69d46ec6b820cae4956d12b568f9610cb2738de1",
+    "backend/tests/services/test_preview_history_priority.py": "df771e232dcf02e610b85d18b33c5917aaf4f37f9ccce13fca57d24afd6aeaf6",
+    "frontend/src/components/kite/board/supertrendAdapter.ts": "9debd82c5f1459fd060b4613378ae305f78fb2729a934f698d5b9c39c3c15fc5",
+    "frontend/src/components/kite/board/__tests__/supertrendAdapter.identity.test.ts": "abfafcd931566d076c6bd8b43492a2cd9a8a9ceb5dd51af79e8c8efd8f9c7277"
+  },
+  "logs_sha256": {
+    "verify.log": "b8ed9e50d7b5e32cfa17df484f33ec26049475215e8dad84e80da4988f34ac0f",
+    "red.log": "f7866ec1b2a7cdbaa84591439246738f864e8696a551f5c05070a113e5dee9d9",
+    "green.log": "270bd00a80502e4f2165dcdaa375c63ee4c1fb33b0662408e2febb9a695087a4",
+    "frontend-full.log": "c6f01086b7e84a7607073ff8b9c21f3e06f21b4677ae16365c0d1c5ec34410cb",
+    "identity-red.log": "d7d345e871c3658749062838b9fd065ca589a089bdd088b237c8ea0cf94bc1ce",
+    "identity-green.log": "477e3e8782540b9672c9d967f15ebf1fa451d909062f48997eeca160bc03701e"
+  },
+  "broker_mutations": 0,
+  "test_notifications_sent": 0,
+  "production_settings_changed": false
+}

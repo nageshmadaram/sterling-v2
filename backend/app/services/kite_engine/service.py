@@ -2503,6 +2503,10 @@ async def _preview_next_mode(client, uid: str, cfg_model, *, spot_universe, nfo,
     turn = _preview_turn.get(uid, 0) % len(others)
     _preview_turn[uid] = turn + 1
     mode = others[turn]
+    # These rows are explicitly view-only: yield the existing shared budget to
+    # selected live strategies and restore the caller's priority on every exit.
+    from app.services.exchanges.kite.client import BACKGROUND_CALLS
+    background_token = BACKGROUND_CALLS.set(True)
     try:
         preview_cfg = dataclasses.replace(_ts_cfg(cfg_model), horizon_mode=mode, signal_timeframe_minutes=None)
         await scanner.scan(
@@ -2517,6 +2521,9 @@ async def _preview_next_mode(client, uid: str, cfg_model, *, spot_universe, nfo,
         state.log(uid, "info", f"View-only {mode} scan refreshed ({len(scanner.snapshot(preview_key(uid, mode)).rows)} rows)")
     except Exception as exc:  # noqa: BLE001 - a preview must never break the live cycle
         log.warning("SuperTrend view-only %s scan failed for %s: %s", mode, uid, exc)
+
+    finally:
+        BACKGROUND_CALLS.reset(background_token)
 
 
 def preview_rows(uid: str, active_mode: str) -> list:
