@@ -41,7 +41,10 @@ class RefreshBoard:
         facts.append(((row.source, "underlying:" + row.underlying, row.horizon_mode, row.signal_timeframe_minutes),
                       int(row.timestamp_ms), status or row.scan_refresh_state or (None if row.is_active else "replaced")))
         for key, stamp, phase in facts:
-            if status is None and key in self.observed:
+            if status is None and key in self.facts:
+                # The previous scan's last observed generation is authoritative
+                # even during a new scan. A stale cache / late older response
+                # must not roll the contract's entry generation backward.
                 prior_stamp, _, _ = self.facts[key]
                 if prior_stamp > stamp:
                     continue
@@ -99,7 +102,12 @@ class RefreshBoard:
             # derivatives order for a contract absent from the scanned board
             # cannot borrow an underlying's valid timestamp.
             return "signal_refresh_unverified"
-        if any(value[0] == stamp and value[1] is None for _, value in candidates):
+        # Rows excluded from the latest planned universe remain visible as
+        # history, but their prior approval cannot authorize a new trade.
+        if not any(value[2] in self.planned for _, value in candidates):
+            return "signal_refresh_unverified"
+        if any(value[0] == stamp and value[1] is None and value[2] in self.planned
+               for _, value in candidates):
             return ""
         status = candidates[0][1][1] or "replaced"
         return "signal_refresh_" + status
