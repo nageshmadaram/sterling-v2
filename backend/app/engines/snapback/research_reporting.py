@@ -95,3 +95,33 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "promotion_eligible": False, "broker_verified": False,
         "result_basis": "closed-contract real-option-candle simulation, not broker fills",
     }
+
+
+def choose_option_contract(candidates: Sequence[Mapping[str, Any]],
+                           spot: float) -> Mapping[str, Any] | None:
+    """Deterministic nearest-strike choice among fully verified metadata rows.
+
+    The caller must separately freeze a date-effective contract universe.
+    Malformed strike/token/lot metadata must never crash the entire research
+    run or be treated as a valid listed option.
+    """
+    if isinstance(spot, bool) or not isinstance(spot, (int, float)) or not math.isfinite(spot) or spot <= 0:
+        return None
+    valid = []
+    for row in candidates:
+        if not isinstance(row, Mapping):
+            continue
+        try:
+            strike = float(row.get("strike"))
+            token = int(row.get("instrument_token"))
+            lot = int(row.get("lot_size"))
+            symbol = str(row.get("tradingsymbol") or "").strip()
+        except (ValueError, TypeError, OverflowError):
+            continue
+        if not (math.isfinite(strike) and strike > 0 and token > 0 and lot > 0 and symbol):
+            continue
+        # A bool token/lot isn't a meaningful exchange identity.
+        if isinstance(row.get("instrument_token"), bool) or isinstance(row.get("lot_size"), bool):
+            continue
+        valid.append((abs(strike - spot), strike, symbol, row))
+    return min(valid, key=lambda x: (x[0], x[1], x[2]))[3] if valid else None
