@@ -685,7 +685,9 @@ async def reuse_owner_market_data(uid, cfg, *, now, recorded_signals=None):
     _runtime[uid] = new
     parent_stats = _stats[owner]
     _stats[uid] = {
-        **parent_stats, 'last_run_ms': now_ms, 'issue': '',
+        # Reusing selection facts does not rerun the owner's warmup operation.
+        **{k: v for k, v in parent_stats.items() if k != 'prime_timing'},
+        'last_run_ms': now_ms, 'issue': '',
         'recovery_source': 'owner_market_data',
         'selection_built_at_ms': parent_stats.get('last_run_ms'),
         'market_data_asof_ms': min(rt.closed_bars[-1].ts_ms+5*60_000 for rt in new.values()),
@@ -697,7 +699,7 @@ async def reuse_owner_market_data(uid, cfg, *, now, recorded_signals=None):
             'recovery_source': 'owner_market_data'}
 
 
-async def _option_history_batches(client, pacer, watches, frm, today, now_ms):
+async def _option_history_batches(client, pacer, watches, frm, today, now_ms, timings):
     """Overlap at most two selected-contract reads; yield in selection order.
 
     Every uncached attempt still uses the caller's single rate pacer. Finish
@@ -705,6 +707,7 @@ async def _option_history_batches(client, pacer, watches, frm, today, now_ms):
     its reads and no background task can outlive this recovery operation.
     """
     async def read(watch):
+        timings['option_history_reads'] += 1
         try:
             raw = await _historical(
                 client, pacer, int(watch.instrument.instrument_id),
@@ -715,7 +718,9 @@ async def _option_history_batches(client, pacer, watches, frm, today, now_ms):
             return watch, [], exc
 
     for offset in range(0, len(watches), 2):
+        started = time.monotonic()
         results = await asyncio.gather(*(read(watch) for watch in watches[offset:offset + 2]))
+        timings['option_history_batch_seconds'] += time.monotonic() - started
         for result in results:
             yield result
 
@@ -729,6 +734,8 @@ async def _prime_runtime(
     underlying: dict,
     spots: dict,
     recorded_signals: list[GammaSignal] | None = None,
+    *,
+    timings: dict | None = None,
 ) -> list[str]:
     """Warm selected contracts; return broker/history failures that make the scan partial.
 
@@ -736,6 +743,12 @@ async def _prime_runtime(
     an exception while reading a selected contract or its underlying is unknown
     evidence. The caller must keep the scheduled slot retryable in that case.
     """
+    started = time.monotonic()
+    timings = {} if timings is None else timings
+    timings.update(option_history_reads=0, underlying_history_reads=0,
+                   engine_replays=0, retained_contracts=0,
+                   option_history_batch_seconds=0.0, underlying_history_seconds=0.0,
+                   engine_replay_wall_seconds=0.0, recorded_inputs_seconds=0.0)
     pacer = Pacer(_HISTORICAL_RATE)
     frm = (today - timedelta(days=7)).isoformat()
     now_ms = int(datetime.now(IST).timestamp() * 1000)
@@ -746,14 +759,17 @@ async def _prime_runtime(
         if rt.oi_peak_day == today
     }
     retained_pairs = {(rt.contract.underlying, rt.contract.list_name) for rt in new.values()}
+    timings['retained_contracts'] = len(new)
     underlying_5m: dict[str, list[Candle]] = {}
     underlying_failures: dict[str, str] = {}
     failures: list[str] = []
+    inputs_started = time.monotonic()
     recorded_inputs = await _runtime_inputs(uid, today)
+    timings['recorded_inputs_seconds'] = time.monotonic() - inputs_started
     pending = [watch for watch in watches
                if (watch.underlying, watch.list_name) not in retained_pairs]
     async for watch, bars, exc in _option_history_batches(
-        client, pacer, pending, frm, today, now_ms,
+        client, pacer, pending, frm, today, now_ms, timings,
     ):
         if exc is not None:
             message = (
@@ -765,6 +781,8 @@ async def _prime_runtime(
         if len(bars) < cfg.warmup_bars:
             continue
         if watch.underlying not in underlying_5m:
+            read_started = time.monotonic()
+            timings['underlying_history_reads'] += 1
             try:
                 raw = await _historical(
                     client, pacer, watch.underlying_token,
@@ -778,14 +796,22 @@ async def _prime_runtime(
                 underlying_failures[watch.underlying] = (
                     f"{watch.underlying}: underlying 5-minute history unavailable ({exc})"
                 )
+            finally:
+                timings['underlying_history_seconds'] += time.monotonic() - read_started
         if watch.underlying in underlying_failures:
             failures.append(underlying_failures[watch.underlying])
             continue
-        new[int(watch.instrument.instrument_id)] = await run_blocking(
-            _build_runtime, watch, cfg, bars, underlying_5m[watch.underlying],
-            spots.get(watch.underlying, watch.ref_price), recorded_signals,
-            recorded_inputs, today)
+        replay_started = time.monotonic()
+        timings['engine_replays'] += 1
+        try:
+            new[int(watch.instrument.instrument_id)] = await run_blocking(
+                _build_runtime, watch, cfg, bars, underlying_5m[watch.underlying],
+                spots.get(watch.underlying, watch.ref_price), recorded_signals,
+                recorded_inputs, today)
+        finally:
+            timings['engine_replay_wall_seconds'] += time.monotonic() - replay_started
     _runtime[uid] = new
+    timings['total_seconds'] = time.monotonic() - started
     return list(dict.fromkeys(failures))
 
 
@@ -838,9 +864,10 @@ async def scan_once(
         uid, cfg, client, levels, spots, atrs, underlying, day
     )
     stage_b = time.monotonic()
+    prime_timing = {}
     prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
-        recorded_signals=recorded_signals,
+        recorded_signals=recorded_signals, timings=prime_timing,
     )) or []
     stage_c = time.monotonic()
     if prime_failures:
@@ -868,6 +895,7 @@ async def scan_once(
                 "seconds": round(stage_c - stage_b, 2),
             },
             "total_seconds": round(stage_c - started, 2),
+            "prime_timing": prime_timing,
             "issue": message,
             "coverage": prime_failures[:20],
         }
@@ -917,6 +945,7 @@ async def scan_once(
             "seconds": round(stage_c - stage_b, 2),
         },
         "total_seconds": round(stage_c - started, 2),
+        "prime_timing": prime_timing,
     }
     watchlist = [
         watch_view(rt) for rt in _runtime.get(uid, {}).values()
@@ -1020,9 +1049,10 @@ async def recover_scheduled_watchlist(
             spots[name] = float(bar.close)
         underlying[name] = (int(ctx.token), list(ctx.daily))
 
+    prime_timing = {}
     prime_failures = (await _prime_runtime(
         uid, cfg, client, watches, day, underlying, spots,
-        recorded_signals=recorded_signals,
+        recorded_signals=recorded_signals, timings=prime_timing,
     )) or []
 
     elapsed = round(time.monotonic() - started, 2)
@@ -1058,6 +1088,7 @@ async def recover_scheduled_watchlist(
             "seconds": None,
         },
         "total_seconds": elapsed,
+        "prime_timing": prime_timing,
         "recovered_slot": build_time.strftime("%H:%M"),
         "recovery_source": "scheduled_history",
         "cached_build_slots": sum(value is not None for value in cached_slots.values()),

@@ -1,5 +1,7 @@
 # Combined implementation and acceptance ledger
 
+26 October replay-cost follow-up: [bounded calendar memoization and phase measurements](../../2026-10-26/gamma-replay-calendar-cache/CONTINUATION.md) preserves original Gamma outcomes while reducing repeated pure clock conversions and adding passive recovery phase reporting. CPU sample parity is separate from the still-open actual 180-second/two-day/full-session requirements.
+
 26 October recovery timing follow-up: [bounded Gamma history reads](../../2026-10-26/gamma-recovery-pipeline/CONTINUATION.md) records an actual 242.65-second / 116-watch live recovery and the targeted two-read pipeline, retaining the original request rate, engine rules and partial-history guards. Released live duration and two-day/full-session acceptance remain separate requirements.
 
 Baseline inspected: `14c1875028c48bb27b8e81e1a953380ac172b919`.

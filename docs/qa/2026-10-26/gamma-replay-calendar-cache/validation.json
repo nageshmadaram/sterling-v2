@@ -1,0 +1,80 @@
+{
+  "baseline_commit": "9e593377dbc08205da4db36ed9e913b285671218",
+  "baseline_backend_tests": 11825,
+  "head_backend_tests": 11847,
+  "backend_summary": "11847 passed, 30 skipped in 1113.08s (0:18:33)",
+  "runtime_source_changes": [
+    "backend/app/engines/gamma_move/trigger.py",
+    "backend/app/services/gamma_move_scanner.py"
+  ],
+  "baseline_backend_failures": [],
+  "head_backend_failures": [],
+  "frontend_source_unchanged": true,
+  "frontend_validation": {
+    "baseline_commit": "def6d126042703a50813dc49aa352d3bdbd63cb2",
+    "frontend_tree": "913383f0f894df60e633446e75dde3150d0a57da",
+    "source_changes": false,
+    "last_full_frontend_tests": 2391,
+    "last_full_frontend_files": 257,
+    "prior_full_log_sha256": "b1395f2f594fa1f1b40d0d4f8697db9b7aa0f001b88dfc66aa3f34103daeb094",
+    "prior_full_log": "/home/nageshmadaram/Sterling/.runtime/qa/2026-10-25/gamma-session-calendar/frontend-full.log",
+    "policy": "Reuse the verified identical frontend tree; make verify reruns TypeScript. No new frontend full run is claimed."
+  },
+  "skip_lines": [
+    "SKIPPED [11] tests/services/test_intraday_runner.py: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:163: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:182: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_adaptive_edge_config_api.py:204: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/api/test_simulation.py:235: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:278: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:353: Real September 4, 2026 Kite signal snapshot unavailable in the test database",
+    "SKIPPED [1] tests/api/test_simulation.py:638: no kite_engine_signals for 2026-09-07 in this environment",
+    "SKIPPED [1] tests/api/test_simulation_replay_clock.py:242: Actual NIFTY hourly cache unavailable; no generated replacement",
+    "SKIPPED [1] tests/engines/intraday/test_backtest.py:408: vwap_supertrend does not trade this tape",
+    "SKIPPED [1] tests/engines/snapback/test_strategy.py:327: this tape did not produce a setup to filter",
+    "SKIPPED [1] tests/services/test_adaptive_edge_evidence.py:132: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:482: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_execution.py:520: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:155: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_service.py:387: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_adaptive_edge_strategy_bridge.py:299: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_intraday_runner.py:874: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:207: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)",
+    "SKIPPED [1] tests/services/test_opening_volume_execution.py:233: retired strategy: origination removed from the release scope (Supertrend, Snapback, Gamma Unwind only)"
+  ],
+  "skip_set_unchanged": true,
+  "typescript_passed": true,
+  "verify_passed": true,
+  "focused_tests": 85,
+  "new_backend_tests": 22,
+  "initial_red_failures": 8,
+  "baseline_focused_control_passes": 77,
+  "source_hashes": {
+    "backend/app/engines/gamma_move/trigger.py": "33ae3d24e85acf05a1997afbfa2c314e9a46c9d4a25c238d28805e8539ac7ca9",
+    "backend/app/services/gamma_move_scanner.py": "ebe5d55103f12bd492f0cbaac304743a2c11fc5cacd2f69a1a3c1cc399b9cce2",
+    "backend/tests/unit/test_gamma_calendar_memo.py": "dc4a85695941dfc4dec4528083276d506ccd430ad32173cf7cd343f537ba33b5",
+    "backend/tests/services/test_gamma_prime_pipeline.py": "f45edf6697e7e9662f61a704eb645c352d6761b86fae086c2386de51d4def6f5",
+    "backend/tests/services/test_gamma_move_scanner.py": "d12d576ee5dad32ed4274dc424ff47fde300c501743667c0ce17ba2bfa272cbc",
+    "backend/tests/services/test_gamma_sim_shared_data.py": "1149ff2e72ca85207c296a0938736e46777b5494ab7d2da07d2c14d5bded4416"
+  },
+  "cpu_sample": {
+    "baseline_median_seconds": 3.0608139420000953,
+    "head_median_seconds": 1.0806604780009366,
+    "identical_sample_engine_hashes": true,
+    "sample_engines": 20,
+    "network_calls": 0,
+    "runtime_engines_published": false,
+    "limitations": "newest matching token caches, no account-lineage certification; empty recorded E1/OI; CPU-only comparison"
+  },
+  "broker_mutations": 0,
+  "test_notifications_sent": 0,
+  "production_settings_changed": false,
+  "logs_sha256": {
+    "red.log": "a822e661c348b6cf7773ea477b46370b981fe4a24fc41f5c78558b8bc527836b",
+    "green.log": "dcde870df38169a73f8121984a9efad40fab179d32d06aad960e1e742c60ae1a",
+    "verify.log": "4990734f46b51aaae838911f8924371cf852b9611da37bbc4a6222bb53634f91",
+    "cpu-inputs.pkl": "47d15fd84a9d8d0ac3dd8793482bebc09be01930ebbba7fad5a134e2155be800",
+    "cpu-baseline.json": "62ae150ba13e1f784dcb6c5c527dc5861c4d18336629dc9c1ffec3eb624101b1",
+    "cpu-head.json": "733b11490bc1a776da14409001d60354cd28a6bdcfaaa9e4f633e4a1629512e2"
+  }
+}

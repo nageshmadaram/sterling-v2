@@ -132,9 +132,11 @@ async def test_recover_scheduled_watchlist_uses_historical_slot_context(monkeypa
         return [w], []
 
     async def prime(uid, _cfg, _client, watches, _day, _underlying, spots,
-                    recorded_signals=None):
+                    recorded_signals=None, *, timings=None):
         assert watches == [w]
         assert spots["RELIANCE"] == pytest.approx(102.0)
+        assert isinstance(timings, dict)
+        timings['engine_replay_wall_seconds'] = 0.125
         scanner._runtime[uid] = {
             222: scanner.RuntimeWatch(
                 contract=w,
@@ -165,6 +167,7 @@ async def test_recover_scheduled_watchlist_uses_historical_slot_context(monkeypa
     assert result["recovered_slot"] == "13:15"
     assert recovered_slots == ['09:20','11:15','13:15']
     assert scanner.scan_stats("u1")["recovery_source"] == "scheduled_history"
+    assert scanner.scan_stats("u1")["prime_timing"] == {'engine_replay_wall_seconds': 0.125}
     scanner.clear_runtime("u1")
 
 

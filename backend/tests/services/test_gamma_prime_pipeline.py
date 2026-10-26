@@ -166,3 +166,30 @@ async def test_cancellation_drains_pending_reads_and_never_publishes_partial_run
     assert sorted(cancelled) == [222, 223]
     assert built == []
     assert not scanner._runtime.get(uid)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('failure', ['none', 'option', 'underlying'])
+async def test_prime_phase_timings_count_logical_reads_without_changing_outcome(monkeypatch, setup_prime, failure):
+    uid, watches, built = setup_prime
+
+    async def history(client, pacer, token, interval, frm, to, oi):
+        if failure == 'option' and token == 222:
+            raise RuntimeError('option unavailable')
+        if failure == 'underlying' and not oi:
+            raise RuntimeError('underlying unavailable')
+        return closed_option_bars() if oi else underlying_bars()
+
+    monkeypatch.setattr(scanner, '_historical', history)
+    timings = {}
+    errors = await scanner._prime_runtime(uid, scanner.GammaMoveConfig(), object(), watches[:2], BASE.date(), {}, {}, timings=timings)
+    assert timings['option_history_reads'] == 2
+    assert timings['underlying_history_reads'] == 1
+    assert timings['engine_replays'] == len(built)
+    assert timings['retained_contracts'] == 0
+    assert len(errors) == (0 if failure == 'none' else 1)
+    assert all(timings[key] >= 0 for key in [
+        'option_history_batch_seconds', 'underlying_history_seconds',
+        'engine_replay_wall_seconds', 'recorded_inputs_seconds', 'total_seconds',
+    ])
+    assert timings['total_seconds'] >= timings['engine_replay_wall_seconds']
