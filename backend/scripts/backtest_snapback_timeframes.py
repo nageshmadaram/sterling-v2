@@ -36,7 +36,7 @@ from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
-    contract_replay_summary, mode_totals,
+    choose_option_contract, contract_replay_summary, mode_totals,
 )
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
@@ -193,12 +193,36 @@ async def main() -> None:
 
     for und in INTRADAY_UNDERLYINGS:
         if und not in tokens:
+            for mode in MODES:
+                for kind in ("CE", "PE"):
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind,
+                        "skipped": "underlying token unavailable",
+                        "replay_complete": False,
+                    })
             continue
-        spot_rows = await history(client, tokens[und], "day", now - timedelta(days=10), now, 30)
+        try:
+            spot_rows = await history(client, tokens[und], "day", now - timedelta(days=10), now, 30)
+        except Exception as exc:  # noqa: BLE001 - report gaps, do not select winners
+            for mode in MODES:
+                for kind in ("CE", "PE"):
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind,
+                        "skipped": f"underlying history unavailable: {type(exc).__name__}",
+                        "replay_complete": False,
+                    })
+            continue
         spot = spot_rows[-1][4] if spot_rows else None
         opts = [r for r in nfo if str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
         expiries = sorted({str(r.get("expiry"))[:10] for r in opts if str(r.get("expiry"))[:10] > now.date().isoformat()})
         if not spot or not expiries:
+            reason = "underlying price unavailable" if not spot else "eligible expiry unavailable"
+            for mode in MODES:
+                for kind in ("CE", "PE"):
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind, "skipped": reason,
+                        "replay_complete": False,
+                    })
             continue
         # Next monthly expiry: the last expiry in the next calendar month that has one.
         months = {}
@@ -208,9 +232,15 @@ async def main() -> None:
         expiry = monthly[1] if len(monthly) > 1 and monthly[0] <= (now.date() + timedelta(days=10)).isoformat() else monthly[0]
         for kind in ("CE", "PE"):
             cands = [r for r in opts if str(r.get("expiry"))[:10] == expiry and r.get("instrument_type") == kind]
-            if not cands:
+            pick = choose_option_contract(cands, spot)
+            if pick is None:
+                for mode in MODES:
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind,
+                        "skipped": "eligible contract metadata unavailable",
+                        "replay_complete": False,
+                    })
                 continue
-            pick = min(cands, key=lambda r: abs(float(r.get("strike") or 0) - spot))
             for mode, (interval, tf, days) in MODES.items():
                 try:
                     start = now - timedelta(days=days)
