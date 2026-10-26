@@ -310,7 +310,11 @@ export function supertrendLegToBoard(
   const dayMove = dayMoveFromQuote(opts.quotes?.[quoteKey], opts.chgBasis);
 
   return {
-    id: `${engine}-${row.underlying}-${leg.option_symbol}-${index}`,
+    id: [
+      engine, row.source ?? 'spot', row.horizon_mode ?? 'swing',
+      row.signal_timeframe_minutes ?? 60, row.exchange, row.underlying,
+      row.timestamp_ms, leg.option_symbol, index,
+    ].join('-'),
     engine,
     historical: row.is_replay === true,
     underlying: row.underlying,
