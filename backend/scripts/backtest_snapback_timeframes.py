@@ -22,6 +22,7 @@ import math
 import sys
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -213,8 +214,17 @@ async def main() -> None:
                     })
             continue
         spot = spot_rows[-1][4] if spot_rows else None
-        opts = [r for r in nfo if str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
-        expiries = sorted({str(r.get("expiry"))[:10] for r in opts if str(r.get("expiry"))[:10] > now.date().isoformat()})
+        opts = [r for r in nfo if isinstance(r, Mapping)
+                and str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
+        expiries_set: set[str] = set()
+        for contract in opts:
+            try:
+                expiry_day = date.fromisoformat(str(contract.get("expiry"))[:10])
+            except (TypeError, ValueError):
+                continue
+            if expiry_day > now.date():
+                expiries_set.add(expiry_day.isoformat())
+        expiries = sorted(expiries_set)
         if not spot or not expiries:
             reason = "underlying price unavailable" if not spot else "eligible expiry unavailable"
             for mode in MODES:
