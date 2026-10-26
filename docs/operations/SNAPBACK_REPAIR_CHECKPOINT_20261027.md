@@ -41,7 +41,7 @@ Additional corrections in `backend/scripts/backtest_snapback_timeframes.py`:
 - The standalone `research_reporting.py` and
   `test_research_reporting.py` source/test blobs were copied byte-for-byte
   into an isolated offline Python test environment, with Git blob hashes
-  checked against the branch. **21 new unit test cases passed** there.
+  checked against the branch. **24 pure-reporting unit test cases passed** there.
 - The user previously ran **108/108 focused tests** on the earlier source
   commit `c83f44b0` (not the current Snapback commit).
 - These isolated tests **do not** constitute an executed end-to-end historical
@@ -75,3 +75,45 @@ Additional corrections in `backend/scripts/backtest_snapback_timeframes.py`:
 
 **Safety invariant:** master entry halt stays OFF for new risk while all
 monitoring and risk-reducing owned-position maintenance remain available.
+
+
+## Second pass — intraday data and live fill authority
+
+Additional source changes (still unmerged and unapproved):
+
+- Hourly bars are not valid if they would close after 15:30 IST, even
+  when their opening timestamp is during the session. Both
+  `core.research_coverage.paired_session_coverage` and the independent
+  `snapback.intraday._validate` reject this case. New tests cover the
+  15:15 hourly truncation as well as intact full-interval bars.
+- Direct intraday replay with an empty underlying or option tape fails
+  validation; it cannot return a superficially `complete=True` zero-signal
+  result.
+- Dated research reports are serialized completely to an exclusive
+  temporary file, fsynced, and atomically hard-linked to a final path
+  without overwriting existing evidence. Disk-full/interrupted attempts
+  cannot leave partial final JSON. Three added reporting tests cover
+  no-overwrite, malformed JSON, and simulated disk-write failure.
+- `SnapbackExecutionAdapter.submit_order` now **returns UNKNOWN rather
+  than FILLED** when a confirmed real broker fill cannot be booked into
+  both the ledger and the Snapback position registry. It retains known
+  filled quantity and order ID, engages the entry kill switch, and requires
+  reconciliation; the executor can still attempt protection of confirmed
+  exposure without resending the entry.
+- If post-fill fee authority refresh fails, the adapter also returns
+  UNKNOWN with known filled quantity/order ID and halts new entries.
+- A reconciliation-required or unsettled fill cannot have its canonical
+  projection prematurely acknowledged. Dedicated mock-broker tests
+  cover these cases, plus the normal booked-fill path.
+
+**Verification:** Pure reporting module and test file were copied
+byte-for-byte from the latest GitHub blobs into an isolated Python test
+environment; their Git hashes matched the GitHub blobs, and 24/24
+unit cases passed. The new intraday engine, shared coverage and
+`SnapbackExecutionAdapter` integration tests have been added but **not
+executed** on a real Sterling Python environment. Do not mark them passed
+from this document. No real fills, trading orders, Kite sessions, deployment,
+full restore or statistically defensible forward-profit evidence was observed.
+
+**Current decision:** release R1/R2/R3 **BLOCKED**; real-money new entries
+remain OFF pending executed exact-head regressions and independent sign-off.
