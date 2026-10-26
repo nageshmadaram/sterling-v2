@@ -60,6 +60,39 @@ def test_entry_guard_binds_symbol_and_exact_bar_even_after_new_empty_scan():
     assert next_board.block_reason('derivatives', 'A-CE', 100)
 
 
+def test_unobserved_canonical_contract_cannot_borrow_another_contracts_freshness(monkeypatch):
+    from app.services.kite_engine.scan_refresh import RefreshBoard, admission_blocker
+    from app.services.kite_engine.scanner import scanner
+    board = RefreshBoard([], {('derivatives', 'A')})
+    board.observe(row(symbol='A-CE'))
+    assert board.block_reason('derivatives', 'A-OTHER-CE', 100,
+                              mode='swing', timeframe=60, underlying='A') == 'signal_refresh_unverified'
+    current = SimpleNamespace(refresh_board=board, horizon_mode='swing', timeframe_minutes=60)
+    monkeypatch.setitem(scanner._users, 'unobserved-contract', current)
+    request = SimpleNamespace(uid='unobserved-contract', strategy_id='sterling-kite',
+                              symbol='A-OTHER-CE', signal_id='derivatives:100:long',
+                              payload={'underlying': 'A'})
+    assert admission_blocker(request)[0] == 'signal_refresh_unverified'
+    assert admission_blocker(SimpleNamespace(**{**request.__dict__, 'symbol': 'A-CE'})) == ('', '')
+
+
+def test_canonical_signal_requires_loaded_scan_authority(monkeypatch):
+    from app.services.kite_engine.scan_refresh import admission_blocker
+    from app.services.kite_engine.scanner import scanner
+    request = SimpleNamespace(uid='no-current-scan', strategy_id='sterling-kite',
+                              symbol='A-CE', signal_id='derivatives:100:long', payload={})
+    monkeypatch.delitem(scanner._users, 'no-current-scan', raising=False)
+    assert admission_blocker(request)[0] == 'signal_refresh_unavailable'
+    monkeypatch.setitem(scanner._users, 'no-current-scan', SimpleNamespace(
+        refresh_board=None, horizon_mode='swing', timeframe_minutes=60))
+    assert admission_blocker(request)[0] == 'signal_refresh_unavailable'
+    # Without a canonical scanner signal id, this safety check does not make a
+    # claim about unrelated legacy/manual entry evidence.
+    request.signal_id = 'manual-idempotency'
+    request.uid = 'manual-without-scan'
+    assert admission_blocker(request) == ('', '')
+
+
 def test_retained_row_refuses_entry_before_market_checks(monkeypatch):
     from app.services.kite_engine.service import entry_data_block_reason
     from app.services.kite_engine import market_hours
