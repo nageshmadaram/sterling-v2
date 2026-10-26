@@ -64,9 +64,13 @@ def paired_session_coverage(
             if as_of < closing:
                 reasons.append("SESSION_IN_PROGRESS")
             tick = opening
-            while tick < closing:
+            bar_duration = timedelta(minutes=interval_minutes)
+            # A candle is eligible only when the entire configured interval
+            # fits within the shared continuous session. For 60-minute candles,
+            # 15:15–16:15 is NOT a finished hourly bar at the 15:30 close.
+            while tick + bar_duration <= closing:
                 expected.add(tick.timestamp())
-                tick += timedelta(minutes=interval_minutes)
+                tick += bar_duration
         counts = []
         for label, (by_day, invalid_days) in zip(("UNDERLYING", "OPTION"), tapes):
             tape = by_day.get(cursor, {})
