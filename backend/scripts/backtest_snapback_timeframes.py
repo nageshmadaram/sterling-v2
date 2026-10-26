@@ -37,7 +37,7 @@ from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
-    choose_option_contract, contract_replay_summary, mode_totals,
+    choose_option_contract, contract_replay_summary, eligible_expiries, mode_totals,
 )
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
@@ -216,15 +216,7 @@ async def main() -> None:
         spot = spot_rows[-1][4] if spot_rows else None
         opts = [r for r in nfo if isinstance(r, Mapping)
                 and str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
-        expiries_set: set[str] = set()
-        for contract in opts:
-            try:
-                expiry_day = date.fromisoformat(str(contract.get("expiry"))[:10])
-            except (TypeError, ValueError):
-                continue
-            if expiry_day > now.date():
-                expiries_set.add(expiry_day.isoformat())
-        expiries = sorted(expiries_set)
+        expiries = eligible_expiries(opts, now.date())
         if not spot or not expiries:
             reason = "underlying price unavailable" if not spot else "eligible expiry unavailable"
             for mode in MODES:
