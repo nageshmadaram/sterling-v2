@@ -1,8 +1,10 @@
 # Deployment
 
-Sterling is a live-money trading app. There is no trial mode: a deployment with a
-connected Kite account can place real orders as soon as it is running. Read the
-first-day section before you start it.
+Sterling is a live-money trading app. Connecting a Kite account does not, by itself,
+authorize new real-money orders: `STERLING_LIVE_EXECUTION` defaults to disabled
+when unset or blank, and independent runtime safety checks also apply. Explicitly
+enabling new entries can place real orders; read the first-day section before
+considering that change.
 
 ## Local development
 
@@ -50,7 +52,7 @@ liveness watchdog. Full steps: [docs/operator/LIVE_RUNBOOK.md](docs/operator/LIV
 
 | Setting | Meaning |
 |---|---|
-| `STERLING_LIVE_EXECUTION` | **Kill switch for new entries.** `true` (default) = on. `0`, `false`, `off`, `no`, `disabled` = no new entry originates. A typo also turns entries off. Exits, protection and reconciliation always run. Restart to apply. |
+| `STERLING_LIVE_EXECUTION` | **Master permission for new entries.** Unset or blank defaults to **off**. `true`, `1`, `on`, `yes` or `enabled` explicitly permits entries only if every independent safety gate passes. `0`, `false`, `off`, `no`, `disabled` and unrecognized values block new entries. Exits, protection and reconciliation must remain available. Restart to apply. |
 | `STERLING_LIVE_MINIMUM_MAX_LOTS` | Optional cap on lots per entry. Set `1` for the first session. |
 | `STERLING_LIVE_MINIMUM_DAILY_LOSS_INR` | Realised loss at which new entries stop for the day. Default: the account's daily-loss hard halt (1,500 INR). |
 | `STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR` | Optional ceiling on capital deployed at once. Default: broker-verified capital. |
@@ -58,7 +60,9 @@ liveness watchdog. Full steps: [docs/operator/LIVE_RUNBOOK.md](docs/operator/LIV
 
 A limit that is set but unusable (not a number, zero, negative) refuses entries
 until fixed; it is never silently replaced by a default.
-`STERLING_FAMILY_MODE` is retired: leave it unset. All three strategies run.
+`STERLING_FAMILY_MODE` is retired: leave it unset. The release allows SuperTrend,
+Snapback, Gamma Unwind and individually armed Price Rules, subject to each
+strategy's own authority and the common safety interlocks.
 
 ## Environments
 
@@ -104,9 +108,12 @@ account is left alone, an error is logged and a critical alert is sent.
 1. `STERLING_SECRET_KEY` and `STERLING_JWT_SECRET` are distinct, random, 32+
    characters from the secret store; a bootstrap admin exists.
 2. `CORS_ORIGINS` lists only real frontend origins.
-3. `STERLING_LIVE_EXECUTION=true`, `STERLING_LIVE_MINIMUM_MAX_LOTS=1`, and a loss
-   budget you can accept. Leave Supertrend and Gamma `execution_lots`/`max_lots`
-   at 1.
+3. **Keep `STERLING_LIVE_EXECUTION=false` during installation, broker verification,
+   recovery drills and release certification.** Configure
+   `STERLING_LIVE_MINIMUM_MAX_LOTS=1` and a loss budget authorized by the account
+   owner before separately considering live entry permission. Leave SuperTrend
+   and Gamma `execution_lots`/`max_lots` at 1. Enabling entries is a distinct,
+   explicitly approved decision, never part of routine first boot.
 4. Supertrend has `max_daily_loss_pct` set and `stop_mode` is `broker` or `both`;
    Gamma intraday uses `broker` or `both`.
 5. Kite login done (it expires daily at 06:00 IST), `/health` answers, and
