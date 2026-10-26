@@ -277,7 +277,11 @@ async def main() -> None:
     # remain visible in counts instead of disappearing from profitable totals.
     report["minute_modes_real_options"] = {"totals": totals, "rows": intraday}
     path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
-    path.write_text(json.dumps(report, indent=2, default=str))
+    # Historical diagnostics must never silently overwrite a prior evidence
+    # artifact for the same day. The operator can archive/rename it explicitly.
+    with path.open("x", encoding="utf-8") as handle:
+        json.dump(report, handle, indent=2, default=str)
+        handle.write("\\n")
     print(json.dumps({"swing": swing, "minute_totals": totals}, indent=2, default=str))
     print("written", path)
 
