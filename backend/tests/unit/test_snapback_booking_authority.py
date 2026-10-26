@@ -100,3 +100,43 @@ async def test_fee_authority_failure_after_booked_fill_requires_reconciliation(m
     assert "fee authority" in response.error
     assert killed and killed[0][1] == "operator"
     acknowledged.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_broker_reconciliation_conflict_cannot_acknowledge_projected_fill(monkeypatch):
+    a = adapter(resolution=resolved())
+    conflicting = resolved()
+    conflicting.reconciliation_required = True
+    async def resolve_conflict(**kwargs):
+        return conflicting
+    a._resolver = resolve_conflict
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=True))
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
+    ack = Mock()
+    monkeypatch.setattr(fills, "mark_projected", ack)
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.filled_quantity == 75
+    ack.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unsettled_partial_fill_cannot_acknowledge_projected_fill(monkeypatch):
+    a = adapter()
+    partial = resolved(quantity=25)
+    partial.settled = False
+    async def resolve_partial(**kwargs):
+        return partial
+    a._resolver = resolve_partial
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=True))
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
+    ack = Mock()
+    monkeypatch.setattr(fills, "mark_projected", ack)
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.filled_quantity == 25
+    ack.assert_not_called()
