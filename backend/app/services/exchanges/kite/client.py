@@ -13,6 +13,8 @@ Backwards-compat: re-exported as ``ZerodhaAdapter`` from the legacy adapter path
 """
 from __future__ import annotations
 
+from app.core.history_read_timing import phase, event
+
 import asyncio
 import contextvars
 import json
@@ -322,24 +324,30 @@ class KiteClient(TradingExchangeAdapter):
         json_body=None,
     ):
         self._require_session()
+        timed_history = method.upper() == "GET" and path.startswith("/instruments/historical/")
         if path.startswith("/instruments/historical"):
-            await _GLOBAL_KITE_HISTORICAL_LIMITER.acquire()
+            with phase('global_queue', enabled=timed_history):
+                await _GLOBAL_KITE_HISTORICAL_LIMITER.acquire()
         elif not path.startswith("/orders"):
             # Order placement/modify/cancel has its own limiter and is the
             # time-critical path; everything else shares the general budget.
             await _GLOBAL_KITE_API_LIMITER.acquire()
-        client = await self._get_client()
+        with phase('client_acquisition', enabled=timed_history):
+            client = await self._get_client()
         if method.upper() != "GET" and path.startswith("/orders"):
             from app.services.snapback_family_mode import recheck_before_send
             self._require_session()
             recheck_before_send()
         headers = dict(self._auth_headers())
-        if json_body is not None:
-            headers["Content-Type"] = "application/json"
-            resp = await client.request(method, path, params=params or {}, json=json_body, headers=headers)
-        else:
-            resp = await client.request(method, path, params=params or {}, data=data, headers=headers)
-        return self._handle(resp)
+        event('http_attempt', enabled=timed_history)
+        with phase('http_request', enabled=timed_history):
+            if json_body is not None:
+                headers["Content-Type"] = "application/json"
+                resp = await client.request(method, path, params=params or {}, json=json_body, headers=headers)
+            else:
+                resp = await client.request(method, path, params=params or {}, data=data, headers=headers)
+        with phase('response_decode', enabled=timed_history):
+            return self._handle(resp)
 
     async def _auth_get(self, path: str, params: Union[dict, list, None] = None):
         return await self._auth_request("GET", path, params=params)

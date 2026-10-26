@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.core.async_work import run_blocking
+from app.core.history_read_timing import phase, event
 
 IST = timezone(timedelta(hours=5, minutes=30))
 log = logging.getLogger(__name__)
@@ -92,6 +93,7 @@ def _write(path, item, today):
 async def historical(client, token, interval, frm, to, oi, fetch):
     account = getattr(client, '_account_id', None)
     if not isinstance(account, str) or not account or interval not in {'day', '5minute'}:
+        event('cache_bypass')
         return await fetch(frm, to)
     try:
         end = _time(to, end=True)
@@ -107,9 +109,11 @@ async def historical(client, token, interval, frm, to, oi, fetch):
         digest = hashlib.sha256(json.dumps([int(token), interval, str(frm), end.date().isoformat(), bool(oi)]).encode()).hexdigest()
         root = cache_root()
         path = root / scope / end.date().isoformat() / (digest + '.json')
-        cached = await run_blocking(_read, path)
+        with phase('cache_read'):
+            cached = await run_blocking(_read, path)
         prefix = cached.get('rows') if cached else []
         if prefix and float(cached.get('through', 0)) >= needed:
+            event('cache_hit')
             return [row for row in prefix if _stamp(row) <= end.timestamp()]
         start = frm
         if prefix:
@@ -118,15 +122,19 @@ async def historical(client, token, interval, frm, to, oi, fetch):
             if last >= _time(frm).timestamp():
                 start = datetime.fromtimestamp(last, IST).strftime('%Y-%m-%d %H:%M:%S')
     except (ValueError, TypeError, OSError):
+        event('cache_bypass')
         return await fetch(frm, to)
     # A failed incremental read must propagate. A stale prefix is never its substitute.
+    event('cache_refresh' if prefix else 'cache_miss')
     fresh = await fetch(start, to)
     if not fresh:
         return fresh
     try:
-        merged = {_stamp(row): row for row in [*prefix, *fresh]}
-        rows = [merged[key] for key in sorted(merged)]
-        await run_blocking(_write, path, {'version': 2, 'through': needed, 'rows': rows}, now.date())
+        with phase('cache_merge'):
+            merged = {_stamp(row): row for row in [*prefix, *fresh]}
+            rows = [merged[key] for key in sorted(merged)]
+        with phase('cache_write'):
+            await run_blocking(_write, path, {'version': 2, 'through': needed, 'rows': rows}, now.date())
         return [row for row in rows if _stamp(row) <= end.timestamp()]
     except (OSError, ValueError, TypeError):
         log.warning('Gamma historical cache unavailable; using fresh broker response')
