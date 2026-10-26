@@ -77,6 +77,31 @@ def test_corrupt_replay_metrics_fail_closed(bad):
         contract_replay_summary(replay(**bad))
 
 
+def test_missing_or_partial_session_coverage_cannot_be_called_complete():
+    done = {"option": "A-PE", **contract_replay_summary(replay())}
+    no_coverage = mode_totals([done])
+    assert no_coverage["contracts_with_incomplete_coverage"] == 1
+    assert no_coverage["research_complete"] is False
+
+    complete_days_only = dict(done, coverage={
+        "all_sessions_complete": False,
+        "requested_sessions": 20, "complete_sessions": 15,
+    })
+    partial = mode_totals([complete_days_only])
+    assert partial["trades"] == 3  # explicitly research-only closed trades
+    assert partial["contracts_with_incomplete_coverage"] == 1
+    assert not partial["research_complete"]
+
+    complete = dict(done, coverage={
+        "all_sessions_complete": True,
+        "requested_sessions": 20, "complete_sessions": 20,
+    })
+    fully_observed = mode_totals([complete])
+    assert fully_observed["contracts_with_incomplete_coverage"] == 0
+    assert fully_observed["research_complete"]
+    assert fully_observed["promotion_eligible"] is False
+
+
 def test_empty_sample_is_not_accepted():
     result = mode_totals([])
     assert result["contracts_attempted"] == 0
