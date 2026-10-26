@@ -66,10 +66,16 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         raise ValueError("all contract rows must be objects")
     ok = [r for r in all_rows if "trades" in r and r.get("replay_complete") is True
           and r.get("error") is None and r.get("skipped") is None]
-    invalid = [r for r in all_rows if "trades" in r and r not in ok]
+    invalid = [r for r in all_rows if "trades" in r and (r.get("replay_complete") is not True
+               or r.get("error") is not None or r.get("skipped") is not None)]
     errors = sum("error" in r for r in all_rows)
     skipped = sum("skipped" in r for r in all_rows)
     unresolved = sum(r.get("replay_complete") is False for r in invalid)
+    incomplete_coverage = sum(
+        not isinstance(r.get("coverage"), Mapping)
+        or r["coverage"].get("all_sessions_complete") is not True
+        for r in all_rows if "trades" in r
+    )
     n = sum(r["trades"] for r in ok)
     net = sum(r["net_inr"] for r in ok)
     profitable = sum(r["net_inr"] > 0 for r in ok)
@@ -79,8 +85,10 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "contracts": completed, "contracts_attempted": len(all_rows),
         "contract_errors": errors, "contracts_skipped": skipped,
         "contracts_unresolved": unresolved,
+        "contracts_with_incomplete_coverage": incomplete_coverage,
         "research_complete": bool(all_rows) and errors == 0 and skipped == 0
-                             and unresolved == 0 and completed == len(all_rows),
+                             and unresolved == 0 and incomplete_coverage == 0
+                             and completed == len(all_rows),
         "trades": n, "net_inr": round(net),
         "profitable_contracts": profitable,
         "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None,
