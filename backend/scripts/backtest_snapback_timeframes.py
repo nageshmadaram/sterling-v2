@@ -281,7 +281,7 @@ async def main() -> None:
     # artifact for the same day. The operator can archive/rename it explicitly.
     with path.open("x", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, default=str)
-        handle.write("\\n")
+        handle.write("\n")
     print(json.dumps({"swing": swing, "minute_totals": totals}, indent=2, default=str))
     print("written", path)
 
