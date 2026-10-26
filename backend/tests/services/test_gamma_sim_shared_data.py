@@ -9,7 +9,8 @@ from app.services import gamma_move_scanner as scanner
 
 
 @pytest.mark.asyncio
-async def test_simulation_reuses_only_owner_market_facts_with_independent_engine(monkeypatch):
+@pytest.mark.parametrize('owner_timings', [False, True])
+async def test_simulation_reuses_only_owner_market_facts_with_independent_engine(monkeypatch, owner_timings):
     from app.services import gamma_move
     cfg = GammaMoveConfig()
     now = datetime(2026, 10, 23, 10, 0, tzinfo=scanner.IST)
@@ -19,7 +20,10 @@ async def test_simulation_reuses_only_owner_market_facts_with_independent_engine
     parent = scanner.RuntimeWatch(watch, owner_engine, [bar], [bar], 100, oi_peak_day=now.date())
     monkeypatch.setitem(scanner._runtime, 'owner', {2: parent})
     monkeypatch.setitem(scanner._runtime, 'sim:owner', {})
-    monkeypatch.setitem(scanner._stats, 'owner', {'stage_b': {}, 'last_run_ms': int(now.timestamp()*1000)})
+    owner_stats = {'stage_b': {}, 'last_run_ms': int(now.timestamp()*1000)}
+    if owner_timings:
+        owner_stats['prime_timing'] = {'engine_replay_wall_seconds': 30.0}
+    monkeypatch.setitem(scanner._stats, 'owner', owner_stats)
     monkeypatch.setattr(gamma_move, 'get_config', lambda uid: cfg)
     monkeypatch.setattr(scanner, '_read_bar_inputs', lambda *args: {})
     seen = []
@@ -33,6 +37,8 @@ async def test_simulation_reuses_only_owner_market_facts_with_independent_engine
     child = scanner.runtimes('sim:owner')[2]
     assert child.engine is not owner_engine
     assert seen == ['sim-only']
+    assert 'prime_timing' not in scanner.scan_stats('sim:owner')
+    assert scanner.scan_stats('sim:owner')['recovery_source'] == 'owner_market_data'
     child.closed_bars.append(bar)
     assert len(parent.closed_bars) == 1
     assert await scanner.reuse_owner_market_data('sim:owner', replace(cfg, zone_pivot_len=cfg.zone_pivot_len+1), now=now) is None

@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from enum import Enum
+from functools import lru_cache
 from typing import Sequence
 
 import numpy as np
@@ -25,6 +26,8 @@ TF_MS = 5 * 60_000
 SESSION_OPEN_MIN = 9 * 60 + 15
 
 
+# Only immutable clock conversions are memoized, never account or market state.
+@lru_cache(maxsize=8192)
 def ist_date(ts_ms: int) -> date:
     return datetime.fromtimestamp(ts_ms / 1000, IST).date()
 
@@ -56,6 +59,7 @@ def atr_last(bars: Sequence[Candle], length: int) -> float | None:
     return None if np.isnan(value) else value
 
 
+@lru_cache(maxsize=512)
 def _session_open_ms(day: date) -> int:
     base = datetime(day.year, day.month, day.day, tzinfo=IST)
     return int(base.timestamp() * 1000) + SESSION_OPEN_MIN * 60_000
@@ -71,14 +75,14 @@ def zero_volume_slots(bars: Sequence[Candle], n_slots: int,
     for b in bars:
         by_date.setdefault(ist_date(b.ts_ms), []).append(b)
     dates = sorted(by_date)
+    opens = {d: _session_open_ms(d) for d in dates}
     start: dict[date, int] = {dates[-1]: 0}
     for k in range(len(dates) - 2, -1, -1):
         d = dates[k]
         last_slot = max(
-            (b.ts_ms - _session_open_ms(d)) // tf_ms for b in by_date[d]
+            (b.ts_ms - opens[d]) // tf_ms for b in by_date[d]
         )
         start[d] = start[dates[k + 1]] - 1 - last_slot
-    opens = {d: _session_open_ms(d) for d in dates}
 
     def pos(b: Candle) -> int:
         d = ist_date(b.ts_ms)
