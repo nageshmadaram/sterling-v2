@@ -89,7 +89,10 @@ class RefreshBoard:
                       if key[0] == source and key[1] == symbol
                       and (mode is None or key[2] == mode)
                       and (timeframe is None or key[3] == timeframe)]
-        if not candidates and underlying:
+        if not candidates and underlying and source != "derivatives":
+            # Spot/confluence can execute a derivative or future derived from a
+            # verified underlying signal. Derivatives-source signals instead
+            # require proof from that exact option contract's own premium tape.
             return self.block_reason(source, "underlying:" + underlying, stamp, mode=mode, timeframe=timeframe)
         if not candidates:
             # Unknown evidence is not a fresh signal. In particular, a
