@@ -93,6 +93,18 @@ def test_canonical_signal_requires_loaded_scan_authority(monkeypatch):
     assert admission_blocker(request) == ('', '')
 
 
+def test_confluence_requires_exact_leg_while_spot_can_reference_underlying():
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    combined = RefreshBoard([], {('confluence', 'A')})
+    combined.observe(row(source='confluence', symbol='A-CE'))
+    assert combined.block_reason('confluence', 'A-UNSCANNED-CE', 100,
+                                 underlying='A', mode='swing', timeframe=60) == 'signal_refresh_unverified'
+    spot = RefreshBoard([], {('spot', 'A')})
+    spot.observe(row(source='spot', symbol='A-CE'))
+    assert spot.block_reason('spot', 'A-DERIVED-CE', 100,
+                             underlying='A', mode='swing', timeframe=60) == ''
+
+
 def test_older_scan_result_never_reauthorizes_a_superseded_bar():
     from app.services.kite_engine.scan_refresh import RefreshBoard
     prior = RefreshBoard([], {('derivatives', 'A')})
