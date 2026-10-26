@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from app.engines.snapback.research_reporting import (
-    contract_replay_summary, mode_totals, rejected_plan_count,
+    choose_option_contract, contract_replay_summary, mode_totals, rejected_plan_count,
 )
 import pytest
 
@@ -107,3 +107,25 @@ def test_empty_sample_is_not_accepted():
     assert result["contracts_attempted"] == 0
     assert result["research_complete"] is False
     assert result["avg_win_rate_pct"] is None
+
+
+def test_nearest_option_contract_selection_skips_corrupt_metadata():
+    candidates = [
+        {"strike": "bad", "instrument_token": 1, "lot_size": 75, "tradingsymbol": "BAD"},
+        {"strike": 100, "instrument_token": 0, "lot_size": 75, "tradingsymbol": "ZERO"},
+        {"strike": 101, "instrument_token": 123, "lot_size": 0, "tradingsymbol": "NOLOT"},
+        {"strike": 101, "instrument_token": 124, "lot_size": 75, "tradingsymbol": "VALID"},
+        {"strike": 107, "instrument_token": 125, "lot_size": 75, "tradingsymbol": "FAR"},
+    ]
+    assert choose_option_contract(candidates, 100)["tradingsymbol"] == "VALID"
+    assert choose_option_contract(candidates[:3], 100) is None
+
+
+def test_nearest_contract_selection_is_deterministic_and_fail_closed():
+    a = {"strike": 99, "instrument_token": 123, "lot_size": 75, "tradingsymbol": "LOWER"}
+    b = {"strike": 101, "instrument_token": 124, "lot_size": 75, "tradingsymbol": "UPPER"}
+    assert choose_option_contract([a, b], 100)["tradingsymbol"] == "LOWER"
+    assert choose_option_contract([b, a], 100)["tradingsymbol"] == "LOWER"
+    assert choose_option_contract([a, b], float("nan")) is None
+    assert choose_option_contract([{"strike": 100, "instrument_token": True,
+                                   "lot_size": 75, "tradingsymbol": "BAD"}], 100) is None
