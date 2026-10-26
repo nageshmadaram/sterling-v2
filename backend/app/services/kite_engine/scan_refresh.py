@@ -92,7 +92,10 @@ class RefreshBoard:
         if not candidates and underlying:
             return self.block_reason(source, "underlying:" + underlying, stamp, mode=mode, timeframe=timeframe)
         if not candidates:
-            return ""
+            # Unknown evidence is not a fresh signal. In particular, a
+            # derivatives order for a contract absent from the scanned board
+            # cannot borrow an underlying's valid timestamp.
+            return "signal_refresh_unverified"
         if any(value[0] == stamp and value[1] is None for _, value in candidates):
             return ""
         status = candidates[0][1][1] or "replaced"
@@ -103,8 +106,14 @@ def admission_blocker(request):
     if request is None or str(request.strategy_id).strip().lower() != "sterling-kite":
         return "", ""
     from .scanner import scanner
+    parts = str(request.signal_id).split(":")
+    canonical_signal = len(parts) == 3 and parts[0] in {"spot", "derivatives", "confluence"}
     current = scanner._users.get(request.uid)
     if current is None:
+        # Restored/cached signal ids cannot authorize a real exposure increase
+        # before the in-process scan authority has been established.
+        if canonical_signal:
+            return "signal_refresh_unavailable", "SuperTrend scan evidence is not loaded for this account"
         return "", ""
     payload = request.payload or {}
     policy = payload.get("mode_policy") or {}
@@ -113,8 +122,7 @@ def admission_blocker(request):
                             policy.get("signal_timeframe_minutes", current.timeframe_minutes))
     if mode != current.horizon_mode or timeframe != current.timeframe_minutes:
         return "signal_refresh_mode_changed", "SuperTrend's selected mode or interval changed before submission"
-    parts = str(request.signal_id).split(":")
-    if len(parts) != 3 or parts[0] not in {"spot", "derivatives", "confluence"}:
+    if not canonical_signal:
         # Legacy simulated manual requests carry an idempotency key rather than
         # signal evidence. They cannot bypass known refresh failures by omitting it.
         phases = [leg.scan_refresh_state or row.scan_refresh_state
@@ -130,7 +138,7 @@ def admission_blocker(request):
                 return "signal_refresh_unverified", "Last-known SuperTrend plan is not verified for new entry"
         return "", ""
     if current.refresh_board is None:
-        return "", ""
+        return "signal_refresh_unavailable", "SuperTrend's latest active scan is unavailable"
     try:
         stamp = int(parts[1])
     except ValueError:
