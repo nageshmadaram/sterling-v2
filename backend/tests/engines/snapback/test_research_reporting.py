@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from app.engines.snapback.research_reporting import (
-    choose_option_contract, contract_replay_summary, mode_totals, rejected_plan_count,
+    choose_option_contract, contract_replay_summary, eligible_expiries,
+    mode_totals, rejected_plan_count,
 )
+from datetime import date
 import pytest
 
 
@@ -129,3 +131,26 @@ def test_nearest_contract_selection_is_deterministic_and_fail_closed():
     assert choose_option_contract([a, b], float("nan")) is None
     assert choose_option_contract([{"strike": 100, "instrument_token": True,
                                    "lot_size": 75, "tradingsymbol": "BAD"}], 100) is None
+
+
+def test_option_expiries_ignore_missing_non_iso_and_expired_metadata():
+    today = date(2026, 10, 27)
+    contracts = [
+        {"expiry": None},
+        {"expiry": "None"},
+        {"expiry": "never"},
+        {"expiry": "2026-10-22"},
+        {"expiry": "2026-10-29"},
+        {"expiry": "2026-11-26"},
+        {"expiry": "2026-11-26"},
+        {"expiry": 999},
+    ]
+    assert eligible_expiries(contracts, today) == ["2026-10-29", "2026-11-26"]
+
+
+def test_fractional_lot_or_instrument_token_is_not_truncated():
+    bad = [
+        {"strike": 100, "instrument_token": 123.2, "lot_size": 75, "tradingsymbol": "BADTOKEN"},
+        {"strike": 100, "instrument_token": 123, "lot_size": 75.5, "tradingsymbol": "BADLOT"},
+    ]
+    assert choose_option_contract(bad, 100) is None
