@@ -962,3 +962,122 @@ async def test_unknown_exit_leg_does_not_query_broker(monkeypatch):
         NS(), p, leg="other", order_id="EXIT-1") == "unresolved"
     resolver.assert_not_awaited()
     hold.assert_called_once_with(p, "exit_receipt_leg_unknown")
+
+
+@pytest.mark.asyncio
+async def test_restart_resolves_fully_projected_option_and_hedge_before_finalise(monkeypatch):
+    """A crash after SQLite projection but before broker ACK retirement is resumable."""
+    p = pos()
+    p.option_exit_qty = p.option_qty
+    p.option_exit_booked_ids = ["EXIT-1"]
+    p.hedge_exit_qty = p.hedge_qty
+    p.hedge_exit_booked_ids = ["HEDGE-EXIT-1"]
+    store = NS(get=Mock(return_value=p))
+    obj = exits.SnapbackExitManager(positions=store)
+    seen = []
+
+    async def resolve(_client, _pos, *, leg, order_id):
+        seen.append((leg, order_id))
+        if leg == "option":
+            p.option_exit_order_id = ""
+            p.option_exit_requested = 0
+        else:
+            p.hedge_exit_order_id = ""
+            p.hedge_exit_requested = 0
+        return "done"
+
+    monkeypatch.setattr(obj, "_resolve_exit", resolve)
+    monkeypatch.setattr(obj, "_confirm_option_flat", AsyncMock(return_value="flat"))
+    finalise = Mock(return_value="closed")
+    monkeypatch.setattr(obj, "_finalise", finalise)
+
+    assert await obj._run_exit(NS(), p) == "closed"
+    assert seen == [("option", "EXIT-1"), ("hedge", "HEDGE-EXIT-1")]
+    finalise.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_restart_cannot_finalise_a_fully_booked_but_unresolved_broker_order(
+        monkeypatch):
+    p = pos()
+    p.option_exit_qty = p.option_qty
+    p.option_exit_booked_ids = ["EXIT-1"]
+    p.hedge_exit_qty = p.hedge_qty
+    p.hedge_exit_booked_ids = ["HEDGE-EXIT-1"]
+    obj = exits.SnapbackExitManager(positions=NS(get=Mock(return_value=p)))
+    resolve = AsyncMock(return_value="projection_pending")
+    finalise = Mock()
+    monkeypatch.setattr(obj, "_resolve_exit", resolve)
+    monkeypatch.setattr(obj, "_finalise", finalise)
+    monkeypatch.setattr(obj, "_confirm_option_flat", AsyncMock(return_value="flat"))
+    monkeypatch.setattr(obj, "_after_failure", Mock(side_effect=lambda _p, _l, o: o))
+    assert await obj._run_exit(NS(), p) == "projection_pending"
+    resolve.assert_awaited_once()
+    finalise.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_fully_projected_terminal_exit_can_recover_projection_ack(monkeypatch):
+    p = pos()
+    p.option_exit_qty = 75
+    p.option_exit_value = 75 * 90.0
+    p.option_exit_booked_ids = ["EXIT-1"]
+    obj = manager(receipt(qty=75, price=90), p)
+    projection = Mock(return_value=True)
+    monkeypatch.setattr(fills, "mark_projected", projection)
+    assert await obj._resolve_exit(
+        NS(), p, leg="option", order_id="EXIT-1") == "done"
+    projection.assert_called_once()
+    assert p.option_exit_qty == 75
+    assert p.option_exit_value == 75 * 90.0
+    assert p.option_exit_order_id == ""
+    assert p.option_exit_requested == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_exit_attempt_increments_only_on_atomic_ack_retirement(
+        monkeypatch):
+    p = pos()
+    res = receipt(qty=0, price=0)
+    res.status = "CANCELLED"
+    res.projection_version = 0
+    obj = manager(res, p)
+    first_mutation = obj.store.mutate.side_effect
+    failed_once = {"value": False}
+
+    def fail_retirement_once(position_id, callback):
+        if obj.store.mutate.call_count == 2 and not failed_once["value"]:
+            failed_once["value"] = True
+            raise OSError("disk full before ACK retirement")
+        return first_mutation(position_id, callback)
+
+    obj.store.mutate.side_effect = fail_retirement_once
+    monkeypatch.setattr(exits, "engage_kill_switch", Mock())
+    assert await obj._resolve_exit(NS(), p, leg="option", order_id="EXIT-1") == "unresolved"
+    assert p.exit_attempts == 0
+    assert p.option_exit_order_id == "EXIT-1"
+    assert p.option_exit_requested == 75
+
+    obj.store.mutate.side_effect = first_mutation
+    assert await obj._resolve_exit(NS(), p, leg="option", order_id="EXIT-1") == "unfilled"
+    assert p.exit_attempts == 1
+    assert p.option_exit_order_id == ""
+    assert p.option_exit_requested == 0
+
+
+@pytest.mark.asyncio
+async def test_broker_stop_and_working_market_exit_resumes_to_reconciliation(
+        monkeypatch):
+    p = pos()
+    p.exit_reason = "BROKER_STOP"
+    p.gtt_id = 95123
+    p.hedge_exit_order_id = ""
+    p.hedge_exit_requested = 0
+    obj = exits.SnapbackExitManager(positions=NS(get=Mock(return_value=p)))
+    hold = Mock()
+    resolve = AsyncMock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_resolve_exit", resolve)
+    assert await obj._run_exit(NS(), p) == "reconciling"
+    hold.assert_called_once_with(p, "broker_stop_and_market_exit_overlap")
+    resolve.assert_not_awaited()
