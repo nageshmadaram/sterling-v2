@@ -595,7 +595,10 @@ def run(tapes: Mapping[str, Bars], base: SnapbackConfig, *,
             # gate judges. Selecting on one number and judging on another is how
             # a selector ends up optimising something nobody reports.
             score = book.mean_day_return if len(book.trades) >= 10 else -math.inf
-            scores[label] = round(score, 5)
+            # An ineligible selector's -inf is an internal sentinel,
+            # not a JSON number. Serialize it as null instead of emitting
+            # non-standard -Infinity that breaks strict report consumers.
+            scores[label] = round(score, 5) if math.isfinite(score) else None
             # PER-PERIOD, because that is what the deflation formula wants.
             # ``sharpe()`` returns an annualised figure, and handing the spread
             # of annualised trial Sharpes to a per-period statistic over-deflates
