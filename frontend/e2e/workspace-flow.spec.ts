@@ -5,6 +5,8 @@ const hiddenSections = () => ({ brokers: { visible: false, grants: [] as unknown
 test('fresh TV-only login opens the chooser, then protected TV, with no Kite runtime', async ({ page }, testInfo) => {
   const requests: string[] = [], scripts: string[] = [], errors: string[] = [];
   let signedIn = false;
+  let preferences: Record<string, string | null> = {};
+  let initialized = false;
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (request.resourceType() === 'script') scripts.push(request.url()); });
   await page.route('**/api/v1/**', async route => {
@@ -14,7 +16,14 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
     if (path === '/api/v1/auth/me') {
       await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: 'viewer', username: 'Viewer', role: 'user', administrator: false, features: { kite: false, tv: true, radio: false }, policy_revision: 1 } : { detail: 'Sign in' } }); return;
     }
-    if (path === '/api/v1/auth/preferences') { await route.fulfill({ json: { initialized: true, values: {} } }); return; }
+    if (path === '/api/v1/auth/preferences') {
+      if (route.request().method() === 'PATCH') {
+        const body = route.request().postDataJSON();
+        expect(body.values).not.toHaveProperty('sterling_ui_state');
+        preferences = { ...preferences, ...body.values }; initialized = true;
+      }
+      await route.fulfill({ json: { initialized, values: preferences } }); return;
+    }
     if (path === '/api/v1/media/tv/access') {
       await route.fulfill({ headers: { 'Content-Type': 'application/json', 'Set-Cookie': 'sterling_media_tv=synthetic; Path=/api/v1/media/tv/document; HttpOnly; SameSite=Lax' }, body: JSON.stringify({ document_url: '/api/v1/media/tv/document', expires_in: 600 }) }); return;
     }
@@ -27,6 +36,7 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
     if (path === '/api/v1/auth/logout') { signedIn = false; await route.fulfill({ json: { ok: true } }); return; }
     throw new Error(`Unexpected request ${path}`);
   });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/?sterling_login=1&broker_login=1');
   await expect(page.getByRole('checkbox', { name: 'Remember this device' })).not.toBeChecked();
   await page.getByLabel('Username', { exact: true }).fill('viewer');
@@ -39,6 +49,7 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
   await page.getByRole('button', { name: /Open Space/ }).click();
   const frame = page.frameLocator('iframe[title="Sterling TV player"]');
   await expect(frame.locator('body')).toContainText('Protected TV document');
+  expect(initialized).toBe(true);
   expect(requests.filter(path => path.startsWith('/api/v1/kite'))).toEqual([]);
   expect(scripts.some(url => url.includes('KiteRuntime'))).toBe(false);
   expect(requests.includes('/api/v1/auth/remember')).toBe(false);
@@ -123,6 +134,8 @@ for (const width of [390, 1440]) {
   test(`Kite Echo Space chooser and both switch paths work at ${width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 844 });
     let signedIn = false;
+    let initialized = false;
+    let preferences: Record<string, string | null> = {};
     const features = { kite: true, tv: true, radio: true };
     const requests: string[] = [];
     await page.route('**/api/v1/**', async route => {
@@ -130,7 +143,14 @@ for (const width of [390, 1440]) {
       requests.push(path);
       if (path === '/api/v1/auth/login') { signedIn = true; await route.fulfill({ json: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } }); return; }
       if (path === '/api/v1/auth/me') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: 'viewer', username: 'Viewer', role: 'user', administrator: false, features, policy_revision: 1 } : { detail: 'Sign in' } }); return; }
-      if (path === '/api/v1/auth/preferences') { await route.fulfill({ json: { initialized: true, values: {} } }); return; }
+      if (path === '/api/v1/auth/preferences') {
+        if (route.request().method() === 'PATCH') {
+          const body = route.request().postDataJSON();
+          expect(body.values).not.toHaveProperty('sterling_ui_state');
+          preferences = { ...preferences, ...body.values }; initialized = true;
+        }
+        await route.fulfill({ json: { initialized, values: preferences } }); return;
+      }
       const match = path.match(/^\/api\/v1\/media\/(tv|radio)\/(access|document)$/);
       if (match) {
         const [, feature, action] = match;
@@ -151,6 +171,7 @@ for (const width of [390, 1440]) {
     await page.screenshot({ path: testInfo.outputPath(`chooser-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: /Open Echo/ }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
+    expect(initialized).toBe(true);
     await page.locator('.workspace-settings > summary').click();
     await page.getByRole('button', { name: 'Switch workspace', exact: true }).click();
     await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
@@ -159,6 +180,7 @@ for (const width of [390, 1440]) {
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected tv document');
     await page.getByRole('button', { name: 'Echo', exact: true }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
+    expect(initialized).toBe(true);
     await page.getByRole('button', { name: 'Radio display settings', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Switch workspace', exact: true }).click();
     await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();

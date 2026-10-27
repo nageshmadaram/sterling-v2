@@ -75,7 +75,7 @@ export async function startPreferenceSync(uid:string) {
  if(prior)originalSet.call(localStorage,`sterling.preferences.backup.v1.${prior}`,JSON.stringify(snapshot()));
  let result=await api.get<Response>(URL);if(run!==generation)return;
  const migratable=Object.fromEntries(Object.entries(snapshot()).filter(([key,value])=>!MEDIA_PREFERENCE_KEYS.has(key)||mediaFits(key,value)));
- if(!result.initialized){const initial=(!prior||prior===uid)?{...migratable,sterling_ui_state:JSON.stringify(uiState())}:{};result=await api.patch<Response>(URL,{values:initial,initialize_only:true});}
+ if(!result.initialized){const initial=(!prior||prior===uid)?migratable:{};result=await api.patch<Response>(URL,{values:initial,initialize_only:true});}
  if(run!==generation)return;
  // Migrate this owner's existing media library once, including accounts that
  // already had appearance preferences before media sync was introduced.

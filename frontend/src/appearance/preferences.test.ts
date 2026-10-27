@@ -74,3 +74,17 @@ it('saves caption appearance for its owner and clears it on an account change',a
  get.mockResolvedValue({values:{},initialized:true});await startPreferenceSync('bob');
  expect(localStorage.getItem(key)).toBeNull();
 });
+
+it('initializes a fresh account using only supported preference keys',async()=>{
+ localStorage.setItem('sterling_theme','light');
+ localStorage.setItem('sterling_ui_state','{"theme":"dark","routerMode":"live"}');
+ get.mockResolvedValue({values:{},initialized:false});
+ patch.mockImplementation(async(_url,body)=>{
+  if(Object.keys(body.values).some(key=>!isPreferenceKey(key))) throw new Error('422 Unsupported preference key');
+  return {values:body.values,initialized:true};
+ });
+ await expect(startPreferenceSync('new-radio-user')).resolves.toBeUndefined();
+ expect(patch).toHaveBeenCalledWith('/api/v1/auth/preferences',{values:{sterling_theme:'light'},initialize_only:true});
+ expect(patch.mock.calls.every(call=>!('sterling_ui_state' in call[1].values))).toBe(true);
+ expect(usePreferenceSync.getState().state).not.toBe('error');
+});
