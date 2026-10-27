@@ -147,3 +147,25 @@ it('refreshes broker status after a saved session without falsely declaring conn
   expect(screen.getByText(/Broker session saved/)).toBeInTheDocument();
   expect(screen.queryByRole('button', {name: 'Login with saved credentials'})).toBeNull();
 });
+
+it('refreshes status on an immediate done response from the six-digit verification request', async () => {
+  const waiting = {id: 'direct-done', account_id: 'one', username: 'AA001',
+    phase: 'awaiting_totp', message: 'Enter app code'};
+  const saved = vi.fn();
+  state.api.post.mockResolvedValueOnce(waiting).mockResolvedValueOnce({
+    ...waiting, phase: 'done', message: 'Kite login successful. Broker session saved.',
+  });
+  const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const invalidate = vi.spyOn(client, 'invalidateQueries');
+  render(<QueryClientProvider client={client}>
+    <KiteAssistedLogin onSaved={saved} />
+  </QueryClientProvider>);
+  fireEvent.change(screen.getByLabelText('Broker account'), {target:{value:'one'}});
+  fireEvent.click(screen.getByRole('button', {name:'Login with saved credentials'}));
+  const input = await screen.findByLabelText('Kite TOTP');
+  fireEvent.change(input, {target:{value:'123456'}});
+  await waitFor(() => expect(saved).toHaveBeenCalledExactlyOnceWith('one'));
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['kite-status']});
+  expect(invalidate).toHaveBeenCalledWith({queryKey:['kite-accounts']});
+  expect(screen.getByText(/Broker session saved/)).toBeInTheDocument();
+});
