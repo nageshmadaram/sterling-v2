@@ -353,7 +353,8 @@ def _bound_leg_context():
         "hedge_side": "SELL",
     }
     existing = SimpleNamespace(
-        uid="operator", account_id="account",
+        uid="operator", account_id="account", status="ENTERING",
+        option_symbol="NIFTY_TEST_PE", option_exchange="NFO",
         option_entry_order_id="BROKER-ORDER-1", option_qty=75,
         option_entry_price=100.0, stop_premium=60.0, desired_stop=60.0,
         hedge_entry_order_id="BROKER-HEDGE-1", hedge_qty=50,
@@ -538,3 +539,41 @@ def test_verified_owner_can_book_to_shared_ledger_with_exact_exchange_time(monke
     assert record.call_args.kwargs["account_id"] == "account"
     assert record.call_args.kwargs["exchange_ts_ms"] == 123456
     kill.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["CLOSED", "EXITING", "", "INVALID"])
+def test_late_postback_cannot_reopen_closed_or_exiting_position(monkeypatch, status):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    existing.status = status
+    ledger = Mock()
+    monkeypatch.setattr(fill_ledger, "record", ledger)
+    stop_new = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", stop_new)
+    assert not a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0)
+    ledger.assert_not_called()
+    store.mutate.assert_not_called()
+    stop_new.assert_called_once()
+
+
+def test_late_state_transition_inside_transaction_cannot_reopen_position():
+    a, plan, existing, store = _bound_leg_context()
+    from copy import copy
+    fresh = copy(existing)
+    fresh.status = "CLOSED"
+    store.get.return_value = existing
+    store.mutate.side_effect = lambda _, fn: fn(fresh)
+    with pytest.raises(PermissionError, match="no_longer_accepts_entry"):
+        a._record_leg(request(), "BROKER-ORDER-1", 75, 100.0)
+    assert fresh.status == "CLOSED"
+
+
+def test_existing_option_contract_drift_refuses_shared_ledger(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    existing.option_exchange = "BFO"
+    ledger = Mock()
+    monkeypatch.setattr(fill_ledger, "record", ledger)
+    monkeypatch.setattr(wiring, "engage_kill_switch", Mock())
+    assert not a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0)
+    ledger.assert_not_called()
