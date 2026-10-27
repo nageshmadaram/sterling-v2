@@ -22,6 +22,22 @@ describe('EMA Trend strategy-owned transport', () => {
     expect(api.get).toHaveBeenCalledWith(
       '/api/v1/ema-trend/snapshot?modes=swing,intraday,scalping,ultra_scalping&limit=200');
   });
+  it('requests only the current IST day before older EMA signal pages', async () => {
+    vi.mocked(api.get).mockResolvedValue({ rows: [], campaigns: [], historical_view: true });
+    const hook = renderHook(() => useEmaTrendSnapshot(['swing'], 200, '2026-10-27'), { wrapper });
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/v1/ema-trend/snapshot?modes=swing&limit=200&day=2026-10-27',
+    );
+  });
+  it('does not append historical-day filter once the today-first gate releases', async () => {
+    vi.mocked(api.get).mockResolvedValue({ rows: [], campaigns: [] });
+    const hook = renderHook(() => useEmaTrendSnapshot(['swing'], 200), { wrapper });
+    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
+    expect(api.get).toHaveBeenCalledWith(
+      '/api/v1/ema-trend/snapshot?modes=swing&limit=200',
+    );
+  });
   it('sends only changed configuration with the revision being edited', async () => {
     vi.mocked(api.patch).mockResolvedValue({ revision: 8 });
     const hook = renderHook(useUpdateEmaTrend, { wrapper });
