@@ -26,7 +26,9 @@ export function useEngineSignals(todayOnly = false) {
   const isSimActive = useReplayStore((s) => s.status.state !== 'idle');
   const liveTodayOnly = todayOnly && !isSimActive;
   return useQuery<SignalsResponse>({
-    queryKey: ['kite-engine-signals', liveTodayOnly ? 'today' : 'all'],
+    // Preserve the existing full-history cache identity for all other users
+    // of this hook; the today-only variant is an additive independent cache.
+    queryKey: liveTodayOnly ? ['kite-engine-signals', 'today'] : ['kite-engine-signals'],
     queryFn: () => api.get<SignalsResponse>(
       `${E}/signals${liveTodayOnly ? '?today_only=true' : ''}`,
     ),
@@ -146,8 +148,10 @@ export function useRunScan() {
     // scan. The 2s poll that `scanning: true` itself switches on brings the
     // rows in, so the invalidate bought nothing and cost the flag.
     onMutate: () => {
-      qc.setQueryData<SignalsResponse>(['kite-engine-signals'], (prev) =>
-        prev ? { ...prev, scanning: true } : prev);
+      for (const key of [['kite-engine-signals'], ['kite-engine-signals', 'today']]) {
+        qc.setQueryData<SignalsResponse>(key, (prev) =>
+          prev ? { ...prev, scanning: true } : prev);
+      }
     },
     // A SuperTrend scan returns SuperTrend rows only. Replacing the cache
     // wholesale therefore wipes any Navigator-originated rows that
@@ -161,13 +165,18 @@ export function useRunScan() {
         const kept = navigatorRows.filter((row) => !fresh.has(`${row.token}:${row.option_type}:${row.timestamp_ms}`));
         return { ...data, rows: [...data.rows, ...kept] };
       });
+      // The scan mutation returns unrestricted rows. Never write that into the
+      // today-only cache; refetch its server-filtered projection instead.
+      qc.invalidateQueries({ queryKey: ['kite-engine-signals', 'today'], exact: true });
     },
     // Without this a failed /scan leaves `scanning: true` stuck in the cache
     // until a poll happens to return false — the board claims to be scanning
     // when nothing is running.
     onError: () => {
-      qc.setQueryData<SignalsResponse>(['kite-engine-signals'], (prev) =>
-        prev ? { ...prev, scanning: false } : prev);
+      for (const key of [['kite-engine-signals'], ['kite-engine-signals', 'today']]) {
+        qc.setQueryData<SignalsResponse>(key, (prev) =>
+          prev ? { ...prev, scanning: false } : prev);
+      }
       qc.invalidateQueries({ queryKey: ['kite-engine-signals'] });
     },
   });
