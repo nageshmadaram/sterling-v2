@@ -403,3 +403,29 @@ async def test_idempotent_repeated_broker_ack_keeps_original_order_owner(monkeyp
     assert await obj._submit_exit(NS(), p, leg="option", quantity=75) == "BROKER-EXIT-987"
     assert p.option_exit_order_id == "BROKER-EXIT-987"
     halt.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value,quantity", [
+    ("option_qty", 75.5, 75),
+    ("option_exit_qty", True, 75),
+    ("option_exit_qty", 50, 75),
+    ("option_exit_requested", 1.5, 75),
+    ("option_exit_requested", 0, 75),
+    ("option_exit_order_id", "", 75),
+    ("option_exit_order_id", None, 75),
+    ("option_exit_order_id", "EXIT-1", 1.5),
+])
+async def test_corrupt_exit_state_cannot_submit_another_broker_order(
+        monkeypatch, field, value, quantity):
+    p = pos()
+    setattr(p, field, value)
+    canonical = NS(submit_order=AsyncMock())
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock()), canonical=canonical)
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    result = await obj._submit_exit(NS(), p, leg="option", quantity=quantity)
+    assert result is None
+    canonical.submit_order.assert_not_awaited()
+    halt.assert_called_once()
