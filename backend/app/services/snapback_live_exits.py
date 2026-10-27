@@ -1201,8 +1201,10 @@ class SnapbackExitManager:
         status = str(getattr(result, "status", "") or "").upper()
         broker_order_id = str(getattr(result, "order_id", "") or "")
         if not broker_order_id:
-            if status in {"UNKNOWN", "SUBMITTING", "SUBMITTED",
-                          "ACKNOWLEDGED", "OPEN", "PARTIAL"}:
+            if (status not in {"HALTED", "REJECTED_PLAN", "REJECTED_RELEASE_AUTHORITY",
+                                "REJECTED_RISK", "REJECTED_BINDING", "REJECTED_INPUT"}
+                    or bool(getattr(result, "success", False))
+                    or getattr(result, "filled_quantity", 0) != 0):
                 # No proof the broker did not receive this request. Persist an
                 # owner-scoped reconciliation hold; never place another sell.
                 return None
