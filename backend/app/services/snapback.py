@@ -244,6 +244,7 @@ class ScanState:
     last_scan_ms: int = 0
     last_error: Optional[str] = None
     scanned: int = 0
+    scan_total: int = 0
     failures: list[str] = field(default_factory=list)
     candles: dict[Any, tuple[float, list]] = field(default_factory=dict)
     #: Wall-clock (IST epoch seconds) at which each cached tape was fetched, so a
@@ -833,6 +834,8 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
             client.search_instruments("", "BSE", limit=1_000_000),
         )
         universe = resolve_universe(cfg, nfo=nfo, bfo=bfo, equities=nse + bse)
+        if mode_override is None:
+            st.scan_total = len(universe)
         from app.engines.snapback.regime import MARKET_SYMBOL, gate_for
         market_gate = None
         if cfg.trading_mode == "swing" and cfg.market_filter != "off":
@@ -2397,6 +2400,7 @@ def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState) -> dict:
         "positions_error": positions_error,
         "armed": len(armed),
         "scanned": st.scanned,
+        "scan_total": st.scan_total,
         "scanning": st.scanning or uid in _interactive_scans,
         "scan_cancellable": uid in _interactive_scans,
         "last_scan_ms": st.last_scan_ms,
