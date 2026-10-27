@@ -2,12 +2,12 @@ import {readMediaSuggestions, type MediaSuggestion} from './mediaSuggestions';
 
 export type MediaKind = 'tv' | 'radio';
 export type MediaCommand = {
-  action: 'theme' | 'search' | 'more' | 'startup' | 'suggest' | 'select-suggestion' | 'play-search' | 'collapse' | 'minimize' | 'sources' | 'back';
+  action: 'appearance' | 'theme' | 'search' | 'more' | 'startup' | 'suggest' | 'select-suggestion' | 'play-search' | 'collapse' | 'minimize' | 'sources' | 'back';
   value?: string;
   requestId?: string;
 };
 export type MediaSuggestionResponse = {query: string; items: MediaSuggestion[]; requestId?: string};
-const common = new Set(['theme','search','more','startup','sources','suggest','select-suggestion','back']);
+const common = new Set(['appearance','theme','search','more','startup','sources','suggest','select-suggestion','back']);
 const validRequestId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9-]{1,64}$/.test(value);
 
 /** Copy only bounded display/player fields across the opaque iframe boundary. */
@@ -17,9 +17,10 @@ export function readMediaCommand(kind: MediaKind, value: unknown): MediaCommand 
   if (typeof data.action !== 'string' || !(common.has(data.action) ||
       (kind === 'tv' ? ['play-search','collapse'] : ['minimize']).includes(data.action))) return null;
   const result: MediaCommand = {action: data.action as MediaCommand['action']};
-  if (['theme','search','suggest','select-suggestion'].includes(result.action)) {
+  if (['appearance','theme','search','suggest','select-suggestion'].includes(result.action)) {
     const limit = result.action === 'select-suggestion' ? 4096 : 200;
     if (typeof data.value !== 'string' || data.value.length > limit) return null;
+    if (result.action === 'appearance' && !['light','dark','grey'].includes(data.value)) return null;
     if (result.action === 'theme' && !['spotify','youtube','netflix'].includes(data.value)) return null;
     if (result.action === 'select-suggestion' && !data.value.trim()) return null;
     result.value = data.value;

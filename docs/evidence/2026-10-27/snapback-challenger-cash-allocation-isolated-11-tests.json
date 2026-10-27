@@ -1,0 +1,36 @@
+{
+  "as_of_utc": "2026-10-27T09:32:17Z",
+  "source_file": "backend/app/engines/snapback/challenger.py",
+  "source_blob_sha1": "d138a8eac46a4eaca4148bb97ef201b60d616a29",
+  "environment": "isolated Python 3.13 process; not live Sterling application",
+  "command": "python -m pytest -q -p no:cacheprovider --junitxml=snapback_challenger_cash_guard_junit.xml test_snapback_challenger_isolated.py",
+  "results": {
+    "tests": 11,
+    "passed": 11,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "source_verified_by_git_hash_object": true,
+  "coverage_scope": [
+    "cost-stressed risk and target arithmetic",
+    "500 seeded synthetic risk cases",
+    "one-candle vs multi-candle retrospective excursion window",
+    "post-entry information refusal",
+    "minimum net reward:risk >= 1",
+    "cash budget overflow rejection after additional fees",
+    "premium allocation overflow rejection after additional fees",
+    "sufficient cash headroom accepts a candidate",
+    "invalid finite/positive budget refusal"
+  ],
+  "not_verified": [
+    "full Sterling pytest",
+    "real broker fill and stop protection",
+    "paired futures hedge economics",
+    "positive out-of-sample after-cost profits",
+    "forward market performance"
+  ],
+  "approval": "BLOCKED",
+  "broker_orders_sent": false,
+  "live_master_gate_changed": false
+}

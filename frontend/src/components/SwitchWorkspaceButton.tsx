@@ -4,6 +4,6 @@ export function SwitchWorkspaceButton({ onSwitch, className, role }: {
 }) {
   return <button type="button" className={className} role={role} onClick={() => {
     onSwitch?.();
-    window.dispatchEvent(new CustomEvent('sterling-navigate', { detail: 'home' }));
+    window.dispatchEvent(new CustomEvent('sterling-select-workspace'));
   }}>Switch workspace</button>;
 }

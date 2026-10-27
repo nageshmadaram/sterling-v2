@@ -17,7 +17,7 @@ function FeatureEditor({ userId }: { userId: string }) {
   const save = useMutation({ mutationFn: () => api.put<FeaturePolicy>(`${BASE}/${encodeURIComponent(userId)}/features`,
     { features: draft?.features, expected_revision: draft?.revision }),
     onSuccess: data => { qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); } });
-  return <section><h3>Workspaces</h3><p>Choose where this user can go.</p>
+  return <section><h3>Workspaces</h3>
     {query.isLoading && <p role="status">Loading grants…</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}
     {draft && <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>

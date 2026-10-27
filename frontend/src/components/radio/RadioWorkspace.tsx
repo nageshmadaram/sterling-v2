@@ -1,3 +1,4 @@
+import { useTheme } from '../../store/useStore';
 import { useProtectedMediaDocument } from '../../hooks/useProtectedMediaDocument';
 import { readMediaCommand, readMediaSuggestionResponse, type MediaCommand } from '../media/mediaBridge';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -45,12 +46,15 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   const [failed,setFailed] = useState(false);
   const [loaded,setLoaded] = useState(false);
 
+  const appearance = useTheme();
+  const appearanceRef = useRef(appearance); appearanceRef.current=appearance;
+  useEffect(()=>{ window.dispatchEvent(new CustomEvent('sterling-radio-command',{detail:{action:'appearance',value:appearance}})); },[appearance]);
   const documentAccess = useProtectedMediaDocument('radio', version);
 
   const hydrate = useCallback(() => {
     const frame = frameRef.current;
     if (!frame?.contentWindow) return;
-    frame.contentWindow.postMessage({type:HYDRATE,hostHeader:true,values:readRadioPrefs()}, '*');
+    frame.contentWindow.postMessage({type:HYDRATE,hostHeader:true,appearance:appearanceRef.current,values:readRadioPrefs()}, '*');
     hydratedRef.current = true;
   },[]);
 

@@ -256,12 +256,12 @@ export function KiteTab() {
           activeNav={nav}
           mainViewTitle={mainViewTitle}
           onNavClick={handleNavClick}
-          sidebar={(
+          sidebar={nav === 'dashboard' ? (
             <WatchlistStartupBoundary>
               <SterlingWatchListWithHoldingsSync onOpenInstrument={handleOpenInstrument} />
             </WatchlistStartupBoundary>
-          )}
-          rightSidebar={(
+          ) : null}
+          rightSidebar={nav === 'dashboard' ? (
             <EngineStartupBoundary>
               <AdaptiveEdgeRightSidebar
                 onSelectSignal={(sel) => { setInstrumentView(null); setSetupView(null); setDetailView(sel); }}
@@ -269,13 +269,13 @@ export function KiteTab() {
                 onOpenChart={handleOpenInstrument}
               />
             </EngineStartupBoundary>
-          )}
-          bottomBar={<EngineTerminal />}
-          centerTopBar={(
+          ) : null}
+          bottomBar={nav === 'dashboard' ? <EngineTerminal /> : null}
+          centerTopBar={nav === 'dashboard' ? (
             <div className="workspace-market-strip" data-page={nav}><TickerStartupBoundary>
               <KiteTicker onOpenChart={(symbol) => handleOpenInstrument(symbol, 'chart')} />
             </TickerStartupBoundary></div>
-          )}
+          ) : null}
           content={<Suspense fallback={<div style={{ padding: 20, color: 'var(--k-dim)' }}>Loading...</div>}>{content}</Suspense>}
           onBasketClick={() => setBasketOpen(true)}
           basketCount={basketCount}

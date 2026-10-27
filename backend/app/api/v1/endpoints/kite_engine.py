@@ -89,7 +89,32 @@ def _merge_signal_rows(base_rows: list[EngineSignalRow], navigator_rows: list[En
     return sorted(merged.values(), key=lambda r: (r.is_fresh or r.is_active, r.timestamp_ms), reverse=True)
 
 
-def _signals_response(uid: str) -> SignalsResponse:
+def _today_signal_rows(rows: list[EngineSignalRow]) -> list[EngineSignalRow]:
+    """Restrict the first board read to today's IST signals and still-active rows.
+
+    Only the response is filtered. Scanner state, journal history, open position
+    management and trade-admission evidence remain untouched. Bad dates cannot
+    be promoted into a fresh signal on a clock parsing guess.
+    """
+    today = datetime.now(timezone(timedelta(hours=5, minutes=30))).date()
+    active: list[EngineSignalRow] = []
+    for row in rows:
+        if row.is_active:
+            active.append(row)
+            continue
+        try:
+            stamp = float(row.timestamp_ms)
+            day = datetime.fromtimestamp(
+                stamp / 1000, timezone(timedelta(hours=5, minutes=30))
+            ).date()
+        except (ValueError, TypeError, OverflowError, OSError):
+            continue
+        if day == today:
+            active.append(row)
+    return active
+
+
+def _signals_response(uid: str, *, today_only: bool = False) -> SignalsResponse:
     from app.services.simulation import simulation_runner
 
     cfg = state.get_config(uid)
@@ -155,7 +180,7 @@ def _signals_response(uid: str) -> SignalsResponse:
         generated_ms=generated_ms,
         scanning=scanning,
         scanning_label=scanning_label,
-        rows=live_rows,
+        rows=_today_signal_rows(live_rows) if today_only else live_rows,
         next_scan_ms=next_scan_ms,
         auto_scan=auto_scan,
         market_open=is_market_open(),
@@ -321,8 +346,11 @@ async def backtest(body: BacktestRequest,
 
 
 @router.get("/signals")
-async def signals(user: UserContext = Depends(get_current_user)) -> SignalsResponse:
-    return _signals_response(user.user_id)
+async def signals(
+    today_only: bool = False,
+    user: UserContext = Depends(get_current_user),
+) -> SignalsResponse:
+    return _signals_response(user.user_id, today_only=today_only)
 
 
 @router.get("/activity")

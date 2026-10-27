@@ -32,3 +32,28 @@
 @media(max-width:900px){body[data-mobile-style="app"] .workspace-shell .sterling-header-row>.sterling-home-button{display:inline-flex!important;min-height:44px;touch-action:manipulation}.workspace-shell .sterling-header-row .sterling-mobile-header-actions{display:flex!important}.workspace-shell.is-kite .sterling-header-row{flex-wrap:nowrap!important}.workspace-shell.is-kite .sterling-header-row .kite-header-actions{display:none!important}.workspace-shell.is-kite .sterling-home-button span{font-size:13px!important;letter-spacing:.1em!important}.workspace-shell.is-kite .sterling-header-row{min-height:56px!important}}
 .workspace-dialog{position:fixed;inset:0;margin:auto;height:fit-content}
 @media(min-width:901px){.workspace-shell.is-kite .sterling-header-row>.sterling-mobile-header-actions{display:none}}
+/* Shared account navigation: a single header, with account actions in the menu. */
+button,a{-webkit-tap-highlight-color:transparent}
+.workspace-wordmark,.sterling-logo-button{user-select:none;-webkit-user-select:none}
+.workspace-wordmark:focus:not(:focus-visible){outline:none;background:transparent}
+.workspace-header{gap:12px;min-height:52px;flex-shrink:0}
+#workspace-toolbar{margin-left:auto;min-width:0}
+.account-menu-trigger{background:transparent;border:0;color:var(--k-text);font-size:22px;width:44px;height:44px;cursor:pointer;flex-shrink:0}
+.account-menu{color:var(--k-text);background:var(--k-bg);border:1px solid var(--k-border);border-radius:12px;padding:0;max-height:calc(100dvh - 24px);width:min(380px,calc(100vw - 24px));margin:12px 12px 12px auto}
+.account-menu::backdrop{background:#0008}
+.account-menu-content{padding:16px;display:grid;gap:8px}
+.account-menu header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.account-menu button{color:inherit;background:transparent;border:0;border-radius:6px;padding:12px;text-align:left;cursor:pointer;font:inherit}
+.account-menu button:hover,.account-menu button[aria-current=page],.account-menu button[aria-pressed=true]{background:var(--k-surface-2)}
+.account-menu nav{display:grid;grid-template-columns:1fr 1fr;gap:4px;border-block:1px solid var(--k-border);padding-block:12px}
+.account-identity{display:flex;align-items:center;gap:12px;min-width:0}
+.account-identity img,.account-avatar{width:38px;height:38px;border-radius:50%;object-fit:cover;display:grid;place-items:center;background:var(--k-surface-2)}
+.account-theme{display:flex;gap:8px}.account-theme button{flex:1;text-align:center;border:1px solid var(--k-border)}
+#sterling-mobile-header-actions{display:flex!important;margin-left:auto}.sterling-mobile-controls{display:flex;align-items:center}
+@media(min-width:769px){.sterling-mobile-search{display:none!important}}
+.kite-connection-status{display:flex;gap:16px;justify-content:space-between;text-align:left;padding:5px 16px;border:0;border-bottom:1px solid var(--k-border);background:var(--k-surface);color:var(--k-text);font:inherit;font-size:12px;cursor:pointer;flex-shrink:0}
+@media(max-width:768px){.workspace-market-strip{display:none}.sterling-header-row{padding-inline:12px!important}.sterling-home-button{margin-right:8px!important}.workspace-current{font-size:11px!important}}
+.sterling-home-button:focus:not(:focus-visible){outline:none;box-shadow:none;background:transparent}
+
+.workspace-header{height:56px;min-height:56px;padding:6px 16px;box-sizing:border-box}.workspace-current{display:inline!important}.workspace-media{height:calc(100dvh - 56px)}
+#sterling-mobile-header-actions{order:99;flex:0 0 auto}.account-menu-trigger{font-size:22px!important;padding:8px!important}

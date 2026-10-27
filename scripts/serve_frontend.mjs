@@ -43,10 +43,18 @@ function proxyHeaders(req) {
   // Preserve the public host for the backend's remote-auth boundary; never
   // accept arbitrary caller-supplied forwarding identity or scheme.
   delete headers['x-user-id'];
+  delete headers['x-sterling-client-ip'];
+  delete headers['x-sterling-client-country'];
   delete headers['x-forwarded-for'];
   delete headers['x-forwarded-host'];
   delete headers['x-forwarded-proto'];
   headers['x-forwarded-host'] = req.headers.host;
+  let publicCloudflare = false;
+  try { const state = JSON.parse(fs.readFileSync(stackStatusFile,'utf8')); publicCloudflare = new URL(state.cloudflare_url || '').host === req.headers.host && Number(state.children?.cloudflare) > 1; } catch {}
+  const candidate = publicCloudflare ? req.headers['cf-connecting-ip'] : isSupervisorNgrokHost(req.headers.host) ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1)?.trim() : req.socket.remoteAddress;
+  if (typeof candidate === 'string' && net.isIP(candidate)) headers['x-sterling-client-ip'] = candidate;
+  const country = req.headers['cf-ipcountry'];
+  if (publicCloudflare && typeof country === 'string' && /^[A-Z]{2}$/.test(country)) headers['x-sterling-client-country'] = country;
   headers['x-forwarded-proto'] =
     req.headers['cf-visitor']?.includes('https') || isSupervisorNgrokHost(req.headers.host)
       ? 'https' : 'http';

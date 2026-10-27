@@ -1,10 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '../utils/api';
-import { clearAuthTokens } from '../utils/auth';
-import { notifyAuthExpired } from '../utils/liveSync';
 import { PreferenceGate } from '../components/auth/PreferenceGate';
-import { ThemeToggle } from '../components/kite/ThemeToggle';
+import { AccountMenu } from '../components/AccountMenu';
+import { ProfileMenu } from '../components/kite/ProfileMenu';
 import { hasUnsavedDraft } from '../components/kite/config/unsavedDraftGuard';
 import { SterlingLogo } from '../components/SterlingLogo';
 import { WorkspaceChooser, WorkspaceDialog, WORKSPACE_NAMES, type Workspace } from '../components/WorkspaceChooser';
@@ -19,9 +18,7 @@ export type SessionPolicy = { user_id: string; username: string; role: string; a
 const FEATURES: Feature[] = ['kite', 'radio', 'tv'];
 function readDestination(): Destination { const path = window.location.pathname; return path === '/administration' ? 'administration' : path === '/kite' ? 'kite' : path === '/tv' ? 'tv' : path === '/radio' ? 'radio' : 'home'; }
 export function WorkspaceRouter() {
-  const qc = useQueryClient();
   const [destination, setDestination] = useState<Destination>(readDestination), [chooserOpen, setChooserOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false), [logoutError, setLogoutError] = useState('');
   const policy = useQuery({ queryKey: ['sterling-session-policy'], queryFn: () => api.get<SessionPolicy>('/api/v1/auth/me'), staleTime: 0, refetchInterval: 10_000, refetchOnWindowFocus: true, retry: false });
   const session = policy.isError ? undefined : policy.data;
   // Administrators land in management; feature grants never determine management authority.
@@ -40,19 +37,19 @@ export function WorkspaceRouter() {
     window.addEventListener('popstate', pop); window.addEventListener('sterling-navigate', change); window.addEventListener('sterling-select-workspace', open);
     return () => { window.removeEventListener('popstate', pop); window.removeEventListener('sterling-navigate', change); window.removeEventListener('sterling-select-workspace', open); };
   }, [navigate]);
-  async function logout() { setSigningOut(true); setLogoutError(''); try { await api.post('/api/v1/auth/logout', {}); clearAuthTokens(); qc.clear(); notifyAuthExpired(); } catch (error) { setLogoutError((error as Error).message); } finally { setSigningOut(false); } }
+
   const chooser = session && <WorkspaceChooser features={session.features} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
   const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current]);
   return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''}`}>
     {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
       <span className="workspace-current">{current === 'administration' ? 'Administration' : current === 'home' ? '' : WORKSPACE_NAMES[current]}</span>
-      <div className="workspace-personal"><ThemeToggle /><button disabled={signingOut} onClick={() => void logout()}>{signingOut ? 'Signing out…' : 'Sign out'}</button></div></header>}
-    {logoutError && <p role="alert" className="workspace-error">{logoutError}</p>}
+      <div id="workspace-toolbar" className="workspace-personal" /><AccountMenu /></header>}
     {policy.isLoading ? <main className="workspace-state" role="status">Opening your workspace…</main> : !session ? <main className="workspace-state"><h1>Access could not be verified</h1><p role="alert">{policy.error?.message || 'Try the connection again.'}</p><button onClick={() => void policy.refetch()}>Retry</button></main> :
       !allowed && FEATURES.includes(current as Feature) ? <WorkspaceAccessRequest key={current} feature={current as Feature} onBack={() => navigate('home')} /> : !allowed ? <main className="workspace-state"><h1>Administrator access required</h1><button onClick={() => navigate('home')}>Return to your workspaces</button></main> :
       current === 'home' ? <main className="workspace-launcher">{chooser}</main> : <Suspense fallback={<main className="workspace-state" role="status">Opening workspace…</main>}>
         {current === 'administration' ? <Administration /> : current === 'kite' ? <PreferenceGate><KiteRuntime /></PreferenceGate> : <PreferenceGate><MediaWorkspace key={current} feature={current} /></PreferenceGate>}
       </Suspense>}
+    {session && <ProfileMenu hiddenTrigger />}
     <WorkspaceDialog open={chooserOpen} onClose={() => setChooserOpen(false)}>{chooser}</WorkspaceDialog>
   </div>;
 }

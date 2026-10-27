@@ -76,6 +76,11 @@ function LiveStateChip() {
 
 export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void }) {
   const status = useKiteStatus().data;
+  // Localhost, a tunnel and the production URL may serve different checkouts.
+  // The Vite build identity lets the operator see that directly, without
+  // guessing from a stale browser tab or interpreting a remote Git commit.
+  const buildSha = String(import.meta.env.VITE_BUILD_SHA || 'UNKNOWN');
+  const buildLabel = /^[a-f0-9]{40}$/i.test(buildSha) ? buildSha.slice(0, 8) : 'unknown';
 
   const unknown = !!status?.transient;
   const connected = !!status?.connected;
@@ -94,6 +99,13 @@ export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void 
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
       <LiveStateChip />
+      <span
+        data-testid="sterling-frontend-build"
+        title={`Frontend build: ${buildSha}. This identifies the page you are viewing, not the GitHub branch or backend deployment.`}
+        style={{ fontSize: 10, color: k.dim, whiteSpace: 'nowrap' }}
+      >
+        build {buildLabel}
+      </span>
       <button
         type="button"
         onClick={onOpenSession}

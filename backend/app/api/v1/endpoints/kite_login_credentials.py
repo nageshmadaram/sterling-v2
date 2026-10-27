@@ -40,7 +40,7 @@ def read(user, account_id):
 
 
 def public(value):
-    return {'username': value['username'], 'password_saved': bool(value['password']), 'automatic_login_available': True}
+    return {'username': value['username'], 'password_saved': bool(value['password']), 'automatic_login_available': bool(value['username'] and value['password'])}
 
 
 @router.get('/accounts/{account_id}/login-credentials')

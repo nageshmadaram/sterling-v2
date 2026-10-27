@@ -29,7 +29,7 @@ describe('Radio workspace isolation', () => {
     const frame=screen.getByTitle('Sterling Radio player') as HTMLIFrameElement;
     const post=vi.spyOn(frame.contentWindow!,'postMessage');
     fireEvent.load(frame);
-    expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',hostHeader:true,
+    expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',hostHeader:true,appearance:expect.any(String),
       values:{omnicast_v11_liked:'["FM"]'}},'*');
     fromFrame('sterling.radio.ready');
     expect(screen.queryByText('Loading Radio…')).toBeNull();
@@ -84,5 +84,5 @@ it('persists source URLs inside the allowlisted config and hydrates them on remo
  cleanup();render(<RadioWorkspace/>);
  const frame=screen.getByTitle('Sterling Radio player') as HTMLIFrameElement,post=vi.spyOn(frame.contentWindow!,'postMessage');
  fireEvent.load(frame);
- expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',hostHeader:true,values:{omnicast_v11_config:config}},'*');
+ expect(post).toHaveBeenCalledWith({type:'sterling.radio.hydrate',hostHeader:true,appearance:expect.any(String),values:{omnicast_v11_config:config}},'*');
 });

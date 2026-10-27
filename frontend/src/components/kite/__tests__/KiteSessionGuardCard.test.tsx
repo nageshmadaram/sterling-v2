@@ -12,6 +12,7 @@ const generateSession = vi.fn();
 let loginPhase = 'idle';
 
 vi.mock('../../../hooks/useKite', () => ({
+  useKiteAccounts: () => ({data:{accounts:[]}}),
   useKiteStatus: () => ({ data: status, isFetching: false, refetch: retrySession }),
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: generateSession, isPending: false }),
@@ -62,6 +63,7 @@ describe('KiteSessionGuard floating card popover', () => {
   it('distinguishes waiting for broker sign-in from opening the login window', () => {
     loginPhase = 'waiting';
     renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
     expect(screen.getByRole('button', { name: 'Finish login in the Kite window' })).toBeDisabled();
     expect(screen.queryByText('Opening Login…')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Start login again' }));
@@ -95,6 +97,7 @@ describe('KiteSessionGuard floating card popover', () => {
 
   it('keeps Kite login reachable while the broker session is offline', () => {
     renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
     const login = screen.getByRole('button', { name: /Manual Kite login/i });
     expect(login).toBeEnabled();
     fireEvent.click(login);
@@ -103,6 +106,7 @@ describe('KiteSessionGuard floating card popover', () => {
 
   it('sends the full failed callback address for secure server-side mobile recovery', () => {
     renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
     const callback = 'http://localhost:8000/api/v1/kite/callback?request_token=fresh&state=signed';
     const input = screen.getByPlaceholderText('Full callback URL or request_token');
     expect(input).toHaveAttribute('autocapitalize', 'none');
@@ -114,12 +118,9 @@ describe('KiteSessionGuard floating card popover', () => {
     );
   });
 
-  it('auto-opens when Kite is offline on cold load', () => {
+  it('does not block cold load when Kite is offline', () => {
     renderGuard();
-    expect(screen.getByText('Zerodha Kite Offline')).toBeInTheDocument();
-    expect(screen.getByText('Sign in to connect your broker account.')).toBeInTheDocument();
-    expect(screen.getByText('Manual login & recovery').closest('details')).not.toHaveAttribute('open');
-    expect(document.querySelector('.kite-session-body')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('can be toggled open via useKiteStatusCardStore when connected', () => {
@@ -138,6 +139,7 @@ describe('KiteSessionGuard floating card popover', () => {
   it('invokes onOpenAccountSettings and closes card when Account Settings link is clicked', () => {
     const onOpenAccountSettings = vi.fn();
     renderGuard(onOpenAccountSettings);
+    act(() => useKiteStatusCardStore.getState().openCard());
 
     const link = screen.getByRole('button', { name: /Account & API Settings/i });
     fireEvent.click(link);

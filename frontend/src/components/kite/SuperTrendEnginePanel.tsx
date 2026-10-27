@@ -131,11 +131,15 @@ export function SuperTrendEnginePanel() {
               { value: 'intraday', label: 'Intraday' }, { value: 'overnight', label: 'Overnight' }, { value: 'swing', label: 'Swing · Default' },
             ]} onChange={value => patch({ horizon_mode: value as EngineConfigModel['horizon_mode'], signal_timeframe_minutes: null })} />
           </Field>
-          <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
-            <ChoiceRow value={String(cfg.signal_timeframe_minutes ?? ({ ultra_scalping: 1, scalping: 5, intraday: 15, overnight: 60, swing: 60 }[cfg.horizon_mode ?? 'swing']))}
-              options={({ ultra_scalping: [1], scalping: [1, 3, 5], intraday: [5, 15, 30], overnight: [30, 60], swing: [60] }[cfg.horizon_mode ?? 'swing']).map(value => ({ value: String(value), label: `${value} min` }))}
-              onChange={value => patch({ signal_timeframe_minutes: Number(value) })} />
-          </Field>
+          {(cfg.horizon_mode ?? 'swing') === 'swing'
+            ? <Field label="Original Swing candle" hint="Original mode is fixed at completed 60-minute Heikin-Ashi bars; an hourly mode is not a separate trading mode.">
+                <span style={{ fontSize: 12 }}>60-minute Heikin-Ashi · fixed original</span>
+              </Field>
+            : <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
+                <ChoiceRow value={String(cfg.signal_timeframe_minutes ?? ({ ultra_scalping: 1, scalping: 5, intraday: 15, overnight: 60, swing: 60 }[cfg.horizon_mode ?? 'intraday']))}
+                  options={({ ultra_scalping: [1], scalping: [1, 3, 5], intraday: [5, 15, 30], overnight: [30, 60], swing: [60] }[cfg.horizon_mode ?? 'intraday']).map(value => ({ value: String(value), label: `${value} min` }))}
+                  onChange={value => patch({ signal_timeframe_minutes: Number(value) })} />
+              </Field>}
         </Section>
         <Section
           title="Chart source"
@@ -157,7 +161,7 @@ export function SuperTrendEnginePanel() {
                 value={derivMonthlyOnly ? 'monthly' : 'follow'}
                 options={[
                   { value: 'monthly', label: 'Monthly only', hint: 'Recommended. Every contract has room to warm up.' },
-                  { value: 'follow', label: 'Follow index expiries', hint: 'Also scans weeklies — mute for most of their life at 1H.' },
+                  { value: 'follow', label: 'Follow index expiries', hint: 'Includes weekly contracts; slower horizons can make their useful entry window too narrow.' },
                 ]}
                 onChange={(v) => patch({ deriv_expiries: v === 'monthly' ? ['monthly'] : null })}
               />

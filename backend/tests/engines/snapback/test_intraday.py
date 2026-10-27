@@ -76,6 +76,32 @@ def test_forming_stale_or_prior_session_signal_is_rejected():
         assert intraday.evaluate_intraday(b, CFG, asof=b.time[-1]+delta) == []
 
 
+def test_empty_candle_tapes_cannot_be_reported_as_successful_replay():
+    empty = tape([])
+    with pytest.raises(ValueError, match="nonempty observed"):
+        replay(empty, empty)
+
+
+def test_partial_hourly_candle_cannot_be_consumed_as_a_completed_bar():
+    start = datetime(2026, 9, 14, 9, 15, tzinfo=IST).timestamp()
+    # Six complete hourly intervals: final one starts 14:15 and closes 15:15.
+    times = start + np.arange(6) * 3600
+    closes = np.full(6, 100.)
+    complete = Bars(times, closes, closes + 1, closes - 1, closes,
+                    np.full(6, 1000.))
+    intraday._validate(complete, 60, contiguous=True)
+    partial = concat(complete, Bars(
+        np.array([datetime(2026, 9, 14, 15, 15, tzinfo=IST).timestamp()]),
+        np.array([100.]), np.array([101.]), np.array([99.]),
+        np.array([100.]), np.array([1000.]),
+    ))
+    with pytest.raises(ValueError, match="interval ends after"):
+        intraday._validate(partial, 60, contiguous=True)
+    hourly = replace(CFG, trading_mode="overnight", scalp_timeframe_minutes=60)
+    with pytest.raises(ValueError, match="interval ends after"):
+        replay(partial, partial, cfg=hourly)
+
+
 def test_future_prices_even_invalid_ohlc_do_not_change_current_signal():
     b = setup()
     now = b.time[-1]+60
@@ -205,6 +231,43 @@ def test_actual_signal_replay_enters_next_option_open_not_signal_price():
     assert result["trade_count"] == 1
     t = result["trades"][0]
     assert t["entry"] == 120 and t["entry_time"] == b.time[-1]+60 and t["net_pnl_inr"] == -90
+
+
+def test_intrabar_option_low_stress_exceeds_realized_stop_loss():
+    # An OHLC candle may trade below the simulated stop fill. Never report
+    # only the optimistic closed-trade drawdown as the worst observed risk.
+    b = setup()
+    spot = concat(b, tape([100], start=b.time[-1] + 60))
+    opt = tape(
+        [200.] * (len(b) - 1) + [400., 119.],
+        highs=[201.] * (len(b) - 1) + [500., 121.],
+        lows=[199.] * (len(b) - 1) + [300., 100.],
+    )
+    result = replay(spot, opt, replace(CFG, scalp_max_hold_bars=1))
+    assert result["trade_count"] == 1
+    assert result["trades"][0]["exit_reason"] == "stop"
+    assert result["max_option_close_mark_drawdown_inr"] >= result["max_realized_drawdown_inr"]
+    assert (result["max_option_intrabar_low_stress_drawdown_inr"]
+            > result["max_realized_drawdown_inr"])
+    assert "no_futures_hedge" in result["option_mtm_basis"]
+
+
+def test_unresolved_open_option_reports_adverse_mtm_without_fake_realized_loss():
+    b = setup()
+    spot = concat(b, tape([100], start=b.time[-1] + 60))
+    opt = tape(
+        [200.] * (len(b) - 1) + [400., 119.],
+        opens=[200.] * (len(b) - 1) + [400., 120.],
+        highs=[201.] * (len(b) - 1) + [500., 121.],
+        lows=[199.] * (len(b) - 1) + [300., 117.],
+    )
+    result = replay(spot, opt, replace(CFG, scalp_max_hold_bars=20))
+    assert not result["complete"]
+    assert result["trade_count"] == 0
+    assert result["net_pnl_inr"] == 0
+    assert result["max_realized_drawdown_inr"] == 0
+    assert result["max_option_close_mark_drawdown_inr"] > 0
+    assert result["max_option_intrabar_low_stress_drawdown_inr"] > 0
 
 
 def test_contract_side_is_bound(monkeypatch):

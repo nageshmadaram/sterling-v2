@@ -335,6 +335,11 @@ def _remember(request: Request, ctx: UserContext) -> UserContext:
     try:
         request.state.sterling_user_id = ctx.user_id
         request.state.sterling_username = ctx.username
+        token = _bearer(request)
+        if token:
+            from app.services.auth import login_activity
+            claims = tokens.decode(token,expected_typ='access')
+            login_activity.record(ctx.owner_uid or ctx.user_id,int(claims.get('ver',0)),request,expires_ms=int(claims['exp'])*1000)
     except Exception:  # noqa: BLE001 - audit enrichment must never break auth
         pass
     return ctx

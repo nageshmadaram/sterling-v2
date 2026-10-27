@@ -22,6 +22,8 @@ def _number(value: Any, *, positive: bool = False) -> float:
 
 
 def validate_economic_report(report: Mapping[str, Any], identity: Mapping[str, str]) -> None:
+    if not isinstance(report, Mapping) or not isinstance(identity, Mapping):
+        raise ValueError("economic receipt and identity must be objects")
     for key in ("dataset_id", "strategy_id", "mode", "strategy_version", "config_hash", "runtime_release_sha"):
         if not identity.get(key) or report.get(key) != identity[key]:
             raise ValueError(f"economic report identity mismatch: {key}")
@@ -40,6 +42,8 @@ def validate_economic_report(report: Mapping[str, Any], identity: Mapping[str, s
         raise ValueError("multiple non-overlapping OOS windows are required")
     previous_end = registered
     for window in windows:
+        if not isinstance(window, Mapping):
+            raise ValueError("OOS window must be a signed-off object")
         start, end = utc_timestamp(window["start"]), utc_timestamp(window["end"])
         if not registered < start < end or start <= previous_end:
             raise ValueError("OOS windows overlap or precede hypothesis registration")
@@ -68,5 +72,7 @@ def validate_economic_report(report: Mapping[str, Any], identity: Mapping[str, s
         if observed < 0 or observed > limit:
             raise ValueError(f"economic risk budget exceeded: {metric}")
     stress = report.get("stress_expectancy", {})
+    if not isinstance(stress, Mapping):
+        raise ValueError("economic stress scenarios must be an object")
     for scenario in ("fees", "latency", "stop_slippage", "liquidity", "adverse_regime", "best_trade_removed", "best_symbol_removed"):
         _number(stress.get(scenario), positive=True)

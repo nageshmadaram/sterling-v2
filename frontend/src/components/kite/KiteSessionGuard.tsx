@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
+  useKiteAccounts, useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
   useRefreshKiteSession, useKiteLogout,
 } from '../../hooks/useKite';
 import { notifyOrder } from '../../store/useKiteNotifications';
@@ -19,13 +19,15 @@ const DISMISS_KEY = 'sterling_kite_session_guard_dismissed';
 export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSettings?: () => void } = {}) {
   useKiteAuthBroadcast();
   const { data: status, isFetching = false, error: statusError, refetch } = useKiteStatus();
-  const kiteLogin = useOpenKiteLogin();
   const gen = useGenerateKiteSession();
   const refresh = useRefreshKiteSession();
   const logout = useKiteLogout();
 
   const loginRequested = useKiteStatusCardStore(state => state.loginRequested);
   const loginAccountId = useKiteStatusCardStore(state => state.loginAccountId);
+  const ownedAccounts = useKiteAccounts();
+  const effectiveAccountId = loginAccountId || status?.account_id || ownedAccounts.data?.active_id || ownedAccounts.data?.accounts[0]?.id || undefined;
+  const kiteLogin = useOpenKiteLogin(effectiveAccountId);
   const isOpen = useKiteStatusCardStore((state) => state.isOpen);
   const openCard = useKiteStatusCardStore((state) => state.openCard);
   const closeCard = useKiteStatusCardStore((state) => state.closeCard);
@@ -38,7 +40,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const graceTimer = useRef<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const hasAccount = !!status?.account_id;
+  const hasAccount = !!effectiveAccountId;
   const unknown = !!status?.transient || !!statusError;
   const connected = !!status?.connected && !unknown;
   const checking = !status && isFetching;
@@ -130,15 +132,8 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             : 'Your Kite session has lapsed. Reconnect to resume live data and trading.',
         });
 
-        const delay = canAutoRecover ? 8000 : 500;
-        if (graceTimer.current) window.clearTimeout(graceTimer.current);
-        graceTimer.current = window.setTimeout(() => {
-          if (!prevConnected.current) openCard();
-        }, delay);
-      } else if (was === null) {
-        // Cold start offline state
-        openCard();
       }
+
     } else if (was === true) {
       authIdle();
     }
@@ -210,7 +205,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
           {unknown && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Retry session check'}</button>}
-          {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={loginAccountId || undefined} autoStart={loginRequested} />}
+          {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={effectiveAccountId} autoStart={loginRequested} />}
           {connected && <div className="kite-session-account-actions">
             {!loginRequested && <button type="button" onClick={() => { setShowRelogin(v => !v); logout.reset?.(); }}>{showRelogin ? 'Hide broker login' : 'Log in to another account'}</button>}
             <button type="button" disabled={logout.isPending} onClick={() => logout.mutate(undefined, { onSuccess: () => {
@@ -232,7 +227,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
               {kiteLogin.loginUrl && (kiteLogin.phase === 'failed' || kiteLogin.phase === 'waiting') && <KiteLoginLinkFallback url={kiteLogin.loginUrl} onContinue={kiteLogin.waitForLogin} />}
               <details className="kite-session-disclosure"><summary>Recover a callback link</summary>
                 <p>Paste the full callback address if the browser could not return to Sterling.</p>
-                <form onSubmit={e => { e.preventDefault(); if (reqToken.trim() && !gen.isPending) gen.mutate({ request_token: reqToken.trim(), account_id: status?.account_id ?? undefined }, { onSuccess: () => { setReqToken(''); closeCard(); } }); }}>
+                <form onSubmit={e => { e.preventDefault(); if (reqToken.trim() && !gen.isPending) gen.mutate({ request_token: reqToken.trim(), account_id: effectiveAccountId }, { onSuccess: () => { setReqToken(''); closeCard(); } }); }}>
                   <input aria-label="Full callback URL or request_token" placeholder="Full callback URL or request_token" value={reqToken} onChange={e => setReqToken(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
                   <button type="submit" disabled={!reqToken.trim() || gen.isPending}>{gen.isPending ? 'Connecting…' : 'Connect'}</button>
                 </form>

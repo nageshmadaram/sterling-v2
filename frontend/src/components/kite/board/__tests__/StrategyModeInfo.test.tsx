@@ -7,9 +7,16 @@ describe('mode explanations', () => {
     render(<StrategyModeInfo engine="supertrend" st={{ horizon_mode: 'ultra_scalping' }} />);
     expect(screen.getByText(/Selected: Ultra scalp · 1-minute Heikin-Ashi/)).toBeVisible();
     expect(screen.getByText(/Default: Swing · original · 60-minute Heikin-Ashi/)).toBeVisible();
-    fireEvent.click(screen.getByText('Compare modes and configuration'));
     expect(screen.getByRole('table')).toBeVisible();
+    expect(screen.getByText(/no separate hourly trading mode/)).toBeVisible();
+    expect(screen.getAllByText(/Three aligned SuperTrends on a completed Heikin-Ashi candle/).length).toBe(5);
     expect(screen.getByRole('cell', { name: '20 minutes; same-day exit' })).toBeVisible();
+  });
+  it('makes per-mode entry rules and the next-session Swing timing visible in settings', () => {
+    render(<StrategyModeInfo engine="snapback" sb={{ trading_mode: 'swing' }} />);
+    expect(screen.getByText(/planned next-session entry/)).toBeVisible();
+    expect(screen.getByText(/Swing triggers at end-of-day/)).toBeVisible();
+    expect(screen.getAllByText(/Completed intraday candle reverses inside Bollinger band/).length).toBe(4);
   });
   it('shows effective saved or draft overrides rather than the preset', () => {
     render(<StrategyModeInfo engine="supertrend" st={{ horizon_mode: 'scalping', signal_timeframe_minutes: 3 }} />);

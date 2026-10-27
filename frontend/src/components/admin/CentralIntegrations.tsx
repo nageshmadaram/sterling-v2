@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import type { User } from '../kite/SterlingUsersPanel';
 type Target = { id: string; label: string; chat_id: string; enabled: boolean; bot_token_set: boolean };
-function UserTelegram({ userId }: { userId: string }) {
+export function UserTelegram({ userId }: { userId: string }) {
   const qc = useQueryClient();
   const path = `/api/v1/admin/users/${encodeURIComponent(userId)}/telegram`;
   const query = useQuery({ queryKey: ['admin-telegram', userId], queryFn: () => api.get<{ targets: Target[] }>(path) });

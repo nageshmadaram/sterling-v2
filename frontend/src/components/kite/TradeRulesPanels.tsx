@@ -215,7 +215,8 @@ export function ManualRulesPanel() {
 
 export function AutomaticRulesPanel() {
   const { cfg, patch, saving } = useStagedConfigPatch();
-  const { data: stData } = useEngineSignals();
+  // Rules need current solvability, not historical signal rows.
+  const { data: stData } = useEngineSignals(true);
   const algoToggles = useAlgoToggles();
 
   if (!cfg) return <div style={{ padding: 18, color: DIM, fontSize: 12 }}>Loading…</div>;

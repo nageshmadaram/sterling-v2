@@ -60,6 +60,75 @@ def test_entry_guard_binds_symbol_and_exact_bar_even_after_new_empty_scan():
     assert next_board.block_reason('derivatives', 'A-CE', 100)
 
 
+def test_unobserved_canonical_contract_cannot_borrow_another_contracts_freshness(monkeypatch):
+    from app.services.kite_engine.scan_refresh import RefreshBoard, admission_blocker
+    from app.services.kite_engine.scanner import scanner
+    board = RefreshBoard([], {('derivatives', 'A')})
+    board.observe(row(symbol='A-CE'))
+    assert board.block_reason('derivatives', 'A-OTHER-CE', 100,
+                              mode='swing', timeframe=60, underlying='A') == 'signal_refresh_unverified'
+    current = SimpleNamespace(refresh_board=board, horizon_mode='swing', timeframe_minutes=60)
+    monkeypatch.setitem(scanner._users, 'unobserved-contract', current)
+    request = SimpleNamespace(uid='unobserved-contract', strategy_id='sterling-kite',
+                              symbol='A-OTHER-CE', signal_id='derivatives:100:long',
+                              payload={'underlying': 'A'})
+    assert admission_blocker(request)[0] == 'signal_refresh_unverified'
+    assert admission_blocker(SimpleNamespace(**{**request.__dict__, 'symbol': 'A-CE'})) == ('', '')
+
+
+def test_canonical_signal_requires_loaded_scan_authority(monkeypatch):
+    from app.services.kite_engine.scan_refresh import admission_blocker
+    from app.services.kite_engine.scanner import scanner
+    request = SimpleNamespace(uid='no-current-scan', strategy_id='sterling-kite',
+                              symbol='A-CE', signal_id='derivatives:100:long', payload={})
+    monkeypatch.delitem(scanner._users, 'no-current-scan', raising=False)
+    assert admission_blocker(request)[0] == 'signal_refresh_unavailable'
+    monkeypatch.setitem(scanner._users, 'no-current-scan', SimpleNamespace(
+        refresh_board=None, horizon_mode='swing', timeframe_minutes=60))
+    assert admission_blocker(request)[0] == 'signal_refresh_unavailable'
+    # Without a canonical scanner signal id, this safety check does not make a
+    # claim about unrelated legacy/manual entry evidence.
+    request.signal_id = 'manual-idempotency'
+    request.uid = 'manual-without-scan'
+    assert admission_blocker(request) == ('', '')
+
+
+def test_confluence_requires_exact_leg_while_spot_can_reference_underlying():
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    combined = RefreshBoard([], {('confluence', 'A')})
+    combined.observe(row(source='confluence', symbol='A-CE'))
+    assert combined.block_reason('confluence', 'A-UNSCANNED-CE', 100,
+                                 underlying='A', mode='swing', timeframe=60) == 'signal_refresh_unverified'
+    spot = RefreshBoard([], {('spot', 'A')})
+    spot.observe(row(source='spot', symbol='A-CE'))
+    assert spot.block_reason('spot', 'A-DERIVED-CE', 100,
+                             underlying='A', mode='swing', timeframe=60) == ''
+
+
+def test_older_scan_result_never_reauthorizes_a_superseded_bar():
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    prior = RefreshBoard([], {('derivatives', 'A')})
+    prior.observe(row(stamp=200))
+    following = RefreshBoard([row(stamp=200)], {('derivatives', 'A')},
+                             previous=prior)
+    following.observe(row(stamp=100))
+    assert following.block_reason('derivatives', 'A-CE', 100, mode='swing', timeframe=60)
+    assert following.block_reason('derivatives', 'A-CE', 200, mode='swing', timeframe=60)
+    following.observe(row(stamp=300))
+    assert following.block_reason('derivatives', 'A-CE', 200, mode='swing', timeframe=60)
+    assert following.block_reason('derivatives', 'A-CE', 300, mode='swing', timeframe=60) == ''
+
+
+def test_removed_universe_row_is_visible_but_no_longer_entry_authority():
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    signal = row()
+    before = RefreshBoard([], {('derivatives', 'A')})
+    before.observe(signal)
+    after = RefreshBoard([signal], {('spot', 'B')}, previous=before)
+    assert [r.underlying for r in after.project([])] == ['A']
+    assert after.block_reason('derivatives', 'A-CE', 100, mode='swing', timeframe=60) == 'signal_refresh_unverified'
+
+
 def test_retained_row_refuses_entry_before_market_checks(monkeypatch):
     from app.services.kite_engine.service import entry_data_block_reason
     from app.services.kite_engine import market_hours

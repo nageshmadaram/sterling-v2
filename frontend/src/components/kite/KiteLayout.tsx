@@ -10,6 +10,7 @@ import { useEngineActivity } from '../../hooks/useSterlingKiteEngine';
 import { useLiveSignalCount } from '../../store/useLiveSignalCount';
 import { KiteFooterPnl } from './KiteFooterPnl';
 import { KiteFooterStatus } from './KiteFooterStatus';
+import { TodaySignalPriorityProvider, TodaySignalPriorityStatus } from './board/TodaySignalPriority';
 import { ReplayDock } from './replay/ReplayDock';
 import { ReplayFooterChip } from './replay/ReplayFooterChip';
 import { useReplayHostHidden, useReplayOpen, useReplayStore } from '../../hooks/useReplayStore';
@@ -274,7 +275,7 @@ function PresetDiagram({ preset }: { preset: WorkspacePresetId }) {
 export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar, rightSidebar, bottomBar, centerTopBar, content, onBasketClick, basketCount = 0 }: KiteLayoutProps) {
   const [phone, setPhone] = useState(() => window.innerWidth <= 900);
   const mobileStyle = useMobileExperience(s => s.style);
-  const mobile = phone && mobileStyle === 'app';
+  const mobile = phone;
   const [mobilePane, setMobilePane] = useSavedSelection<WorkspacePaneId>('workspace.mobilePane', 'dashboard');
   const previousMobileNav = useRef(activeNav);
   const detailPreviousPane = useRef<WorkspacePaneId | null>(null);
@@ -845,6 +846,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   const marketClosed = autoScan && activity?.market_open === false;
 
   return (
+    <TodaySignalPriorityProvider>
     <div className="sterling-workspace-shell" data-mobile={mobile} style={{ display: 'flex', flexDirection: 'row', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--k-bg)', fontFamily: k.fontFamily }}>
       <style>{WORKSPACE_CSS}</style>
 
@@ -859,6 +861,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+        <TodaySignalPriorityStatus />
         <div ref={workspaceRef} data-testid="kite-workspace" style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           {mobile ? <>
             <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
@@ -1028,5 +1031,6 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
         onToggleCommandBar={() => setCommandBarVisible((v) => !v)}
       />
     </div>
+    </TodaySignalPriorityProvider>
   );
 }

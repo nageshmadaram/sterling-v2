@@ -12,6 +12,7 @@ import { useBoardView } from './useBoardView';
 import { EmaTrendTicket } from './EmaTrendTicket';
 import { EmaTrendOperations } from './EmaTrendOperations';
 import { selectEmaViewport } from './emaTrendViewport';
+import { useTodaySignalPriority } from './TodaySignalPriority';
 import { openSettingsSection } from '../config/registry';
 import { EMA_TREND_MODE_LABEL, type EmaTrendMode } from '../../../types/emaTrend';
 import { EMA_TREND_QUICKSTART } from '../../../config/emaTrendPreset';
@@ -46,13 +47,17 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   onOpenChart?: (quoteKey: string, mode: EmaTrendMode, signal: BoardSignal) => void;
 }) {
   const historical = useSimNowMs() !== null;
+  const priority = useTodaySignalPriority();
   const config = useEmaTrendConfig();
   // New scans use only the original Daily/Weekly profile. All held campaigns
   // remain visible below, including historical retired profiles.
   const [selectedModes, setSelectedModes] = React.useState<EmaTrendMode[]>([...MODES]);
   const [fetchLimit, setFetchLimit] = React.useState(INITIAL_FETCH_ROWS_PER_MODE);
   const [renderLimit, setRenderLimit] = React.useState(INITIAL_RENDER_ROWS);
-  const snapshot = useEmaTrendSnapshot(selectedModes, fetchLimit);
+  const snapshot = useEmaTrendSnapshot(
+    selectedModes, fetchLimit,
+    historical || priority.olderReady ? undefined : priority.day,
+  );
   const scan = useRunEmaTrendScan();
   // Prefer the just-requested job over a stale last-scan id from a snapshot.
   // Otherwise the UI can claim an old scan is complete while a new one runs.
@@ -197,6 +202,10 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
           unavailable={snapshot.isLoading || snapshot.isError}
           readOnly={historical} />}
       {historical && <p role="status" style={{ padding: 12 }}>Past day, view only. Go back to today for live signals.</p>}
+      {!historical && !priority.olderReady && <p role="status" style={{ padding: 12 }}>
+        Today's EMA Trend signals load first. Older saved records will load after SuperTrend,
+        Snapback, Gamma-Unwind and EMA Trend finish their current-day reads.
+      </p>}
       {operation.isSuccess && operation.variables === 'flatten' &&
         <p role="status" style={{ padding: 12 }}>Close requested for practice trades. Real Kite positions are not affected.</p>}
       {[snapshot.error, config.error, scan.error, cancel.error, operation.error, quickstart.error].filter(Boolean).map((error, index) =>

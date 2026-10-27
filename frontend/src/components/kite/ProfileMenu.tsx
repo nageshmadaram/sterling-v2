@@ -9,11 +9,11 @@ import { setAuthTokens, clearAuthTokens, type SterlingTokens } from '../../utils
 import type { List, User } from './SterlingUsersPanel';
 type Profile={username:string;display_name:string;photo:string;role:string;user_id:string};
 export function useSterlingProfile(){return useQuery({queryKey:['sterling-profile'],queryFn:()=>api.get<Profile>('/api/v1/auth/profile'),staleTime:30000});}
-export function ProfileMenu(){const q=useSterlingProfile();const qc=useQueryClient();const [open,setOpen]=useState(false),[name,setName]=useState(''),[photo,setPhoto]=useState(''),[username,setUsername]=useState(''),[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);const trigger=useRef<HTMLButtonElement>(null);const initialized=useRef(false);
+export function ProfileMenu({hiddenTrigger=false}:{hiddenTrigger?:boolean}={}){const q=useSterlingProfile();const qc=useQueryClient();const [open,setOpen]=useState(false),[name,setName]=useState(''),[photo,setPhoto]=useState(''),[username,setUsername]=useState(''),[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);const trigger=useRef<HTMLButtonElement>(null);const initialized=useRef(false);
  const photoInput=useRef<HTMLInputElement>(null);const [cropFile,setCropFile]=useState<File|null>(null);
  useEffect(()=>{if(!open){initialized.current=false;setCropFile(null);return;}if(open&&q.data&&!initialized.current){initialized.current=true;setName(q.data.display_name);setPhoto(q.data.photo);setUsername(q.data.username);setCurrent('');setPassword('');setConfirm('');setMessage('');}},[open,q.data]);
  useEffect(()=>{const show=()=>setOpen(true);window.addEventListener('sterling-open-profile',show);return()=>window.removeEventListener('sterling-open-profile',show);},[]);
- const close=()=>{setCropFile(null);setOpen(false);setCurrent('');setPassword('');setConfirm('');if(trigger.current?.getBoundingClientRect().width)trigger.current.focus();else document.querySelector<HTMLElement>('.sterling-mobile-menu-trigger')?.focus();};
+ const close=()=>{setCropFile(null);setOpen(false);setCurrent('');setPassword('');setConfirm('');if(trigger.current?.getBoundingClientRect().width)trigger.current.focus();else document.querySelector<HTMLElement>('.account-menu-trigger')?.focus();};
  const run=async(action:()=>Promise<void>)=>{setBusy(true);setMessage('');try{await action();}catch(e){setMessage(e instanceof Error?e.message:'Profile update failed');}finally{setBusy(false);}};
  const upload=(file?:File)=>{
   if(!file)return;
@@ -42,7 +42,7 @@ export function ProfileMenu(){const q=useSterlingProfile();const qc=useQueryClie
    if(root&&!wasInert)root.removeAttribute('inert');
   };
  },[open,cropFile]);
- return <><button ref={trigger} className="sterling-profile" aria-label="Sterling account profile" aria-expanded={open} onClick={()=>setOpen(!open)} style={{display:'flex',alignItems:'center',gap:6,border:0,background:'transparent',color:'var(--k-text)',cursor:'pointer'}}>{q.data?.photo?<img src={q.data.photo} alt="" width={28} height={28} style={{borderRadius:'50%',objectFit:'cover'}}/>:<span style={{borderRadius:'50%',padding:7,background:'var(--k-surface-2)'}}>{label.slice(0,2).toUpperCase()}</span>}<span>{label}</span></button>
+ return <>{!hiddenTrigger && <button ref={trigger} className="sterling-profile" aria-label="Sterling account profile" aria-expanded={open} onClick={()=>setOpen(!open)} style={{display:'flex',alignItems:'center',gap:6,border:0,background:'transparent',color:'var(--k-text)',cursor:'pointer'}}>{q.data?.photo?<img src={q.data.photo} alt="" width={28} height={28} style={{borderRadius:'50%',objectFit:'cover'}}/>:<span style={{borderRadius:'50%',padding:7,background:'var(--k-surface-2)'}}>{label.slice(0,2).toUpperCase()}</span>}<span>{label}</span></button>}
  {open&&createPortal(<div className="appearance-modal sterling-profile-modal" role="dialog" aria-modal="true" aria-label={cropFile?'Crop profile picture':'Sterling profile'}
  style={{position:'fixed',inset:0,zIndex:2147483000,pointerEvents:'auto',display:'grid',placeItems:'center',background:'rgba(0,0,0,.80)',overscrollBehavior:'contain',touchAction:'auto'}}
  onPointerDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}

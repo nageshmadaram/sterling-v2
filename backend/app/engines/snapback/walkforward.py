@@ -151,6 +151,8 @@ class Book:
     allocation_pct: float = 0.0
     #: Compounded return of the equity curve over the period, as a percentage.
     total_return_pct: float = 0.0
+    equity_session_calendar_complete: bool = False
+    equity_session_count: int = 0
     per_year: dict[str, float] = field(default_factory=dict)
     per_symbol_net: dict[str, float] = field(default_factory=dict)
 
@@ -167,6 +169,8 @@ class Book:
             "sharpe": round(self.sharpe, 3),
             "max_drawdown_pct": round(self.max_dd_pct, 2),
             "total_return_pct": round(self.total_return_pct, 2),
+            "equity_session_calendar_complete": self.equity_session_calendar_complete,
+            "equity_session_count": self.equity_session_count,
             "per_year_pct": {k: round(v * 100, 2) for k, v in self.per_year.items()},
             "per_symbol_net": {k: round(v, 2) for k, v in self.per_symbol_net.items()},
         }
@@ -174,9 +178,11 @@ class Book:
 
 def summarise(trades: Sequence[Trade], capital: float, *,
               hold_days: int, allocation_pct: float = 10.0,
-              seed: int = 11) -> Book:
+              seed: int = 11, sessions: Optional[Sequence[str]] = None) -> Book:
     b = Book(list(trades), capital)
+    b.equity_session_calendar_complete = sessions is not None
     if not trades:
+        b.equity_session_count = len(sessions) if sessions is not None else 0
         return b
     by: dict[str, list[float]] = {}
     for t in trades:
@@ -215,7 +221,9 @@ def summarise(trades: Sequence[Trade], capital: float, *,
     # drawdown that was entirely the mismatch between the sizer and the divisor.
     # Stating the allocation explicitly makes the drawdown a property of the
     # strategy and the position size, which is what it should have been.
-    rets = equity_series(trades, allocation_pct=allocation_pct)
+    rets = equity_series(trades, allocation_pct=allocation_pct,
+                         sessions=sessions)
+    b.equity_session_count = len(rets)
     if len(rets):
         b.sharpe = sharpe(rets)
         b.max_dd_pct = max_drawdown(rets)
@@ -233,36 +241,36 @@ def summarise(trades: Sequence[Trade], capital: float, *,
 
 
 def equity_series(trades: Sequence[Trade], *,
-                  allocation_pct: float) -> np.ndarray:
-    """Portfolio return per session, at a stated allocation per position.
+                  allocation_pct: float,
+                  sessions: Optional[Sequence[str]] = None) -> np.ndarray:
+    """Daily portfolio returns using the SOURCE TAPE's complete session calendar.
 
-    Built from RETURNS and an allocation fraction rather than from rupees
-    against a capital figure. That is not a preference: with lot sizing, one
-    NIFTY lot of a 30-day put is about 21,750 of premium, so against a 1 lakh
-    capital every position was a 22% bet and the harness reported a -92%
-    drawdown that was entirely the mismatch between the sizer and the divisor.
-
-    Sessions with no exit are ZEROS, not gaps. Dropping them inflates the Sharpe
-    of anything that trades rarely, which is exactly what this strategy does.
+    Trading dates cannot be reconstructed from trade endpoints: missing
+    no-exit sessions inflated historical Sharpe and distorted drawdown.
+    Walk-forward validation always supplies date-effective tape sessions.
+    Legacy callers without sessions retain a diagnostic-only endpoint curve,
+    labeled incomplete by Book.equity_session_calendar_complete.
     """
-    if not trades:
-        return np.array([])
     alloc = max(float(allocation_pct), 0.0) / 100.0
     by_exit: dict[str, float] = {}
     for t in trades:
         by_exit[t.exit_day] = by_exit.get(t.exit_day, 0.0) + t.ret
-    span = sorted(by_exit)
-    days = _day_span(span[0], span[-1], trades)
+    if sessions is None:
+        if not trades:
+            return np.array([])
+        days = _day_span(min(by_exit), max(by_exit), trades)
+    else:
+        days = list(sessions)
+        if (days != sorted(set(days))
+                or any(not isinstance(d, str) or len(d) != 10 for d in days)
+                or any(d not in set(days) for d in by_exit)):
+            raise SelectionContaminated(
+                "complete equity calendar must be unique, sorted and contain all exit sessions")
     return np.array([by_exit.get(d, 0.0) * alloc for d in days])
 
 
 def _day_span(first: str, last: str, trades: Sequence[Trade]) -> list[str]:
-    """Every session between two days, from the trades' own calendar.
-
-    Built from the tape's days rather than from a date range so market holidays
-    are not counted as flat trading days — 250 calendar-derived zeros against
-    ~250 real sessions halves a Sharpe for no reason anyone would notice.
-    """
+    """Trade endpoints ONLY. Diagnostic fallback, NEVER full-session evidence."""
     days = sorted({t.entry_day for t in trades} | {t.exit_day for t in trades})
     return [d for d in days if first <= d <= last]
 
@@ -400,6 +408,15 @@ def judge(book: Book, *, permutation: Optional[float], dsr: float,
     g = gate or Gate()
     checks: dict[str, bool] = {}
     reasons: list[str] = []
+
+    # Even a positive DSR computed over only trade endpoint dates is a
+    # selection-biased statistic. The release verdict must see the actual
+    # source-tape session calendar, including days without any exit.
+    checks["complete_equity_session_calendar"] = bool(
+        book.equity_session_calendar_complete and book.equity_session_count > 0)
+    if not checks["complete_equity_session_calendar"]:
+        reasons.append("full source-tape session calendar missing; "
+                       "Sharpe/DSR and equity curve cannot certify the book")
 
     checks["enough_trades"] = len(book.trades) >= g.min_trades
     if not checks["enough_trades"]:
@@ -562,6 +579,8 @@ def run(tapes: Mapping[str, Bars], base: SnapbackConfig, *,
 
     warm = max(c.warmup_bars() for c in grid.values())
     for fold in folds:
+        is_sessions = [d for d in days if fold.is_start <= d < fold.is_end]
+        oos_sessions = [d for d in days if fold.oos_start <= d < fold.oos_end]
         is_tapes = slice_tapes(tapes, fold.is_start, fold.is_end,
                                warmup_bars=warm)
         scores: dict[str, float] = {}
@@ -570,12 +589,16 @@ def run(tapes: Mapping[str, Bars], base: SnapbackConfig, *,
             book = summarise(
                 replay(is_tapes, cfg, cost=cost,
                        entry_window=(fold.is_start, fold.is_end)).trades,
-                cfg.capital_inr, hold_days=cfg.hold_days, allocation_pct=alloc)
+                cfg.capital_inr, hold_days=cfg.hold_days,
+                allocation_pct=alloc, sessions=is_sessions)
             # Selected on the day-clustered mean, which is the statistic the
             # gate judges. Selecting on one number and judging on another is how
             # a selector ends up optimising something nobody reports.
             score = book.mean_day_return if len(book.trades) >= 10 else -math.inf
-            scores[label] = round(score, 5)
+            # An ineligible selector's -inf is an internal sentinel,
+            # not a JSON number. Serialize it as null instead of emitting
+            # non-standard -Infinity that breaks strict report consumers.
+            scores[label] = round(score, 5) if math.isfinite(score) else None
             # PER-PERIOD, because that is what the deflation formula wants.
             # ``sharpe()`` returns an annualised figure, and handing the spread
             # of annualised trial Sharpes to a per-period statistic over-deflates
@@ -592,7 +615,8 @@ def run(tapes: Mapping[str, Bars], base: SnapbackConfig, *,
         fixed = replay(oos_tapes, base, cost=cost, entry_window=window)
         fixed_trades.extend(fixed.trades)
         fixed_book = summarise(fixed.trades, base.capital_inr,
-                               hold_days=base.hold_days, allocation_pct=alloc)
+                               hold_days=base.hold_days, allocation_pct=alloc,
+                               sessions=oos_sessions)
 
         sel_book = None
         if best is not None:
@@ -600,7 +624,7 @@ def run(tapes: Mapping[str, Bars], base: SnapbackConfig, *,
             selected_trades.extend(sel.trades)
             sel_book = summarise(sel.trades, grid[best].capital_inr,
                                  hold_days=grid[best].hold_days,
-                                 allocation_pct=alloc)
+                                 allocation_pct=alloc, sessions=oos_sessions)
         fold_rows.append({
             "fold": fold.index,
             "in_sample": [fold.is_start, fold.is_end],
@@ -612,18 +636,24 @@ def run(tapes: Mapping[str, Bars], base: SnapbackConfig, *,
             "oos_fixed": fixed_book.as_dict(),
         })
 
+    full_oos_sessions = [d for d in days if any(
+        start <= d < end for start, end in windows)]
     selected = summarise(selected_trades, base.capital_inr,
-                         hold_days=base.hold_days, allocation_pct=alloc)
+                         hold_days=base.hold_days, allocation_pct=alloc,
+                         sessions=full_oos_sessions)
     fixed_oos = summarise(fixed_trades, base.capital_inr,
-                          hold_days=base.hold_days, allocation_pct=alloc)
+                          hold_days=base.hold_days, allocation_pct=alloc,
+                          sessions=full_oos_sessions)
     full = summarise(replay(tapes, base, cost=cost).trades, base.capital_inr,
-                     hold_days=base.hold_days, allocation_pct=alloc)
+                     hold_days=base.hold_days, allocation_pct=alloc,
+                     sessions=days)
 
     # The deflated Sharpe must deflate the SHARPE — the same allocation-scaled
     # calendar series ``summarise`` reports — and not a per-entry-day return
     # series with a different mean and a different variance. Feeding it the
     # wrong series is a quiet way to deflate the wrong number.
-    daily = equity_series(fixed_trades, allocation_pct=alloc)
+    daily = equity_series(fixed_trades, allocation_pct=alloc,
+                          sessions=full_oos_sessions)
     n_trials = len(grid) * max(len(fold_rows), 1)
     sr_std = float(np.std(trial_sharpes, ddof=1)) if len(trial_sharpes) > 1 else 0.0
     dsr = deflated_sharpe(daily, n_trials=n_trials, trial_sr_std=sr_std) \

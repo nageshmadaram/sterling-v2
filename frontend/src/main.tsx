@@ -31,7 +31,7 @@ createRoot(root).render(<App />);
 // structured selector context to hand to the coding agent. Lazy dynamic import + the
 // import.meta.env.DEV gate keep it fully tree-shaken out of production / real-money builds,
 // and it mounts in its own DOM root so it can never interfere with the trading app tree.
-if (import.meta.env.DEV) {
+if (import.meta.env.DEV && new URLSearchParams(location.search).get('annotate') === '1') {
   void import('agentation').then(({ Agentation }) => {
     const host = document.createElement('div');
     host.id = 'agentation-root';

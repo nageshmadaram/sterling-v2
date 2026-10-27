@@ -1415,6 +1415,13 @@ def reassign(account_id: str, *, actor_id: str, source_user_id: str, target_user
                 WHERE id=? AND user_id=? AND updated_at_ms=?''',
                 (target_user_id,now,account_id,source_user_id,expected_updated_at_ms))
             if changed.rowcount!=1: raise PolicyConflict('Broker assignment changed; reload connections.')
+            # Password automation belongs to this verified broker profile; sessions never transfer.
+            old_key=f'kite_login_credentials:{source_user_id}:{account_id}'
+            new_key=f'kite_login_credentials:{target_user_id}:{account_id}'
+            saved=c.execute('SELECT value FROM system_config WHERE key=?',(old_key,)).fetchone()
+            if saved:
+                c.execute('INSERT INTO system_config(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(new_key,saved['value']))
+                c.execute('DELETE FROM system_config WHERE key=?',(old_key,))
             audit(c,actor_id,target_user_id,'broker.assigned',
                   {'broker_id':account_id,'user_id':source_user_id},
                   {'broker_id':account_id,'user_id':target_user_id,'session_cleared':True},now)

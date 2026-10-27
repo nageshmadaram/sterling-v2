@@ -1,3 +1,4 @@
+import { useTheme } from '../../store/useStore';
 import { useProtectedMediaDocument } from '../../hooks/useProtectedMediaDocument';
 import { readMediaCommand, readMediaSuggestionResponse } from '../media/mediaBridge';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -54,6 +55,9 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
   const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
+  const appearance = useTheme();
+  const appearanceRef = useRef(appearance); appearanceRef.current=appearance;
+  useEffect(()=>{ window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action:'appearance',value:appearance}})); },[appearance]);
   const documentAccess = useProtectedMediaDocument('tv', reloadKey);
 
   const onLoad = useCallback(() => {
@@ -62,7 +66,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
     // until hydration; this extra onLoad nudge covers that race too.
     const frame = ref.current;
     if (frame?.contentWindow) frame.contentWindow.postMessage({
-      type: MESSAGE_HYDRATE, values: readTvPreferences(), hostHeader:true,
+      type: MESSAGE_HYDRATE, values: readTvPreferences(), hostHeader:true,appearance:appearanceRef.current,
     }, '*');
   }, []);
 
@@ -78,7 +82,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
         setFailed(false);
         frame.contentWindow?.postMessage({
           type: MESSAGE_HYDRATE,
-          values: readTvPreferences(), hostHeader:true,
+          values: readTvPreferences(), hostHeader:true,appearance:appearanceRef.current,
         }, '*'); // opaque-origin sandbox requires "*" for targetOrigin
         for(const command of pendingCommands.current.values())frame.contentWindow?.postMessage(command,'*');
         pendingCommands.current.clear();

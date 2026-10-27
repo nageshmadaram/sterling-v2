@@ -87,6 +87,9 @@ async def login(request: Request, form: OAuth2PasswordRequestForm = Depends()) -
             headers={"WWW-Authenticate": "Bearer"},
         )
     log.info("login ok user=%.64r peer=%s", user.username, _peer(request))
+    from app.services.auth import login_activity
+    import time
+    login_activity.record(user.id,user.token_version,request,login=True,expires_ms=int(time.time()*1000)+tokens.ACCESS_TTL_S*1000)
     return TokenResponse(
         access_token=tokens.mint_access(user.id, user.username, user.role, user.token_version),
         refresh_token=tokens.mint_refresh(user.id, user.username, user.role, user.token_version),

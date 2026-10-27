@@ -31,6 +31,7 @@ import { useSignalColumns } from './useSignalColumns';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { formatInstrument } from '../../../lib/instrument';
 import { useSignalMarketData } from './useSignalMarketData';
+import { useTodaySignalPriority } from './TodaySignalPriority';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -269,11 +270,12 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
 }) {
   // Buy/Sell and the chart, built from the signal alone — same on every board.
   const replay = useSimNowMs() !== null;
+  const priority = useTodaySignalPriority();
   const rowActions = useBoardRowActions({ onOpenChart });
   const commonColumns = useSignalColumns();
   const [historyDay, setSelectedDay] = useSavedSelection<string>('gamma_move.historyDay', '');
   // The retained live-history selection must not filter a replay session.
-  const selectedDay = replay ? '' : historyDay;
+  const selectedDay = replay || !priority.olderReady ? '' : historyDay;
   const snapshot = useGammaMoveSnapshot(
     true,
     selectedDay ? 0 : 3000,
@@ -283,7 +285,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   const historicalLoad = useLoadGammaMoveHistoricalDay();
   const backfill = useBackfillGammaMoveHistory();
   const arm = useArmGammaMove();
-  const history = useGammaMoveHistory(!replay, 60, 500);
+  const history = useGammaMoveHistory(!replay && priority.olderReady, 60, 500);
 
   const data = snapshot.data;
   const bootstrapDayRef = React.useRef<string | null>(null);
@@ -296,6 +298,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   React.useEffect(() => {
     if (
       replay
+      || !priority.olderReady
       || selectedDay
       || !data
       || data.historical
@@ -310,7 +313,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.historical,
     data?.is_trading_day,
     data?.latest_trading_day,
-    selectedDay, replay,
+    selectedDay, replay, priority.olderReady,
   ]);
 
   // An arbitrary trading date can now be reconstructed from broker history.
@@ -318,6 +321,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   React.useEffect(() => {
     if (
       replay
+      || !priority.olderReady
       || !selectedDay
       || !data?.historical
       || data.recorded
@@ -344,7 +348,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
   // look like it never produced signals. Rebuild at most five recent sessions;
   // historical rows remain read-only and can never execute.
   React.useEffect(() => {
-    if (replay || !data?.today || backfill.isPending) return;
+    if (replay || !priority.olderReady || !data?.today || backfill.isPending) return;
     const missing = (data.history_days ?? [])
       .filter((row) =>
         row.day !== data.today
@@ -365,7 +369,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     data?.today,
     data?.history_days,
     selectedDay,
-    backfill.isPending, replay,
+    backfill.isPending, replay, priority.olderReady,
   ]);
 
   // A newly deployed/restarted Gamma runtime may have no in-memory watchlist and

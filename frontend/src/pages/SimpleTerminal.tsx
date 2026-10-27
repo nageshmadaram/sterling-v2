@@ -1,5 +1,5 @@
 import { useViewStore, type AppView } from '../store/useViewStore';
-import { ProfileMenu, useSterlingProfile } from '../components/kite/ProfileMenu';
+import { useSterlingProfile } from '../components/kite/ProfileMenu';
 import { useExperienceOptions, orderedNavigation } from '../store/useExperienceOptions';
 import { groupPrimaryNavigation } from '../components/kite/navigationDensity';
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
@@ -8,7 +8,6 @@ import { KiteTab } from '../components/kite/KiteTab';
 import { TvWorkspace } from '../components/tv/TvWorkspace';
 import { RadioWorkspace } from '../components/radio/RadioWorkspace';
 import { MediaHeaderControls, type MediaTheme } from '../components/media/MediaHeaderControls';
-import { ThemeToggle } from '../components/kite/ThemeToggle';
 import type { NavItem } from '../components/kite/KiteLayout';
 import { useKiteSettings } from '../store/useKiteSettings';
 import { useSavedSelection } from '../hooks/useSavedSelection';
@@ -127,7 +126,16 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
     setShowSettings(false);
   }, [navOptions, spectrum, selectedView, simulationAllowed, setSelectedView]);
   const goHome = () => {
-    if (kiteOnly) { window.dispatchEvent(new CustomEvent('sterling-navigate', { detail: 'home' })); return; }
+    if (kiteOnly) {
+      if (hasUnsavedDraft() && !window.confirm('Discard unsaved settings changes?')) return;
+      window.dispatchEvent(new Event('sterling-home'));
+      setToolsOpen(false); setShowSettings(false); setSelectedView('live');
+      const preferred = useKiteSettings.getState().defaultSection || 'dashboard';
+      const section = navOptions.navHidden.includes(preferred) ? (navigation[0]?.id || 'dashboard') : preferred;
+      userNavigatedRef.current = true; setKiteNav(section);
+      window.dispatchEvent(new CustomEvent('kite-nav-click', { detail: section }));
+      return;
+    }
     initialHomePendingRef.current = false;
     // Close managed overlays before changing the underlying workspace.
     window.dispatchEvent(new Event('sterling-home'));
@@ -165,8 +173,8 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
   };
   useEffect(() => {
     // KITE's own Home tab stays in KITE; the configured Home (maybe TV or Radio) is for app-level Home.
-    window.addEventListener('sterling-open-kite', openFromLogo);
-    return () => window.removeEventListener('sterling-open-kite', openFromLogo);
+    window.addEventListener('sterling-open-kite', goHome);
+    return () => window.removeEventListener('sterling-open-kite', goHome);
   });
   useEffect(() => {
     window.addEventListener('sterling-go-home', goHome);
@@ -188,6 +196,13 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
     { id: 'help' as const, label: 'Help' },
   ], navOptions);
   const { primary, overflow } = groupPrimaryNavigation(navigation);
+  useEffect(() => {
+    if (!navOptions.navHidden.includes(kiteNav)) return;
+    const next = navigation.find(item=>item.id===preferredSection)?.id || navigation[0]?.id || 'dashboard';
+    setKiteNav(next);
+    window.dispatchEvent(new CustomEvent('kite-nav-click',{detail:next}));
+  }, [kiteNav, navOptions, preferredSection]);
+
   useEffect(() => {
     if (!toolsOpen) return;
     const dismiss = (event: PointerEvent) => {
@@ -211,6 +226,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
   }, [preferredSection, kiteNav]);
 
   const handleKiteNav = (nav: NavItem) => {
+    if (navOptions.navHidden.includes(nav)) return;
     userNavigatedRef.current = true;
     if (nav !== kiteNav && hasUnsavedDraft()) {
       window.dispatchEvent(new CustomEvent('kite-scroll-to-draft-bar'));
@@ -227,7 +243,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
   useEffect(() => {
     const onNav = (event: Event) => {
       const next = (event as CustomEvent<NavItem>).detail;
-      if (typeof next === 'string') {
+      if (typeof next === 'string' && !useExperienceOptions.getState().options.navHidden.includes(next)) {
         userNavigatedRef.current = true;
         setKiteNav(next);
       }
@@ -308,6 +324,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
               STERLING
             </span>
           </button>
+          {kiteOnly && <span className="workspace-current">KITE</span>}
           {!kiteOnly && (spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>)}
 
           <div style={{ flex: 1 }} />
@@ -356,8 +373,8 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
             </div>}
             <span style={{ width: 1, height: 18, background: 'var(--t-border)', margin: '0 8px', flexShrink: 0 }} />
 
-            <ThemeToggle />
-            <ProfileMenu />
+
+
 
             {/* More options (three dots) */}
             <button onClick={() => setShowSettings(true)} title="More options" style={{
@@ -370,7 +387,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--t-border)'; (e.currentTarget as HTMLElement).style.color = 'var(--t-dim)'; }}
             >⋮</button>
           </div>}
-          
+
           {spectrum==='tv' && <MediaHeaderControls
             kind="tv" theme={tvState.theme} query={tvState.query}
             onTheme={theme=>{setTvState(s=>({...s,theme}));tvCommand('theme',theme);}}
@@ -383,7 +400,6 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
             onQuery={query=>{setRadioState(s=>({...s,query}));radioCommand('search',query);}}
             onFeatures={()=>radioCommand('more')}
           />}
-          {(spectrum === 'tv' || spectrum === 'radio') && <ProfileMenu />}
           {(spectrum === 'tv' || spectrum === 'radio') && !navOptions.spectrumVisible.kite && <button type="button" aria-label="Experience settings"
             title="Experience settings" onClick={() => setShowSettings(true)}
             style={{ background:'none', border:'1px solid var(--t-border)', cursor:'pointer',

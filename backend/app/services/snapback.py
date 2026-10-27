@@ -244,7 +244,11 @@ class ScanState:
     last_scan_ms: int = 0
     last_error: Optional[str] = None
     scanned: int = 0
+    scan_total: int = 0
     failures: list[str] = field(default_factory=list)
+    #: Instrument masters do not change on every minute-bar scan. Cache only
+    #: for the same authenticated account and exchange session date.
+    instrument_cache: Optional[tuple[float, date, str, tuple[list, list, list, list]]] = None
     candles: dict[Any, tuple[float, list]] = field(default_factory=dict)
     #: Wall-clock (IST epoch seconds) at which each cached tape was fetched, so a
     #: tape cached before the 15:30 close is never read as the finished session.
@@ -763,6 +767,57 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "reasons": list(sig.reasons), "metrics": {**dict(sig.metrics), **plan},
     }
 
+def _scan_preview(rows: list[dict]) -> list[dict]:
+    """Read-only progressive market scan publication.
+
+    Signals from a partially scanned universe are useful to display but may
+    not be used to originate a broker order. Final scan publication replaces
+    these rows with their validated armed/watching state.
+    """
+    return [
+        {
+            **row,
+            "scan_in_progress": True,
+            "execution_eligible": False,
+            "state": "watching" if row.get("state") == "armed" else row.get("state", "watching"),
+            "reason": "Scan in progress; wait for completed scan before entry"
+                      if row.get("state") == "armed" else row.get("reason"),
+        }
+        for row in rows
+    ]
+
+
+async def _instrument_dumps_for_scan(
+    client: Any, state: ScanState, *, account_key: str,
+) -> tuple[list, list, list, list]:
+    """Cache instrument masters only within a bound account and IST date.
+
+    This reduces redundant full NFO/BFO/NSE/BSE downloads on 1m/5m scans.
+    Authoritative entry still requires a fresh contract quote, dated identity,
+    broker state and admission checks; this is not a quote cache.
+    """
+    now = time.monotonic()
+    today = _wall_now().date()
+    saved = state.instrument_cache
+    if (saved is not None and account_key and saved[2] == account_key
+            and saved[1] == today and 0 <= now - saved[0] < 600):
+        return saved[3]
+
+    rows = await asyncio.gather(
+        client.search_instruments("", "NFO", limit=1_000_000),
+        client.search_instruments("", "BFO", limit=1_000_000),
+        client.search_instruments("", "NSE", limit=1_000_000),
+        client.search_instruments("", "BSE", limit=1_000_000),
+    )
+    if any(not isinstance(r, (list, tuple)) for r in rows):
+        state.instrument_cache = None
+        raise UnreadableCandles("Broker instrument master data unreadable")
+    materialized = tuple(list(r) for r in rows)
+    # Never reuse data across account identity changes or calendar rollovers.
+    state.instrument_cache = (time.monotonic(), today, account_key, materialized)
+    return materialized
+
+
 async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: str | None = None) -> dict:
     """One universe pass: daily candles -> signals -> rows.
 
@@ -789,7 +844,13 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
     start_gen = st.config_generation
     st.failures = []
     st.last_error = None
-    st.rows = [] if cfg.trading_mode != "swing" else st.rows
+    st.scanned = 0
+    # A previous armed quote is not a live candidate while a new full scan
+    # is underway. Keep its row visible for the operator, but read-only.
+    if mode_override is None:
+        st.rows = _scan_preview(st.rows)
+    else:
+        st.rows = []
     # Cleared UP FRONT, not on success: a scan that throws halfway would
     # otherwise leave armed rows behind that nothing has re-checked.
     st.signals = {}
@@ -800,13 +861,15 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
         if not acct:
             raise RuntimeError("No active Kite account")
         client = await accounts.acquire_client(acct)
-        nfo, bfo, nse, bse = await asyncio.gather(
-            client.search_instruments("", "NFO", limit=1_000_000),
-            client.search_instruments("", "BFO", limit=1_000_000),
-            client.search_instruments("", "NSE", limit=1_000_000),
-            client.search_instruments("", "BSE", limit=1_000_000),
+        identity = str(
+            getattr(acct, "account_id", "") or getattr(client, "_account_id", "") or ""
+        )
+        nfo, bfo, nse, bse = await _instrument_dumps_for_scan(
+            client, status(uid), account_key=identity,
         )
         universe = resolve_universe(cfg, nfo=nfo, bfo=bfo, equities=nse + bse)
+        if mode_override is None:
+            st.scan_total = len(universe)
         from app.engines.snapback.regime import MARKET_SYMBOL, gate_for
         market_gate = None
         if cfg.trading_mode == "swing" and cfg.market_filter != "off":
@@ -843,8 +906,10 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
         # retries; three sits under the published limit.
         sem = asyncio.Semaphore(3)
         rows: list[dict] = []
+        last_preview_at = 0.0
 
         async def one(item) -> None:
+            nonlocal last_preview_at
             async with sem:
                 try:
                     if cfg.trading_mode == "swing":
@@ -936,10 +1001,25 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
                                 f"({cfg.premium_pct_of_capital:g}% of "
                                 f"₹{cfg.capital_inr:,.0f})")
                         rows.append(row)
+                        # Publish advisory rows as soon as a symbol finishes,
+                        # instead of making the user wait for all 200 broker
+                        # candles/contract quotes. Never arm a partial scan.
+                        clock = time.monotonic()
+                        if (mode_override is None and st.config_generation == start_gen
+                                and (not st.rows or clock - last_preview_at >= 0.75)):
+                            st.rows = _scan_preview(rows)
+                            last_preview_at = clock
                 except Exception as exc:                           # noqa: BLE001
                     st.failures.append(f"{item.name}: {exc}")
 
-        await asyncio.gather(*(one(i) for i in universe))
+        async def tracked(item) -> None:
+            try:
+                await one(item)
+            finally:
+                if mode_override is None and st.config_generation == start_gen:
+                    st.scanned += 1
+
+        await asyncio.gather(*(tracked(i) for i in universe))
         if st.config_generation != start_gen:
             st.rows = []
             st.signals = {}
@@ -2354,6 +2434,7 @@ def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState) -> dict:
         "positions_error": positions_error,
         "armed": len(armed),
         "scanned": st.scanned,
+        "scan_total": st.scan_total,
         "scanning": st.scanning or uid in _interactive_scans,
         "scan_cancellable": uid in _interactive_scans,
         "last_scan_ms": st.last_scan_ms,

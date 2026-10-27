@@ -99,6 +99,8 @@ def migrate(c: sqlite3.Connection) -> None:
     migrate_media(c)
     from app.services.auth.access_requests import migrate as migrate_requests
     migrate_requests(c)
+    from app.services.auth.login_activity import migrate as migrate_activity
+    migrate_activity(c)
 
 
 def _available() -> None:

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
+<style>html:not([data-radio-ready]) body{visibility:hidden}</style>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#000000" />
@@ -296,6 +297,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 </style>
   <link rel="stylesheet" href="/media/experience.css">
   <script defer src="/media/comfort.js"></script>
+<link rel="stylesheet" href="/media/color-scheme.css">
+<script src="/media/color-scheme.js"></script>
 </head>
 
 <body class="mode-spotify select-none overflow-hidden h-[100dvh] w-screen flex flex-col">
@@ -2603,6 +2606,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       initRadioDirectory();
       initSpotifyShell();
       initRadioExtras();
+      document.documentElement.dataset.radioReady='true';
       radioNav=window.SterlingNav?.create({kind:'radio',hosted:()=>radioHosted});
       bindAudioEvents();
       bindBackgroundPlayGuard();

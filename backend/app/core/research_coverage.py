@@ -64,9 +64,13 @@ def paired_session_coverage(
             if as_of < closing:
                 reasons.append("SESSION_IN_PROGRESS")
             tick = opening
-            while tick < closing:
+            bar_duration = timedelta(minutes=interval_minutes)
+            # A candle is eligible only when the entire configured interval
+            # fits within the shared continuous session. For 60-minute candles,
+            # 15:15–16:15 is NOT a finished hourly bar at the 15:30 close.
+            while tick + bar_duration <= closing:
                 expected.add(tick.timestamp())
-                tick += timedelta(minutes=interval_minutes)
+                tick += bar_duration
         counts = []
         for label, (by_day, invalid_days) in zip(("UNDERLYING", "OPTION"), tapes):
             tape = by_day.get(cursor, {})
@@ -75,6 +79,12 @@ def paired_session_coverage(
             counts.append(len(missing))
             if missing:
                 reasons.append(f"{label}_MISSING_BARS")
+            # A complete expected grid is necessary, not sufficient. Off-grid
+            # candles can be future data, a different timeframe, or
+            # pre/post-market prints; accepting them silently contaminates
+            # no-lookahead and forward replay evidence.
+            if actual - expected:
+                reasons.append(f"{label}_UNEXPECTED_BARS")
             if any(tape[t] > 1 for t in actual):
                 reasons.append(f"{label}_DUPLICATE_BARS")
             if cursor in invalid_days:

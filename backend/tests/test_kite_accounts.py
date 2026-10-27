@@ -149,7 +149,7 @@ def test_empty_access_token_never_creates_connected_session():
 def test_failed_session_persistence_never_publishes_connection(monkeypatch):
     a = _create()
 
-    def fail(_candidate):
+    def fail(_candidate, **kwargs):
         raise RuntimeError("session disk write failed")
 
     monkeypatch.setattr(accounts, "_persist", fail)
@@ -182,7 +182,7 @@ def test_failed_revocation_persistence_quarantines_runtime_and_safe_mode(
         kite_user_id="ZID1",
     )
 
-    def fail(_candidate):
+    def fail(_candidate, **kwargs):
         raise RuntimeError("revocation disk write failed")
 
     monkeypatch.setattr(accounts, "_persist", fail)
@@ -205,7 +205,7 @@ def test_failed_revocation_persistence_quarantines_runtime_and_safe_mode(
 def test_failed_account_add_is_never_memory_only(monkeypatch):
     before = list(accounts.all_accounts())
 
-    def fail(_candidate):
+    def fail(_candidate, **kwargs):
         raise RuntimeError("account disk write failed")
 
     monkeypatch.setattr(accounts, "_persist", fail)

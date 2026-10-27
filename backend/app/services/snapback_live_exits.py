@@ -29,6 +29,7 @@ refused to close a position would be a way to lose money.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -685,6 +686,25 @@ class SnapbackExitManager:
     async def _run_exit(self, client: Any, pos: LivePosition, *, forced: bool = False) -> str:
         """Advance the stored exit as far as it can go. Returns the outcome."""
         pos = self.store.get(pos.position_id) or pos
+
+        # A crash may occur AFTER terminal fill projection and BEFORE durable
+        # order-ID retirement / journal projection acknowledgement. Even if the
+        # local quantity already reads flat, resolve that exact broker order:
+        # skipping straight to finalisation could erase recovery identity.
+        if (bool(pos.option_exit_order_id) != bool(pos.option_exit_requested)
+                or bool(pos.hedge_exit_order_id) != bool(pos.hedge_exit_requested)):
+            self._flag_reconciling(pos, "exit_ack_slot_inconsistent_at_resume")
+            return "reconciling"
+        if pos.option_exit_order_id:
+            if pos.exit_reason == "BROKER_STOP" and pos.gtt_id:
+                self._flag_reconciling(pos, "broker_stop_and_market_exit_overlap")
+                return "reconciling"
+            outcome = await self._resolve_exit(
+                client, pos, leg="option", order_id=pos.option_exit_order_id)
+            if outcome != "done":
+                return self._after_failure(pos, "option", outcome)
+            pos = self.store.get(pos.position_id) or pos
+
         if pos.exit_reason == "BROKER_STOP" and pos.option_exit_qty < pos.option_qty:
             settled = await self._settle_broker_stop(client, pos)
             if settled not in ("done", "market_exit"):
@@ -697,6 +717,13 @@ class SnapbackExitManager:
             outcome = await self._close_leg(client, pos, leg="option", forced=forced)
             if outcome != "done":
                 return self._after_failure(pos, "option", outcome)
+            pos = self.store.get(pos.position_id) or pos
+
+        if pos.has_hedge and pos.hedge_exit_order_id:
+            outcome = await self._resolve_exit(
+                client, pos, leg="hedge", order_id=pos.hedge_exit_order_id)
+            if outcome != "done":
+                return self._after_failure(pos, "hedge", outcome)
             pos = self.store.get(pos.position_id) or pos
 
         if pos.has_hedge and pos.hedge_exit_qty < pos.hedge_qty:
@@ -779,6 +806,26 @@ class SnapbackExitManager:
         total = round(option_pnl + hedge_pnl, 2)
 
         def apply(p: LivePosition) -> None:
+            # The broker was checked against `pos` before this transaction.
+            # A concurrent restart, new ACK, changed ownership or new residual
+            # must invalidate that check, not get erased by CLOSED.
+            if (p.status != EXITING
+                    or p.uid != pos.uid or p.account_id != pos.account_id
+                    or p.option_symbol != pos.option_symbol
+                    or p.option_exchange != pos.option_exchange
+                    or p.hedge_symbol != pos.hedge_symbol
+                    or p.option_qty != pos.option_qty
+                    or p.hedge_qty != pos.hedge_qty
+                    or p.option_exit_qty != pos.option_exit_qty
+                    or p.hedge_exit_qty != pos.hedge_exit_qty
+                    or p.option_exit_value != pos.option_exit_value
+                    or p.hedge_exit_value != pos.hedge_exit_value
+                    or p.option_exit_unknown_qty != pos.option_exit_unknown_qty
+                    or p.option_exit_qty != p.option_qty
+                    or (p.has_hedge and p.hedge_exit_qty != p.hedge_qty)
+                    or p.option_exit_order_id or p.option_exit_requested
+                    or p.hedge_exit_order_id or p.hedge_exit_requested):
+                raise ValueError("broker-flat proof or exit ACK changed before closure")
             p.status = CLOSED
             p.option_exit_price = round(opt_price, 4)
             p.hedge_exit_price = round(hedge_price, 4)
@@ -790,7 +837,14 @@ class SnapbackExitManager:
             # is partial and the operator has to reconcile it with the broker.
             p.flags = [f for f in p.flags if f == "option_exit_price_unknown"]
 
-        self.store.mutate(pos.position_id, apply)
+        try:
+            stored = self.store.mutate(pos.position_id, apply)
+            if stored is None:
+                raise RuntimeError("position vanished before durable close")
+        except Exception as exc:  # noqa: BLE001 - do not erase unretired broker orders
+            log.critical("Snapback final close blocked for %s: %s", pos.position_id, exc)
+            self._flag_reconciling(pos, "final_close_registry_or_broker_ack_conflict")
+            return "reconciling"
         self._retry_at.pop(pos.position_id, None)
         self._stop_checked.pop(pos.position_id, None)
         notes = []
@@ -815,13 +869,32 @@ class SnapbackExitManager:
         """Close one leg through the canonical service. ``done`` once it is flat."""
         is_option = leg == "option"
         order_attr = "option_exit_order_id" if is_option else "hedge_exit_order_id"
-        total = pos.option_qty if is_option else pos.hedge_qty
+        requested_attr = "option_exit_requested" if is_option else "hedge_exit_requested"
         filled_attr = "option_exit_qty" if is_option else "hedge_exit_qty"
-        remaining = total - int(getattr(pos, filled_attr))
-        if remaining <= 0:
-            return "done"
+        total = pos.option_qty if is_option else pos.hedge_qty
+        exited = getattr(pos, filled_attr)
+        order_id = getattr(pos, order_attr)
+        requested = getattr(pos, requested_attr)
 
-        order_id = str(getattr(pos, order_attr) or "")
+        # Check durability *before* broker inventory reads or stop cancellation.
+        # An orphan request can be a real broker order whose ACK was lost.
+        # Clearing its stop first would leave the remaining option unprotected
+        # even though sending a replacement exit is correctly prohibited.
+        if (leg not in {"option", "hedge"}
+                or type(total) is not int or type(exited) is not int
+                or total < 0 or exited < 0 or exited > total
+                or type(order_id) is not str
+                or type(requested) is not int or requested < 0
+                or bool(order_id) != bool(requested)
+                or (order_id and (not order_id.strip() or order_id != order_id.strip()))):
+            self._flag_reconciling(pos, "exit_registry_state_unverified")
+            return "exit_state_unverified"
+        remaining = total - exited
+        if remaining <= 0:
+            if order_id:
+                self._flag_reconciling(pos, "exit_order_still_working_after_flat")
+                return "exit_state_unverified"
+            return "done"
         if not order_id:
             # Prove the broker quantity belongs to this logical position before
             # removing its resting stop. Kite aggregates same-contract positions
@@ -862,6 +935,17 @@ class SnapbackExitManager:
             elif held is True:
                 self._clear_shortfall(pos)
             order_id = await self._submit_exit(client, pos, leg=leg, quantity=remaining)
+            if order_id is None:
+                # Submission may have reached the broker; a second SELL or
+                # restoring a prior stop can double-close this position.
+                try:
+                    current = self.store.get(pos.position_id) or pos
+                except Exception as exc:  # noqa: BLE001 - disk may also be full
+                    log.critical("Snapback exit hold cannot read registry: %s", exc)
+                    current = pos
+                self._flag_reconciling(
+                    current, f"{leg}_exit_submission_identity_unknown")
+                return "submit_unknown"
             if not order_id:
                 if is_option:
                     # The stop was released and no sell went out: protect exactly
@@ -1065,17 +1149,24 @@ class SnapbackExitManager:
         if not self._note_shortfall(pos, "option"):
             if available > 0:
                 return "sell", available
-            # Nothing is booked and nothing is sold. The stop was released for this exit, so
-            # put it back over what the broker holds on a fresh reading (a stop is only placed
-            # over units that exist): if the reading that showed none was the bad one, the
-            # position is protected again before the next attempt.
-            try:
-                fresh = self.store.get(pos.position_id) or pos
-                await self.protection.ensure(client, fresh, int(remaining), escalate=False)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Snapback exit: stop not restored while a shortfall is unconfirmed: %s", exc)
+            # Broker currently proves ZERO option holdings, not 'remaining'.
+            # Restoring a SELL GTT sized from our stale local registry could
+            # create a NAKED short if the broker book is right. The next
+            # observation will either find positive holdings (which are then
+            # sold), or confirm the disappearance and reconcile it. Never
+            # arm a new protective SELL based solely on local inventory
+            # against a contradictory broker-zero observation.
+            log.warning(
+                "Snapback exit: option holdings temporarily unverified for %s; "
+                "stop restoration withheld pending positive broker inventory",
+                pos.position_id,
+            )
             return "option_missing_unconfirmed", 0
-        self._book_unpriced_option_exit(pos, quantity=remaining - available, available=available)
+        try:
+            self._book_unpriced_option_exit(
+                pos, quantity=remaining - available, available=available)
+        except RuntimeError:
+            return "reconciling", 0
         return "sell", available
 
     def _book_unpriced_option_exit(self, pos: LivePosition, *, quantity: int, available: int) -> None:
@@ -1085,19 +1176,52 @@ class SnapbackExitManager:
         ``_note_shortfall``). The broker stop is released first in every exit, so nothing is
         left armed over units that no longer exist (a later trigger would open a naked short).
         """
-        def apply(p: LivePosition) -> None:
-            p.option_exit_qty += int(quantity)
-            p.option_exit_unknown_qty += int(quantity)
-            if "option_exit_price_unknown" not in p.flags:
-                p.flags.append("option_exit_price_unknown")
-            p.note = "option_missing_at_broker"
-            p.gtt_id = 0
-            p.gtt_qty = 0
-            p.gtt_stop = 0.0
-            p.protection_state = PROTECTION_NONE
-            p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = "", 0, 0
+        # A concurrent canonical exit may still complete after this shortfall
+        # observation. Such an order is never proof that the remaining units
+        # vanished: preserve the order identity and require reconciliation.
+        try:
+            if (type(quantity) is not int or quantity <= 0
+                    or type(available) is not int or available < 0):
+                raise ValueError("invalid unpriced option shortfall")
+            if pos.option_exit_order_id or pos.option_exit_requested:
+                raise ValueError("canonical option exit is unresolved")
 
-        self.store.mutate(pos.position_id, apply)
+            def apply(p: LivePosition) -> None:
+                # Mutate only the very same owner/contract that produced the
+                # repeated broker-zero observations. A concurrent transfer,
+                # close, or reconciliation invalidates the attribution.
+                if (p.position_id != pos.position_id
+                        or p.uid != pos.uid or p.account_id != pos.account_id
+                        or p.option_exchange != pos.option_exchange
+                        or p.option_symbol != pos.option_symbol
+                        or p.status in {RECONCILING, CLOSED}):
+                    raise ValueError("unpriced exit position ownership or state changed")
+                remaining = p.option_qty - p.option_exit_qty
+                if (p.option_exit_order_id or p.option_exit_requested
+                        or type(p.option_qty) is not int
+                        or type(p.option_exit_qty) is not int
+                        or type(p.option_exit_unknown_qty) is not int
+                        or p.option_exit_unknown_qty < 0
+                        or p.option_exit_unknown_qty > p.option_exit_qty
+                        or remaining <= 0 or quantity > remaining):
+                    raise ValueError("option exit or available quantity changed during shortfall")
+                p.option_exit_qty += quantity
+                p.option_exit_unknown_qty += quantity
+                if "option_exit_price_unknown" not in p.flags:
+                    p.flags.append("option_exit_price_unknown")
+                p.note = "option_missing_at_broker"
+                p.gtt_id = 0
+                p.gtt_qty = 0
+                p.gtt_stop = 0.0
+                p.protection_state = PROTECTION_NONE
+                p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = "", 0, 0
+
+            if self.store.mutate(pos.position_id, apply) is None:
+                raise RuntimeError("shortfall position vanished before durable booking")
+        except Exception as exc:  # noqa: BLE001 - no silent unpriced accounting
+            self._flag_reconciling(pos, "unpriced_option_exit_conflicts_with_broker_state")
+            raise RuntimeError("unpriced option shortfall must be reconciled") from exc
+
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
               detail_line(qty=int(quantity),
                           notes=["option units are not at the broker (closed outside Sterling?)",
@@ -1150,19 +1274,58 @@ class SnapbackExitManager:
             if note not in p.flags:
                 p.flags.append(note)
 
-        self.store.mutate(pos.position_id, apply)
+        try:
+            self.store.mutate(pos.position_id, apply)
+        except Exception as exc:  # noqa: BLE001 - never skip the safety halt
+            log.critical("Snapback cannot persist reconciliation hold for %s: %s",
+                         pos.position_id, exc)
+        engage_kill_switch(
+            f"Snapback position {pos.option_symbol} needs reconciliation: {note}",
+            pos.uid)
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
               detail_line(qty=pos.option_qty, notes=[note.replace("_", " "),
                                                     "automatic handling stopped; check the broker"]),
               key=f"snapback:{pos.position_id}:RECON:{note}", severity="CRITICAL",
               uid=pos.uid)
-        engage_kill_switch(f"Snapback position {pos.option_symbol} needs reconciliation: {note}", pos.uid)
 
-    async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> str:
+    async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> Optional[str]:
         """One canonical CLOSE_POSITION order. Returns its order id, or ``""``."""
         from app.services.execution_service import ExecutionRequest, ExposureEffect
         from app.services.snapback_plan_producer import generation_id
 
+        # Risk-reducing exits must never default to an arbitrary futures
+        # direction when durable hedge metadata are incomplete/corrupt.
+        # An invented BUY could increase exposure rather than close it.
+        if leg not in {"option", "hedge"} or (
+                leg == "hedge" and str(pos.hedge_side).upper() not in {"BUY", "SELL"}):
+            log.critical("Snapback exit: unknown leg/hedge side for %s", pos.position_id)
+            engage_kill_switch("Snapback exit leg or hedge direction unverified", pos.uid)
+            return None
+        # A real broker transport may not be switched to a different account
+        # since the entry was booked; ledger and registry are account-bound.
+        if getattr(client, "_is_paper", None) is False and (
+                not pos.account_id or
+                str(getattr(client, "_account_id", "") or "") != pos.account_id):
+            log.critical("Snapback exit: broker account changed for %s", pos.position_id)
+            engage_kill_switch("Snapback exit authenticated account mismatch", pos.uid)
+            return None
+        # Validate the durable quantity and order slot BEFORE submitting to Kite.
+        # A prior request without its order ID is an unresolved broker attempt;
+        # submitting another exit could create a naked opposite-side position.
+        raw_total = pos.option_qty if leg == "option" else pos.hedge_qty
+        raw_exited = pos.option_exit_qty if leg == "option" else pos.hedge_exit_qty
+        old_order_id = pos.option_exit_order_id if leg == "option" else pos.hedge_exit_order_id
+        old_requested = pos.option_exit_requested if leg == "option" else pos.hedge_exit_requested
+        if (type(quantity) is not int or quantity <= 0
+                or type(raw_total) is not int or type(raw_exited) is not int
+                or raw_total <= 0 or not 0 <= raw_exited < raw_total
+                or quantity > raw_total - raw_exited
+                or type(old_order_id) is not str or type(old_requested) is not int
+                or old_requested < 0 or bool(old_order_id) != bool(old_requested)
+                or (old_order_id and old_requested != quantity)):
+            log.critical("Snapback exit: untrusted quantity/order slot for %s", pos.position_id)
+            engage_kill_switch("Snapback exit quantity/order state needs reconciliation", pos.uid)
+            return None
         is_option = leg == "option"
         symbol = pos.option_symbol if is_option else pos.hedge_symbol
         exchange = pos.option_exchange if is_option else pos.hedge_exchange
@@ -1185,35 +1348,60 @@ class SnapbackExitManager:
         try:
             result = await self.canonical.submit_order(request, broker_client=client,
                                                        risk_approval=None)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Snapback exit submit raised for %s: %s", symbol, exc)
-            return ""
-        if not result.success or not result.order_id:
-            log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
-            if str(result.status or "").upper() in ("REJECTED", "CANCELLED"):
-                # Nothing is working at the broker for this key and the key is spent,
-                # so the next try must be a NEW attempt. An UNKNOWN outcome is
-                # different: it keeps its key, so a retry can never send twice.
-                def bump(p: LivePosition) -> None:
-                    p.exit_attempts += 1
+        except Exception as exc:  # noqa: BLE001 - request may already exist at broker
+            log.critical("Snapback exit submit outcome unknown for %s: %s", symbol, exc)
+            return None
 
-                self.store.mutate(pos.position_id, bump)
+        status = str(getattr(result, "status", "") or "").upper()
+        broker_order_id = str(getattr(result, "order_id", "") or "")
+        if not broker_order_id:
+            if (status not in {"HALTED", "REJECTED_PLAN", "REJECTED_RELEASE_AUTHORITY",
+                                "REJECTED_RISK", "REJECTED_BINDING", "REJECTED_INPUT"}
+                    or bool(getattr(result, "success", False))
+                    or getattr(result, "filled_quantity", 0) != 0):
+                # No proof the broker did not receive this request. Persist an
+                # owner-scoped reconciliation hold; never place another sell.
+                return None
+            log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
+            if status in {"REJECTED", "CANCELLED"} and int(
+                    getattr(result, "filled_quantity", 0) or 0) == 0:
+                self.store.mutate(
+                    pos.position_id,
+                    lambda p: setattr(p, "exit_attempts", p.exit_attempts + 1))
             alert("EXIT NOT SENT", pos.option_symbol,
                   detail_line(qty=quantity, notes=[f"{leg} leg: {result.status} {result.error}"[:160]]),
                   key=f"snapback:{pos.position_id}:EXITREFUSED:{leg}:{int(time.time() // 120)}",
-                  severity="CRITICAL",
-                  uid=pos.uid)
+                  severity="CRITICAL", uid=pos.uid)
             return ""
 
-        field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
-        req_name = "option_exit_requested" if is_option else "hedge_exit_requested"
+        # An order ID is recovery authority, regardless of a response's
+        # optimistic/negative success flag. The resolver must prove whether
+        # the known order actually reduced inventory and is terminal.
+        from app.services.snapback_exit_order_binding import bind_acknowledged_exit
 
         def apply(p: LivePosition) -> None:
-            setattr(p, field_name, str(result.order_id))
-            setattr(p, req_name, int(quantity))
+            bind_acknowledged_exit(
+                p, pos, leg=leg, broker_order_id=broker_order_id,
+                requested=int(quantity),
+            )
 
-        self.store.mutate(pos.position_id, apply)
-        return str(result.order_id)
+        try:
+            stored = self.store.mutate(pos.position_id, apply)
+            if stored is None:
+                raise RuntimeError("exit position vanished before order ID persistence")
+        except Exception as exc:  # noqa: BLE001 - SELL/BUY may already exist at Kite
+            log.critical(
+                "Snapback exit: broker order %s ACKed but durable registry failed: %s",
+                broker_order_id, exc,
+            )
+            engage_kill_switch(
+                f"Snapback exit broker order {broker_order_id} not persisted; reconcile",
+                pos.uid,
+            )
+            # Caller enters a reconciliation hold. No blind resend and no
+            # competing option stop may be rearmed while ACK is uncertain.
+            return None
+        return broker_order_id
 
     async def _ensure_ledger_inventory(self, pos: LivePosition, *, leg: str) -> None:
         """The canonical exit proves a reduction against the fill ledger. Re-book the
@@ -1241,8 +1429,32 @@ class SnapbackExitManager:
     async def _resolve_exit(self, client: Any, pos: LivePosition, *, leg: str, order_id: str) -> str:
         from app.services import canonical_fill_reconciliation as fills
 
+        # A persisted order must be attributable to this leg *before* any
+        # asynchronous broker query or ledger booking. Never truncate a
+        # corrupt requested quantity or resolve a different working order.
+        if leg not in {"option", "hedge"}:
+            self._flag_reconciling(pos, "exit_receipt_leg_unknown")
+            return "unresolved"
         is_option = leg == "option"
-        requested = int(pos.option_exit_requested if is_option else pos.hedge_exit_requested)
+        prefix = "option" if is_option else "hedge"
+        requested = getattr(pos, f"{prefix}_exit_requested")
+        stored_id = getattr(pos, f"{prefix}_exit_order_id")
+        total = getattr(pos, f"{prefix}_qty")
+        exited = getattr(pos, f"{prefix}_exit_qty")
+        booked_ids = getattr(pos, f"{prefix}_exit_booked_ids")
+        already_projected = (
+            isinstance(booked_ids, list) and order_id in booked_ids
+        )
+        if (type(order_id) is not str or not order_id.strip()
+                or order_id != order_id.strip()
+                or type(stored_id) is not str or stored_id != order_id
+                or type(requested) is not int or requested <= 0
+                or type(total) is not int or type(exited) is not int
+                or total <= 0 or not 0 <= exited <= total
+                or (not already_projected
+                    and (exited == total or requested > total - exited))):
+            self._flag_reconciling(pos, "exit_receipt_order_state_unverified")
+            return "unresolved"
         reference = float(pos.option_entry_price if is_option else pos.hedge_entry_price) or 1.0
         resolve = self._resolver or fills.resolve_entry_fill
         try:
@@ -1253,33 +1465,67 @@ class SnapbackExitManager:
             log.error("Snapback exit: resolution failed for %s: %s", order_id, exc)
             return "resolution_failed"
 
-        filled = int(resolution.filled_quantity or 0)
-        average = float(resolution.average_price or 0.0)
+        # Once an exit SELL/BUY reached the broker, malformed evidence must
+        # never clear its order ID or authorize another exit attempt. In
+        # particular, an unsigned/int-truncated or over-requested cumulative
+        # quantity could accidentally count more closes than broker holdings.
+        try:
+            raw_qty = getattr(resolution, "filled_quantity", None)
+            raw_px = getattr(resolution, "average_price", None)
+            if type(raw_qty) is not int or not 0 <= raw_qty <= requested:
+                raise ValueError("invalid_exit_filled_quantity")
+            if (type(raw_px) not in (int, float) or not math.isfinite(raw_px)
+                    or raw_px < 0 or (raw_qty > 0 and raw_px <= 0)):
+                raise ValueError("invalid_exit_average_price")
+            filled, average = raw_qty, float(raw_px)
+        except (ValueError, TypeError, OverflowError) as exc:
+            log.error("Snapback exit: %s has invalid broker fill receipt: %s", order_id, exc)
+            engage_kill_switch(
+                f"Snapback exit {order_id} cannot verify broker fill quantity/price",
+                pos.uid)
+            return "unresolved"
         if filled > 0:
             if not self._book_exit(pos, leg=leg, order_id=order_id, filled=filled, average=average,
                                    exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0)):
                 return "accounting_pending"
 
-        if resolution.reconciliation_required or not resolution.settled:
+        # A complete requested quantity is NOT broker-terminal proof:
+        # OPEN/UPDATE working orders can still change. Keep their durable
+        # identity and never submit a replacement before terminal evidence.
+        if (resolution.reconciliation_required or not resolution.settled
+                or getattr(resolution, "terminal", None) is not True
+                or str(getattr(resolution, "status", "") or "").upper()
+                   not in _ORDER_TERMINAL):
             return "unresolved"
+        # A terminal no-fill CANCELLED/REJECTED receipt has nothing to
+        # project and may legitimately carry version zero. COMPLETE/zero-fill
+        # instead conflicts with the claimed broker completion.
+        terminal_status = str(getattr(resolution, "status", "") or "").upper()
+        if filled == 0 and terminal_status not in {"CANCELLED", "REJECTED"}:
+            return "unresolved"
+        if filled > 0:
+            version = getattr(resolution, "projection_version", None)
+            if type(version) is not int or version <= 0:
+                return "projection_pending"
+
+        from app.services.snapback_exit_fill_projection import project_terminal_exit
 
         def apply(p: LivePosition) -> None:
-            booked = p.option_exit_booked_ids if is_option else p.hedge_exit_booked_ids
-            if str(order_id) in booked:
-                return
-            if is_option:
-                p.option_exit_qty += filled
-                p.option_exit_value += filled * average
-                p.option_exit_booked_ids.append(str(order_id))
-            else:
-                p.hedge_exit_qty += filled
-                p.hedge_exit_value += filled * average
-                p.hedge_exit_booked_ids.append(str(order_id))
-            if filled == 0:
-                p.exit_attempts += 1
+            project_terminal_exit(
+                p, pos, leg=leg, order_id=str(order_id), requested=requested,
+                filled=filled, average=average,
+            )
 
-        updated = self.store.mutate(pos.position_id, apply)
-        if updated is not None and resolution.projection_version:
+        try:
+            updated = self.store.mutate(pos.position_id, apply)
+            if updated is None:
+                raise RuntimeError("terminal exit position vanished before projection")
+        except Exception as exc:  # noqa: BLE001 - ledger may already contain the fill
+            log.critical("Snapback terminal exit %s cannot project broker fill: %s",
+                         order_id, exc)
+            self._flag_reconciling(pos, "terminal_exit_projection_conflict")
+            return "unresolved"
+        if updated is not None and filled > 0:
             try:
                 if not fills.mark_projected(resolution):
                     from app.services.kite_engine import order_journal
@@ -1291,7 +1537,40 @@ class SnapbackExitManager:
                 return "projection_pending"
         if updated is not None:
             field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
-            updated = self.store.mutate(pos.position_id, lambda p: setattr(p, field_name, ""))
+            requested_field = "option_exit_requested" if is_option else "hedge_exit_requested"
+
+            def retire_terminal_exit(p: LivePosition) -> None:
+                # A broker-terminal ACK must be retired atomically. Keeping a
+                # nonzero request after dropping its ID makes recovery unable
+                # to distinguish a completed leg from an unknown prior send.
+                if (p.position_id != pos.position_id
+                        or p.uid != pos.uid or p.account_id != pos.account_id
+                        or p.option_symbol != pos.option_symbol
+                        or p.option_exchange != pos.option_exchange
+                        or (not is_option
+                            and (p.hedge_symbol != pos.hedge_symbol
+                                 or p.hedge_exchange != pos.hedge_exchange
+                                 or p.hedge_side != pos.hedge_side))
+                        or getattr(p, field_name) != str(order_id)
+                        or getattr(p, requested_field) != requested):
+                    raise ValueError("exit order or owner changed during retirement")
+                setattr(p, field_name, "")
+                setattr(p, requested_field, 0)
+                if filled == 0:
+                    # Count a terminal no-fill ONLY when its ACK is retired.
+                    # Repeated recovery between projection and retirement must
+                    # not inflate the idempotency attempt number.
+                    p.exit_attempts += 1
+
+            try:
+                updated = self.store.mutate(pos.position_id, retire_terminal_exit)
+                if updated is None:
+                    raise RuntimeError("position vanished while retiring exit ACK")
+            except Exception as exc:  # noqa: BLE001 - do not resubmit an uncertain exit
+                log.critical("Snapback cannot retire terminal exit %s: %s", order_id, exc)
+                engage_kill_switch(
+                    f"Snapback terminal exit {order_id} needs reconciliation", pos.uid)
+                return "unresolved"
         if filled == 0:
             # The order ended with no fill: the leg is provably still open, so a
             # NEW attempt (new journal key) is safe. Restore protection first.
@@ -1318,6 +1597,9 @@ class SnapbackExitManager:
         try:
             from app.services.kite_engine import fill_ledger
 
+            if leg not in {"option", "hedge"} or (
+                    leg == "hedge" and str(pos.hedge_side).upper() not in {"BUY", "SELL"}):
+                raise ValueError("unknown hedged exit direction; cannot book ledger")
             is_option = leg == "option"
             symbol = pos.option_symbol if is_option else pos.hedge_symbol
             exchange = pos.option_exchange if is_option else pos.hedge_exchange
@@ -1328,9 +1610,14 @@ class SnapbackExitManager:
                 cumulative_value=float(filled) * float(average), source=source,
                 exchange_ts_ms=exchange_ts_ms,
                 lot_size=int((pos.lot_size if is_option else pos.hedge_lot_size) or 0))
-            if applied.reconciliation_required:
-                log.critical("Snapback exit: contradictory fill evidence for %s", symbol)
-                engage_kill_switch(f"Snapback exit fill for {symbol} is contradictory", pos.uid)
+            ledger_reason = str(getattr(applied, "reason", "") or "")
+            if (applied.reconciliation_required
+                    or ledger_reason not in {"accepted", "duplicate"}):
+                log.critical("Snapback exit: fill ledger refuses %s for %s",
+                             ledger_reason or "unknown", symbol)
+                engage_kill_switch(
+                    f"Snapback exit fill for {symbol} needs ledger reconciliation",
+                    pos.uid)
                 return False
             return True
         except Exception as exc:  # noqa: BLE001
@@ -1413,11 +1700,18 @@ class SnapbackExitManager:
         child_id = str(state.child_order_id or "")
         if not child_id:
             return [] if state.verdict == pstop.STOP_ABSENT else None
-        if child_id in booked:
-            return []                     # already counted: nothing new to book
-        order = next((o for o in orders if isinstance(o, dict)
-                      and str(o.get("order_id") or "") == child_id), None)
-        if order is None or not self._is_sell_of(order, pos):
+        # A previously booked child may still be OPEN or PARTIALLY filled.
+        # Booked means "accounted for once", not "broker-terminal": never
+        # suppress the child when deciding whether a competing MARKET SELL
+        # can begin. _book_stop_fills is idempotent for booked IDs.
+        matching = [o for o in orders if isinstance(o, dict)
+                    and str(o.get("order_id") or "") == child_id]
+        # Two broker rows with the same child ID are ambiguous snapshots,
+        # not independent proof of a uniquely owned stop fill.
+        if len(matching) != 1:
+            return None
+        order = matching[0]
+        if not self._is_sell_of(order, pos):
             return None
         if child_id != await self._gtt_child_order_id(client, int(pos.gtt_id)):
             # Found by matching the book, not by the trigger's own record: a second SELL of
@@ -1436,12 +1730,33 @@ class SnapbackExitManager:
 
     @staticmethod
     def _filled(order: Dict[str, Any]) -> "tuple[int, float]":
+        """Read a broker fill without truncating quantity or inventing fills.
+
+        Bad or missing broker data is UNKNOWN, never a safe zero fill.
+        The caller must halt and reconcile rather than resell that exposure.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        raw_qty = order.get("filled_quantity")
+        raw_price = order.get("average_price")
+        if (type(raw_qty) not in (str, int, float) or raw_qty == ""
+                or type(raw_price) not in (str, int, float, type(None))):
+            raise ValueError("broker stop fill quantity or price unavailable")
         try:
-            qty = int(float(order.get("filled_quantity") or 0))
-            price = float(order.get("average_price") or 0.0)
-        except (TypeError, ValueError):
-            return 0, 0.0
-        return qty, price
+            decimal_qty = Decimal(str(raw_qty))
+            decimal_price = Decimal(str(raw_price if raw_price not in (None, "") else 0))
+        except InvalidOperation as exc:
+            raise ValueError("broker stop fill is not numeric") from exc
+        if (not decimal_qty.is_finite() or decimal_qty < 0
+                or decimal_qty != decimal_qty.to_integral_value()
+                or decimal_qty > 9_223_372_036_854_775_807
+                or not decimal_price.is_finite() or decimal_price < 0
+                or (decimal_qty > 0 and decimal_price <= 0)):
+            raise ValueError("broker stop fill quantity or price is inconsistent")
+        parsed_price = float(decimal_price)
+        if not math.isfinite(parsed_price):
+            raise ValueError("broker stop fill price overflows numeric range")
+        return int(decimal_qty), parsed_price
 
     def _held_beyond_siblings(
         self, net: Dict[tuple, int], pos: LivePosition
@@ -1475,6 +1790,39 @@ class SnapbackExitManager:
         The broker stop is spent whatever it filled, so it is cleared here. Units beyond what
         this position still held are not booked into it (they surface as a short at the broker).
         """
+        # A triggered broker stop cannot erase a possibly outstanding
+        # canonical market-exit order. That order may still execute after
+        # this stop and must retain its recovery identity.
+        if pos.option_exit_order_id or pos.option_exit_requested:
+            self._flag_reconciling(pos, "stop_and_market_exit_overlap")
+            raise RuntimeError("broker stop overlaps unresolved canonical exit")
+
+        # Never silently cap an actual broker SELL at our logical position size.
+        # Any excess means the account may already be short; pausing for
+        # reconciliation is mandatory before clearing this stop's identity.
+        pending = [(oid, qty) for oid, qty, _ in fills
+                   if oid not in pos.option_exit_booked_ids]
+        try:
+            total = pos.option_qty
+            exited = pos.option_exit_qty
+            quantities = pos.option_exit_booked_quantities
+            if (type(total) is not int or type(exited) is not int
+                    or not 0 <= exited <= total
+                    or not isinstance(quantities, dict)
+                    or any(type(oid) is not str or not oid.strip()
+                           or oid != oid.strip() or type(qty) is not int or qty <= 0
+                           or (oid in pos.option_exit_booked_ids
+                               and quantities.get(oid) != qty)
+                           or (oid not in pos.option_exit_booked_ids
+                               and oid in quantities)
+                           for oid, qty, _ in fills)
+                    or len({oid for oid, _, _ in fills}) != len(fills)
+                    or sum(qty for _, qty in pending) > total - exited):
+                raise ValueError("stop fill cannot be attributed to exact owned quantities")
+        except (TypeError, ValueError) as exc:
+            self._flag_reconciling(pos, "broker_stop_exceeds_owned_option_units")
+            raise RuntimeError("broker stop fill requires short exposure reconciliation") from exc
+
         for oid, qty, price in fills:
             if not self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt",
                                    exchange_ts_ms=(exchange_ts_by_order or {}).get(oid, 0)):
@@ -1482,25 +1830,40 @@ class SnapbackExitManager:
                 raise RuntimeError("stop fill accounting must commit before position projection")
 
         def apply(p: LivePosition) -> None:
+            if p.option_exit_order_id or p.option_exit_requested:
+                raise ValueError("canonical exit started while booking broker stop")
+            quantities = p.option_exit_booked_quantities
+            if not isinstance(quantities, dict):
+                raise ValueError("broker stop cumulative map missing")
             for oid, qty, price in fills:
                 if oid in p.option_exit_booked_ids:
+                    if quantities.get(oid) != qty:
+                        raise ValueError("broker stop child cumulative fill changed")
                     continue
-                take = min(int(qty), max(0, int(p.option_qty) - int(p.option_exit_qty)))
-                if take > 0:
-                    p.option_exit_qty += take
-                    p.option_exit_value += float(take) * float(price)
-                if oid not in p.option_exit_booked_ids:
-                    p.option_exit_booked_ids.append(oid)
+                if (type(p.option_qty) is not int or type(p.option_exit_qty) is not int
+                        or oid in quantities
+                        or qty > p.option_qty - p.option_exit_qty):
+                    raise ValueError("concurrent broker stop overfill: short exposure possible")
+                p.option_exit_qty += qty
+                p.option_exit_value += float(qty) * float(price)
+                quantities[oid] = qty
+                p.option_exit_booked_ids.append(oid)
             p.gtt_id = 0
             p.gtt_qty = 0
             p.gtt_stop = 0.0
             p.protection_state = PROTECTION_NONE
             p.option_exit_order_id = ""
+            p.option_exit_requested = 0
             p.stop_fill_pending_ms = 0
             if p.option_exit_qty < p.option_qty:
                 p.exit_reason = "BROKER_STOP_UNFILLED"
 
-        return self.store.mutate(pos.position_id, apply) or pos
+        try:
+            return self.store.mutate(pos.position_id, apply) or pos
+        except Exception as exc:  # noqa: BLE001 - do not discard a concurrent broker order
+            self._flag_reconciling(pos, "stop_fill_registry_conflict")
+            log.critical("Snapback broker-stop booking requires reconciliation: %s", exc)
+            raise
 
     async def _settle_broker_stop(self, client: Any, pos: LivePosition) -> str:
         """The broker's stop fired: find ITS order, book it, then close the hedge.
@@ -1521,20 +1884,26 @@ class SnapbackExitManager:
         own = await self._stop_child_orders(client, pos, orders)
         net = await _broker_net(client)
         if own is None:
-            # The trigger fired and its order cannot be identified. Nothing is booked on a
-            # guess; an option that is demonstrably gone is the one case that still ends.
-            if net is not None:
-                held = self._held_beyond_siblings(net, pos)
-                if held == 0:
-                    return self._book_if_proven_gone(pos)
+            # A triggered stop whose child order cannot be identified might
+            # still be working. Even a broker-zero position does not prove its
+            # child SELL is gone: treating that as a completed unpriced exit
+            # could leave a latent stop that later opens a naked short.
+            if net is not None and self._held_beyond_siblings(net, pos) == 0:
+                self._flag_reconciling(pos, "broker_stop_child_identity_unknown")
+                return "reconciling"
             return "stop_fill_unverified"
 
         fills = []
         for order in own:
-            qty, price = self._filled(order)
             status = str(order.get("status") or "").upper()
-            if status == "COMPLETE":
-                qty = qty or int(float(order.get("quantity") or 0))
+            try:
+                qty, price = self._filled(order)
+                if status == "COMPLETE" and qty == 0:
+                    raise ValueError("COMPLETE stop has no confirmed filled quantity")
+            except ValueError as exc:
+                log.critical("Snapback cannot verify broker stop fill: %s", exc)
+                engage_kill_switch("Snapback broker stop fill evidence requires reconciliation", pos.uid)
+                return "stop_fill_unverified"
             if qty > 0 and price > 0 and (status == "COMPLETE" or status in _ORDER_TERMINAL):
                 fills.append((str(order.get("order_id") or ""), qty, price))
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
@@ -1558,10 +1927,16 @@ class SnapbackExitManager:
 
         An unpriced booking cannot be undone, so it waits for the shortfall to persist.
         """
+        if pos.option_exit_order_id or pos.option_exit_requested:
+            self._flag_reconciling(pos, "broker_stop_and_canonical_exit_unresolved")
+            return "reconciling"
         if not self._note_shortfall(pos, "option"):
             return "option_missing_unconfirmed"
-        self._book_unpriced_option_exit(
-            pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
+        try:
+            self._book_unpriced_option_exit(
+                pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
+        except RuntimeError:
+            return "reconciling"
         return "done"
 
     async def _stop_fill_pending(self, client: Any, pos: LivePosition,
@@ -1594,6 +1969,11 @@ class SnapbackExitManager:
         from app.services.snapback_family_mode import INTENT_CANCEL, canonical_broker_capability
 
         own_ids = {str(o.get("order_id") or "") for o in own} - {""}
+        # A stop child without a usable ID (or repeated child ID) cannot
+        # be cancelled and confirmed safely. Do not risk a second market SELL.
+        if (not own_ids or len(own_ids) != len(own)
+                or any(not oid.strip() or oid != oid.strip() for oid in own_ids)):
+            return "stop_cancel_unconfirmed"
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
         for order in live:
             oid = str(order.get("order_id") or "")
@@ -1610,16 +1990,25 @@ class SnapbackExitManager:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback exit: order book unreadable after cancel: %s", exc)
             return "stop_cancel_unconfirmed"
-        after = [o for o in book or [] if isinstance(o, dict)
-                 and str(o.get("order_id") or "") in own_ids]
-        if (len(after) < len(own_ids)
-                or any(str(o.get("status") or "").upper() not in _ORDER_TERMINAL for o in after)):
+        from app.services.snapback_stop_cancel_verification import (
+            verified_terminal_stop_children,
+        )
+
+        after = verified_terminal_stop_children(own_ids, book)
+        if after is None:
             return "stop_cancel_unconfirmed"
 
         # Everything the stop's own order did fill is real: book it before selling the rest.
         fills = []
         for order in after:
-            qty, price = self._filled(order)
+            try:
+                qty, price = self._filled(order)
+                if str(order.get("status") or "").upper() == "COMPLETE" and qty == 0:
+                    raise ValueError("COMPLETE stop has no confirmed filled quantity")
+            except ValueError as exc:
+                log.critical("Snapback stop fill after cancel is unverified: %s", exc)
+                engage_kill_switch("Snapback cancelled stop fill requires reconciliation", pos.uid)
+                return "stop_cancel_unconfirmed"
             if qty > 0 and price > 0:
                 fills.append((str(order.get("order_id") or ""), qty, price))
         from app.services.kite_engine.execution_lifecycle import exchange_ms

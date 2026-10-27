@@ -278,10 +278,13 @@ def test_broker_assignment_clears_session_is_durable_and_preserves_history(works
     monkeypatch.setattr(accounts,'_accounts',{})
     broker=accounts.add('default',KiteAccountCreate(label='Profile',api_key='synthetic',api_secret='synthetic-secret'))
     before=broker.updated_at_ms
+    db.set_config_strict(f'kite_login_credentials:default:{broker.id}','fernet:synthetic-ciphertext')
     with db._conn() as c: c.execute("UPDATE kite_accounts SET access_token_enc='saved-session' WHERE id=?",(broker.id,))
     result=accounts.reassign(broker.id,actor_id='default',source_user_id='default',target_user_id='member',expected_updated_at_ms=before)
     assert result.user_id=='member' and not result.is_active and not result.access_token_enc
     assert accounts.get('default',broker.id) is None
+    assert db.get_config_strict(f'kite_login_credentials:member:{broker.id}','')=='fernet:synthetic-ciphertext'
+    assert not db.get_config_strict(f'kite_login_credentials:default:{broker.id}','')
     with db._conn() as c:
         assert c.execute('SELECT user_id FROM kite_accounts WHERE id=?',(broker.id,)).fetchone()[0]=='member'
         audit=c.execute("SELECT before_json,after_json FROM auth_audit_events WHERE action='broker.assigned'").fetchone()
@@ -315,3 +318,68 @@ def test_assignment_endpoint_refuses_open_exposure_before_changing_owner(workspa
     response=client.post(f'/api/v1/admin/brokers/{broker.id}/assignment',json={'user_id':'member','expected_user_id':'default','expected_updated_at_ms':broker.updated_at_ms})
     assert response.status_code==423
     assert accounts.get('default',broker.id).user_id=='default'
+
+
+def test_directory_is_admin_only_and_bulk_grants_are_atomic(workspace,monkeypatch):
+    admin,member=workspace
+    monkeypatch.setattr(admin_connections.accounts,'live_accounts',lambda:[])
+    from app.services.notifications import kite_telegram_store
+    monkeypatch.setattr(kite_telegram_store,'list_targets',lambda uid:[])
+    app=FastAPI();app.include_router(admin_connections.router,prefix='/api/v1')
+    app.dependency_overrides[get_current_user]=lambda:member
+    client=TestClient(app)
+    assert client.get('/api/v1/admin/directory').status_code==403
+    app.dependency_overrides[get_current_user]=lambda:admin
+    result=client.get('/api/v1/admin/directory')
+    assert result.status_code==200,result.text
+    person=next(u for u in result.json()['users'] if u['id']=='member')
+    assert person['activity']==[] and not person['online']
+    body={'users':[{'user_id':'member','expected_revision':person['revision']}],'features':{'radio':True}}
+    assert client.patch('/api/v1/admin/directory/access',json=body).status_code==200
+    assert account_policy.read('member').features['radio']
+    assert client.patch('/api/v1/admin/directory/access',json=body).status_code==409
+    body['users'][0]['expected_revision']+=1
+    body['features']['radio']='false'
+    assert client.patch('/api/v1/admin/directory/access',json=body).status_code==422
+    assert account_policy.read('member').features['radio']
+
+
+def test_activity_uses_trusted_peer_and_revocation(workspace):
+    from starlette.requests import Request
+    from app.services.auth import login_activity
+    def request(peer):
+        return Request({'type':'http','client':(peer,123),'headers':[(b'user-agent',b'Mozilla/5.0 (iPhone) Safari/605.1'),(b'x-sterling-client-ip',b'203.0.113.22'),(b'x-sterling-client-country',b'IN')]})
+    assert login_activity.metadata(request('198.51.100.1'))[4]=='198.51.100.1'
+    req=request('127.0.0.1')
+    login_activity.record('member',1,req,login=True,expires_ms=int(time.time()*1000)+60000)
+    with db._conn() as c:
+        row=login_activity.for_user(c,'member')[0]
+        assert row['online'] and row['device']=='Mobile' and row['country']=='IN'
+        assert row['last_login_ms'] and row['ip']=='203.0.113.22'
+        c.execute("UPDATE users SET token_version=2 WHERE id='member'")
+    with db._conn() as c: assert not login_activity.for_user(c,'member')[0]['online']
+
+
+def test_admin_broker_login_is_masked_owner_bound_and_audited(workspace,monkeypatch):
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    admin,member=workspace
+    monkeypatch.setattr(accounts,'_accounts',{})
+    broker=accounts.add('member',KiteAccountCreate(label='Profile',api_key='synthetic',api_secret='synthetic-secret'))
+    monkeypatch.setattr(accounts,'_accounts',{broker.id:broker})
+    app=FastAPI();app.include_router(admin_connections.router,prefix='/api/v1')
+    app.dependency_overrides[get_current_user]=lambda:member
+    client=TestClient(app)
+    path=f'/api/v1/admin/brokers/{broker.id}/login-credentials'
+    body={'username':'AA001','password':'Synthetic-broker-password','expected_user_id':'member','expected_updated_at_ms':broker.updated_at_ms}
+    assert client.put(path,json=body).status_code==403
+    app.dependency_overrides[get_current_user]=lambda:admin
+    assert client.put(path,json={**body,'expected_user_id':'default'}).status_code==409
+    response=client.put(path,json=body)
+    assert response.status_code==200,response.text
+    assert response.json()['password_saved'] and 'Synthetic-broker-password' not in response.text
+    with db._conn() as c:
+        raw=c.execute('SELECT value FROM system_config WHERE key=?',(f'kite_login_credentials:member:{broker.id}',)).fetchone()[0]
+        assert raw.startswith('fernet:') and 'Synthetic-broker-password' not in raw
+        audit=c.execute("SELECT after_json FROM auth_audit_events WHERE action='broker.login_credentials_updated'").fetchone()[0]
+        assert 'Synthetic-broker-password' not in audit

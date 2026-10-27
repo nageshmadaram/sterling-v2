@@ -2036,6 +2036,8 @@ ${v}
 /linearGradient
 /main
 /media/artwork.js
+/media/color-scheme.css
+/media/color-scheme.js
 /media/comfort.js
 /media/experience.css
 /media/extras.js
@@ -5537,6 +5539,7 @@ body.theme-youtube
 body:is(.theme-spotify,:is(.theme-youtube,.theme-netflix))
 body:is(.theme-youtube,.theme-netflix)
 body[data-tv-backdrop=
+body{visibility:hidden}
 bollywood
 bollywood-lofi
 bombay_beats
@@ -6499,6 +6502,7 @@ document.documentElement.classList.remove(
 document.documentElement.classList.toggle(
 document.documentElement.dataset.radioCategory=
 document.documentElement.dataset.radioCategory=cat;
+document.documentElement.dataset.radioReady=
 document.documentElement.dataset.radioView=
 document.documentElement.dataset.radioView=cat===
 document.documentElement.style.setProperty(
@@ -7455,7 +7459,7 @@ hope
 horizontal
 host
 hostAcknowledged
-hosted=data.hostHeader===true;hydrated=true;
+hosted=data.hostHeader===true;hydrated=true;document.documentElement.classList.toggle(
 hosted});
 hours.
 hover)
@@ -7500,6 +7504,7 @@ html,
 html,body
 html.radio-modal-open
 html.tv-booting
+html:not([data-radio-ready])
 html;
 html=
 http
@@ -11794,6 +11799,7 @@ tv-booting).
 tv-head-icon
 tv-head-sources
 tv-header-actions
+tv-hosted
 tv-mobile-home
 tv-mobile-mini
 tv-mobile-nav

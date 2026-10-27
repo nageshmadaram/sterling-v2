@@ -1,11 +1,10 @@
 """A leg the broker's positions book does not show is not proof that it is gone.
 
-Booking a shortfall as an unpriced exit cannot be undone: the units count as sold, the broker stop
-is gone, the kill switch is engaged and the hedge is closed. One successful-but-empty (or partial)
-positions reply used to be enough, and a position whose book read badly once ended RECONCILING
-with its option still held, no stop over it and nothing managing it. The shortfall now has to
-persist over several readings and a minute before anything irreversible happens; until then the
-exit simply waits, the stop is put back and the position keeps being managed.
+Booking a shortfall as an unpriced exit cannot be undone. A temporary empty broker
+book must not close an owned option, but also must NOT arm a GTT SELL against unverified
+holdings: that could turn a correct broker-zero observation into a naked short.
+Shortfalls require repeated broker reads before irreversible accounting. Until then,
+the exit remains pending and is retried without fabricating a SELL stop.
 """
 from __future__ import annotations
 
@@ -50,7 +49,7 @@ def _no_clock_wait(env, confirmations=3):
     env.monkeypatch.setattr(snapback_live_exits, "SHORTFALL_CONFIRM_S", 0.0)
 
 
-def test_one_empty_positions_reply_neither_books_the_option_nor_loses_its_stop(env):
+def test_empty_broker_inventory_never_rearms_stop_sell_against_unowned_units(env):
     pos = _open(env)
     env.broker.set_quote(OPT_KEY, 250.0, 251.0)       # well above the stop: an operator exit
     env.broker.positions_empty_reads = 2              # ...and the book reads empty on both looks
@@ -62,8 +61,12 @@ def test_one_empty_positions_reply_neither_books_the_option_nor_loses_its_stop(e
     assert outcome == "option_missing_unconfirmed"
     assert held.status == "EXITING" and held.option_exit_unknown_qty == 0 and held.option_exit_qty == 0
     assert "option_exit_price_unknown" not in held.flags
-    assert held.protection_state == "ACTIVE" and held.gtt_id in env.broker.gtts, \
-        "the stop released for the exit is put back while the shortfall is unconfirmed"
+    assert held.protection_state != "ACTIVE" and held.gtt_id == 0, \
+        "do not create a naked short stop when broker reports zero units"
+    assert not any(
+        gtt.get("status") == "active" and gtt.get("tradingsymbol") == OPTION_SYMBOL
+        for gtt in env.broker.gtts.values()
+    ), "no new working GTT may sell option units the broker says are missing"
     assert len(env.broker.placed) == before, "nothing is sold that the book did not show"
     assert not _kill_switch_on()
 

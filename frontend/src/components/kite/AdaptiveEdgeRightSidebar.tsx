@@ -4,6 +4,7 @@ const PriceRulesBoard = lazy(() => import('./board/PriceRulesBoard').then(m => (
 import { openSettingsSection } from './config/registry';
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useEffectiveNowMs } from '../../hooks/useReplayStore';
+import { useTodaySignalPriority } from './board/TodaySignalPriority';
 const SterlingKiteEngineWithExpiry = lazy(() => import('./SterlingKiteEngineWithExpiry').then(m => ({ default: m.SterlingKiteEngineWithExpiry })));
 const GammaMoveBoard = lazy(() => import('./board/GammaMoveBoard').then(m => ({ default: m.GammaMoveBoard })));
 const EmaTrendBoard = lazy(() => import('./board/EmaTrendBoard').then(m => ({ default: m.EmaTrendBoard })));
@@ -79,11 +80,15 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const activeManualScan = useScanActivity((st) => st.current);
   const cancelScan = useCancelScan();
   const nowMs = useEffectiveNowMs();
+  const priority = useTodaySignalPriority();
 
-  const engineSignals = useEngineSignals();
+  // Reuse the cross-strategy today's cache. Unrestricted records only after
+  // every primary current-day source has responded; do not prefetch history
+  // just to display tab counts while today's signals are still loading.
+  const engineSignals = useEngineSignals(!priority.olderReady);
   const gmSnapshot = useGammaMoveSnapshot();
   const sbSnapshot = useSnapbackSnapshot();
-  const emaSnapshot = useEmaTrendSnapshot(['swing']);
+  const emaSnapshot = useEmaTrendSnapshot(['swing'], 200, priority.olderReady ? undefined : priority.day);
   const stCfg = useEngineConfig();
 
 

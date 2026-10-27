@@ -123,6 +123,39 @@ class TestSummarise:
         assert len(rets) == 2                   # only sessions the tape has
         assert float(np.sum(rets)) == pytest.approx(0.04)
 
+    def test_tape_sessions_include_flat_days_missing_from_trade_endpoints(self):
+        t = self._trades([0.20, 0.20], ["2024-01-01", "2024-01-05"])
+        sessions = ["2024-01-01", "2024-01-02", "2024-01-03",
+                    "2024-01-04", "2024-01-05"]
+        diagnostics = equity_series(t, allocation_pct=10.0)
+        calendar_rets = equity_series(t, allocation_pct=10.0, sessions=sessions)
+        assert len(diagnostics) == 2
+        assert len(calendar_rets) == 5
+        assert list(calendar_rets[1:4]) == [0.0, 0.0, 0.0]
+        assert calendar_rets.sum() == pytest.approx(diagnostics.sum())
+        report = summarise(t, 100_000.0, hold_days=5,
+                           allocation_pct=10.0, sessions=sessions)
+        assert report.equity_session_calendar_complete
+        assert report.equity_session_count == 5
+        assert report.as_dict()["equity_session_count"] == 5
+
+    def test_sharpe_report_discloses_when_calendar_is_only_trade_endpoints(self):
+        t = self._trades([0.1, -0.2], ["2024-01-01", "2024-01-03"])
+        diagnostic = summarise(t, 100_000.0, hold_days=5)
+        assert not diagnostic.equity_session_calendar_complete
+        assert diagnostic.equity_session_count == 2
+        assert diagnostic.as_dict()["equity_session_calendar_complete"] is False
+
+    def test_missing_exit_in_source_tape_fails_closed(self):
+        t = self._trades([0.2, 0.2], ["2024-01-01", "2024-01-05"])
+        with pytest.raises(SelectionContaminated, match="calendar"):
+            equity_series(t, allocation_pct=10.0,
+                          sessions=["2024-01-01", "2024-01-03"])
+        with pytest.raises(SelectionContaminated, match="calendar"):
+            equity_series(t, allocation_pct=10.0,
+                          sessions=["2024-01-05", "2024-01-05", "2024-01-01"])
+
+
     def test_an_empty_book_is_not_an_error(self):
         b = summarise([], 100_000.0, hold_days=10)
         assert b.n_days == 0 and b.mean_day_return == 0.0
@@ -160,11 +193,27 @@ class TestGate:
         b = summarise([], 100_000.0, hold_days=10)
         b.trades = [object()] * kw.pop("trades", 200)
         b.n_days = kw.pop("n_days", 120)
+        b.equity_session_calendar_complete = kw.pop("calendar_complete", True)
+        b.equity_session_count = kw.pop("equity_sessions", 180)
         b.mean_day_return = kw.pop("mean", 0.05)
         b.ci = kw.pop("ci", (0.01, 0.09))
         b.max_dd_pct = kw.pop("dd", -12.0)
         b.per_year = kw.pop("per_year", {"2024": 0.1, "2025": 0.05, "2026": 0.07})
         return b
+
+    def test_promotion_blocks_endpoint_only_sharpe_even_if_everything_else_passes(self):
+        fake = self._book(calendar_complete=False)
+        verdict = judge(fake, permutation=0.001, dsr=0.95, breakeven_vrp=2.5)
+        assert not verdict.promoted
+        assert not verdict.checks["complete_equity_session_calendar"]
+        assert any("session calendar missing" in r for r in verdict.reasons)
+
+    def test_promotion_requires_nonempty_tape_calendar(self):
+        fake = self._book(equity_sessions=0)
+        verdict = judge(fake, permutation=0.001, dsr=0.95, breakeven_vrp=2.5)
+        assert not verdict.promoted
+        assert not verdict.checks["complete_equity_session_calendar"]
+
 
     def test_a_missing_permutation_fails_rather_than_passes(self):
         v = judge(self._book(), permutation=None, dsr=0.9, breakeven_vrp=2.0)
@@ -202,6 +251,20 @@ class TestGate:
 
 
 class TestRun:
+    def test_ineligible_selector_is_null_in_strict_json_report(self):
+        import json
+        t = {"RELIANCE": tape(900), "INFY": tape(900, seed=9)}
+        report = run(t, CFG, is_days=200, oos_days=60,
+                     permutation_rounds=5)
+        # Any ineligible rule has scores=None, never float('-inf') which
+        # json.dumps otherwise prints as nonstandard '-Infinity'.
+        strict = json.dumps(report.as_dict(), allow_nan=False)
+        parsed = json.loads(strict)
+        assert "folds" in parsed
+        assert all(s is None or isinstance(s, (float, int))
+                   for fold in parsed["folds"]
+                   for s in fold["in_sample_scores"].values())
+
     def test_produces_all_three_books(self):
         t = {"RELIANCE": tape(900), "INFY": tape(900, seed=9)}
         r = run(t, CFG, is_days=200, oos_days=60, permutation_rounds=5)

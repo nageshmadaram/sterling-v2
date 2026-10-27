@@ -21,6 +21,7 @@ import { SuperTrendSharedBoard } from './SuperTrendSharedBoard';
 import { StrategyBoardFooter } from './board/StrategyBoardFooter';
 import { useSimNowMs } from '../../hooks/useReplayStore';
 import { useEngineConfig, useEngineSignals, useRunScan, usePatchEngineConfig } from '../../hooks/useSterlingKiteEngine';
+import { useTodaySignalPriority } from './board/TodaySignalPriority';
 import type { EngineConfigModel, EngineSignalRow, SignalsResponse, SignalChartData } from '../../types/kiteEngine';
 import { useKiteQuote } from '../../hooks/useKite';
 import { InstrumentLabel } from './InstrumentLabel';
@@ -701,7 +702,8 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const isHistoricalSim = simNowMs != null;
   const currentSimDayLabel = isHistoricalSim ? formatSessionDay(currentTodayKey) : 'Today';
   const s = useKiteSettings();
-  const { data: signals, isLoading: signalsLoading } = useEngineSignals();
+  const priority = useTodaySignalPriority();
+  const { data: signals, isLoading: signalsLoading } = useEngineSignals(!priority.olderReady && !isHistoricalSim);
   const { data: cfg } = useEngineConfig();
   const setCfg = usePatchEngineConfig();
   const scan = useRunScan();
@@ -831,12 +833,16 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
     // 'combined' keeps every row (SuperTrend setups AND Navigator-originated
     // ones) — it differs from the others only in whether/how badges render
     // (see SignalCard).
-    if (todayOnly) {
+    // Across the workspace, load today's signals for every strategy
+    // before rendering SuperTrend's older rows, regardless of stored filters.
+    if (todayOnly || (!priority.olderReady && !isHistoricalSim)) {
       const todayKey = sessionDayKey(effectiveNowMs);
       result = result.filter((r) => {
         const rawTs = (r as any).timestamp_ms ?? (r as any).timestamp ?? (r as any).time ?? (r as any).atMs;
         const day = sessionDayKey(rawTs);
-        return day === todayKey;
+        // Open/active signals are held exposure, not older history. Keep
+        // them visible for the operator even while the history queue waits.
+        return day === todayKey || (!todayOnly && !priority.olderReady && r.is_active);
       });
     }
     if (query.trim()) {
@@ -849,7 +855,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
       });
     }
     return result;
-  }, [rows, query, signalMode, todayOnly, effectiveNowMs, stModes, stMode]);
+  }, [rows, query, signalMode, todayOnly, effectiveNowMs, stModes, stMode, priority.olderReady, isHistoricalSim]);
   const showSignalPremiumColumns = React.useMemo(
     () => cfg?.scan_source !== 'spot' || filteredRows.some(hasPremiumSnapshot),
     [cfg?.scan_source, filteredRows],

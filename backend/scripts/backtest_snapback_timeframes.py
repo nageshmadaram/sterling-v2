@@ -22,6 +22,7 @@ import math
 import sys
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +36,13 @@ load_sterling_env()
 from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
+from app.engines.snapback.challenger import CHALLENGER_ID  # noqa: E402
+from app.engines.snapback.research_reporting import (  # noqa: E402
+    choose_option_contract, closed_trade_audit, contract_replay_summary,
+    current_instrument_master_provenance, eligible_expiries, mode_totals,
+    research_variant_row,
+    write_research_report_once,
+)
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -79,7 +87,8 @@ def _rows(payload) -> list[list[float]]:
     return out
 
 
-async def history(client, token: int, interval: str, start: datetime, end: datetime, span_days: int):
+async def history(client, token: int, interval: str, start: datetime, end: datetime,
+                  span_days: int, *, preserve_duplicates: bool = False):
     rows, cur = [], start
     while cur < end:
         stop = min(cur + timedelta(days=span_days), end)
@@ -88,8 +97,13 @@ async def history(client, token: int, interval: str, start: datetime, end: datet
         rows.extend(_rows(payload))
         cur = stop
         await asyncio.sleep(0.4)
+    ordered = sorted(rows)
+    if preserve_duplicates:
+        # Duplicate boundary bars are actual quality failures in paired replay;
+        # de-duplicating before the coverage audit would erase that evidence.
+        return ordered
     seen, uniq = set(), []
-    for r in sorted(rows):
+    for r in ordered:
         if r[0] not in seen:
             seen.add(r[0]); uniq.append(r)
     return uniq
@@ -170,15 +184,61 @@ async def main() -> None:
 
     # ── Part B: minute modes on real option candles ──────────────────────
     nfo = await client._load_nfo_instruments()
+    candidate_universe = [
+        contract for contract in nfo if isinstance(contract, Mapping)
+        and str(contract.get("name") or "") in INTRADAY_UNDERLYINGS
+        and contract.get("instrument_type") in ("CE", "PE")
+    ]
+    report["minute_instrument_master_provenance"] = current_instrument_master_provenance(
+        candidate_universe, now.isoformat())
+    # This is a CURRENT, non-date-effective broker dump. A historical
+    # strategy profitability certificate needs frozen masters for EACH
+    # selection date plus the actual hedge tape, not only these quotes.
     intraday = {m: [] for m in MODES}
+    minute_cache: dict[tuple[int, str, int], list[list[float]]] = {}
+
+    async def minute_history(token: int, interval: str, days: int, tf: int):
+        # Ultra/scalp reuse one real tape rather than hammering Kite twice.
+        key = (int(token), interval, days)
+        if key not in minute_cache:
+            minute_cache[key] = await history(
+                client, token, interval, now - timedelta(days=days), now,
+                55 if tf == 1 else 180, preserve_duplicates=True)
+        return minute_cache[key]
+
     for und in INTRADAY_UNDERLYINGS:
         if und not in tokens:
+            for mode in MODES:
+                for kind in ("CE", "PE"):
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind,
+                        "skipped": "underlying token unavailable",
+                        "replay_complete": False,
+                    })
             continue
-        spot_rows = await history(client, tokens[und], "day", now - timedelta(days=10), now, 30)
+        try:
+            spot_rows = await history(client, tokens[und], "day", now - timedelta(days=10), now, 30)
+        except Exception as exc:  # noqa: BLE001 - report gaps, do not select winners
+            for mode in MODES:
+                for kind in ("CE", "PE"):
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind,
+                        "skipped": f"underlying history unavailable: {type(exc).__name__}",
+                        "replay_complete": False,
+                    })
+            continue
         spot = spot_rows[-1][4] if spot_rows else None
-        opts = [r for r in nfo if str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
-        expiries = sorted({str(r.get("expiry"))[:10] for r in opts if str(r.get("expiry"))[:10] > now.date().isoformat()})
+        opts = [r for r in nfo if isinstance(r, Mapping)
+                and str(r.get("name")) == und and r.get("instrument_type") in ("CE", "PE")]
+        expiries = eligible_expiries(opts, now.date())
         if not spot or not expiries:
+            reason = "underlying price unavailable" if not spot else "eligible expiry unavailable"
+            for mode in MODES:
+                for kind in ("CE", "PE"):
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind, "skipped": reason,
+                        "replay_complete": False,
+                    })
             continue
         # Next monthly expiry: the last expiry in the next calendar month that has one.
         months = {}
@@ -188,48 +248,125 @@ async def main() -> None:
         expiry = monthly[1] if len(monthly) > 1 and monthly[0] <= (now.date() + timedelta(days=10)).isoformat() else monthly[0]
         for kind in ("CE", "PE"):
             cands = [r for r in opts if str(r.get("expiry"))[:10] == expiry and r.get("instrument_type") == kind]
-            if not cands:
+            pick = choose_option_contract(cands, spot)
+            if pick is None:
+                for mode in MODES:
+                    intraday[mode].append({
+                        "underlying": und, "option_type": kind,
+                        "skipped": "eligible contract metadata unavailable",
+                        "replay_complete": False,
+                    })
                 continue
-            pick = min(cands, key=lambda r: abs(float(r.get("strike") or 0) - spot))
             for mode, (interval, tf, days) in MODES.items():
                 try:
                     start = now - timedelta(days=days)
-                    span = 55 if tf == 1 else 180
-                    u = await history(client, tokens[und], interval, start, now, span)
-                    o = await history(client, int(pick["instrument_token"]), interval, start, now, span)
+                    u = await minute_history(tokens[und], interval, days, tf)
+                    o = await minute_history(int(pick["instrument_token"]), interval, days, tf)
+                    # These maps are used ONLY after coverage validates there
+                    # were no duplicate or off-grid bars for accepted sessions.
                     by_u = {r[0]: r for r in u}; by_o = {r[0]: r for r in o}
                     coverage = paired_session_coverage(u, o, start=start.date(), end=now.date(),
                                                        interval_minutes=tf, as_of=now)
                     keep = coverage.pop("accepted_timestamps")
                     if len(keep) < 50:
                         intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
-                                               "coverage": coverage, "skipped": "too few complete days"})
+                                               "coverage": coverage, "skipped": "too few complete days",
+                                               "evidence_type": "REAL_MARKET_SIM", "replay_complete": False})
                         continue
                     ub = _bars([by_u[t] for t in keep]); ob = _bars([by_o[t] for t in keep])
                     cfg = validate({"trading_mode": mode})
-                    res = replay_intraday(ub, ob, cfg, und, option_type=kind,
-                                          lot_size=int(pick.get("lot_size") or 1), option_symbol=pick["tradingsymbol"])
-                    intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"], "bars": len(keep),
-                                           "coverage": coverage, "evidence_type": "REAL_MARKET_SIM",
-                                           "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
-                                           "trades": res["trade_count"], "win_rate_pct": round(res["win_rate_pct"], 1),
-                                           "net_inr": round(res["net_pnl_inr"], 0), "return_pct": round(res["return_pct"], 2),
-                                           "max_dd_inr": round(res["max_realized_drawdown_inr"], 0),
-                                           "rejected_plans": (lambda v: v if isinstance(v, int) else len(v or []))(res.get("rejected_plans"))})
+                    shared = {
+                        "underlying": und,
+                        "option": pick["tradingsymbol"],
+                        "option_type": kind,
+                        "bars": len(keep),
+                        "coverage": dict(coverage),
+                        "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
+                    }
+                    # Never run/serialize these in one catch scope. A
+                    # challenger exception must not erase a valid baseline.
+                    baseline_report = research_variant_row(
+                        lambda: replay_intraday(
+                            ub, ob, cfg, und, option_type=kind,
+                            lot_size=int(pick.get("lot_size") or 1),
+                            option_symbol=pick["tradingsymbol"]),
+                        metadata=shared, policy="baseline")
+                    challenger_report = research_variant_row(
+                        lambda: replay_intraday(
+                            ub, ob, cfg, und, option_type=kind,
+                            lot_size=int(pick.get("lot_size") or 1),
+                            option_symbol=pick["tradingsymbol"],
+                            candidate_policy=CHALLENGER_ID),
+                        metadata=shared, policy=CHALLENGER_ID)
+                    intraday[mode].append({
+                        **baseline_report,
+                        "cost_feasible_challenger": challenger_report,
+                    })
                 except Exception as exc:  # noqa: BLE001
-                    intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"), "error": str(exc)[:160]})
+                    intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"),
+                                           "error": f"{type(exc).__name__}: {exc}"[:240],
+                                           "replay_complete": False})
                 print(mode, und, kind, intraday[mode][-1], flush=True)
-    totals = {}
-    for mode, rows in intraday.items():
-        ok = [r for r in rows if "trades" in r]
-        n = sum(r["trades"] for r in ok)
-        totals[mode] = {"contracts": len(ok), "trades": n, "net_inr": round(sum(r["net_inr"] for r in ok), 0),
-                        "profitable_contracts": sum(1 for r in ok if r["net_inr"] > 0),
-                        "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None}
+    totals = {mode: mode_totals(rows) for mode, rows in intraday.items()}
+    # Historical report outputs are diagnostic, and missing/failed contracts
+    # remain visible in counts instead of disappearing from profitable totals.
     report["minute_modes_real_options"] = {"totals": totals, "rows": intraday}
+    challenger_rows = {}
+    for mode, rows in intraday.items():
+        challenger_rows[mode] = [
+            row["cost_feasible_challenger"] if "cost_feasible_challenger" in row
+            else {key: row[key] for key in (
+                "underlying", "option", "option_type", "skipped", "error",
+                "coverage", "replay_complete")
+                if key in row}
+            for row in rows
+        ]
+    challenger_totals = {
+        mode: mode_totals(rows) for mode, rows in challenger_rows.items()
+    }
+    # Only compare P&L when BOTH arms covered ALL attempted contracts.
+    # A profitable surviving subset may be shown for diagnosis, never as a
+    # certified head-to-head net result.
+    comparison = {}
+    for mode in MODES:
+        baseline_mode, challenger_mode = totals[mode], challenger_totals[mode]
+        paired_complete = (baseline_mode["research_complete"] is True
+                           and challenger_mode["research_complete"] is True
+                           and baseline_mode["contracts_attempted"]
+                           == challenger_mode["contracts_attempted"])
+        comparison[mode] = {
+            "fully_paired": paired_complete,
+            "baseline_attempted": baseline_mode["contracts_attempted"],
+            "challenger_attempted": challenger_mode["contracts_attempted"],
+            "baseline_errors": baseline_mode["contract_errors"],
+            "challenger_errors": challenger_mode["contract_errors"],
+            "baseline_trades": baseline_mode["trades"],
+            "challenger_trades": challenger_mode["trades"],
+            "after_cost_net_difference_inr": (
+                round(challenger_mode["net_inr_exact"]
+                      - baseline_mode["net_inr_exact"], 6)
+                if paired_complete else None),
+            "profitability_certified": False,
+        }
+    report["minute_challenger_research"] = {
+        "policy": CHALLENGER_ID,
+        "research_only": True, "historical_selection_bias": True,
+        "complete_after_cost_hedge_results": False,
+        "independent_untouched_oos_evidence": False,
+        "baseline_is_unchanged": True,
+        "totals": challenger_totals,
+        "paired_comparison": comparison,
+        "rows": challenger_rows,
+    }
     path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
-    path.write_text(json.dumps(report, indent=2, default=str))
-    print(json.dumps({"swing": swing, "minute_totals": totals}, indent=2, default=str))
+    # Atomic no-overwrite publish: failed/disk-full research runs never
+    # leave a truncated file that could be mistaken for verified evidence.
+    write_research_report_once(path, report)
+    print(json.dumps({
+        "swing": swing, "baseline_minute_totals": totals,
+        "challenger_minute_totals": challenger_totals,
+        "challenger_vs_baseline": comparison,
+    }, indent=2, default=str, allow_nan=False))
     print("written", path)
 
 

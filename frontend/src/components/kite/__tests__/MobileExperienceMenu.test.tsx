@@ -1,78 +1,27 @@
-import React from 'react';
-import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
-import { MobileExperienceMenu } from '../MobileExperienceMenu';
-import { useMobileExperience, MOBILE_STYLE_KEY } from '../../../store/useMobileExperience';
-import { useAppInstall } from '../../../store/useAppInstall';
-import { readExperienceOptions, useExperienceOptions } from '../../../store/useExperienceOptions';
-vi.mock('../ThemeToggle',()=>({ThemeToggle:()=> <button aria-label="Choose theme">Theme</button>}));
-vi.mock('../config/unsavedDraftGuard',()=>({hasUnsavedDraft:()=>false}));
-beforeEach(()=>{
-  cleanup(); localStorage.clear();
-  useMobileExperience.setState({style:'app'});
-  useExperienceOptions.setState({options:readExperienceOptions()});
-  useAppInstall.setState({prompt:null,installed:false});
-});
-afterEach(()=>cleanup());
-const mount=(nav=vi.fn(),onSearch=vi.fn()) => {
-  render(<><div id="sterling-mobile-header-actions" /><MobileExperienceMenu
-    activeNav="dashboard" onNavClick={nav} onSearch={onSearch}
-    tools={[{id:'orders',label:'Orders'}]} /></>);
-  return {nav,onSearch};
-};
-describe('mobile Spectrum header and drawer',()=>{
-  it('portals search and hamburger into the main header, not a second row',()=>{
-    const {onSearch}=mount();
-    expect(document.querySelector('.mobile-experience-bar')).toBeNull();
-    const header=document.getElementById('sterling-mobile-header-actions')!;
-    expect(header.querySelectorAll('button')).toHaveLength(2);
-    fireEvent.click(screen.getByRole('button',{name:'Search watchlist'}));
-    expect(onSearch).toHaveBeenCalledOnce();
-  });
-  it('has visible close and theme controls and closes by X, backdrop and Escape',()=>{
-    mount();
-    const open=()=>fireEvent.click(screen.getByRole('button',{name:'Menu'}));
-    open();
-    expect(screen.getByRole('dialog',{name:'Sterling mobile menu'})).toBeInTheDocument();
-    expect(screen.getByRole('button',{name:'Choose theme'})).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'Close mobile menu'}));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    open();
-    fireEvent.click(document.querySelector('.mobile-experience-backdrop')!);
-    expect(screen.queryByRole('dialog')).toBeNull();
-    open();
-    fireEvent.keyDown(window,{key:'Escape'});
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-  it('moves Tools into the drawer, persists layout and closes after navigation',()=>{
-    const {nav}=mount();
-    fireEvent.click(screen.getByRole('button',{name:'Menu'}));
-    expect(screen.getByRole('navigation',{name:'Tools'})).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button',{name:'Full app style'}));
-    expect(localStorage.getItem(MOBILE_STYLE_KEY)).toBe('full');
-    fireEvent.click(screen.getByRole('button',{name:/Positions Exposure/}));
-    expect(nav).toHaveBeenCalledWith('positions');
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-  it('closes drawer when Home is activated and retains keyboard focus',()=>{
-    mount();
-    fireEvent.click(screen.getByRole('button',{name:'Menu'}));
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
-    fireEvent(window,new Event('sterling-home'));
-    expect(screen.queryByRole('dialog')).toBeNull();
-  });
-  it('keeps browser installation instructions available',()=>{
-    mount();
-    fireEvent.click(screen.getByRole('button',{name:'Menu'}));
-    fireEvent.click(screen.getByRole('button',{name:'Install / add to home screen'}));
-    expect(screen.getByRole('status')).toHaveTextContent('Chrome or Brave');
-  });
-});
-
-it('lists each tool once rather than repeating it under app pages',()=>{
-  render(<><div id="sterling-mobile-header-actions"/><MobileExperienceMenu activeNav="dashboard" onNavClick={vi.fn()} tools={[{id:'astro',label:'Astrology'}]}/></>);
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import {render,screen,fireEvent,cleanup} from '@testing-library/react';
+import {MobileExperienceMenu} from '../MobileExperienceMenu';
+import {readExperienceOptions,useExperienceOptions} from '../../../store/useExperienceOptions';
+vi.mock('../ProfileMenu',()=>({useSterlingProfile:()=>({data:{username:'Member',photo:''}})}));
+beforeEach(()=>{localStorage.clear();useExperienceOptions.setState({options:readExperienceOptions()});HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','');};HTMLDialogElement.prototype.close=function(){this.removeAttribute('open');};});
+afterEach(cleanup);
+it('places account and navigation in the same header menu, with hidden tools omitted',()=>{
+  const options=useExperienceOptions.getState().options;useExperienceOptions.setState({options:{...options,navHidden:['astro']}});
+  const navigate=vi.fn();
+  render(<><div id="sterling-mobile-header-actions"/><MobileExperienceMenu activeNav="dashboard" onNavClick={navigate} tools={[{id:'astro',label:'Astrology'},{id:'orders',label:'Orders'}]}/></>);
+  expect(document.getElementById('sterling-mobile-header-actions')?.querySelector('.account-menu-trigger')).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Menu'}));
-  expect(screen.getAllByRole('button',{name:'Astrology'})).toHaveLength(1);
-  expect(screen.getByRole('navigation',{name:'All app pages'})).not.toHaveTextContent('Astrology');
+  expect(screen.queryByRole('button',{name:'Astrology'})).toBeNull();
+  expect(screen.getAllByRole('button',{name:'Orders'})).toHaveLength(1);
+  expect(screen.getByRole('button',{name:'Profile & security'})).toBeVisible();
+  expect(screen.getByRole('button',{name:'☀ Light'})).toBeVisible();
+  fireEvent.click(screen.getByRole('button',{name:'Orders'}));
+  expect(navigate).toHaveBeenCalledWith('orders');
+  expect(screen.queryByRole('dialog')).toBeNull();
+});
+it('closes the menu when Home is activated',()=>{
+  render(<><div id="sterling-mobile-header-actions"/><MobileExperienceMenu activeNav="dashboard" onNavClick={vi.fn()}/></>);
+  fireEvent.click(screen.getByRole('button',{name:'Menu'}));
+  fireEvent(window,new Event('sterling-home'));
+  expect(screen.queryByRole('dialog')).toBeNull();
 });

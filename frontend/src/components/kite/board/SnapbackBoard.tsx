@@ -33,6 +33,7 @@ import { openSettingsSection } from '../config/registry';
 import { useSignalColumns } from './useSignalColumns';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { useSignalMarketData } from './useSignalMarketData';
+import { istDay, useTodaySignalPriority } from './TodaySignalPriority';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -122,6 +123,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   nowMs = replayNow ?? nowMs;
   const rowActions = useBoardRowActions({ onOpenChart });
   const commonColumns = useSignalColumns();
+  const priority = useTodaySignalPriority();
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
   const stopScan = useStopSnapbackScan();
@@ -138,15 +140,23 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
-  const history = useSnapbackHistory(30, !shortHorizon && !replay);
+  const history = useSnapbackHistory(30, priority.olderReady && !shortHorizon && !replay);
 
   const adapted = React.useMemo(() => {
-    const live = (data?.rows ?? []).filter((r) => selectedModes.includes(r.trading_mode ?? 'swing'));
+    const live = (data?.rows ?? []).filter((r) =>
+      selectedModes.includes(r.trading_mode ?? 'swing') &&
+      (priority.olderReady ||
+        (r.timestamp_ms != null && istDay(new Date(r.timestamp_ms)) === priority.day) ||
+        // A swing signal is confirmed at yesterday's EOD but enters
+        // *today's* session. Do not hide a still-valid next-open candidate
+        // merely because its signal candle belongs to the prior day.
+        ((r.trading_mode ?? mode) === 'swing' && r.state === 'armed'
+          && !r.historical && !r.restored)));
     const seen = new Set(live.map((r) => r.signal_id));
-    const past = (shortHorizon || replay ? [] : history.data?.signals ?? []).map((r) =>
+    const past = (shortHorizon || replay || !priority.olderReady ? [] : history.data?.signals ?? []).map((r) =>
       seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
     return snapbackRowsToBoard([...live, ...past], replay ? [] : data?.positions);
-  }, [data?.rows, data?.positions, history.data?.signals, mode, savedModes, shortHorizon, replay]);
+  }, [data?.rows, data?.positions, history.data?.signals, mode, savedModes, shortHorizon, replay, priority.olderReady, priority.day]);
   const signals = useSignalMarketData(adapted, replay);
   const view = useBoardView(signals, {
     endedByDefault: true, storageKey: 'snapback', nowMs,
@@ -209,7 +219,8 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </div></details>
         {scanBusy && <button type="button" disabled={stopScan.isPending || (!data?.scan_cancellable && !scan.isPending)} onClick={()=>stopScan.mutate()}>{stopScan.isPending?'Stopping…':'Stop scan'}</button>}
         <span style={{ fontSize: 11, color: k.dim }}>
-          {data?.scanned ?? 0} instruments · {selectedModes.length>1 ? selectedModes.join(' + ') : shortHorizon
+          {data?.scanned ?? 0}{scanBusy && data?.scan_total ? ` / ${data.scan_total}` : ''} instruments
+          {scanBusy ? ' · live scan in progress; preview rows are view-only' : ''} · {selectedModes.length>1 ? selectedModes.join(' + ') : shortHorizon
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
           {replay
             ? <> · <strong style={{ color: k.blue }}>REPLAY · VIEW ONLY</strong></>
@@ -295,11 +306,13 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
       </BoardFilters>
       {signals.length === 0 ? (
         <p style={note}>
-          {data?.last_error
-            ? `Last scan failed: ${data.last_error}`
-            : shortHorizon
-              ? 'No eligible reversal on the latest completed bars.'
-              : 'No signals in the recent completed sessions.'}
+          {scanBusy
+            ? `Scanning market candles and contracts (${data?.scanned ?? 0} / ${data?.scan_total ?? '?'} instruments). Signals appear as individual symbols finish; entries require complete validation.`
+            : data?.last_error
+              ? `Last scan failed: ${data.last_error}`
+              : shortHorizon
+                ? 'No eligible reversal on the latest completed bars.'
+                : 'No signals in the recent completed sessions.'}
         </p>
       ) : (
         <>

@@ -1,0 +1,651 @@
+# Snapback repair checkpoint — 27 October 2026
+
+**Worktree target:** draft PR #272 (`codex/implementation-spec-20261026`), not `main` or `dev`.  
+**Trading posture:** NO new real-money orders, and NO assertion of certified profitability.
+
+## Fault addressed
+
+The 22 October option-candle research artifact reported three per-contract
+`object of type 'int' has no len()` exceptions in both ultra-scalping and
+scalp modes (RELIANCE, HDFCBANK and SBIN put contracts). The underlying
+`replay_intraday` contract reports `rejected_plans` as an integer count;
+an old aggregation treated it as a collection.
+
+The modified runner now calls `app.engines.snapback.research_reporting`
+instead of inlining the unsafe length calculation. That module accepts
+the current nonnegative integer count (and older list-shaped values), rejects
+malformed counts, and validates all other replay metrics before reporting.
+
+Additional corrections in `backend/scripts/backtest_snapback_timeframes.py`:
+- Preserve raw duplicates in minute-tape inputs until full paired-session
+  coverage has audited them; do not silently deduplicate bad evidence.
+- Reuse identical ultra/scalp market-data reads to reduce broker historical
+  API requests, without raising request concurrency or rate limits.
+- Count **every requested underlying and CE/PE contract**. Missing historical
+  tokens, quotes, expiry data and contract metadata become explicit SKIPPED rows,
+  not invisible denominators.
+- Parse actual ISO exchange expiry dates; `None`, nonsense and expired options
+  cannot become the next expiry via lexical string comparison.
+- Refuse fractional token/lot-size values and choose the same nearest valid
+  strike regardless of instrument-dump ordering.
+- Mark open positions/unresolved replays as incomplete; exclude their realized
+  P&L from complete-contract totals while retaining their per-contract row.
+- Report contract errors, skipped contracts, unresolved positions and incomplete
+  paired-session coverage independently. Display totals explicitly as
+  **observed-candle simulation**, never real broker fill profits.
+- A new report uses exclusive creation; a rerun cannot silently overwrite a
+  dated research artifact.
+
+## Verification truth
+
+- The standalone `research_reporting.py` and
+  `test_research_reporting.py` source/test blobs were copied byte-for-byte
+  into an isolated offline Python test environment, with Git blob hashes
+  checked against the branch. **24 pure-reporting unit test cases passed** there.
+- The user previously ran **108/108 focused tests** on the earlier source
+  commit `c83f44b0` (not the current Snapback commit).
+- These isolated tests **do not** constitute an executed end-to-end historical
+  Kite replay, full backend CI, browser test or live broker lifecycle test.
+- The original October 22 JSON artifact has **not** been rewritten, because
+  its missing contract outcomes cannot be reconstructed without rerunning the
+  historical data. Positive old totals remain non-promotable until full
+  coverage, sample selection and costs can be independently reproduced.
+- GitHub Actions remained blocked before runner assignment on the last
+  observed PR attempts (zero assigned runners/steps). Check each new head
+  separately when the Actions account is repaired.
+
+## Still required for a functioning, certified release
+
+1. Rerun the script in an authorized read-only Kite environment, with supported
+   historical data and adequate disk space; inspect all per-contract statuses
+   and verify the former exceptions do not recur. It must not submit orders.
+2. Run the new and existing Snapback engine, dispatcher, hedge/protection,
+   journal-idempotency, exit, fault-injection and restart recovery tests
+   on the exact release SHA; do not conflate tested unit code with a tested host.
+3. Obtain dated, exchange-correct option instrument masters and complete
+   historical/forward option quote tapes. Retrospective current-contract
+   selection and modelled swing prices are not promotion-eligible.
+4. Freeze hypotheses before OOS tests; apply all fees, spreads, latency,
+   slippage, missed-fill/limit/stop stress; require independent positive after-
+   cost bounds and meaningful forward observation. Positive small-sample
+   replays are not a profitability guarantee.
+5. Obtain real Zerodha static-egress, account identity, durable backup/restore,
+   order-fill-protection and reconciliation evidence, and separate owner
+   authorization before any tiny controlled real-money release.
+
+**Safety invariant:** master entry halt stays OFF for new risk while all
+monitoring and risk-reducing owned-position maintenance remain available.
+
+
+## Second pass — intraday data and live fill authority
+
+Additional source changes (still unmerged and unapproved):
+
+- Hourly bars are not valid if they would close after 15:30 IST, even
+  when their opening timestamp is during the session. Both
+  `core.research_coverage.paired_session_coverage` and the independent
+  `snapback.intraday._validate` reject this case. New tests cover the
+  15:15 hourly truncation as well as intact full-interval bars.
+- Direct intraday replay with an empty underlying or option tape fails
+  validation; it cannot return a superficially `complete=True` zero-signal
+  result.
+- Dated research reports are serialized completely to an exclusive
+  temporary file, fsynced, and atomically hard-linked to a final path
+  without overwriting existing evidence. Disk-full/interrupted attempts
+  cannot leave partial final JSON. Three added reporting tests cover
+  no-overwrite, malformed JSON, and simulated disk-write failure.
+- `SnapbackExecutionAdapter.submit_order` now **returns UNKNOWN rather
+  than FILLED** when a confirmed real broker fill cannot be booked into
+  both the ledger and the Snapback position registry. It retains known
+  filled quantity and order ID, engages the entry kill switch, and requires
+  reconciliation; the executor can still attempt protection of confirmed
+  exposure without resending the entry.
+- If post-fill fee authority refresh fails, the adapter also returns
+  UNKNOWN with known filled quantity/order ID and halts new entries.
+- A reconciliation-required or unsettled fill cannot have its canonical
+  projection prematurely acknowledged. Dedicated mock-broker tests
+  cover these cases, plus the normal booked-fill path.
+
+**Verification:** Pure reporting module and test file were copied
+byte-for-byte from the latest GitHub blobs into an isolated Python test
+environment; their Git hashes matched the GitHub blobs, and 24/24
+unit cases passed. The new intraday engine, shared coverage and
+`SnapbackExecutionAdapter` integration tests have been added but **not
+executed** on a real Sterling Python environment. Do not mark them passed
+from this document. No real fills, trading orders, Kite sessions, deployment,
+full restore or statistically defensible forward-profit evidence was observed.
+
+**Current decision:** release R1/R2/R3 **BLOCKED**; real-money new entries
+remain OFF pending executed exact-head regressions and independent sign-off.
+
+
+## Third pass — broker post-submit evidence integrity
+
+Further changes on the draft review branch:
+
+- Post-submission broker receipts with missing, negative, fractional, Boolean,
+  over-ordered or otherwise impossible filled quantities; nonfinite, missing,
+  zero or negative prices for a positive fill; and missing resolver objects
+  now return `UNKNOWN` with the broker order ID and any positively known
+  quantity retained. New entries are halted; no contradictory fill is booked,
+  no journal projection is acknowledged, and no entry is blindly retried.
+- A settled fill now requires a genuine broker-terminal order state, not
+  simply `filled_quantity == expected_quantity` while status remains OPEN.
+  Quantity-known but lifecycle-unresolved exposure remains eligible for
+  **protection and reconciliation**, not for a success claim.
+- Valid terminal partial fills can be reported as FILLED_PARTIAL only when
+  canonical projection evidence is coherent and durably acknowledged.
+- The canonical projection version must be an actual positive integer and
+  `mark_projected` must explicitly return True. False/stale versions,
+  exceptions and absent versions leave the response UNKNOWN, halt new entries
+  and preserve broker order identity.
+- An unsettled or reconciliation-conflicted order always engages the
+  Snapback entry kill switch at the adapter boundary, independently of
+  what the lower-level resolver did.
+- A zero-fill order is terminal only with a settled CANCELLED or REJECTED
+  broker outcome; inconsistent statuses cannot be silently converted into a
+  rejection, which might allow an unsafe follow-up entry.
+- Regression tests cover all these cases using mocked canonical submissions
+  and broker fill resolutions.
+
+**Verification restriction:** These broker-adapter regressions were committed
+but are **not marked executed**: current hosted GitHub Actions jobs are failing
+before a runner executes steps. Previously verified 108 focused tests and
+24 isolated pure-reporting tests refer to older, different source scopes.
+Nothing has been merged or submitted to the broker; technical/live and
+economic certifications remain blocked.
+
+
+## Fourth pass — account binding and multi-process position integrity
+
+Additional **unmerged** draft-branch changes:
+- Snapback fill registry writes now bind `snapback:<plan_id>` to the
+  persisted plan's exact `owner_uid`, `account_id`, option/future
+  symbol, exchange and order direction. A plan tag alone is not
+  ownership authority. Unknown, unbound, cross-tenant or cross-contract
+  evidence is not attached to another owned position.
+- Incoming cumulative broker fills cannot reduce the quantity stored
+  for either the option or the futures hedge, or replace an existing
+  distinct broker order ID. Mismatches return UNKNOWN through the
+  adapter's dual-booking failure handler; new entries halt while an
+  authorized operator reconciles the broker, ledger and positions.
+- These ownership and monotonic checks are repeated *inside*
+  `LivePositionStore.mutate`'s `BEGIN IMMEDIATE` SQLite transaction,
+  not merely checked by a pre-transaction `get`.
+- Initial option fill registration uses exclusive `insert_new` rather
+  than `put`'s `ON CONFLICT DO UPDATE`; a concurrent different-owner
+  position with the same plan ID cannot be silently overwritten.
+- After canonical submission, malformed reference prices leave a
+  discoverable UNKNOWN broker order rather than causing an uncaught
+  exception. Where the broker returns a confirmed valid quantity/price,
+  registry booking can proceed for protective management; the
+  reference anomaly still prevents projection acknowledgment and
+  forces reconciliation.
+- Added regressions for wrong user/account, wrong symbol/exchange/side,
+  stale/changed order IDs, futures-leg quantities, races between
+  `get` and `mutate`, and same-plan SQLite insert collision.
+
+**Certification remains BLOCKED.** No GitHub-hosted runner executed
+the newly added tests on the current SHA. No authorized real-money
+order/fill/stop/hedge/exit proof or statistically positive after-cost
+forward results were obtained. The owner is medically unavailable to
+provide account/broker approval. Keep master new-entry halt OFF.
+
+
+## Fifth pass — ledger quarantine before position mutation
+
+Additional defensive changes on the **draft** branch:
+
+- Snapback validates a confirmed fill against the persisted plan
+  **before writing** to the shared signed fill ledger. Cross-account/user,
+  wrong exchange or option contract, invalid side, missing plan, stale
+  cumulative fill and changed broker order ID all refuse ledger mutation.
+  Existing receipt ownership and risk-stop checks remain in place.
+- Late option/hedge entry messages cannot silently reopen a position in
+  `CLOSED`, `EXITING` or unknown lifecycle states. Entry evidence from
+  a `RECONCILING` position remains admissible for broker-recovery work.
+  Check both before ledger write and inside SQLite's `BEGIN IMMEDIATE`
+  position mutation.
+- The stored position's option contract and exchange must match the
+  persisted source plan, not just the incoming broker fact.
+- If the signed fill ledger **quarantines contradictory cumulative
+  evidence**, Snapback now refuses to overwrite the owned position with
+  that contradictory quantity or price. Unknown broker outcomes remain
+  unresolved and new entries halt.
+- A ledger write I/O failure (as distinct from quarantined conflicting
+  evidence) still attempts to persist already-confirmed owned broker
+  exposure in the position registry to support broker-stop/exit recovery,
+  and then halts new entries.
+- Added regressions for foreign pre-ledger messages, valid broker
+  exchange timestamps, closed/exiting-state postbacks, transactional
+  lifecycle races, registry option-contract drift, conflict quarantine,
+  and ledger disk-failure recovery behavior.
+
+**Current verification:** The new integration tests exist in GitHub
+but were not executed against the exact head. GitHub-hosted workflows
+still report zero assigned runner/zero executed steps. Do not infer
+production functionality or profitable forward results from these
+code-only changes. No real-money orders, live safety gate enablement,
+branch merge or trading certification was performed.
+
+
+## Sixth pass — cumulative recovery and cross-tenant persistence
+
+The broker adapter now regards only a newly `accepted` cumulative
+execution increment or an exact `duplicate` as suitable input for
+Snapback's position projection. A prior `older_cumulative` observation,
+non-quantity outcome or missing/unknown ledger disposition cannot
+rewrite the position registry, even if the signed ledger has not
+quarantined the entire account. Such outcomes require reconciliation
+and halt fresh entries. An exact duplicate may still repair a previously
+missing registry after a crash, without resending the broker order.
+
+The durability store's general-purpose `put` upsert now refuses a
+same-ID record when the owning `uid`, `account_id` or `option_symbol`
+differs from the stored record. This blocks accidental owner or
+instrument reassignment through recovery/admin paths that do not use
+`insert_new`. Existing-identity status/quantity changes remain
+permitted, while every write preserves the same primary position ID.
+
+Additional focused regression cases cover: accepted/duplicate versus
+older/unknown ledger disposition; valid exchange timestamps; forbidden
+cross-owner/account/contract upserts; and same-owner updates.
+
+**Verification classification:**
+- SQLite's `INSERT ... ON CONFLICT DO UPDATE ... WHERE ...` identity
+  fence was checked separately against an isolated in-memory SQLite
+  database: 5/5 statement-level checks passed (no Sterling imports).
+- The actual Snapback adapter/store integration tests introduced in
+  this and earlier passes are **not yet executed at the latest SHA**.
+- GitHub hosted CI jobs still report `runner_id=0` and zero steps, so
+  their failed status cannot be mistaken for test evidence.
+- Neither technical/broker certification nor after-cost forward-profit
+  certification has been established. Do not merge or enable new live
+  entries. Account owner authorization and actual broker/market
+  measurements remain mandatory.
+
+
+## Seventh pass — cost-stress and economic evidence integrity
+
+The recorded October 22 ultra-scalping result of **INR 19,944**
+and scalp result of **INR 19,630** are historical simulated
+aggregate totals from **two profitable option contracts** (NIFTY and
+BANKNIFTY puts). The same research table includes three contract
+processing errors per mode and one incomplete-contract skip, so those
+positive numbers **do not** demonstrate a repeatable, diversified
+after-cost trading edge.
+
+New `research_reporting.incremental_execution_cost_stress` accepts
+only verified-for-consistency trade-level simulation records. It
+deducts EXTRA hypothetical 0.5, 1.0 and 2.0 option premium
+points per traded unit, **on top of** the replay's original estimated
+spread/slippage/fees. It records exact unrounded net P&L, the
+trade-volume-weighted break-even extra cost, and mode-wide stress
+results only when **every completed contract** has consistent
+trade-level records. Missing trade history, mismatched P&L totals,
+invalid/zero lot quantities and nonfinite P&L explicitly produce
+`available=false` rather than invented stressed profits. Regression
+tests cover rounding bias, profitable baseline becoming negative
+under extra costs, inconsistent receipts and mode-wide refusal on
+partial evidence.
+
+**This does not certify profitability.** It does not produce
+independent actual bid-ask, impact, order rejection, brokerage,
+expiry/assignment, lost quote or forward out-of-sample receipts.
+The current historical script chooses a contract from the available
+instrument master at run time; that is not an archive of actual
+date-effective option-chain selection. Until chronological
+date-effective selection, independent forward data, broker cost
+receipts and statistically positive after-cost outcomes are verified,
+Snapback R3 remains BLOCKED.
+
+Exact-head Sterling test execution and account/broker release proofs
+remain pending; no live order was enabled or sent.
+
+
+## Eighth pass — reproducible trade-level historical evidence
+
+The historical options replay report now includes a deliberately
+minimal **simulated closed-trade audit trail** per contract: quantity,
+entry/exit time and premium, exit reason, estimated total costs and
+realized net P&L. `closed_trade_audit` checks the equality between
+gross price movement minus estimated costs and each trade's net P&L;
+also verifies chronological exit order, finite prices/costs, positive
+quantities, and equality of the summed net P&L with the replay's own
+aggregate. It serializes the receipts deterministically with SHA-256.
+
+The hash is for tamper detection and repeatable computation. **It is
+not a broker digital signature, compliance approval or actual fill.**
+A malformed or mismatched trade-level record refuses the affected
+contract instead of inventing profitable receipts. Regression tests
+cover reproducibility, invalid time/quantity/prices/costs, inconsistent
+totals and missing trade detail.
+
+The new fields are emitted only by a **future read-only historical
+replay**; the existing October 22 artifact is not rewritten or
+retroactively populated with invented trade data. A mode-wide
+additional-cost stress result is withheld entirely when any contract
+fails, is skipped, remains unresolved, or lacks full paired-session
+coverage. Profitable surviving contracts may still appear as a
+diagnostic subset, not an accepted strategy.
+
+The exact-new-head end-to-end execution and forward
+cost/performance work are still pending. New real-money entry
+authorization remains OFF.
+
+
+## Ninth pass — live new-entry limit-price discipline
+
+The Snapback live executor formerly fell back from a missing/invalid
+LIMIT order type or price to an unbounded MARKET order for the option
+or futures hedge. This can be a severe execution-cost risk in thin
+derivative contracts, quite apart from any backtest edge.
+
+Production `mode=LIVE` plans, plus any legacy plan submitted using
+a real broker transport, now require a finite positive LIMIT price
+and `order_type=LIMIT`. Invalid/missing, zero, negative, NaN, infinity
+or unsupported order types return `REJECTED_PLAN` **before calling
+the canonical order service**; they cannot silently convert into
+market buys or sells. New unit tests cover both option and hedge
+legs, invalid prices, unsupported types, fresh hedge repricing, and
+the legacy-mode bypass.
+
+This correction affects **new exposure-increasing entry/hedge
+submission only**, not the independent risk-reducing exit/stop
+manager. A production-provided fresh futures hedge repricer must also
+supply the current quote. If it fails, the executor refuses the hedge
+order rather than silently using a stale plan-era limit. The
+already-confirmed option remains under its separate protection and
+hedge-recovery path; no new hedge order is sent without fresh price
+evidence. Tests cover fresh-quote absence and correct overrides.
+
+A LIMIT order is not a guaranteed fill, and market data
+liquidity, limit tick size, price band, charge schedule, broker
+account, outbound IP and real order/protection lifecycle still
+require on-host verification.
+
+New live orders remain OFF. No broker orders or profitable forward
+trades were recorded by this code change; the new tests are committed
+but not exact-head executed.
+
+
+## Tenth pass — exit lifecycle identity and broker terminality
+
+The Snapback EXIT (risk-reduction) pipeline now requires the same
+evidence integrity as the entry path, without denying the ability
+to initiate an authorized risk-reducing close:
+
+- Never treat an open or otherwise **nonterminal** broker exit order
+  as a completed sell, even when its observed filled quantity equals
+  the requested quantity. Existing broker order IDs remain in the
+  position registry until a terminal state with settled, conflict-free
+  journal evidence exists.
+- Reject malformed exit cumulative fills (negative, nonintegral,
+  over-requested, missing/nonfinite or nonpositive fill prices).
+  Preserve the working exit identity, halt new risk and require
+  reconciliation rather than issuing a new SELL to compensate.
+- Require a positive journal projection version for terminal
+  **filled** exits. A settled zero-fill CANCELLED/REJECTED broker
+  outcome legitimately has no fill projection, and can be safely
+  considered unfilled; a contradictory COMPLETE/zero-fill outcome
+  is not accepted.
+- The signed ledger must explicitly accept the exit fill or identify
+  it as an exact idempotent duplicate. Stale/unknown/quarantined
+  cumulative reports are not used to increment the owned position's
+  closed quantity.
+- If the canonical exit submit returns a known order ID, **retain
+  that ID even when the submission success flag is false** and let
+  broker reconciliation determine the outcome. Never assume an ID'd
+  UNKNOWN order was unsent.
+- If submission throws or returns an unresolved/no-ID result,
+  `_close_leg` places an owner-scoped reconciliation hold and
+  **does not restore a competing broker stop or send another exit**.
+  A blank order ID is considered never sent only on an explicit
+  local pre-send refusal with zero filled quantity.
+- Dedicated mock-broker tests cover malformed/over-filled exit
+  quantities, invalid prices, nonterminal acknowledgements,
+  missing projection versions, terminal cancellations, exit ledger
+  stale responses, unknown submit IDs and preservation of stop
+  safety when the earlier stop has already been released.
+- When the SQLite position registry cannot be written or read (for
+  example, the operator's previously observed 99%-full disk), the
+  reconciliation handler now still attempts the global new-entry halt
+  and critical alert instead of crashing before those actions. It
+  does not claim durable recovery success if the write failed.
+  Additional tests exercise both a failed hold write and unreadable
+  position after an unknown exit submission.
+
+**Verification:** These new exit tests are committed but have **not
+been run inside the full Sterling installation on this candidate
+SHA**. No real-money exit, GTT triggering, partial-fill recovery,
+broker position reconciliation or after-cost forward outcome was
+observed. This remains a **review-only technical improvement**, not
+a live-broker or profitability certificate.
+
+**Operator safety:** The owner is not currently available for broker
+authorization/acceptance. Keep autonomous new risk OFF; exits,
+protection and reconciliation still require validation against actual
+market/broker receipts by an authorized operator.
+
+
+## Eleventh pass — frozen contract identity and whole-lot execution
+
+Snapback's final live entry/hedge submission boundary now also checks
+the actual proposed `symbol`, `exchange` and `side` against the
+persisted plan's option contract (always BUY) or the exact futures
+hedge (explicit BUY/SELL). An unexpected or missing contract
+identity is `REJECTED_PLAN` before the canonical broker call.
+
+Quantity and lot metadata are independently validated as positive,
+finite, exact integers, with `quantity % lot_size == 0`. This prevents
+floating-point or Boolean lot sizes and nonmultiples from silently
+being truncated into different exposures. An otherwise valid
+two-lot option entry remains permitted and the canonical request
+retains the exact quantity.
+
+New unit tests include wrong option/hedge symbol, exchange, side,
+fractional or missing lot sizes and quantities, and valid two-lot
+submission. These tests are **committed but not executed against
+the complete application on the exact current SHA**. This remains a
+source-level improvement, not Kite certification.
+
+
+## Twelfth pass — whole-strategy P&L integrity
+
+A material profitability-accounting gap was found in the real-option
+minute replay: `SnapbackConfig.hedge_mode` defaults to
+`index_futures`, but the observed-option-candle backtest models
+**only the long option leg**. It does not model the futures hedge
+entry/exit fills, P&L, margin, brokerage, taxes, price impact or
+financing. Consequently, even a positive option-leg simulated net
+cannot be called the **whole live Snapback strategy** profit.
+
+The backtest result now explicitly exposes `hedge_mode`,
+`hedge_realized_pnl_inr=null` and
+`hedge_data_quality=NOT_MODELLED_IN_INTRADAY_OPTION_ONLY_REPLAY`.
+The report's `whole_strategy_net_inr` stays **null** for every
+`index_futures` hedged mode. An arbitrary manually inserted
+`hedge_realized_pnl_inr` number is deliberately ignored; a credible
+paired futures-trade ledger with date-effective contracts and
+fill/cost/margin evidence must be built separately. An explicitly
+unhedged research configuration may report its option-only simulated
+net as its full simulated leg result, but NEVER as a certified
+profitable live strategy.
+
+Additional tests assert a forged profitable hedge scalar cannot turn
+an option-only backtest into a whole-strategy net, while an unhedged
+loss remains correctly represented. No profit or real broker receipts
+were produced; certification and new real-money entries remain blocked.
+
+
+## Thirteenth pass — retrospective instrument-master provenance
+
+The live Kite instrument master loaded by the historical research
+script is a **current snapshot** (selected using the run-time
+underlying price and future listed expiry), not an archive of
+contracts eligible at each historical signal timestamp. This creates
+survivorship/selection look-ahead and cannot support an independent
+out-of-sample profitability finding.
+
+The runner now includes
+`minute_instrument_master_provenance`, with the observed retrieval
+time, sorted public metadata SHA-256 digest, number of candidates
+and explicit flags:
+`historical_date_effective=false`,
+`retrospective_selection_bias=true` and
+`whole_strategy_oos_certification_eligible=false`.
+These metadata are purely descriptive; the digest is not a broker
+attestation and cannot establish actual past listing/price history.
+Additional tests verify digest independence from source row order and
+that changed contract specifications produce a different digest.
+
+**Until** date-effective instrument snapshots, a complete futures-
+hedge fill/cost model, independent chronological forward selection,
+actual charges and source-exact on-host risk/recovery tests are
+available, none of Snapback's historical positive option-leg
+numbers qualifies as independently proven whole-strategy profits.
+Autonomous new entries remain OFF and PR #272 is still draft.
+
+
+## Fourteenth pass — critical hedge-side correction and broker-free executable acceptance
+
+This pass prioritized **source-to-order functionality and executable
+acceptance**, rather than more unevaluated source guards or CI work.
+
+1. **Real hedge-direction defect:** A bought put (`PE`) has negative
+   delta; its delta-offset futures leg must BUY. A bought call (`CE`)
+   has positive delta; its offsetting futures leg must SELL. Earlier
+   Snapback fixtures incorrectly used SELL futures for a bought PE,
+   masking wrong-delta/extra-directional-risk cases. The final LIVE
+   submit method and the owner-bound broker-fill/position projection
+   method now require both the frozen side and `_hedge_side(plan)` to
+   agree; a corrupt plan cannot authorize or book the wrong-direction
+   hedge. New tests exercise correct PE/CE hedges and inverted plans.
+2. **Owner/account match at last submit boundary:** For any production
+   LIVE plan or real transport, the plan `owner_uid` must match the
+   executor user and its account must match the client's authenticated
+   `_account_id`. Foreign/empty plan ownership or a switched client
+   returns REJECTED_PLAN before canonical broker submission. Separate
+   tests cover all these cases.
+3. **Non-CI acceptance entry point:** Added
+   `scripts/snapback_offline_acceptance.sh` to run three bounded,
+   isolated read-only/broker-free batches (Snapback research, order
+   boundary/booking and exit/recovery). It checks the exact test
+   branch, clean tracked files and explicitly disabled live execution.
+   It isolates the intent/evidence/database paths into a temporary
+   directory. It does not submit orders or call Kite.
+4. **Source/script verification:** Every one of the 12 explicit
+   pytest source files was verified to exist in the current GitHub
+   tree. The local shell-syntax validation `bash -n` succeeded on a
+   byte-identical copy of the committed 66-line script, with the
+   same Git blob SHA-1 `91d5fbc71cd3b0963d5d2d98d35eca5e0030c940`.
+   **No full-project pytest suite executed** on this turn. The
+   command's eventual results must not be presumed PASS.
+
+To execute later on an authorized Sterling workstation, with
+sufficient storage and the local backend virtual environment already
+available (no new broker authentication necessary):
+`git switch codex/implementation-spec-20261026 && git pull --ff-only origin codex/implementation-spec-20261026 && bash scripts/snapback_offline_acceptance.sh`
+
+**Current decision:** this source pass provides hedge-direction,
+account-binding and a reproducible local test gate. R1/R2/R3 are
+still **BLOCKED**. A green offline gate, even if executed, would
+be **unit-only**, not live broker certification, after-cost full
+hedged-strategy profit evidence or real-money authorization. Do not
+change LIVE master halt or merge the draft PR on this basis.
+
+
+## Fifteenth pass — walk-forward session-count distortion and economic-promotion gate
+
+The walk-forward evaluator previously described its equity curve as
+including sessions with no exit, but `equity_series` actually built
+its dates from the trade entry/exit endpoints only. With sparse
+trading, this drops legitimate flat sessions and may inflate or
+otherwise distort reported annualized Sharpe, the deflated Sharpe,
+and drawdown. `_day_span` was not in fact sourced from the tape.
+
+Now:
+- `equity_series(..., sessions=...)` accepts a unique, ordered
+  full source-tape session calendar, explicitly includes flat
+  sessions as zero realized-return observations and refuses missing
+  exit sessions or duplicate/unsorted days.
+- `run()` passes actual tape sessions to the in-sample selector,
+  each out-of-sample fold, all concatenated OOS books, and the final
+  deflated-Sharpe calculation; no market dates are invented from a
+  weekday-only calendar.
+- Each Book records whether source-tape sessions were supplied and
+  the observation count. Legacy diagnostics without `sessions`
+  are labeled `equity_session_calendar_complete=false`.
+- `judge()` now REFUSES economic promotion when the full tape session
+  calendar is absent, even if someone manually supplies a high
+  deflated Sharpe, positive confidence interval and favorable
+  permutation p-value.
+- Targeted tests distinguish trade-endpoint vs full-tape returns,
+  require zeros in empty sessions, reject missing exit dates and
+  ensure endpoint-only returns cannot pass promotion. Included the
+  walk-forward test module in the broker-free acceptance script.
+
+For a purely synthetic two-exit/five-session example with 10%
+allocation and two 20% trade returns, the *sum* stays 4% but
+the average per counted session changes from the biased 2% to
+0.8% once the three flat sessions are represented. An independent
+Python arithmetic check reproduced that example. **This is not
+actual Snapback market-performance evidence.**
+
+Still missing: run all new source tests on the real branch, true
+date-effective market/option and futures tapes, total broker costs,
+authorized order/stop/recovery proof, independently observed forward
+returns and economic acceptance. Snapback remains NOT CERTIFIED and
+master new-money entries OFF. CI investigation remains deferred at
+the user's instruction.
+
+
+## Development pass — verified option MTM and broker-zero naked-stop prevention
+
+Development branch updates were pushed without enabling new live entries:
+
+1. **Confirmed protective-stop risk:** `SnapbackExitManager._option_shortfall_step`
+   previously attempted to re-arm an entire `remaining`-quantity option
+   SELL GTT when the broker position book had just reported **zero**
+   option units. The comment said it would protect only broker-confirmed
+   holdings, but the code used the stale local total. This could create
+   an unowned SELL order if the broker zero reading was correct.
+   The revised path records an unconfirmed shortfall and withholds
+   any *new* stop SELL until positive units are proven. The next
+   broker read can resume option liquidation or persist shortfall
+   reconciliation. Updated the long-lived shortfall tests and added
+   dedicated zero-holdings/no-new-stop, invalid hedge-direction
+   and broker-account-drift regression cases.
+2. **Hedge exit direction/account:** Futures exit submission now
+   refuses any unknown `hedge_side` instead of defaulting to a BUY,
+   and real-broker exit submissions require the original authenticated
+   account. An invalid hedge direction also refuses signed-ledger
+   booking rather than making the wrong direction appear closed.
+3. **Measurable adverse option drawdown:** Minute replays now record
+   `max_option_close_mark_drawdown_inr` and
+   `max_option_intrabar_low_stress_drawdown_inr` in addition to
+   realized-only drawdown. Research reports preserve these numbers
+   per contract, and mode totals show the worst independent contract
+   value only when every attempted contract has data; they expressly
+   **do not** label it full futures-hedged portfolio MTM.
+4. **Executed isolated arithmetic:** The exact production-source
+   `app/engines/snapback/equity_mark.py` Git blob
+   `de9feb037c73450f813ee1037ef8f67f5bc01d45` was copied
+   byte-for-byte and run locally under pytest: **15 passed**,
+   including **500 seeded risk/cost scenarios**, invalid prices,
+   stop-loss stress vs realized loss and fee debit monotonicity.
+   The local JUnit artifact is
+   `snapback_option_equity_mark_junit.xml`; corresponding tests
+   were committed under `backend/tests/engines/snapback/test_option_equity_mark.py`.
+   This is **not** a successful full Sterling integration run.
+5. The offline acceptance script on `dev` now includes both the
+   additional option MTM tests and existing broker shortfall suite.
+   The full source runtime, exchange data archive, live broker,
+   stop/fill/restart and independent prospective performance still
+   cannot be verified from the connected GitHub code interface.
+
+**Release:** `main` stays unchanged; Snapback configuration has
+`enabled=false` and `auto_execute=false`; `dev` changes are not
+a certificate of tested broker functionality or positive after-cost
+forward P&L. Production release and any use of the new capital
+remain blocked.

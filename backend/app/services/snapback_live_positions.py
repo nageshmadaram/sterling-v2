@@ -131,6 +131,11 @@ class LivePosition:
     #: here and is not the stop's own child order is somebody else's, never this position's.
     option_exit_booked_ids: List[str] = field(default_factory=list)
     hedge_exit_booked_ids: List[str] = field(default_factory=list)
+    #: Per-order cumulative quantities at the time a canonical terminal ACK
+    #: was durably projected. Older rows without this field remain readable,
+    #: but their ambiguous in-flight ACKs require manual reconciliation.
+    option_exit_booked_quantities: Dict[str, int] = field(default_factory=dict)
+    hedge_exit_booked_quantities: Dict[str, int] = field(default_factory=dict)
     #: A leg the broker's positions book does not show as held. One reading is not proof (a
     #: partial or empty reply is as likely), so the shortfall is only acted on once it has been
     #: seen on several readings over a minute; any reading that finds the leg held resets it.
@@ -339,7 +344,49 @@ class LivePositionStore:
     # --------------------------------------------------------------- writes
 
     def put(self, pos: LivePosition) -> LivePosition:
-        """Insert or replace one row. Prefer :meth:`mutate` for an existing row."""
+        """Replace only the same owner/account/contract; never transfer identity."""
+        pos.updated_ms = _now_ms()
+        payload = json.dumps(pos.as_dict(), default=str, separators=(",", ":"))
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            changed = conn.execute(
+                """
+                INSERT INTO snapback_live_positions
+                    (position_id, uid, account_id, status, signal_id, option_symbol,
+                     updated_ms, data_json)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(position_id) DO UPDATE SET
+                    status=excluded.status, signal_id=excluded.signal_id,
+                    updated_ms=excluded.updated_ms, data_json=excluded.data_json
+                WHERE snapback_live_positions.uid=excluded.uid
+                  AND snapback_live_positions.account_id=excluded.account_id
+                  AND snapback_live_positions.option_symbol=excluded.option_symbol
+                """,
+                (pos.position_id, pos.uid, pos.account_id, pos.status, pos.signal_id,
+                 pos.option_symbol, pos.updated_ms, payload),
+            )
+            if changed.rowcount != 1:
+                raise PermissionError("snapback_position_owner_or_contract_collision")
+            conn.execute("COMMIT")
+        except BaseException:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            conn.close()
+        _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
+        return pos
+
+    def insert_new(self, pos: LivePosition) -> LivePosition:
+        """Create a first-fill position without replacing any existing owner.
+
+        A concurrent fill/restart can beat a prior get() read. put() is a
+        deliberate replace operation used by existing callers; first booking
+        instead needs an exclusive, fail-closed insert under the DB lock.
+        """
         pos.updated_ms = _now_ms()
         payload = json.dumps(pos.as_dict(), default=str, separators=(",", ":"))
         conn = self._connect()
@@ -351,11 +398,6 @@ class LivePositionStore:
                     (position_id, uid, account_id, status, signal_id, option_symbol,
                      updated_ms, data_json)
                 VALUES (?,?,?,?,?,?,?,?)
-                ON CONFLICT(position_id) DO UPDATE SET
-                    uid=excluded.uid, account_id=excluded.account_id,
-                    status=excluded.status, signal_id=excluded.signal_id,
-                    option_symbol=excluded.option_symbol,
-                    updated_ms=excluded.updated_ms, data_json=excluded.data_json
                 """,
                 (pos.position_id, pos.uid, pos.account_id, pos.status, pos.signal_id,
                  pos.option_symbol, pos.updated_ms, payload),
@@ -369,7 +411,7 @@ class LivePositionStore:
             raise
         finally:
             conn.close()
-        _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
+        _journal.sb_sync(pos)
         return pos
 
     def mutate(self, position_id: str,

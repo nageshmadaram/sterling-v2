@@ -685,6 +685,8 @@ body[data-tv-backdrop="auto"] #tv-now-playing {
 </style>
   <link rel="stylesheet" href="/media/experience.css">
   <script defer src="/media/comfort.js"></script>
+<link rel="stylesheet" href="/media/color-scheme.css">
+<script src="/media/color-scheme.js"></script>
 </head>
 
 <script>document.documentElement.classList.add('tv-booting');setTimeout(()=>document.documentElement.classList.remove('tv-booting'),2500);</script>
@@ -5147,7 +5149,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
     if(event.source!==window.parent)return;
     const data=event.data;
     if(data?.type==='sterling.tv.hydrate'){
-      hosted=data.hostHeader===true;hydrated=true;
+      hosted=data.hostHeader===true;hydrated=true;document.documentElement.classList.toggle('tv-hosted',hosted);
       // Core hydration finishes first; restore the saved UI after its boot.
       restoreUi();schedule();return;
     }
