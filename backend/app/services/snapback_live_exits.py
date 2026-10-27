@@ -1660,6 +1660,27 @@ class SnapbackExitManager:
         if pos.option_exit_order_id or pos.option_exit_requested:
             self._flag_reconciling(pos, "stop_and_market_exit_overlap")
             raise RuntimeError("broker stop overlaps unresolved canonical exit")
+
+        # Never silently cap an actual broker SELL at our logical position size.
+        # Any excess means the account may already be short; pausing for
+        # reconciliation is mandatory before clearing this stop's identity.
+        pending = [(oid, qty) for oid, qty, _ in fills
+                   if oid not in pos.option_exit_booked_ids]
+        try:
+            total = pos.option_qty
+            exited = pos.option_exit_qty
+            if (type(total) is not int or type(exited) is not int
+                    or not 0 <= exited <= total
+                    or any(not isinstance(oid, str) or not oid.strip()
+                           or type(qty) is not int or qty <= 0
+                           for oid, qty in pending)
+                    or len({oid for oid, _ in pending}) != len(pending)
+                    or sum(qty for _, qty in pending) > total - exited):
+                raise ValueError("stop fill may exceed position's remaining option units")
+        except (TypeError, ValueError) as exc:
+            self._flag_reconciling(pos, "broker_stop_exceeds_owned_option_units")
+            raise RuntimeError("broker stop fill requires short exposure reconciliation") from exc
+
         for oid, qty, price in fills:
             if not self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt",
                                    exchange_ts_ms=(exchange_ts_by_order or {}).get(oid, 0)):
@@ -1672,12 +1693,12 @@ class SnapbackExitManager:
             for oid, qty, price in fills:
                 if oid in p.option_exit_booked_ids:
                     continue
-                take = min(int(qty), max(0, int(p.option_qty) - int(p.option_exit_qty)))
-                if take > 0:
-                    p.option_exit_qty += take
-                    p.option_exit_value += float(take) * float(price)
-                if oid not in p.option_exit_booked_ids:
-                    p.option_exit_booked_ids.append(oid)
+                if (type(p.option_qty) is not int or type(p.option_exit_qty) is not int
+                        or qty > p.option_qty - p.option_exit_qty):
+                    raise ValueError("concurrent broker stop overfill: short exposure possible")
+                p.option_exit_qty += qty
+                p.option_exit_value += float(qty) * float(price)
+                p.option_exit_booked_ids.append(oid)
             p.gtt_id = 0
             p.gtt_qty = 0
             p.gtt_stop = 0.0
