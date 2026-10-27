@@ -201,6 +201,9 @@ class SnapbackDispatcher:
         self._refusals: Dict[tuple, float] = {}
         self._runway_alerted: str = ""
         self._task: Optional[asyncio.Task] = None
+        # One observational scan per tenant. It must not delay the next
+        # exit/protection cycle for minutes while 200 contracts are fetched.
+        self._scan_tasks: Dict[str, asyncio.Task] = {}
 
     # ------------------------------------------------------------- plumbing
 
@@ -427,19 +430,39 @@ class SnapbackDispatcher:
 
     async def _rescan_if_stale(self, uid: str, cfg: Any) -> None:
         from app.services import snapback
-        from app.services.snapback_plan_producer import LANE_SCALP, lane_for
+        from app.services.snapback_plan_producer import lane_for
 
         st = snapback.status(uid)
         age_s = (snapback.ist_now_ms() - int(st.last_scan_ms or 0)) / 1000.0
         limit = (max(60.0, float(cfg.scalp_timeframe_minutes) * 60.0)
                  if lane_for(cfg) != 'swing' else RESCAN_AGE_S)
-        if st.scanning or age_s < limit:
+        in_progress = self._scan_tasks.get(uid)
+        if st.scanning or (in_progress is not None and not in_progress.done()) or age_s < limit:
             return
-        try:
-            scan = self._scanner or snapback.scan_once
-            await scan(uid)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("snapback dispatcher: rescan failed for %s: %s", uid, exc)
+
+        # Prevent cached candidates from being originated between scheduling
+        # the fresh scan and its first await. Only a finished scan may re-arm.
+        st.rows = snapback._scan_preview(st.rows)
+        st.signals = {}
+        scan = self._scanner or snapback.scan_once
+
+        async def _scan_advisory() -> None:
+            try:
+                await scan(uid)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                log.warning("snapback dispatcher: rescan failed for %s: %s", uid, exc)
+            finally:
+                if self._scan_tasks.get(uid) is asyncio.current_task():
+                    self._scan_tasks.pop(uid, None)
+
+        self._scan_tasks[uid] = asyncio.create_task(
+            _scan_advisory(), name=f"snapback-readonly-scan:{uid}",
+        )
+        # Give scan_once a chance to mark scanning; do not await the expensive
+        # market scan itself. Exits and reconciliation must keep ticking.
+        await asyncio.sleep(0)
 
     # ------------------------------------------------------------- origination
 
@@ -915,6 +938,13 @@ class SnapbackDispatcher:
         except asyncio.CancelledError:
             log.info("snapback live dispatcher stopped")
             raise
+        finally:
+            pending = list(self._scan_tasks.values())
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+            self._scan_tasks.clear()
 
 
 def plan_preview(plan: Dict[str, Any]) -> Dict[str, Any]:
