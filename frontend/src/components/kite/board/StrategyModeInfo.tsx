@@ -31,7 +31,7 @@ export function StrategyModeInfo({ engine, st, sb, bounded = false }: {
         : <div>Completed option-candle reversal · Bollinger (20,2). Target {sb?.scalp_target_points ?? 5} pts; stop {sb?.scalp_stop_points ?? 4} pts; runner trail {sb?.scalp_trail_points ?? 2} pts; lock {sb?.scalp_lock_points ?? 1} pts (option premium). Initial hold {sb?.scalp_max_hold_bars ?? (mode === 'intraday' ? 16 : mode === 'overnight' ? 18 : 20)} bars; runner {sb?.scalp_runner_max_bars ?? (mode === 'ultra_scalping' ? 20 : mode === 'intraday' ? 24 : mode === 'overnight' ? 18 : 60)} bars. Costs can raise the requested target. EMA confirmation {sb?.use_ema_confirmation ? 'on' : 'off'}; ADX filter {sb?.use_adx_filter ? 'on' : 'off'}.</div>)}
       {loaded && <div>{supertrend ? `Holding ceiling: ${row[4]}. Session square-off ceiling 15:20 IST; the holding deadline can bind earlier.` : mode === 'swing' ? 'Minute-mode candle and runner settings are inactive in daily Swing.' : `Entry window ${clock(sb?.scalp_entry_start_minute ?? 575)}–${clock(sb?.scalp_entry_end_minute ?? 885)} IST; square-off ${clock(sb?.scalp_square_off_minute ?? 915)} IST${mode === 'overnight' ? ' on the final holding session; up to 3 sessions' : ' same day'}.`}</div>}
   </>;
-  return <aside aria-label="Strategy mode configuration" tabIndex={bounded ? 0 : undefined} style={{ maxHeight: bounded ? '40%' : undefined, overflowY: bounded ? 'auto' : undefined, boxSizing: 'border-box', padding: '8px 12px', borderBottom: `1px solid ${k.border}`, color: k.text, fontSize: 11.5, lineHeight: 1.5, flexShrink: 0, overflowWrap: 'anywhere' }}>
+  return <aside className="strategy-mode-info" data-has-modes={!original} aria-label="Strategy mode configuration" tabIndex={bounded ? 0 : undefined} style={{ maxHeight: bounded ? '40%' : undefined, overflowY: bounded ? 'auto' : undefined, boxSizing: 'border-box', padding: '8px 12px', borderBottom: `1px solid ${k.border}`, color: k.text, fontSize: 11.5, lineHeight: 1.5, flexShrink: 0, overflowWrap: 'anywhere' }}>
     {original ? <>
       <strong>Default · Original only</strong>
       <div>{engine === 'ema_trend'
@@ -48,7 +48,7 @@ export function StrategyModeInfo({ engine, st, sb, bounded = false }: {
       {!bounded && facts}
       <div>Board mode filters only change rows shown. Settings determine candle size; each row or held position may retain its own mode.</div>
       <details open={!bounded}>
-        <summary style={{ cursor: 'pointer' }}>Compare modes and configuration</summary>
+        <summary style={{ cursor: 'pointer' }}>{bounded ? `Default: Swing (original) · Selected: ${loaded ? row[1] : "checking"} · Conditions & modes` : "Compare modes and configuration"}</summary>
         {bounded && facts}
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
           <caption style={{ textAlign: 'left' }}>Presets below; the selected configuration above includes overrides. Default identifies the original strategy, not the active selection.</caption>
