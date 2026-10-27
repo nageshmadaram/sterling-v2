@@ -98,12 +98,16 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
 
   // Once today's four snapshots have passed, a later intraday scan must not
   // hide history all over again. At the next IST date, gate anew.
-  const [releasedDay, setReleasedDay] = React.useState('');
+  // The workspace may switch between live and simulation views without
+  // reloading the page. A complete live-account read cannot release historical
+  // queries for another tenant's view on the same calendar day.
+  const scope = `${view}:${day}`;
+  const [releasedScope, setReleasedScope] = React.useState('');
   const allLoaded = TODAY_STRATEGIES.every(name => stages[name] === 'ready');
   React.useEffect(() => {
-    if (!replay && allLoaded) setReleasedDay(day);
-  }, [allLoaded, day, replay]);
-  const olderReady = replay || releasedDay === day;
+    if (!replay && allLoaded) setReleasedScope(scope);
+  }, [allLoaded, scope, replay]);
+  const olderReady = replay || releasedScope === scope;
 
   return <PriorityContext.Provider value={{ day, olderReady, replay, stages }}>
     {children}
