@@ -301,3 +301,28 @@ Snapback R3 remains BLOCKED.
 
 Exact-head Sterling test execution and account/broker release proofs
 remain pending; no live order was enabled or sent.
+
+
+## Eighth pass — reproducible trade-level historical evidence
+
+The historical options replay report now includes a deliberately
+minimal **simulated closed-trade audit trail** per contract: quantity,
+entry/exit time and premium, exit reason, estimated total costs and
+realized net P&L. `closed_trade_audit` checks the equality between
+gross price movement minus estimated costs and each trade's net P&L;
+also verifies chronological exit order, finite prices/costs, positive
+quantities, and equality of the summed net P&L with the replay's own
+aggregate. It serializes the receipts deterministically with SHA-256.
+
+The hash is for tamper detection and repeatable computation. **It is
+not a broker digital signature, compliance approval or actual fill.**
+A malformed or mismatched trade-level record refuses the affected
+contract instead of inventing profitable receipts. Regression tests
+cover reproducibility, invalid time/quantity/prices/costs, inconsistent
+totals and missing trade detail.
+
+The new fields are emitted only by a **future read-only historical
+replay**; the existing October 22 artifact is not rewritten or
+retroactively populated with invented trade data. The exact-new-head
+end-to-end execution and forward cost/performance work are still
+pending. New real-money entry authorization remains OFF.
