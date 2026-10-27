@@ -281,3 +281,53 @@ def test_invalid_stressed_cash_budget_is_rejected(budget):
     assert "invalid_challenger_economic_inputs" in result["rejection_reasons"]
 
 
+
+
+def test_numpy_scalar_timestamps_and_option_bars_are_valid_research_inputs():
+    # Bars.time and Bars.open/high/close are NumPy arrays in the real replay.
+    # Rejecting np.float64 here would discard every otherwise valid candidate.
+    b = candles(n=90, rise=12.0)
+    assert isinstance(b.time[60], np.float64)
+    ceiling, count = prior_premium_excursions(
+        b.time[:60], b.open[:60], b.high[:60], b.close[:60],
+        entry_time=b.time[60], bar_seconds=60, horizon_bars=1)
+    assert ceiling == 12.0 and count == 60
+    candidate = assess_cost_feasible_plan(
+        make_plan(100, 50, CFG),
+        times=b.time[:60], opens=b.open[:60],
+        highs=b.high[:60], closes=b.close[:60],
+        entry_time=b.time[60], bar_seconds=60, horizon_bars=1)
+    assert candidate["accepted"]
+    assert candidate["research_only"] is True
+
+
+@pytest.mark.parametrize("bad_value", ["100", True, float("nan"), float("inf")])
+def test_malformed_option_candle_fails_closed_without_crashing(bad_value):
+    b = candles(n=70)
+    highs = list(b.high[:60])
+    highs[10] = bad_value
+    assert prior_premium_excursions(
+        b.time[:60], b.open[:60], highs, b.close[:60],
+        entry_time=b.time[60], bar_seconds=60, horizon_bars=1) == (None, 0)
+
+
+@pytest.mark.parametrize("bad_horizon,bad_seconds", [
+    (1.5, 60), (True, 60), (0, 60), (1, True), (1, 60.5),
+])
+def test_invalid_timeframe_types_never_produce_challenger_headroom(
+        bad_horizon, bad_seconds):
+    b = candles(n=70)
+    assert prior_premium_excursions(
+        b.time[:60], b.open[:60], b.high[:60], b.close[:60],
+        entry_time=b.time[60], bar_seconds=bad_seconds,
+        horizon_bars=bad_horizon) == (None, 0)
+
+
+def test_out_of_range_session_timestamp_fails_closed():
+    # Numerically finite values can still be outside datetime's valid range.
+    times = np.array([1e15 + 60 * i for i in range(15)], dtype=float)
+    opens = np.full(15, 100.0)
+    highs = opens + 10.0
+    assert prior_premium_excursions(
+        times, opens, highs, opens, entry_time=1e15 + 15 * 60,
+        bar_seconds=60, horizon_bars=1) == (None, 0)
