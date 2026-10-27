@@ -143,6 +143,10 @@ async def test_known_unknown_exit_id_is_stored_for_reconciliation_without_second
 @pytest.mark.parametrize("result", [
     NS(success=False, status="UNKNOWN", order_id="", error="timeout"),
     NS(success=False, status="SUBMITTING", order_id="", error="other worker"),
+    NS(success=True, status="FILLED", order_id="", error="lost order id"),
+    NS(success=False, status="COMPLETE", order_id="", error="contradictory"),
+    NS(success=False, status="REJECTED", order_id="", error="unverified broker refusal"),
+    NS(success=False, status="CANCELLED", order_id="", error="unknown exchange identity"),
 ])
 async def test_unknown_exit_submission_without_id_is_not_treated_as_refusal(monkeypatch, result):
     p = pos()
@@ -174,3 +178,13 @@ async def test_verified_exit_refusal_without_broker_id_remains_no_send(monkeypat
     monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
     monkeypatch.setattr(exits, "alert", Mock())
     assert await obj._submit_exit(NS(), p, leg="option", quantity=75) == ""
+
+
+@pytest.mark.asyncio
+async def test_success_true_without_order_id_requires_reconciliation(monkeypatch):
+    p = pos()
+    result = NS(success=True, status="FILLED", order_id="", filled_quantity=75, error="")
+    broker = NS(submit_order=AsyncMock(return_value=result))
+    manager_obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), canonical=broker)
+    monkeypatch.setattr(manager_obj, "_ensure_ledger_inventory", AsyncMock())
+    assert await manager_obj._submit_exit(NS(), p, leg="option", quantity=75) is None
