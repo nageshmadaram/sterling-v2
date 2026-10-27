@@ -209,7 +209,8 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
         </div></details>
         {scanBusy && <button type="button" disabled={stopScan.isPending || (!data?.scan_cancellable && !scan.isPending)} onClick={()=>stopScan.mutate()}>{stopScan.isPending?'Stopping…':'Stop scan'}</button>}
         <span style={{ fontSize: 11, color: k.dim }}>
-          {data?.scanned ?? 0} instruments · {selectedModes.length>1 ? selectedModes.join(' + ') : shortHorizon
+          {data?.scanned ?? 0}{scanBusy && data?.scan_total ? ` / ${data.scan_total}` : ''} instruments
+          {scanBusy ? ' · live scan in progress; preview rows are view-only' : ''} · {selectedModes.length>1 ? selectedModes.join(' + ') : shortHorizon
             ? `${data?.config?.scalp_timeframe_minutes ?? 1}-minute bars · ${mode}` : 'daily bars'}
           {replay
             ? <> · <strong style={{ color: k.blue }}>REPLAY · VIEW ONLY</strong></>
