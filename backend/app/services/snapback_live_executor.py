@@ -1222,6 +1222,17 @@ class SnapbackLiveExecutor:
         live_request = str(plan.get("mode") or "").upper() == "LIVE" or real_transport
         is_hedge = bool(plan.get("futures_symbol")) and symbol == plan.get("futures_symbol")
         if live_request:
+            # A frozen plan cannot silently redirect an order to a different
+            # account because a UI-selected broker client changed since arming.
+            plan_uid = str(plan.get("owner_uid") or "").strip()
+            plan_account = str(plan.get("account_id") or "").strip()
+            actual_account = str(getattr(broker_client, "_account_id", "") or "").strip()
+            if (not plan_uid or plan_uid != self.uid or not plan_account
+                    or not actual_account or actual_account != plan_account):
+                return ExecutionResult(
+                    success=False, status="REJECTED_PLAN",
+                    error="Snapback plan owner or authenticated broker account mismatch",
+                )
             option_matches = (
                 not is_hedge
                 and symbol == str(plan.get("option_symbol") or "")
