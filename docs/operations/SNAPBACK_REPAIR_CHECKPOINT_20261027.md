@@ -448,3 +448,31 @@ fractional or missing lot sizes and quantities, and valid two-lot
 submission. These tests are **committed but not executed against
 the complete application on the exact current SHA**. This remains a
 source-level improvement, not Kite certification.
+
+
+## Twelfth pass — whole-strategy P&L integrity
+
+A material profitability-accounting gap was found in the real-option
+minute replay: `SnapbackConfig.hedge_mode` defaults to
+`index_futures`, but the observed-option-candle backtest models
+**only the long option leg**. It does not model the futures hedge
+entry/exit fills, P&L, margin, brokerage, taxes, price impact or
+financing. Consequently, even a positive option-leg simulated net
+cannot be called the **whole live Snapback strategy** profit.
+
+The backtest result now explicitly exposes `hedge_mode`,
+`hedge_realized_pnl_inr=null` and
+`hedge_data_quality=NOT_MODELLED_IN_INTRADAY_OPTION_ONLY_REPLAY`.
+The report's `whole_strategy_net_inr` stays **null** for every
+`index_futures` hedged mode. An arbitrary manually inserted
+`hedge_realized_pnl_inr` number is deliberately ignored; a credible
+paired futures-trade ledger with date-effective contracts and
+fill/cost/margin evidence must be built separately. An explicitly
+unhedged research configuration may report its option-only simulated
+net as its full simulated leg result, but NEVER as a certified
+profitable live strategy.
+
+Additional tests assert a forged profitable hedge scalar cannot turn
+an option-only backtest into a whole-strategy net, while an unhedged
+loss remains correctly represented. No profit or real broker receipts
+were produced; certification and new real-money entries remain blocked.
