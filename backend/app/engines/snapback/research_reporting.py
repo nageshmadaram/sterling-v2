@@ -17,6 +17,42 @@ from pathlib import Path
 from typing import Any
 
 
+def current_instrument_master_provenance(rows: Sequence[Mapping[str, Any]],
+                                         as_of: str) -> dict[str, Any]:
+    """Fingerprint the *current* candidate instruments, never historical authority.
+
+    Sorting the selected public contract attributes makes the fingerprint
+    independent of the order returned by the broker instrument endpoint.
+    The digest is integrity metadata, not proof these contracts existed on an
+    earlier trading date.
+    """
+    if not isinstance(as_of, str) or not as_of.strip():
+        raise ValueError("instrument master snapshot timestamp required")
+    selected = []
+    for r in rows:
+        if not isinstance(r, Mapping):
+            raise ValueError("instrument master candidate must be an object")
+        selected.append({
+            k: str(r.get(k) or "") for k in (
+                "instrument_token", "tradingsymbol", "name", "exchange",
+                "expiry", "strike", "lot_size", "instrument_type"
+            )
+        })
+    selected.sort(key=lambda d: (
+        d["exchange"], d["instrument_token"], d["tradingsymbol"]
+    ))
+    raw = json.dumps(selected, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "snapshot_as_of": as_of,
+        "selected_instruments": len(selected),
+        "public_instrument_metadata_sha256": hashlib.sha256(raw).hexdigest(),
+        "selection_basis": "CURRENT_BROKER_INSTRUMENT_MASTER",
+        "historical_date_effective": False,
+        "retrospective_selection_bias": True,
+        "whole_strategy_oos_certification_eligible": False,
+    }
+
+
 def rejected_plan_count(value: Any) -> int:
     """The current replay returns a count; older replay contracts returned a list."""
     if type(value) is int and value >= 0:
