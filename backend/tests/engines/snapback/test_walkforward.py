@@ -123,6 +123,39 @@ class TestSummarise:
         assert len(rets) == 2                   # only sessions the tape has
         assert float(np.sum(rets)) == pytest.approx(0.04)
 
+    def test_tape_sessions_include_flat_days_missing_from_trade_endpoints(self):
+        t = self._trades([0.20, 0.20], ["2024-01-01", "2024-01-05"])
+        sessions = ["2024-01-01", "2024-01-02", "2024-01-03",
+                    "2024-01-04", "2024-01-05"]
+        diagnostics = equity_series(t, allocation_pct=10.0)
+        calendar_rets = equity_series(t, allocation_pct=10.0, sessions=sessions)
+        assert len(diagnostics) == 2
+        assert len(calendar_rets) == 5
+        assert list(calendar_rets[1:4]) == [0.0, 0.0, 0.0]
+        assert calendar_rets.sum() == pytest.approx(diagnostics.sum())
+        report = summarise(t, 100_000.0, hold_days=5,
+                           allocation_pct=10.0, sessions=sessions)
+        assert report.equity_session_calendar_complete
+        assert report.equity_session_count == 5
+        assert report.as_dict()["equity_session_count"] == 5
+
+    def test_sharpe_report_discloses_when_calendar_is_only_trade_endpoints(self):
+        t = self._trades([0.1, -0.2], ["2024-01-01", "2024-01-03"])
+        diagnostic = summarise(t, 100_000.0, hold_days=5)
+        assert not diagnostic.equity_session_calendar_complete
+        assert diagnostic.equity_session_count == 2
+        assert diagnostic.as_dict()["equity_session_calendar_complete"] is False
+
+    def test_missing_exit_in_source_tape_fails_closed(self):
+        t = self._trades([0.2, 0.2], ["2024-01-01", "2024-01-05"])
+        with pytest.raises(SelectionContaminated, match="calendar"):
+            equity_series(t, allocation_pct=10.0,
+                          sessions=["2024-01-01", "2024-01-03"])
+        with pytest.raises(SelectionContaminated, match="calendar"):
+            equity_series(t, allocation_pct=10.0,
+                          sessions=["2024-01-05", "2024-01-05", "2024-01-01"])
+
+
     def test_an_empty_book_is_not_an_error(self):
         b = summarise([], 100_000.0, hold_days=10)
         assert b.n_days == 0 and b.mean_day_return == 0.0
