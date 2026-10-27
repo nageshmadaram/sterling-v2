@@ -253,11 +253,19 @@ class SnapbackExecutionAdapter:
                 error="confirmed broker fill not fully booked; reconcile before new entries",
             )
 
-        if resolution.reconciliation_required or (not resolution.settled and filled == 0):
+        if resolution.reconciliation_required or not resolution.settled:
+            # Fill settlement or broker identity is still unresolved. Regardless
+            # of which resolver supplied this evidence, no second strategy may
+            # increase exposure until the working order/partial is reconciled.
+            engage_kill_switch(
+                f"Snapback broker fill unresolved for {request.symbol}",
+                request.uid,
+            )
             return ExecutionResult(
-                success=False, status="UNKNOWN", intent_key=resolution.intent_key,
+                success=False, status="UNKNOWN",
+                intent_key=resolution.intent_key or result.intent_key,
                 order_id=result.order_id, filled_quantity=filled, filled_price=average,
-                error=resolution.reason or "entry outcome unresolved",
+                error=resolution.reason or "entry outcome unresolved; reconcile before new entries",
             )
         if filled <= 0:
             status = str(getattr(resolution, "status", "") or "").upper()
@@ -280,13 +288,6 @@ class SnapbackExecutionAdapter:
                 intent_key=resolution.intent_key or result.intent_key,
                 order_id=result.order_id,
                 error=resolution.reason or f"order {status.lower()} with no fill",
-            )
-        if not resolution.settled:
-            # Quantity exists but the order is still working: not terminal.
-            return ExecutionResult(
-                success=False, status="UNKNOWN", intent_key=resolution.intent_key,
-                order_id=result.order_id, filled_quantity=filled, filled_price=average,
-                error=resolution.reason or "entry order still working after the fill wait",
             )
         return ExecutionResult(
             success=True, status="FILLED" if filled >= int(request.quantity) else "FILLED_PARTIAL",
