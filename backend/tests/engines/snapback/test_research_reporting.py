@@ -4,6 +4,7 @@ from __future__ import annotations
 from app.engines.snapback.research_reporting import (
     choose_option_contract, contract_replay_summary, eligible_expiries,
     mode_totals, rejected_plan_count, write_research_report_once,
+    incremental_execution_cost_stress,
 )
 from datetime import date
 import pytest
@@ -183,3 +184,86 @@ def test_failed_atomic_publish_cleans_temp_and_does_not_claim_evidence(tmp_path,
     with pytest.raises(OSError, match="disk full"):
         write_research_report_once(path, {"research_only": True})
     assert list(tmp_path.iterdir()) == []
+
+
+def test_additional_execution_cost_is_deducted_once_per_traded_unit():
+    # These are synthetic trade records, NOT actual broker fills.
+    historical = replay(
+        trade_count=2,
+        trades=[
+            {"quantity": 50, "net_pnl_inr": 100.0},
+            {"quantity": 25, "net_pnl_inr": 50.0},
+        ],
+        net_pnl_inr=150.0,
+    )
+    stressed = incremental_execution_cost_stress(historical)
+    assert stressed["available"]
+    assert stressed["total_option_units_traded"] == 75
+    assert stressed["baseline_net_inr"] == 150.0
+    assert stressed["extra_cost_break_even_points"] == 2.0
+    assert stressed["stressed_net_inr"]["0.5"] == 112.5
+    assert stressed["stressed_net_inr"]["1"] == 75.0
+    assert stressed["stressed_net_inr"]["2"] == 0.0
+
+
+def test_mismatched_trade_level_total_cannot_fabricate_stress_profit():
+    inconsistent = replay(
+        trade_count=1, trades=[{"quantity": 75, "net_pnl_inr": -100.0}],
+        net_pnl_inr=1000.0,
+    )
+    summary = contract_replay_summary(inconsistent)
+    assert summary["additional_cost_stress"]["available"] is False
+    assert summary["additional_cost_stress"]["reason"] == "TRADE_PNL_TOTAL_MISMATCH"
+    totals = mode_totals([dict(summary, coverage={"all_sessions_complete": True})])
+    assert totals["additional_cost_stress_complete"] is False
+    assert totals["additional_cost_stress_net_inr"] is None
+    assert not totals["promotion_eligible"]
+
+
+def test_historical_without_per_trade_receipts_cannot_claim_stress_robustness():
+    summary = contract_replay_summary(replay())
+    assert summary["additional_cost_stress"]["available"] is False
+    assert summary["additional_cost_stress"]["reason"] == "TRADE_LEVEL_EVIDENCE_MISSING"
+
+
+def test_mode_stress_and_unrounded_net_are_aggregated_without_rounding_bias():
+    def contract(net):
+        payload = replay(
+            trade_count=1, trades=[{"quantity": 1, "net_pnl_inr": net}],
+            net_pnl_inr=net, rejected_plans=0,
+        )
+        return dict(contract_replay_summary(payload),
+                    coverage={"all_sessions_complete": True})
+    rows = [contract(0.49), contract(0.49), contract(-0.01)]
+    result = mode_totals(rows)
+    assert result["net_inr_exact"] == 0.97
+    assert result["net_inr"] == 1
+    assert result["profitable_contracts"] == 2
+    assert result["additional_cost_stress_complete"]
+    assert result["additional_cost_stress_net_inr"]["0.5"] == -0.53
+    assert result["promotion_eligible"] is False
+
+
+def test_unavailable_one_trade_stress_refuses_mode_wide_stress_claim():
+    complete = dict(contract_replay_summary(replay(
+        trade_count=1, trades=[{"quantity": 75, "net_pnl_inr": 100}],
+        net_pnl_inr=100,
+    )), coverage={"all_sessions_complete": True})
+    missing = dict(contract_replay_summary(replay()), coverage={"all_sessions_complete": True})
+    result = mode_totals([complete, missing])
+    assert result["additional_cost_stress_complete"] is False
+    assert result["additional_cost_stress_net_inr"] is None
+
+
+def test_invalid_cost_stress_quantity_and_nan_trade_returns_are_refused():
+    for bad in [
+        {"quantity": True, "net_pnl_inr": 10},
+        {"quantity": 0, "net_pnl_inr": 10},
+        {"quantity": 75, "net_pnl_inr": float("nan")},
+        {"quantity": "75", "net_pnl_inr": 10},
+    ]:
+        report = incremental_execution_cost_stress(replay(
+            trade_count=1, trades=[bad], net_pnl_inr=10,
+        ))
+        assert report["available"] is False
+        assert report["reason"] == "INVALID_TRADE_EVIDENCE"
