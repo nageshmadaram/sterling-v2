@@ -1154,3 +1154,46 @@ def test_final_close_with_retired_acks_is_durable(monkeypatch):
     assert p.status == "CLOSED"
     assert p.option_exit_order_id == ""
     assert p.hedge_exit_order_id == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["OPEN", "TRIGGER PENDING", "COMPLETE", "CANCELLED"])
+async def test_already_booked_stop_child_still_requires_current_broker_status(
+        monkeypatch, status):
+    from app.services.kite_engine import protective_stop as pstop
+
+    p = pos()
+    p.gtt_id = 889999
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_booked_ids = ["STOP-CHILD-99"]
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    monkeypatch.setattr(pstop, "stop_state", AsyncMock(return_value=NS(
+        child_order_id="STOP-CHILD-99", verdict="TRIGGERED")))
+    monkeypatch.setattr(obj, "_gtt_child_order_id",
+                        AsyncMock(return_value="STOP-CHILD-99"))
+    order = {
+        "order_id": "STOP-CHILD-99", "status": status,
+        "tradingsymbol": p.option_symbol, "exchange": p.option_exchange,
+        "transaction_type": "SELL", "filled_quantity": 25,
+        "average_price": 90, "quantity": 75, "product": p.product,
+    }
+    own = await obj._stop_child_orders(NS(), p, [order])
+    assert own == [order], (
+        "A previous fill booking is not proof this STOP SELL is terminal")
+
+
+@pytest.mark.asyncio
+async def test_already_booked_stop_child_absent_from_order_book_is_unknown(
+        monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    p = pos()
+    p.gtt_id = 889999
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_booked_ids = ["STOP-CHILD-99"]
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    monkeypatch.setattr(pstop, "stop_state", AsyncMock(return_value=NS(
+        child_order_id="STOP-CHILD-99", verdict="TRIGGERED")))
+    assert await obj._stop_child_orders(NS(), p, []) is None
