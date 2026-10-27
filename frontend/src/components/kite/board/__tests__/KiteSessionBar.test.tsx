@@ -1,26 +1,53 @@
 import React from 'react';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, cleanup} from '@testing-library/react';
 import {KiteSessionBar} from '../KiteSessionBar';
+import {useKiteStatusCardStore} from '../../../../store/useKiteStatusCardStore';
+
 let status: any;
-vi.mock('../../../../hooks/useKite', () => ({useKiteStatus: () => status}));
-beforeEach(() => {status = {data: {connected: true}, isLoading: false, isError: false};});
+let accounts: any;
+vi.mock('../../../../hooks/useKite', () => ({
+  useKiteStatus: () => status,
+  useKiteAccounts: () => ({data:accounts}),
+}));
+beforeEach(() => {
+  cleanup();
+  status = {data:{connected:true}, isLoading:false, isError:false};
+  accounts = {accounts:[], active_id:null};
+  useKiteStatusCardStore.setState({isOpen:false});
+});
 describe('Kite session truth', () => {
-  it('keeps connected accounts quiet', () => {render(<KiteSessionBar />); expect(screen.queryByRole('alert')).toBeNull();});
-  it('does not hide unreadable broker status behind the last connected value', () => {
-    status = {data: {connected: true}, isError: true};
+  it('keeps connected accounts quiet', () => {
     render(<KiteSessionBar />);
-    expect(screen.getByRole('alert')).toHaveTextContent(/session status could not be verified/i);
-    expect(screen.queryByText(/Kite is not logged in/)).toBeNull();
+    expect(screen.queryByRole('button', {name:/Kite/})).toBeNull();
   });
-  it('identifies a transient response as unknown instead of logged out', () => {
-    status = {data: {connected: false, transient: true}};
-    render(<KiteSessionBar />);expect(screen.getByRole('alert')).toHaveTextContent(/could not be verified/i);
+
+  it('treats unreadable broker status as unverified instead of disconnecting', () => {
+    status = {data:{connected:true}, isError:true};
+    render(<KiteSessionBar />);
+    expect(screen.getByRole('button')).toHaveTextContent('Kite check unavailable');
+    expect(screen.queryByText(/Kite disconnected/)).toBeNull();
   });
-  it('offers an explicit connection action for a missing session', () => {
-    status = {data: {connected: false}};const nav=vi.fn();window.addEventListener('kite-nav-click',nav);
-    render(<KiteSessionBar />);fireEvent.click(screen.getByRole('button',{name:'Log in to Kite'}));
-    expect(screen.getByRole('alert')).toHaveTextContent(/not logged in/i);
-    expect(nav.mock.calls[0][0].detail).toBe('connect');window.removeEventListener('kite-nav-click',nav);
+
+  it('treats a transient session check as unverified', () => {
+    status = {data:{connected:false, transient:true}, isError:false};
+    render(<KiteSessionBar />);
+    expect(screen.getByRole('button')).toHaveTextContent('Kite check unavailable');
+  });
+
+  it('shows the login action if no token remains and opens the broker panel', () => {
+    status = {data:{connected:false}, isError:false};
+    render(<KiteSessionBar />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(screen.getByRole('button')).toHaveTextContent('Kite disconnected');
+    expect(useKiteStatusCardStore.getState().isOpen).toBe(true);
+  });
+
+  it('shows saved and unverified until the active account is validated', () => {
+    status = {data:{connected:false, account_id:'active', message:'Cannot reach Kite'}, isError:false};
+    accounts = {active_id:'active', accounts:[{id:'active', connected:true, token_expires_at_ms:Date.now()+60_000}]};
+    render(<KiteSessionBar />);
+    expect(screen.getByRole('button')).toHaveTextContent('Kite session saved · unverified');
+    expect(screen.getByRole('button')).toHaveTextContent('Verify');
   });
 });
