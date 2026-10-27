@@ -1840,3 +1840,102 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
  .sterling-media-suggestions strong {font-size:16px;}
  .sterling-media-suggestions small {font-size:13px;}
 }
+
+
+/* 2026-10-28 — mobile trading viewport: preserve signal rows over chrome.
+   Scope every rule to mobile app mode; desktop/full-terminal layouts retain
+   their independently configurable workspace geometry. All colors are theme
+   variables so light/dark/high-contrast settings are not silently overridden. */
+@media (max-width:900px) {
+  body[data-mobile-style="app"] .today-signals-priority {
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    max-height:28px; box-sizing:border-box; padding:5px 9px!important;
+    font-size:10px!important; line-height:17px!important;
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] {
+    padding:0 9px!important; max-height:min(44vh,260px)!important;
+    line-height:1.35!important; font-size:10.5px!important;
+    background:var(--k-bg);
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] > div {
+    display:none!important; /* still available inside expanded conditions */
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] > details > summary {
+    padding:7px 0; font-size:11px; font-weight:650; line-height:1.4;
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] table {
+    min-width:580px; font-size:10.5px;
+  }
+  body[data-mobile-style="app"] .signals-workspace > [aria-label="How this strategy works"] {
+    display:none!important; /* detailed conditions remain in the strategy disclosure */
+  }
+  body[data-mobile-style="app"] .signals-workspace > .signal-engine-tabs {
+    min-height:38px!important;
+  }
+  body[data-mobile-style="app"] .signal-engine-tabs [role="tab"] {
+    min-height:38px!important; padding:5px 4px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .mobile-pane-tabs {
+    min-height:43px!important; padding:2px 5px calc(2px + env(safe-area-inset-bottom,0px))!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .mobile-pane-tabs button {
+    min-height:40px!important; height:40px!important;
+    gap:2px!important; font-size:10px!important; border-radius:7px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .mobile-pane-tabs svg {
+    width:17px!important; height:17px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .sterling-workspace-footer {
+    height:26px!important; min-height:26px!important;
+    padding:0 7px!important; overflow:hidden;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .sterling-workspace-footer button {
+    min-height:24px!important; height:24px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .signal-engine-viewport {
+    flex:1 1 auto!important; min-height:0!important;
+  }
+  body[data-mobile-style="app"] .kite-connection-status {
+    display:flex; flex-shrink:0; align-items:center; justify-content:space-between;
+    width:100%; max-height:29px; min-height:29px;
+    padding:4px 12px!important; margin:0!important;
+    font-size:11px!important; line-height:1.25!important;
+    border-radius:0!important; border:0!important;
+    border-bottom:1px solid var(--k-border)!important;
+    color:var(--k-text); background:var(--k-surface-2);
+  }
+  .kite-session-overlay {
+    padding:calc(8px + env(safe-area-inset-top,0px))
+            calc(8px + env(safe-area-inset-right,0px))
+            calc(8px + env(safe-area-inset-bottom,0px))
+            calc(8px + env(safe-area-inset-left,0px))!important;
+    align-items:center; overflow:hidden;
+  }
+  .kite-session-panel {
+    width:min(100%,460px); max-width:100%;
+    max-height:min(calc(100dvh - 16px),calc(var(--mobile-viewport-height,100dvh) - 16px))!important;
+    min-height:0; overflow:hidden; border-radius:10px!important;
+  }
+  .kite-session-panel .kite-session-header {
+    gap:8px!important; padding:10px 12px!important;
+  }
+  .kite-session-panel .kite-session-header h2 {font-size:15px!important;}
+  .kite-session-panel .kite-session-header-actions {gap:8px;}
+  .kite-session-panel .kite-session-icon-btn,
+  .kite-session-panel .kite-session-close {
+    width:36px!important; height:36px!important; min-height:36px!important;
+  }
+  .kite-session-panel .kite-session-body {
+    overflow:auto; min-height:0; overscroll-behavior:contain;
+    padding:10px 12px!important; gap:9px!important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .kite-session-panel .assisted-login {padding:10px!important; gap:9px!important;}
+  .kite-session-panel .assisted-login>form input {
+    font-size:22px!important; min-height:46px!important;
+  }
+  .kite-session-panel :is(input,select,button) {
+    max-width:100%; box-sizing:border-box;
+  }
+  .kite-session-panel :is(input,select):not([type="checkbox"]) {font-size:16px!important;}
+}
