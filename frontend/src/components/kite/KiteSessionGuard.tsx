@@ -215,8 +215,10 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
       : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
       : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
-  const isLoginVisible = (!connected && (!savedPending || verificationTimedOut || !savedAccountId))
-    || showRelogin || (loginRequested && !savedPending);
+  // After a saved login, lead with verification and explicit recovery, not
+  // a second credential form that misleadingly says "Sign in" by default.
+  const isLoginVisible = (!connected && !savedPending) || showRelogin
+    || (loginRequested && !savedPending);
 
   return createPortal(
     <div className="kite-session-overlay" data-leaving={leaving ? 'true' : 'false'}
@@ -248,6 +250,10 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : savedPending ? cardDetail : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
           {(unknown || savedPending) && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Verify broker connection'}</button>}
+          {savedPending && !selectedDifferentAccount && !connected && !loginRequested &&
+            <button type="button" onClick={() => setShowRelogin(v => !v)}>
+              {showRelogin ? 'Hide broker re-login' : 'Re-login if verification fails'}
+            </button>}
           {selectedDifferentAccount && savedAccountId && <div className="kite-session-account-actions">
             <button type="button" disabled={activateAccount.isPending}
               onClick={() => activateAccount.mutate(savedAccountId, {onSuccess: () => {
