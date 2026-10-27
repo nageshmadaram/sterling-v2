@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  useKiteAccounts, useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
+  useKiteAccounts, useActivateKiteAccount, useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
   useRefreshKiteSession, useKiteLogout,
 } from '../../hooks/useKite';
 import { notifyOrder } from '../../store/useKiteNotifications';
@@ -26,6 +26,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const loginRequested = useKiteStatusCardStore(state => state.loginRequested);
   const loginAccountId = useKiteStatusCardStore(state => state.loginAccountId);
   const ownedAccounts = useKiteAccounts();
+  const activateAccount = useActivateKiteAccount();
   const effectiveAccountId = loginAccountId || status?.account_id || ownedAccounts.data?.active_id || ownedAccounts.data?.accounts[0]?.id || undefined;
   const kiteLogin = useOpenKiteLogin(effectiveAccountId);
   const isOpen = useKiteStatusCardStore((state) => state.isOpen);
@@ -247,6 +248,17 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : savedPending ? cardDetail : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
           {(unknown || savedPending) && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Verify broker connection'}</button>}
+          {selectedDifferentAccount && savedAccountId && <div className="kite-session-account-actions">
+            <button type="button" disabled={activateAccount.isPending}
+              onClick={() => activateAccount.mutate(savedAccountId, {onSuccess: () => {
+                setVerificationTimedOut(false);
+                void refetch();
+              }})}>
+              {activateAccount.isPending ? 'Checking account-switch safety…' : 'Make saved broker account active'}
+            </button>
+            {activateAccount.error && <p role="alert">{activateAccount.error.message}</p>}
+            <small>Changing the active broker account requires Sterling's broker-exposure and pending-order safety checks. It does not enable live entries.</small>
+          </div>}
           {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={effectiveAccountId} autoStart={loginRequested} onSaved={onSessionSaved} />}
           {connected && <div className="kite-session-account-actions">
             {!loginRequested && <button type="button" onClick={() => { setShowRelogin(v => !v); logout.reset?.(); }}>{showRelogin ? 'Hide broker login' : 'Log in to another account'}</button>}
