@@ -1939,3 +1939,46 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
   }
   .kite-session-panel :is(input,select):not([type="checkbox"]) {font-size:16px!important;}
 }
+
+/* Signal view filters: desktop is unchanged; phone shows one accessible
+   disclosure instead of permanently spending a row on five display toggles.
+   Scan and execution controls stay outside this disclosure at all sizes. */
+.view-filter-toggle { display:none; }
+.view-filter-items { display:contents; }
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .view-filter-toggle {
+    display:inline-flex; align-items:center; flex-shrink:0;
+    min-height:32px; padding:4px 9px; margin:0;
+    background:var(--k-surface-2); border:1px solid var(--k-border);
+    border-radius:6px; color:var(--k-text); font-size:11px;
+    font-weight:650; font-family:inherit; cursor:pointer;
+  }
+  body[data-mobile-style="app"] .view-filter-toggle[aria-expanded="true"] {
+    border-color:var(--k-brand); color:var(--k-brand);
+  }
+  body[data-mobile-style="app"] .view-filter-items { display:none; }
+  body[data-mobile-style="app"] .view-filter-items.is-open { display:contents; }
+  body[data-mobile-style="app"] .strategy-inline-controls {
+    flex-wrap:wrap!important; align-items:center!important;
+    gap:5px!important; padding:4px 7px!important;
+    min-height:36px; box-sizing:border-box;
+  }
+  body[data-mobile-style="app"] .signal-engine-viewport .sb-strategy-layout {
+    min-height:0; max-height:100%; overflow:auto;
+    overscroll-behavior:contain;
+  }
+  body[data-mobile-style="app"] .strategy-mode-info > details > summary {
+    max-width:100%; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;
+  }
+  /* All account and position details use the same theme, including the
+     temporary assisted-login preview placeholder and focus treatments. */
+  body[data-mobile-style="app"] .kite-session-panel .assisted-progress,
+  body[data-mobile-style="app"] .kite-session-panel .account-recovery {
+    background:var(--k-bg); color:var(--k-text);
+    border-color:var(--k-border);
+  }
+  body[data-mobile-style="app"] .kite-session-panel .account-caption,
+  body[data-mobile-style="app"] .kite-session-panel .assisted-login label {
+    color:var(--k-dim);
+  }
+}
