@@ -487,3 +487,54 @@ def test_insert_new_first_fill_never_overwrites_a_different_existing_owner(tmp_p
     assert recovered.uid == "owner"
     assert recovered.account_id == "account"
     assert recovered.option_entry_order_id == "BROKER-ORDER-1"
+
+
+@pytest.mark.parametrize("change", [
+    {"uid": "foreign-owner"},
+    {"account_id": "other-account"},
+    {"exchange": "BFO"},
+    {"symbol": "OTHER-CONTRACT"},
+    {"side": "SELL"},
+    {"tag": "snapback:nonexistent"},
+])
+def test_foreign_broker_fill_does_not_touch_shared_ledger(monkeypatch, change):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    req = request()
+    req.__dict__.update(change)
+    if change.get("tag") == "snapback:nonexistent":
+        a.plan_store.get = Mock(return_value=None)
+    ledger_write = Mock()
+    monkeypatch.setattr(fill_ledger, "record", ledger_write)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    assert not a._book_fill(req, resolved(), "BROKER-ORDER-1", 75, 100.0)
+    ledger_write.assert_not_called()
+    store.mutate.assert_not_called()
+    killed.assert_called()
+
+
+def test_stale_broker_fill_does_not_touch_shared_ledger(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    write = Mock()
+    monkeypatch.setattr(fill_ledger, "record", write)
+    monkeypatch.setattr(wiring, "engage_kill_switch", Mock())
+    assert not a._book_fill(request(), resolved(quantity=74), "BROKER-ORDER-1", 74, 100.0)
+    write.assert_not_called()
+
+
+def test_verified_owner_can_book_to_shared_ledger_with_exact_exchange_time(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    monkeypatch.setattr(a, "_record_leg", Mock())
+    record = Mock(return_value=SimpleNamespace(reconciliation_required=False))
+    monkeypatch.setattr(fill_ledger, "record", record)
+    kill = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", kill)
+    assert a._book_fill(request(), SimpleNamespace(exchange_ts_ms=123456),
+                        "BROKER-ORDER-1", 75, 100.0)
+    assert record.call_args.kwargs["uid"] == "operator"
+    assert record.call_args.kwargs["account_id"] == "account"
+    assert record.call_args.kwargs["exchange_ts_ms"] == 123456
+    kill.assert_not_called()
