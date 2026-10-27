@@ -18,6 +18,12 @@ describe('hosted media startup priority', () => {
   });
 
   it('does not block first radio sound on the remote station catalog', () => {
+    const boot = radio.slice(
+      radio.indexOf('function bootRadioApplication()'),
+      radio.indexOf('// Start only after host preferences hydrate'),
+    );
+    expect(boot.indexOf('attemptBootAutoplay(bootStation)')).toBeGreaterThan(-1);
+    expect(boot.indexOf('initRadioDirectory();')).toBeGreaterThan(boot.indexOf('attemptBootAutoplay(bootStation)'));
     expect(radio).toContain('if (radioBooted && radioCatalog) void radioCatalog.load();');
     expect(radio).toContain('liveSyncDurationCount: 2');
     expect(radio).toContain('audio.paused || audio.readyState < 2');
