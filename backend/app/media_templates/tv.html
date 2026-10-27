@@ -3201,11 +3201,12 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         const cfg = {
           enableWorker: true,
           lowLatencyMode: true,
-          backBufferLength: IS_MOBILE_VIEW() ? 10 : 25,
-          maxBufferLength: IS_MOBILE_VIEW() ? 15 : 28,
-          manifestLoadingTimeOut: 6500,
+          backBufferLength: IS_MOBILE_VIEW() ? 7 : 18,
+          maxBufferLength: IS_MOBILE_VIEW() ? 10 : 20,
+          startFragPrefetch: true,
+          manifestLoadingTimeOut: 5000,
           manifestLoadingMaxRetry: 1,
-          levelLoadingTimeOut: 6500
+          levelLoadingTimeOut: 5000
         };
 
         hls = new Hls(cfg);
@@ -3214,15 +3215,25 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
 
         const watchdog = setTimeout(() => {
           if (!parsed && activeChannel === channel && playbackGeneration===generation) escalateStage(channel);
-        }, 6800);
+        }, 5800);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
           if(playbackGeneration!==generation)return;
           parsed = true;
           clearTimeout(watchdog);
-          spinner.classList.add('hidden');
+          // A parsed playlist is not decoded video. Keep the loading overlay
+          // until the first frame is playable or a tap-to-play prompt appears.
+          const hideWhenPlayable = () => {
+            if (playbackGeneration===generation) spinner.classList.add('hidden');
+          };
+          if (video.readyState >= 3) hideWhenPlayable();
+          else video.addEventListener('canplay', hideWhenPlayable, {once:true});
           populateQualityLevelsMenu(data.levels || []);
           safeAutoplayVideo(video);
+          setTimeout(() => {
+            if (activeChannel===channel && playbackGeneration===generation
+                && video.readyState < 2 && !tvUserPaused) escalateStage(channel);
+          }, 6500);
         });
 
         hls.on(Hls.Events.FRAG_LOADED, () => {
@@ -3267,7 +3278,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
       const generation=playbackGeneration;
       const watchdog = setTimeout(() => {
         if (activeChannel === channel && playbackGeneration===generation && video.readyState < 2) escalateStage(channel);
-      }, 10000);
+      }, 7500);
       video.onloadedmetadata = () => {
         clearTimeout(watchdog);
         if(playbackGeneration!==generation)return;
