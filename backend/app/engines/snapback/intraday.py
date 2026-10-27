@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 
 from .config import SnapbackConfig
+from .equity_mark import option_leg_mark_equity
 from .models import Bars, IST, SnapbackSignal, ist_day
 from ..indicators.adx import adx
 from ..indicators.ema import compute_ema
@@ -451,10 +452,14 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
         if position is not None:
             # Conservative intrabar low-water risk of the held option leg;
             # this is a hypothetical adverse mark, NOT an executable fill.
-            low_mark_equity = capital + (
-                float(premium_bars.low[i]) - position.entry -
-                position.variable_cost_points
-            ) * position.quantity - position.fixed_cost_inr
+            low_mark_equity = option_leg_mark_equity(
+                capital,
+                entry_price=position.entry,
+                observed_mark_price=float(premium_bars.low[i]),
+                quantity=position.quantity,
+                estimated_roundtrip_cost_points=position.variable_cost_points,
+                fixed_roundtrip_cost_inr=position.fixed_cost_inr,
+            )
             intrabar_low_stress_drawdown = max(
                 intrabar_low_stress_drawdown,
                 close_mark_peak - low_mark_equity)
@@ -474,10 +479,14 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                 position = None
         # Realized equity when flat; otherwise close-mark current option
         # inventory, deducting the estimated round-trip charges.
-        close_mark_equity = capital if position is None else capital + (
-            float(premium_bars.close[i]) - position.entry -
-            position.variable_cost_points
-        ) * position.quantity - position.fixed_cost_inr
+        close_mark_equity = (capital if position is None else option_leg_mark_equity(
+            capital,
+            entry_price=position.entry,
+            observed_mark_price=float(premium_bars.close[i]),
+            quantity=position.quantity,
+            estimated_roundtrip_cost_points=position.variable_cost_points,
+            fixed_roundtrip_cost_inr=position.fixed_cost_inr,
+        ))
         close_mark_peak = max(close_mark_peak, close_mark_equity)
         close_mark_drawdown = max(
             close_mark_drawdown, close_mark_peak - close_mark_equity)
