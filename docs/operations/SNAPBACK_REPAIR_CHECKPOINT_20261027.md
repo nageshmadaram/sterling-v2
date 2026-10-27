@@ -367,3 +367,55 @@ require on-host verification.
 New live orders remain OFF. No broker orders or profitable forward
 trades were recorded by this code change; the new tests are committed
 but not exact-head executed.
+
+
+## Tenth pass — exit lifecycle identity and broker terminality
+
+The Snapback EXIT (risk-reduction) pipeline now requires the same
+evidence integrity as the entry path, without denying the ability
+to initiate an authorized risk-reducing close:
+
+- Never treat an open or otherwise **nonterminal** broker exit order
+  as a completed sell, even when its observed filled quantity equals
+  the requested quantity. Existing broker order IDs remain in the
+  position registry until a terminal state with settled, conflict-free
+  journal evidence exists.
+- Reject malformed exit cumulative fills (negative, nonintegral,
+  over-requested, missing/nonfinite or nonpositive fill prices).
+  Preserve the working exit identity, halt new risk and require
+  reconciliation rather than issuing a new SELL to compensate.
+- Require a positive journal projection version for terminal
+  **filled** exits. A settled zero-fill CANCELLED/REJECTED broker
+  outcome legitimately has no fill projection, and can be safely
+  considered unfilled; a contradictory COMPLETE/zero-fill outcome
+  is not accepted.
+- The signed ledger must explicitly accept the exit fill or identify
+  it as an exact idempotent duplicate. Stale/unknown/quarantined
+  cumulative reports are not used to increment the owned position's
+  closed quantity.
+- If the canonical exit submit returns a known order ID, **retain
+  that ID even when the submission success flag is false** and let
+  broker reconciliation determine the outcome. Never assume an ID'd
+  UNKNOWN order was unsent.
+- If submission throws or returns an unresolved/no-ID result,
+  `_close_leg` places an owner-scoped reconciliation hold and
+  **does not restore a competing broker stop or send another exit**.
+  A blank order ID is considered never sent only on an explicit
+  local pre-send refusal with zero filled quantity.
+- Dedicated mock-broker tests cover malformed/over-filled exit
+  quantities, invalid prices, nonterminal acknowledgements,
+  missing projection versions, terminal cancellations, exit ledger
+  stale responses, unknown submit IDs and preservation of stop
+  safety when the earlier stop has already been released.
+
+**Verification:** These new exit tests are committed but have **not
+been run inside the full Sterling installation on this candidate
+SHA**. No real-money exit, GTT triggering, partial-fill recovery,
+broker position reconciliation or after-cost forward outcome was
+observed. This remains a **review-only technical improvement**, not
+a live-broker or profitability certificate.
+
+**Operator safety:** The owner is not currently available for broker
+authorization/acceptance. Keep autonomous new risk OFF; exits,
+protection and reconciliation still require validation against actual
+market/broker receipts by an authorized operator.
