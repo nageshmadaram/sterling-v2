@@ -73,7 +73,7 @@ def incremental_execution_cost_stress(result: Mapping[str, Any]) -> dict[str, An
         "baseline_net_inr": round(exact_net, 6),
         "extra_cost_break_even_points": round(exact_net / total_units, 6),
         "stressed_net_inr": {
-            str(shock): round(exact_net - shock * total_units, 6)
+            format(shock, "g"): round(exact_net - shock * total_units, 6)
             for shock in _STRESS_POINTS
         },
     }
@@ -148,8 +148,8 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         and r["additional_cost_stress"].get("available") is True for r in ok
     )
     stress_totals = ({
-        str(shock): round(sum(
-            r["additional_cost_stress"]["stressed_net_inr"][str(shock)]
+        format(shock, "g"): round(sum(
+            r["additional_cost_stress"]["stressed_net_inr"][format(shock, "g")]
             for r in ok
         ), 6) for shock in _STRESS_POINTS
     } if stress_complete else None)
