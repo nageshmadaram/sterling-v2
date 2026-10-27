@@ -27,7 +27,7 @@ def plan():
         "policy_snapshot_hash": "generation", "opportunity_id": "signal-1",
         "option_symbol": "NIFTY_PE", "option_exchange": "NFO",
         "futures_symbol": "NIFTY_FUT", "futures_exchange": "NFO",
-        "hedge_side": "SELL",
+        "hedge_side": "BUY",
         "order_type": "LIMIT", "limit_price": 100.0, "lot_size": 75,
         "hedge_order_type": "LIMIT", "hedge_price_limit": 23000.0,
         "futures_lot_size": 25,
@@ -38,7 +38,7 @@ async def submit(service, payload, *, hedge=False, override=None):
     return await service._submit(
         payload,
         symbol="NIFTY_FUT" if hedge else "NIFTY_PE",
-        exchange="NFO", side="SELL" if hedge else "BUY",
+        exchange="NFO", side="BUY",
         quantity=25 if hedge else 75,
         approval=SimpleNamespace(capital_required=7500, available_capital=100000),
         broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
@@ -165,11 +165,11 @@ async def test_real_option_submit_refuses_contract_drift(wrong):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("wrong", [
-    {"exchange": "BFO"}, {"side": "BUY"},
+    {"exchange": "BFO"}, {"side": "SELL"},
 ])
 async def test_real_futures_submit_refuses_hedge_exchange_or_side(wrong):
     svc, broker = executor()
-    details = dict(symbol="NIFTY_FUT", exchange="NFO", side="SELL")
+    details = dict(symbol="NIFTY_FUT", exchange="NFO", side="BUY")
     details.update(wrong)
     result = await svc._submit(
         plan(), quantity=25, approval=SimpleNamespace(
@@ -214,3 +214,26 @@ async def test_valid_positive_multiple_of_lot_can_reach_canonical_boundary():
     assert submitted.quantity == 150
     assert submitted.payload["lot_size"] == 75
     assert submitted.order_type == "LIMIT"
+
+
+@pytest.mark.asyncio
+async def test_wrong_futures_hedge_direction_is_refused_even_if_frozen_plan_agrees():
+    svc, broker = executor()
+    incorrect = {**plan(), "hedge_side": "SELL"}  # buying PE requires BUY futures
+    outcome = await svc._submit(
+        incorrect, symbol="NIFTY_FUT", exchange="NFO", side="SELL",
+        quantity=25, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+    )
+    assert not outcome.success and outcome.status == "REJECTED_PLAN"
+    broker.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_correct_buy_futures_hedge_for_bought_put_remains_limit_order():
+    svc, broker = executor()
+    outcome = await submit(svc, plan(), hedge=True, override=23010.0)
+    assert outcome.success
+    req = broker.submit_order.await_args.args[0]
+    assert req.side == "BUY" and req.order_type == "LIMIT"
