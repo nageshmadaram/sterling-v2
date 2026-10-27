@@ -529,7 +529,7 @@ def test_verified_owner_can_book_to_shared_ledger_with_exact_exchange_time(monke
     from app.services.kite_engine import fill_ledger
     a, plan, existing, store = _bound_leg_context()
     monkeypatch.setattr(a, "_record_leg", Mock())
-    record = Mock(return_value=SimpleNamespace(reconciliation_required=False))
+    record = Mock(return_value=SimpleNamespace(reconciliation_required=False, reason="accepted"))
     monkeypatch.setattr(fill_ledger, "record", record)
     kill = Mock()
     monkeypatch.setattr(wiring, "engage_kill_switch", kill)
