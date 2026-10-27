@@ -59,6 +59,7 @@ execution_rc=$?
 env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
   tests/unit/test_snapback_exit_resolution_boundary.py \
   tests/unit/test_snapback_exit_order_binding.py \
+  tests/unit/test_snapback_stop_cancel_verification.py \
   tests/unit/test_snapback_shortfall_persistence.py \
   tests/unit/test_snapback_live_exits.py \
   tests/unit/test_snapback_reconciliation.py \
