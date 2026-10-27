@@ -409,6 +409,15 @@ def judge(book: Book, *, permutation: Optional[float], dsr: float,
     checks: dict[str, bool] = {}
     reasons: list[str] = []
 
+    # Even a positive DSR computed over only trade endpoint dates is a
+    # selection-biased statistic. The release verdict must see the actual
+    # source-tape session calendar, including days without any exit.
+    checks["complete_equity_session_calendar"] = bool(
+        book.equity_session_calendar_complete and book.equity_session_count > 0)
+    if not checks["complete_equity_session_calendar"]:
+        reasons.append("full source-tape session calendar missing; "
+                       "Sharpe/DSR and equity curve cannot certify the book")
+
     checks["enough_trades"] = len(book.trades) >= g.min_trades
     if not checks["enough_trades"]:
         reasons.append(f"{len(book.trades)} trades, needs {g.min_trades}")
