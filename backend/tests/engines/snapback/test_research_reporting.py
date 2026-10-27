@@ -4,7 +4,7 @@ from __future__ import annotations
 from app.engines.snapback.research_reporting import (
     choose_option_contract, contract_replay_summary, eligible_expiries,
     mode_totals, rejected_plan_count, write_research_report_once,
-    incremental_execution_cost_stress,
+    incremental_execution_cost_stress, closed_trade_audit,
 )
 from datetime import date
 import pytest
@@ -267,3 +267,57 @@ def test_invalid_cost_stress_quantity_and_nan_trade_returns_are_refused():
         ))
         assert report["available"] is False
         assert report["reason"] == "INVALID_TRADE_EVIDENCE"
+
+
+def trade_receipt(**changes):
+    record = {
+        "exited": True, "quantity": 75,
+        "entry_time": 100.0, "exit_time": 160.0,
+        "entry": 100.0, "exit_price": 103.0,
+        "estimated_cost_inr": 75.0, "net_pnl_inr": 150.0,
+        "exit_reason": "session_exit",
+    }
+    return {**record, **changes}
+
+
+def test_closed_trade_evidence_is_reproducible_but_not_a_broker_receipt():
+    import hashlib
+    import json
+    sample = replay(trade_count=1, trades=[trade_receipt()], net_pnl_inr=150.0)
+    a = closed_trade_audit(sample)
+    b = closed_trade_audit(sample)
+    assert a == b
+    assert a["closed_trades"] == 1
+    assert a["net_pnl_inr_exact"] == 150
+    assert not a["broker_verified"]
+    raw = json.dumps(a["records"], sort_keys=True, separators=(",", ":"),
+                     allow_nan=False).encode()
+    assert hashlib.sha256(raw).hexdigest() == a["sha256"]
+    assert incremental_execution_cost_stress(sample)["stressed_net_inr"]["2"] == 0
+
+
+@pytest.mark.parametrize("changes", [
+    {"exited": False},
+    {"exit_time": 99},
+    {"exit_price": 0},
+    {"estimated_cost_inr": -1},
+    {"quantity": 0},
+    {"net_pnl_inr": 149},
+    {"entry_time": float("nan")},
+])
+def test_research_trade_ledger_refuses_invalid_or_inconsistent_receipts(changes):
+    sample = replay(trade_count=1, trades=[trade_receipt(**changes)],
+                    net_pnl_inr=150.0)
+    with pytest.raises(ValueError):
+        closed_trade_audit(sample)
+
+
+def test_research_trade_ledger_refuses_false_aggregate_profit():
+    sample = replay(trade_count=1, trades=[trade_receipt()], net_pnl_inr=9000)
+    with pytest.raises(ValueError, match="contradict replay"):
+        closed_trade_audit(sample)
+
+
+def test_absent_trade_level_rows_cannot_create_a_hash_of_fabricated_fills():
+    with pytest.raises(ValueError, match="record count"):
+        closed_trade_audit(replay(trade_count=5))
