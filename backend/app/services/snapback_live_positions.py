@@ -280,8 +280,8 @@ class LivePositionStore:
             # Operator snapshots need the newest closed rows, not a full-table
             # materialisation followed by a Python slice.
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS ix_snapback_live_uid_updated "
-                "ON snapback_live_positions(uid, updated_ms DESC)"
+                "CREATE INDEX IF NOT EXISTS ix_snapback_live_board_recent "
+                "ON snapback_live_positions(uid, updated_ms DESC, position_id DESC)"
             )
         finally:
             conn.close()
