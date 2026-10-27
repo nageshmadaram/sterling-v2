@@ -343,3 +343,102 @@ async def test_invalid_post_submit_reference_preserves_broker_resolution_without
     booked.assert_called_once()  # known broker exposure still registered for protection
     projected.assert_not_called()  # uncertainty must remain in the durable journal
     killed.assert_called_once()
+
+
+def _bound_leg_context():
+    plan = {
+        "owner_uid": "operator", "account_id": "account",
+        "option_symbol": "NIFTY_TEST_PE", "option_exchange": "NFO",
+        "futures_symbol": "NIFTY_TEST_FUT", "futures_exchange": "NFO",
+        "hedge_side": "SELL",
+    }
+    existing = SimpleNamespace(
+        uid="operator", account_id="account",
+        option_entry_order_id="BROKER-ORDER-1", option_qty=75,
+        option_entry_price=100.0, stop_premium=60.0, desired_stop=60.0,
+        hedge_entry_order_id="BROKER-HEDGE-1", hedge_qty=50,
+        hedge_entry_price=200.0, hedge_side="SELL", hedge_exchange="NFO",
+        hedge_symbol="NIFTY_TEST_FUT",
+    )
+    store = SimpleNamespace(get=Mock(return_value=existing), mutate=Mock())
+    a = wiring.SnapbackExecutionAdapter(
+        plan_store=SimpleNamespace(get=Mock(return_value=plan)), positions=store,
+    )
+    return a, plan, existing, store
+
+
+@pytest.mark.parametrize("change", [
+    {"uid": "other-user"},
+    {"account_id": "other-account"},
+    {"exchange": "BFO"},
+    {"side": "SELL"},
+    {"symbol": "OTHER_PE"},
+])
+def test_plan_owner_account_contract_and_option_buy_are_bound_before_registry_update(change):
+    a, plan, existing, store = _bound_leg_context()
+    req = request()
+    req.__dict__.update(change)
+    with pytest.raises(PermissionError):
+        a._record_leg(req, "BROKER-ORDER-1", 75, 100.0)
+    store.mutate.assert_not_called()
+
+
+@pytest.mark.parametrize("changed", [
+    {"owner_uid": ""},
+    {"owner_uid": "foreign"},
+    {"account_id": ""},
+    {"account_id": "foreign"},
+])
+def test_incomplete_or_foreign_plan_ownership_is_not_booked(changed):
+    a, plan, existing, store = _bound_leg_context()
+    plan.update(changed)
+    with pytest.raises(PermissionError, match="owner_mismatch|account_or_owner"):
+        a._record_leg(request(), "BROKER-ORDER-1", 75, 100.0)
+    store.mutate.assert_not_called()
+
+
+def test_registry_owner_mismatch_is_not_overwritten():
+    a, plan, existing, store = _bound_leg_context()
+    existing.uid = "another-user"
+    with pytest.raises(PermissionError, match="owned_position_mismatch"):
+        a._record_leg(request(), "BROKER-ORDER-1", 75, 100.0)
+    store.mutate.assert_not_called()
+
+
+@pytest.mark.parametrize("new_qty,new_oid,reason", [
+    (74, "BROKER-ORDER-1", "stale_cumulative"),
+    (75, "BROKER-OTHER", "order_id_conflict"),
+])
+def test_stale_or_replaced_option_entry_evidence_cannot_modify_protected_risk(
+        new_qty, new_oid, reason):
+    a, plan, existing, store = _bound_leg_context()
+    with pytest.raises(ValueError, match=reason):
+        a._record_leg(request(), new_oid, new_qty, 100.0)
+    assert existing.option_qty == 75
+    assert existing.option_entry_order_id == "BROKER-ORDER-1"
+    store.mutate.assert_not_called()
+
+
+@pytest.mark.parametrize("new_qty,new_oid,reason", [
+    (49, "BROKER-HEDGE-1", "stale_cumulative"),
+    (50, "BROKER-HEDGE-OTHER", "order_id_conflict"),
+])
+def test_stale_or_replaced_futures_hedge_does_not_reduce_position_registry(
+        new_qty, new_oid, reason):
+    a, plan, existing, store = _bound_leg_context()
+    req = request()
+    req.symbol = "NIFTY_TEST_FUT"
+    req.side = "SELL"
+    with pytest.raises(ValueError, match=reason):
+        a._record_leg(req, new_oid, new_qty, 200.0)
+    assert existing.hedge_qty == 50
+    store.mutate.assert_not_called()
+
+
+def test_valid_cumulative_option_book_updates_owner_bound_registry():
+    a, plan, existing, store = _bound_leg_context()
+    store.mutate.side_effect = lambda _id, callback: callback(existing)
+    a._record_leg(request(), "BROKER-ORDER-1", 100, 101.0)
+    assert existing.option_qty == 100
+    assert existing.option_entry_order_id == "BROKER-ORDER-1"
+    store.mutate.assert_called_once()
