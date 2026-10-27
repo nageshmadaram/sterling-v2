@@ -350,7 +350,7 @@ def _bound_leg_context():
         "owner_uid": "operator", "account_id": "account",
         "option_symbol": "NIFTY_TEST_PE", "option_exchange": "NFO",
         "futures_symbol": "NIFTY_TEST_FUT", "futures_exchange": "NFO",
-        "hedge_side": "SELL",
+        "hedge_side": "BUY",
     }
     existing = SimpleNamespace(
         uid="operator", account_id="account", status="ENTERING",
@@ -358,7 +358,7 @@ def _bound_leg_context():
         option_entry_order_id="BROKER-ORDER-1", option_qty=75,
         option_entry_price=100.0, stop_premium=60.0, desired_stop=60.0,
         hedge_entry_order_id="BROKER-HEDGE-1", hedge_qty=50,
-        hedge_entry_price=200.0, hedge_side="SELL", hedge_exchange="NFO",
+        hedge_entry_price=200.0, hedge_side="BUY", hedge_exchange="NFO",
         hedge_symbol="NIFTY_TEST_FUT",
     )
     store = SimpleNamespace(get=Mock(return_value=existing), mutate=Mock())
@@ -429,10 +429,23 @@ def test_stale_or_replaced_futures_hedge_does_not_reduce_position_registry(
     a, plan, existing, store = _bound_leg_context()
     req = request()
     req.symbol = "NIFTY_TEST_FUT"
-    req.side = "SELL"
+    req.side = "BUY"
     with pytest.raises(ValueError, match=reason):
         a._record_leg(req, new_oid, new_qty, 200.0)
     assert existing.hedge_qty == 50
+    store.mutate.assert_not_called()
+
+
+def test_wrong_delta_futures_hedge_rejected_even_when_plan_contains_it():
+    a, plan, existing, store = _bound_leg_context()
+    # A PE gives negative delta; a short future increases it instead of
+    # offsetting it. A corrupted frozen plan cannot authorize the short.
+    plan["hedge_side"] = "SELL"
+    req = request()
+    req.symbol = "NIFTY_TEST_FUT"
+    req.side = "SELL"
+    with pytest.raises(PermissionError, match="does_not_match_plan_leg"):
+        a._record_leg(req, "BROKER-HEDGE-1", 50, 200.0)
     store.mutate.assert_not_called()
 
 
@@ -456,7 +469,7 @@ def test_concurrent_newer_position_state_cannot_be_overwritten_by_stale_callback
         newer.option_qty = 125
     else:
         req.symbol = "NIFTY_TEST_FUT"
-        req.side = "SELL"
+        req.side = "BUY"
         older_qty, order_id = 50, "BROKER-HEDGE-1"
         newer.hedge_qty = 100
     # get() returned the older position. Between get() and SQLite
