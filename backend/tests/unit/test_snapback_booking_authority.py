@@ -20,7 +20,7 @@ def request():
 def resolved(*, quantity=75):
     return SimpleNamespace(
         filled_quantity=quantity, average_price=100.0,
-        status="COMPLETE", settled=True, reconciliation_required=False,
+        status="COMPLETE", terminal=True, settled=True, reconciliation_required=False,
         intent_key="intent", projection_version=3, reason="",
     )
 
@@ -246,6 +246,27 @@ async def test_settled_fill_without_valid_journal_projection_version_is_not_a_su
     assert response.order_id == "BROKER-ORDER-1"
     assert response.filled_quantity == 75
     ack.assert_not_called()
+    killed.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_fully_filled_but_still_open_broker_order_remains_unresolved(monkeypatch):
+    candidate = resolved(quantity=75)
+    candidate.status = "OPEN"
+    candidate.terminal = False
+    candidate.settled = True  # the journal has all requested units, not final broker state
+    a = adapter(resolution=candidate)
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=True))
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
+    acknowledge = Mock(return_value=True)
+    monkeypatch.setattr(fills, "mark_projected", acknowledge)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    response = await a.submit_order(request(), broker_client=object())
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.filled_quantity == 75
+    assert response.order_id == "BROKER-ORDER-1"
+    acknowledge.assert_not_called()
     killed.assert_called_once()
 
 
