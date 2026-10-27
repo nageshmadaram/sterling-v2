@@ -193,6 +193,18 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Snapback {name} must be finite")
     if not 0 <= wins <= 100 or dd < 0:
         raise ValueError("Snapback win rate or drawdown is invalid")
+    # New source-tape option risk fields are optional for historical reports;
+    # when present they must be finite and never represent a negative loss.
+    def optional_loss(name: str) -> float | None:
+        value = result.get(name)
+        if value is None:
+            return None
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"Snapback {name} must be finite nonnegative")
+        return round(float(value), 6)
+
+    close_mark_dd = optional_loss("max_option_close_mark_drawdown_inr")
+    low_stress_dd = optional_loss("max_option_intrabar_low_stress_drawdown_inr")
     count = rejected_plan_count(result.get("rejected_plans"))
     stress = incremental_execution_cost_stress(result)
     hedging = str(result.get("hedge_mode") or "unknown").strip().lower()
@@ -208,6 +220,11 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "net_inr": round(float(net)), "net_inr_exact": float(net),
         "return_pct": round(float(ret), 2),
         "max_dd_inr": round(float(dd)),
+        "option_close_mark_dd_inr": close_mark_dd,
+        "option_intrabar_low_stress_dd_inr": low_stress_dd,
+        "option_mtm_basis": (
+            str(result.get("option_mtm_basis") or "")[:160]
+            if close_mark_dd is not None else None),
         "rejected_plans": count,
         "replay_complete": complete,
         "additional_cost_stress": stress,
@@ -291,6 +308,14 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         ), 6) for shock in _STRESS_POINTS
     } if stress_complete else None)
     completed = len(ok)
+    option_mtm_complete = (bool(all_rows) and len(ok) == len(all_rows)
+                           and all(r.get("option_close_mark_dd_inr") is not None
+                                   and r.get("option_intrabar_low_stress_dd_inr") is not None
+                                   for r in ok))
+    # Diagnostics across independent contracts: the maximum is NOT a
+    # portfolio-level aggregated drawdown and never qualifies for promotion.
+    worst_close_dd = max(r["option_close_mark_dd_inr"] for r in ok) if option_mtm_complete else None
+    worst_low_dd = max(r["option_intrabar_low_stress_dd_inr"] for r in ok) if option_mtm_complete else None
     whole_strategy_complete = (
         bool(all_rows) and completed == len(all_rows)
         and all(r.get("whole_strategy_pnl_complete") is True
@@ -309,6 +334,10 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "trades": n, "net_inr": round(net_exact),
         "net_inr_exact": round(net_exact, 6),
         "profitable_contracts": profitable,
+        "option_mtm_contract_coverage_complete": option_mtm_complete,
+        "worst_individual_option_close_mark_dd_inr": worst_close_dd,
+        "worst_individual_option_intrabar_low_stress_dd_inr": worst_low_dd,
+        "option_mtm_is_complete_hedged_portfolio_metric": False,
         "additional_cost_stress_complete": stress_complete,
         "additional_cost_stress_net_inr": stress_totals,
         "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None,
