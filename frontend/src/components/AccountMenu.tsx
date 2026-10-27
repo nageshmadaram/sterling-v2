@@ -4,7 +4,7 @@ import { useTheme, useSetTheme } from '../store/useStore';
 import { useAppearance } from '../appearance/store';
 import { api } from '../utils/api';
 import { clearAuthTokens } from '../utils/auth';
-export function AccountMenu({children}:{children?:ReactNode}) {
+export function AccountMenu({children,mediaKind}:{children?:ReactNode;mediaKind?:'tv'|'radio'}) {
   const dialog=useRef<HTMLDialogElement>(null);
   const profile=useSterlingProfile();
   const theme=useTheme(),setTheme=useSetTheme(),appearance=useAppearance();
@@ -18,6 +18,10 @@ export function AccountMenu({children}:{children?:ReactNode}) {
       <div className="account-menu-content"><header><button className="account-identity" onClick={()=>action('sterling-open-profile')}>
         {profile.data?.photo?<img alt="" src={profile.data.photo}/>:<span className="account-avatar">{(profile.data?.display_name||profile.data?.username||'S').slice(0,2).toUpperCase()}</span>}
         <strong>{profile.data?.display_name||profile.data?.username||'Account'}</strong></button><button aria-label="Close menu" onClick={close}>×</button></header>
+      {mediaKind && <section className="account-media-settings" aria-label={mediaKind==='tv'?'Space player settings':'Echo player settings'}
+        onClick={event=>{if((event.target as HTMLElement).closest('button'))close();}}>
+        <div id="sterling-media-account-settings" />
+      </section>}
       <button onClick={()=>action('sterling-open-profile')}>Profile & security</button>
       <button onClick={()=>action('sterling-select-workspace')}>Switch workspace</button>
       <div className="account-theme" role="group" aria-label="Appearance">{(['light','dark'] as const).map(value=><button key={value} aria-pressed={theme===value} onClick={()=>{appearance.update({preset:'',base:value,accent:''});setTheme(value);}}>{value==='light'?'☀ Light':'☾ Dark'}</button>)}</div>
