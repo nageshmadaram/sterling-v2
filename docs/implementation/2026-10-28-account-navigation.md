@@ -17,9 +17,13 @@
 - 36 account/configuration/credential tests; 66 workspace/account/today-priority tests; expanded workspace suite 21 tests, including new admin credential masking/audit test.
 - 83 targeted UI tests; 150 merged signal/exit-protection tests. Production frontend build passes.
 - Full rendered Kite runtime (not a stub), account menu, Echo/Space switching and light/dark messaging exercised at 390px and 1440px. Compiled frontend and central user directory exercised at 390px. Screenshots visually checked for actual inner-player contrast.
-- Live manual Kite provider preflight returns a valid provider URL. The assigned profile has no saved Kite password: automatic sign-in requires entering it through Administration → Brokers → Kite automatic login. No broker sign-in, TOTP, order or reassignment was executed during verification.
+- Live manual Kite provider preflight returns a valid provider URL. The current owner initially had no saved Kite password. A read-only provenance check found encrypted credentials under the prior owner for the exact broker ID and matching verified Kite identity. After checking the assignment audit and absence of target credentials, an audited transaction moved the encrypted value to the current owner. Masked credential status now confirms the password is saved. No broker session was transferred. No broker sign-in, TOTP, order or reassignment was executed during verification.
 - Before restart: read-only broker REST check found no open positions or pending orders. Consistent SQLite backup compressed under `.runtime/deployments/20261028-account-navigation/`; existing entry pause preserved.
 
 ## Source synchronization
 
 Merged upstream `a18c842b` including signal/research/exit safety changes with the prior management release. Existing operator notes/evidence restored from the pre-merge stash without overwriting them. No force pushes or historical order ownership rewrites.
+
+## Public transport
+
+Public browser checks exposed intermittent Cloudflare 522 responses while the local app stayed healthy. The user service now explicitly selects HTTP/2 for Cloudflare transport; only the web/tunnel supervisor was restarted. The quick-tunnel public hostname changes on restart. The separately supervised broker backend remains running.
