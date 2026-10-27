@@ -109,7 +109,12 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
   // queries for another tenant's view on the same calendar day.
   const scope = `${view}:${day}`;
   const [releasedScope, setReleasedScope] = React.useState('');
-  const allLoaded = TODAY_STRATEGIES.every(name => stages[name] === 'ready');
+  // An unavailable strategy must not freeze ALL other boards' history
+  // indefinitely. Its current-day read was attempted and failed; preserve
+  // the red error state while allowing older read-only rows once every
+  // source has finished or failed. Never mistake a failed scan for a pass.
+  const allLoaded = TODAY_STRATEGIES.every(name =>
+    stages[name] === 'ready' || stages[name] === 'error');
   React.useEffect(() => {
     if (!replay && allLoaded) setReleasedScope(scope);
   }, [allLoaded, scope, replay]);
@@ -123,6 +128,8 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
 export function TodaySignalPriorityStatus() {
   const state = useTodaySignalPriority();
   if (state.replay) return null;
+  const failures = TODAY_STRATEGIES.filter(name => state.stages[name] === 'error');
+  const checksDone = TODAY_STRATEGIES.filter(name => state.stages[name] === 'ready').length;
   const parts = TODAY_STRATEGIES.map(name => `${name}: ${
     state.stages[name] === 'ready' ? 'response received'
       : state.stages[name] === 'scanning' ? 'scanning today'
@@ -136,11 +143,13 @@ export function TodaySignalPriorityStatus() {
       background: 'var(--k-surface)', flexShrink: 0 }}
   >
     <strong>{state.olderReady
-      ? 'Current-day API checks finished across four strategies. History may now load.'
-      : 'Priority: today’s signals across all four strategies. Older history is queued.'}</strong>
-    <span style={{ marginLeft: 8, opacity: .8 }}>IST {state.day} · {parts.join(' · ')}</span>
-    {state.olderReady && <span style={{ marginLeft: 8, opacity: .8 }}>A response does not prove that a fresh scan ran or produced signals.</span>}
-    {!state.olderReady && TODAY_STRATEGIES.some(name => state.stages[name] === 'error') &&
-      <span style={{ marginLeft: 8 }}>A failed API check or scan must recover before older history loads.</span>}
+      ? `Today-first checks finished: ${checksDone}/4 received${failures.length ? ` · ${failures.length} unavailable` : ''}. History may load.`
+      : `Today first · ${checksDone}/4 received · older history queued`}</strong>
+    <details className="today-priority-details">
+      <summary aria-label="Show per-strategy signal loading status">Loading details</summary>
+      <span>IST {state.day} · {parts.join(' · ')}</span>
+      <p>A response does not prove that a fresh scan ran or produced signals.</p>
+      {failures.length > 0 && <p role="alert">Unavailable: {failures.join(', ')}. Check that strategy's API and scan. Existing rows are not proof of today's signals.</p>}
+    </details>
   </div>;
 }
