@@ -1254,19 +1254,13 @@ class SnapbackExitManager:
         field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
         req_name = "option_exit_requested" if is_option else "hedge_exit_requested"
 
+        from app.services.snapback_exit_order_binding import bind_acknowledged_exit
+
         def apply(p: LivePosition) -> None:
-            # An exit ACK proves a working broker identity, but may race a
-            # restart, a stale tick or another position-owner transaction.
-            # Never silently replace a different, still-owned exit order.
-            if (p.uid != pos.uid or p.account_id != pos.account_id
-                    or p.option_symbol != pos.option_symbol
-                    or (not is_option and p.hedge_symbol != pos.hedge_symbol)):
-                raise ValueError("exit position ownership changed after broker ACK")
-            current_order = str(getattr(p, field_name, "") or "")
-            if current_order and current_order != broker_order_id:
-                raise ValueError("different broker exit order already belongs to this leg")
-            setattr(p, field_name, broker_order_id)
-            setattr(p, req_name, int(quantity))
+            bind_acknowledged_exit(
+                p, pos, leg=leg, broker_order_id=broker_order_id,
+                requested=int(quantity),
+            )
 
         try:
             stored = self.store.mutate(pos.position_id, apply)
