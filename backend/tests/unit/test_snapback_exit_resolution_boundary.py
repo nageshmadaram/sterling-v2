@@ -867,3 +867,56 @@ async def test_duplicate_triggered_child_order_id_is_unverified(monkeypatch):
              "filled_quantity": 75, "average_price": 100}
     own = await obj._stop_child_orders(NS(), p, [match, dict(match)])
     assert own is None, "one child ID in two rows is not unique ownership evidence"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("uid", "another-user"),
+    ("account_id", "another-broker"),
+    ("option_symbol", "NIFTY_OTHER_PE"),
+    ("option_exit_order_id", "CHANGED-ORDER-ID"),
+    ("option_exit_requested", 50),
+    ("option_exit_qty", 25),
+    ("option_qty", 25),
+    ("status", "CLOSED"),
+])
+async def test_terminal_exit_resolution_halts_if_registry_changed_during_broker_query(
+        monkeypatch, field, value):
+    from copy import deepcopy
+
+    original = pos()
+    current = deepcopy(original)
+    setattr(current, field, value)
+    snapshot = deepcopy(current)
+    obj = manager(receipt(qty=75, price=90), current)
+    hold = Mock()
+    projected = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(fills, "mark_projected", projected)
+
+    result = await obj._resolve_exit(
+        NS(), original, leg="option", order_id="EXIT-1")
+
+    assert result == "unresolved"
+    hold.assert_called_once_with(original, "terminal_exit_projection_conflict")
+    projected.assert_not_called()
+    assert current == snapshot, "broker receipt must not mutate a changed row"
+
+
+@pytest.mark.asyncio
+async def test_terminal_exit_vanished_registry_row_requires_reconciliation(monkeypatch):
+    original = pos()
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(return_value=None)),
+        resolver=AsyncMock(return_value=receipt(qty=75, price=90)),
+    )
+    obj._book_exit = Mock(return_value=True)
+    hold = Mock()
+    projected = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(fills, "mark_projected", projected)
+
+    assert await obj._resolve_exit(
+        NS(), original, leg="option", order_id="EXIT-1") == "unresolved"
+    hold.assert_called_once_with(original, "terminal_exit_projection_conflict")
+    projected.assert_not_called()
