@@ -166,6 +166,42 @@ def test_extra_execution_cost_is_deducted_from_actual_replay_trade_pnl():
     assert challenger.net_pnl_inr == pytest.approx(base.net_pnl_inr - 0.5 * 50)
 
 
+def test_500_synthetic_cost_scenarios_preserve_declared_risk_and_reward_floor():
+    import random
+    gen = random.Random(20261027)
+    b = candles(rise=35.0)
+    accepted = 0
+    for _ in range(500):
+        variable = gen.uniform(0, 5)
+        fixed = gen.uniform(0, 100)
+        stop = gen.uniform(0.1, 7)
+        risk_budget = gen.uniform(200, 2500)
+        requested = gen.uniform(1, 25)
+        rr = gen.uniform(1, 2.25)
+        extra = gen.uniform(0, 2)
+        baseline = {
+            **make_plan(100, 50, CFG),
+            "estimated_variable_cost_points": variable,
+            "estimated_fixed_cost_inr": fixed,
+            "stop_points": stop,
+            "risk_budget_inr": risk_budget,
+            "effective_target_points": requested,
+        }
+        candidate = assess_cost_feasible_plan(
+            baseline, times=b.time[:65], opens=b.open[:65],
+            highs=b.high[:65], closes=b.close[:65],
+            entry_time=b.time[65], bar_seconds=60, horizon_bars=1,
+            min_rr=rr, extra_cost_points=extra)
+        if candidate["accepted"]:
+            accepted += 1
+            assert candidate["estimated_stop_loss_inr"] <= risk_budget + 1e-6
+            assert candidate["net_reward_risk"] + 1e-7 >= rr
+            assert candidate["effective_target_points"] <= (
+                candidate["prior_excursion_p75_points"] + 1e-8)
+            assert candidate["estimated_variable_cost_points"] == pytest.approx(variable + extra)
+    assert accepted > 50
+
+
 def test_new_replay_identity_never_overwrites_baseline(monkeypatch):
     b = candles(n=76)
     def signal(series, cfg, symbol="", asof=None):
