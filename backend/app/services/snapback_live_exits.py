@@ -1610,9 +1610,14 @@ class SnapbackExitManager:
             return [] if state.verdict == pstop.STOP_ABSENT else None
         if child_id in booked:
             return []                     # already counted: nothing new to book
-        order = next((o for o in orders if isinstance(o, dict)
-                      and str(o.get("order_id") or "") == child_id), None)
-        if order is None or not self._is_sell_of(order, pos):
+        matching = [o for o in orders if isinstance(o, dict)
+                    and str(o.get("order_id") or "") == child_id]
+        # Two broker rows with the same child ID are ambiguous snapshots,
+        # not independent proof of a uniquely owned stop fill.
+        if len(matching) != 1:
+            return None
+        order = matching[0]
+        if not self._is_sell_of(order, pos):
             return None
         if child_id != await self._gtt_child_order_id(client, int(pos.gtt_id)):
             # Found by matching the book, not by the trigger's own record: a second SELL of
@@ -1772,12 +1777,13 @@ class SnapbackExitManager:
         own = await self._stop_child_orders(client, pos, orders)
         net = await _broker_net(client)
         if own is None:
-            # The trigger fired and its order cannot be identified. Nothing is booked on a
-            # guess; an option that is demonstrably gone is the one case that still ends.
-            if net is not None:
-                held = self._held_beyond_siblings(net, pos)
-                if held == 0:
-                    return self._book_if_proven_gone(pos)
+            # A triggered stop whose child order cannot be identified might
+            # still be working. Even a broker-zero position does not prove its
+            # child SELL is gone: treating that as a completed unpriced exit
+            # could leave a latent stop that later opens a naked short.
+            if net is not None and self._held_beyond_siblings(net, pos) == 0:
+                self._flag_reconciling(pos, "broker_stop_child_identity_unknown")
+                return "reconciling"
             return "stop_fill_unverified"
 
         fills = []
