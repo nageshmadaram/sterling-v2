@@ -132,7 +132,7 @@ export function SuperTrendEnginePanel() {
             ]} onChange={value => patch({ horizon_mode: value as EngineConfigModel['horizon_mode'], signal_timeframe_minutes: null })} />
           </Field>
           {(cfg.horizon_mode ?? 'swing') === 'swing'
-            ? <Field label="Original Swing candle" hint="Original mode is fixed at completed 60-minute Heikin-Ashi bars; 1H is not a separate trading mode.">
+            ? <Field label="Original Swing candle" hint="Original mode is fixed at completed 60-minute Heikin-Ashi bars; an hourly mode is not a separate trading mode.">
                 <span style={{ fontSize: 12 }}>60-minute Heikin-Ashi · fixed original (no separate 1H selector)</span>
               </Field>
             : <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
