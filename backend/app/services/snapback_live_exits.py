@@ -1286,10 +1286,16 @@ class SnapbackExitManager:
                 or str(getattr(resolution, "status", "") or "").upper()
                    not in _ORDER_TERMINAL):
             return "unresolved"
-        # Missing journal projection version is not a fully acknowledged exit.
-        version = getattr(resolution, "projection_version", None)
-        if type(version) is not int or version <= 0:
-            return "projection_pending"
+        # A terminal no-fill CANCELLED/REJECTED receipt has nothing to
+        # project and may legitimately carry version zero. COMPLETE/zero-fill
+        # instead conflicts with the claimed broker completion.
+        terminal_status = str(getattr(resolution, "status", "") or "").upper()
+        if filled == 0 and terminal_status not in {"CANCELLED", "REJECTED"}:
+            return "unresolved"
+        if filled > 0:
+            version = getattr(resolution, "projection_version", None)
+            if type(version) is not int or version <= 0:
+                return "projection_pending"
 
         def apply(p: LivePosition) -> None:
             booked = p.option_exit_booked_ids if is_option else p.hedge_exit_booked_ids
@@ -1307,7 +1313,7 @@ class SnapbackExitManager:
                 p.exit_attempts += 1
 
         updated = self.store.mutate(pos.position_id, apply)
-        if updated is not None:
+        if updated is not None and filled > 0:
             try:
                 if not fills.mark_projected(resolution):
                     from app.services.kite_engine import order_journal
