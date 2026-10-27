@@ -220,3 +220,24 @@ async def test_failed_journal_projection_acknowledgement_blocks_release(
     assert "projection" in response.error
     ack.assert_called_once()
     assert kills and kills[0][1] == "operator"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("version", [0, -1, None, True, "1"])
+async def test_settled_fill_without_valid_journal_projection_version_is_not_a_success(
+        monkeypatch, version):
+    candidate = resolved()
+    candidate.projection_version = version
+    a = adapter(resolution=candidate)
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=True))
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
+    ack = Mock(return_value=True)
+    monkeypatch.setattr(fills, "mark_projected", ack)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    response = await a.submit_order(request(), broker_client=object())
+    assert not response.success and response.status == "UNKNOWN"
+    assert response.order_id == "BROKER-ORDER-1"
+    assert response.filled_quantity == 75
+    ack.assert_not_called()
+    killed.assert_called_once()
