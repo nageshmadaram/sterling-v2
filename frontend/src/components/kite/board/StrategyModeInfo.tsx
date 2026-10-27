@@ -39,19 +39,29 @@ export function StrategyModeInfo({ engine, st, sb, bounded = false }: {
         : '5-minute completed E2 bars → live premium E1 breakout. 15-minute chart display is separate from signal timing. Expiry within 1 trading day: Intraday; otherwise Swing. No add-on modes.'}</div>
     </> : <>
       <div><strong>Default: Swing · original · {supertrend ? '60-minute Heikin-Ashi' : 'Daily regular OHLC'}</strong></div>
+      <div style={{ fontWeight: 650 }}>
+        {supertrend
+          ? 'No separate 1H trading mode: 60-minute candles belong to the original Swing rules.'
+          : 'Swing triggers at end-of-day and plans next-session entry. Short modes confirm at each completed intraday bar.'}
+      </div>
       <div>{loaded ? `Selected: ${row[1]} · ${candles}` : 'Selected configuration unavailable — waiting for settings.'}</div>
       {!bounded && facts}
       <div>Board mode filters only change rows shown. Settings determine candle size; each row or held position may retain its own mode.</div>
-      <details>
+      <details open={!bounded}>
         <summary style={{ cursor: 'pointer' }}>Compare modes and configuration</summary>
         {bounded && facts}
         <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
           <caption style={{ textAlign: 'left' }}>Presets below; the selected configuration above includes overrides. Default identifies the original strategy, not the active selection.</caption>
-          <thead><tr>{['Mode', 'Preset candles', 'Allowed minutes', 'Holding limit'].map(label => <th key={label} style={{ padding: 4 }}>{label}</th>)}</tr></thead>
+          <thead><tr>{['Mode', 'Preset candles', 'Allowed minutes', 'Entry condition / timing', 'Holding limit'].map(label => <th key={label} style={{ padding: 4 }}>{label}</th>)}</tr></thead>
           <tbody>{MODES.map(([value, label, minutes, allowed, limit]) => <tr key={value}>
             <th scope="row" style={{ padding: 4 }}>{label}{value === 'swing' ? ' · Default / Original' : ''}</th>
             <td style={{ padding: 4 }}>{supertrend ? `${minutes}m Heikin-Ashi` : value === 'swing' ? 'Daily OHLC' : `${value === 'scalping' ? 1 : minutes}m OHLC`}</td>
             <td style={{ padding: 4 }}>{!supertrend && value === 'swing' ? 'Daily only' : allowed}</td>
+            <td style={{ padding: 4 }}>{supertrend
+              ? 'Three aligned SuperTrends on a completed Heikin-Ashi candle; fresh quote and admission required'
+              : value === 'swing'
+                ? 'Daily close: stretch beyond prior high/low with market filter; planned next-session entry'
+                : 'Completed intraday candle reverses inside Bollinger band; entry window, costs and risk must pass'}</td>
             <td style={{ padding: 4 }}>{supertrend ? limit : value === 'swing' ? 'Configured daily hold (default 15 sessions)' : value === 'overnight' ? 'Up to 3 sessions; broker protection required' : value === 'ultra_scalping' ? '20-bar preset; same-day exit' : value === 'scalping' ? '20 bars; runner 60 bars; same-day exit' : '16 bars; runner 24 bars; same-day exit'}</td>
           </tr>)}</tbody>
         </table></div>
