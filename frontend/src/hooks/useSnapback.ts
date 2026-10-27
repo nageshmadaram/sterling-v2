@@ -228,6 +228,9 @@ export interface SnapbackRow {
   min_outlay_inr: number | null;
   /** True when this row was replayed from stored bars rather than scanned. */
   historical?: boolean;
+  /** Restored rows and partial universe previews are advisory, not live entries. */
+  restored?: boolean;
+  scan_in_progress?: boolean;
   reasons: string[];
   metrics: Record<string, unknown>;
 }
