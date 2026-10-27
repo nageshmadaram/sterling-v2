@@ -49,20 +49,29 @@ def project_terminal_exit(
     total = getattr(current, f"{prefix}_qty")
     exited = getattr(current, f"{prefix}_exit_qty")
     booked = getattr(current, f"{prefix}_exit_booked_ids")
+    quantities = getattr(current, f"{prefix}_exit_booked_quantities", None)
     if (type(total) is not int or type(exited) is not int
             or total <= 0 or not 0 <= exited <= total
             or not isinstance(booked, list)
-            or any(type(oid) is not str for oid in booked)):
+            or any(type(oid) is not str for oid in booked)
+            or not isinstance(quantities, dict)):
         raise ValueError("durable option/hedge exit quantity is inconsistent")
     if order_id in booked:
-        return  # Already projected; recovery must not double-count.
-    if filled > total - exited:
-        raise ValueError("broker exit fill exceeds remaining owned position")
+        prior_fill = quantities.get(order_id)
+        if type(prior_fill) is not int or prior_fill != filled:
+            # Do not silently treat a larger newly observed cumulative
+            # broker fill as previously booked. An old pre-migration row,
+            # or a changed cumulative fill, requires human reconciliation.
+            raise ValueError("previously booked broker order cumulative fill unverified")
+        return  # Exactly the same broker fill: recovery is idempotent.
+    if order_id in quantities or filled > total - exited:
+        raise ValueError("broker exit fill conflicts with remaining owned position")
 
     if filled:
+        value = getattr(current, f"{prefix}_exit_value")
+        if type(value) not in (int, float) or not math.isfinite(value):
+            raise ValueError("durable option/hedge exit value is not finite")
         setattr(current, f"{prefix}_exit_qty", exited + filled)
-        setattr(
-            current, f"{prefix}_exit_value",
-            getattr(current, f"{prefix}_exit_value") + filled * average,
-        )
+        setattr(current, f"{prefix}_exit_value", value + filled * average)
+        quantities[order_id] = filled
         booked.append(order_id)
