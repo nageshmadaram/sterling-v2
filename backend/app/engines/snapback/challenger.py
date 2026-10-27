@@ -105,8 +105,9 @@ def assess_cost_feasible_plan(
                            (entry, stop, var_cost, fixed_cost, risk_budget,
                             original_target, min_rr, lock_points, extra_cost_points))
                 or min(entry, stop, risk_budget) <= 0
-                or min(var_cost, fixed_cost, original_target, min_rr,
-                       lock_points, extra_cost_points) < 0):
+                or min(var_cost, fixed_cost, original_target,
+                       lock_points, extra_cost_points) < 0
+                or min_rr < 1.0):
             raise ValueError("invalid cost/quantity or risk inputs")
     except (KeyError, TypeError, ValueError, OverflowError):
         return reject("invalid_challenger_economic_inputs")
