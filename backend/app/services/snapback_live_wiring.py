@@ -190,7 +190,13 @@ class SnapbackExecutionAdapter:
         terminal = getattr(resolution, "terminal", None) is True
         booked_ok = True
         if filled > 0:
-            booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
+            try:
+                booked_ok = self._book_fill(request, resolution, result.order_id,
+                                            filled, average) is True
+            except Exception as exc:  # noqa: BLE001 - broker exposure already exists
+                log.critical("Snapback unexpected fill-booking exception for %s: %s",
+                             result.order_id, exc)
+                booked_ok = False
             if booked_ok:
                 from app.services.fee_safety import refresh as refresh_fees
                 try:
