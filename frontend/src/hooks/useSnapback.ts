@@ -339,6 +339,7 @@ export interface SnapbackSnapshot {
   positions_error?: string | null;
   armed: number;
   scanned: number;
+  scan_total?: number;
   scanning: boolean;
   scan_cancellable?: boolean;
   last_scan_ms: number;
