@@ -114,12 +114,15 @@ async def test_broker_reconciliation_conflict_cannot_acknowledge_projected_fill(
     monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
     ack = Mock()
     monkeypatch.setattr(fills, "mark_projected", ack)
+    kill = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", kill)
 
     response = await a.submit_order(request(), broker_client=object())
 
     assert response.status == "UNKNOWN" and not response.success
     assert response.filled_quantity == 75
     ack.assert_not_called()
+    kill.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -134,12 +137,15 @@ async def test_unsettled_partial_fill_cannot_acknowledge_projected_fill(monkeypa
     monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
     ack = Mock()
     monkeypatch.setattr(fills, "mark_projected", ack)
+    kill = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", kill)
 
     response = await a.submit_order(request(), broker_client=object())
 
     assert response.status == "UNKNOWN" and not response.success
     assert response.filled_quantity == 25
     ack.assert_not_called()
+    kill.assert_called_once()
 
 
 @pytest.mark.asyncio
