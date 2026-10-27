@@ -432,10 +432,19 @@ class SnapbackExecutionAdapter:
                 source="entry", lot_size=int((request.payload or {}).get("lot_size") or 0),
                 exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0),
             )
-            if applied.reconciliation_required:
+            # Only a newly accepted increment or an exact idempotent repeat
+            # may project into Snapback's owned registry. An older cumulative
+            # broker postback is NOT the latest quantity in the shared ledger;
+            # applying it to a missing/stale registry would understate risk.
+            ledger_reason = str(getattr(applied, "reason", "") or "")
+            if (applied.reconciliation_required
+                    or ledger_reason not in {"accepted", "duplicate"}):
                 ok = False
                 ledger_quarantined = True
-                log.critical("Snapback live: contradictory fill evidence for %s", request.symbol)
+                log.critical(
+                    "Snapback live: fill projection withheld for %s (ledger=%s)",
+                    request.symbol, ledger_reason or "missing_disposition",
+                )
         except Exception as exc:  # noqa: BLE001
             ok = False
             log.critical("Snapback live: fill for %s not booked to the ledger: %s",
