@@ -1,9 +1,9 @@
 import { SessionRestoreCard } from './SessionRestoreCard';
-import { BrokerLoginEntry } from './BrokerLoginEntry';
 import { FormEvent, ReactNode, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { clearAuthTokens, loginSterling, rememberSterlingSession } from '../../utils/auth';
+import '../../styles/workspace.css';
 import { AUTH_EXPIRED_EVENT } from '../../utils/liveSync';
 
 type Phase = 'checking' | 'login' | 'ready';
@@ -14,6 +14,8 @@ export function LoginGate({ children }: { children: ReactNode }) {
   const [connectionAttempt,setConnectionAttempt]=useState(0);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [remember, setRemember] = useState(false);
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const qc = useQueryClient();
@@ -41,7 +43,7 @@ export function LoginGate({ children }: { children: ReactNode }) {
     let alive = true;
     let retry: ReturnType<typeof setTimeout> | undefined;
     const check = () => api.get('/api/v1/auth/me')
-      .then(() => { if (alive) { setError(''); setPhase('ready'); void rememberSterlingSession(); } })
+      .then(() => { if (alive) { setError(''); setPhase('ready'); } })
       .catch((err: Error & { status?: number }) => {
         if (!alive) return;
         if (err.status === 401) { clearAuthTokens(); setError(''); setPhase('login'); }
@@ -56,15 +58,17 @@ export function LoginGate({ children }: { children: ReactNode }) {
     setSubmitting(true);
     setError('');
     try {
-      await loginSterling(username.trim(), password);
+      if (remember) await loginSterling(username.trim(), password, true);
+      else await loginSterling(username.trim(), password);
       qc.clear();
       await api.get('/api/v1/auth/me');
       explicitSignIn.current = false;
       const url = new URL(window.location.href);
       url.searchParams.delete('sterling_login');
+      url.pathname = '/';
       window.history.replaceState(window.history.state, '', url.href);
       setPassword('');
-      void rememberSterlingSession();
+      if (remember) await rememberSterlingSession();
       setPhase('ready');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -81,45 +85,23 @@ export function LoginGate({ children }: { children: ReactNode }) {
   if (phase === 'checking') return <SessionRestoreCard stage="session" message={error || 'Verifying Sterling session…'}>
     {error && <button type="button" className="sterling-retry-button" onClick={() => setConnectionAttempt(a => a + 1)}>Retry connection</button>}
   </SessionRestoreCard>;
-  if (phase === 'ready') return <>{children}<BrokerLoginEntry /></>;
+  if (phase === 'ready') return <>{children}</>;
 
-  return (
-    <div style={shell}>
-      <form onSubmit={submit} style={card} aria-label="Sterling login">
-        <div style={{ fontSize: 11, letterSpacing: 2, fontWeight: 800, opacity: 0.65 }}>STERLING</div>
-        <h1 style={{ margin: '8px 0 4px', fontSize: 20 }}>Sterling sign in</h1>
-        <p style={{ margin: '0 0 18px', fontSize: 12, opacity: 0.7 }}>
-          Sign in to open your Sterling workspace and saved broker accounts.
-        </p>
-        <label htmlFor="sterling-username" style={label}>Username</label>
-        <input id="sterling-username" autoFocus autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} style={input} />
-        <label htmlFor="sterling-password" style={label}>Password</label>
-        <input id="sterling-password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} style={input} />
-        {error && <div role="alert" style={{ color: '#d9534f', fontSize: 12, marginBottom: 12 }}>{error}</div>}
-        <button disabled={submitting || !username.trim() || !password} type="submit" style={button}>
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
-    </div>
-  );
+  return <main className="sterling-signin">
+    <section className="signin-intro"><div className="signin-brand">STERLING STUDIO</div>
+      <h1>A space<br />of your own.</h1><p>Markets, live channels and radio. Sign in once, then choose your workspace.</p>
+    </section>
+    <form onSubmit={submit} className="signin-card" aria-label="Sterling login">
+      <h2>Sterling sign in</h2><p>Welcome back. Your workspace is ready when you are.</p>
+      <label htmlFor="sterling-username">Username</label>
+      <input id="sterling-username" required autoFocus autoComplete="username" maxLength={64} value={username} onChange={e => setUsername(e.target.value)} />
+      <label htmlFor="sterling-password">Password</label>
+      <div className="signin-password"><input id="sterling-password" required type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
+        <button type="button" aria-label={passwordVisible ? 'Hide password' : 'Show password'} onClick={() => setPasswordVisible(value => !value)}>{passwordVisible ? 'Hide' : 'Show'}</button></div>
+      <label className="signin-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />Remember this device</label>
+      <small>Leave unchecked on shared devices.</small>
+      {error && <p role="alert" className="signin-error">{error}</p>}
+      <button disabled={submitting || !username.trim() || !password} type="submit" className="signin-submit">{submitting ? 'Signing in…' : 'Sign in'}</button>
+    </form>
+  </main>;
 }
-
-const shell = {
-  minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24,
-  background: 'var(--k-surface-sunken-2, #0f1115)', color: 'var(--k-text, #e6e8ee)',
-} as const;
-const card = {
-  width: 'min(380px, 100%)', padding: 24, borderRadius: 10,
-  border: '1px solid var(--k-border, #323947)', background: 'var(--k-bg, #13161c)',
-} as const;
-const label = { display: 'block', marginBottom: 5, fontSize: 11, fontWeight: 700 } as const;
-const input = {
-  width: '100%', boxSizing: 'border-box' as const, marginBottom: 14, padding: '10px 11px',
-  borderRadius: 6, border: '1px solid var(--k-border, #323947)',
-  background: 'transparent', color: 'inherit', font: 'inherit',
-} as const;
-const button = {
-  width: '100%', padding: '10px 12px', border: 0, borderRadius: 6,
-  background: 'var(--k-brand, #f06428)', color: 'var(--k-on-accent, white)',
-  fontWeight: 800, cursor: 'pointer',
-} as const;

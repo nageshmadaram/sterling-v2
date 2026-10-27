@@ -8,13 +8,14 @@ vi.mock('../../../utils/api', () => ({api:{get}}));
 vi.mock('../../../utils/auth', () => ({clearAuthTokens:vi.fn(),loginSterling:vi.fn(),rememberSterlingSession:vi.fn()}));
 vi.mock('../BrokerLoginEntry', () => ({BrokerLoginEntry:()=> <div>Authenticated broker entry</div>}));
 afterEach(() => {cleanup();vi.resetAllMocks();window.history.replaceState({}, '', '/');});
-it('does not mount broker entry until Sterling verifies its session', async () => {
+it('keeps broker entry outside the identity gate after session verification', async () => {
   let verify!: (value:unknown)=>void;
   get.mockReturnValue(new Promise(resolve=>{verify=resolve;}));
   render(<QueryClientProvider client={new QueryClient()}><LoginGate><div>App</div></LoginGate></QueryClientProvider>);
   expect(screen.queryByText('Authenticated broker entry')).toBeNull();
   verify({user_id:'owner'});
-  await screen.findByText('Authenticated broker entry');
+  await screen.findByText('App');
+  expect(screen.queryByText('Authenticated broker entry')).toBeNull();
 });
 it('keeps broker entry unmounted when Sterling sign-in is required', async () => {
   get.mockRejectedValue(Object.assign(new Error('Sign in'),{status:401}));
@@ -32,7 +33,8 @@ it('Telegram sign-in explicitly asks for username and password even when a sessi
   fireEvent.change(screen.getByLabelText('Username'),{target:{value:'synthetic-owner'}});
   fireEvent.change(screen.getByLabelText('Password'),{target:{value:'synthetic-password'}});
   fireEvent.click(screen.getByRole('button',{name:'Sign in'}));
-  await screen.findByText('Authenticated broker entry');
+  await screen.findByText('App');
+  expect(screen.queryByText('Authenticated broker entry')).toBeNull();
   expect(loginSterling).toHaveBeenCalledWith('synthetic-owner','synthetic-password');
   expect(window.location.search).toBe('?broker_login=1');
 });

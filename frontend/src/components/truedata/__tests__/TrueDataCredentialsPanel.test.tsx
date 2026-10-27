@@ -3,6 +3,17 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { DataSourceSelector, TrueDataCredentialsPanel } from '../TrueDataCredentialsPanel';
 
+vi.mock('../../../hooks/useConfigurationCapabilities', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../../hooks/useConfigurationCapabilities')>();
+  return { ...actual, useConfigurationCapabilities: () => ({ isError: false, data: {
+    user_id: 'default', active: true, administrator: true, revision: 0,
+    sections: Object.fromEntries(['brokers', 'telegram', 'integrations'].map(section => [section, {
+      visible: true, grants: ['create', 'update', 'test', 'recipients'].map(action => ({ action, resource_id: 'own', expires_at_ms: null })),
+    }])),
+  } }) };
+});
+
+
 const addMutate = vi.fn();
 const deleteMutate = vi.fn();
 const updateMutate = vi.fn();

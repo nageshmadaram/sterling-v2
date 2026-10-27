@@ -1,3 +1,4 @@
+import { useProtectedMediaDocument } from '../../hooks/useProtectedMediaDocument';
 import { readMediaCommand, readMediaSuggestionResponse, type MediaCommand } from '../media/mediaBridge';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -43,6 +44,8 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   const [version,setVersion] = useState(0);
   const [failed,setFailed] = useState(false);
   const [loaded,setLoaded] = useState(false);
+
+  const documentAccess = useProtectedMediaDocument('radio', version);
 
   const hydrate = useCallback(() => {
     const frame = frameRef.current;
@@ -112,19 +115,19 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   return <section aria-label="Sterling Radio workspace" data-testid="sterling-radio-workspace"
     style={{position:'relative',display:'flex',flex:1,minWidth:0,minHeight:0,overflow:'hidden',background:'#101923'}}>
     {!loaded && !failed && <div role="status" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',color:'#fff',pointerEvents:'none'}}>Loading Radio…</div>}
-    {failed && <div role="alert" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',zIndex:1,background:'#101923',color:'#fff'}}>
-      <div><p>Radio could not load. Check network access or retry.</p>
+    {(failed || documentAccess.error) && <div role="alert" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',zIndex:1,background:'#101923',color:'#fff'}}>
+      <div><p>{documentAccess.error || 'Radio could not load. Check network access or retry.'}</p>
         <button type="button" onClick={() => {hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);}}>Retry Radio</button>
       </div>
     </div>}
-    <iframe key={version} ref={frameRef}
+    {documentAccess.url && <iframe key={version} ref={frameRef}
       title="Sterling Radio player" data-testid="sterling-radio-frame"
-      src="/radio/index.html"
+      src={documentAccess.url}
       sandbox="allow-scripts allow-forms allow-downloads allow-presentation allow-popups allow-popups-to-escape-sandbox"
       referrerPolicy="no-referrer"
       allow="autoplay; encrypted-media" loading="eager"
       onLoad={hydrate}
       onError={() => setFailed(true)}
-      style={{border:0,width:'100%',height:'100%',flex:1,minWidth:0,minHeight:0,background:'#101923'}} />
+      style={{border:0,width:'100%',height:'100%',flex:1,minWidth:0,minHeight:0,background:'#101923'}} />}
   </section>;
 }

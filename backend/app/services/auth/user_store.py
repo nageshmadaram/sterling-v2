@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional
 
 from app.core.logging import get_logger
@@ -69,31 +69,37 @@ def _init_table() -> None:
                     )
                 """)
                 c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username)")
+                from app.services.auth.account_policy import migrate
+                migrate(c)
                 c.execute("COMMIT")
             except Exception:
                 c.execute("ROLLBACK")
                 raise
     except Exception as exc:
-        log.warning("users table init failed: %s", exc)
+        raise RuntimeError("Account schema migration failed; recovery required.") from exc
 
 
 def _persist(u: "_User") -> None:
     from app.services import db
     if not db._available:
-        return
+        raise RuntimeError("Credential storage unavailable; nothing changed.")
     try:
         with db._conn() as c:
             c.execute("""
-                INSERT OR REPLACE INTO users
+                INSERT INTO users
                     (id, username, password_hash, role, is_active, token_version,
                      created_at_ms, updated_at_ms)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    username=excluded.username, password_hash=excluded.password_hash,
+                    role=excluded.role, is_active=excluded.is_active,
+                    token_version=excluded.token_version, updated_at_ms=excluded.updated_at_ms
             """, (
                 u.id, u.username, u.password_hash, u.role, int(u.is_active),
                 int(u.token_version), u.created_at_ms, u.updated_at_ms,
             ))
     except Exception as exc:
-        log.warning("users persist failed for %s: %s", u.id, exc)
+        raise RuntimeError("Identity could not be persisted; nothing changed.") from exc
 
 
 def _load_from_db() -> List["_User"]:
@@ -113,8 +119,7 @@ def _load_from_db() -> List["_User"]:
             for r in rows
         ]
     except Exception as exc:
-        log.warning("users load failed: %s", exc)
-        return []
+        raise RuntimeError("Identity storage could not be loaded; bootstrap denied.") from exc
 
 
 def bootstrap() -> None:
@@ -176,8 +181,8 @@ def _maybe_seed_admin() -> None:
         id=DEFAULT_ADMIN_ID, username=username,
         password_hash=hash_password(password), role="admin", is_active=True,
     )
-    _users[u.id] = u
     _persist(u)
+    _users[u.id] = u
     log.info("Seeded bootstrap admin id=%s username=%s", u.id, u.username)
 
 
@@ -195,6 +200,12 @@ def get_by_username(username: str) -> Optional["_User"]:
 
 def add(username: str, password: str, role: str = "user",
         user_id: Optional[str] = None) -> "_User":
+    if role not in ("admin", "user"):
+        raise ValueError("Invalid role.")
+    if role == "admin" and any(u.role == "admin" for u in _users.values()):
+        raise ValueError("Only one designated administrator is allowed.")
+    if user_id and user_id in _users:
+        raise ValueError("User identity already exists.")
     if get_by_username(username):
         raise ValueError(f"username already exists: {username!r}")
     if str(role or "").lower() == "admin" and _is_weak_admin_password(password):
@@ -209,8 +220,8 @@ def add(username: str, password: str, role: str = "user",
         password_hash=hash_password(password),
         role=role,
     )
-    _users[u.id] = u
     _persist(u)
+    _users[u.id] = u
     return u
 
 
@@ -223,10 +234,10 @@ def set_password(user_id: str, password: str) -> Optional["_User"]:
             f"administrator password must be at least {_MIN_ADMIN_PASSWORD_LEN} "
             "characters and not a common password"
         )
-    u.password_hash = hash_password(password)
-    u.updated_at_ms = _now_ms()
-    _persist(u)
-    return u
+    candidate = replace(u, password_hash=hash_password(password), updated_at_ms=_now_ms())
+    _persist(candidate)
+    _users[user_id] = candidate
+    return candidate
 
 
 def bump_token_version(user_id: str) -> Optional["_User"]:
@@ -234,10 +245,10 @@ def bump_token_version(user_id: str) -> Optional["_User"]:
     u = _users.get(user_id)
     if not u:
         return None
-    u.token_version += 1
-    u.updated_at_ms = _now_ms()
-    _persist(u)
-    return u
+    candidate = replace(u, token_version=u.token_version + 1, updated_at_ms=_now_ms())
+    _persist(candidate)
+    _users[user_id] = candidate
+    return candidate
 
 
 def verify_credentials(username: str, password: str) -> Optional["_User"]:

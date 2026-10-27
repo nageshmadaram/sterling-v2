@@ -39,9 +39,10 @@ async def test_user_cannot_manage_users_and_primary_cannot_be_deleted(admin):
     assert user_store.get_by_id(admin.user_id).is_active
 
 @pytest.mark.asyncio
-async def test_broker_account_owner_cannot_be_disabled(admin):
+async def test_broker_account_owner_is_suspended_without_detaching_protection(admin):
     created=await api.add_user(api.UserEdit(username='brokeruser',password='Synthetic-member-password-123'),admin)
     accounts.add(created['id'],KiteAccountCreate(label='Broker',api_key='synthetic',api_secret='synthetic-secret'))
-    with pytest.raises(HTTPException) as denied:await api.delete_user(created['id'],admin)
-    assert 'broker accounts' in denied.value.detail
-    assert user_store.get_by_id(created['id']).is_active
+    result = await api.delete_user(created['id'],admin)
+    assert result['ok']
+    assert not user_store.get_by_id(created['id']).is_active
+    assert accounts.list_accounts(created['id'])

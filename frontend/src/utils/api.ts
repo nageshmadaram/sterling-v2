@@ -58,7 +58,8 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   const view = getView();
   // Sign-in, refresh and /auth/me say who the operator is, not which book is open. Scoping them
   // would make a non-owner who inherits a remembered Simulation view unable to sign in at all.
-  const scoped = view === 'simulation' && !path.startsWith('/api/v1/auth/');
+  const identityPath = path.startsWith('/api/v1/auth/') || path.split('?')[0] === '/api/v1/settings/capabilities' || path.startsWith('/api/v1/media/');
+  const scoped = view === 'simulation' && !identityPath;
   const send = async () => {
     const headers = bearerHeaders(options?.headers);
     if (scoped) headers.set(VIEW_HEADER, 'simulation');

@@ -37,6 +37,13 @@ def setup_db_for_test(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_available", True)
     live_safety.reset_all_for_tests()
     db.init()
+    from app.services.auth import user_store, account_policy
+    monkeypatch.setattr(user_store, '_users', {})
+    monkeypatch.setattr(user_store, '_loaded', True)
+    user_store._init_table()
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    user_store.add('u1', 'Synthetic-password-123', user_id='u1')
+    account_policy.set_features('default', 'u1', dict.fromkeys(account_policy.FEATURES, True), 0)
     positions._positions.clear()
     from app.services import gamma_move_positions
     gamma_move_positions.reset()

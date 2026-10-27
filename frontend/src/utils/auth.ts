@@ -56,10 +56,10 @@ export function setAuthTokens(tokens: SterlingTokens): void {
     s.setItem(REFRESH_KEY, tokens.refresh_token);
   }
   const ls = localStore();
-  if (ls) {
+  if (ls?.getItem('sterling.auth.remember') === '1') {
     ls.setItem(ACCESS_KEY, tokens.access_token);
     ls.setItem(REFRESH_KEY, tokens.refresh_token);
-  }
+  } else { ls?.removeItem(ACCESS_KEY); ls?.removeItem(REFRESH_KEY); }
 }
 
 export function clearAuthTokens(): void {
@@ -72,6 +72,7 @@ export function clearAuthTokens(): void {
   if (ls) {
     ls.removeItem(ACCESS_KEY);
     ls.removeItem(REFRESH_KEY);
+    ls.removeItem('sterling.auth.remember');
   }
 }
 
@@ -86,7 +87,7 @@ export function authenticatedFetch(input: RequestInfo | URL, init?: RequestInit)
   return fetch(input, { ...init, headers: bearerHeaders(init?.headers) });
 }
 
-export async function loginSterling(username: string, password: string): Promise<SterlingTokens> {
+export async function loginSterling(username: string, password: string, remember = false): Promise<SterlingTokens> {
   const body = new URLSearchParams({ username, password });
   const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
     method: 'POST',
@@ -95,6 +96,8 @@ export async function loginSterling(username: string, password: string): Promise
   });
   if (!response.ok) throw new Error('Invalid username or password');
   const tokens = await response.json() as SterlingTokens;
+  if (remember) localStore()?.setItem('sterling.auth.remember', '1');
+  else localStore()?.removeItem('sterling.auth.remember');
   setAuthTokens(tokens);
   return tokens;
 }

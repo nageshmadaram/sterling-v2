@@ -49,7 +49,11 @@ def dev_env(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_DB_PATH", db_path)
     monkeypatch.setattr(db, "_available", True)
     db.init()
+    user_store._init_table()
     user_store.clear()
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    from app.services.auth import account_policy
+    account_policy.set_features('default', 'default', dict.fromkeys(account_policy.FEATURES, True), 0)
     yield
     user_store.clear()
 
@@ -162,7 +166,7 @@ def test_explicit_opt_out_allows_remote_dev_identity(dev_env, monkeypatch):
 
 
 def test_valid_bearer_token_works_from_lan_in_development(dev_env):
-    user = user_store.add("alice", "correct horse battery staple", role="admin", user_id="alice-id")
+    user = user_store.add("alice", "correct horse battery staple", role="user", user_id="alice-id")
     access = tokens.mint_access(user.id, user.username, user.role, user.token_version)
     client = TestClient(_app(), client=LAN_PEER)
     response = client.get("/who", headers={"Authorization": f"Bearer {access}"})
@@ -177,8 +181,10 @@ def test_ws_dev_identity_refused_for_lan_peer(dev_env):
     client = TestClient(app, client=LAN_PEER)
     with client.websocket_connect("/api/v1/stream/ws") as ws:
         ws.send_json({"action": "subscribe", "channel": "kite_orders:default"})
-        reply = ws.receive_json()
-        assert reply.get("type") == "error"
+        from starlette.websockets import WebSocketDisconnect
+        with pytest.raises(WebSocketDisconnect) as denied:
+            ws.receive_json()
+        assert denied.value.code == 4403
 
 
 def test_ws_dev_identity_refused_for_foreign_origin(dev_env):
@@ -248,7 +254,7 @@ def test_anonymous_dev_identity_stays_available_with_only_paper_accounts(dev_env
 
 
 def test_bearer_token_still_works_with_a_live_account(dev_env, live_account):
-    user = user_store.add("alice", "correct horse battery staple", role="admin", user_id="alice-id")
+    user = user_store.add("alice", "correct horse battery staple", role="user", user_id="alice-id")
     access = tokens.mint_access(user.id, user.username, user.role, user.token_version)
     client = TestClient(_app(), client=("127.0.0.1", 1234))
     response = client.post("/mutate", headers={"Authorization": f"Bearer {access}"})
@@ -279,4 +285,7 @@ def test_ws_anonymous_identity_refused_while_a_live_account_exists(dev_env, live
     client = TestClient(app, client=("127.0.0.1", 1234))
     with client.websocket_connect("/api/v1/stream/ws") as ws:
         ws.send_json({"action": "subscribe", "channel": "kite_orders:default"})
-        assert ws.receive_json().get("error") == "unauthorized_channel"
+        from starlette.websockets import WebSocketDisconnect
+        with pytest.raises(WebSocketDisconnect) as denied:
+            ws.receive_json()
+        assert denied.value.code == 4403

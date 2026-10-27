@@ -1,9 +1,17 @@
 import {execFileSync} from 'node:child_process';
-import {readFileSync,writeFileSync,mkdirSync,copyFileSync} from 'node:fs';
+import {readFileSync,writeFileSync,mkdirSync,copyFileSync,existsSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const output=path.join(root,'public/media');
+// Private backend player templates are never copied into public/dist. This
+// committed class manifest also supports frontend-only container contexts.
+const templates=path.join(root,'../backend/app/media_templates');
+if(existsSync(path.join(templates,'tv.html'))) {
+  const raw=['tv','radio'].map(f=>readFileSync(path.join(templates,`${f}.html`),'utf8')).join('\n');
+  writeFileSync(path.join(root,'media/player-template-classes.txt'),[...new Set(raw.match(/[^\s<>"'`]+/g))].sort().join('\n')+'\n');
+}
+
 mkdirSync(output,{recursive:true});
 for(const file of ['experience.css','artwork.js','comfort.js','radio-sources.js','radio-bands.js','radio-catalog.js','radio-directory.js','radio-home.js','spotify-shell.js','extras.js','nav-stack.js','sheet-swipe.js'])copyFileSync(path.join(root,'media',file),path.join(output,file));
 execFileSync(process.execPath,[path.join(root,'node_modules/tailwindcss/lib/cli.js'),'-c','tailwind.media.config.mjs','-i','media/utilities.css','-o','public/media/interface.css','--minify'],{cwd:root,stdio:'inherit'});

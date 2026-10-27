@@ -12,5 +12,5 @@ import { SimpleTerminal } from './SimpleTerminal';
  * settings page remains usable, and no stale legacy terminal is resurrected.
  */
 export function Terminal() {
-  return <SimpleTerminal />;
+  return <SimpleTerminal kiteOnly />;
 }

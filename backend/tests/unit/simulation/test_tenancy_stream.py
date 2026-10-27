@@ -16,12 +16,19 @@ SIM_URL = URL + "?view=simulation"
 
 
 @pytest.fixture(autouse=True)
-def _users(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "test")
+def _users(monkeypatch, tmp_path):
+    from app.services import db
+    from app.services.auth import account_policy
+    monkeypatch.setenv('ENVIRONMENT', 'test')
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'sim-stream-policy.db'))
+    assert db.init()
     user_store.clear()
+    user_store._init_table()
     user_store._loaded = True
-    user_store._users["default"] = user_store._User(id="default", username="owner", role="admin", token_version=1)
-    user_store._users["trader_uid"] = user_store._User(id="trader_uid", username="t", role="trader", token_version=1)
+    user_store.add('owner', 'Synthetic-password-123', role='admin', user_id='default')
+    user_store.add('trader', 'Synthetic-password-123', user_id='trader_uid')
+    for uid in ('default', 'trader_uid'):
+        account_policy.set_features('default', uid, dict.fromkeys(account_policy.FEATURES, True), 0)
     yield
     user_store.clear()
 

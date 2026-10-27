@@ -3,6 +3,17 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
 import { ConnectPane } from '../ConnectPane';
 
+vi.mock('../../../hooks/useConfigurationCapabilities', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../../hooks/useConfigurationCapabilities')>();
+  return { ...actual, useConfigurationCapabilities: () => ({ isError: false, data: {
+    user_id: 'default', active: true, administrator: true, revision: 0,
+    sections: Object.fromEntries(['brokers', 'telegram', 'integrations'].map(section => [section, {
+      visible: true, grants: ['create', 'update', 'test', 'recipients'].map(action => ({ action, resource_id: 'own', expires_at_ms: null })),
+    }])),
+  } }) };
+});
+
+
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({ data: { accounts: [], count: 0 }, isLoading: false }),
   useAddKiteAccount: () => ({ mutate: vi.fn(), isPending: false, error: null }),
@@ -45,10 +56,10 @@ vi.mock('../MotionStyleSettings', () => ({ MotionStyleSettings: () => <div>Motio
 vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => <div>Exchange choices</div> }));
 
 describe('ConnectPane — release strategy scope', () => {
-  it('opens Sterling Users from Connect', () => {
+  it('links to independent administration from Connect', () => {
     render(<ConnectPane />);
     fireEvent.click(screen.getByRole('button', { name: /^Users & Broker Logins/i }));
-    expect(screen.getByText('Sterling user management')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Administration' })).toHaveAttribute('href', '/administration');
   });
   it('opens Price Rules using the mobile section picker', () => {
     render(<ConnectPane />);

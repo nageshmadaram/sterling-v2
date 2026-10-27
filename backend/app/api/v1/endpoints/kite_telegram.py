@@ -20,8 +20,9 @@ import html
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, StrictBool
+from pydantic import BaseModel, StrictBool, ConfigDict
 
+from app.core.configuration_access import require_configuration
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
 from app.services.notifications import kite_telegram_store as store
@@ -32,6 +33,7 @@ router = APIRouter(prefix="/kite/telegram", tags=["kite"])
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 class TargetIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     label: str
     bot_token: str
     chat_id: str
@@ -39,6 +41,7 @@ class TargetIn(BaseModel):
 
 
 class TargetPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     label: Optional[str] = None
     bot_token: Optional[str] = None
     chat_id: Optional[str] = None
@@ -174,11 +177,13 @@ def _to_out(t: "store.Target") -> TargetOut:
 # ─── Routes ───────────────────────────────────────────────────────────────────
 @router.get("")
 async def list_targets(user: UserContext = Depends(get_current_user)) -> TargetListResponse:
+    require_configuration(user, 'telegram')
     return TargetListResponse(targets=[_to_out(t) for t in store.list_targets(user.user_id)])
 
 
 @router.post("")
 async def create_target(body: TargetIn, user: UserContext = Depends(get_current_user)) -> TargetOut:
+    require_configuration(user, 'telegram', 'create', administrator_only=True)
     t = store.add(
         user.user_id,
         label=body.label,
@@ -192,6 +197,9 @@ async def create_target(body: TargetIn, user: UserContext = Depends(get_current_
 @router.put("/{target_id}")
 async def update_target(target_id: str, body: TargetPatch,
                         user: UserContext = Depends(get_current_user)) -> TargetOut:
+    require_configuration(user, 'telegram', 'recipients', target_id)
+    if body.bot_token is not None:
+        require_configuration(user, 'telegram', 'update', target_id, administrator_only=True)
     t = store.update(
         user.user_id, target_id,
         label=body.label, bot_token=body.bot_token,
@@ -204,6 +212,7 @@ async def update_target(target_id: str, body: TargetPatch,
 
 @router.delete("/{target_id}")
 async def delete_target(target_id: str, user: UserContext = Depends(get_current_user)) -> OkResponse:
+    require_configuration(user, 'telegram', 'update', target_id, administrator_only=True)
     if not store.delete(user.user_id, target_id):
         raise HTTPException(404, "Kite telegram target not found")
     return OkResponse(ok=True)
@@ -211,6 +220,7 @@ async def delete_target(target_id: str, user: UserContext = Depends(get_current_
 
 @router.post("/{target_id}/test")
 async def test_target(target_id: str, user: UserContext = Depends(get_current_user)) -> TargetOut:
+    require_configuration(user, 'telegram', 'test', target_id)
     t = store.get(user.user_id, target_id)
     if t is None:
         raise HTTPException(404, "Kite telegram target not found")

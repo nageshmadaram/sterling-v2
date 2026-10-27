@@ -12,7 +12,7 @@ bad password (no user enumeration via timing).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 
@@ -61,6 +61,9 @@ class MeResponse(BaseModel):
     user_id: str
     username: str
     role: str
+    features: dict[str, bool]
+    policy_revision: int
+    administrator: bool
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -131,5 +134,13 @@ async def logout(user: UserContext = Depends(get_current_user)) -> dict:
 
 
 @router.get("/me", response_model=MeResponse)
-async def me(user: UserContext = Depends(get_current_user)) -> MeResponse:
-    return MeResponse(user_id=user.user_id, username=user.username, role=user.role)
+async def me(response: Response, user: UserContext = Depends(get_current_user)) -> MeResponse:
+    from app.services.auth import account_policy
+    response.headers['Cache-Control'] = 'no-store, private'
+    try:
+        policy = account_policy.read(user.user_id)
+    except account_policy.PolicyUnavailable as exc:
+        raise HTTPException(503, str(exc)) from None
+    return MeResponse(user_id=user.user_id, username=user.username, role=user.role,
+                      features=policy.features, policy_revision=policy.revision,
+                      administrator=policy.administrator)

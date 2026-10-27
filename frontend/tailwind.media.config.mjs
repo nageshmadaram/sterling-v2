@@ -1,5 +1,5 @@
 export default {
-  content: ['./public/tv/index.html', './public/radio/index.html'],
+  content: ['./media/player-template-classes.txt'],
   theme: { extend: {} },
   plugins: [],
 };

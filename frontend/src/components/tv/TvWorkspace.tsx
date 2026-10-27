@@ -1,3 +1,4 @@
+import { useProtectedMediaDocument } from '../../hooks/useProtectedMediaDocument';
 import { readMediaCommand, readMediaSuggestionResponse } from '../media/mediaBridge';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -52,6 +53,8 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const documentAccess = useProtectedMediaDocument('tv', reloadKey);
 
   const onLoad = useCallback(() => {
     // Mobile WebKit can finish frame navigation before its one-shot "ready"
@@ -134,11 +137,11 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
           Loading TV…
         </div>
       )}
-      {failed && (
+      {(failed || documentAccess.error) && (
         <div role="alert" style={{ position: 'absolute', inset: 0, display: 'grid',
           placeItems: 'center', color: '#ededed', fontSize: 13 }}>
           <div style={{ textAlign: 'center', padding: 16 }}>
-            <p>TV did not initialize. Check the network or retry this player.</p>
+            <p>{documentAccess.error || 'TV did not initialize. Check the network or retry this player.'}</p>
             <button type="button" onClick={() => {
               readyRef.current = false;
               setLoaded(false);
@@ -150,12 +153,12 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
           </div>
         </div>
       )}
-      <iframe
+      {documentAccess.url && <iframe
         key={reloadKey}
         ref={ref}
         title="Sterling TV player"
         data-testid="sterling-tv-frame"
-        src="/tv/index.html"
+        src={documentAccess.url}
         loading="eager"
         allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
         allowFullScreen
@@ -165,7 +168,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
         onError={() => setFailed(true)}
         style={{ display: 'block', border: 0, width: '100%', height: '100%',
           flex: 1, minWidth: 0, minHeight: 0, background: '#0f0f0f' }}
-      />
+      />}
     </section>
   );
 }

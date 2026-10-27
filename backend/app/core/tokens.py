@@ -32,8 +32,8 @@ def _ttl(name: str, default: int) -> int:
         return default
 
 
-ACCESS_TTL_S = _ttl("STERLING_ACCESS_TTL_S", 30 * 60)          # 30 minutes
-REFRESH_TTL_S = _ttl("STERLING_REFRESH_TTL_S", 7 * 24 * 60 * 60)  # 7 days
+ACCESS_TTL_S = _ttl("STERLING_ACCESS_TTL_S", 10 * 60)          # 10 minutes
+REFRESH_TTL_S = _ttl("STERLING_REFRESH_TTL_S", 24 * 60 * 60)  # 24 hours
 
 
 class TokenError(Exception):
@@ -62,9 +62,10 @@ def mint_access(sub: str, username: str, role: str, ver: int) -> str:
 def mint_refresh(sub: str, username: str, role: str, ver: int, *, remembered: bool = False) -> str:
     if not remembered:
         return _mint(sub, username, role, ver, "refresh", REFRESH_TTL_S)
-    # Remembered devices retain a signed renewal credential until logout or
-    # account/password revocation. Access tokens still expire after 30 minutes.
-    payload = {"sub":sub,"username":username,"role":role,"typ":"refresh","ver":int(ver),"iat":int(time.time()),"iss":_ISS,"remembered":True}
+    token = _mint(sub, username, role, ver, 'refresh', 30 * 24 * 60 * 60)
+    # Decode/re-encode only server-created claims, preserving an explicit finite expiry.
+    payload = jwt.decode(token, get_jwt_key(), algorithms=[_ALG], issuer=_ISS)
+    payload['remembered'] = True
     return jwt.encode(payload, get_jwt_key(), algorithm=_ALG)
 
 
@@ -79,11 +80,11 @@ def decode(token: str, expected_typ: str) -> Dict[str, Any]:
             get_jwt_key(),
             algorithms=[_ALG],
             issuer=_ISS,
-            options={"require": (["iat", "sub", "typ", "ver"] if expected_typ == "refresh" else ["exp", "iat", "sub", "typ", "ver"])},
+            options={"require": ["exp", "iat", "sub", "typ", "ver"]},
         )
     except jwt.PyJWTError as exc:
         raise TokenError(str(exc)) from exc
-    if "exp" not in claims and not (expected_typ == "refresh" and claims.get("remembered") is True):
+    if "exp" not in claims:
         raise TokenError("expiry required for non-remembered credentials")
     if claims.get("typ") != expected_typ:
         raise TokenError(f"expected {expected_typ} token, got {claims.get('typ')!r}")

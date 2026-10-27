@@ -501,6 +501,11 @@ class CanonicalExecutionService:
         )
 
         is_exposure_increasing = effective_effect == ExposureEffect.INCREASE_EXPOSURE
+        if is_exposure_increasing:
+            from app.services.auth.account_policy import entry_refusal as feature_refusal
+            refusal = feature_refusal(request.uid)
+            if refusal:
+                return ExecutionResult(success=False, status='REJECTED_FEATURE_ACCESS', error=refusal)
 
         # Production release scope is an execution invariant, not a UI choice.
         # Legacy engines may remain readable and may reduce/reconcile positions,
@@ -980,6 +985,10 @@ class CanonicalExecutionService:
             def before_send() -> None:
                 if not is_exposure_increasing:
                     return
+                from app.services.auth.account_policy import entry_refusal as feature_refusal
+                refusal = feature_refusal(request.uid)
+                if refusal:
+                    raise PermissionError(refusal)
                 if approved_release_scope is not None:
                     from app.services.release_entry_authority import entry_scope
                     if entry_scope(request) != approved_release_scope:

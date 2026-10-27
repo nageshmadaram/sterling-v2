@@ -9,5 +9,5 @@ import { useAppMode } from '../store/useStore';
  */
 export function Dashboard() {
   const appMode = useAppMode();
-  return appMode === 'pro' ? <Terminal /> : <SimpleTerminal />;
+  return appMode === 'pro' ? <Terminal /> : <SimpleTerminal kiteOnly />;
 }

@@ -171,6 +171,14 @@ class StreamManager:
         saved = getattr(getattr(client.ws, 'state', None), 'sterling_access_token', '')
         if saved:
             _verified_ws_identity(saved)
+        else:
+            uid = getattr(getattr(client.ws, 'state', None), 'sterling_policy_uid', '')
+            if uid:
+                from app.services.auth import account_policy
+                try:
+                    account_policy.require_feature(uid, 'kite')
+                except (PermissionError, account_policy.PolicyUnavailable) as exc:
+                    raise tokens.TokenError('Kite access unavailable') from exc
         await asyncio.wait_for(client.ws.send_json(message), timeout=SEND_TIMEOUT_S)
 
     async def _writer(self, client: _Client) -> None:
@@ -240,6 +248,11 @@ def _verified_ws_identity(auth_token: str) -> tuple:
         raise tokens.TokenError("user is inactive or missing")
     if int(payload.get("ver", -1)) != int(user.token_version):
         raise tokens.TokenError("token has been revoked")
+    from app.services.auth import account_policy
+    try:
+        account_policy.require_feature(user.id, 'kite')
+    except (PermissionError, account_policy.PolicyUnavailable) as exc:
+        raise tokens.TokenError('Kite access unavailable') from exc
     return user.id, user.role
 
 
@@ -354,6 +367,15 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=4403, reason="cross-origin websocket refused")
             return
 
+    if conn_uid:
+        from app.services.auth import account_policy
+        try:
+            account_policy.require_feature(_sim.owner_uid(conn_uid), 'kite')
+        except (PermissionError, account_policy.PolicyUnavailable):
+            await websocket.close(code=4403, reason='Kite access unavailable')
+            return
+    if conn_uid:
+        websocket.state.sterling_policy_uid = _sim.owner_uid(conn_uid)
     if auth_token and conn_uid:
         websocket.state.sterling_access_token = auth_token
     await stream_manager.connect(websocket)
@@ -401,6 +423,7 @@ async def websocket_endpoint(websocket: WebSocket):
                                 _drop_user_channels(websocket)
                             websocket.state.sterling_access_token = str(msg_token)
                             conn_uid = verified_uid
+                            websocket.state.sterling_policy_uid = _sim.owner_uid(conn_uid)
                             auth_deadline = None
                             await websocket.send_json({"type": "auth_ok", "user_id": conn_uid})
                         except PermissionError as exc:
@@ -437,6 +460,12 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Sanitize: allow only safe channel identifier tokens.
                     if channel and all(c.isalnum() or c in ":_-" for c in channel):
                         if action == "subscribe":
+                            from app.services.auth import account_policy
+                            try:
+                                account_policy.require_feature(_sim.owner_uid(conn_uid or ''), 'kite')
+                            except (PermissionError, account_policy.PolicyUnavailable):
+                                await websocket.close(code=4403, reason='Kite access unavailable')
+                                return
                             # Enforce user authorization on user-scoped channels.
                             if channel.startswith(("kite_orders:", "orders:", "positions:", "kite_ticks:")):
                                 parts = channel.split(":", 1)

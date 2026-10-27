@@ -11,14 +11,20 @@ from main import app
 
 
 @pytest.fixture(autouse=True)
-def _users(monkeypatch):
-    monkeypatch.setenv("ENVIRONMENT", "test")
+def _users(monkeypatch, tmp_path):
+    from app.services import db
+    from app.services.auth import account_policy
+    monkeypatch.setenv('ENVIRONMENT', 'test')
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'stream-policy.db'))
+    assert db.init()
     user_store.clear()
+    user_store._init_table()
     user_store._loaded = True
-    for uid in ("alice_uid", "bob_uid"):
-        user_store._users[uid] = user_store._User(
-            id=uid, username=uid, role="trader", token_version=1,
-        )
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    for uid in ['alice_uid', 'bob_uid']:
+        user_store.add(uid, 'Synthetic-password-123', user_id=uid)
+    for uid in ['default', 'alice_uid', 'bob_uid']:
+        account_policy.set_features('default', uid, dict.fromkeys(account_policy.FEATURES, True), 0)
     yield
     user_store.clear()
 

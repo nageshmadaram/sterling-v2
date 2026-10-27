@@ -1,14 +1,12 @@
+import { useConfigurationCapabilities, configurationAllowed } from '../../hooks/useConfigurationCapabilities';
 import { FeedTestSettings } from './FeedTestSettings';
 import { PushSettings } from './PushSettings';
 import { NavigationSettings } from './NavigationSettings';
 import { SpectrumSettings } from './SpectrumSettings';
 import { usePreferenceSync, flushPreferences } from '../../appearance/preferences';
 import { AppearanceSettings } from './AppearanceSettings';
-import { SterlingUsersPanel } from './SterlingUsersPanel';
 import { PriceRulesPanel } from './PriceRulesPanel';
 import { KiteAssistedLogin } from './KiteAssistedLogin';
-import { KiteLoginCredentials } from './KiteLoginCredentials';
-import { SavedKiteCredentials } from './SavedKiteCredentials';
 import { fmtTimeIST } from '../../lib/format';
 import React, { useState, useRef, useEffect } from 'react';
 import {
@@ -23,6 +21,7 @@ import { api } from '../../utils/api';
 import { hasUnsavedDraft, resetDraftGuard } from './config/unsavedDraftGuard';
 import { EngineConfigDraftBar } from './config/engineConfigDraft';
 import type { KiteAccount } from '../../types/kite';
+import { DelegatedTelegramPanel } from './DelegatedTelegramPanel';
 import { KiteTelegramPanel, BrandIconPicker } from './KiteTelegramPanel';
 import { ButtonLoader } from './KiteLoader';
 import { useConfirm } from './ConfirmDialog';
@@ -448,6 +447,12 @@ function initials(s: string): string {
 
 /** Unified broker account card — all controls integrated in one expandable card. */
 function AccountCard({ acc }: { acc: KiteAccount }) {
+  const capabilities = useConfigurationCapabilities();
+  const configuration = capabilities.isError ? undefined : capabilities.data;
+  const canConfigure = configurationAllowed(configuration, 'brokers');
+  const canUpdate = configurationAllowed(configuration, 'brokers', 'update', acc.id);
+  const canReveal = configurationAllowed(configuration, 'brokers', 'reveal', acc.id);
+  const canRemove = canUpdate && !!configuration?.administrator;
   const qc = useQueryClient();
   const { data: status } = useKiteStatus();
   const kiteLogin = useOpenKiteLogin(acc.id);
@@ -493,7 +498,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
     queryKey: credKey,
     queryFn: () => api.get<{ username: string; password_saved: boolean; automatic_login_available: boolean }>(credUrl),
     retry: false,
-    enabled: expanded,
+    enabled: expanded && canConfigure,
   });
   const saveCred = useMutation({
     mutationFn: () => api.put<{ username: string; password_saved: boolean; automatic_login_available: boolean }>(
@@ -513,6 +518,14 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
     },
   });
 
+  useEffect(() => {
+    if (!canReveal) { revealGen.current++; setRevealed({}); }
+    if (!canUpdate) {
+      setEditingKeys(false); setEditingLogin(false); setApiKey(''); setApiSecret('');
+      setLoginUser(''); setLoginPass(''); setLoginPassRepeat('');
+    }
+  }, [canReveal, canUpdate]);
+
   const connected = acc.connected && !(status?.account_id === acc.id && status?.connected === false);
   const validity = sessionValidity(
     status?.account_id === acc.id
@@ -531,6 +544,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
       setRevealed((prev) => { const n = { ...prev }; delete n[field]; return n; });
       return;
     }
+    if (!canReveal) return;
     setRevealBusy(field);
     const g = ++revealGen.current;
     try {
@@ -602,10 +616,11 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
               </>
             )}
 
+            {canConfigure && <>
             {/* Saved login */}
             <div className="bac-sl-row">
               <span className="bac-sl">Saved login</span>
-              {!editingLogin && savedCred.data && !savedCred.data.username && (
+              {canUpdate && !editingLogin && savedCred.data && !savedCred.data.username && (
                 <button className="bac-btn bac-btn-ghost" onClick={() => { setLoginUser(''); setLoginPass(''); setLoginPassRepeat(''); setLoginError(''); saveCred.reset(); setEditingLogin(true); }}>+ Add</button>
               )}
             </div>
@@ -617,7 +632,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                   <strong>{savedCred.data.username}</strong>
                   <span className="bac-caption">{savedCred.data.password_saved ? 'Password saved' : 'No password set'}</span>
                 </div>
-                <div className="bac-row-gap">
+                {canUpdate && <div className="bac-row-gap">
                   <button className="bac-btn" onClick={() => { setLoginUser(savedCred.data!.username); setLoginPass(''); setLoginPassRepeat(''); setLoginError(''); saveCred.reset(); setEditingLogin(true); }}>Edit login</button>
                   <details className="bac-more">
                     <summary aria-label="More saved login actions">···</summary>
@@ -631,10 +646,10 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                       if (ok) removeCred.mutate();
                     }}>Remove saved login</button>
                   </details>
-                </div>
+                </div>}
               </div>
             )}
-            {editingLogin && (
+            {canUpdate && editingLogin && (
               <form className="bac-form" onSubmit={(e) => { e.preventDefault(); if (loginPass !== loginPassRepeat) { setLoginError('Passwords do not match.'); return; } setLoginError(''); saveCred.mutate(); }}>
                 <label className="bac-label">Kite user ID
                   <input className="bac-input" required disabled={saveCred.isPending} maxLength={64} autoComplete="off" value={loginUser} onChange={(e) => setLoginUser(e.target.value)} />
@@ -658,6 +673,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                 </div>
               </form>
             )}
+            </>}
             {!editingLogin && hasAutoLogin && hasCred && (
               <KiteAssistedLogin accountId={acc.id} hideSelectorHeading />
             )}
@@ -708,16 +724,16 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
           )}
 
           {/* §4 API Keys — collapsed behind disclosure */}
-          <div className="bac-section">
+          {canConfigure && <div className="bac-section">
             <details className="bac-disclosure">
               <summary>
                 <span style={{ flex: 1 }}>API Keys</span>
-                {!editingKeys
+                {canUpdate && (!editingKeys
                   ? <button className="bac-btn bac-btn-ghost" style={{ marginLeft: 'auto', pointerEvents: 'auto' }}
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setAccountLabel(cleanLabel); setApiKey(''); setApiSecret(''); update.reset(); setEditingKeys(true); (e.currentTarget.closest('details') as HTMLDetailsElement).open = true; }}>Edit</button>
                   : <button className="bac-btn bac-btn-ghost" style={{ marginLeft: 'auto', pointerEvents: 'auto' }}
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setEditingKeys(false); update.reset(); }}>Cancel</button>
-                }
+                )}
               </summary>
               <div className="bac-disclosure-body">
                 <div className="bac-key-grid">
@@ -731,19 +747,19 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                           value={isRevealed ? (revealed[field] ?? '') : hasCred ? '•••••••••••' : ''}
                           placeholder={hasCred ? '' : 'Not configured'} autoComplete="off" spellCheck={false}
                         />
-                        <button type="button" className="bac-btn bac-btn-icon"
+                        {canReveal && <button type="button" className="bac-btn bac-btn-icon"
                           aria-label={`${isRevealed ? 'Hide' : 'Reveal'} ${label}`}
                           aria-pressed={isRevealed}
                           disabled={!hasCred || revealBusy !== null}
                           onClick={() => void revealKey(field)}>
                           {isRevealed ? <EyeOffIcon /> : <EyeIcon />}
-                        </button>
+                        </button>}
                       </div>
                     );
                   })}
                 </div>
-                <p className="bac-hint">Eye reveals the live value. Hides after 30 s or on window blur.</p>
-                {editingKeys && (
+                <p className="bac-hint">Saved secrets stay masked. Replacement never retrieves the old value.</p>
+                {canUpdate && editingKeys && (
                   <div className="bac-form" style={{ marginTop: 10 }}>
                     <label className="bac-label">Account label
                       <input className="bac-input" placeholder="e.g. Main Kite" value={accountLabel} autoComplete="off" onChange={(e) => setAccountLabel(e.target.value)} />
@@ -775,7 +791,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                 )}
               </div>
             </details>
-          </div>
+          </div>}
 
           {/* ── Footer: utility actions ── */}
           <div className="bac-footer">
@@ -792,7 +808,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                 </span>
               )}
             </div>
-            <button
+            {canRemove && <button
               className="bac-btn bac-btn-danger bac-btn-ghost"
               onClick={async () => {
                 const ok = await confirm({
@@ -804,7 +820,7 @@ function AccountCard({ acc }: { acc: KiteAccount }) {
                 if (ok) del.mutate(acc.id);
               }}>
               Remove
-            </button>
+            </button>}
           </div>
 
         </div>
@@ -1105,6 +1121,14 @@ function SectionHeading({ title, description }: { title: string; description: st
 }
 
 export function ConnectPane() {
+  const capabilities = useConfigurationCapabilities();
+  const configuration = capabilities.isError ? undefined : capabilities.data;
+  const brokerSettings = configurationAllowed(configuration, 'brokers');
+  const telegramSettings = configurationAllowed(configuration, 'telegram');
+  const integrationSettings = configurationAllowed(configuration, 'integrations');
+  const visibleSections = SECTION_DEFS.filter(item =>
+    (item.id !== 'notifications' || telegramSettings) &&
+    (item.id !== 'truedata' || integrationSettings));
   const { data, isLoading } = useKiteAccounts();
   const { data: kiteStatus } = useKiteStatus();
   // The Simulation view cannot touch the broker session, accounts, alerts or the live loss limit.
@@ -1117,6 +1141,9 @@ export function ConnectPane() {
   const connected = apiConnected;
   const liveTools = connected;
   const [section, setSection] = useState<ConnectSection>(readInitialSection);
+  useEffect(() => {
+    if ((section === 'notifications' && !telegramSettings) || (section === 'truedata' && !integrationSettings)) setSection('account');
+  }, [section, telegramSettings, integrationSettings]);
   const page = SECTION_DEFS.find((s) => s.id === section) ?? SECTION_DEFS[0];
   const mainRef = React.useRef<HTMLDivElement>(null);
 
@@ -1213,7 +1240,7 @@ export function ConnectPane() {
 
       <label className="mobile-settings-picker">Settings section
         <select aria-label="Settings section" value={section} onChange={event => select(event.target.value as ConnectSection)}>
-          {SECTION_DEFS.map(item => <option key={item.id} value={item.id}>{item.group} · {item.label}</option>)}
+          {visibleSections.map(item => <option key={item.id} value={item.id}>{item.group} · {item.label}</option>)}
         </select>
       </label>
       <div className="kite-settings-layout" style={{
@@ -1224,9 +1251,9 @@ export function ConnectPane() {
           background: 'var(--k-bg)', borderRight: '1px solid var(--k-border)', padding: '10px 8px 16px',
           overflowY: 'auto', minHeight: 0,
         }}>
-          {SECTION_DEFS.map((item, index) => {
+          {visibleSections.map((item, index) => {
             const selected = item.id === section;
-            const startsGroup = index === 0 || SECTION_DEFS[index - 1].group !== item.group;
+            const startsGroup = index === 0 || visibleSections[index - 1].group !== item.group;
             return (
               <React.Fragment key={item.id}>
                 {startsGroup && (
@@ -1271,19 +1298,19 @@ export function ConnectPane() {
             )}
             {section === 'account' && !sim && (
               <>
-                <div className="account-hub"><SterlingUsersPanel />
-                <div className="account-section-heading"><div><h2>Broker accounts</h2><span className="account-caption">Your linked Kite accounts</span></div></div>
+                <div className="account-hub">{configuration?.administrator && <a href="/administration" className="bac-btn">Open Administration</a>}
+                <div className="account-section-heading"><div><h2>Broker accounts</h2><span className="account-caption">{brokerSettings ? 'Assigned accounts and connection settings' : 'Your assigned Kite accounts'}</span></div></div>
 
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}
-                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No Kite accounts yet. Add your API key and secret.</div>}
-                <AddAccount />
+                {data && data.count === 0 && <div style={{ ...S.hint, marginBottom: 10 }}>No broker account is assigned. Contact your Sterling administrator.</div>}
+                {configurationAllowed(configuration, 'brokers', 'create') && <AddAccount />}
                 </div>
               </>
             )}
 
 
-            {section === 'truedata' && (
+            {section === 'truedata' && integrationSettings && (
               <>
                 {sim ? <SimDeniedNote what="Market-data credentials" /> : <TrueDataCredentialsPanel />}
               </>
@@ -1355,9 +1382,9 @@ export function ConnectPane() {
               </>
             )}
 
-            {section === 'notifications' && (
+            {section === 'notifications' && telegramSettings && (
               <>
-                {sim ? <SimDeniedNote what="Telegram alerts" why="They go to the owner's own chat and are set from the LIVE view. Simulation alerts are marked SIMULATION." /> : <KiteTelegramPanel />}
+                {sim ? <SimDeniedNote what="Telegram alerts" why="They go to the owner's own chat and are set from the LIVE view. Simulation alerts are marked SIMULATION." /> : configuration?.administrator ? <KiteTelegramPanel /> : <DelegatedTelegramPanel capabilities={configuration!} />}
               </>
             )}
 

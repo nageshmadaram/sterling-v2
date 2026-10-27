@@ -25,13 +25,14 @@ import { useSimStatus, isOwnerDenied } from '../hooks/useSim';
 
 import { notificationDestination } from '../lib/notificationDestination';
 
-export function SimpleTerminal() {
+export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}) {
   const mobileStyle = useMobileExperience(s => s.style);
   useEffect(() => { document.body.dataset.mobileStyle = mobileStyle; return () => { delete document.body.dataset.mobileStyle; }; }, [mobileStyle]);
   useEffect(()=>{const params=new URLSearchParams(window.location.search);if(params.get('view')==='live'&&notificationDestination(params.get('notification')))useViewStore.getState().setView('live');},[]);
   const [showSettings, setShowSettings] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [spectrum, setSpectrum] = useState<'kite' | 'tv' | 'radio'>(() => {
+    if (kiteOnly) return 'kite';
     const params = new URLSearchParams(window.location.search);
     if (params.get('view') === 'live' && notificationDestination(params.get('notification'))) return 'kite';
     const home = useExperienceOptions.getState().options.spectrumHome;
@@ -71,6 +72,10 @@ export function SimpleTerminal() {
   const simulationAllowed = selectedView === 'simulation' || simStatus.isSuccess ||
     (simStatus.isError && !isOwnerDenied(simStatus.error));
   const chooseSpectrum = (next: 'kite' | 'tv' | 'radio', targetView?: AppView) => {
+    if (kiteOnly && next !== 'kite') {
+      window.dispatchEvent(new CustomEvent('sterling-navigate', { detail: next }));
+      return false;
+    }
     initialHomePendingRef.current = false;
     if (next === spectrum && (!targetView || targetView === selectedView)) return true;
     if (targetView === 'simulation' && !simulationAllowed) return false;
@@ -99,7 +104,7 @@ export function SimpleTerminal() {
   }, [kiteNav, spectrum]);
   const navOptions=useExperienceOptions(s=>s.options);
   useEffect(() => {
-    if (!initialHomePendingRef.current) return;
+    if (kiteOnly || !initialHomePendingRef.current) return;
     // A live notification must never silently open a simulation workspace.
     if (new URLSearchParams(window.location.search).get('view') === 'live') {
       initialHomePendingRef.current = false;
@@ -112,6 +117,7 @@ export function SimpleTerminal() {
   // Settings can hydrate after this component mounts or change in Experience.
   // Never retain a workspace that the saved selection has disabled.
   useEffect(() => {
+    if (kiteOnly) return;
     const active = spectrum === 'kite' && selectedView === 'simulation' ? 'simulation' : spectrum;
     if (navOptions.spectrumVisible[active]) return;
     const home = navOptions.spectrumHome;
@@ -121,6 +127,7 @@ export function SimpleTerminal() {
     setShowSettings(false);
   }, [navOptions, spectrum, selectedView, simulationAllowed, setSelectedView]);
   const goHome = () => {
+    if (kiteOnly) { window.dispatchEvent(new CustomEvent('sterling-navigate', { detail: 'home' })); return; }
     initialHomePendingRef.current = false;
     // Close managed overlays before changing the underlying workspace.
     window.dispatchEvent(new Event('sterling-home'));
@@ -300,7 +307,7 @@ export function SimpleTerminal() {
               STERLING
             </span>
           </button>
-          {spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>}
+          {!kiteOnly && (spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>)}
 
           <div style={{ flex: 1 }} />
           {spectrum === 'kite' && <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
@@ -413,12 +420,12 @@ export function SimpleTerminal() {
       {spectrum === 'kite' && selectedView === 'live' && <KiteSessionBar />}
 
       {/* ── Content ──────────────────────────────────────────────── */}
-      <div id="sterling-kite-surface" role="tabpanel" aria-label="KITE workspace"
+      {spectrum === 'kite' && <div id="sterling-kite-surface" role="tabpanel" aria-label="KITE workspace"
         hidden={spectrum !== 'kite'}
         style={{ display: spectrum === 'kite' ? 'flex' : 'none', flex: 1,
           minHeight: 0, overflow: 'hidden', flexDirection: 'column' }}>
         <KiteTab />
-      </div>
+      </div>}
       {spectrum === 'radio' && <div id="sterling-radio-surface" role="tabpanel"
         aria-label="Radio workspace" style={{ display:'flex', flex:1, minHeight:0, minWidth:0, overflow:'hidden' }}>
         <RadioWorkspace onState={onRadioState} onPlayerState={setRadioPlayerExpanded} />

@@ -3,6 +3,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { RadioWorkspace } from '../RadioWorkspace';
+vi.mock('../../../hooks/useProtectedMediaDocument', () => ({ useProtectedMediaDocument: () => ({ url: '/api/v1/media/radio/document', error: '' }) }));
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {cleanup();localStorage.clear();vi.restoreAllMocks();});
@@ -16,7 +17,7 @@ describe('Radio workspace isolation', () => {
   it('does not permit same-origin access to Kite credentials', () => {
     render(<RadioWorkspace />);
     const frame=screen.getByTitle('Sterling Radio player');
-    expect(frame).toHaveAttribute('src','/radio/index.html');
+    expect(frame).toHaveAttribute('src','/api/v1/media/radio/document');
     expect(frame).toHaveAttribute('referrerpolicy','no-referrer');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation');

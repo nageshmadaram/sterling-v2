@@ -6,7 +6,17 @@ from cryptography.fernet import Fernet
 from app.api.v1.endpoints import kite_login_credentials as vault
 
 @pytest.fixture
-def store(monkeypatch):
+def store(monkeypatch, tmp_path):
+    from app.services import db
+    from app.services.auth import user_store, configuration_policy
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'vault-policy.db'))
+    assert db.init()
+    user_store._init_table()
+    monkeypatch.setattr(user_store, '_users', {})
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    user_store.add('owner', 'Synthetic-password-123', user_id='owner')
+    configuration_policy.replace_section('default', 'owner', 'brokers', visible=True,
+        grants=[{'action': 'update', 'resource_id': 'account', 'expires_at_ms': None}], expected_revision=0)
     values = {}
     cipher = Fernet(Fernet.generate_key())
     monkeypatch.setattr(vault, 'encrypt', lambda value: 'fernet:' + cipher.encrypt(value.encode()).decode())

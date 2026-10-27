@@ -9,7 +9,7 @@ from app.core.runtime_env import load_sterling_env as _load_sterling_env
 
 _load_sterling_env()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -564,7 +564,9 @@ async def _application_lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    from app.core.feature_access import enforce_feature_access
     app = FastAPI(
+        dependencies=[Depends(enforce_feature_access)],
         title="Sterling",
         description="Indian markets options platform — engine-driven",
         version="0.4.0",
@@ -612,6 +614,9 @@ def create_app() -> FastAPI:
                 "font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data:; "
                 "base-uri 'none'; form-action 'none'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me"
             )
+        elif request.url.path in ('/api/v1/media/tv/document', '/api/v1/media/radio/document') and response.status_code == 200:
+            # Protected players supply their own origin-opaque, nonce-based CSP.
+            pass
         elif response.headers.get("content-type", "").startswith("text/html"):
             response.headers["Content-Security-Policy"] = (
                 f"default-src 'none'; style-src 'nonce-{nonce}'; "
@@ -633,6 +638,12 @@ def create_app() -> FastAPI:
     # provider available at the process boundary.
     from app.api.v1.endpoints.auth import router as auth_router
     app.include_router(auth_router, prefix="/api/v1")
+    from app.api.v1.endpoints.settings_capabilities import router as capabilities_router
+    app.include_router(capabilities_router, prefix="/api/v1")
+    from app.api.v1.endpoints.media import router as media_router
+    app.include_router(media_router, prefix="/api/v1")
+    from app.api.v1.endpoints.admin_connections import router as admin_connections_router
+    app.include_router(admin_connections_router, prefix="/api/v1")
 
     from app.api.v1.endpoints import stream
     app.include_router(stream.router, prefix="/api/v1/stream", tags=["stream"])

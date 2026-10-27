@@ -1,39 +1,14 @@
-import { PreferenceGate } from './components/auth/PreferenceGate';
 import { useAppearance, applyAppearance } from './appearance/store';
-import { lazy, Suspense, useLayoutEffect } from 'react';
+import { useLayoutEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useTheme } from './store/useStore';
 import { useViewportScale } from './hooks/useViewportScale';
 import { LoginGate } from './components/auth/LoginGate';
-import { LiveFeedBadge } from './components/live/LiveFeedBadge';
-import { useLiveResync } from './hooks/useLiveResync';
 import { appQueryDefaults } from './utils/queryDefaults';
-import { ViewQueryProvider } from './components/sim/ViewQueryProvider';
 import { ConfirmProvider } from './components/kite/ConfirmDialog';
-
-// Keep the entire trading workspace out of the login/bootstrap bundle. The
-// authenticated app still mounts normally after the route chunk is available.
-const Dashboard = lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
-
-// Holds the sign-in gate only. Everything the operator trades or reads lives under
-// ViewQueryProvider, which gives the LIVE and SIMULATION views a cache each.
+import { WorkspaceRouter } from './pages/WorkspaceRouter';
 const queryClient = new QueryClient({ defaultOptions: appQueryDefaults });
-
-/** The signed-in app. Remounts, with an empty cache, whenever the view switches. */
-function ViewShell() {
-  // Refetch trading state after reconnects, restarts, wake-ups and writes.
-  useLiveResync();
-  return (
-    <>
-      <Suspense fallback={<div role="status" style={{ padding: 24 }}>Loading workspace…</div>}>
-        <Dashboard />
-      </Suspense>
-      <LiveFeedBadge />
-    </>
-  );
-}
 
 function ThemedApp() {
   const theme = useTheme();
@@ -47,15 +22,7 @@ function ThemedApp() {
     applyAppearance(appearance, theme);
   }, [theme, appearance]);
 
-  // Single root view. Dashboard internally toggles between basic/pro layouts
-  // via the `appMode` Zustand selector (see useStore.useAppMode).
-  return (
-    <LoginGate>
-      <PreferenceGate>
-        <ViewQueryProvider><ViewShell /></ViewQueryProvider>
-      </PreferenceGate>
-    </LoginGate>
-  );
+  return <LoginGate><WorkspaceRouter /></LoginGate>;
 }
 
 export function App() {

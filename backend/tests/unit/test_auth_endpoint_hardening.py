@@ -17,8 +17,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "_available", True)
     db.init()
     user_store.clear()
-    user_store.bootstrap()
-    user_store._users.clear()
+    # These cases create their own sole admin; do not seed another durable one.
+    user_store._init_table()
     monkeypatch.setattr(
         rate_limit, "_refresh_limiter", rate_limit.SlidingWindowRateLimiter(30, 60)
     )
@@ -113,7 +113,7 @@ def test_remembered_device_renews_until_explicit_logout(client):
     refresh=response.json()['refresh_token']
     claims=tokens.decode(refresh,expected_typ='refresh')
     assert claims['remembered'] is True
-    assert 'exp' not in claims
+    assert 0 < claims['exp'] - claims['iat'] <= 30 * 24 * 60 * 60
     assert 'exp' in tokens.decode(response.json()['access_token'],expected_typ='access')
     assert client.post('/api/v1/auth/refresh',json={'refresh_token':refresh}).status_code==200
     assert client.post('/api/v1/auth/logout',headers={'Authorization':f'Bearer {access}'}).status_code==200

@@ -62,6 +62,21 @@ def test_signed_redirect_must_match_user_and_account(state):
         )
 
 
+@pytest.fixture(autouse=True)
+def interactive_feature_policy(tmp_path, monkeypatch):
+    from app.services import db
+    from app.services.auth import user_store, account_policy
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'interactive-policy.db'))
+    assert db.init()
+    monkeypatch.setattr(user_store, '_users', {})
+    monkeypatch.setattr(user_store, '_loaded', True)
+    user_store._init_table()
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    user_store.add('member', 'Synthetic-password-123', user_id='phone-user')
+    for ident in ('default', 'phone-user'):
+        account_policy.set_features('default', ident, dict.fromkeys(account_policy.FEATURES, True), 0)
+
+
 @pytest.fixture
 def mobile_client(monkeypatch):
     app = FastAPI()

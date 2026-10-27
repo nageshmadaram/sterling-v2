@@ -110,7 +110,7 @@ def _load_raw(user_id: str) -> List[Target]:
 
 
 def _save_raw(user_id: str, targets: List[Target]) -> None:
-    db.set_config(_key(user_id), json.dumps([asdict(t) for t in targets]))
+    db.set_config_strict(_key(user_id), json.dumps([asdict(t) for t in targets]))
 
 
 # ─── CRUD (user-scoped) ───────────────────────────────────────────────────────

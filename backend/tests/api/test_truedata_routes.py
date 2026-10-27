@@ -12,7 +12,7 @@ from app.services.providers import truedata as truedata_service
 
 
 @pytest.fixture(autouse=True)
-def isolated_db():
+def isolated_db(monkeypatch):
     # `db._DB_PATH` is module-global. Pointing it at a temp file without
     # restoring it leaves every LATER test in the session reading a database
     # that this fixture then deletes — which is how the replay test two files
@@ -23,6 +23,13 @@ def isolated_db():
     db._DB_PATH = path
     db.init()
     truedata_service.clear()
+    from app.services.auth import user_store
+    user_store._init_table()
+    monkeypatch.setattr(user_store, '_users', {})
+    monkeypatch.setattr(user_store, '_loaded', True)
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    from app.services.auth import account_policy
+    account_policy.set_features('default', 'default', dict.fromkeys(account_policy.FEATURES, True), 0)
     try:
         yield
     finally:
@@ -109,6 +116,11 @@ async def test_truedata_settings_data_source_selection(client):
 
 @pytest.mark.asyncio
 async def test_truedata_settings_are_tenant_scoped(client):
+    from app.services.auth import user_store, configuration_policy
+    for uid in ('tenant-a', 'tenant-b'):
+        user_store.add(uid, 'Synthetic-password-123', user_id=uid)
+        configuration_policy.replace_section('default', uid, 'integrations', visible=True,
+            grants=[{'action': 'update', 'resource_id': 'own', 'expires_at_ms': None}], expected_revision=0)
     a = {"X-User-Id": "tenant-a"}
     b = {"X-User-Id": "tenant-b"}
 

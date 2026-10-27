@@ -5,6 +5,17 @@ import React from 'react';
 import { ConnectPane } from '../ConnectPane';
 import gammaPayload from '../../__tests__/fixtures/gamma-move.json';
 
+vi.mock('../../../hooks/useConfigurationCapabilities', async importOriginal => {
+  const actual = await importOriginal<typeof import('../../../hooks/useConfigurationCapabilities')>();
+  return { ...actual, useConfigurationCapabilities: () => ({ isError: false, data: {
+    user_id: 'default', active: true, administrator: true, revision: 0,
+    sections: Object.fromEntries(['brokers', 'telegram', 'integrations'].map(section => [section, {
+      visible: true, grants: ['create', 'update', 'test', 'recipients'].map(action => ({ action, resource_id: 'own', expires_at_ms: null })),
+    }])),
+  } }) };
+});
+
+
 const render = (ui: React.ReactElement) => rtlRender(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>);
 const setConfig = vi.fn();
 const addMutate = vi.fn();

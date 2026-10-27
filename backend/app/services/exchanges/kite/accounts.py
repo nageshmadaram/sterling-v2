@@ -271,7 +271,7 @@ def _init_table() -> None:
         raise RuntimeError("kite account table initialization failed") from exc
 
 
-def _persist(a: _Account, *, login_confirmation_id: str | None = None) -> None:
+def _persist(a: _Account, *, login_confirmation_id: str | None = None, audit_actor: str | None = None, audit_action: str = 'updated') -> None:
     """Persist one account or raise; execution identity is never memory-only."""
     from app.services import db
 
@@ -322,6 +322,13 @@ def _persist(a: _Account, *, login_confirmation_id: str | None = None) -> None:
                 int(a.is_paper), int(a.is_active), a.last_login_at_ms, a.token_expires_at_ms,
                 a.created_at_ms, a.updated_at_ms,
             ))
+            if audit_actor:
+                from app.services.auth.account_policy import audit
+                audit(c, audit_actor, a.user_id, 'broker.' + audit_action,
+                      {'broker_id': a.id, 'label': prior['label']} if prior else {},
+                      {'broker_id': a.id, 'label': a.label,
+                       'credentials_replaced': bool(not prior or prior['api_key'] != a.api_key or prior['api_secret_enc'] != a.api_secret_enc)},
+                      _now_ms())
             if login_confirmation_id is not None:
                 c.execute("INSERT OR REPLACE INTO system_config (key,value) VALUES (?,?)", (
                     f"kite_login_receipt:{a.user_id}:{a.id}", login_confirmation_id,
@@ -352,7 +359,7 @@ def _refuse_pending_intents(conn, user_id: str, account_id: str) -> None:
 
 
 def _delete_db_state(
-    user_id: str, account_id: str, replacement_id: str | None
+    user_id: str, account_id: str, replacement_id: str | None, *, audit_actor: str | None = None
 ) -> None:
     """Delete one account and, when needed, promote its replacement atomically."""
     from app.services import db
@@ -394,6 +401,9 @@ def _delete_db_state(
                     if changed != 1:
                         c.execute("ROLLBACK")
                         raise RuntimeError("replacement Kite account is not durable")
+            if audit_actor:
+                from app.services.auth.account_policy import audit
+                audit(c, audit_actor, user_id, 'broker.removed', {'broker_id': account_id}, {}, now)
             c.execute("COMMIT")
     except Exception as exc:
         log.error("kite_accounts delete transaction failed: %s", exc)
@@ -514,7 +524,7 @@ def _assert_live_account_posture() -> None:
 
 
 # ─── CRUD (user-scoped) ───────────────────────────────────────────────────────
-def add(user_id: str, data: KiteAccountCreate) -> _Account:
+def add(user_id: str, data: KiteAccountCreate, *, audit_actor: str | None = None) -> _Account:
     """Store a new account. It is live unless a test double sets ``data.is_paper``.
 
     No production caller sets it: the create route and the env seed both build
@@ -532,7 +542,7 @@ def add(user_id: str, data: KiteAccountCreate) -> _Account:
         is_paper=data.is_paper, is_active=first_for_user,  # first account auto-active
     )
     # Durability first: a successful API response must survive restart.
-    _persist(candidate)
+    _persist(candidate, audit_actor=audit_actor, audit_action='created')
     return _publish(candidate)
 
 
@@ -565,7 +575,7 @@ def live_accounts() -> List[_Account]:
     return [a for a in _accounts.values() if not is_sim_account(a)]
 
 
-def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_Account]:
+def update(user_id: str, account_id: str, data: KiteAccountUpdate, *, audit_actor: str | None = None) -> Optional[_Account]:
     a = get(user_id, account_id)
     if not a:
         return None
@@ -609,14 +619,14 @@ def update(user_id: str, account_id: str, data: KiteAccountUpdate) -> Optional[_
         candidate.token_expires_at_ms = None
 
     candidate.updated_at_ms = _now_ms()
-    _persist(candidate)
+    _persist(candidate, audit_actor=audit_actor)
     published = _publish(candidate)
     if credentials_changed:
         _validated_at.pop(published.id, None)
     return published
 
 
-def delete(user_id: str, account_id: str) -> bool:
+def delete(user_id: str, account_id: str, *, audit_actor: str | None = None) -> bool:
     a = get(user_id, account_id)
     if not a:
         return False
@@ -633,6 +643,7 @@ def delete(user_id: str, account_id: str) -> bool:
         user_id,
         account_id,
         replacement.id if replacement is not None else None,
+        audit_actor=audit_actor,
     )
 
     del _accounts[account_id]

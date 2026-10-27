@@ -20,7 +20,7 @@ describe('Sterling users', () => {
     expect(screen.getByText('You')).toBeInTheDocument();
     expect(screen.queryByText(/one-way hashes/)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Manage Member' }));
-    expect(screen.getAllByRole('button', { name: 'Delete login' })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Suspend login' })).toHaveLength(1);
     expect(api.post).not.toHaveBeenCalled();
   });
   it('requires matching passwords before adding a user', async () => {

@@ -2,6 +2,7 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
+from app.core.configuration_access import require_configuration
 from app.core.auth import UserContext, get_current_user
 from app.core.security import encrypt, decrypt
 from app.services import db
@@ -54,7 +55,9 @@ async def get_credentials(account_id: str, response: Response, user: UserContext
 
 @router.put('/accounts/{account_id}/login-credentials')
 async def save_credentials(account_id: str, body: LoginCredentials, response: Response, user: UserContext = Depends(get_current_user)):
+    require_configuration(user, 'brokers', 'update', account_id)
     async with account_lock(user.user_id):
+        require_configuration(user, 'brokers', 'update', account_id)
         acct = owned(user, account_id)
         username = body.username.strip().upper()
         if not username or not username.isascii() or not username.isalnum():
@@ -80,7 +83,9 @@ async def save_credentials(account_id: str, body: LoginCredentials, response: Re
 
 @router.delete('/accounts/{account_id}/login-credentials', status_code=204)
 async def remove_credentials(account_id: str, user: UserContext = Depends(get_current_user)):
+    require_configuration(user, 'brokers', 'update', account_id)
     async with account_lock(user.user_id):
+        require_configuration(user, 'brokers', 'update', account_id)
         owned(user, account_id)
         with db._conn() as connection:
             connection.execute('DELETE FROM system_config WHERE key=?', (key(user, account_id),))

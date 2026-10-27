@@ -5,6 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from app.core.configuration_access import require_configuration
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
 from app.services.providers import truedata as truedata_service
@@ -23,6 +24,7 @@ def _require_active(user: UserContext):
 # ── Credential Management Routes ──────────────────────────────────────────────
 @router.get("/credentials")
 async def list_credentials(user: UserContext = Depends(get_current_user)) -> List[truedata_service.TrueDataCredentialResponse]:
+    require_configuration(user, 'integrations')
     accts = truedata_service.list_credentials(user.user_id)
     return [truedata_service.to_response(a) for a in accts]
 
@@ -32,6 +34,7 @@ async def add_credentials(
     body: truedata_service.TrueDataCredentialCreate,
     user: UserContext = Depends(get_current_user),
 ) -> truedata_service.TrueDataCredentialResponse:
+    require_configuration(user, 'integrations', 'create')
     a = truedata_service.add(user.user_id, body)
     return truedata_service.to_response(a)
 
@@ -42,6 +45,7 @@ async def update_credentials(
     body: truedata_service.TrueDataCredentialUpdate,
     user: UserContext = Depends(get_current_user),
 ) -> truedata_service.TrueDataCredentialResponse:
+    require_configuration(user, 'integrations', 'update', account_id)
     a = truedata_service.update(user.user_id, account_id, body)
     if not a:
         raise HTTPException(404, "TrueData credential not found")
@@ -50,6 +54,7 @@ async def update_credentials(
 
 @router.delete("/credentials/{account_id}", status_code=204)
 async def delete_credentials(account_id: str, user: UserContext = Depends(get_current_user)) -> None:
+    require_configuration(user, 'integrations', 'update', account_id, administrator_only=True)
     if not truedata_service.delete(user.user_id, account_id):
         raise HTTPException(404, "TrueData credential not found")
 
@@ -87,6 +92,7 @@ async def update_settings(
     body: TrueDataSettingsModel,
     user: UserContext = Depends(get_current_user),
 ) -> TrueDataSettingsModel:
+    require_configuration(user, 'integrations', 'update')
     from app.services.db import set_config
     src = body.data_source if body.data_source in _VALID_SOURCES else "kite"
     set_config(_market_data_source_key(user.user_id), src)
@@ -243,6 +249,7 @@ async def run_diagnostics(
     user: UserContext = Depends(get_current_user),
 ):
     """Run full or category-specific verification diagnostics across all feeds and analytical models."""
+    require_configuration(user, 'integrations', 'test')
     category_id = body.category_id if body else None
     result = await truedata_service.run_truedata_diagnostics(user.user_id, category_id=category_id)
     return result

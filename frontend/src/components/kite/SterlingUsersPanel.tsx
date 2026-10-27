@@ -82,7 +82,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
           </div>
           <div className="bac-header-meta">
             <span className={`bac-status-pill${user.active ? ' is-on' : ' is-off'}`}>
-              {user.active ? 'Connected' : 'Offline'}
+              {user.active ? 'Active' : 'Suspended'}
             </span>
             {user.primary && <span className="bac-validity">Primary</span>}
             {!user.password_set && <span className="bac-validity">No password set</span>}
@@ -133,11 +133,11 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
                 className="bac-btn bac-btn-danger bac-btn-ghost"
                 disabled={busy}
                 onClick={() => {
-                  if (window.confirm(`Delete ${user.username}'s login? They will be signed out. Audit identity is retained.`))
+                  if (window.confirm(`Suspend ${user.username}'s login? Sessions and feature access will be revoked. Broker connections and position protection are retained.`))
                     onDelete(user.id);
                 }}
               >
-                Delete login
+                Suspend login
               </button>
             )}
           </div>
@@ -147,8 +147,9 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
   );
 }
 
-export function SterlingUsersPanel() {
-  const simulation = useIsSimulation();
+export function SterlingUsersPanel({ standalone = false }: { standalone?: boolean } = {}) {
+  const selectedSimulation = useIsSimulation();
+  const simulation = selectedSimulation && !standalone;
   const qc         = useQueryClient();
   const query      = useQuery({ queryKey: KEY, queryFn: () => api.get<List>(BASE), enabled: !simulation });
 
@@ -180,7 +181,7 @@ export function SterlingUsersPanel() {
     mutationFn: (id: string) => api.delete(`${BASE}/${encodeURIComponent(id)}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY });
-      setNotice('Login deleted. Audit identity is retained; you can restore it by enabling the login.');
+      setNotice('Login suspended. Enable the login to restore the account, then explicitly review and re-enable its access.');
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -261,13 +262,9 @@ export function SterlingUsersPanel() {
                 onChange={e => patch({ username: e.target.value })} />
             </label>
 
-            <label className="bac-label">Role
-              <select className="bac-input" disabled={!!locked} value={draft.role}
-                onChange={e => patch({ role: e.target.value as 'admin' | 'user' })}>
-                <option value="user">User — own workspace</option>
-                <option value="admin">Administrator — can manage users</option>
-              </select>
-            </label>
+            <p className="bac-muted">
+              {draft.role === 'admin' ? 'Designated Sterling administrator' : 'Personal Sterling account'}
+            </p>
 
             <label className="bac-label">
               {draft.id ? 'New password (blank keeps existing)' : 'Password'}

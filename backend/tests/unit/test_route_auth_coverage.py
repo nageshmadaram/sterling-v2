@@ -17,6 +17,7 @@ from app.services.notifications.telegram_webapp_auth import tma_user
 
 #: (METHOD, path) -> why it is deliberately open.
 PUBLIC = {
+    ("GET", "/media/{feature}/document"): "finite media-only cookie; current user/version/feature validated in handler",
     ("GET", "/tma"): "generic Mini App shell; private data uses signed Telegram authentication",
     ("GET", "/api/v1/tma"): "generic Mini App shell alias",
     ("GET", "/tma/operator"): "generic Sterling login form; management requires signed authentication",

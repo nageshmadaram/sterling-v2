@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from app.core.csp import csp_nonce
 from fastapi.responses import HTMLResponse
 
+from app.core.configuration_access import require_configuration
 from app.core.auth import UserContext, get_current_user
 from app.core.logging import get_logger
 from app.services import live_safety
@@ -346,6 +347,7 @@ async def add_account(body: KiteAccountCreateRequest,
     by the request model and ``to_domain`` pins the mode, so no value a caller
     sends can create a non-live account.
     """
+    require_configuration(user, 'brokers', 'create')
     try:
         account = kite_accounts.add(user.user_id, body.to_domain())
     except RuntimeError as exc:
@@ -358,18 +360,15 @@ async def reveal_account_credentials(
     account_id: str, response: Response,
     user: UserContext = Depends(get_current_user),
 ) -> dict:
-    """Explicit owner-only reveal; never include secrets in account list responses."""
-    account = kite_accounts.get(user.user_id, account_id)
-    if account is None:
-        raise HTTPException(404, "Kite account not found")
-    response.headers["Cache-Control"] = "no-store, private"
-    response.headers["Pragma"] = "no-cache"
-    return {"api_key": account.api_key, "api_secret": account.api_secret}
+    """Retired bulk reveal adapter; new reveals need field/version-bound MFA proof."""
+    require_configuration(user, 'brokers', 'reveal', account_id)
+    raise HTTPException(403, 'Legacy bulk credential reveal is unavailable.')
 
 
 @router.put("/accounts/{account_id}")
 async def update_account(account_id: str, body: KiteAccountUpdate,
                          user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    require_configuration(user, 'brokers', 'update', account_id)
     from app.services.execution_identity_lock import account_lock
     async with account_lock(user.user_id):
         current = kite_accounts.get(user.user_id, account_id)
@@ -392,6 +391,7 @@ async def update_account(account_id: str, body: KiteAccountUpdate,
                 user.user_id, current, "Live Kite credential update", allow_initial_credentials=True
             )
 
+        require_configuration(user, 'brokers', 'update', account_id)
         try:
             a = kite_accounts.update(user.user_id, account_id, body)
         except RuntimeError as exc:
@@ -407,12 +407,14 @@ async def delete_account(
     force: bool = Query(False, description="Allow removal of an unused account with no broker identity, login history or local exposure"),
     user: UserContext = Depends(get_current_user)
 ) -> None:
+    require_configuration(user, 'brokers', 'update', account_id, administrator_only=True)
     from app.services.execution_identity_lock import account_lock
     async with account_lock(user.user_id):
         acct = kite_accounts.get(user.user_id, account_id)
         if not acct:
             raise HTTPException(404, "Kite account not found")
         await _require_account_detachable(user.user_id, acct, "Kite account deletion", force=force)
+        require_configuration(user, 'brokers', 'update', account_id, administrator_only=True)
         if not kite_accounts.delete(user.user_id, account_id):
             raise HTTPException(404, "Kite account not found")
         await kite_accounts.release_client(account_id)
@@ -521,6 +523,8 @@ async def create_session(body: GenerateSessionRequest,
         data = await login_recovery.complete_login(user.user_id, acct, request_token, login_state=login_state)
     except login_recovery.LoginIdentityError as exc:
         raise HTTPException(409, f"Kite session identity conflict: {exc}") from exc
+    except login_recovery.LoginAccessError as exc:
+        raise HTTPException(403, str(exc)) from None
     except KiteError as exc:
         # A `request_token` is SINGLE USE and lives for minutes.
         #
@@ -867,6 +871,13 @@ async def kite_callback(
                                  "again from Sterling to get a fresh one.")],
             note="Nothing was changed")
     user_id, account_id = bound
+    from app.core.feature_access import require_feature
+    try:
+        require_feature(UserContext(user_id=user_id))
+    except HTTPException:
+        return _callback_page('Kite access unavailable', ok=False,
+            rows=[('What to do', 'Ask your administrator to review Kite access, then start a new login.')],
+            note='No broker session was changed')
     acct = kite_accounts.get(user_id, account_id)
     if not acct:
         return _callback_page(

@@ -8,6 +8,21 @@ from app.api.v1.endpoints import kite_login_credentials as endpoint
 from fastapi import HTTPException, Response
 
 @pytest.fixture(autouse=True)
+def interactive_feature_policy(tmp_path, monkeypatch):
+    from app.services import db
+    from app.services.auth import user_store, account_policy
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'interactive-policy.db'))
+    assert db.init()
+    monkeypatch.setattr(user_store, '_users', {})
+    monkeypatch.setattr(user_store, '_loaded', True)
+    user_store._init_table()
+    user_store.add('primary', 'Synthetic-password-123', role='admin', user_id='default')
+    user_store.add('member', 'Synthetic-password-123', user_id='owner')
+    for ident in ('default', 'owner'):
+        account_policy.set_features('default', ident, dict.fromkeys(account_policy.FEATURES, True), 0)
+
+
+@pytest.fixture(autouse=True)
 async def clear_attempts():
     flow.attempts.clear()
     yield

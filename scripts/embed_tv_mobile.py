@@ -9,7 +9,7 @@ from export_sterling_tv import export
 ROOT = Path(__file__).resolve().parents[1]
 css = (ROOT / 'frontend/tv-mobile/mobile.css').read_text()
 js = (ROOT / 'frontend/tv-mobile/mobile.js').read_text()
-page = ROOT / 'frontend/public/tv/index.html'
+page = ROOT / 'backend/app/media_templates/tv.html'
 html = page.read_text()
 styles = f'<!-- TV MOBILE STYLE START -->\n<style>\n{css}</style>\n<!-- TV MOBILE STYLE END -->'
 script = f'<!-- TV MOBILE SCRIPT START -->\n<script>\n{js}</script>\n<!-- TV MOBILE SCRIPT END -->'

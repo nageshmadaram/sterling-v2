@@ -16,6 +16,18 @@ from . import accounts, session
 log = get_logger(__name__)
 
 
+class LoginAccessError(ValueError):
+    """Interactive access was removed or cannot be verified."""
+
+
+def _require_interactive_access(user_id: str) -> None:
+    from app.services.auth import account_policy
+    try:
+        account_policy.require_feature(user_id, 'kite')
+    except (PermissionError, account_policy.PolicyUnavailable) as exc:
+        raise LoginAccessError('Kite access was removed or cannot be verified. Start a new login after access is restored.') from exc
+
+
 class LoginIdentityError(ValueError):
     """The broker identity could not be persisted for this account."""
 
@@ -59,6 +71,7 @@ def parse_callback_handoff(
 
 async def complete_login(user_id: str, acct, request_token: str, *, login_state: str = "", expected_kite_user_id: str = "") -> dict:
     """Exchange on the server and publish the same session for every login surface."""
+    _require_interactive_access(user_id)
     if not acct.api_key or not acct.api_secret:
         raise ValueError("API key and secret are required before login.")
     if login_state and session.parse_state(login_state) != (user_id, acct.id):
@@ -68,6 +81,7 @@ async def complete_login(user_id: str, acct, request_token: str, *, login_state:
         data = await client.generate_session(request_token)
     finally:
         await client.close()
+    _require_interactive_access(user_id)
     if expected_kite_user_id and str(data.get("user_id", "")).upper() != expected_kite_user_id.upper():
         raise LoginIdentityError("Kite returned a different user. The broker session was not saved.")
     try:

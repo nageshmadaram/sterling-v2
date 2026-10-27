@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { TvWorkspace, TV_STORAGE_KEYS } from '../TvWorkspace';
+vi.mock('../../../hooks/useProtectedMediaDocument', () => ({ useProtectedMediaDocument: () => ({ url: '/api/v1/media/tv/document', error: '' }) }));
 
 const storagePrefix = 'sterling.tv.';
 
@@ -36,7 +37,7 @@ describe('Sterling Spectrum IPTV isolation', () => {
     const workspace = screen.getByTestId('sterling-tv-workspace');
     expect(workspace.getAttribute('style')).toContain('flex: 1');
     const frame = screen.getByTitle('Sterling TV player') as HTMLIFrameElement;
-    expect(frame.getAttribute('src')).toBe('/tv/index.html');
+    expect(frame.getAttribute('src')).toBe('/api/v1/media/tv/document');
     expect(frame.getAttribute('sandbox')).toContain('allow-scripts');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
     expect(frame.getAttribute('sandbox')).not.toContain('allow-top-navigation');

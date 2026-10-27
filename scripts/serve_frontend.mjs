@@ -73,8 +73,9 @@ const server = http.createServer((req,res) => {
   if (['/tma/','/api/v1/tma/'].includes(pathname)) { res.writeHead(302, {Location:pathname.slice(0,-1), 'Cache-Control':'no-store'}); res.end(); return; }
   if (isApi(pathname)) {
     const anonymous = /^\/api\/v1\/auth\/(login|refresh)$/.test(pathname) || pathname === '/api/v1/kite/callback' || ['/tma','/api/v1/tma','/tma/operator'].includes(pathname) || /^\/health/.test(pathname);
+    const mediaDocument = /^\/api\/v1\/media\/(tv|radio)\/document$/.test(pathname) && ['GET','HEAD'].includes(req.method);
     const miniAuth = /^\/(api\/v1\/)?tma\//.test(pathname) && req.headers['x-telegram-init-data'];
-    if (!anonymous && !miniAuth && !req.headers.authorization?.startsWith('Bearer ')) {
+    if (!anonymous && !miniAuth && !mediaDocument && !req.headers.authorization?.startsWith('Bearer ')) {
       if(req.method === 'GET' && req.headers.accept?.includes('text/html')) {res.writeHead(302,{Location:'/tma','Cache-Control':'no-store'});res.end();return;}
       res.writeHead(401,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end('{"detail":"Sign in to Sterling or open the desk from Telegram."}');return;
     }
@@ -100,9 +101,9 @@ const server = http.createServer((req,res) => {
   if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405);res.end();return;}
   // All TV entry paths must resolve to the dedicated, opaque-origin
   // multimedia document. Never fall back to the trading SPA for /tv.
-  if (['/tv','/tv/','/radio','/radio/'].includes(pathname)) {
+  if (['/tv/','/radio/'].includes(pathname)) {
     const media = pathname.startsWith('/radio') ? 'radio' : 'tv';
-    res.writeHead(302, {'Location':'/'+media+'/index.html','Cache-Control':'no-store',
+    res.writeHead(302, {'Location':'/'+media,'Cache-Control':'no-store',
       'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
     res.end(); return;
   }
@@ -110,6 +111,11 @@ const server = http.createServer((req,res) => {
   try {decoded=decodeURIComponent(pathname);} catch {res.writeHead(400);res.end();return;}
   const target = path.resolve(root,'.'+decoded);
   if (!target.startsWith(root+path.sep) && target !== root) {res.writeHead(404);res.end();return;}
+  const relative = path.relative(root, target).split(path.sep).join('/');
+  if (/(?:^|\/)(?:tv|radio)\/.*\.html$/i.test(relative)) {
+    res.writeHead(410, {'Cache-Control':'no-store','Content-Type':'text/plain'});
+    res.end('Open this player from the Sterling launcher.'); return;
+  }
   let file = target;
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
     if (path.extname(decoded) || (/^\/(docs|redoc|openapi)(\/|$)/.test(decoded) || /(?:^|\/)\./.test(decoded))) {res.writeHead(404);res.end();return;}
@@ -117,59 +123,11 @@ const server = http.createServer((req,res) => {
   }
   if (!fs.existsSync(file)) {res.writeHead(503);res.end('Frontend build missing');return;}
   const nonce = randomBytes(18).toString('base64');
-  const isTvDocument = decoded === '/tv/index.html' && file === target;
-  const isRadioDocument = decoded === '/radio/index.html' && file === target;
-  // The first-party TV document embeds M3U streams and external media scripts.
-  // Give it an origin-opaque CSP sandbox even for DIRECT navigation. The
-  // main trading SPA keeps its existing, stricter same-origin CSP unchanged.
-  // Mirrors frontend/nginx.conf's dedicated TV location for deployments
-  // whose public edge is this Node gateway rather than Nginx.
-  const tvCsp = [
-    'sandbox allow-scripts allow-forms allow-downloads allow-presentation',
-    "default-src 'none'",
-    `script-src 'self' 'nonce-${nonce}'`,
-    // The bundled media player contains inline onclick/oninput attributes.
-    // Scope their permission to this origin-opaque document only.
-    "script-src-attr 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src data:",
-    'img-src https: data: blob:',
-    'media-src https: http: data: blob:',
-    'connect-src https: http:',
-    'worker-src blob:',
-    'frame-src https:',
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'self'",
-  ].join('; ');
-  // Radio bundles its styles, HLS and icons; catalogs and streams stay remote.
-  // It must remain origin-opaque, just like TV, while the trading SPA keeps
-  // its strict first-party CSP. Never add allow-same-origin here.
-  const radioCsp = [
-    'sandbox allow-scripts allow-forms allow-downloads allow-presentation allow-popups allow-popups-to-escape-sandbox',
-    "default-src 'none'",
-    `script-src 'self' 'nonce-${nonce}'`,
-    // The bundled media player contains inline onclick/oninput attributes.
-    // Scope their permission to this origin-opaque document only.
-    "script-src-attr 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
-    "font-src data:",
-    'img-src https: data: blob:',
-    'media-src https: http: data: blob:',
-    'connect-src https: http:',
-    'worker-src blob:',
-    'frame-src https:',
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'self'",
-  ].join('; ');
   const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
   res.writeHead(200,{'Content-Type':mime[path.extname(file)] || 'application/octet-stream',
-    'Cache-Control':isTvDocument || isRadioDocument || file.endsWith('index.html')?'no-store':(decoded.startsWith('/media/') || /^\/(tv|radio)\/.*\.css$/.test(decoded))?'no-cache':'public, max-age=3600',
+    'Cache-Control':file.endsWith('index.html')?'no-store':(decoded.startsWith('/media/') || /^\/(tv|radio)\/.*\.css$/.test(decoded))?'no-cache':'public, max-age=3600',
     'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',
-    'Content-Security-Policy':isTvDocument ? tvCsp : isRadioDocument ? radioCsp : tradingCsp});
+    'Content-Security-Policy':tradingCsp});
   if (req.method==='HEAD') {res.end();return;}
   if (file.endsWith('.html')) {res.end(fs.readFileSync(file,'utf8').replace(/<script\b/g,`<script nonce="${nonce}"`));return;}
   fs.createReadStream(file).on('error',()=>res.destroy()).pipe(res);

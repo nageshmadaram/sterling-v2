@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useConfigurationCapabilities, configurationAllowed } from '../../hooks/useConfigurationCapabilities';
+import React, { useState, useEffect } from 'react';
 import {
   useAddTrueDataCredential,
   useDeleteTrueDataCredential,
@@ -95,6 +96,11 @@ function initials(s: string): string {
 }
 
 function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
+  const capabilities = useConfigurationCapabilities();
+  const policy = capabilities.isError ? undefined : capabilities.data;
+  const canUpdate = configurationAllowed(policy, 'integrations', 'update', cred.id);
+  const canTest = configurationAllowed(policy, 'integrations', 'test');
+  const canRemove = canUpdate && !!policy?.administrator;
   const del = useDeleteTrueDataCredential();
   const update = useUpdateTrueDataCredential();
   const runDiag = useRunTrueDataDiagnostics();
@@ -106,6 +112,10 @@ function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
   const [password, setPassword] = useState('');
   const [port, setPort] = useState(cred.realtime_port || 8082);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  useEffect(() => {
+    if (!canUpdate) { setEdit(false); setUsername(''); setPassword(''); }
+  }, [canUpdate]);
 
   const handleTest = async () => {
     setTestResult(null);
@@ -215,7 +225,7 @@ function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
                 background: 'var(--k-surface-sunken)',
               }}
               onClick={handleTest}
-              disabled={runDiag.isPending}
+              disabled={!canTest || runDiag.isPending}
             >
               {runDiag.isPending ? (
                 <>
@@ -236,17 +246,17 @@ function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
                 '▶ Test Connection'
               )}
             </button>
-            <button style={S.btn} onClick={() => setEdit((v) => !v)}>
+            {canUpdate && <button style={S.btn} onClick={() => setEdit((v) => !v)}>
               {edit ? 'Cancel' : 'Edit Credential'}
-            </button>
-            <button
+            </button>}
+            {canRemove && <button
               style={{ ...S.btnRed, marginLeft: 'auto' }}
               onClick={() => {
                 if (window.confirm(`Remove TrueData feed "${cred.label}"?`)) del.mutate(cred.id);
               }}
             >
               Remove
-            </button>
+            </button>}
           </div>
 
           {testResult && (
@@ -265,7 +275,7 @@ function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
             </div>
           )}
 
-          {edit ? (
+          {canUpdate && edit ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div>
                 <label style={S.label}>LABEL</label>
@@ -341,14 +351,14 @@ function TrueDataCredentialCard({ cred }: { cred: TrueDataCredential }) {
                 >
                   CANCEL
                 </button>
-                <button
+                {canRemove && <button
                   style={{ ...S.btnRed, marginLeft: 'auto' }}
                   onClick={() => {
                     if (window.confirm(`Remove TrueData feed "${cred.label}"?`)) del.mutate(cred.id);
                   }}
                 >
                   DELETE
-                </button>
+                </button>}
               </div>
               {update.error && <div style={S.err}>✗ {update.error.message}</div>}
             </div>
@@ -395,6 +405,8 @@ const SOURCE_META: Record<string, { color: string; bg: string; border: string; l
 };
 
 export function DataSourceSelector() {
+  const capabilities = useConfigurationCapabilities();
+  const canUpdate = !capabilities.isError && configurationAllowed(capabilities.data, 'integrations', 'update');
   const { data: settings } = useTrueDataSettings();
   const update = useUpdateTrueDataSettings();
   // Normalise: backend may return legacy 'zerodhakite', treat as 'kite'
@@ -403,7 +415,7 @@ export function DataSourceSelector() {
   const meta = SOURCE_META[currentSource] ?? SOURCE_META['kite'];
 
   const setSource = (source: MarketDataSource) => {
-    if (source !== currentSource && !update.isPending) {
+    if (canUpdate && source !== currentSource && !update.isPending) {
       update.mutate({ data_source: source });
     }
   };
@@ -492,6 +504,7 @@ export function DataSourceSelector() {
                 <input
                   type="radio"
                   name="market_data_source"
+                  disabled={!canUpdate || update.isPending}
                   checked={isActive}
                   onChange={() => setSource(opt.value)}
                   style={{ cursor: 'pointer', accentColor: c.active }}
@@ -608,6 +621,8 @@ function AddTrueDataCredential() {
 }
 
 export function TrueDataCredentialsPanel() {
+  const capabilities = useConfigurationCapabilities();
+  const canCreate = !capabilities.isError && configurationAllowed(capabilities.data, 'integrations', 'create');
   const { data: creds, isLoading } = useTrueDataCredentials();
   const { data: status } = useTrueDataStatus();
 
@@ -642,11 +657,11 @@ export function TrueDataCredentialsPanel() {
       ))}
       {creds && creds.length === 0 && (
         <div style={{ ...S.hint, marginBottom: 14 }}>
-          No TrueData credentials saved yet. Add your username and password below to enable market data.
+          No market data connection is assigned. Contact your administrator or use your permitted configuration actions.
         </div>
       )}
 
-      <AddTrueDataCredential />
+      {canCreate && <AddTrueDataCredential />}
     </div>
   );
 }
