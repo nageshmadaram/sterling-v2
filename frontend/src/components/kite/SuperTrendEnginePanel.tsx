@@ -136,8 +136,8 @@ export function SuperTrendEnginePanel() {
                 <span style={{ fontSize: 12 }}>60-minute Heikin-Ashi · fixed original (no separate 1H selector)</span>
               </Field>
             : <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
-                <ChoiceRow value={String(cfg.signal_timeframe_minutes ?? ({ ultra_scalping: 1, scalping: 5, intraday: 15, overnight: 60 }[cfg.horizon_mode ?? 'intraday']))}
-                  options={({ ultra_scalping: [1], scalping: [1, 3, 5], intraday: [5, 15, 30], overnight: [30, 60] }[cfg.horizon_mode ?? 'intraday']).map(value => ({ value: String(value), label: `${value} min` }))}
+                <ChoiceRow value={String(cfg.signal_timeframe_minutes ?? ({ ultra_scalping: 1, scalping: 5, intraday: 15, overnight: 60, swing: 60 }[cfg.horizon_mode ?? 'intraday']))}
+                  options={({ ultra_scalping: [1], scalping: [1, 3, 5], intraday: [5, 15, 30], overnight: [30, 60], swing: [60] }[cfg.horizon_mode ?? 'intraday']).map(value => ({ value: String(value), label: `${value} min` }))}
                   onChange={value => patch({ signal_timeframe_minutes: Number(value) })} />
               </Field>}
         </Section>
