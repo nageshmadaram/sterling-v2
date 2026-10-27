@@ -511,3 +511,44 @@ async def test_complete_broker_stop_without_valid_fill_cannot_close_position(
     assert await obj._settle_broker_stop(client, p) == "stop_fill_unverified"
     booking.assert_not_called()
     halt.assert_called_once()
+
+
+@pytest.mark.parametrize("order_id,requested", [
+    ("MARKET-EXIT-IN-FLIGHT", 75), ("", 75), ("ORPHAN-ID", 0),
+])
+def test_stop_fill_cannot_erase_unresolved_canonical_exit(
+        monkeypatch, order_id, requested):
+    p = pos()
+    p.option_exit_order_id = order_id
+    p.option_exit_requested = requested
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    booking = Mock()
+    monkeypatch.setattr(obj, "_book_exit", booking)
+    with pytest.raises(RuntimeError, match="unresolved canonical exit"):
+        obj._book_stop_fills(p, [])
+    booking.assert_not_called()
+    obj.store.mutate.assert_not_called()
+    hold.assert_called_once()
+    assert p.option_exit_order_id == order_id
+    assert p.option_exit_requested == requested
+
+
+def test_stop_fill_rejects_concurrent_exit_inside_store_transaction(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    def mutate(_position_id, callback):
+        p.option_exit_order_id = "CONCURRENT-EXIT"
+        p.option_exit_requested = 75
+        callback(p)
+        return p
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock(side_effect=mutate)))
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    with pytest.raises(ValueError, match="canonical exit started"):
+        obj._book_stop_fills(p, [])
+    assert p.option_exit_order_id == "CONCURRENT-EXIT"
+    assert p.option_exit_requested == 75
+    hold.assert_called_once()
