@@ -343,3 +343,63 @@ def test_invalid_hedge_direction_never_books_signed_ledger(monkeypatch):
         average=20000.0) is False
     ledger_record.assert_not_called()
     halt.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["disk_full", "vanished", "owner_changed", "other_working_exit"])
+async def test_broker_ack_without_durable_owner_bound_order_id_halts_without_retry(
+        monkeypatch, failure):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    ledger = NS(submit_order=AsyncMock(return_value=NS(
+        status="UNKNOWN", success=False, order_id="BROKER-EXIT-987",
+        error="ACK response lost",
+    )))
+    def mutate(_id, callback):
+        if failure == "disk_full":
+            raise OSError("disk full")
+        if failure == "vanished":
+            return None
+        if failure == "other_working_exit":
+            p.option_exit_order_id = "DIFFERENT-WORKING-BROKER-ORDER"
+        if failure == "owner_changed":
+            p.uid = "other-tenant"
+        callback(p)
+        return p
+    positions = NS(mutate=Mock(side_effect=mutate))
+    obj = exits.SnapbackExitManager(positions=positions, canonical=ledger)
+    monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    outcome = await obj._submit_exit(NS(), p, leg="option", quantity=75)
+    assert outcome is None
+    ledger.submit_order.assert_awaited_once()
+    positions.mutate.assert_called_once()
+    halt.assert_called_once()
+    if failure == "other_working_exit":
+        assert p.option_exit_order_id == "DIFFERENT-WORKING-BROKER-ORDER"
+    else:
+        assert p.option_exit_order_id == ""
+
+
+@pytest.mark.asyncio
+async def test_idempotent_repeated_broker_ack_keeps_original_order_owner(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = "BROKER-EXIT-987"
+    p.option_exit_requested = 75
+    ledger = NS(submit_order=AsyncMock(return_value=NS(
+        status="ACKNOWLEDGED", success=True, order_id="BROKER-EXIT-987",
+        error="",
+    )))
+    def mutate(_id, callback):
+        callback(p)
+        return p
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)), canonical=ledger)
+    monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    assert await obj._submit_exit(NS(), p, leg="option", quantity=75) == "BROKER-EXIT-987"
+    assert p.option_exit_order_id == "BROKER-EXIT-987"
+    halt.assert_not_called()
