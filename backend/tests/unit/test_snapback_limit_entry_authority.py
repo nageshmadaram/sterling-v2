@@ -27,6 +27,7 @@ def plan():
         "policy_snapshot_hash": "generation", "opportunity_id": "signal-1",
         "option_symbol": "NIFTY_PE", "option_exchange": "NFO",
         "futures_symbol": "NIFTY_FUT", "futures_exchange": "NFO",
+        "hedge_side": "SELL",
         "order_type": "LIMIT", "limit_price": 100.0, "lot_size": 75,
         "hedge_order_type": "LIMIT", "hedge_price_limit": 23000.0,
         "futures_lot_size": 25,
@@ -142,3 +143,74 @@ async def test_required_fresh_futures_quote_can_authorize_current_limit():
     assert result.success
     req = canonical.submit_order.await_args.args[0]
     assert req.order_type == "LIMIT" and req.price == 23150.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrong", [
+    {"symbol": "OTHER_PE"}, {"exchange": "BFO"}, {"side": "SELL"},
+])
+async def test_real_option_submit_refuses_contract_drift(wrong):
+    svc, broker = executor()
+    details = dict(symbol="NIFTY_PE", exchange="NFO", side="BUY")
+    details.update(wrong)
+    result = await svc._submit(
+        plan(), quantity=75, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+        **details,
+    )
+    assert not result.success and result.status == "REJECTED_PLAN"
+    broker.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrong", [
+    {"exchange": "BFO"}, {"side": "BUY"},
+])
+async def test_real_futures_submit_refuses_hedge_exchange_or_side(wrong):
+    svc, broker = executor()
+    details = dict(symbol="NIFTY_FUT", exchange="NFO", side="SELL")
+    details.update(wrong)
+    result = await svc._submit(
+        plan(), quantity=25, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+        **details,
+    )
+    assert not result.success and result.status == "REJECTED_PLAN"
+    broker.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lot,quantity", [
+    (75.5, 75), (True, 75), (0, 75), (-75, 75),
+    (75, 1), (75, 74), (75, 76), (75, 75.5),
+    (75, True), (75, 0),
+])
+async def test_live_invalid_lots_and_nonmultiple_quantity_are_never_submitted(lot, quantity):
+    svc, broker = executor()
+    candidate = {**plan(), "lot_size": lot}
+    outcome = await svc._submit(
+        candidate, symbol="NIFTY_PE", exchange="NFO", side="BUY",
+        quantity=quantity, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+    )
+    assert not outcome.success and outcome.status == "REJECTED_PLAN"
+    broker.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_valid_positive_multiple_of_lot_can_reach_canonical_boundary():
+    svc, broker = executor()
+    result = await svc._submit(
+        plan(), symbol="NIFTY_PE", exchange="NFO", side="BUY",
+        quantity=150, approval=SimpleNamespace(
+            capital_required=15000, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+    )
+    assert result.success
+    submitted = broker.submit_order.await_args.args[0]
+    assert submitted.quantity == 150
+    assert submitted.payload["lot_size"] == 75
+    assert submitted.order_type == "LIMIT"
