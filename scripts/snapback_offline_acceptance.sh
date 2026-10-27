@@ -7,10 +7,14 @@ if [[ ! -d backend/tests/engines/snapback || ! -x backend/.venv/bin/python ]]; t
   echo "BLOCKED: backend source or virtualenv unavailable" >&2
   exit 2
 fi
-if [[ "$(git branch --show-current)" != "codex/implementation-spec-20261026" ]]; then
-  echo "BLOCKED: run the draft implementation branch; do not test the wrong SHA" >&2
-  exit 2
-fi
+branch="$(git branch --show-current)"
+case "$branch" in
+  dev|codex/implementation-spec-20261026) ;;
+  *)
+    echo "BLOCKED: offline acceptance is for the dev/review branch only, not main or detached HEAD" >&2
+    exit 2
+    ;;
+esac
 head="$(git rev-parse HEAD)"
 if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
   echo "BLOCKED: tracked files differ from tested HEAD; save changes before acceptance" >&2
