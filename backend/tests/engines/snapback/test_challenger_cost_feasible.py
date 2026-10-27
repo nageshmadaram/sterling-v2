@@ -156,10 +156,10 @@ def test_extra_execution_cost_is_deducted_from_actual_replay_trade_pnl():
     # Both exit at the same opening gap-stop mark; only the modelled
     # execution cost differs. It must appear in the CLOSED net result.
     base = intraday.advance_trade(
-        left, timestamp=START + 60, open=90, high=95,
+        left, timestamp=START, open=90, high=95,
         low=89, close=90, cfg=CFG)
     challenger = intraday.advance_trade(
-        right, timestamp=START + 60, open=90, high=95,
+        right, timestamp=START, open=90, high=95,
         low=89, close=90, cfg=CFG)
     assert base.exited and challenger.exited
     assert base.exit_price == challenger.exit_price == 90
