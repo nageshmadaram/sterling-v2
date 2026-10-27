@@ -2057,7 +2057,11 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
     margin:0;font-size:10px;max-width:100%;
   }
   body[data-mobile-style="app"] .today-signals-priority details:not([open]) {
-    height:0;overflow:hidden;
+    max-height:18px;overflow:hidden;
+  }
+  body[data-mobile-style="app"] .today-signals-priority details > summary {
+    display:inline-flex;align-items:center;min-height:18px;
+    font-size:10px;color:var(--k-dim);cursor:pointer;
   }
   body[data-mobile-style="app"] .today-signals-priority:focus-within details,
   body[data-mobile-style="app"] .today-signals-priority details[open] {height:auto;}
