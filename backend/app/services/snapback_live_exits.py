@@ -1575,12 +1575,29 @@ class SnapbackExitManager:
 
     @staticmethod
     def _filled(order: Dict[str, Any]) -> "tuple[int, float]":
+        """Read a broker fill without truncating quantity or inventing fills.
+
+        Bad or missing broker data is UNKNOWN, never a safe zero fill.
+        The caller must halt and reconcile rather than resell that exposure.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        raw_qty = order.get("filled_quantity")
+        raw_price = order.get("average_price")
+        if (type(raw_qty) not in (str, int, float) or raw_qty == ""
+                or type(raw_price) not in (str, int, float, type(None))):
+            raise ValueError("broker stop fill quantity or price unavailable")
         try:
-            qty = int(float(order.get("filled_quantity") or 0))
-            price = float(order.get("average_price") or 0.0)
-        except (TypeError, ValueError):
-            return 0, 0.0
-        return qty, price
+            decimal_qty = Decimal(str(raw_qty))
+            decimal_price = Decimal(str(raw_price if raw_price is not None else 0))
+        except InvalidOperation as exc:
+            raise ValueError("broker stop fill is not numeric") from exc
+        if (not decimal_qty.is_finite() or decimal_qty < 0
+                or decimal_qty != decimal_qty.to_integral_value()
+                or not decimal_price.is_finite() or decimal_price < 0
+                or (decimal_qty > 0 and decimal_price <= 0)):
+            raise ValueError("broker stop fill quantity or price is inconsistent")
+        return int(decimal_qty), float(decimal_price)
 
     def _held_beyond_siblings(
         self, net: Dict[tuple, int], pos: LivePosition
@@ -1670,10 +1687,15 @@ class SnapbackExitManager:
 
         fills = []
         for order in own:
-            qty, price = self._filled(order)
             status = str(order.get("status") or "").upper()
-            if status == "COMPLETE":
-                qty = qty or int(float(order.get("quantity") or 0))
+            try:
+                qty, price = self._filled(order)
+                if status == "COMPLETE" and qty == 0:
+                    raise ValueError("COMPLETE stop has no confirmed filled quantity")
+            except ValueError as exc:
+                log.critical("Snapback cannot verify broker stop fill: %s", exc)
+                engage_kill_switch("Snapback broker stop fill evidence requires reconciliation", pos.uid)
+                return "stop_fill_unverified"
             if qty > 0 and price > 0 and (status == "COMPLETE" or status in _ORDER_TERMINAL):
                 fills.append((str(order.get("order_id") or ""), qty, price))
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
@@ -1758,7 +1780,14 @@ class SnapbackExitManager:
         # Everything the stop's own order did fill is real: book it before selling the rest.
         fills = []
         for order in after:
-            qty, price = self._filled(order)
+            try:
+                qty, price = self._filled(order)
+                if str(order.get("status") or "").upper() == "COMPLETE" and qty == 0:
+                    raise ValueError("COMPLETE stop has no confirmed filled quantity")
+            except ValueError as exc:
+                log.critical("Snapback stop fill after cancel is unverified: %s", exc)
+                engage_kill_switch("Snapback cancelled stop fill requires reconciliation", pos.uid)
+                return "stop_cancel_unconfirmed"
             if qty > 0 and price > 0:
                 fills.append((str(order.get("order_id") or ""), qty, price))
         from app.services.kite_engine.execution_lifecycle import exchange_ms
