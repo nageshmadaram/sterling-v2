@@ -350,6 +350,11 @@ class LivePositionStore:
         marks = ",".join("?" for _ in statuses)
         conn = self._connect()
         try:
+            # The two bounded reads must describe ONE ledger instant. Without
+            # a read transaction a concurrent OPEN -> CLOSED update between
+            # queries could display the same position twice or hide a newly
+            # reopened position. WAL readers do not block order writers.
+            conn.execute("BEGIN")
             live = conn.execute(
                 f"SELECT data_json FROM snapback_live_positions "
                 f"WHERE uid=? AND status IN ({marks}) "
@@ -365,6 +370,7 @@ class LivePositionStore:
                 ).fetchall()
                 if recent_closed else []
             )
+            conn.commit()
         finally:
             conn.close()
 
