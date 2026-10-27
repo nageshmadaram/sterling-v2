@@ -188,3 +188,36 @@ async def test_success_true_without_order_id_requires_reconciliation(monkeypatch
     manager_obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), canonical=broker)
     monkeypatch.setattr(manager_obj, "_ensure_ledger_inventory", AsyncMock())
     assert await manager_obj._submit_exit(NS(), p, leg="option", quantity=75) is None
+
+
+@pytest.mark.parametrize("disposition", ["older_cumulative", "no_quantity", "", "unknown"])
+def test_stale_exit_ledger_disposition_cannot_complete_position(monkeypatch, disposition):
+    from app.services.kite_engine import fill_ledger
+    p = pos()
+    manager_obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    write = Mock(return_value=NS(
+        reconciliation_required=False, reason=disposition,
+    ))
+    monkeypatch.setattr(fill_ledger, "record", write)
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    assert not manager_obj._book_exit(
+        p, leg="option", order_id="EXIT-1", filled=75,
+        average=90.0, exchange_ts_ms=1234)
+    write.assert_called_once()
+    assert p.option_exit_qty == 0
+    halt.assert_called_once()
+
+
+@pytest.mark.parametrize("disposition", ["accepted", "duplicate"])
+def test_only_trusted_exit_cumulative_disposition_can_be_booked(monkeypatch, disposition):
+    from app.services.kite_engine import fill_ledger
+    p = pos()
+    manager_obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    monkeypatch.setattr(fill_ledger, "record", Mock(return_value=NS(
+        reconciliation_required=False, reason=disposition,
+    )))
+    monkeypatch.setattr(exits, "engage_kill_switch", Mock())
+    assert manager_obj._book_exit(
+        p, leg="option", order_id="EXIT-1", filled=75,
+        average=90.0, exchange_ts_ms=1234)
