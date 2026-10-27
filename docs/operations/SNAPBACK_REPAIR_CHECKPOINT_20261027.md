@@ -332,3 +332,31 @@ diagnostic subset, not an accepted strategy.
 The exact-new-head end-to-end execution and forward
 cost/performance work are still pending. New real-money entry
 authorization remains OFF.
+
+
+## Ninth pass — live new-entry limit-price discipline
+
+The Snapback live executor formerly fell back from a missing/invalid
+LIMIT order type or price to an unbounded MARKET order for the option
+or futures hedge. This can be a severe execution-cost risk in thin
+derivative contracts, quite apart from any backtest edge.
+
+Production `mode=LIVE` plans, plus any legacy plan submitted using
+a real broker transport, now require a finite positive LIMIT price
+and `order_type=LIMIT`. Invalid/missing, zero, negative, NaN, infinity
+or unsupported order types return `REJECTED_PLAN` **before calling
+the canonical order service**; they cannot silently convert into
+market buys or sells. New unit tests cover both option and hedge
+legs, invalid prices, unsupported types, fresh hedge repricing, and
+the legacy-mode bypass.
+
+This correction affects **new exposure-increasing entry/hedge
+submission only**, not the independent risk-reducing exit/stop
+manager. A LIMIT order is not a guaranteed fill, and market data
+liquidity, limit tick size, price band, charge schedule, broker
+account, outbound IP and real order/protection lifecycle still
+require on-host verification.
+
+New live orders remain OFF. No broker orders or profitable forward
+trades were recorded by this code change; the new tests are committed
+but not exact-head executed.
