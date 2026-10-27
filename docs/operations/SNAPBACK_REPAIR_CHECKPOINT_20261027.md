@@ -407,6 +407,13 @@ to initiate an authorized risk-reducing close:
   missing projection versions, terminal cancellations, exit ledger
   stale responses, unknown submit IDs and preservation of stop
   safety when the earlier stop has already been released.
+- When the SQLite position registry cannot be written or read (for
+  example, the operator's previously observed 99%-full disk), the
+  reconciliation handler now still attempts the global new-entry halt
+  and critical alert instead of crashing before those actions. It
+  does not claim durable recovery success if the write failed.
+  Additional tests exercise both a failed hold write and unreadable
+  position after an unknown exit submission.
 
 **Verification:** These new exit tests are committed but have **not
 been run inside the full Sterling installation on this candidate
