@@ -1200,6 +1200,23 @@ class SnapbackExitManager:
             log.critical("Snapback exit: broker account changed for %s", pos.position_id)
             engage_kill_switch("Snapback exit authenticated account mismatch", pos.uid)
             return None
+        # Validate the durable quantity and order slot BEFORE submitting to Kite.
+        # A prior request without its order ID is an unresolved broker attempt;
+        # submitting another exit could create a naked opposite-side position.
+        raw_total = pos.option_qty if leg == "option" else pos.hedge_qty
+        raw_exited = pos.option_exit_qty if leg == "option" else pos.hedge_exit_qty
+        old_order_id = pos.option_exit_order_id if leg == "option" else pos.hedge_exit_order_id
+        old_requested = pos.option_exit_requested if leg == "option" else pos.hedge_exit_requested
+        if (type(quantity) is not int or quantity <= 0
+                or type(raw_total) is not int or type(raw_exited) is not int
+                or raw_total <= 0 or not 0 <= raw_exited < raw_total
+                or quantity > raw_total - raw_exited
+                or type(old_order_id) is not str or type(old_requested) is not int
+                or old_requested < 0 or bool(old_order_id) != bool(old_requested)
+                or (old_order_id and old_requested != quantity)):
+            log.critical("Snapback exit: untrusted quantity/order slot for %s", pos.position_id)
+            engage_kill_switch("Snapback exit quantity/order state needs reconciliation", pos.uid)
+            return None
         is_option = leg == "option"
         symbol = pos.option_symbol if is_option else pos.hedge_symbol
         exchange = pos.option_exchange if is_option else pos.hedge_exchange
