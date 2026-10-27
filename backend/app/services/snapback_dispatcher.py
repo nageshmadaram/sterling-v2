@@ -351,6 +351,13 @@ class SnapbackDispatcher:
         if not cfg.enabled:
             return self._record(uid, "engine_disabled", blockers=["engine_disabled"],
                                 managed=exits["managed"])
+
+        # Signal observation is NOT order origination. Refresh the advisory
+        # board even while AUTO or the live safety gate is OFF, otherwise a
+        # disabled/blocked account never receives current signals and appears
+        # stuck at the previous EOD scan. Exit management above takes priority.
+        await self._rescan_if_stale(uid, cfg)
+
         # Needed by a manual arm as much as by AUTO (both read readiness), so it runs before the
         # AUTO check: with AUTO off the snapshot would otherwise never be produced.
         await self._refresh_bound_reconciliation(uid, account_id)
@@ -366,7 +373,6 @@ class SnapbackDispatcher:
                 pass
             return self._record(uid, "blocked", blockers=blockers, managed=exits["managed"])
 
-        await self._rescan_if_stale(uid, cfg)
         entries = 0          # entries that completed (OPEN)
         originated = 0       # anything that put exposure on: the per-cycle budget is charged for it
         rows = [r for r in self._rows(uid) if r.get("state") == "armed"]
