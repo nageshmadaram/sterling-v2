@@ -457,9 +457,19 @@ class SnapbackExecutionAdapter:
                     high_water=float(average), phase="OPEN_SCALP", opened_ms=now_ms,
                     entry_day=today,
                 )
-                store.put(pos)
+                store.insert_new(pos)
             else:
                 def apply(pos: LivePosition) -> None:
+                    # Recheck inside mutate's BEGIN IMMEDIATE transaction.
+                    # The earlier get() is merely a snapshot and may be stale.
+                    if (str(pos.uid or "") != owner_uid
+                            or str(pos.account_id or "") != owner_account):
+                        raise PermissionError("snapback_owned_position_mismatch")
+                    if (str(pos.option_entry_order_id or "")
+                            not in {"", str(order_id)}):
+                        raise ValueError("snapback_plan_leg_order_id_conflict")
+                    if int(pos.option_qty or 0) > int(filled):
+                        raise ValueError("snapback_stale_cumulative_fill_quantity")
                     pos.option_qty = int(filled)
                     pos.option_entry_price = float(average)
                     pos.option_entry_order_id = str(order_id)
@@ -469,6 +479,14 @@ class SnapbackExecutionAdapter:
                 store.mutate(plan_id, apply)
         elif futures_leg:
             def apply_hedge(pos: LivePosition) -> None:
+                if (str(pos.uid or "") != owner_uid
+                        or str(pos.account_id or "") != owner_account):
+                    raise PermissionError("snapback_owned_position_mismatch")
+                if (str(pos.hedge_entry_order_id or "")
+                        not in {"", str(order_id)}):
+                    raise ValueError("snapback_plan_leg_order_id_conflict")
+                if int(pos.hedge_qty or 0) > int(filled):
+                    raise ValueError("snapback_stale_cumulative_fill_quantity")
                 pos.hedge_qty = int(filled)
                 pos.hedge_entry_price = float(average)
                 pos.hedge_entry_order_id = str(order_id)
