@@ -25,6 +25,60 @@ def rejected_plan_count(value: Any) -> int:
     raise ValueError("rejected_plans must be a nonnegative integer or list")
 
 
+_STRESS_POINTS = (0.5, 1.0, 2.0)
+
+
+def incremental_execution_cost_stress(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Conservative extra execution-cost sensitivity on actual replay trades.
+
+    Each shock is EXTRA round-trip option premium points per unit, on top of
+    the strategy's already deducted fee/spread/slippage assumptions. These
+    are hypothetical stresses, never actual broker costs or a G7 receipt.
+    Missing or inconsistent trade-level receipts fail closed: do not
+    invent quantities from a count or manufacture a stressed P&L.
+    """
+    trades = result.get("trades")
+    count = result.get("trade_count")
+    if trades is None:
+        return {"available": False, "reason": "TRADE_LEVEL_EVIDENCE_MISSING",
+                "stressed_net_inr": None}
+    if not isinstance(trades, list) or len(trades) != count:
+        return {"available": False, "reason": "TRADE_LEVEL_COUNT_MISMATCH",
+                "stressed_net_inr": None}
+    if not trades:
+        return {"available": False, "reason": "NO_CLOSED_TRADES",
+                "stressed_net_inr": None}
+    exact_net, total_units = 0.0, 0
+    for trade in trades:
+        if not isinstance(trade, Mapping):
+            return {"available": False, "reason": "INVALID_TRADE_EVIDENCE",
+                    "stressed_net_inr": None}
+        qty, pnl = trade.get("quantity"), trade.get("net_pnl_inr")
+        if (type(qty) is not int or qty <= 0 or type(pnl) not in (int, float)
+                or not math.isfinite(pnl)):
+            return {"available": False, "reason": "INVALID_TRADE_EVIDENCE",
+                    "stressed_net_inr": None}
+        total_units += qty
+        exact_net += float(pnl)
+    reported = result.get("net_pnl_inr")
+    if (type(reported) not in (int, float) or not math.isfinite(reported)
+            or abs(exact_net - float(reported)) > 0.01):
+        return {"available": False, "reason": "TRADE_PNL_TOTAL_MISMATCH",
+                "stressed_net_inr": None}
+    return {
+        "available": True,
+        "basis": "additional_hypothetical_roundtrip_option_premium_points_per_unit",
+        "total_option_units_traded": total_units,
+        "closed_trades": count,
+        "baseline_net_inr": round(exact_net, 6),
+        "extra_cost_break_even_points": round(exact_net / total_units, 6),
+        "stressed_net_inr": {
+            str(shock): round(exact_net - shock * total_units, 6)
+            for shock in _STRESS_POINTS
+        },
+    }
+
+
 def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     """Extract strictly typed, conservative metrics from one replay.
 
@@ -49,13 +103,16 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     if not 0 <= wins <= 100 or dd < 0:
         raise ValueError("Snapback win rate or drawdown is invalid")
     count = rejected_plan_count(result.get("rejected_plans"))
+    stress = incremental_execution_cost_stress(result)
     complete = result.get("complete") is True and result.get("unresolved_position") is None
     return {
         "trades": trades, "win_rate_pct": round(float(wins), 1),
-        "net_inr": round(float(net)), "return_pct": round(float(ret), 2),
+        "net_inr": round(float(net)), "net_inr_exact": float(net),
+        "return_pct": round(float(ret), 2),
         "max_dd_inr": round(float(dd)),
         "rejected_plans": count,
         "replay_complete": complete,
+        "additional_cost_stress": stress,
         "unresolved_reason": (
             str(result.get("unresolved_reason") or "position_not_closed")[:160]
             if not complete else None
@@ -82,8 +139,20 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         for r in all_rows if "trades" in r
     )
     n = sum(r["trades"] for r in ok)
-    net = sum(r["net_inr"] for r in ok)
-    profitable = sum(r["net_inr"] > 0 for r in ok)
+    # Never round EACH contract before aggregation. A handful of small
+    # gains rounded to zero can flip a near-break-even mode's verdict.
+    net_exact = sum(r.get("net_inr_exact", r["net_inr"]) for r in ok)
+    profitable = sum(r.get("net_inr_exact", r["net_inr"]) > 0 for r in ok)
+    stress_complete = bool(ok) and all(
+        isinstance(r.get("additional_cost_stress"), Mapping)
+        and r["additional_cost_stress"].get("available") is True for r in ok
+    )
+    stress_totals = ({
+        str(shock): round(sum(
+            r["additional_cost_stress"]["stressed_net_inr"][str(shock)]
+            for r in ok
+        ), 6) for shock in _STRESS_POINTS
+    } if stress_complete else None)
     completed = len(ok)
     # A positive in-sample subset or modelled tape is never a sufficient G7.
     return {
@@ -94,8 +163,11 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "research_complete": bool(all_rows) and errors == 0 and skipped == 0
                              and unresolved == 0 and incomplete_coverage == 0
                              and completed == len(all_rows),
-        "trades": n, "net_inr": round(net),
+        "trades": n, "net_inr": round(net_exact),
+        "net_inr_exact": round(net_exact, 6),
         "profitable_contracts": profitable,
+        "additional_cost_stress_complete": stress_complete,
+        "additional_cost_stress_net_inr": stress_totals,
         "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None,
         "promotion_eligible": False, "broker_verified": False,
         "result_basis": "closed-contract real-option-candle simulation, not broker fills",
