@@ -9,11 +9,12 @@ const logoutKite = vi.fn();
 const retrySession = vi.fn();
 const resetLogin = vi.fn();
 const generateSession = vi.fn();
+const activateAccount = vi.fn();
 let loginPhase = 'idle';
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({data:{accounts:[]}}),
-  useActivateKiteAccount: () => ({mutate: vi.fn(), isPending:false, error:null}),
+  useActivateKiteAccount: () => ({mutate: activateAccount, isPending:false, error:null}),
   useKiteStatus: () => ({ data: status, isFetching: false, refetch: retrySession }),
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: generateSession, isPending: false }),
@@ -42,6 +43,7 @@ beforeEach(() => {
   retrySession.mockClear();
   resetLogin.mockClear();
   generateSession.mockClear();
+  activateAccount.mockClear();
   loginPhase = 'idle';
   useKiteStatusCardStore.setState({ isOpen: false });
   status = { connected: false, account_id: 'a1', user_name: 'TestUser' };
@@ -59,6 +61,18 @@ describe('KiteSessionGuard floating card popover', () => {
     expect(screen.queryByText('Zerodha Kite Active')).toBeNull();
     expect(retrySession).toHaveBeenCalled();
   });
+  it('offers a guarded explicit account switch after login to an inactive account', () => {
+    status = {connected:false, account_id:'a2', user_name:'Another account'};
+    renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
+    fireEvent.click(screen.getByRole('button', {name:'Simulate saved session'}));
+    expect(screen.getByText(/different broker account than the active one/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'Make saved broker account active'}));
+    expect(activateAccount).toHaveBeenCalledWith(
+      'a1', expect.objectContaining({onSuccess:expect.any(Function)}),
+    );
+  });
+
   it('offers broker logout from the connected footer card', () => {
     status = { connected: true, account_id: 'a1', user_name: 'TestUser' };
     renderGuard();
