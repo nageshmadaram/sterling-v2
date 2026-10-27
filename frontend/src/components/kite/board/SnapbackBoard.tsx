@@ -145,8 +145,13 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const adapted = React.useMemo(() => {
     const live = (data?.rows ?? []).filter((r) =>
       selectedModes.includes(r.trading_mode ?? 'swing') &&
-      (priority.olderReady || (r.timestamp_ms != null &&
-        istDay(new Date(r.timestamp_ms)) === priority.day)));
+      (priority.olderReady ||
+        (r.timestamp_ms != null && istDay(new Date(r.timestamp_ms)) === priority.day) ||
+        // A swing signal is confirmed at yesterday's EOD but enters
+        // *today's* session. Do not hide a still-valid next-open candidate
+        // merely because its signal candle belongs to the prior day.
+        ((r.trading_mode ?? mode) === 'swing' && r.state === 'armed'
+          && !r.historical && !r.restored)));
     const seen = new Set(live.map((r) => r.signal_id));
     const past = (shortHorizon || replay || !priority.olderReady ? [] : history.data?.signals ?? []).map((r) =>
       seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
