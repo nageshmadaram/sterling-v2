@@ -388,6 +388,9 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
     initial = capital
     peak = capital
     max_drawdown = 0.0
+    close_mark_peak = capital
+    close_mark_drawdown = 0.0
+    intrabar_low_stress_drawdown = 0.0
     day = ""
     day_start = capital
     day_pnl = 0.0
@@ -446,6 +449,15 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                             challenger_rejections.get(reason, 0) + 1)
         pending = None
         if position is not None:
+            # Conservative intrabar low-water risk of the held option leg;
+            # this is a hypothetical adverse mark, NOT an executable fill.
+            low_mark_equity = capital + (
+                float(premium_bars.low[i]) - position.entry -
+                position.variable_cost_points
+            ) * position.quantity - position.fixed_cost_inr
+            intrabar_low_stress_drawdown = max(
+                intrabar_low_stress_drawdown,
+                close_mark_peak - low_mark_equity)
             position = advance_trade(position, timestamp=ts, open=float(premium_bars.open[i]),
                                      high=float(premium_bars.high[i]), low=float(premium_bars.low[i]),
                                      close=float(premium_bars.close[i]), cfg=cfg)
@@ -460,6 +472,15 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                 max_drawdown = max(max_drawdown, peak - capital)
                 last_exit_index = i
                 position = None
+        # Realized equity when flat; otherwise close-mark current option
+        # inventory, deducting the estimated round-trip charges.
+        close_mark_equity = capital if position is None else capital + (
+            float(premium_bars.close[i]) - position.entry -
+            position.variable_cost_points
+        ) * position.quantity - position.fixed_cost_inr
+        close_mark_peak = max(close_mark_peak, close_mark_equity)
+        close_mark_drawdown = max(
+            close_mark_drawdown, close_mark_peak - close_mark_equity)
         if position is None:
             start = max(0, i + 1 - _MULTI_SESSION_HISTORY_BARS) if _multi_session(cfg) else session_start_index
             signals = evaluate_intraday(_slice(underlying, slice(start, i + 1)), cfg, symbol,
@@ -486,10 +507,17 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
             "initial_capital_inr": initial, "realized_equity_inr": capital,
             "net_pnl_inr": round(pnl, 6), "return_pct": pnl / initial * 100 if initial > 0 else 0.0,
             "max_realized_drawdown_inr": max_drawdown,
+            "max_option_close_mark_drawdown_inr": round(close_mark_drawdown, 6),
+            "max_option_intrabar_low_stress_drawdown_inr": round(
+                intrabar_low_stress_drawdown, 6),
+            "option_mtm_basis": "observed_option_candle_closes_and_intrabar_lows; "
+                                "estimated_roundtrip_costs; no_futures_hedge",
             "rejected_plans": rejected, "unresolved_position": asdict(position) if position else None,
             "unresolved_reason": unresolved_reason,
             "complete": position is None,
             "limitations": ["Not evidence of a profitable strategy; no out-of-sample promotion",
                             "Candle fills cannot model queue position or order-book depth at high quantity",
-                            "Open-position P&L is excluded from realized results and drawdown",
+                            "Open-position P&L is excluded from REALIZED equity; "
+                            "option-only MTM and low-water stress are diagnostic, "
+                            "not observed fills or full hedged drawdown",
             "Challenger uses prior candle HIGH excursions (not executable quotes) and requires untouched forward data"]}
