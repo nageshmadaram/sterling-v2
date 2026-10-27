@@ -121,3 +121,24 @@ async def test_missing_live_mode_with_valid_limit_still_never_converts_to_market
     request = canonical.submit_order.await_args.args[0]
     assert request.order_type == "LIMIT"
     assert request.price > 0
+
+
+@pytest.mark.asyncio
+async def test_missing_required_fresh_futures_quote_cannot_reuse_plan_era_limit():
+    service, canonical = executor()
+    service.hedge_limit_fn = AsyncMock(return_value=None)
+    old_plan = {**plan(), "hedge_price_limit": 23000.0}
+    result = await submit(service, old_plan, hedge=True, override=None)
+    assert not result.success and result.status == "REJECTED_PLAN"
+    assert "fresh futures hedge quote" in result.error
+    canonical.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_required_fresh_futures_quote_can_authorize_current_limit():
+    service, canonical = executor()
+    service.hedge_limit_fn = AsyncMock(return_value=23150.0)
+    result = await submit(service, plan(), hedge=True, override=23150.0)
+    assert result.success
+    req = canonical.submit_order.await_args.args[0]
+    assert req.order_type == "LIMIT" and req.price == 23150.0
