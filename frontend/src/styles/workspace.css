@@ -63,3 +63,53 @@ button,a{-webkit-tap-highlight-color:transparent}
 .workspace-shell .sterling-media-icon-button svg{width:21px;height:21px}
 .workspace-shell .sterling-media-settings-popover,.workspace-shell .sterling-media-expanded-search{background:var(--k-bg);color:var(--k-text);border-color:var(--k-border)}
 .workspace-shell .sterling-media-expanded-search input{color:var(--k-text)!important}
+
+
+/* Responsive workspace selector and account sheet: control text must never
+   collapse into one-word columns on narrow Android browsers. */
+.workspace-dialog {
+  width:min(720px,calc(100vw - 24px));
+  max-height:min(90dvh,720px);overflow:auto;box-sizing:border-box;
+}
+.workspace-dialog .chooser-options {grid-auto-rows:minmax(0,auto);}
+.account-menu {
+  box-sizing:border-box;width:min(420px,calc(100vw - 24px));
+  max-width:calc(100vw - 24px);min-width:0;
+  overflow-y:auto;overscroll-behavior:contain;
+}
+.account-menu-content {min-width:0;grid-template-columns:minmax(0,1fr);gap:5px;}
+.account-menu-content > button:not(.account-menu-trigger),
+.account-menu-content > header button,
+.account-menu-content .account-identity {
+  box-sizing:border-box;min-width:0;max-width:100%;
+  overflow-wrap:normal;word-break:normal;white-space:normal;
+}
+.account-menu-content > button:not(.account-menu-trigger) {
+  display:flex;width:100%;align-items:center;
+  min-height:44px;padding:10px 12px;text-align:left;
+}
+.account-menu-content header {min-width:0;gap:8px;}
+.account-identity {flex:1 1 auto;overflow:hidden;}
+.account-identity strong {min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.account-menu .account-theme {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;}
+.account-menu .account-theme button {min-height:42px;min-width:0;text-align:center;}
+@media(max-width:760px) {
+  .workspace-dialog {
+    width:calc(100vw - 20px);max-height:calc(100dvh - 24px);
+    padding:clamp(12px,3vw,20px)!important;
+    border-radius:16px;
+  }
+  .workspace-dialog .chooser-intro {margin:18px 0 14px;}
+  .workspace-dialog .chooser-intro h1 {font-size:clamp(22px,6vw,29px);line-height:1.2;}
+  .workspace-dialog .chooser-options {grid-template-columns:minmax(0,1fr);gap:9px;}
+  .workspace-dialog .chooser-option {min-height:68px;padding:11px 38px 11px 12px;gap:12px;}
+  .workspace-dialog .chooser-icon {width:42px;height:42px;flex:0 0 42px;}
+  .workspace-dialog .chooser-copy {flex:1 1 auto;min-width:0;}
+  .workspace-dialog .chooser-copy strong {font-size:clamp(16px,4.8vw,19px);}
+  .account-menu {
+    margin:8px auto;
+    width:calc(100vw - 24px);max-height:calc(100dvh - 16px);
+    border-radius:15px;
+  }
+  .account-menu-content {padding:12px;gap:3px;}
+}
