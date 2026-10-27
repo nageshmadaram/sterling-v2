@@ -6,6 +6,7 @@ This module has no broker, runtime state, or persistence dependencies.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -23,6 +24,54 @@ def rejected_plan_count(value: Any) -> int:
     if isinstance(value, (list, tuple)):
         return len(value)
     raise ValueError("rejected_plans must be a nonnegative integer or list")
+
+
+def closed_trade_audit(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Store independently re-summable, simulated CLOSED trade receipts only.
+
+    A SHA-256 detects accidental changes; it is not an exchange signature or a
+    broker affirmation. The full minimal records are needed for an outside
+    analyst to recompute quantities, costs, drawdowns and chronology.
+    """
+    trades = result.get("trades")
+    count = result.get("trade_count")
+    if type(count) is not int or count < 0 or not isinstance(trades, list) or len(trades) != count:
+        raise ValueError("closed-trade record count inconsistent")
+    receipts = []
+    for trade in trades:
+        if not isinstance(trade, Mapping) or trade.get("exited") is not True:
+            raise ValueError("research trade receipt must be fully closed")
+        qty = trade.get("quantity")
+        if type(qty) is not int or qty <= 0:
+            raise ValueError("invalid simulated trade quantity")
+        numeric = {}
+        for key in ("entry_time", "exit_time", "entry", "exit_price",
+                    "net_pnl_inr", "estimated_cost_inr"):
+            value = trade.get(key)
+            if type(value) not in (int, float) or not math.isfinite(value):
+                raise ValueError(f"invalid simulated trade {key}")
+            numeric[key] = float(value)
+        if (numeric["exit_time"] < numeric["entry_time"]
+                or numeric["entry"] <= 0 or numeric["exit_price"] <= 0
+                or numeric["estimated_cost_inr"] < 0):
+            raise ValueError("incoherent simulated trade chronology, price or cost")
+        gross = (numeric["exit_price"] - numeric["entry"]) * qty
+        if abs(gross - numeric["estimated_cost_inr"] - numeric["net_pnl_inr"]) > 0.01:
+            raise ValueError("simulated trade net P&L does not reconcile")
+        receipts.append({
+            "quantity": qty, **numeric,
+            "exit_reason": str(trade.get("exit_reason") or ""),
+        })
+    blob = json.dumps(receipts, sort_keys=True, separators=(",", ":"),
+                      allow_nan=False).encode("utf-8")
+    return {
+        "evidence_type": "SIMULATED_CLOSED_OPTION_TRADES",
+        "broker_verified": False,
+        "records": receipts,
+        "sha256": hashlib.sha256(blob).hexdigest(),
+        "closed_trades": len(receipts),
+        "net_pnl_inr_exact": round(sum(r["net_pnl_inr"] for r in receipts), 6),
+    }
 
 
 _STRESS_POINTS = (0.5, 1.0, 2.0)
