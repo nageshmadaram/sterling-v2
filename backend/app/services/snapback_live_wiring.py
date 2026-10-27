@@ -51,6 +51,26 @@ def _plan_id_from_tag(tag: str) -> str:
     return text.split(":", 1)[1] if text.startswith("snapback:") else ""
 
 
+def _assert_entry_fill_position_active(pos: Any, plan: Dict[str, Any],
+                                       uid: str, account_id: str) -> None:
+    """A closed/exiting or foreign-owned position cannot be reopened by late fills.
+
+    Call before any signed-ledger write AND inside the registry write transaction
+    to withstand another process changing position lifecycle between reads.
+    """
+    if (str(getattr(pos, "uid", "") or "") != uid
+            or str(getattr(pos, "account_id", "") or "") != account_id):
+        raise PermissionError("snapback_owned_position_mismatch")
+    if str(getattr(pos, "status", "") or "").upper() not in {
+            ENTERING, OPEN, RECONCILING}:
+        raise PermissionError("snapback_position_no_longer_accepts_entry_fills")
+    if (str(getattr(pos, "option_symbol", "") or "").strip()
+            != str(plan.get("option_symbol") or "").strip()
+            or str(getattr(pos, "option_exchange", "") or "").strip().upper()
+            != str(plan.get("option_exchange") or "").strip().upper()):
+        raise PermissionError("snapback_existing_option_contract_mismatch")
+
+
 def engage_kill_switch(reason: str, uid: str = "default") -> None:
     """Stop NEW entries everywhere. Exits, protection and reconciliation keep running.
 
@@ -379,9 +399,7 @@ class SnapbackExecutionAdapter:
             if not is_option:
                 raise PermissionError("snapback_hedge_without_owned_option")
             return
-        if (str(existing.uid or "") != owner_uid
-                or str(existing.account_id or "") != owner_account):
-            raise PermissionError("snapback_owned_position_mismatch")
+        _assert_entry_fill_position_active(existing, plan, owner_uid, owner_account)
         prior_order_id = (str(getattr(existing, "option_entry_order_id", "") or "")
                           if is_option else str(getattr(existing, "hedge_entry_order_id", "") or ""))
         prior_filled = (int(getattr(existing, "option_qty", 0) or 0)
@@ -469,9 +487,7 @@ class SnapbackExecutionAdapter:
         store = self._store()
         existing = store.get(plan_id)
         if existing is not None:
-            if (str(existing.uid or "") != owner_uid
-                    or str(existing.account_id or "") != owner_account):
-                raise PermissionError("snapback_owned_position_mismatch")
+            _assert_entry_fill_position_active(existing, plan, owner_uid, owner_account)
             # Per-order evidence is cumulative. An older postback must never
             # overwrite the larger stored quantity, and a second order ID
             # cannot silently replace this plan's original entry leg.
@@ -518,9 +534,7 @@ class SnapbackExecutionAdapter:
                 def apply(pos: LivePosition) -> None:
                     # Recheck inside mutate's BEGIN IMMEDIATE transaction.
                     # The earlier get() is merely a snapshot and may be stale.
-                    if (str(pos.uid or "") != owner_uid
-                            or str(pos.account_id or "") != owner_account):
-                        raise PermissionError("snapback_owned_position_mismatch")
+                    _assert_entry_fill_position_active(pos, plan, owner_uid, owner_account)
                     if (str(pos.option_entry_order_id or "")
                             not in {"", str(order_id)}):
                         raise ValueError("snapback_plan_leg_order_id_conflict")
@@ -535,9 +549,7 @@ class SnapbackExecutionAdapter:
                 store.mutate(plan_id, apply)
         elif futures_leg:
             def apply_hedge(pos: LivePosition) -> None:
-                if (str(pos.uid or "") != owner_uid
-                        or str(pos.account_id or "") != owner_account):
-                    raise PermissionError("snapback_owned_position_mismatch")
+                _assert_entry_fill_position_active(pos, plan, owner_uid, owner_account)
                 if (str(pos.hedge_entry_order_id or "")
                         not in {"", str(order_id)}):
                     raise ValueError("snapback_plan_leg_order_id_conflict")
