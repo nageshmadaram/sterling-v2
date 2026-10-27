@@ -113,3 +113,26 @@ button,a{-webkit-tap-highlight-color:transparent}
   }
   .account-menu-content {padding:12px;gap:3px;}
 }
+
+
+/* The media sun/display actions move to the very top of the unified hamburger
+   sheet. Keep settings readable on phones without forcing a fixed modal size. */
+.account-media-settings {width:100%;min-width:0;border-bottom:1px solid var(--k-border);
+  padding:0 0 12px;margin:0 0 8px;box-sizing:border-box;}
+.media-account-settings {width:100%;min-width:0;display:grid;gap:9px;color:var(--k-text);}
+.media-account-heading {font-size:13px;line-height:1.45;min-width:0;white-space:normal;}
+.media-account-appearance {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;}
+.account-menu .media-account-appearance button {
+  border:1px solid var(--k-border);border-radius:8px;min-width:0;min-height:44px;
+  padding:8px 5px;text-align:center;font-size:11px;white-space:normal;line-height:1.35;
+}
+.account-menu .media-account-appearance button[aria-pressed=true] {
+  border-color:var(--k-brand);background:var(--k-surface-2);color:var(--k-brand);
+  font-weight:700;
+}
+.media-account-actions {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}
+.account-menu .media-account-actions button {min-width:0;min-height:42px;box-sizing:border-box;
+  border:1px solid var(--k-border);border-radius:8px;font-size:12px;padding:8px;text-align:left;
+  overflow-wrap:normal;line-height:1.35;}
+@media(max-width:420px){.media-account-actions{grid-template-columns:minmax(0,1fr);}
+  .account-menu .media-account-actions button{min-height:38px;}}
