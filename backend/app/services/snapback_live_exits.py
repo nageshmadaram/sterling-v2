@@ -806,6 +806,26 @@ class SnapbackExitManager:
         total = round(option_pnl + hedge_pnl, 2)
 
         def apply(p: LivePosition) -> None:
+            # The broker was checked against `pos` before this transaction.
+            # A concurrent restart, new ACK, changed ownership or new residual
+            # must invalidate that check, not get erased by CLOSED.
+            if (p.status != EXITING
+                    or p.uid != pos.uid or p.account_id != pos.account_id
+                    or p.option_symbol != pos.option_symbol
+                    or p.option_exchange != pos.option_exchange
+                    or p.hedge_symbol != pos.hedge_symbol
+                    or p.option_qty != pos.option_qty
+                    or p.hedge_qty != pos.hedge_qty
+                    or p.option_exit_qty != pos.option_exit_qty
+                    or p.hedge_exit_qty != pos.hedge_exit_qty
+                    or p.option_exit_value != pos.option_exit_value
+                    or p.hedge_exit_value != pos.hedge_exit_value
+                    or p.option_exit_unknown_qty != pos.option_exit_unknown_qty
+                    or p.option_exit_qty != p.option_qty
+                    or (p.has_hedge and p.hedge_exit_qty != p.hedge_qty)
+                    or p.option_exit_order_id or p.option_exit_requested
+                    or p.hedge_exit_order_id or p.hedge_exit_requested):
+                raise ValueError("broker-flat proof or exit ACK changed before closure")
             p.status = CLOSED
             p.option_exit_price = round(opt_price, 4)
             p.hedge_exit_price = round(hedge_price, 4)
@@ -817,7 +837,14 @@ class SnapbackExitManager:
             # is partial and the operator has to reconcile it with the broker.
             p.flags = [f for f in p.flags if f == "option_exit_price_unknown"]
 
-        self.store.mutate(pos.position_id, apply)
+        try:
+            stored = self.store.mutate(pos.position_id, apply)
+            if stored is None:
+                raise RuntimeError("position vanished before durable close")
+        except Exception as exc:  # noqa: BLE001 - do not erase unretired broker orders
+            log.critical("Snapback final close blocked for %s: %s", pos.position_id, exc)
+            self._flag_reconciling(pos, "final_close_registry_or_broker_ack_conflict")
+            return "reconciling"
         self._retry_at.pop(pos.position_id, None)
         self._stop_checked.pop(pos.position_id, None)
         notes = []
