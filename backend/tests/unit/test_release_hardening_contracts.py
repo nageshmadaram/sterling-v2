@@ -170,7 +170,8 @@ async def test_snapback_projection_ack_failure_replays_without_counting_fill_twi
     def mutate(_id, fn):
         fn(p)
         return p
-    resolution = NS(filled_quantity=40, average_price=90, settled=True,
+    resolution = NS(filled_quantity=40, average_price=90, terminal=True,
+        status="COMPLETE", settled=True,
         reconciliation_required=False, projection_version=1, intent_key="i", exchange_ts_ms=1234)
     manager = snapback_live_exits.SnapbackExitManager(positions=NS(mutate=mutate),
         resolver=AsyncMock(return_value=resolution))
