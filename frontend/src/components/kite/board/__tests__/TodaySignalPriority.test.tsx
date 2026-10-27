@@ -76,6 +76,8 @@ describe('cross-strategy today priority', () => {
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
     expect(screen.getByRole('status')).toHaveTextContent('Current-day API checks finished across four strategies');
     expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');
+    expect(screen.getByRole('status')).toHaveTextContent('A response does not prove that a fresh scan ran');
+    expect(screen.getByRole('status')).toHaveTextContent(/IST \d{4}-\d{2}-\d{2}/);
   });
 
   it('keeps older history deferred when one current-day scan is running', async () => {
