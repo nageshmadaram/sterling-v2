@@ -277,7 +277,7 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
                 option_type=str(row.option_type or ""),
                 option_symbol=str(getattr(leg, "option_symbol", "") or ""),
                 detail=str(getattr(leg, "moneyness", "") or ""),
-                signal_id=f"supertrend-{row.underlying}-{row.timestamp_ms}",
+                # SuperTrend board identity also includes a row index; use\n                # underlying + exact event timestamp for its deep link instead.
             )
         )
     return alerts
