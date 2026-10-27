@@ -1,7 +1,7 @@
 import React from 'react';
 import { fmtTimeIST } from '../../lib/format';
 import { k } from '../../styles/kiteUI';
-import { useKiteStatus } from '../../hooks/useKite';
+import { useKiteAccounts, useKiteStatus } from '../../hooks/useKite';
 import {
   recoveryLabel,
   recoveryNeedsAttention,
@@ -76,6 +76,14 @@ function LiveStateChip() {
 
 export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void }) {
   const status = useKiteStatus().data;
+  const accounts = useKiteAccounts().data;
+  const storedActive = accounts?.accounts.find(account =>
+    account.id === (status?.account_id || accounts.active_id));
+  const hasUnexpiredSavedToken = !!storedActive?.connected
+    && (!storedActive.token_expires_at_ms || storedActive.token_expires_at_ms > Date.now());
+  const explicitlyRejected = /\b(rejected|expired|not logged in|revoked|identity could not)\b/i
+    .test(status?.message || '');
+  const savedUnverified = !status?.connected && hasUnexpiredSavedToken && !explicitlyRejected;
   // Localhost, a tunnel and the production URL may serve different checkouts.
   // The Vite build identity lets the operator see that directly, without
   // guessing from a stale browser tab or interpreting a remote Git commit.
@@ -84,15 +92,17 @@ export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void 
 
   const unknown = !!status?.transient;
   const connected = !!status?.connected;
-  const brokerTone = connected ? k.green : unknown ? k.orange : k.red;
-  const brokerText = connected ? 'KITE' : unknown ? 'KITE ?' : 'KITE OFF';
+  const brokerTone = connected ? k.green : (savedUnverified || unknown) ? k.orange : k.red;
+  const brokerText = connected ? 'KITE' : savedUnverified ? 'KITE SAVED ?' : unknown ? 'KITE ?' : 'KITE OFF';
 
   const brokerHint = connected
     ? `Connected${status?.user_name ? ` · ${status.user_name}` : ''}${
         status?.token_expires_at_ms
           ? ` · expires ${fmtTimeIST(status.token_expires_at_ms)} IST`
           : ''}`
-    : unknown
+    : savedUnverified
+      ? 'Kite token is saved, but the active broker connection is not verified. Tap to check; new real-money entries remain disabled.'
+      : unknown
       ? 'Could not reach Kite to check the session. The stored token is untouched — nothing has expired.'
       : 'Not connected. Click to reconnect.';
 
@@ -117,9 +127,9 @@ export function KiteFooterStatus({ onOpenSession }: { onOpenSession: () => void 
           gap: 5,
           height: 22,
           padding: '0 8px',
-          border: `1px solid ${connected ? 'rgba(34, 197, 94, 0.45)' : unknown ? 'rgba(245, 158, 11, 0.45)' : 'rgba(239, 68, 68, 0.45)'}`,
+          border: `1px solid ${connected ? 'rgba(34, 197, 94, 0.45)' : (savedUnverified || unknown) ? 'rgba(245, 158, 11, 0.45)' : 'rgba(239, 68, 68, 0.45)'}`, 
           borderRadius: 6,
-          background: connected ? 'rgba(34, 197, 94, 0.12)' : unknown ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+          background: connected ? 'rgba(34, 197, 94, 0.12)' : (savedUnverified || unknown) ? 'rgba(245, 158, 11, 0.12)' : 'rgba(239, 68, 68, 0.12)',
           boxShadow: connected ? '0 0 10px rgba(34, 197, 94, 0.22)' : 'none',
           color: brokerTone,
           fontFamily: 'inherit',
