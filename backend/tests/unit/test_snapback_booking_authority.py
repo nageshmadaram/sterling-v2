@@ -317,3 +317,29 @@ async def test_unexpected_ledger_booking_exception_after_real_fill_is_unresolved
     refresh.assert_not_awaited()
     ack.assert_not_called()
     killed.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_reference", ["not-a-price", float("nan"), float("inf"), -20, True, {}])
+async def test_invalid_post_submit_reference_preserves_broker_resolution_without_authorizing(
+        monkeypatch, bad_reference):
+    a = adapter()
+    booked = Mock(return_value=True)
+    monkeypatch.setattr(a, "_book_fill", booked)
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
+    projected = Mock(return_value=True)
+    monkeypatch.setattr(fills, "mark_projected", projected)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    order = request()
+    order.price = bad_reference
+
+    response = await a.submit_order(order, broker_client=object())
+
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.order_id == "BROKER-ORDER-1"
+    assert response.filled_quantity == 75
+    assert "reference price invalid" in response.error
+    booked.assert_called_once()  # known broker exposure still registered for protection
+    projected.assert_not_called()  # uncertainty must remain in the durable journal
+    killed.assert_called_once()
