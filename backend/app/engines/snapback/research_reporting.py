@@ -159,6 +159,12 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("Snapback win rate or drawdown is invalid")
     count = rejected_plan_count(result.get("rejected_plans"))
     stress = incremental_execution_cost_stress(result)
+    hedging = str(result.get("hedge_mode") or "unknown").strip().lower()
+    hedge_pnl_observed = result.get("hedge_realized_pnl_inr") is not None
+    # The historical option-tape replay has NO futures hedge trades/costs.
+    # Never infer full-strategy profit just because the option-only leg won.
+    fully_paired_pnl = (hedging == "none" or
+                        (hedging == "index_futures" and hedge_pnl_observed))
     complete = result.get("complete") is True and result.get("unresolved_position") is None
     return {
         "trades": trades, "win_rate_pct": round(float(wins), 1),
@@ -168,6 +174,16 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "rejected_plans": count,
         "replay_complete": complete,
         "additional_cost_stress": stress,
+        "hedge_mode": hedging,
+        "hedge_pnl_included": hedge_pnl_observed,
+        "whole_strategy_pnl_complete": fully_paired_pnl,
+        "whole_strategy_net_inr": (
+            round(float(net) + float(result["hedge_realized_pnl_inr"]), 6)
+            if hedging == "index_futures" and hedge_pnl_observed
+            and type(result["hedge_realized_pnl_inr"]) in (int, float)
+            and math.isfinite(result["hedge_realized_pnl_inr"])
+            else float(net) if hedging == "none" else None
+        ),
         "unresolved_reason": (
             str(result.get("unresolved_reason") or "position_not_closed")[:160]
             if not complete else None
@@ -213,6 +229,12 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         ), 6) for shock in _STRESS_POINTS
     } if stress_complete else None)
     completed = len(ok)
+    whole_strategy_complete = (
+        bool(all_rows) and completed == len(all_rows)
+        and all(r.get("whole_strategy_pnl_complete") is True
+                and type(r.get("whole_strategy_net_inr")) in (int, float)
+                and math.isfinite(r["whole_strategy_net_inr"]) for r in ok)
+    )
     # A positive in-sample subset or modelled tape is never a sufficient G7.
     return {
         "contracts": completed, "contracts_attempted": len(all_rows),
@@ -230,6 +252,10 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
         "avg_win_rate_pct": round(sum(r["win_rate_pct"] * r["trades"] for r in ok) / n, 1) if n else None,
         "promotion_eligible": False, "broker_verified": False,
         "result_basis": "closed-contract real-option-candle simulation, not broker fills",
+        "whole_strategy_pnl_complete": whole_strategy_complete,
+        "whole_strategy_net_inr": (
+            round(sum(r["whole_strategy_net_inr"] for r in ok), 6)
+            if whole_strategy_complete else None),
     }
 
 
