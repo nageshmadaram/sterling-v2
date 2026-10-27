@@ -140,3 +140,58 @@ async def test_unsettled_partial_fill_cannot_acknowledge_projected_fill(monkeypa
     assert response.status == "UNKNOWN" and not response.success
     assert response.filled_quantity == 25
     ack.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quantity,price,preserved", [
+    (-1, 100.0, 0),
+    (None, 100.0, 0),
+    (float("nan"), 100.0, 0),
+    (True, 100.0, 0),
+    (1.5, 100.0, 0),
+    (76, 100.0, 76),  # overfill still needs emergency protection
+    (75, 0.0, 75),
+    (75, -1.0, 75),
+    (75, float("nan"), 75),
+    (75, float("inf"), 75),
+])
+async def test_invalid_broker_fill_evidence_halts_without_booking_or_ack(
+        monkeypatch, quantity, price, preserved):
+    candidate = resolved()
+    candidate.filled_quantity = quantity
+    candidate.average_price = price
+    a = adapter(resolution=candidate)
+    booking = Mock()
+    monkeypatch.setattr(a, "_book_fill", booking)
+    fee_refresh = AsyncMock()
+    monkeypatch.setattr(fee_safety, "refresh", fee_refresh)
+    ack = Mock()
+    monkeypatch.setattr(fills, "mark_projected", ack)
+    kills = []
+    monkeypatch.setattr(wiring, "engage_kill_switch", lambda reason, uid: kills.append((reason, uid)))
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert response.status == "UNKNOWN" and response.success is False
+    assert response.order_id == "BROKER-ORDER-1"
+    assert response.filled_quantity == preserved
+    assert "invalid broker fill" in response.error
+    assert kills and kills[0][1] == "operator"
+    booking.assert_not_called()
+    fee_refresh.assert_not_awaited()
+    ack.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_resolution_object_stays_unknown_and_preserves_broker_identity(monkeypatch):
+    a = adapter(resolution=resolved())
+    async def missing(**kwargs):
+        return None
+    a._resolver = missing
+    kill = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", kill)
+    response = await a.submit_order(request(), broker_client=object())
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.order_id == "BROKER-ORDER-1"
+    assert response.filled_quantity == 0
+    kill.assert_called_once()
