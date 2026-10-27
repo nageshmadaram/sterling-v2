@@ -46,6 +46,46 @@ def test_the_record_round_trips_and_lists_by_user(store):
     assert store.known_uids() == ["reguser"]
 
 
+def test_board_positions_queries_all_active_but_only_recent_closed(store, monkeypatch):
+    from app.services import snapback_live_positions
+
+    clock = iter(range(100_000, 100_500))
+    monkeypatch.setattr(snapback_live_positions, "_now_ms", lambda: next(clock))
+
+    for index in range(145):
+        store.put(_position(
+            position_id=f"closed-{index:03d}", signal_id=f"signal-{index:03d}",
+            status=CLOSED,
+        ))
+    for index, state in enumerate((ENTERING, OPEN, EXITING, "RECONCILING")):
+        store.put(_position(
+            position_id=f"active-{index}", signal_id=f"active-signal-{index}",
+            status=state,
+        ))
+    store.put(_position(
+        uid="foreign", position_id="foreign", signal_id="foreign",
+        status=OPEN,
+    ))
+
+    rows = store.board_positions("reguser", recent_closed=100)
+    assert [p.position_id for p in rows[:4]] == [
+        "active-0", "active-1", "active-2", "active-3",
+    ]
+    assert [p.position_id for p in rows[4:]] == [
+        f"closed-{index:03d}" for index in range(45, 145)
+    ]
+    assert len(rows) == 104
+    assert store.board_positions("reguser", recent_closed=0) == rows[:4]
+    assert store.board_positions("foreign")[0].position_id == "foreign"
+    assert all(p.uid == "reguser" for p in rows)
+
+
+def test_board_positions_invalid_history_limit_rejected(store):
+    for value in (-1, 1.5, True):
+        with pytest.raises(ValueError):
+            store.board_positions("reguser", recent_closed=value)
+
+
 def test_a_closed_position_is_not_open(store):
     store.put(_position(status=CLOSED))
 
