@@ -263,3 +263,41 @@ cross-owner/account/contract upserts; and same-owner updates.
   certification has been established. Do not merge or enable new live
   entries. Account owner authorization and actual broker/market
   measurements remain mandatory.
+
+
+## Seventh pass — cost-stress and economic evidence integrity
+
+The recorded October 22 ultra-scalping result of **INR 19,944**
+and scalp result of **INR 19,630** are historical simulated
+aggregate totals from **two profitable option contracts** (NIFTY and
+BANKNIFTY puts). The same research table includes three contract
+processing errors per mode and one incomplete-contract skip, so those
+positive numbers **do not** demonstrate a repeatable, diversified
+after-cost trading edge.
+
+New `research_reporting.incremental_execution_cost_stress` accepts
+only verified-for-consistency trade-level simulation records. It
+deducts EXTRA hypothetical 0.5, 1.0 and 2.0 option premium
+points per traded unit, **on top of** the replay's original estimated
+spread/slippage/fees. It records exact unrounded net P&L, the
+trade-volume-weighted break-even extra cost, and mode-wide stress
+results only when **every completed contract** has consistent
+trade-level records. Missing trade history, mismatched P&L totals,
+invalid/zero lot quantities and nonfinite P&L explicitly produce
+`available=false` rather than invented stressed profits. Regression
+tests cover rounding bias, profitable baseline becoming negative
+under extra costs, inconsistent receipts and mode-wide refusal on
+partial evidence.
+
+**This does not certify profitability.** It does not produce
+independent actual bid-ask, impact, order rejection, brokerage,
+expiry/assignment, lost quote or forward out-of-sample receipts.
+The current historical script chooses a contract from the available
+instrument master at run time; that is not an archive of actual
+date-effective option-chain selection. Until chronological
+date-effective selection, independent forward data, broker cost
+receipts and statistically positive after-cost outcomes are verified,
+Snapback R3 remains BLOCKED.
+
+Exact-head Sterling test execution and account/broker release proofs
+remain pending; no live order was enabled or sent.
