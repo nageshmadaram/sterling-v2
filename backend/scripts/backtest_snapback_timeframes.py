@@ -36,6 +36,7 @@ load_sterling_env()
 from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
+from app.engines.snapback.challenger import CHALLENGER_ID  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
     choose_option_contract, closed_trade_audit, contract_replay_summary,
     current_instrument_master_provenance, eligible_expiries, mode_totals,
@@ -275,11 +276,27 @@ async def main() -> None:
                     cfg = validate({"trading_mode": mode})
                     res = replay_intraday(ub, ob, cfg, und, option_type=kind,
                                           lot_size=int(pick.get("lot_size") or 1), option_symbol=pick["tradingsymbol"])
+                    candidate = replay_intraday(
+                        ub, ob, cfg, und, option_type=kind,
+                        lot_size=int(pick.get("lot_size") or 1),
+                        option_symbol=pick["tradingsymbol"],
+                        candidate_policy=CHALLENGER_ID,
+                    )
+                    candidate_report = {
+                        "underlying": und, "option": pick["tradingsymbol"],
+                        "bars": len(keep), "coverage": dict(coverage),
+                        "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
+                        **contract_replay_summary(candidate),
+                        "closed_trade_audit": closed_trade_audit(candidate),
+                        "candidate_policy": CHALLENGER_ID,
+                        "challenger_rejections": candidate["challenger_rejections"],
+                    }
                     intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
                                            "bars": len(keep), "coverage": coverage,
                                            "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
                                            **contract_replay_summary(res),
-                                           "closed_trade_audit": closed_trade_audit(res)})
+                                           "closed_trade_audit": closed_trade_audit(res),
+                                           "cost_feasible_challenger": candidate_report})
                 except Exception as exc:  # noqa: BLE001
                     intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"),
                                            "error": f"{type(exc).__name__}: {exc}"[:240],
@@ -289,6 +306,25 @@ async def main() -> None:
     # Historical report outputs are diagnostic, and missing/failed contracts
     # remain visible in counts instead of disappearing from profitable totals.
     report["minute_modes_real_options"] = {"totals": totals, "rows": intraday}
+    challenger_rows = {}
+    for mode, rows in intraday.items():
+        challenger_rows[mode] = [
+            row["cost_feasible_challenger"] if "cost_feasible_challenger" in row
+            else {key: row[key] for key in (
+                "underlying", "option", "option_type", "skipped", "error",
+                "coverage", "replay_complete")
+                if key in row}
+            for row in rows
+        ]
+    report["minute_challenger_research"] = {
+        "policy": CHALLENGER_ID,
+        "research_only": True, "historical_selection_bias": True,
+        "complete_after_cost_hedge_results": False,
+        "independent_untouched_oos_evidence": False,
+        "baseline_is_unchanged": True,
+        "totals": {mode: mode_totals(rows) for mode, rows in challenger_rows.items()},
+        "rows": challenger_rows,
+    }
     path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
     # Atomic no-overwrite publish: failed/disk-full research runs never
     # leave a truncated file that could be mistaken for verified evidence.
