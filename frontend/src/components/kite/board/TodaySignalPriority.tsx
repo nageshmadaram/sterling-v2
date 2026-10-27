@@ -124,7 +124,7 @@ export function TodaySignalPriorityStatus() {
   const state = useTodaySignalPriority();
   if (state.replay) return null;
   const parts = TODAY_STRATEGIES.map(name => `${name}: ${
-    state.stages[name] === 'ready' ? 'today loaded'
+    state.stages[name] === 'ready' ? 'response received'
       : state.stages[name] === 'scanning' ? 'scanning today'
       : state.stages[name] === 'error' ? 'unavailable'
       : 'loading today'
@@ -136,9 +136,10 @@ export function TodaySignalPriorityStatus() {
       background: 'var(--k-surface)', flexShrink: 0 }}
   >
     <strong>{state.olderReady
-      ? 'Today’s four strategy boards loaded. History may now load.'
+      ? 'Current-day API checks finished across four strategies. History may now load.'
       : 'Priority: today’s signals across all four strategies. Older history is queued.'}</strong>
     <span style={{ marginLeft: 8, opacity: .8 }}>{parts.join(' · ')}</span>
+    {state.olderReady && <span style={{ marginLeft: 8, opacity: .8 }}>A response does not prove that a fresh scan ran or produced signals.</span>}
     {!state.olderReady && TODAY_STRATEGIES.some(name => state.stages[name] === 'error') &&
       <span style={{ marginLeft: 8 }}>Unavailable live sources must recover before older history loads.</span>}
   </div>;
