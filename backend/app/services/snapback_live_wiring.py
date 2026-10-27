@@ -213,10 +213,26 @@ class SnapbackExecutionAdapter:
             if (booked_ok and resolution.projection_version
                     and resolution.settled and not resolution.reconciliation_required):
                 try:
-                    fills.mark_projected(resolution)
+                    projected = fills.mark_projected(resolution)
+                    if projected is not True:
+                        raise RuntimeError("journal projection was not acknowledged for the exact version")
                 except Exception as exc:  # noqa: BLE001
+                    # Broker exposure and local booking may exist, while the
+                    # canonical durable journal still needs reconciliation.
+                    # Returning FILLED here would retire the plan too early.
                     log.error("Snapback live: projection ack failed for %s: %s",
                               result.order_id, exc)
+                    engage_kill_switch(
+                        f"Snapback journal projection unresolved after {request.symbol} fill",
+                        request.uid,
+                    )
+                    return ExecutionResult(
+                        success=False, status="UNKNOWN",
+                        intent_key=resolution.intent_key or result.intent_key,
+                        order_id=result.order_id, filled_quantity=filled,
+                        filled_price=average,
+                        error="post-fill journal projection unresolved; reconcile before new entries",
+                    )
 
         if filled > 0 and not booked_ok:
             # The broker filled real units, but the signed ledger or the owned
