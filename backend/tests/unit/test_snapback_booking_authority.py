@@ -647,3 +647,31 @@ def test_idempotent_duplicate_ledger_disposition_can_recover_owned_registry(monk
     record.assert_called_once()
     registry.assert_called_once()
     halt.assert_not_called()
+
+
+@pytest.mark.parametrize("change", [
+    {"uid": "intruder"},
+    {"account_id": "different-account"},
+    {"option_symbol": "DIFFERENT-OPTION"},
+])
+def test_position_store_put_cannot_reassign_owner_account_or_contract(tmp_path, monkeypatch, change):
+    from dataclasses import replace
+    from app.services import snapback_live_positions as positions
+    monkeypatch.setattr(positions._journal, "sb_sync", lambda *_: None)
+    store = positions.LivePositionStore(tmp_path / "guarded-put.db")
+    original = positions.LivePosition(
+        position_id="shared-plan-id", uid="operator", account_id="account",
+        signal_id="signal", lane="swing", underlying="NIFTY", side="fade_up",
+        option_type="PE", option_exchange="NFO", option_symbol="NIFTY_TEST_PE",
+        option_qty=75, option_entry_price=100.0,
+    )
+    store.put(original)
+    with pytest.raises(PermissionError, match="owner_or_contract_collision"):
+        store.put(replace(original, **change))
+    current = store.get("shared-plan-id")
+    assert current.uid == original.uid
+    assert current.account_id == original.account_id
+    assert current.option_symbol == original.option_symbol
+    # A same-identity update remains valid and does not lose recovery state.
+    store.put(replace(original, option_qty=100))
+    assert store.get("shared-plan-id").option_qty == 100
