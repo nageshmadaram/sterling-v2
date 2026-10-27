@@ -553,3 +553,48 @@ still **BLOCKED**. A green offline gate, even if executed, would
 be **unit-only**, not live broker certification, after-cost full
 hedged-strategy profit evidence or real-money authorization. Do not
 change LIVE master halt or merge the draft PR on this basis.
+
+
+## Fifteenth pass — walk-forward session-count distortion and economic-promotion gate
+
+The walk-forward evaluator previously described its equity curve as
+including sessions with no exit, but `equity_series` actually built
+its dates from the trade entry/exit endpoints only. With sparse
+trading, this drops legitimate flat sessions and may inflate or
+otherwise distort reported annualized Sharpe, the deflated Sharpe,
+and drawdown. `_day_span` was not in fact sourced from the tape.
+
+Now:
+- `equity_series(..., sessions=...)` accepts a unique, ordered
+  full source-tape session calendar, explicitly includes flat
+  sessions as zero realized-return observations and refuses missing
+  exit sessions or duplicate/unsorted days.
+- `run()` passes actual tape sessions to the in-sample selector,
+  each out-of-sample fold, all concatenated OOS books, and the final
+  deflated-Sharpe calculation; no market dates are invented from a
+  weekday-only calendar.
+- Each Book records whether source-tape sessions were supplied and
+  the observation count. Legacy diagnostics without `sessions`
+  are labeled `equity_session_calendar_complete=false`.
+- `judge()` now REFUSES economic promotion when the full tape session
+  calendar is absent, even if someone manually supplies a high
+  deflated Sharpe, positive confidence interval and favorable
+  permutation p-value.
+- Targeted tests distinguish trade-endpoint vs full-tape returns,
+  require zeros in empty sessions, reject missing exit dates and
+  ensure endpoint-only returns cannot pass promotion. Included the
+  walk-forward test module in the broker-free acceptance script.
+
+For a purely synthetic two-exit/five-session example with 10%
+allocation and two 20% trade returns, the *sum* stays 4% but
+the average per counted session changes from the biased 2% to
+0.8% once the three flat sessions are represented. An independent
+Python arithmetic check reproduced that example. **This is not
+actual Snapback market-performance evidence.**
+
+Still missing: run all new source tests on the real branch, true
+date-effective market/option and futures tapes, total broker costs,
+authorized order/stop/recovery proof, independently observed forward
+returns and economic acceptance. Snapback remains NOT CERTIFIED and
+master new-money entries OFF. CI investigation remains deferred at
+the user's instruction.
