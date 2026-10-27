@@ -5,7 +5,7 @@ from app.engines.snapback.research_reporting import (
     choose_option_contract, contract_replay_summary, eligible_expiries,
     mode_totals, rejected_plan_count, write_research_report_once,
     incremental_execution_cost_stress, closed_trade_audit,
-    current_instrument_master_provenance,
+    current_instrument_master_provenance, research_variant_row,
 )
 from datetime import date
 import pytest
@@ -417,3 +417,52 @@ def test_current_master_hash_is_reorder_independent_and_never_historical_proof()
 def test_missing_snapshot_timestamp_fails_closed():
     with pytest.raises(ValueError, match="timestamp"):
         current_instrument_master_provenance([], "")
+
+
+def test_failing_challenger_does_not_erase_valid_baseline():
+    metadata = {"underlying": "NIFTY", "option": "NIFTY_PE",
+                "coverage": {"all_sessions_complete": True}}
+    baseline = research_variant_row(
+        lambda: replay(), metadata=metadata, policy="baseline")
+    challenger = research_variant_row(
+        lambda: (_ for _ in ()).throw(ValueError("candidate has no prior candles")),
+        metadata=metadata, policy="snapback_intraday_cost_feasible_v1")
+    assert baseline["replay_complete"] is True
+    assert "error" not in baseline
+    assert challenger["replay_complete"] is False
+    assert "candidate has no prior candles" in challenger["error"]
+    assert mode_totals([baseline])["contracts_attempted"] == 1
+    comparison = mode_totals([challenger])
+    assert comparison["contracts_attempted"] == 1
+    assert comparison["contract_errors"] == 1
+    assert comparison["promotion_eligible"] is False
+
+
+def test_failing_baseline_does_not_erase_valid_challenger():
+    metadata = {"underlying": "BANKNIFTY", "option": "BN_PE",
+                "coverage": {"all_sessions_complete": True}}
+    baseline = research_variant_row(
+        lambda: (_ for _ in ()).throw(RuntimeError("baseline signal failed")),
+        metadata=metadata, policy="baseline")
+    observed = replay(challenger_rejections={"unattainable": 7})
+    challenger = research_variant_row(
+        lambda: observed, metadata=metadata,
+        policy="snapback_intraday_cost_feasible_v1")
+    assert baseline["replay_complete"] is False
+    assert challenger["replay_complete"] is True
+    assert challenger["challenger_rejections"] == {"unattainable": 7}
+    assert not challenger.get("error")
+    assert mode_totals([baseline])["contract_errors"] == 1
+    assert mode_totals([challenger])["contract_errors"] == 0
+
+
+def test_invalid_or_unexpected_research_return_fails_only_that_variant():
+    meta = {"underlying": "RELIANCE", "coverage": {"all_sessions_complete": True}}
+    for invalid in (None, "FILLED", [], 10):
+        result = research_variant_row(
+            lambda invalid=invalid: invalid, metadata=meta,
+            policy="snapback_intraday_cost_feasible_v1")
+        assert result["replay_complete"] is False
+        assert "error" in result
+        assert result["underlying"] == "RELIANCE"
+        assert mode_totals([result])["contracts_attempted"] == 1
