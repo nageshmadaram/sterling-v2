@@ -1232,6 +1232,7 @@ class SnapbackLiveExecutor:
                 is_hedge
                 and exchange == str(plan.get("futures_exchange") or "")
                 and side == str(plan.get("hedge_side") or "").upper()
+                and side == _hedge_side(plan)
                 and side in {"BUY", "SELL"}
             )
             if not (option_matches or hedge_matches):
