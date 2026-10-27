@@ -42,7 +42,7 @@ describe('mobile Web Push navigation', () => {
       '/?view=live&notification=signals&strategy=snapback&signal=SB%3A123&at=1793160000000',
     );
     expect(link).toBe(
-      'https://sterling.example/?view=live&notification=signals&strategy=snapback&signal=SB%3A123&at=1793160000000',
+      'https://sterling.example/kite?view=live&notification=signals&strategy=snapback&signal=SB%3A123&at=1793160000000',
     );
     expect(context.safeDestination('https://attacker.example/steal')).toBe('https://sterling.example/');
     expect(context.safeDestination('/missing?notification=signals')).toBe('https://sterling.example/');
@@ -61,7 +61,7 @@ describe('mobile Web Push navigation', () => {
     });
     await work;
     expect(w.navigate).toHaveBeenCalledWith(
-      'https://sterling.example/?view=live&notification=signals&strategy=gamma_move&signal=gamma-1',
+      'https://sterling.example/kite?view=live&notification=signals&strategy=gamma_move&signal=gamma-1',
     );
     expect(w.focus).toHaveBeenCalledOnce();
     expect(w.openWindow).not.toHaveBeenCalled();
