@@ -1255,11 +1255,36 @@ class SnapbackExitManager:
         req_name = "option_exit_requested" if is_option else "hedge_exit_requested"
 
         def apply(p: LivePosition) -> None:
-            setattr(p, field_name, str(result.order_id))
+            # An exit ACK proves a working broker identity, but may race a
+            # restart, a stale tick or another position-owner transaction.
+            # Never silently replace a different, still-owned exit order.
+            if (p.uid != pos.uid or p.account_id != pos.account_id
+                    or p.option_symbol != pos.option_symbol
+                    or (not is_option and p.hedge_symbol != pos.hedge_symbol)):
+                raise ValueError("exit position ownership changed after broker ACK")
+            current_order = str(getattr(p, field_name, "") or "")
+            if current_order and current_order != broker_order_id:
+                raise ValueError("different broker exit order already belongs to this leg")
+            setattr(p, field_name, broker_order_id)
             setattr(p, req_name, int(quantity))
 
-        self.store.mutate(pos.position_id, apply)
-        return str(result.order_id)
+        try:
+            stored = self.store.mutate(pos.position_id, apply)
+            if stored is None:
+                raise RuntimeError("exit position vanished before order ID persistence")
+        except Exception as exc:  # noqa: BLE001 - SELL/BUY may already exist at Kite
+            log.critical(
+                "Snapback exit: broker order %s ACKed but durable registry failed: %s",
+                broker_order_id, exc,
+            )
+            engage_kill_switch(
+                f"Snapback exit broker order {broker_order_id} not persisted; reconcile",
+                pos.uid,
+            )
+            # Caller enters a reconciliation hold. No blind resend and no
+            # competing option stop may be rearmed while ACK is uncertain.
+            return None
+        return broker_order_id
 
     async def _ensure_ledger_inventory(self, pos: LivePosition, *, leg: str) -> None:
         """The canonical exit proves a reduction against the fill ledger. Re-book the
