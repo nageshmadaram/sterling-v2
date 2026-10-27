@@ -22,11 +22,14 @@ export function useEngineBacktest() {
 // fall back to a slow idle poll once scanning finishes.
 import { useReplayStore } from './useReplayStore';
 
-export function useEngineSignals() {
+export function useEngineSignals(todayOnly = false) {
   const isSimActive = useReplayStore((s) => s.status.state !== 'idle');
+  const liveTodayOnly = todayOnly && !isSimActive;
   return useQuery<SignalsResponse>({
-    queryKey: ['kite-engine-signals'],
-    queryFn: () => api.get<SignalsResponse>(`${E}/signals`),
+    queryKey: ['kite-engine-signals', liveTodayOnly ? 'today' : 'all'],
+    queryFn: () => api.get<SignalsResponse>(
+      `${E}/signals${liveTodayOnly ? '?today_only=true' : ''}`,
+    ),
     refetchInterval: (query) => {
       const st = useReplayStore.getState().status;
       if (st.state !== 'idle') {
