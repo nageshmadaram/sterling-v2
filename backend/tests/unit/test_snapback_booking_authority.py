@@ -195,3 +195,28 @@ async def test_missing_resolution_object_stays_unknown_and_preserves_broker_iden
     assert response.order_id == "BROKER-ORDER-1"
     assert response.filled_quantity == 0
     kill.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ack_outcome", ["missing", "stale", "exception"])
+async def test_failed_journal_projection_acknowledgement_blocks_release(
+        monkeypatch, ack_outcome):
+    a = adapter()
+    monkeypatch.setattr(a, "_book_fill", Mock(return_value=True))
+    monkeypatch.setattr(fee_safety, "refresh", AsyncMock())
+    ack = Mock(
+        side_effect=OSError("disk fault") if ack_outcome == "exception" else None,
+        return_value=False if ack_outcome in {"missing", "stale"} else True,
+    )
+    monkeypatch.setattr(fills, "mark_projected", ack)
+    kills = []
+    monkeypatch.setattr(wiring, "engage_kill_switch", lambda reason, uid: kills.append((reason, uid)))
+
+    response = await a.submit_order(request(), broker_client=object())
+
+    assert not response.success and response.status == "UNKNOWN"
+    assert response.order_id == "BROKER-ORDER-1"
+    assert response.filled_quantity == 75
+    assert "projection" in response.error
+    ack.assert_called_once()
+    assert kills and kills[0][1] == "operator"
