@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-27",
+  "context": "Isolated pure Python module, not full Sterling test run",
+  "source": "backend/app/engines/snapback/challenger.py",
+  "source_blob_sha1": "8356989467c769a87ed0dc2465310077dda9f772",
+  "python_version": "3.13.5",
+  "unit_test_file": "test_snapback_challenger_isolated.py",
+  "passed": 8,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "tests": [
+    "test_causal_candidate_accepts_with_fees_charged",
+    "test_rejects_unattainable_target",
+    "test_rejects_stressed_risk_budget",
+    "test_no_future_data",
+    "test_missing_history",
+    "test_one_bar_holding_window_does_not_borrow_three_bar_excursion",
+    "test_weak_reward_risk_override_cannot_bypass_one_to_one_floor",
+    "test_randomized_cost_and_risk_invariants_in_500_synthetic_plans"
+  ],
+  "profitability_verified": false,
+  "broker_certified": false,
+  "market_data_used": false,
+  "notes": "Includes 500 seeded synthetic candidate risk/reward scenarios in one test; no live orders, option-chain data or actual returns."
+}
