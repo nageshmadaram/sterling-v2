@@ -1589,15 +1589,19 @@ class SnapbackExitManager:
             raise ValueError("broker stop fill quantity or price unavailable")
         try:
             decimal_qty = Decimal(str(raw_qty))
-            decimal_price = Decimal(str(raw_price if raw_price is not None else 0))
+            decimal_price = Decimal(str(raw_price if raw_price not in (None, "") else 0))
         except InvalidOperation as exc:
             raise ValueError("broker stop fill is not numeric") from exc
         if (not decimal_qty.is_finite() or decimal_qty < 0
                 or decimal_qty != decimal_qty.to_integral_value()
+                or decimal_qty > 9_223_372_036_854_775_807
                 or not decimal_price.is_finite() or decimal_price < 0
                 or (decimal_qty > 0 and decimal_price <= 0)):
             raise ValueError("broker stop fill quantity or price is inconsistent")
-        return int(decimal_qty), float(decimal_price)
+        parsed_price = float(decimal_price)
+        if not math.isfinite(parsed_price):
+            raise ValueError("broker stop fill price overflows numeric range")
+        return int(decimal_qty), parsed_price
 
     def _held_beyond_siblings(
         self, net: Dict[tuple, int], pos: LivePosition
