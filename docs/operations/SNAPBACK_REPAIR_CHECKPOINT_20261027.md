@@ -117,3 +117,40 @@ full restore or statistically defensible forward-profit evidence was observed.
 
 **Current decision:** release R1/R2/R3 **BLOCKED**; real-money new entries
 remain OFF pending executed exact-head regressions and independent sign-off.
+
+
+## Third pass — broker post-submit evidence integrity
+
+Further changes on the draft review branch:
+
+- Post-submission broker receipts with missing, negative, fractional, Boolean,
+  over-ordered or otherwise impossible filled quantities; nonfinite, missing,
+  zero or negative prices for a positive fill; and missing resolver objects
+  now return `UNKNOWN` with the broker order ID and any positively known
+  quantity retained. New entries are halted; no contradictory fill is booked,
+  no journal projection is acknowledged, and no entry is blindly retried.
+- A settled fill now requires a genuine broker-terminal order state, not
+  simply `filled_quantity == expected_quantity` while status remains OPEN.
+  Quantity-known but lifecycle-unresolved exposure remains eligible for
+  **protection and reconciliation**, not for a success claim.
+- Valid terminal partial fills can be reported as FILLED_PARTIAL only when
+  canonical projection evidence is coherent and durably acknowledged.
+- The canonical projection version must be an actual positive integer and
+  `mark_projected` must explicitly return True. False/stale versions,
+  exceptions and absent versions leave the response UNKNOWN, halt new entries
+  and preserve broker order identity.
+- An unsettled or reconciliation-conflicted order always engages the
+  Snapback entry kill switch at the adapter boundary, independently of
+  what the lower-level resolver did.
+- A zero-fill order is terminal only with a settled CANCELLED or REJECTED
+  broker outcome; inconsistent statuses cannot be silently converted into a
+  rejection, which might allow an unsafe follow-up entry.
+- Regression tests cover all these cases using mocked canonical submissions
+  and broker fill resolutions.
+
+**Verification restriction:** These broker-adapter regressions were committed
+but are **not marked executed**: current hosted GitHub Actions jobs are failing
+before a runner executes steps. Previously verified 108 focused tests and
+24 isolated pure-reporting tests refer to older, different source scopes.
+Nothing has been merged or submitted to the broker; technical/live and
+economic certifications remain blocked.
