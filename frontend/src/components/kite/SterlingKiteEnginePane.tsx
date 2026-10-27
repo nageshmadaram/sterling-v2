@@ -1359,6 +1359,16 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                 onChange={() => changeShowEnded(!showEnded)}
               />
               </ViewFiltersDisclosure>
+              {priority.olderReady && rows.length > 0 && filteredRows.length === 0 && (
+                <button type="button" className="sb-tool" title="Show saved signal history; does not authorize trades"
+                  onClick={() => {
+                    changeTodayOnly(false);
+                    changeBestOnly(false);
+                    changeShowEnded(true);
+                    setStModesRaw('');
+                    setQuery('');
+                  }}>Show saved signals ({rows.length})</button>
+              )}
               <StrategyBoardFooter name="SuperTrend">
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 12px' }}>
             {engineControls}
