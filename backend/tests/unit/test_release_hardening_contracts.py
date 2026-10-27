@@ -397,7 +397,7 @@ def test_snapback_entry_ledger_uses_durable_exchange_time(monkeypatch):
         positions=NS(get=lambda _: None),
     )
     monkeypatch.setattr(broker, "_record_leg", Mock())
-    record = Mock(return_value=NS(reconciliation_required=False))
+    record = Mock(return_value=NS(reconciliation_required=False, reason="accepted"))
     monkeypatch.setattr(fill_ledger, "record", record)
     request = NS(account_id="a", uid="u", symbol="OPT", exchange="NFO",
                  side="BUY", tag="snapback:p", payload={})
