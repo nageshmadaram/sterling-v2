@@ -39,24 +39,28 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
         const next = await api.get<Attempt>(`${BASE}/${encodeURIComponent(attempt.id)}`);
         if (!active) return;
         setAttempt(next); setError('');
-        if (next.phase === 'done') {
-          if (lastSavedAttempt.current !== next.id) {
-            lastSavedAttempt.current = next.id;
-            // A saved token is not yet proof the active broker account is usable.
-            // Refresh both sources immediately, including when the login flow
-            // finished inside this same modal rather than a callback tab.
-            void qc.invalidateQueries({ queryKey: ['kite-accounts'] });
-            void qc.refetchQueries({ queryKey: ['kite-status'], type: 'active' });
-            onSaved?.(next.account_id);
-          }
-        } else if (!terminal(next.phase)) timer = setTimeout(poll, 1000);
+        if (!terminal(next.phase)) timer = setTimeout(poll, 1000);
       } catch (e) {
         if (active) { setError((e as Error).message); timer = setTimeout(poll, 3000); }
       }
     };
     timer = setTimeout(poll, 500);
     return () => { active = false; clearTimeout(timer); };
-  }, [attempt?.id, attempt?.phase === 'done', attempt?.phase === 'failed', attempt?.phase === 'cancelled', attempt?.phase === 'tested', qc, onSaved]);
+  }, [attempt?.id, attempt?.phase === 'done', attempt?.phase === 'failed', attempt?.phase === 'cancelled', attempt?.phase === 'tested']);
+  // Completion may arrive in *any* response: the six-digit verify request,
+  // the initial login request, or the background poll. An effect restricted to
+  // nonterminal polling misses immediate 'done' replies and strands the
+  // broker-status card in OFFLINE despite a durable session receipt.
+  useEffect(() => {
+    if (attempt?.phase !== 'done' || !attempt.account_id) return;
+    if (lastSavedAttempt.current === attempt.id) return;
+    lastSavedAttempt.current = attempt.id;
+    void qc.invalidateQueries({ queryKey: ['kite-accounts'] });
+    void qc.invalidateQueries({ queryKey: ['kite-status'] });
+    void qc.invalidateQueries({ queryKey: ['kite-diagnostics-summary'] });
+    onSaved?.(attempt.account_id);
+  }, [attempt?.id, attempt?.phase, attempt?.account_id, qc, onSaved]);
+
   const previewActive = showPreview && !!attempt && ['submitting_password', 'awaiting_totp', 'verifying_totp'].includes(attempt.phase);
   useEffect(() => {
     setPreview(null); setPreviewError('');
