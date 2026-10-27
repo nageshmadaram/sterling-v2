@@ -1700,8 +1700,10 @@ class SnapbackExitManager:
         child_id = str(state.child_order_id or "")
         if not child_id:
             return [] if state.verdict == pstop.STOP_ABSENT else None
-        if child_id in booked:
-            return []                     # already counted: nothing new to book
+        # A previously booked child may still be OPEN or PARTIALLY filled.
+        # Booked means "accounted for once", not "broker-terminal": never
+        # suppress the child when deciding whether a competing MARKET SELL
+        # can begin. _book_stop_fills is idempotent for booked IDs.
         matching = [o for o in orders if isinstance(o, dict)
                     and str(o.get("order_id") or "") == child_id]
         # Two broker rows with the same child ID are ambiguous snapshots,
