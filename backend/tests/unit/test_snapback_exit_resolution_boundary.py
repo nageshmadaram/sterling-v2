@@ -282,3 +282,64 @@ async def test_unknown_exit_submission_stays_on_hold_when_position_read_fails(mo
     assert await obj._close_leg(NS(), p, leg="option") == "submit_unknown"
     hold.assert_called_once_with(p, "option_exit_submission_identity_unknown")
     protection.ensure.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_unverified_futures_hedge_side_never_creates_buy_or_sell_exit(monkeypatch):
+    p = pos()
+    p.hedge_side = "UNKNOWN"
+    canonical = NS(submit_order=AsyncMock())
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), canonical=canonical)
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    result = await obj._submit_exit(NS(), p, leg="hedge", quantity=25)
+    assert result is None
+    canonical.submit_order.assert_not_awaited()
+    halt.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_real_broker_account_switch_cannot_authorize_exit(monkeypatch):
+    p = pos()
+    canonical = NS(submit_order=AsyncMock())
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), canonical=canonical)
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    client = NS(_is_paper=False, _account_id="OTHER_ACCOUNT")
+    result = await obj._submit_exit(client, p, leg="option", quantity=75)
+    assert result is None
+    canonical.submit_order.assert_not_awaited()
+    halt.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_zero_holdings_shortfall_never_arms_naked_option_stop(monkeypatch):
+    p = pos()
+    ensure = AsyncMock()
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock()),
+        protection=NS(ensure=ensure),
+    )
+    broker_net = AsyncMock(return_value={})
+    monkeypatch.setattr(exits, "_broker_net", broker_net)
+    monkeypatch.setattr(obj, "_held_beyond_siblings", Mock(return_value=0))
+    monkeypatch.setattr(obj, "_note_shortfall", Mock(return_value=False))
+    outcome = await obj._option_shortfall_step(NS(), p, remaining=75)
+    assert outcome == ("option_missing_unconfirmed", 0)
+    ensure.assert_not_awaited()
+
+
+def test_invalid_hedge_direction_never_books_signed_ledger(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    p = pos()
+    p.hedge_side = "INVALID"
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    ledger_record = Mock()
+    halt = Mock()
+    monkeypatch.setattr(fill_ledger, "record", ledger_record)
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    assert obj._book_exit(
+        p, leg="hedge", order_id="HEDGE-ORDER-1", filled=25,
+        average=20000.0) is False
+    ledger_record.assert_not_called()
+    halt.assert_called_once()
