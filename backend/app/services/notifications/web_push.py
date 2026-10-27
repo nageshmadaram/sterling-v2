@@ -87,7 +87,7 @@ async def send(uid,event_key,title,body,category,*,force=False,
                               force=force,strategy=strategy,signal_id=signal_id,symbol=symbol,at_ms=at_ms)
 
 def _send(uid,event_key,title,body,category,*,force=False,
-          strategy="",signal_id="",symbol=""):
+          strategy="",signal_id="",symbol="",at_ms=0):
     from pywebpush import webpush,WebPushException
     from py_vapid import Vapid
     cfg=config(uid)
