@@ -234,3 +234,50 @@ def test_unrecognized_policy_cannot_change_replay_behavior():
     with pytest.raises(ValueError, match="Unknown Snapback challenger"):
         replay_intraday(b, b, CFG, "NIFTY", option_type="PE", lot_size=50,
                         candidate_policy="quietly_enable_live")
+
+@pytest.mark.parametrize("cash,premium,reason", [
+    (5100.0, None, "additional_cost_exceeds_available_cash"),
+    (5200.0, 5100.0, "additional_cost_exceeds_premium_allocation"),
+])
+def test_additional_cost_cannot_breach_precommitted_cash_or_premium_cap(
+        cash, premium, reason):
+    b = candles(rise=12)
+    p = make_plan(100, 50, CFG)
+    original_required = p["premium_outlay_inr"] + p["estimated_total_cost_inr"]
+    stressed_required = original_required + 25
+    assert original_required <= 5100 < stressed_required
+    result = assess_cost_feasible_plan(
+        p, times=b.time[:60], opens=b.open[:60],
+        highs=b.high[:60], closes=b.close[:60],
+        entry_time=b.time[60], bar_seconds=60, horizon_bars=1,
+        cash_budget_inr=cash, premium_allocation_inr=premium)
+    assert not result["accepted"] and result["quantity"] == 0
+    assert reason in result["rejection_reasons"]
+    assert result["stressed_cash_required_inr"] == pytest.approx(stressed_required)
+
+
+def test_sufficient_stressed_cash_and_premium_cap_allows_research_candidate():
+    b = candles(rise=12)
+    p = make_plan(100, 50, CFG)
+    result = assess_cost_feasible_plan(
+        p, times=b.time[:60], opens=b.open[:60],
+        highs=b.high[:60], closes=b.close[:60],
+        entry_time=b.time[60], bar_seconds=60, horizon_bars=1,
+        cash_budget_inr=5200, premium_allocation_inr=5200)
+    assert result["accepted"]
+    assert result["stressed_cash_required_inr"] == pytest.approx(5115)
+
+
+@pytest.mark.parametrize("budget", [0, -1, float("nan"), float("inf")])
+def test_invalid_stressed_cash_budget_is_rejected(budget):
+    b = candles()
+    p = make_plan(100, 50, CFG)
+    result = assess_cost_feasible_plan(
+        p, times=b.time[:60], opens=b.open[:60],
+        highs=b.high[:60], closes=b.close[:60],
+        entry_time=b.time[60], bar_seconds=60, horizon_bars=1,
+        cash_budget_inr=budget)
+    assert not result["accepted"]
+    assert "invalid_challenger_economic_inputs" in result["rejection_reasons"]
+
+
