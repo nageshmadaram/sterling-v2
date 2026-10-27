@@ -157,7 +157,7 @@ export function SuperTrendEnginePanel() {
                 value={derivMonthlyOnly ? 'monthly' : 'follow'}
                 options={[
                   { value: 'monthly', label: 'Monthly only', hint: 'Recommended. Every contract has room to warm up.' },
-                  { value: 'follow', label: 'Follow index expiries', hint: 'Also scans weeklies — mute for most of their life at 1H.' },
+                  { value: 'follow', label: 'Follow index expiries', hint: 'Includes weekly contracts; slower horizons can make their useful entry window too narrow.' },
                 ]}
                 onChange={(v) => patch({ deriv_expiries: v === 'monthly' ? ['monthly'] : null })}
               />
