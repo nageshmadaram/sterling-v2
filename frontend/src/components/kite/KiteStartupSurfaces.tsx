@@ -233,7 +233,8 @@ export function WatchlistStartupBoundary({ children }: BoundaryProps) {
 
 export function EngineStartupBoundary({ children }: BoundaryProps) {
   const config = useEngineConfig();
-  const signals = useEngineSignals();
+  // Startup needs current signals, not the unrestricted historical journal.
+  const signals = useEngineSignals(true);
   const missingInitialData = !config.data || !signals.data;
   const busy = missingInitialData && (config.isLoading || signals.isLoading || config.isFetching || signals.isFetching);
 
