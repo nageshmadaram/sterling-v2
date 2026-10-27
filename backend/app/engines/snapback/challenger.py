@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta, timezone
+from numbers import Real
 from typing import Any, Mapping, Sequence
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -25,7 +26,16 @@ def _ceil_tick(points: float, tick: float = 0.05) -> float:
 
 
 def _valid_price(x: Any) -> bool:
-    return type(x) in (int, float) and math.isfinite(x) and x > 0
+    # Broker/replay bars commonly use NumPy float64/float32 scalars.
+    # Reject bool, strings, NaN and infinities without rejecting real
+    # numerical scalars solely because their concrete class is NumPy.
+    if isinstance(x, bool) or not isinstance(x, Real):
+        return False
+    try:
+        number = float(x)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return math.isfinite(number) and number > 0
 
 
 def prior_premium_excursions(
@@ -40,7 +50,9 @@ def prior_premium_excursions(
     """
     n = len(times)
     if (len(opens) != n or len(highs) != n or len(closes) != n
-            or bar_seconds <= 0 or horizon_bars < 1 or min_windows < 1
+            or type(bar_seconds) is not int or bar_seconds <= 0
+            or type(horizon_bars) is not int or horizon_bars < 1
+            or type(min_windows) is not int or min_windows < 1
             or not _valid_price(entry_time)):
         return None, 0
     if n < horizon_bars + min_windows - 1:
@@ -49,7 +61,7 @@ def prior_premium_excursions(
     start = max(0, n - 512)
     observations: list[float] = []
     for i in range(start, n):
-        if (not all(_valid_price(float(x)) for x in
+        if (not all(_valid_price(x) for x in
                     (times[i], opens[i], highs[i], closes[i]))
                 or float(highs[i]) < max(float(opens[i]), float(closes[i]))
                 or float(times[i]) + bar_seconds > entry_time):
@@ -58,7 +70,12 @@ def prior_premium_excursions(
             return None, 0
     for j in range(start, n - horizon_bars + 1):
         last = j + horizon_bars
-        if _session(float(times[j])) != _session(float(times[last - 1])):
+        try:
+            same_session = (_session(float(times[j]))
+                            == _session(float(times[last - 1])))
+        except (ValueError, OverflowError, OSError):
+            return None, 0
+        if not same_session:
             continue
         if any(abs(float(times[k + 1]) - float(times[k]) - bar_seconds) > 0.01
                for k in range(j, last - 1)):
