@@ -321,20 +321,52 @@ async def main() -> None:
                 if key in row}
             for row in rows
         ]
+    challenger_totals = {
+        mode: mode_totals(rows) for mode, rows in challenger_rows.items()
+    }
+    # Only compare P&L when BOTH arms covered ALL attempted contracts.
+    # A profitable surviving subset may be shown for diagnosis, never as a
+    # certified head-to-head net result.
+    comparison = {}
+    for mode in MODES:
+        baseline_mode, challenger_mode = totals[mode], challenger_totals[mode]
+        paired_complete = (baseline_mode["research_complete"] is True
+                           and challenger_mode["research_complete"] is True
+                           and baseline_mode["contracts_attempted"]
+                           == challenger_mode["contracts_attempted"])
+        comparison[mode] = {
+            "fully_paired": paired_complete,
+            "baseline_attempted": baseline_mode["contracts_attempted"],
+            "challenger_attempted": challenger_mode["contracts_attempted"],
+            "baseline_errors": baseline_mode["contract_errors"],
+            "challenger_errors": challenger_mode["contract_errors"],
+            "baseline_trades": baseline_mode["trades"],
+            "challenger_trades": challenger_mode["trades"],
+            "after_cost_net_difference_inr": (
+                round(challenger_mode["net_inr_exact"]
+                      - baseline_mode["net_inr_exact"], 6)
+                if paired_complete else None),
+            "profitability_certified": False,
+        }
     report["minute_challenger_research"] = {
         "policy": CHALLENGER_ID,
         "research_only": True, "historical_selection_bias": True,
         "complete_after_cost_hedge_results": False,
         "independent_untouched_oos_evidence": False,
         "baseline_is_unchanged": True,
-        "totals": {mode: mode_totals(rows) for mode, rows in challenger_rows.items()},
+        "totals": challenger_totals,
+        "paired_comparison": comparison,
         "rows": challenger_rows,
     }
     path = OUT / f"snapback_timeframes_backtest_{now.date().isoformat()}.json"
     # Atomic no-overwrite publish: failed/disk-full research runs never
     # leave a truncated file that could be mistaken for verified evidence.
     write_research_report_once(path, report)
-    print(json.dumps({"swing": swing, "minute_totals": totals}, indent=2, default=str))
+    print(json.dumps({
+        "swing": swing, "baseline_minute_totals": totals,
+        "challenger_minute_totals": challenger_totals,
+        "challenger_vs_baseline": comparison,
+    }, indent=2, default=str, allow_nan=False))
     print("written", path)
 
 
