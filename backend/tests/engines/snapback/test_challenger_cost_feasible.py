@@ -99,7 +99,26 @@ def test_challenger_refuses_when_current_source_candles_are_discontinuous():
     ceiling, count = prior_premium_excursions(
         gap.time[:60], gap.open[:60], gap.high[:60], gap.close[:60],
         entry_time=b.time[60], bar_seconds=60, horizon_bars=20)
-    assert ceiling is None or count < 60
+    assert (ceiling, count) == (None, 0)
+
+
+def test_extra_execution_cost_is_deducted_from_actual_replay_trade_pnl():
+    old = make_plan(100, 50, CFG)
+    new = assess(candles())
+    assert new["accepted"]
+    left = intraday.open_trade(old, START)
+    right = intraday.open_trade(new, START)
+    # Both exit at the same opening gap-stop mark; only the modelled
+    # execution cost differs. It must appear in the CLOSED net result.
+    base = intraday.advance_trade(
+        left, timestamp=START + 60, open=90, high=95,
+        low=89, close=90, cfg=CFG)
+    challenger = intraday.advance_trade(
+        right, timestamp=START + 60, open=90, high=95,
+        low=89, close=90, cfg=CFG)
+    assert base.exited and challenger.exited
+    assert base.exit_price == challenger.exit_price == 90
+    assert challenger.net_pnl_inr == pytest.approx(base.net_pnl_inr - 0.5 * 50)
 
 
 def test_new_replay_identity_never_overwrites_baseline(monkeypatch):
