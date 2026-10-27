@@ -416,6 +416,19 @@ class SnapbackExecutionAdapter:
             if (str(existing.uid or "") != owner_uid
                     or str(existing.account_id or "") != owner_account):
                 raise PermissionError("snapback_owned_position_mismatch")
+            # Per-order evidence is cumulative. An older postback must never
+            # overwrite the larger stored quantity, and a second order ID
+            # cannot silently replace this plan's original entry leg.
+            if option_leg:
+                current_oid = str(getattr(existing, "option_entry_order_id", "") or "")
+                current_qty = int(getattr(existing, "option_qty", 0) or 0)
+            else:
+                current_oid = str(getattr(existing, "hedge_entry_order_id", "") or "")
+                current_qty = int(getattr(existing, "hedge_qty", 0) or 0)
+            if current_oid and current_oid != str(order_id):
+                raise ValueError("snapback_plan_leg_order_id_conflict")
+            if current_qty > int(filled):
+                raise ValueError("snapback_stale_cumulative_fill_quantity")
         now_ms = exchange_ts_ms or int(time.time() * 1000)
 
         if option_leg:
