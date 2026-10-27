@@ -203,7 +203,9 @@ function PositionRow({ p, ltp, onClose, signalsData }: {
 
 export function EnginePositionsPane() {
   const { data, isLoading } = useEngineOpenPositions();
-  const { data: signalsData } = useEngineSignals();
+  // The today's endpoint retains ongoing positions from prior sessions.
+  // No unrestricted signal journal is needed for the positions pane.
+  const { data: signalsData } = useEngineSignals(true);
   const close = useCloseEnginePosition();
 
   const positions = data?.positions ?? [];
