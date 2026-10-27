@@ -470,3 +470,44 @@ async def test_exit_ack_retirement_refuses_changed_order_and_halts(monkeypatch):
     assert p.option_exit_order_id == "OTHER-WORKING-ORDER"
     assert p.option_exit_requested == 75
     halt.assert_called_once()
+
+
+@pytest.mark.parametrize("filled,average", [
+    (None, 90), ("", 90), ("1.5", 90), (1.5, 90),
+    (True, 90), (-1, 90), ("NaN", 90), ("Infinity", 90),
+    (25, 0), (25, ""), (25, -1), (25, "NaN"),
+])
+def test_broker_stop_fill_never_rounds_or_invents_quantity(filled, average):
+    with pytest.raises(ValueError):
+        exits.SnapbackExitManager._filled({
+            "filled_quantity": filled, "average_price": average})
+
+
+def test_broker_stop_fill_accepts_exact_integral_quantities():
+    assert exits.SnapbackExitManager._filled({
+        "filled_quantity": "25", "average_price": "90.50"}) == (25, 90.5)
+    assert exits.SnapbackExitManager._filled({
+        "filled_quantity": 0, "average_price": None}) == (0, 0.0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filled", [None, "", "1.5", 0])
+async def test_complete_broker_stop_without_valid_fill_cannot_close_position(
+        monkeypatch, filled):
+    p = pos()
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    stop_order = {
+        "status": "COMPLETE", "order_id": "STOP-CHILD-1",
+        "quantity": 75, "filled_quantity": filled, "average_price": 90.0,
+    }
+    monkeypatch.setattr(obj, "_stop_child_orders",
+                        AsyncMock(return_value=[stop_order]))
+    monkeypatch.setattr(exits, "_broker_net", AsyncMock(return_value=None))
+    booking = Mock()
+    monkeypatch.setattr(obj, "_book_stop_fills", booking)
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    client = NS(get_orders=AsyncMock(return_value=[stop_order]))
+    assert await obj._settle_broker_stop(client, p) == "stop_fill_unverified"
+    booking.assert_not_called()
+    halt.assert_called_once()
