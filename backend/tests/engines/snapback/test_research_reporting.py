@@ -5,6 +5,7 @@ from app.engines.snapback.research_reporting import (
     choose_option_contract, contract_replay_summary, eligible_expiries,
     mode_totals, rejected_plan_count, write_research_report_once,
     incremental_execution_cost_stress, closed_trade_audit,
+    current_instrument_master_provenance,
 )
 from datetime import date
 import pytest
@@ -388,3 +389,31 @@ def test_explicitly_unhedged_replay_can_report_option_only_net_without_certifica
     mode = mode_totals([row])
     assert mode["whole_strategy_net_inr"] == -100
     assert not mode["promotion_eligible"]  # no OOS/forward/broker certification
+
+
+def test_current_master_hash_is_reorder_independent_and_never_historical_proof():
+    current = [
+        {"instrument_token": 12, "tradingsymbol": "X-CE", "name": "X",
+         "exchange": "NFO", "expiry": "2026-11-26", "strike": 250,
+         "lot_size": 75, "instrument_type": "CE"},
+        {"instrument_token": 13, "tradingsymbol": "X-PE", "name": "X",
+         "exchange": "NFO", "expiry": "2026-11-26", "strike": 250,
+         "lot_size": 75, "instrument_type": "PE"},
+    ]
+    first = current_instrument_master_provenance(current, "2026-10-27T10:00:00+05:30")
+    reordered = current_instrument_master_provenance(
+        list(reversed(current)), "2026-10-27T10:00:00+05:30")
+    assert first == reordered
+    assert first["selected_instruments"] == 2
+    assert not first["historical_date_effective"]
+    assert first["retrospective_selection_bias"]
+    assert not first["whole_strategy_oos_certification_eligible"]
+    changed = [dict(r) for r in current]
+    changed[0]["lot_size"] = 50
+    later = current_instrument_master_provenance(changed, "2026-10-27T10:00:00+05:30")
+    assert first["public_instrument_metadata_sha256"] != later["public_instrument_metadata_sha256"]
+
+
+def test_missing_snapshot_timestamp_fails_closed():
+    with pytest.raises(ValueError, match="timestamp"):
+        current_instrument_master_provenance([], "")
