@@ -8,7 +8,9 @@ function safeDestination(raw) {
   const root = new URL('./', self.registration.scope);
   try {
     const target = new URL(typeof raw === 'string' ? raw : './', root);
-    if (target.origin !== root.origin || target.pathname !== root.pathname) return root.href;
+    const kitePath = new URL('kite', root).pathname;
+    if (target.origin !== root.origin ||
+        ![root.pathname, kitePath].includes(target.pathname)) return root.href;
     const allowed = new URLSearchParams();
     const category = target.searchParams.get('notification');
     if (['signals', 'pcr', 'alerts'].includes(category)) {
@@ -26,6 +28,9 @@ function safeDestination(raw) {
         }
       }
     }
+    // A signal notification belongs to the Kite workspace, not the root
+    // chooser. Validate the specific destination to prevent external opens.
+    if (allowed.has('notification')) root.pathname = kitePath;
     root.search = allowed.toString();
     return root.href;
   } catch {
@@ -55,9 +60,13 @@ self.addEventListener('notificationclick', event => {
     const windows = await self.clients.matchAll({type: 'window', includeUncontrolled: true});
     // Do not focus a random same-origin window while leaving it on the wrong
     // URL: explicitly navigate the matched Sterling tab first.
-    const appPath = new URL('./', self.registration.scope).pathname;
+    const base = new URL('./', self.registration.scope);
+    const kitePath = new URL('kite', base).pathname;
     const app = windows.find(client => {
-      try { return new URL(client.url).pathname === appPath; } catch { return false; }
+      try {
+        const url = new URL(client.url);
+        return url.origin === base.origin && [base.pathname, kitePath].includes(url.pathname);
+      } catch { return false; }
     });
     if (app) {
       try {
