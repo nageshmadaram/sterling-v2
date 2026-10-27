@@ -277,6 +277,14 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   const mobileStyle = useMobileExperience(s => s.style);
   const mobile = phone;
   const [mobilePane, setMobilePane] = useSavedSelection<WorkspacePaneId>('workspace.mobilePane', 'dashboard');
+  // Push signals target the signal workspace even if Home was saved last.
+  // This only chooses a view; broker admission and order controls are unchanged.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'live' && params.get('notification') === 'signals') {
+      setMobilePane('signals');
+    }
+  }, [setMobilePane]);
   const previousMobileNav = useRef(activeNav);
   const detailPreviousPane = useRef<WorkspacePaneId | null>(null);
   const orderPreviousPane = useRef<WorkspacePaneId | null>(null);
