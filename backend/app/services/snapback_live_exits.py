@@ -1635,6 +1635,12 @@ class SnapbackExitManager:
         The broker stop is spent whatever it filled, so it is cleared here. Units beyond what
         this position still held are not booked into it (they surface as a short at the broker).
         """
+        # A triggered broker stop cannot erase a possibly outstanding
+        # canonical market-exit order. That order may still execute after
+        # this stop and must retain its recovery identity.
+        if pos.option_exit_order_id or pos.option_exit_requested:
+            self._flag_reconciling(pos, "stop_and_market_exit_overlap")
+            raise RuntimeError("broker stop overlaps unresolved canonical exit")
         for oid, qty, price in fills:
             if not self._book_exit(pos, leg="option", order_id=oid, filled=qty, average=price, source="gtt",
                                    exchange_ts_ms=(exchange_ts_by_order or {}).get(oid, 0)):
@@ -1642,6 +1648,8 @@ class SnapbackExitManager:
                 raise RuntimeError("stop fill accounting must commit before position projection")
 
         def apply(p: LivePosition) -> None:
+            if p.option_exit_order_id or p.option_exit_requested:
+                raise ValueError("canonical exit started while booking broker stop")
             for oid, qty, price in fills:
                 if oid in p.option_exit_booked_ids:
                     continue
@@ -1656,11 +1664,17 @@ class SnapbackExitManager:
             p.gtt_stop = 0.0
             p.protection_state = PROTECTION_NONE
             p.option_exit_order_id = ""
+            p.option_exit_requested = 0
             p.stop_fill_pending_ms = 0
             if p.option_exit_qty < p.option_qty:
                 p.exit_reason = "BROKER_STOP_UNFILLED"
 
-        return self.store.mutate(pos.position_id, apply) or pos
+        try:
+            return self.store.mutate(pos.position_id, apply) or pos
+        except Exception as exc:  # noqa: BLE001 - do not discard a concurrent broker order
+            self._flag_reconciling(pos, "stop_fill_registry_conflict")
+            log.critical("Snapback broker-stop booking requires reconciliation: %s", exc)
+            raise
 
     async def _settle_broker_stop(self, client: Any, pos: LivePosition) -> str:
         """The broker's stop fired: find ITS order, book it, then close the hedge.
