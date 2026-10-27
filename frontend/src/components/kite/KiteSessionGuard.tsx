@@ -176,11 +176,25 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
 
   if (!mounted || typeof document === 'undefined') return null;
 
-  const savedPending = !!savedAccountId && !(connected && status?.account_id === savedAccountId);
-  const selectedDifferentAccount = savedPending && !!status?.account_id && status.account_id !== savedAccountId;
+  // The account list persists the successful login receipt across reloads,
+  // while /status verifies the one ACTIVE broker account. Display a stored
+  // token honestly without claiming the broker accepted it.
+  const selectedStoredAccount = ownedAccounts.data?.accounts.find(account =>
+    account.id === (savedAccountId || status?.account_id || ownedAccounts.data?.active_id));
+  const expiredStoredToken = !!selectedStoredAccount?.token_expires_at_ms
+    && selectedStoredAccount.token_expires_at_ms <= Date.now();
+  const rejectedToken = /\b(rejected|expired|not logged in|revoked|identity could not)\b/i
+    .test(status?.message || '');
+  const persistedButUnverified = !!selectedStoredAccount?.connected
+    && !expiredStoredToken && !rejectedToken && !connected;
+  const savedPending = (!!savedAccountId && !(connected && status?.account_id === savedAccountId))
+    || persistedButUnverified;
+  const selectedDifferentAccount = !!savedAccountId && savedPending
+    && !!status?.account_id && status.account_id !== savedAccountId;
   const cardTitle = connected
     ? 'Zerodha Kite Active'
-    : savedPending ? (verificationTimedOut ? 'Kite session saved · unverified' : 'Kite session saved · verifying')
+    : savedPending ? (verificationTimedOut || !savedAccountId
+      ? 'Kite session saved · unverified' : 'Kite session saved · verifying')
     : unknown
       ? permissionDenied ? 'Kite access denied' : 'Kite session check unavailable'
       : checking ? 'Checking Kite session…'
@@ -200,7 +214,8 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
       : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
       : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
-  const isLoginVisible = (!connected && (!savedPending || verificationTimedOut)) || showRelogin || (loginRequested && !savedPending);
+  const isLoginVisible = (!connected && (!savedPending || verificationTimedOut || !savedAccountId))
+    || showRelogin || (loginRequested && !savedPending);
 
   return createPortal(
     <div className="kite-session-overlay" data-leaving={leaving ? 'true' : 'false'}
@@ -226,8 +241,8 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
         </header>
         <div className="kite-session-body">
           <div className="kite-session-summary" data-connected={connected}>
-            <span aria-label={connected ? 'Kite connected' : unknown ? 'Kite session unverified' : checking ? 'Kite session checking' : 'Kite offline'}>
-              {connected ? 'CONNECTED' : savedPending ? 'VERIFYING' : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
+            <span aria-label={connected ? 'Kite connected' : savedPending || unknown ? 'Kite session unverified' : checking ? 'Kite session checking' : 'Kite offline'}>
+              {connected ? 'CONNECTED' : savedPending ? (verificationTimedOut || !savedAccountId ? 'UNVERIFIED' : 'VERIFYING') : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
             </span>
             <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : savedPending ? cardDetail : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
