@@ -1376,8 +1376,27 @@ class SnapbackExitManager:
     async def _resolve_exit(self, client: Any, pos: LivePosition, *, leg: str, order_id: str) -> str:
         from app.services import canonical_fill_reconciliation as fills
 
+        # A persisted order must be attributable to this leg *before* any
+        # asynchronous broker query or ledger booking. Never truncate a
+        # corrupt requested quantity or resolve a different working order.
+        if leg not in {"option", "hedge"}:
+            self._flag_reconciling(pos, "exit_receipt_leg_unknown")
+            return "unresolved"
         is_option = leg == "option"
-        requested = int(pos.option_exit_requested if is_option else pos.hedge_exit_requested)
+        prefix = "option" if is_option else "hedge"
+        requested = getattr(pos, f"{prefix}_exit_requested")
+        stored_id = getattr(pos, f"{prefix}_exit_order_id")
+        total = getattr(pos, f"{prefix}_qty")
+        exited = getattr(pos, f"{prefix}_exit_qty")
+        if (type(order_id) is not str or not order_id.strip()
+                or order_id != order_id.strip()
+                or type(stored_id) is not str or stored_id != order_id
+                or type(requested) is not int or requested <= 0
+                or type(total) is not int or type(exited) is not int
+                or total <= 0 or not 0 <= exited < total
+                or requested > total - exited):
+            self._flag_reconciling(pos, "exit_receipt_order_state_unverified")
+            return "unresolved"
         reference = float(pos.option_entry_price if is_option else pos.hedge_entry_price) or 1.0
         resolve = self._resolver or fills.resolve_entry_fill
         try:
