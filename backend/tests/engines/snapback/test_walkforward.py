@@ -193,11 +193,27 @@ class TestGate:
         b = summarise([], 100_000.0, hold_days=10)
         b.trades = [object()] * kw.pop("trades", 200)
         b.n_days = kw.pop("n_days", 120)
+        b.equity_session_calendar_complete = kw.pop("calendar_complete", True)
+        b.equity_session_count = kw.pop("equity_sessions", 180)
         b.mean_day_return = kw.pop("mean", 0.05)
         b.ci = kw.pop("ci", (0.01, 0.09))
         b.max_dd_pct = kw.pop("dd", -12.0)
         b.per_year = kw.pop("per_year", {"2024": 0.1, "2025": 0.05, "2026": 0.07})
         return b
+
+    def test_promotion_blocks_endpoint_only_sharpe_even_if_everything_else_passes(self):
+        fake = self._book(calendar_complete=False)
+        verdict = judge(fake, permutation=0.001, dsr=0.95, breakeven_vrp=2.5)
+        assert not verdict.promoted
+        assert not verdict.checks["complete_equity_session_calendar"]
+        assert any("session calendar missing" in r for r in verdict.reasons)
+
+    def test_promotion_requires_nonempty_tape_calendar(self):
+        fake = self._book(equity_sessions=0)
+        verdict = judge(fake, permutation=0.001, dsr=0.95, breakeven_vrp=2.5)
+        assert not verdict.promoted
+        assert not verdict.checks["complete_equity_session_calendar"]
+
 
     def test_a_missing_permutation_fails_rather_than_passes(self):
         v = judge(self._book(), permutation=None, dsr=0.9, breakeven_vrp=2.0)
