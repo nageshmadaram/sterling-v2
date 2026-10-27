@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { k, tint } from '../../styles/kiteUI';
 import { EngineToolbar, ToolbarButton } from './board/EngineToolbar';
 import { ColumnsMenu, FilterToggle, ModeFilter } from './board/BoardFilters';
+import { ViewFiltersDisclosure } from './board/ViewFiltersDisclosure';
 import { closedReasonText, supersededLegKeys } from './board/supertrendAdapter';
 import { normalizeMode, MODE_LABEL, type TradeMode } from './board/boardTypes';
 import { useSavedSelection } from '../../hooks/useSavedSelection';
@@ -1296,7 +1297,8 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
             {/* After search, before COLUMNS. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, flexWrap: 'wrap' }}>
+              <ViewFiltersDisclosure>
               {/* The columns this table actually renders, in the order it
                   renders them — not the six abstract visibility groups the old
                   gear exposed. `premium` is filtered out rather than offered:
@@ -1356,6 +1358,7 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
                 hint="Include closed positions. They are kept for the record and are not calls to action."
                 onChange={() => changeShowEnded(!showEnded)}
               />
+              </ViewFiltersDisclosure>
               <StrategyBoardFooter name="SuperTrend">
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '6px 12px' }}>
             {engineControls}
