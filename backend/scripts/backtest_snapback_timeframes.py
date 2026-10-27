@@ -38,7 +38,8 @@ from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
     choose_option_contract, closed_trade_audit, contract_replay_summary,
-    eligible_expiries, mode_totals, write_research_report_once,
+    current_instrument_master_provenance, eligible_expiries, mode_totals,
+    write_research_report_once,
 )
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
@@ -181,6 +182,16 @@ async def main() -> None:
 
     # ── Part B: minute modes on real option candles ──────────────────────
     nfo = await client._load_nfo_instruments()
+    candidate_universe = [
+        contract for contract in nfo if isinstance(contract, Mapping)
+        and str(contract.get("name") or "") in INTRADAY_UNDERLYINGS
+        and contract.get("instrument_type") in ("CE", "PE")
+    ]
+    report["minute_instrument_master_provenance"] = current_instrument_master_provenance(
+        candidate_universe, now.isoformat())
+    # This is a CURRENT, non-date-effective broker dump. A historical
+    # strategy profitability certificate needs frozen masters for EACH
+    # selection date plus the actual hedge tape, not only these quotes.
     intraday = {m: [] for m in MODES}
     minute_cache: dict[tuple[int, str, int], list[list[float]]] = {}
 
