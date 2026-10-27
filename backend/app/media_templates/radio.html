@@ -2460,7 +2460,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         onFilter:(filters,fromHome)=>{rememberRadioPlace();if(fromHome)loadCategory('all',true);appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
       });
       window.addEventListener('pagehide',event=>{if(!event.persisted)radioCatalog.pause();});
-      void radioCatalog.load();
+      // Prioritize the selected station's first audio request over the bulk
+      // remote directory refresh on low-powered mobile browsers.
+      window.setTimeout(() => {
+        if (radioBooted && radioCatalog) void radioCatalog.load();
+      }, 900);
     }
     function openRadioSources(){radioDirectoryUi?.openSources();}
     /* Spotify-style Search / Recents / Your Library, shared with TV (media/spotify-shell.js). */
