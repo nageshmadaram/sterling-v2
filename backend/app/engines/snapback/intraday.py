@@ -426,7 +426,7 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                     times=premium_bars.time[:i], opens=premium_bars.open[:i],
                     highs=premium_bars.high[:i], closes=premium_bars.close[:i],
                     entry_time=ts, bar_seconds=tf * 60,
-                    horizon_bars=max(2, cfg.scalp_max_hold_bars),
+                    horizon_bars=max(1, cfg.scalp_max_hold_bars),
                     min_rr=cfg.scalp_min_net_rr,
                     lock_points=cfg.scalp_lock_points,
                 )
