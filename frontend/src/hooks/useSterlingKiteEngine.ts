@@ -32,7 +32,9 @@ export function useEngineSignals() {
       if (st.state !== 'idle') {
         return st.state === 'running' ? 300 : 2_000;
       }
-      return query.state.data?.scanning ? 2_000 : 15_000;
+      // Keep completed-signal boards responsive even between scheduled scans.
+      // The endpoint is read-only; scanning still uses a stricter 2s cadence.
+      return query.state.data?.scanning ? 2_000 : 7_500;
     },
     staleTime: isSimActive ? 0 : 5_000,
   });
