@@ -1134,6 +1134,15 @@ class SnapbackExitManager:
                 raise ValueError("canonical option exit is unresolved")
 
             def apply(p: LivePosition) -> None:
+                # Mutate only the very same owner/contract that produced the
+                # repeated broker-zero observations. A concurrent transfer,
+                # close, or reconciliation invalidates the attribution.
+                if (p.position_id != pos.position_id
+                        or p.uid != pos.uid or p.account_id != pos.account_id
+                        or p.option_exchange != pos.option_exchange
+                        or p.option_symbol != pos.option_symbol
+                        or p.status in {RECONCILING, CLOSED}):
+                    raise ValueError("unpriced exit position ownership or state changed")
                 remaining = p.option_qty - p.option_exit_qty
                 if (p.option_exit_order_id or p.option_exit_requested
                         or type(p.option_qty) is not int
