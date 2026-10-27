@@ -442,3 +442,48 @@ def test_valid_cumulative_option_book_updates_owner_bound_registry():
     assert existing.option_qty == 100
     assert existing.option_entry_order_id == "BROKER-ORDER-1"
     store.mutate.assert_called_once()
+
+
+@pytest.mark.parametrize("leg", ["option", "futures"])
+def test_concurrent_newer_position_state_cannot_be_overwritten_by_stale_callback(leg):
+    a, plan, old, store = _bound_leg_context()
+    from copy import copy
+    newer = copy(old)
+    req = request()
+    if leg == "option":
+        older_qty, order_id = 75, "BROKER-ORDER-1"
+        newer.option_qty = 125
+    else:
+        req.symbol = "NIFTY_TEST_FUT"
+        req.side = "SELL"
+        older_qty, order_id = 50, "BROKER-HEDGE-1"
+        newer.hedge_qty = 100
+    # get() returned the older position. Between get() and SQLite
+    # BEGIN IMMEDIATE/mutate(), another process recorded a larger fill.
+    store.get.return_value = old
+    store.mutate.side_effect = lambda _, callback: callback(newer)
+    with pytest.raises(ValueError, match="stale_cumulative"):
+        a._record_leg(req, order_id, older_qty, 100.0)
+    assert newer.option_qty == 125 if leg == "option" else newer.hedge_qty == 100
+
+
+def test_insert_new_first_fill_never_overwrites_a_different_existing_owner(tmp_path, monkeypatch):
+    import sqlite3
+    from dataclasses import replace
+    from app.services import snapback_live_positions as live_positions
+    monkeypatch.setattr(live_positions._journal, "sb_sync", lambda *_: None)
+    store = live_positions.LivePositionStore(tmp_path / "snapback-test.db")
+    original = live_positions.LivePosition(
+        position_id="one-plan", uid="owner", account_id="account",
+        signal_id="signal", lane="swing", underlying="NIFTY",
+        side="fade_up", option_type="PE", option_exchange="NFO",
+        option_symbol="NIFTY_TEST_PE", option_qty=75, option_entry_price=100.0,
+        option_entry_order_id="BROKER-ORDER-1",
+    )
+    store.insert_new(original)
+    with pytest.raises(sqlite3.IntegrityError):
+        store.insert_new(replace(original, uid="intruder", account_id="foreign"))
+    recovered = store.get("one-plan")
+    assert recovered.uid == "owner"
+    assert recovered.account_id == "account"
+    assert recovered.option_entry_order_id == "BROKER-ORDER-1"
