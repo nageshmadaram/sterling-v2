@@ -138,9 +138,9 @@ export function TodaySignalPriorityStatus() {
     <strong>{state.olderReady
       ? 'Current-day API checks finished across four strategies. History may now load.'
       : 'Priority: today’s signals across all four strategies. Older history is queued.'}</strong>
-    <span style={{ marginLeft: 8, opacity: .8 }}>{parts.join(' · ')}</span>
+    <span style={{ marginLeft: 8, opacity: .8 }}>IST {state.day} · {parts.join(' · ')}</span>
     {state.olderReady && <span style={{ marginLeft: 8, opacity: .8 }}>A response does not prove that a fresh scan ran or produced signals.</span>}
     {!state.olderReady && TODAY_STRATEGIES.some(name => state.stages[name] === 'error') &&
-      <span style={{ marginLeft: 8 }}>Unavailable live sources must recover before older history loads.</span>}
+      <span style={{ marginLeft: 8 }}>A failed API check or scan must recover before older history loads.</span>}
   </div>;
 }
