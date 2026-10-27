@@ -505,3 +505,51 @@ actual charges and source-exact on-host risk/recovery tests are
 available, none of Snapback's historical positive option-leg
 numbers qualifies as independently proven whole-strategy profits.
 Autonomous new entries remain OFF and PR #272 is still draft.
+
+
+## Fourteenth pass — critical hedge-side correction and broker-free executable acceptance
+
+This pass prioritized **source-to-order functionality and executable
+acceptance**, rather than more unevaluated source guards or CI work.
+
+1. **Real hedge-direction defect:** A bought put (`PE`) has negative
+   delta; its delta-offset futures leg must BUY. A bought call (`CE`)
+   has positive delta; its offsetting futures leg must SELL. Earlier
+   Snapback fixtures incorrectly used SELL futures for a bought PE,
+   masking wrong-delta/extra-directional-risk cases. The final LIVE
+   submit method and the owner-bound broker-fill/position projection
+   method now require both the frozen side and `_hedge_side(plan)` to
+   agree; a corrupt plan cannot authorize or book the wrong-direction
+   hedge. New tests exercise correct PE/CE hedges and inverted plans.
+2. **Owner/account match at last submit boundary:** For any production
+   LIVE plan or real transport, the plan `owner_uid` must match the
+   executor user and its account must match the client's authenticated
+   `_account_id`. Foreign/empty plan ownership or a switched client
+   returns REJECTED_PLAN before canonical broker submission. Separate
+   tests cover all these cases.
+3. **Non-CI acceptance entry point:** Added
+   `scripts/snapback_offline_acceptance.sh` to run three bounded,
+   isolated read-only/broker-free batches (Snapback research, order
+   boundary/booking and exit/recovery). It checks the exact test
+   branch, clean tracked files and explicitly disabled live execution.
+   It isolates the intent/evidence/database paths into a temporary
+   directory. It does not submit orders or call Kite.
+4. **Source/script verification:** Every one of the 12 explicit
+   pytest source files was verified to exist in the current GitHub
+   tree. The local shell-syntax validation `bash -n` succeeded on a
+   byte-identical copy of the committed 66-line script, with the
+   same Git blob SHA-1 `91d5fbc71cd3b0963d5d2d98d35eca5e0030c940`.
+   **No full-project pytest suite executed** on this turn. The
+   command's eventual results must not be presumed PASS.
+
+To execute later on an authorized Sterling workstation, with
+sufficient storage and the local backend virtual environment already
+available (no new broker authentication necessary):
+`git switch codex/implementation-spec-20261026 && git pull --ff-only origin codex/implementation-spec-20261026 && bash scripts/snapback_offline_acceptance.sh`
+
+**Current decision:** this source pass provides hedge-direction,
+account-binding and a reproducible local test gate. R1/R2/R3 are
+still **BLOCKED**. A green offline gate, even if executed, would
+be **unit-only**, not live broker certification, after-cost full
+hedged-strategy profit evidence or real-money authorization. Do not
+change LIVE master halt or merge the draft PR on this basis.
