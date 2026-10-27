@@ -552,3 +552,51 @@ def test_stop_fill_rejects_concurrent_exit_inside_store_transaction(monkeypatch)
     assert p.option_exit_order_id == "CONCURRENT-EXIT"
     assert p.option_exit_requested == 75
     hold.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("option_exit_requested", 75),
+    ("option_exit_order_id", ""),
+    ("option_exit_requested", -1),
+    ("option_exit_requested", 1.5),
+    ("option_exit_order_id", " "),
+    ("option_exit_qty", 0.5),
+    ("option_qty", 75.5),
+])
+async def test_exit_registry_anomaly_halts_before_releasing_broker_stop(
+        monkeypatch, field, value):
+    p = pos()
+    setattr(p, field, value)
+    manager_obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    release = AsyncMock()
+    check_held = AsyncMock()
+    submit = AsyncMock()
+    monkeypatch.setattr(manager_obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(manager_obj, "_release_stop", release)
+    monkeypatch.setattr(manager_obj, "_broker_holds", check_held)
+    monkeypatch.setattr(manager_obj, "_submit_exit", submit)
+
+    result = await manager_obj._close_leg(NS(), p, leg="option")
+
+    assert result == "exit_state_unverified"
+    hold.assert_called_once_with(p, "exit_registry_state_unverified")
+    release.assert_not_awaited()
+    check_held.assert_not_awaited()
+    submit.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_flat_position_with_still_working_exit_halts_before_more_broker_actions(
+        monkeypatch):
+    p = pos()
+    p.option_exit_qty = p.option_qty
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    release = AsyncMock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_release_stop", release)
+    assert await obj._close_leg(NS(), p, leg="option") == "exit_state_unverified"
+    hold.assert_called_once_with(p, "exit_order_still_working_after_flat")
+    release.assert_not_awaited()
