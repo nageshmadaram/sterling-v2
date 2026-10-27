@@ -160,11 +160,12 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
     count = rejected_plan_count(result.get("rejected_plans"))
     stress = incremental_execution_cost_stress(result)
     hedging = str(result.get("hedge_mode") or "unknown").strip().lower()
-    hedge_pnl_observed = result.get("hedge_realized_pnl_inr") is not None
-    # The historical option-tape replay has NO futures hedge trades/costs.
-    # Never infer full-strategy profit just because the option-only leg won.
-    fully_paired_pnl = (hedging == "none" or
-                        (hedging == "index_futures" and hedge_pnl_observed))
+    # Historical replay contains only option trade receipts. A single number
+    # offered as 'hedge pnl' cannot prove actual paired futures executions,
+    # fills, margin and costs. Until a separate validated hedged replay exists,
+    # EVERY hedge-requiring configuration has unknown full-strategy P&L.
+    hedge_pnl_observed = False
+    fully_paired_pnl = hedging == "none"
     complete = result.get("complete") is True and result.get("unresolved_position") is None
     return {
         "trades": trades, "win_rate_pct": round(float(wins), 1),
@@ -177,13 +178,7 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         "hedge_mode": hedging,
         "hedge_pnl_included": hedge_pnl_observed,
         "whole_strategy_pnl_complete": fully_paired_pnl,
-        "whole_strategy_net_inr": (
-            round(float(net) + float(result["hedge_realized_pnl_inr"]), 6)
-            if hedging == "index_futures" and hedge_pnl_observed
-            and type(result["hedge_realized_pnl_inr"]) in (int, float)
-            and math.isfinite(result["hedge_realized_pnl_inr"])
-            else float(net) if hedging == "none" else None
-        ),
+        "whole_strategy_net_inr": float(net) if hedging == "none" else None,
         "unresolved_reason": (
             str(result.get("unresolved_reason") or "position_not_closed")[:160]
             if not complete else None
