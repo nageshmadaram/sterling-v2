@@ -260,10 +260,25 @@ class SnapbackExecutionAdapter:
                 error=resolution.reason or "entry outcome unresolved",
             )
         if filled <= 0:
-            status = str(resolution.status or "REJECTED").upper()
+            status = str(getattr(resolution, "status", "") or "").upper()
+            # Only a terminal broker CANCELLED/REJECTED receipt proves zero
+            # exposure. An OPEN/COMPLETE/empty or internally inconsistent
+            # status must remain UNKNOWN, even if settled=True is asserted.
+            if status not in {"CANCELLED", "REJECTED"} or not resolution.settled:
+                engage_kill_switch(
+                    f"Snapback unverified zero-fill terminal state for {request.symbol}",
+                    request.uid,
+                )
+                return ExecutionResult(
+                    success=False, status="UNKNOWN",
+                    intent_key=resolution.intent_key or result.intent_key,
+                    order_id=result.order_id,
+                    error="zero-fill broker outcome not terminal; reconcile before new entries",
+                )
             return ExecutionResult(
-                success=False, status="CANCELLED" if status == "CANCELLED" else "REJECTED",
-                intent_key=resolution.intent_key, order_id=result.order_id,
+                success=False, status=status,
+                intent_key=resolution.intent_key or result.intent_key,
+                order_id=result.order_id,
                 error=resolution.reason or f"order {status.lower()} with no fill",
             )
         if not resolution.settled:
