@@ -92,3 +92,37 @@ and independently verified broker stop/exit/recovery and operator approval.
 
 **Current status: NEW CHALLENGER UNDER RESEARCH. NO PROFITABILITY CLAIM.
 NO BROKER CERTIFICATION. LIVE NEW ENTRIES OFF.**
+
+
+## 27 October corrective verification: one-bar hold and minimum R:R
+
+A source-level correctness review identified two defects in challenger v1
+that invalidated its original synthetic assumptions, **without needing
+to tune on historical P&L**:
+
+- Its replay caller originally used `max(2, scalp_max_hold_bars)`.
+  For a one-bar timeout this incorrectly judged a target against an
+  optimistic **two-bar** movement horizon. Both the prior-window
+  evaluator and replay caller now support the actual **one-bar**
+  holding limit. A deterministic synthetic case with rare premium
+  spikes shows that the prior p75 one-bar move is **3 points**,
+  whereas the p75 three-bar move is **15 points**. The 8.6-point
+  required target is now correctly **refused** for a one-bar timeout.
+- The function accepted a `min_rr` override below 1.0 despite
+  being advertised as a minimum 1:1 **after-cost** reward-to-risk
+  challenger. Such overrides are now rejected, not applied.
+
+The pure Python challenger was copied byte-for-byte from the current
+GitHub blob (SHA-1
+`8356989467c769a87ed0dc2465310077dda9f772`)
+and executed locally using Python 3.13.5. **Eight isolated tests
+passed**, including a reproducible 500-scenario synthetic cost/risk
+invariant test. Machine-readable exact-source evidence is saved at
+`docs/evidence/2026-10-27/snapback-challenger-isolated-acceptance.json`.
+
+**These are implementation-correctness results, not strategy
+profitability evidence.** No independent historic challenger-vs-
+baseline market replay, actual brokerage/stop/hedge fills, or
+positive prospective after-cost returns have been observed. Any
+candidate promotion remains blocked by the frozen release standard;
+autonomous real-money entries remain OFF.
