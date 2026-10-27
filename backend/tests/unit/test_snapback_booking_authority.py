@@ -608,3 +608,42 @@ def test_ledger_write_failure_still_attempts_position_registration_for_protectio
     assert a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0) is False
     registry.assert_called_once()
     halt.assert_called_once()
+
+
+@pytest.mark.parametrize("reason", ["older_cumulative", "no_quantity", "", "unknown"])
+def test_stale_or_ambiguous_ledger_disposition_never_reprojects_owned_position(
+        monkeypatch, reason):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    record = Mock(return_value=SimpleNamespace(
+        reconciliation_required=False, reason=reason,
+    ))
+    monkeypatch.setattr(fill_ledger, "record", record)
+    registry = Mock()
+    monkeypatch.setattr(a, "_record_leg", registry)
+    halt = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", halt)
+
+    assert a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0) is False
+    record.assert_called_once()
+    registry.assert_not_called()
+    store.mutate.assert_not_called()
+    halt.assert_called_once()
+
+
+def test_idempotent_duplicate_ledger_disposition_can_recover_owned_registry(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    record = Mock(return_value=SimpleNamespace(
+        reconciliation_required=False, reason="duplicate",
+    ))
+    monkeypatch.setattr(fill_ledger, "record", record)
+    registry = Mock()
+    monkeypatch.setattr(a, "_record_leg", registry)
+    halt = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", halt)
+
+    assert a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0)
+    record.assert_called_once()
+    registry.assert_called_once()
+    halt.assert_not_called()
