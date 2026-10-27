@@ -74,3 +74,34 @@ than dropping them from the sample. No synthetic timings or pass flags.
    authenticated execution, stops, recovery and economics receipts.
 5. Do not request actions from the hospitalized operator; device/host QA is
    delegated to an authorized healthy operator/environment when available.
+
+
+## 2026-10-28 focused mobile media zoom execution receipt
+
+**Implementation:** `frontend/public/media/mobile-no-zoom.js`,
+Git blob `e54d175031e678f8cb5e977705790bcf43c23ecb`, is loaded
+in the head of **both** `backend/app/media_templates/tv.html` and
+`backend/app/media_templates/radio.html` and works only with a viewport
+width of 1023px or less. Both embedded documents set a fixed-scale viewport.
+Single-finger swipes and ordinary controls remain usable. The parent Sterling
+app is not modified by the iframe-specific gesture listeners.
+
+**Observed source-level execution:** The exact GitHub JS blob was executed in
+a mocked document/window V8 environment in the current session. **14/14
+gesture assertions passed**, covering mobile/desktop single-finger movement,
+two-finger pinch start/move, iOS Safari gesture events, double-tap default,
+Ctrl+wheel zoom and ordinary wheel. Listener configurations were also verified
+as `capture:true, passive:false`. Both served templates were re-read to verify
+their script and viewport integration; Radio's separate
+`/radio/appearance.css` and TV's inline mobile style include their touch rules.
+
+**Regression source:** `frontend/tests/mobileMediaZoom.test.ts` added to the
+repository to test the actual shared asset and both template references.
+**Vitest run on this exact commit is NOT VERIFIED.**
+
+**Still required to mark device PASS:** On a supported Android device test
+portrait and landscape TV and Radio under the deployed exact SHA, attempt
+two-finger pinch and double tap on artwork, scrolling content and media
+controls; confirm there is **no page-scale change** and that station/channel
+switching and single-finger scrolling still work. This cannot be certified from
+a simulated event dispatch.
