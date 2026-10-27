@@ -816,13 +816,32 @@ class SnapbackExitManager:
         """Close one leg through the canonical service. ``done`` once it is flat."""
         is_option = leg == "option"
         order_attr = "option_exit_order_id" if is_option else "hedge_exit_order_id"
-        total = pos.option_qty if is_option else pos.hedge_qty
+        requested_attr = "option_exit_requested" if is_option else "hedge_exit_requested"
         filled_attr = "option_exit_qty" if is_option else "hedge_exit_qty"
-        remaining = total - int(getattr(pos, filled_attr))
-        if remaining <= 0:
-            return "done"
+        total = pos.option_qty if is_option else pos.hedge_qty
+        exited = getattr(pos, filled_attr)
+        order_id = getattr(pos, order_attr)
+        requested = getattr(pos, requested_attr)
 
-        order_id = str(getattr(pos, order_attr) or "")
+        # Check durability *before* broker inventory reads or stop cancellation.
+        # An orphan request can be a real broker order whose ACK was lost.
+        # Clearing its stop first would leave the remaining option unprotected
+        # even though sending a replacement exit is correctly prohibited.
+        if (leg not in {"option", "hedge"}
+                or type(total) is not int or type(exited) is not int
+                or total < 0 or exited < 0 or exited > total
+                or type(order_id) is not str
+                or type(requested) is not int or requested < 0
+                or bool(order_id) != bool(requested)
+                or (order_id and (not order_id.strip() or order_id != order_id.strip()))):
+            self._flag_reconciling(pos, "exit_registry_state_unverified")
+            return "exit_state_unverified"
+        remaining = total - exited
+        if remaining <= 0:
+            if order_id:
+                self._flag_reconciling(pos, "exit_order_still_working_after_flat")
+                return "exit_state_unverified"
+            return "done"
         if not order_id:
             # Prove the broker quantity belongs to this logical position before
             # removing its resting stop. Kite aggregates same-contract positions
