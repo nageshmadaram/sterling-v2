@@ -426,3 +426,25 @@ a live-broker or profitability certificate.
 authorization/acceptance. Keep autonomous new risk OFF; exits,
 protection and reconciliation still require validation against actual
 market/broker receipts by an authorized operator.
+
+
+## Eleventh pass — frozen contract identity and whole-lot execution
+
+Snapback's final live entry/hedge submission boundary now also checks
+the actual proposed `symbol`, `exchange` and `side` against the
+persisted plan's option contract (always BUY) or the exact futures
+hedge (explicit BUY/SELL). An unexpected or missing contract
+identity is `REJECTED_PLAN` before the canonical broker call.
+
+Quantity and lot metadata are independently validated as positive,
+finite, exact integers, with `quantity % lot_size == 0`. This prevents
+floating-point or Boolean lot sizes and nonmultiples from silently
+being truncated into different exposures. An otherwise valid
+two-lot option entry remains permitted and the canonical request
+retains the exact quantity.
+
+New unit tests include wrong option/hedge symbol, exchange, side,
+fractional or missing lot sizes and quantities, and valid two-lot
+submission. These tests are **committed but not executed against
+the complete application on the exact current SHA**. This remains a
+source-level improvement, not Kite certification.
