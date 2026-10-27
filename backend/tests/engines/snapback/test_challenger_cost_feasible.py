@@ -122,6 +122,20 @@ def test_challenger_rejects_cost_stress_beyond_daily_risk_budget():
     assert "additional_cost_exceeds_risk_budget" in out["rejection_reasons"]
 
 
+@pytest.mark.parametrize("rr_override", [0.0, 0.5, 0.99])
+def test_challenger_never_weakens_net_reward_to_risk_below_one(rr_override):
+    b = candles(rise=12.0)
+    baseline = make_plan(100, 50, CFG)
+    candidate = assess_cost_feasible_plan(
+        baseline, times=b.time[:60], opens=b.open[:60],
+        highs=b.high[:60], closes=b.close[:60],
+        entry_time=b.time[60], bar_seconds=60,
+        horizon_bars=CFG.scalp_max_hold_bars, min_rr=rr_override)
+    assert not candidate["accepted"]
+    assert candidate["quantity"] == 0
+    assert "invalid_challenger_economic_inputs" in candidate["rejection_reasons"]
+
+
 def test_challenger_refuses_when_current_source_candles_are_discontinuous():
     b = candles()
     gap = replace(b, time=b.time.copy())
