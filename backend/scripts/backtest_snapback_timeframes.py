@@ -37,8 +37,8 @@ from app.engines.snapback import Bars, validate  # noqa: E402
 from app.engines.snapback.backtest import replay, returns_at_vrp  # noqa: E402
 from app.engines.snapback.intraday import replay_intraday  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
-    choose_option_contract, contract_replay_summary, eligible_expiries, mode_totals,
-    write_research_report_once,
+    choose_option_contract, closed_trade_audit, contract_replay_summary,
+    eligible_expiries, mode_totals, write_research_report_once,
 )
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
 
@@ -267,7 +267,8 @@ async def main() -> None:
                     intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
                                            "bars": len(keep), "coverage": coverage,
                                            "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
-                                           **contract_replay_summary(res)})
+                                           **contract_replay_summary(res),
+                                           "closed_trade_audit": closed_trade_audit(res)})
                 except Exception as exc:  # noqa: BLE001
                     intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"),
                                            "error": f"{type(exc).__name__}: {exc}"[:240],
