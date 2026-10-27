@@ -323,6 +323,12 @@ totals and missing trade detail.
 
 The new fields are emitted only by a **future read-only historical
 replay**; the existing October 22 artifact is not rewritten or
-retroactively populated with invented trade data. The exact-new-head
-end-to-end execution and forward cost/performance work are still
-pending. New real-money entry authorization remains OFF.
+retroactively populated with invented trade data. A mode-wide
+additional-cost stress result is withheld entirely when any contract
+fails, is skipped, remains unresolved, or lacks full paired-session
+coverage. Profitable surviving contracts may still appear as a
+diagnostic subset, not an accepted strategy.
+
+The exact-new-head end-to-end execution and forward
+cost/performance work are still pending. New real-money entry
+authorization remains OFF.
