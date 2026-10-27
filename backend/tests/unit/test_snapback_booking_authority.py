@@ -298,3 +298,22 @@ async def test_verified_zero_fill_terminal_receipt_is_not_a_working_order(monkey
     assert response.status == status and not response.success
     assert response.filled_quantity == 0
     killed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_ledger_booking_exception_after_real_fill_is_unresolved(monkeypatch):
+    a = adapter()
+    monkeypatch.setattr(a, "_book_fill", Mock(side_effect=OSError("db disk full")))
+    refresh = AsyncMock()
+    monkeypatch.setattr(fee_safety, "refresh", refresh)
+    ack = Mock(return_value=True)
+    monkeypatch.setattr(fills, "mark_projected", ack)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    response = await a.submit_order(request(), broker_client=object())
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.order_id == "BROKER-ORDER-1" and response.filled_quantity == 75
+    assert "not fully booked" in response.error
+    refresh.assert_not_awaited()
+    ack.assert_not_called()
+    killed.assert_called_once()
