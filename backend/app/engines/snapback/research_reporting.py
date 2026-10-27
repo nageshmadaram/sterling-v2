@@ -11,7 +11,7 @@ import json
 import math
 import os
 import tempfile
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -221,6 +221,37 @@ def contract_replay_summary(result: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "evidence_type": "REAL_MARKET_SIM",
     }
+
+
+def research_variant_row(
+    replay_fn: Callable[[], Mapping[str, Any]], *,
+    metadata: Mapping[str, Any], policy: str,
+) -> dict[str, Any]:
+    """Evaluate ONE candidate, retaining the other candidate's evidence.
+
+    A failed/invalid challenger must never cause the baseline's valid row to
+    disappear (or vice versa). Each strategy has its own full denominator,
+    including skipped/errored contracts. Exceptions stay research-only.
+    """
+    row = dict(metadata)
+    row["candidate_policy"] = policy
+    try:
+        observed = replay_fn()
+        if not isinstance(observed, Mapping):
+            raise ValueError("research replay must return an object")
+        summary = contract_replay_summary(observed)
+        audit = closed_trade_audit(observed)
+        row.update(summary)
+        row["closed_trade_audit"] = audit
+        if policy != "baseline":
+            row["challenger_rejections"] = dict(
+                observed.get("challenger_rejections") or {})
+    except Exception as exc:  # noqa: BLE001 - each row must survive independently
+        row.update({
+            "error": f"{type(exc).__name__}: {str(exc)[:190]}"[:240],
+            "replay_complete": False,
+        })
+    return row
 
 
 def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
