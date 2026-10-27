@@ -354,3 +354,37 @@ def test_incomplete_coverage_disqualifies_mode_wide_stress_even_if_trades_positi
     assert mode["trades"] == 1
     assert mode["additional_cost_stress_complete"] is False
     assert mode["additional_cost_stress_net_inr"] is None
+
+
+def test_hedged_option_profit_is_not_reported_as_whole_strategy_pnl():
+    simulated = replay(
+        trade_count=1,
+        trades=[{"quantity": 75, "net_pnl_inr": 1000.0}],
+        net_pnl_inr=1000.0, hedge_mode="index_futures",
+        hedge_realized_pnl_inr=999999,  # arbitrary number cannot be evidence
+    )
+    row = dict(contract_replay_summary(simulated),
+               coverage={"all_sessions_complete": True})
+    assert row["net_inr_exact"] == 1000
+    assert not row["hedge_pnl_included"]
+    assert not row["whole_strategy_pnl_complete"]
+    assert row["whole_strategy_net_inr"] is None
+    mode = mode_totals([row])
+    assert mode["net_inr_exact"] == 1000  # ONLY option simulation
+    assert mode["whole_strategy_net_inr"] is None
+    assert not mode["whole_strategy_pnl_complete"]
+    assert mode["promotion_eligible"] is False
+
+
+def test_explicitly_unhedged_replay_can_report_option_only_net_without_certification():
+    simulated = replay(
+        trade_count=1, trades=[{"quantity": 75, "net_pnl_inr": -100}],
+        net_pnl_inr=-100, hedge_mode="none",
+    )
+    row = dict(contract_replay_summary(simulated),
+               coverage={"all_sessions_complete": True})
+    assert row["whole_strategy_pnl_complete"]
+    assert row["whole_strategy_net_inr"] == -100
+    mode = mode_totals([row])
+    assert mode["whole_strategy_net_inr"] == -100
+    assert not mode["promotion_eligible"]  # no OOS/forward/broker certification
