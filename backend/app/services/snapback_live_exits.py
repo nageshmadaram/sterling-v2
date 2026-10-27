@@ -1109,7 +1109,11 @@ class SnapbackExitManager:
                 pos.position_id,
             )
             return "option_missing_unconfirmed", 0
-        self._book_unpriced_option_exit(pos, quantity=remaining - available, available=available)
+        try:
+            self._book_unpriced_option_exit(
+                pos, quantity=remaining - available, available=available)
+        except RuntimeError:
+            return "reconciling", 0
         return "sell", available
 
     def _book_unpriced_option_exit(self, pos: LivePosition, *, quantity: int, available: int) -> None:
@@ -1119,19 +1123,43 @@ class SnapbackExitManager:
         ``_note_shortfall``). The broker stop is released first in every exit, so nothing is
         left armed over units that no longer exist (a later trigger would open a naked short).
         """
-        def apply(p: LivePosition) -> None:
-            p.option_exit_qty += int(quantity)
-            p.option_exit_unknown_qty += int(quantity)
-            if "option_exit_price_unknown" not in p.flags:
-                p.flags.append("option_exit_price_unknown")
-            p.note = "option_missing_at_broker"
-            p.gtt_id = 0
-            p.gtt_qty = 0
-            p.gtt_stop = 0.0
-            p.protection_state = PROTECTION_NONE
-            p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = "", 0, 0
+        # A concurrent canonical exit may still complete after this shortfall
+        # observation. Such an order is never proof that the remaining units
+        # vanished: preserve the order identity and require reconciliation.
+        try:
+            if (type(quantity) is not int or quantity <= 0
+                    or type(available) is not int or available < 0):
+                raise ValueError("invalid unpriced option shortfall")
+            if pos.option_exit_order_id or pos.option_exit_requested:
+                raise ValueError("canonical option exit is unresolved")
 
-        self.store.mutate(pos.position_id, apply)
+            def apply(p: LivePosition) -> None:
+                remaining = p.option_qty - p.option_exit_qty
+                if (p.option_exit_order_id or p.option_exit_requested
+                        or type(p.option_qty) is not int
+                        or type(p.option_exit_qty) is not int
+                        or type(p.option_exit_unknown_qty) is not int
+                        or p.option_exit_unknown_qty < 0
+                        or p.option_exit_unknown_qty > p.option_exit_qty
+                        or remaining <= 0 or quantity > remaining):
+                    raise ValueError("option exit or available quantity changed during shortfall")
+                p.option_exit_qty += quantity
+                p.option_exit_unknown_qty += quantity
+                if "option_exit_price_unknown" not in p.flags:
+                    p.flags.append("option_exit_price_unknown")
+                p.note = "option_missing_at_broker"
+                p.gtt_id = 0
+                p.gtt_qty = 0
+                p.gtt_stop = 0.0
+                p.protection_state = PROTECTION_NONE
+                p.shortfall_leg, p.shortfall_obs, p.shortfall_first_ms = "", 0, 0
+
+            if self.store.mutate(pos.position_id, apply) is None:
+                raise RuntimeError("shortfall position vanished before durable booking")
+        except Exception as exc:  # noqa: BLE001 - no silent unpriced accounting
+            self._flag_reconciling(pos, "unpriced_option_exit_conflicts_with_broker_state")
+            raise RuntimeError("unpriced option shortfall must be reconciled") from exc
+
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
               detail_line(qty=int(quantity),
                           notes=["option units are not at the broker (closed outside Sterling?)",
@@ -1777,10 +1805,16 @@ class SnapbackExitManager:
 
         An unpriced booking cannot be undone, so it waits for the shortfall to persist.
         """
+        if pos.option_exit_order_id or pos.option_exit_requested:
+            self._flag_reconciling(pos, "broker_stop_and_canonical_exit_unresolved")
+            return "reconciling"
         if not self._note_shortfall(pos, "option"):
             return "option_missing_unconfirmed"
-        self._book_unpriced_option_exit(
-            pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
+        try:
+            self._book_unpriced_option_exit(
+                pos, quantity=pos.option_qty - int(pos.option_exit_qty), available=0)
+        except RuntimeError:
+            return "reconciling"
         return "done"
 
     async def _stop_fill_pending(self, client: Any, pos: LivePosition,
