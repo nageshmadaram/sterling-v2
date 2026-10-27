@@ -1431,22 +1431,23 @@ class SnapbackExitManager:
             if type(version) is not int or version <= 0:
                 return "projection_pending"
 
-        def apply(p: LivePosition) -> None:
-            booked = p.option_exit_booked_ids if is_option else p.hedge_exit_booked_ids
-            if str(order_id) in booked:
-                return
-            if is_option:
-                p.option_exit_qty += filled
-                p.option_exit_value += filled * average
-                p.option_exit_booked_ids.append(str(order_id))
-            else:
-                p.hedge_exit_qty += filled
-                p.hedge_exit_value += filled * average
-                p.hedge_exit_booked_ids.append(str(order_id))
-            if filled == 0:
-                p.exit_attempts += 1
+        from app.services.snapback_exit_fill_projection import project_terminal_exit
 
-        updated = self.store.mutate(pos.position_id, apply)
+        def apply(p: LivePosition) -> None:
+            project_terminal_exit(
+                p, pos, leg=leg, order_id=str(order_id), requested=requested,
+                filled=filled, average=average,
+            )
+
+        try:
+            updated = self.store.mutate(pos.position_id, apply)
+            if updated is None:
+                raise RuntimeError("terminal exit position vanished before projection")
+        except Exception as exc:  # noqa: BLE001 - ledger may already contain the fill
+            log.critical("Snapback terminal exit %s cannot project broker fill: %s",
+                         order_id, exc)
+            self._flag_reconciling(pos, "terminal_exit_projection_conflict")
+            return "unresolved"
         if updated is not None and filled > 0:
             try:
                 if not fills.mark_projected(resolution):
@@ -1465,8 +1466,17 @@ class SnapbackExitManager:
                 # A broker-terminal ACK must be retired atomically. Keeping a
                 # nonzero request after dropping its ID makes recovery unable
                 # to distinguish a completed leg from an unknown prior send.
-                if getattr(p, field_name) != str(order_id):
-                    raise ValueError("exit working order changed during resolution")
+                if (p.position_id != pos.position_id
+                        or p.uid != pos.uid or p.account_id != pos.account_id
+                        or p.option_symbol != pos.option_symbol
+                        or p.option_exchange != pos.option_exchange
+                        or (not is_option
+                            and (p.hedge_symbol != pos.hedge_symbol
+                                 or p.hedge_exchange != pos.hedge_exchange
+                                 or p.hedge_side != pos.hedge_side))
+                        or getattr(p, field_name) != str(order_id)
+                        or getattr(p, requested_field) != requested):
+                    raise ValueError("exit order or owner changed during retirement")
                 setattr(p, field_name, "")
                 setattr(p, requested_field, 0)
 
