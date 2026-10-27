@@ -241,3 +241,33 @@ async def test_settled_fill_without_valid_journal_projection_version_is_not_a_su
     assert response.filled_quantity == 75
     ack.assert_not_called()
     killed.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["OPEN", "COMPLETE", "", "SUBMITTED"])
+async def test_inconsistent_zero_fill_receipt_cannot_be_called_rejected(
+        monkeypatch, status):
+    candidate = resolved(quantity=0)
+    candidate.status = status
+    a = adapter(resolution=candidate)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    response = await a.submit_order(request(), broker_client=object())
+    assert response.status == "UNKNOWN" and not response.success
+    assert response.order_id == "BROKER-ORDER-1"
+    assert "reconcile" in response.error
+    killed.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["CANCELLED", "REJECTED"])
+async def test_verified_zero_fill_terminal_receipt_is_not_a_working_order(monkeypatch, status):
+    candidate = resolved(quantity=0)
+    candidate.status = status
+    a = adapter(resolution=candidate)
+    killed = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", killed)
+    response = await a.submit_order(request(), broker_client=object())
+    assert response.status == status and not response.success
+    assert response.filled_quantity == 0
+    killed.assert_not_called()
