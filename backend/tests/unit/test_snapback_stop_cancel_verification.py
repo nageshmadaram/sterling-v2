@@ -94,3 +94,22 @@ async def test_stop_child_missing_identity_cannot_attempt_cancellation(monkeypat
     assert await obj._stop_fill_pending(client, p, own) == "stop_cancel_unconfirmed"
     client.cancel_order.assert_not_awaited()
     client.get_orders.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_id", [" ", " ORDER-7 ", "ORDER-7 "])
+async def test_stop_child_invalid_identity_never_reaches_cancel_transport(
+        invalid_id):
+    p = LivePosition(
+        position_id="pos", uid="user", account_id="account",
+        signal_id="sig", lane="scalp", underlying="NIFTY",
+        side="fade_up", option_type="PE", option_exchange="NFO",
+        option_symbol="NIFTY_PE", option_qty=75, option_entry_price=100,
+    )
+    p.stop_fill_pending_ms = 1
+    broker = NS(cancel_order=AsyncMock(), get_orders=AsyncMock())
+    mgr = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    result = await mgr._stop_fill_pending(broker, p, [_order(invalid_id, "OPEN")])
+    assert result == "stop_cancel_unconfirmed"
+    broker.cancel_order.assert_not_awaited()
+    broker.get_orders.assert_not_awaited()
