@@ -2011,3 +2011,54 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
     flex:1 1 auto; min-height:38px;
   }
 }
+
+
+/* Photo library/camera chooser: genuine native file input remains under the
+   user's finger; mobile browsers need a trusted tap rather than a synthetic
+   click on display:none. Crop remains a separate, keyboard-operable step. */
+.sterling-profile-photo-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.sterling-profile-photo-pick{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-height:42px;min-width:118px;border:1px solid var(--k-border);
+  border-radius:7px;background:var(--k-surface-2);color:var(--k-text);
+  cursor:pointer;touch-action:manipulation;overflow:hidden;
+  font:inherit;font-size:13px;font-weight:600;
+}
+.sterling-profile-photo-pick span{pointer-events:none;padding:9px 12px;}
+.sterling-profile-photo-pick input[type=file]{
+  position:absolute!important;inset:0!important;width:100%!important;
+  height:100%!important;min-height:0!important;max-height:none!important;
+  margin:0!important;padding:0!important;opacity:0!important;
+  cursor:pointer!important;border:0!important;z-index:1;
+}
+.sterling-profile-photo-pick:focus-within{outline:2px solid var(--k-brand);outline-offset:3px}
+.sterling-profile-photo-pick:has(input:disabled){opacity:.55;cursor:not-allowed}
+.sterling-profile-modal{padding:clamp(8px,2.5vw,20px)!important;box-sizing:border-box;}
+.sterling-profile-modal>.profile-panel{
+  width:min(480px,100%)!important;max-width:100%;min-width:0;
+  max-height:calc(100dvh - 16px)!important;overflow-y:auto;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  box-sizing:border-box;padding:clamp(12px,3vw,22px)!important;
+}
+.sterling-profile-modal .sterling-profile-photo-editor>div{min-width:0;flex:1 1 170px}
+.sterling-profile-modal .profile-panel :is(button,input,select){max-width:100%;box-sizing:border-box}
+.sterling-profile-modal .profile-panel :is(input:not([type=file]),select){font-size:16px!important}
+@media(max-width:900px){
+  body[data-mobile-style="app"] .today-signals-priority {
+    overflow:visible;white-space:normal;max-height:none;
+    min-height:27px;padding:3px 9px!important;
+    line-height:18px!important;font-size:11px!important;
+  }
+  body[data-mobile-style="app"] .today-signals-priority>strong {
+    display:block;max-width:100%;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+  body[data-mobile-style="app"] .today-signals-priority details {
+    margin:0;font-size:10px;max-width:100%;
+  }
+  body[data-mobile-style="app"] .today-signals-priority details:not([open]) {
+    height:0;overflow:hidden;
+  }
+  body[data-mobile-style="app"] .today-signals-priority:focus-within details,
+  body[data-mobile-style="app"] .today-signals-priority details[open] {height:auto;}
+}
