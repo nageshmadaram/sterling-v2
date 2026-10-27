@@ -16,8 +16,9 @@ def project_terminal_exit(
 ) -> None:
     """Book one terminal order once; raise if state no longer matches its ACK.
 
-    A zero-fill CANCELLED/REJECTED order increments the attempt counter,
-    without inventing a fill. Only the caller can retire a terminal ACK.
+    A zero-fill CANCELLED/REJECTED order creates no projection. The caller
+    increments the attempt counter atomically when retiring the terminal ACK
+    so a restart cannot double-count a cancellation.
     """
     if leg not in {"option", "hedge"}:
         raise ValueError("invalid exit leg")
@@ -65,5 +66,3 @@ def project_terminal_exit(
             getattr(current, f"{prefix}_exit_value") + filled * average,
         )
         booked.append(order_id)
-    else:
-        current.exit_attempts += 1
