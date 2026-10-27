@@ -251,6 +251,20 @@ class TestGate:
 
 
 class TestRun:
+    def test_ineligible_selector_is_null_in_strict_json_report(self):
+        import json
+        t = {"RELIANCE": tape(900), "INFY": tape(900, seed=9)}
+        report = run(t, CFG, is_days=200, oos_days=60,
+                     permutation_rounds=5)
+        # Any ineligible rule has scores=None, never float('-inf') which
+        # json.dumps otherwise prints as nonstandard '-Infinity'.
+        strict = json.dumps(report.as_dict(), allow_nan=False)
+        parsed = json.loads(strict)
+        assert "folds" in parsed
+        assert all(s is None or isinstance(s, (float, int))
+                   for fold in parsed["folds"]
+                   for s in fold["in_sample_scores"].values())
+
     def test_produces_all_three_books(self):
         t = {"RELIANCE": tape(900), "INFY": tape(900, seed=9)}
         r = run(t, CFG, is_days=200, oos_days=60, permutation_rounds=5)
