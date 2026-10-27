@@ -866,10 +866,13 @@ class SnapbackExitManager:
             if order_id is None:
                 # Submission may have reached the broker; a second SELL or
                 # restoring a prior stop can double-close this position.
+                try:
+                    current = self.store.get(pos.position_id) or pos
+                except Exception as exc:  # noqa: BLE001 - disk may also be full
+                    log.critical("Snapback exit hold cannot read registry: %s", exc)
+                    current = pos
                 self._flag_reconciling(
-                    self.store.get(pos.position_id) or pos,
-                    f"{leg}_exit_submission_identity_unknown",
-                )
+                    current, f"{leg}_exit_submission_identity_unknown")
                 return "submit_unknown"
             if not order_id:
                 if is_option:
@@ -1159,13 +1162,19 @@ class SnapbackExitManager:
             if note not in p.flags:
                 p.flags.append(note)
 
-        self.store.mutate(pos.position_id, apply)
+        try:
+            self.store.mutate(pos.position_id, apply)
+        except Exception as exc:  # noqa: BLE001 - never skip the safety halt
+            log.critical("Snapback cannot persist reconciliation hold for %s: %s",
+                         pos.position_id, exc)
+        engage_kill_switch(
+            f"Snapback position {pos.option_symbol} needs reconciliation: {note}",
+            pos.uid)
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
               detail_line(qty=pos.option_qty, notes=[note.replace("_", " "),
                                                     "automatic handling stopped; check the broker"]),
               key=f"snapback:{pos.position_id}:RECON:{note}", severity="CRITICAL",
               uid=pos.uid)
-        engage_kill_switch(f"Snapback position {pos.option_symbol} needs reconciliation: {note}", pos.uid)
 
     async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> Optional[str]:
         """One canonical CLOSE_POSITION order. Returns its order id, or ``""``."""
