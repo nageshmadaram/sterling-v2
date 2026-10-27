@@ -277,6 +277,12 @@ class LivePositionStore:
                 "CREATE INDEX IF NOT EXISTS ix_snapback_live_signal "
                 "ON snapback_live_positions(signal_id)"
             )
+            # Operator snapshots need the newest closed rows, not a full-table
+            # materialisation followed by a Python slice.
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS ix_snapback_live_uid_updated "
+                "ON snapback_live_positions(uid, updated_ms DESC)"
+            )
         finally:
             conn.close()
 
@@ -327,6 +333,46 @@ class LivePositionStore:
         finally:
             conn.close()
         return [self._hydrate(r) for r in rows]
+
+    def board_positions(self, uid: str, *, recent_closed: int = 100) -> List[LivePosition]:
+        """All active positions and only the latest closed rows for the UI.
+
+        Never page or truncate active inventory. The table's scalar status and
+        updated_ms columns let SQLite bound closed records before JSON decoding,
+        instead of hydrating years of closed positions on each 1.5s scan poll.
+        This method is display-only; admission/reconciliation keep their own
+        authoritative full-book reads.
+        """
+        if type(recent_closed) is not int or recent_closed < 0:
+            raise ValueError("recent_closed must be a nonnegative integer")
+
+        statuses = tuple(sorted(LIVE_STATES))
+        marks = ",".join("?" for _ in statuses)
+        conn = self._connect()
+        try:
+            live = conn.execute(
+                f"SELECT data_json FROM snapback_live_positions "
+                f"WHERE uid=? AND status IN ({marks}) "
+                "ORDER BY updated_ms ASC, position_id ASC",
+                (uid, *statuses),
+            ).fetchall()
+            closed = (
+                conn.execute(
+                    f"SELECT data_json FROM snapback_live_positions "
+                    f"WHERE uid=? AND status NOT IN ({marks}) "
+                    "ORDER BY updated_ms DESC, position_id DESC LIMIT ?",
+                    (uid, *statuses, recent_closed),
+                ).fetchall()
+                if recent_closed else []
+            )
+        finally:
+            conn.close()
+
+        # Keep the existing board order: every active record (oldest first),
+        # then closed records in ascending time order within the newest N.
+        return [self._hydrate(row) for row in live] + [
+            self._hydrate(row) for row in reversed(closed)
+        ]
 
     def open_positions(self, uid: str, account_id: str = "") -> List[LivePosition]:
         return self.list(uid, statuses=LIVE_STATES, account_id=account_id)
