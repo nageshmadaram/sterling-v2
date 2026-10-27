@@ -60,7 +60,7 @@ def quiet(cfg,now=None):
     start,end=cfg['quiet_start'],cfg['quiet_end']
     return start<=clock<end if start<end else clock>=start or clock<end
 
-def notification_url(category, *, strategy="", signal_id="", symbol=""):
+def notification_url(category, *, strategy="", signal_id="", symbol="", at_ms=0):
     """Only known, read-only workspace routes; never accept arbitrary URLs."""
     if category not in {"signals", "pcr", "alerts"}:
         return "/"
@@ -76,13 +76,15 @@ def notification_url(category, *, strategy="", signal_id="", symbol=""):
             params["signal"] = str(signal_id)
         if symbol and len(str(symbol)) <= 80:
             params["symbol"] = str(symbol)
+        if str(at_ms).isdigit() and 0 < int(at_ms) < 10**14:
+            params["at"] = str(at_ms)
     return "/?" + urlencode(params)
 
 
 async def send(uid,event_key,title,body,category,*,force=False,
-               strategy="",signal_id="",symbol=""):
+               strategy="",signal_id="",symbol="",at_ms=0):
     return await run_blocking(_send,uid,event_key,title,body,category,
-                              force=force,strategy=strategy,signal_id=signal_id,symbol=symbol)
+                              force=force,strategy=strategy,signal_id=signal_id,symbol=symbol,at_ms=at_ms)
 
 def _send(uid,event_key,title,body,category,*,force=False,
           strategy="",signal_id="",symbol=""):
@@ -104,7 +106,7 @@ def _send(uid,event_key,title,body,category,*,force=False,
         payload={'title':str(title)[:120], 'body':str(body)[:620],
                  'tag':str(event_key)[:160],
                  'url':notification_url(category,strategy=strategy,
-                                        signal_id=signal_id,symbol=symbol)}
+                                        signal_id=signal_id,symbol=symbol,at_ms=at_ms)}
         try:
             webpush(subscription_info=json.loads(decrypt(row['subscription_enc'])),data=json.dumps(payload),vapid_private_key=Vapid.from_pem(pem.encode()),vapid_claims={'sub':os.environ.get('STERLING_PUSH_SUBJECT','https://sterling.local')},ttl=300,timeout=8)
             with db._conn() as c:
@@ -159,7 +161,7 @@ async def tick():
                                    event.strategy_label+' · '+event.title,
                                    summary or event.direction,'signals',
                                    strategy=event.strategy,signal_id=event.signal_id,
-                                   symbol=event.title)
+                                   symbol=event.title,at_ms=event.timestamp_ms)
         if cfg['pcr'] and is_market_open():
             payload=await pcr_session(UserContext(uid))
             if payload.get('source')=='live':
