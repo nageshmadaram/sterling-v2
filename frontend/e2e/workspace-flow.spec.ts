@@ -147,6 +147,7 @@ for (const width of [390, 1440]) {
     await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
     for (const name of ['Kite', 'Echo', 'Space']) await expect(page.getByRole('button', { name: new RegExp(`Open ${name}`) })).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Open Space/ })).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath(`chooser-${width}.png`), fullPage: true });
     await page.getByRole('button', { name: /Open Echo/ }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
