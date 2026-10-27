@@ -164,7 +164,8 @@ it('refreshes status on an immediate done response from the six-digit verificati
   fireEvent.click(screen.getByRole('button', {name:'Login with saved credentials'}));
   const input = await screen.findByLabelText('Kite TOTP');
   fireEvent.change(input, {target:{value:'123456'}});
-  await waitFor(() => expect(saved).toHaveBeenCalledExactlyOnceWith('one'));
+  await waitFor(() => expect(saved).toHaveBeenCalledWith('one'));
+  expect(saved).toHaveBeenCalledTimes(1);
   expect(invalidate).toHaveBeenCalledWith({queryKey:['kite-status']});
   expect(invalidate).toHaveBeenCalledWith({queryKey:['kite-accounts']});
   expect(screen.getByText(/Broker session saved/)).toBeInTheDocument();
