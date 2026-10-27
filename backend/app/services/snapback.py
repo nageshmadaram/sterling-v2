@@ -763,6 +763,26 @@ def _intraday_row(sig, cfg, *, contract, quote, blocked, underlying_token):
         "reasons": list(sig.reasons), "metrics": {**dict(sig.metrics), **plan},
     }
 
+def _scan_preview(rows: list[dict]) -> list[dict]:
+    """Read-only progressive market scan publication.
+
+    Signals from a partially scanned universe are useful to display but may
+    not be used to originate a broker order. Final scan publication replaces
+    these rows with their validated armed/watching state.
+    """
+    return [
+        {
+            **row,
+            "scan_in_progress": True,
+            "execution_eligible": False,
+            "state": "watching" if row.get("state") == "armed" else row.get("state", "watching"),
+            "reason": "Scan in progress; wait for completed scan before entry"
+                      if row.get("state") == "armed" else row.get("reason"),
+        }
+        for row in rows
+    ]
+
+
 async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: str | None = None) -> dict:
     """One universe pass: daily candles -> signals -> rows.
 
@@ -789,7 +809,13 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
     start_gen = st.config_generation
     st.failures = []
     st.last_error = None
-    st.rows = [] if cfg.trading_mode != "swing" else st.rows
+    st.scanned = 0
+    # A previous armed quote is not a live candidate while a new full scan
+    # is underway. Keep its row visible for the operator, but read-only.
+    if mode_override is None:
+        st.rows = _scan_preview(st.rows)
+    else:
+        st.rows = []
     # Cleared UP FRONT, not on success: a scan that throws halfway would
     # otherwise leave armed rows behind that nothing has re-checked.
     st.signals = {}
@@ -843,8 +869,10 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
         # retries; three sits under the published limit.
         sem = asyncio.Semaphore(3)
         rows: list[dict] = []
+        last_preview_at = 0.0
 
         async def one(item) -> None:
+            nonlocal last_preview_at
             async with sem:
                 try:
                     if cfg.trading_mode == "swing":
@@ -936,10 +964,25 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
                                 f"({cfg.premium_pct_of_capital:g}% of "
                                 f"₹{cfg.capital_inr:,.0f})")
                         rows.append(row)
+                        # Publish advisory rows as soon as a symbol finishes,
+                        # instead of making the user wait for all 200 broker
+                        # candles/contract quotes. Never arm a partial scan.
+                        clock = time.monotonic()
+                        if (mode_override is None and st.config_generation == start_gen
+                                and (not st.rows or clock - last_preview_at >= 0.75)):
+                            st.rows = _scan_preview(rows)
+                            last_preview_at = clock
                 except Exception as exc:                           # noqa: BLE001
                     st.failures.append(f"{item.name}: {exc}")
 
-        await asyncio.gather(*(one(i) for i in universe))
+        async def tracked(item) -> None:
+            try:
+                await one(item)
+            finally:
+                if mode_override is None and st.config_generation == start_gen:
+                    st.scanned += 1
+
+        await asyncio.gather(*(tracked(i) for i in universe))
         if st.config_generation != start_gen:
             st.rows = []
             st.signals = {}
