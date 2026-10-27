@@ -238,3 +238,31 @@ async def test_correct_buy_futures_hedge_for_bought_put_remains_limit_order():
     assert outcome.success
     req = broker.submit_order.await_args.args[0]
     assert req.side == "BUY" and req.order_type == "LIMIT"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [
+    {"owner_uid": "other-tenant"},
+    {"owner_uid": ""},
+    {"account_id": "OTHER-ACCOUNT"},
+    {"account_id": ""},
+])
+async def test_live_entry_rejects_foreign_or_unbound_plan_owner(change):
+    svc, broker = executor()
+    result = await submit(svc, {**plan(), **change})
+    assert not result.success and result.status == "REJECTED_PLAN"
+    assert "owner" in result.error
+    broker.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_live_entry_rejects_switched_broker_account():
+    svc, broker = executor()
+    result = await svc._submit(
+        plan(), symbol="NIFTY_PE", exchange="NFO", side="BUY",
+        quantity=75, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="OTHER-ACCOUNT"),
+    )
+    assert not result.success and result.status == "REJECTED_PLAN"
+    broker.submit_order.assert_not_awaited()
