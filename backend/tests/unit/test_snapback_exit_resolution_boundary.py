@@ -250,3 +250,35 @@ async def test_unknown_exit_send_after_stop_release_does_not_restore_competing_s
     hold.assert_called_once()
     protection.ensure.assert_not_awaited()
     positions.mutate.assert_not_called()
+
+
+def test_reconciliation_halt_runs_even_if_position_store_is_out_of_space(monkeypatch):
+    p = pos()
+    store = NS(mutate=Mock(side_effect=OSError("disk full")))
+    obj = exits.SnapbackExitManager(positions=store)
+    kill = Mock()
+    alert = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", kill)
+    monkeypatch.setattr(exits, "alert", alert)
+    obj._flag_reconciling(p, "exit_submission_identity_unknown")
+    store.mutate.assert_called_once()
+    kill.assert_called_once()
+    alert.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_unknown_exit_submission_stays_on_hold_when_position_read_fails(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    store = NS(get=Mock(side_effect=OSError("disk full")), mutate=Mock())
+    obj = exits.SnapbackExitManager(positions=store)
+    monkeypatch.setattr(obj, "_broker_holds", AsyncMock(return_value=True))
+    monkeypatch.setattr(obj, "_release_stop", AsyncMock(return_value="released"))
+    monkeypatch.setattr(obj, "_submit_exit", AsyncMock(return_value=None))
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    protection = NS(ensure=AsyncMock())
+    obj._protection = protection
+    assert await obj._close_leg(NS(), p, leg="option") == "submit_unknown"
+    hold.assert_called_once_with(p, "option_exit_submission_identity_unknown")
+    protection.ensure.assert_not_awaited()
