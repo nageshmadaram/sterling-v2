@@ -136,8 +136,31 @@ class SnapbackExecutionAdapter:
         from app.services import canonical_fill_reconciliation as fills
 
         resolve = self._resolver or fills.resolve_entry_fill
-        reference = float(getattr(request, "price", 0.0) or 0.0) or float(
-            (request.payload or {}).get("limit_price") or 0.0) or 1.0
+        # The canonical service has already sent/acknowledged an order. An
+        # unusable display/reference price must not cause an uncaught exception
+        # that hides its broker identity. Live fill resolution reads actual
+        # broker observations; the fallback is only a resolver argument and
+        # NEVER constitutes valid entry/price evidence.
+        invalid_reference = False
+        try:
+            raw_reference = (
+                getattr(request, "price", 0.0)
+                or (request.payload or {}).get("limit_price")
+                or 1.0
+            )
+            reference = float(raw_reference)
+            if (type(raw_reference) is bool or not math.isfinite(reference)
+                    or reference <= 0):
+                raise ValueError("invalid_post_submit_reference_price")
+        except (TypeError, ValueError, OverflowError, AttributeError) as exc:
+            invalid_reference = True
+            reference = 1.0
+            log.error("Snapback unverified reference for sent order %s: %s",
+                      result.order_id, exc)
+            engage_kill_switch(
+                f"Snapback order reference unverified for {request.symbol}",
+                request.uid,
+            )
         try:
             resolution = await resolve(
                 uid=request.uid, client=broker_client, order_id=result.order_id,
@@ -218,7 +241,7 @@ class SnapbackExecutionAdapter:
             # A broker disagreement or still-working order cannot be sealed
             # as fully projected merely because its partial fill was booked.
             if (booked_ok and terminal and resolution.settled
-                    and not resolution.reconciliation_required):
+                    and not resolution.reconciliation_required and not invalid_reference):
                 try:
                     version = getattr(resolution, "projection_version", None)
                     if type(version) is not int or version <= 0:
@@ -259,6 +282,18 @@ class SnapbackExecutionAdapter:
                 order_id=result.order_id, filled_quantity=filled,
                 filled_price=average,
                 error="confirmed broker fill not fully booked; reconcile before new entries",
+            )
+
+        if invalid_reference:
+            # The actual broker quantity is now known and, where valid, was
+            # booked for protection. A missing/invalid pre-submit reference
+            # cannot authorize completion or journal acknowledgment.
+            return ExecutionResult(
+                success=False, status="UNKNOWN",
+                intent_key=resolution.intent_key or result.intent_key,
+                order_id=result.order_id, filled_quantity=filled,
+                filled_price=average,
+                error="post-submit reference price invalid; reconcile before new entries",
             )
 
         if resolution.reconciliation_required or not resolution.settled or not terminal:
