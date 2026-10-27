@@ -2607,7 +2607,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       loadCategory('all', true);
       renderPersonalizedShelves();
       renderSidebarList();
-      initRadioDirectory();
+      // Station catalog source hydration is independent of the first sound.
+      // Schedule its expensive creation after the selected audio request, not
+      // on the critical user-tap/startup path.
       initSpotifyShell();
       initRadioExtras();
       document.documentElement.dataset.radioReady='true';
@@ -2627,6 +2629,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (appConfig.bootBehavior !== 'quiet') {
         attemptBootAutoplay(bootStation);
       }
+      window.setTimeout(() => {
+        if (radioBooted) initRadioDirectory();
+      }, 0);
 
       setInterval(() => {
         if (isPlaying && activeStream && activeStream.kind === 'radio') {
