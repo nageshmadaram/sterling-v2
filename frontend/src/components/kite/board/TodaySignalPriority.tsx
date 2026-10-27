@@ -45,11 +45,17 @@ export function istDay(date: Date): string {
 
 export function stageOf(
   query: { isError: boolean; isSuccess: boolean; dataUpdatedAt: number },
-  scanned: boolean, currentDayStartMs: number,
+  scanned: boolean, currentDayStartMs: number, scanFailed = false,
 ): TodaySignalStage {
-  if (query.isError) return 'error';
+  if (query.isError || scanFailed) return 'error';
   if (!query.isSuccess || query.dataUpdatedAt < currentDayStartMs) return 'loading';
   return scanned ? 'scanning' : 'ready';
+}
+
+function failedJob(data: unknown): boolean {
+  if (!data || typeof data !== 'object') return false;
+  const status = (data as { scan?: { status?: string } }).scan?.status?.toUpperCase() || '';
+  return ['FAILED', 'ERROR', 'CANCELLED'].includes(status);
 }
 
 function activeJob(data: unknown): boolean {
@@ -90,10 +96,10 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
 
   const dayStart = Date.parse(`${day}T00:00:00+05:30`);
   const stages: TodaySignalPriorityState['stages'] = {
-    SuperTrend: stageOf(supertrend, activeJob(supertrend.data), dayStart),
-    Snapback: stageOf(snapback, activeJob(snapback.data), dayStart),
-    'Gamma-Unwind': stageOf(gamma, activeJob(gamma.data), dayStart),
-    'EMA Trend': stageOf(ema, activeJob(ema.data), dayStart),
+    SuperTrend: stageOf(supertrend, activeJob(supertrend.data), dayStart, failedJob(supertrend.data)),
+    Snapback: stageOf(snapback, activeJob(snapback.data), dayStart, failedJob(snapback.data)),
+    'Gamma-Unwind': stageOf(gamma, activeJob(gamma.data), dayStart, failedJob(gamma.data)),
+    'EMA Trend': stageOf(ema, activeJob(ema.data), dayStart, failedJob(ema.data)),
   };
 
   // Once today's four snapshots have passed, a later intraday scan must not
