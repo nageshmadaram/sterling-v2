@@ -47,9 +47,29 @@ def test_snapshot_keeps_every_open_position_and_bounds_closed_history(monkeypatc
     assert sum(p["status"] == OPEN for p in result["positions"]) == 3
 
 
+def test_board_snapshot_never_fetches_full_closed_history(monkeypatch, tmp_path):
+    store = LivePositionStore(tmp_path / "positions.db")
+    for index in range(140):
+        store.put(position("operator", f"closed-{index:03d}", CLOSED))
+    store.put(position("operator", "still-open", OPEN))
+    prepare(monkeypatch, store)
+
+    # The board path must use SQL-bounded reads even as the closed ledger grows.
+    # A regression to store.list(uid) would load and decode every old row.
+    def forbid_unbounded_list(*_args, **_kwargs):
+        raise AssertionError("board snapshot must not load full position history")
+    monkeypatch.setattr(store, "list", forbid_unbounded_list)
+
+    result = snapback.snapshot("operator")
+    assert result["positions_error"] is None
+    assert len(result["positions"]) == 101
+    assert [p["position_id"] for p in result["positions"] if p["status"] == OPEN] == ["still-open"]
+    assert sum(p["status"] == CLOSED for p in result["positions"]) == 100
+
+
 def test_registry_failure_is_explicit_and_never_fabricates_flat_inventory(monkeypatch):
     class Unreadable:
-        def list(self, uid):
+        def board_positions(self, uid, *, recent_closed=100):
             raise OSError("unreadable")
     prepare(monkeypatch, Unreadable())
     result = snapback.snapshot("operator")
