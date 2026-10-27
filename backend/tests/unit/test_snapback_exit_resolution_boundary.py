@@ -270,6 +270,7 @@ def test_reconciliation_halt_runs_even_if_position_store_is_out_of_space(monkeyp
 async def test_unknown_exit_submission_stays_on_hold_when_position_read_fails(monkeypatch):
     p = pos()
     p.option_exit_order_id = ""
+    p.option_exit_requested = 0
     store = NS(get=Mock(side_effect=OSError("disk full")), mutate=Mock())
     obj = exits.SnapbackExitManager(positions=store)
     monkeypatch.setattr(obj, "_broker_holds", AsyncMock(return_value=True))
