@@ -8,6 +8,9 @@ by all of them, and that the position record behaves as a registry entry.
 """
 from __future__ import annotations
 
+import json
+import sqlite3
+
 import pytest
 
 from app.services.snapback_live_positions import (
@@ -78,6 +81,44 @@ def test_board_positions_queries_all_active_but_only_recent_closed(store, monkey
     assert store.board_positions("reguser", recent_closed=0) == rows[:4]
     assert store.board_positions("foreign")[0].position_id == "foreign"
     assert all(p.uid == "reguser" for p in rows)
+
+
+def test_board_positions_is_one_snapshot_during_concurrent_close(store, monkeypatch):
+    """A position closing between the two SQL reads appears exactly once."""
+    active = _position(position_id="moving", signal_id="moving", status=OPEN)
+    store.put(active)
+    closed_payload = active.as_dict()
+    closed_payload["status"] = CLOSED
+    original_connect = store._connect
+    intervened = []
+
+    class InterleavedRead:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def execute(self, statement, arguments=()):
+            if "status NOT IN" in statement and not intervened:
+                with sqlite3.connect(str(store.path), timeout=5.0) as writer:
+                    writer.execute(
+                        "UPDATE snapback_live_positions SET status=?, data_json=? "
+                        "WHERE position_id=?",
+                        (CLOSED, json.dumps(closed_payload), "moving"),
+                    )
+                intervened.append(True)
+            return self.connection.execute(statement, arguments)
+
+        def commit(self):
+            return self.connection.commit()
+
+        def close(self):
+            return self.connection.close()
+
+    monkeypatch.setattr(store, "_connect", lambda: InterleavedRead(original_connect()))
+    rows = store.board_positions("reguser")
+    assert intervened
+    assert [p.position_id for p in rows] == ["moving"]
+    assert rows[0].status == OPEN  # consistent view from before the writer commit
+    assert store.get("moving").status == CLOSED  # subsequent readers see the commit
 
 
 def test_board_positions_invalid_history_limit_rejected(store):
