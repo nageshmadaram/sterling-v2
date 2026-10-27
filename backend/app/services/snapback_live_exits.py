@@ -1403,7 +1403,26 @@ class SnapbackExitManager:
                 return "projection_pending"
         if updated is not None:
             field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
-            updated = self.store.mutate(pos.position_id, lambda p: setattr(p, field_name, ""))
+            requested_field = "option_exit_requested" if is_option else "hedge_exit_requested"
+
+            def retire_terminal_exit(p: LivePosition) -> None:
+                # A broker-terminal ACK must be retired atomically. Keeping a
+                # nonzero request after dropping its ID makes recovery unable
+                # to distinguish a completed leg from an unknown prior send.
+                if getattr(p, field_name) != str(order_id):
+                    raise ValueError("exit working order changed during resolution")
+                setattr(p, field_name, "")
+                setattr(p, requested_field, 0)
+
+            try:
+                updated = self.store.mutate(pos.position_id, retire_terminal_exit)
+                if updated is None:
+                    raise RuntimeError("position vanished while retiring exit ACK")
+            except Exception as exc:  # noqa: BLE001 - do not resubmit an uncertain exit
+                log.critical("Snapback cannot retire terminal exit %s: %s", order_id, exc)
+                engage_kill_switch(
+                    f"Snapback terminal exit {order_id} needs reconciliation", pos.uid)
+                return "unresolved"
         if filled == 0:
             # The order ended with no fill: the leg is provably still open, so a
             # NEW attempt (new journal key) is safe. Restore protection first.
