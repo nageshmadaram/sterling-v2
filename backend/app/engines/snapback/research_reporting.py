@@ -198,7 +198,11 @@ def mode_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     # gains rounded to zero can flip a near-break-even mode's verdict.
     net_exact = sum(r.get("net_inr_exact", r["net_inr"]) for r in ok)
     profitable = sum(r.get("net_inr_exact", r["net_inr"]) > 0 for r in ok)
-    stress_complete = bool(ok) and all(
+    # Never display a subset's best-case stress as a complete mode result.
+    # Missing, skipped, errored or tape-incomplete contracts make mode-wide
+    # sensitivity UNKNOWN rather than selectively positive.
+    stress_complete = (bool(ok) and len(ok) == len(all_rows)
+                       and incomplete_coverage == 0) and all(
         isinstance(r.get("additional_cost_stress"), Mapping)
         and r["additional_cost_stress"].get("available") is True for r in ok
     )
