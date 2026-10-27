@@ -101,3 +101,23 @@ async def test_valid_live_hedge_uses_fresh_limit_override():
     assert req.order_type == "LIMIT"
     assert req.price == 23010
     assert req.payload["limit_price"] == 23010
+
+
+@pytest.mark.asyncio
+async def test_legacy_missing_live_mode_cannot_place_market_order_on_real_broker():
+    service, canonical = executor()
+    legacy = {**plan(), "mode": "", "order_type": "MARKET", "limit_price": 0}
+    result = await submit(service, legacy)
+    assert not result.success and result.status == "REJECTED_PLAN"
+    canonical.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_live_mode_with_valid_limit_still_never_converts_to_market():
+    service, canonical = executor()
+    legacy = {**plan(), "mode": ""}
+    result = await submit(service, legacy)
+    assert result.success
+    request = canonical.submit_order.await_args.args[0]
+    assert request.order_type == "LIMIT"
+    assert request.price > 0
