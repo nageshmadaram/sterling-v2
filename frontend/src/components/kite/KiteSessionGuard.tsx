@@ -200,7 +200,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
       : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
       : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
-  const isLoginVisible = (!connected && !savedPending) || showRelogin || (loginRequested && !savedPending);
+  const isLoginVisible = (!connected && (!savedPending || verificationTimedOut)) || showRelogin || (loginRequested && !savedPending);
 
   return createPortal(
     <div className="kite-session-overlay" data-leaving={leaving ? 'true' : 'false'}
