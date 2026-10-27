@@ -840,7 +840,9 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
       result = result.filter((r) => {
         const rawTs = (r as any).timestamp_ms ?? (r as any).timestamp ?? (r as any).time ?? (r as any).atMs;
         const day = sessionDayKey(rawTs);
-        return day === todayKey;
+        // Open/active signals are held exposure, not older history. Keep
+        // them visible for the operator even while the history queue waits.
+        return day === todayKey || (!todayOnly && !priority.olderReady && r.is_active);
       });
     }
     if (query.trim()) {
