@@ -190,3 +190,40 @@ the newly added tests on the current SHA. No authorized real-money
 order/fill/stop/hedge/exit proof or statistically positive after-cost
 forward results were obtained. The owner is medically unavailable to
 provide account/broker approval. Keep master new-entry halt OFF.
+
+
+## Fifth pass — ledger quarantine before position mutation
+
+Additional defensive changes on the **draft** branch:
+
+- Snapback validates a confirmed fill against the persisted plan
+  **before writing** to the shared signed fill ledger. Cross-account/user,
+  wrong exchange or option contract, invalid side, missing plan, stale
+  cumulative fill and changed broker order ID all refuse ledger mutation.
+  Existing receipt ownership and risk-stop checks remain in place.
+- Late option/hedge entry messages cannot silently reopen a position in
+  `CLOSED`, `EXITING` or unknown lifecycle states. Entry evidence from
+  a `RECONCILING` position remains admissible for broker-recovery work.
+  Check both before ledger write and inside SQLite's `BEGIN IMMEDIATE`
+  position mutation.
+- The stored position's option contract and exchange must match the
+  persisted source plan, not just the incoming broker fact.
+- If the signed fill ledger **quarantines contradictory cumulative
+  evidence**, Snapback now refuses to overwrite the owned position with
+  that contradictory quantity or price. Unknown broker outcomes remain
+  unresolved and new entries halt.
+- A ledger write I/O failure (as distinct from quarantined conflicting
+  evidence) still attempts to persist already-confirmed owned broker
+  exposure in the position registry to support broker-stop/exit recovery,
+  and then halts new entries.
+- Added regressions for foreign pre-ledger messages, valid broker
+  exchange timestamps, closed/exiting-state postbacks, transactional
+  lifecycle races, registry option-contract drift, conflict quarantine,
+  and ledger disk-failure recovery behavior.
+
+**Current verification:** The new integration tests exist in GitHub
+but were not executed against the exact head. GitHub-hosted workflows
+still report zero assigned runner/zero executed steps. Do not infer
+production functionality or profitable forward results from these
+code-only changes. No real-money orders, live safety gate enablement,
+branch merge or trading certification was performed.
