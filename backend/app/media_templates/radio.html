@@ -3,7 +3,9 @@
 <head>
 <style>html:not([data-radio-ready]) body{visibility:hidden}</style>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Isolated media iframe only: no pinch or double-tap page zoom on phones. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <script src="/media/mobile-no-zoom.js"></script>
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="true" />
   <meta name="mobile-web-app-capable" content="true" />
