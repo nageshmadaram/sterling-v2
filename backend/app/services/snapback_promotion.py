@@ -111,7 +111,12 @@ class PromotionService:
 
         identity = _identity()
         evaluated_at = datetime.now(timezone.utc).isoformat()
-        observed_sessions = observed_session_count(warehouse)
+        # Promotion must not borrow observed days from another experiment,
+        # or from a different executable build of the same strategy.
+        observed_sessions = observed_session_count(
+            warehouse, experiment_id=identity["experiment_id"],
+            runtime_build_sha=identity["runtime_build_sha"],
+        )
 
         if not identity["experiment_id"]:
             return self._record(
@@ -140,17 +145,30 @@ class PromotionService:
             for row in current_sessions
             if not session_market_evidence_complete(row)
         ]
-        if gap_sessions:
+        mixed_build_sessions = [
+            str(row.get("session_date") or "unknown")
+            for row in current_sessions
+            if str(row.get("runtime_build_sha") or "") != identity["runtime_build_sha"]
+        ]
+        if gap_sessions or mixed_build_sessions:
+            reasons = []
+            if gap_sessions:
+                reasons.append(
+                    "incomplete prospective evidence sessions: "
+                    + ", ".join(gap_sessions[:20])
+                )
+            if mixed_build_sessions:
+                reasons.append(
+                    "prospective sessions from different runtime builds: "
+                    + ", ".join(mixed_build_sessions[:20])
+                )
             return self._record(
                 warehouse,
                 self._inconclusive(
                     identity,
                     source_snapshot_sha256,
                     observed_sessions,
-                    reasons=[
-                        "incomplete prospective evidence sessions: "
-                        + ", ".join(gap_sessions[:20])
-                    ],
+                    reasons=reasons,
                     evaluated_at=evaluated_at,
                 ),
             )
