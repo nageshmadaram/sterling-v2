@@ -600,3 +600,75 @@ async def test_flat_position_with_still_working_exit_halts_before_more_broker_ac
     assert await obj._close_leg(NS(), p, leg="option") == "exit_state_unverified"
     hold.assert_called_once_with(p, "exit_order_still_working_after_flat")
     release.assert_not_awaited()
+
+
+@pytest.mark.parametrize("filled_qty,already_exited", [
+    (76, 0),
+    (60, 25),
+    (1, 75),
+])
+def test_stop_oversell_never_silently_clips_real_broker_fills(
+        monkeypatch, filled_qty, already_exited):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = already_exited
+    p.option_exit_booked_ids = []
+    p.gtt_id = 99871
+    store = NS(mutate=Mock())
+    obj = exits.SnapbackExitManager(positions=store)
+    hold = Mock()
+    ledger = Mock(return_value=True)
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_book_exit", ledger)
+
+    with pytest.raises(RuntimeError, match="short exposure reconciliation"):
+        obj._book_stop_fills(p, [("STOP-SELL-1", filled_qty, 95.0)])
+
+    hold.assert_called_once_with(p, "broker_stop_exceeds_owned_option_units")
+    ledger.assert_not_called()
+    store.mutate.assert_not_called()
+    assert p.gtt_id == 99871
+    assert p.option_exit_qty == already_exited
+
+
+def test_two_stop_children_cannot_oversell_in_aggregate(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.gtt_id = 99872
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    book = Mock(return_value=True)
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_book_exit", book)
+    with pytest.raises(RuntimeError, match="short exposure reconciliation"):
+        obj._book_stop_fills(p, [("STOP-1", 40, 90.0),
+                                 ("STOP-2", 40, 91.0)])
+    hold.assert_called_once()
+    book.assert_not_called()
+
+
+def test_concurrent_stop_booking_cannot_clip_a_newly_reduced_position(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.gtt_id = 99873
+
+    def mutate(_id, callback):
+        # A separate ledger observer has already booked part of the option.
+        p.option_exit_qty = 25
+        callback(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_book_exit", Mock(return_value=True))
+    with pytest.raises(ValueError, match="concurrent broker stop overfill"):
+        obj._book_stop_fills(p, [("STOP-SELL-2", 75, 90.0)])
+    assert p.option_exit_qty == 25
+    assert p.option_exit_booked_ids == []
+    assert p.gtt_id == 99873
+    hold.assert_called_once_with(p, "stop_fill_registry_conflict")
