@@ -145,6 +145,11 @@ def assess_cost_feasible_plan(
         "target": _ceil_tick(entry + target_points),
         "runner_trigger": _ceil_tick(entry + target_points),
         "effective_target_points": target_points,
+        # The replay deducts variable cost from each closed trade. A higher
+        # target without this field would fake challenger net returns.
+        "estimated_variable_cost_points": var_cost + extra_cost_points,
+        "estimated_total_cost_inr": round(
+            (var_cost + extra_cost_points) * qty + fixed_cost, 6),
         "breakeven": breakeven, "profit_lock": profit_lock,
         "estimated_net_target_inr": round(stressed_target_net, 6),
         "estimated_stop_loss_inr": round(stressed_risk, 6),
