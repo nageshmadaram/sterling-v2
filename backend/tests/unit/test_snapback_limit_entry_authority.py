@@ -23,7 +23,8 @@ def executor():
 
 def plan():
     return {
-        "plan_id": "plan-1", "mode": "LIVE", "account_id": "account",
+        "plan_id": "plan-1", "mode": "LIVE", "owner_uid": "operator",
+        "account_id": "account",
         "policy_snapshot_hash": "generation", "opportunity_id": "signal-1",
         "option_symbol": "NIFTY_PE", "option_exchange": "NFO",
         "futures_symbol": "NIFTY_FUT", "futures_exchange": "NFO",
