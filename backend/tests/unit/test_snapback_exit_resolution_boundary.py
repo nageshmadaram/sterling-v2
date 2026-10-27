@@ -1197,3 +1197,90 @@ async def test_already_booked_stop_child_absent_from_order_book_is_unknown(
     monkeypatch.setattr(pstop, "stop_state", AsyncMock(return_value=NS(
         child_order_id="STOP-CHILD-99", verdict="TRIGGERED")))
     assert await obj._stop_child_orders(NS(), p, []) is None
+
+
+@pytest.mark.parametrize("new_cumulative", [0, 10, 26, 75])
+def test_booked_stop_child_changed_cumulative_fill_must_reconcile(
+        monkeypatch, new_cumulative):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = 25
+    p.option_exit_value = 2250.0
+    p.option_exit_booked_ids = ["STOP-A"]
+    p.option_exit_booked_quantities = {"STOP-A": 25}
+    p.gtt_id = 123456
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    ledger = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_book_exit", ledger)
+
+    with pytest.raises(RuntimeError, match="short exposure reconciliation"):
+        obj._book_stop_fills(p, [("STOP-A", new_cumulative, 90.0)])
+
+    ledger.assert_not_called()
+    obj.store.mutate.assert_not_called()
+    hold.assert_called_once_with(p, "broker_stop_exceeds_owned_option_units")
+    assert p.gtt_id == 123456
+    assert p.option_exit_qty == 25
+
+
+def test_legacy_booked_stop_without_per_order_quantity_needs_reconciliation(
+        monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = 25
+    p.option_exit_booked_ids = ["STOP-A"]
+    p.option_exit_booked_quantities = {}
+    p.gtt_id = 987654
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_book_exit", Mock())
+    with pytest.raises(RuntimeError, match="short exposure reconciliation"):
+        obj._book_stop_fills(p, [("STOP-A", 25, 90.0)])
+    hold.assert_called_once()
+
+
+def test_identical_booked_stop_recovery_is_idempotent_and_clears_spent_trigger(
+        monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = 25
+    p.option_exit_value = 2250.0
+    p.option_exit_booked_ids = ["STOP-A"]
+    p.option_exit_booked_quantities = {"STOP-A": 25}
+    p.gtt_id = 123456
+    def mutate(_id, callback):
+        callback(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    monkeypatch.setattr(obj, "_book_exit", Mock(return_value=True))
+    updated = obj._book_stop_fills(p, [("STOP-A", 25, 90.0)])
+    assert updated.option_exit_qty == 25
+    assert updated.option_exit_value == 2250.0
+    assert updated.option_exit_booked_quantities == {"STOP-A": 25}
+    assert updated.gtt_id == 0
+
+
+def test_new_stop_child_records_exact_cumulative_quantity(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.gtt_id = 123456
+    def mutate(_id, callback):
+        callback(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    monkeypatch.setattr(obj, "_book_exit", Mock(return_value=True))
+    result = obj._book_stop_fills(p, [("STOP-NEW", 25, 90.0)])
+    assert result.option_exit_qty == 25
+    assert result.option_exit_booked_quantities == {"STOP-NEW": 25}
+    assert result.option_exit_booked_ids == ["STOP-NEW"]
