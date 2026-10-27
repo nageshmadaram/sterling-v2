@@ -143,11 +143,15 @@ class SnapbackExecutionAdapter:
         # NEVER constitutes valid entry/price evidence.
         invalid_reference = False
         try:
-            raw_reference = (
-                getattr(request, "price", 0.0)
-                or (request.payload or {}).get("limit_price")
-                or 1.0
-            )
+            raw_reference = getattr(request, "price", None)
+            if (raw_reference is None or raw_reference == ""
+                    or (type(raw_reference) in (int, float) and raw_reference == 0)):
+                raw_reference = (request.payload or {}).get("limit_price")
+            if (raw_reference is None or raw_reference == ""
+                    or (type(raw_reference) in (int, float) and raw_reference == 0)):
+                raw_reference = 1.0
+            # Never coerce falsy malformed structures ({}, [], False) into
+            # a supposedly valid fallback quote.
             reference = float(raw_reference)
             if (type(raw_reference) is bool or not math.isfinite(reference)
                     or reference <= 0):
