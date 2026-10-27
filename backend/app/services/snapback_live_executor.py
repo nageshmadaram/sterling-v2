@@ -1215,18 +1215,37 @@ class SnapbackLiveExecutor:
         broker_client=None, signal_id: Optional[str] = None,
         price_override: Optional[float] = None,
     ):
-        from app.services.execution_service import ExecutionRequest, ExposureEffect
+        from app.services.execution_service import ExecutionRequest, ExecutionResult, ExposureEffect
+        import math
 
         is_hedge = bool(plan.get("futures_symbol")) and symbol == plan.get("futures_symbol")
         if is_hedge:
             order_type = str(plan.get("hedge_order_type") or "")
-            price = float(price_override or plan.get("hedge_price_limit") or 0.0)
-            lot_size = int(plan.get("futures_lot_size") or 0)
+            raw_price = price_override if price_override is not None else plan.get("hedge_price_limit")
+            raw_lot_size = plan.get("futures_lot_size")
         else:
             order_type = str(plan.get("order_type") or "")
-            price = float(plan.get("limit_price") or 0.0)
-            lot_size = int(plan.get("lot_size") or 0)
-        priced = bool(order_type) and order_type.upper() != "MARKET" and price > 0
+            raw_price = plan.get("limit_price")
+            raw_lot_size = plan.get("lot_size")
+        try:
+            if isinstance(raw_price, bool):
+                raise ValueError("bool cannot be a limit price")
+            price = float(raw_price or 0.0)
+            lot_size = int(raw_lot_size or 0)
+        except (TypeError, ValueError, OverflowError):
+            return ExecutionResult(
+                success=False, status="REJECTED_PLAN",
+                error="Snapback entry limit-price or lot metadata is invalid",
+            )
+        priced = order_type.upper() == "LIMIT" and math.isfinite(price) and price > 0
+        # Production plans from build_plan carry mode=LIVE and frozen LIMIT
+        # prices for both option and futures hedge. A corrupt/legacy payload
+        # must never silently become an unbounded market BUY/hedge.
+        if str(plan.get("mode") or "").upper() == "LIVE" and not priced:
+            return ExecutionResult(
+                success=False, status="REJECTED_PLAN",
+                error="Snapback live exposure-increasing legs require a valid LIMIT price",
+            )
         payload = {"product": str(plan.get("product") or "NRML")}
         if (plan.get('rules') or {}).get('mode_policy'):
             payload['mode_policy'] = plan['rules']['mode_policy']
