@@ -131,6 +131,11 @@ class LivePosition:
     #: here and is not the stop's own child order is somebody else's, never this position's.
     option_exit_booked_ids: List[str] = field(default_factory=list)
     hedge_exit_booked_ids: List[str] = field(default_factory=list)
+    #: Per-order cumulative quantities at the time a canonical terminal ACK
+    #: was durably projected. Older rows without this field remain readable,
+    #: but their ambiguous in-flight ACKs require manual reconciliation.
+    option_exit_booked_quantities: Dict[str, int] = field(default_factory=dict)
+    hedge_exit_booked_quantities: Dict[str, int] = field(default_factory=dict)
     #: A leg the broker's positions book does not show as held. One reading is not proof (a
     #: partial or empty reply is as likely), so the shortfall is only acted on once it has been
     #: seen on several readings over a minute; any reading that finds the leg held resets it.
