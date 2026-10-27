@@ -21,7 +21,7 @@ vi.mock('../../../hooks/useKite', () => ({
   useRefreshKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../KiteAssistedLogin', () => ({ KiteAssistedLogin: () => <div>Assisted broker login</div> }));
+vi.mock('../KiteAssistedLogin', () => ({ KiteAssistedLogin: ({onSaved}: {onSaved?: (id: string) => void}) => <div>Assisted broker login<button type="button" onClick={() => onSaved?.('a1')}>Simulate saved session</button></div> }));
 
 import { KiteSessionGuard } from '../KiteSessionGuard';
 import { useKiteStatusCardStore } from '../../../store/useKiteStatusCardStore';
@@ -47,6 +47,17 @@ beforeEach(() => {
 });
 
 describe('KiteSessionGuard floating card popover', () => {
+  it('does not show offline after the login receipt while session verification is pending', () => {
+    status = {connected:false, account_id:'a1', user_name:'TestUser'};
+    renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
+    fireEvent.click(screen.getByRole('button', {name:'Simulate saved session'}));
+    expect(screen.getByText('Kite session saved · verifying')).toBeInTheDocument();
+    expect(screen.getByText('VERIFYING')).toBeInTheDocument();
+    expect(screen.queryByText('Sign in to connect your broker account.')).toBeNull();
+    expect(screen.queryByText('Zerodha Kite Active')).toBeNull();
+    expect(retrySession).toHaveBeenCalled();
+  });
   it('offers broker logout from the connected footer card', () => {
     status = { connected: true, account_id: 'a1', user_name: 'TestUser' };
     renderGuard();
