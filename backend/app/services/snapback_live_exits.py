@@ -1251,9 +1251,6 @@ class SnapbackExitManager:
         # An order ID is recovery authority, regardless of a response's
         # optimistic/negative success flag. The resolver must prove whether
         # the known order actually reduced inventory and is terminal.
-        field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
-        req_name = "option_exit_requested" if is_option else "hedge_exit_requested"
-
         from app.services.snapback_exit_order_binding import bind_acknowledged_exit
 
         def apply(p: LivePosition) -> None:
