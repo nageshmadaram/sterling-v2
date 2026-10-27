@@ -16,10 +16,14 @@ import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { normalizeLiveStatus } from '../../../hooks/useLiveStatus';
 
 let status: Record<string, unknown> = {};
+let accountRows: any[] = [];
 let signals: Record<string, unknown> = {};
 let liveResult: { available: boolean; status: unknown } = { available: false, status: null };
 
-vi.mock('../../../hooks/useKite', () => ({ useKiteStatus: () => ({ data: status }) }));
+vi.mock('../../../hooks/useKite', () => ({
+  useKiteStatus: () => ({ data: status }),
+  useKiteAccounts: () => ({ data: {accounts:accountRows, active_id:'a1'} }),
+}));
 vi.mock('../../../hooks/useLiveStatus', async () => {
   const actual = await vi.importActual<typeof import('../../../hooks/useLiveStatus')>('../../../hooks/useLiveStatus');
   return { ...actual, useLiveStatus: () => ({ data: liveResult }) };
@@ -43,6 +47,7 @@ import { KiteFooterStatus } from '../KiteFooterStatus';
 beforeEach(() => {
   cleanup();
   status = { connected: true, user_name: 'Madaram' };
+  accountRows = [];
   signals = { scanning: false, auto_scan: true, market_open: true };
   liveResult = { available: false, status: null };
   openSettingsSection.mockReset();
@@ -74,6 +79,16 @@ describe('the broker chip', () => {
     status = { connected: false };
     render(<KiteFooterStatus onOpenSession={vi.fn()} />);
     expect(screen.getByText('KITE OFF')).toBeInTheDocument();
+  });
+
+  it('keeps a stored active broker session distinct from connected and offline', () => {
+    status = {connected:false, account_id:'a1', message:'Checking Kite API permissions'};
+    accountRows = [{id:'a1', connected:true, token_expires_at_ms:Date.now()+60_000}];
+    render(<KiteFooterStatus onOpenSession={vi.fn()} />);
+    expect(screen.getByText('KITE SAVED ?')).toBeInTheDocument();
+    expect(screen.queryByText('KITE OFF')).toBeNull();
+    expect(screen.queryByText('KITE')).toBeNull();
+    expect(screen.getByTitle(/not verified/i)).toBeInTheDocument();
   });
 
   it('says the token is untouched when the check merely failed', () => {
