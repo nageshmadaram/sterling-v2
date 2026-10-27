@@ -556,7 +556,7 @@ def test_stop_fill_rejects_concurrent_exit_inside_store_transaction(monkeypatch)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("field,value", [
-    ("option_exit_requested", 75),
+    ("option_exit_requested", 0),
     ("option_exit_order_id", ""),
     ("option_exit_requested", -1),
     ("option_exit_requested", 1.5),
