@@ -133,7 +133,7 @@ export function SuperTrendEnginePanel() {
           </Field>
           {(cfg.horizon_mode ?? 'swing') === 'swing'
             ? <Field label="Original Swing candle" hint="Original mode is fixed at completed 60-minute Heikin-Ashi bars; an hourly mode is not a separate trading mode.">
-                <span style={{ fontSize: 12 }}>60-minute Heikin-Ashi · fixed original (no separate 1H selector)</span>
+                <span style={{ fontSize: 12 }}>60-minute Heikin-Ashi · fixed original</span>
               </Field>
             : <Field label="Signal timeframe" hint="Only completed candles can authorize entries.">
                 <ChoiceRow value={String(cfg.signal_timeframe_minutes ?? ({ ultra_scalping: 1, scalping: 5, intraday: 15, overnight: 60, swing: 60 }[cfg.horizon_mode ?? 'intraday']))}
