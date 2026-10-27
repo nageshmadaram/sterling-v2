@@ -383,15 +383,45 @@ class SnapbackExecutionAdapter:
         plan = self.plan_store.get(plan_id) if plan_id else None
         if plan is None:
             raise LookupError(f"plan for order tag {request.tag!r} not found")
+        # An order ID and a snapback:<plan> tag do not prove tenant ownership.
+        # Rebind the actual reported fill to its persisted owner/account,
+        # contract, exchange and direction before touching another registry.
+        owner_uid = str(plan.get("owner_uid") or "").strip()
+        owner_account = str(plan.get("account_id") or "").strip()
+        if (not owner_uid or not owner_account
+                or owner_uid != str(request.uid or "").strip()
+                or owner_account != str(request.account_id or "").strip()):
+            raise PermissionError("snapback_fill_plan_account_or_owner_mismatch")
+
+        symbol = str(request.symbol or "").strip()
+        exchange = str(request.exchange or "").strip().upper()
+        side = str(request.side or "").strip().upper()
+        option_leg = (
+            symbol == str(plan.get("option_symbol") or "").strip()
+            and exchange == str(plan.get("option_exchange") or "").strip().upper()
+            and side == "BUY"
+        )
+        futures_leg = (
+            bool(str(plan.get("futures_symbol") or "").strip())
+            and symbol == str(plan.get("futures_symbol") or "").strip()
+            and exchange == str(plan.get("futures_exchange") or "").strip().upper()
+            and side == str(plan.get("hedge_side") or "").strip().upper()
+            and side in {"BUY", "SELL"}
+        )
+        if not option_leg and not futures_leg:
+            raise PermissionError("snapback_fill_does_not_match_plan_leg")
         store = self._store()
-        symbol = str(request.symbol)
+        existing = store.get(plan_id)
+        if existing is not None:
+            if (str(existing.uid or "") != owner_uid
+                    or str(existing.account_id or "") != owner_account):
+                raise PermissionError("snapback_owned_position_mismatch")
         now_ms = exchange_ts_ms or int(time.time() * 1000)
 
-        if symbol == str(plan.get("option_symbol")):
+        if option_leg:
             rules = dict(plan.get("rules") or {})
             tick = float(plan.get("tick_size") or 0.05)
             stop = _initial_stop(rules, average, tick)
-            existing = store.get(plan_id)
             if existing is None:
                 today = datetime.fromtimestamp(now_ms / 1000, _IST).date().isoformat()
                 pos = LivePosition(
@@ -424,7 +454,7 @@ class SnapbackExecutionAdapter:
                     pos.desired_stop = max(pos.desired_stop, stop)
 
                 store.mutate(plan_id, apply)
-        elif symbol == str(plan.get("futures_symbol")):
+        elif futures_leg:
             def apply_hedge(pos: LivePosition) -> None:
                 pos.hedge_qty = int(filled)
                 pos.hedge_entry_price = float(average)
