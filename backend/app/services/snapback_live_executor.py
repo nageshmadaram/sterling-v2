@@ -1241,7 +1241,8 @@ class SnapbackLiveExecutor:
         # Production plans from build_plan carry mode=LIVE and frozen LIMIT
         # prices for both option and futures hedge. A corrupt/legacy payload
         # must never silently become an unbounded market BUY/hedge.
-        if str(plan.get("mode") or "").upper() == "LIVE" and not priced:
+        real_transport = getattr(broker_client, "_is_paper", None) is False
+        if (str(plan.get("mode") or "").upper() == "LIVE" or real_transport) and not priced:
             return ExecutionResult(
                 success=False, status="REJECTED_PLAN",
                 error="Snapback live exposure-increasing legs require a valid LIMIT price",
