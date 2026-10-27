@@ -33,6 +33,7 @@ import { openSettingsSection } from '../config/registry';
 import { useSignalColumns } from './useSignalColumns';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { useSignalMarketData } from './useSignalMarketData';
+import { useTodaySignalPriority } from './TodaySignalPriority';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -122,6 +123,7 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   nowMs = replayNow ?? nowMs;
   const rowActions = useBoardRowActions({ onOpenChart });
   const commonColumns = useSignalColumns();
+  const priority = useTodaySignalPriority();
   const snapshot = useSnapbackSnapshot();
   const scan = useRunSnapbackScan();
   const stopScan = useStopSnapbackScan();
@@ -138,15 +140,18 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   // Replayed from stored bars. The live scan only looks at the last few closed
   // sessions and this rule fires on ONE, so without these the board is blank
   // almost always — and blank reads as broken.
-  const history = useSnapbackHistory(30, !shortHorizon && !replay);
+  const history = useSnapbackHistory(30, priority.olderReady && !shortHorizon && !replay);
 
   const adapted = React.useMemo(() => {
-    const live = (data?.rows ?? []).filter((r) => selectedModes.includes(r.trading_mode ?? 'swing'));
+    const live = (data?.rows ?? []).filter((r) =>
+      selectedModes.includes(r.trading_mode ?? 'swing') &&
+      (priority.olderReady || r.timestamp_ms && new Date(r.timestamp_ms)
+        .toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === priority.day));
     const seen = new Set(live.map((r) => r.signal_id));
-    const past = (shortHorizon || replay ? [] : history.data?.signals ?? []).map((r) =>
+    const past = (shortHorizon || replay || !priority.olderReady ? [] : history.data?.signals ?? []).map((r) =>
       seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
     return snapbackRowsToBoard([...live, ...past], replay ? [] : data?.positions);
-  }, [data?.rows, data?.positions, history.data?.signals, mode, savedModes, shortHorizon, replay]);
+  }, [data?.rows, data?.positions, history.data?.signals, mode, savedModes, shortHorizon, replay, priority.olderReady, priority.day]);
   const signals = useSignalMarketData(adapted, replay);
   const view = useBoardView(signals, {
     endedByDefault: true, storageKey: 'snapback', nowMs,
