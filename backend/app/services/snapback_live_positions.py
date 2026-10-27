@@ -372,6 +372,40 @@ class LivePositionStore:
         _journal.sb_sync(pos)   # trade journal: derived from this row, never raises
         return pos
 
+    def insert_new(self, pos: LivePosition) -> LivePosition:
+        """Create a first-fill position without replacing any existing owner.
+
+        A concurrent fill/restart can beat a prior get() read. put() is a
+        deliberate replace operation used by existing callers; first booking
+        instead needs an exclusive, fail-closed insert under the DB lock.
+        """
+        pos.updated_ms = _now_ms()
+        payload = json.dumps(pos.as_dict(), default=str, separators=(",", ":"))
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO snapback_live_positions
+                    (position_id, uid, account_id, status, signal_id, option_symbol,
+                     updated_ms, data_json)
+                VALUES (?,?,?,?,?,?,?,?)
+                """,
+                (pos.position_id, pos.uid, pos.account_id, pos.status, pos.signal_id,
+                 pos.option_symbol, pos.updated_ms, payload),
+            )
+            conn.execute("COMMIT")
+        except BaseException:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+        finally:
+            conn.close()
+        _journal.sb_sync(pos)
+        return pos
+
     def mutate(self, position_id: str,
                fn: Callable[[LivePosition], Optional[bool]]) -> Optional[LivePosition]:
         """Apply ``fn`` to the freshest row inside one write transaction.
