@@ -296,11 +296,13 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
       </BoardFilters>
       {signals.length === 0 ? (
         <p style={note}>
-          {data?.last_error
-            ? `Last scan failed: ${data.last_error}`
-            : shortHorizon
-              ? 'No eligible reversal on the latest completed bars.'
-              : 'No signals in the recent completed sessions.'}
+          {scanBusy
+            ? `Scanning market candles and contracts (${data?.scanned ?? 0} / ${data?.scan_total ?? '?'} instruments). Signals appear as individual symbols finish; entries require complete validation.`
+            : data?.last_error
+              ? `Last scan failed: ${data.last_error}`
+              : shortHorizon
+                ? 'No eligible reversal on the latest completed bars.'
+                : 'No signals in the recent completed sessions.'}
         </p>
       ) : (
         <>
