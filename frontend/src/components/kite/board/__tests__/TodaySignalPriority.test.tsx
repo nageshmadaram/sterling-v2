@@ -86,7 +86,7 @@ describe('cross-strategy today priority', () => {
     wrap(<Display />);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Snapback: scanning today'));
     expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
-    expect(screen.getByRole('status')).toHaveTextContent('Older history is queued');
+    expect(screen.getByRole('status')).toHaveTextContent('older history queued');
   });
 
   it('releases older read-only history after all today's checks settle, while showing the failed strategy', async () => {
