@@ -16,7 +16,10 @@ def bind_acknowledged_exit(pos, origin, *,
     """
     if leg not in {"option", "hedge"}:
         raise ValueError("unsupported exit leg")
-    if type(requested) is not int or requested <= 0 or not broker_order_id:
+    if (type(requested) is not int or requested <= 0
+            or type(broker_order_id) is not str
+            or not broker_order_id.strip()
+            or broker_order_id != broker_order_id.strip()):
         raise ValueError("invalid broker order identity/quantity")
     if (pos.position_id != origin.position_id or pos.uid != origin.uid
             or pos.account_id != origin.account_id
@@ -27,13 +30,22 @@ def bind_acknowledged_exit(pos, origin, *,
     field = "option_exit_order_id" if leg == "option" else "hedge_exit_order_id"
     req_field = ("option_exit_requested" if leg == "option"
                  else "hedge_exit_requested")
-    total = int(pos.option_qty if leg == "option" else pos.hedge_qty)
-    exited = int(pos.option_exit_qty if leg == "option" else pos.hedge_exit_qty)
+    # Corrupt persisted quantities are not allowed to become integers by
+    # truncation (including bool and fractional JSON values).
+    total = pos.option_qty if leg == "option" else pos.hedge_qty
+    exited = pos.option_exit_qty if leg == "option" else pos.hedge_exit_qty
+    if type(total) is not int or type(exited) is not int:
+        raise ValueError("exit position quantity is not an integer")
     if total <= 0 or exited < 0 or exited >= total or requested > total - exited:
         raise ValueError("exit quantity exceeds owned remaining units")
-    old_id = str(getattr(pos, field, "") or "")
-    old_requested = int(getattr(pos, req_field, 0) or 0)
-    if old_id and (old_id != broker_order_id or old_requested != requested):
+    old_id = getattr(pos, field, "")
+    old_requested = getattr(pos, req_field, 0)
+    if type(old_id) is not str or type(old_requested) is not int or old_requested < 0:
+        raise ValueError("persisted broker exit identity/quantity is invalid")
+    # Even without a stored order ID, a nonzero request means an earlier
+    # submission may exist. Never overwrite that unresolved broker attempt.
+    if bool(old_id) != bool(old_requested) or (
+            old_id and (old_id != broker_order_id or old_requested != requested)):
         raise ValueError("different broker exit order already belongs to this leg")
     setattr(pos, field, broker_order_id)
     setattr(pos, req_field, requested)
