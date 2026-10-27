@@ -390,11 +390,17 @@ async def test_owned_gamma_stop_fill_retains_prior_exchange_day(monkeypatch):
 def test_snapback_entry_ledger_uses_durable_exchange_time(monkeypatch):
     from app.services.snapback_live_wiring import SnapbackExecutionAdapter
     from app.services.kite_engine import fill_ledger
-    broker = SnapbackExecutionAdapter(plan_store=NS())
+    plan = {"owner_uid": "u", "account_id": "a",
+            "option_symbol": "OPT", "option_exchange": "NFO"}
+    broker = SnapbackExecutionAdapter(
+        plan_store=NS(get=lambda _: plan),
+        positions=NS(get=lambda _: None),
+    )
     monkeypatch.setattr(broker, "_record_leg", Mock())
     record = Mock(return_value=NS(reconciliation_required=False))
     monkeypatch.setattr(fill_ledger, "record", record)
-    request = NS(account_id="a", uid="u", symbol="OPT", exchange="NFO", side="BUY", payload={})
+    request = NS(account_id="a", uid="u", symbol="OPT", exchange="NFO",
+                 side="BUY", tag="snapback:p", payload={})
     assert broker._book_fill(request, NS(exchange_ts_ms=1234), "entry", 40, 100)
     assert record.call_args.kwargs["exchange_ts_ms"] == 1234
     assert broker._record_leg.call_args.kwargs["exchange_ts_ms"] == 1234
