@@ -1042,6 +1042,7 @@ async def test_cancelled_exit_attempt_increments_only_on_atomic_ack_retirement(
     res.status = "CANCELLED"
     res.projection_version = 0
     obj = manager(res, p)
+    obj._protection = NS(ensure=AsyncMock())
     first_mutation = obj.store.mutate.side_effect
     failed_once = {"value": False}
 
@@ -1081,3 +1082,75 @@ async def test_broker_stop_and_working_market_exit_resumes_to_reconciliation(
     assert await obj._run_exit(NS(), p) == "reconciling"
     hold.assert_called_once_with(p, "broker_stop_and_market_exit_overlap")
     resolve.assert_not_awaited()
+
+
+@pytest.mark.parametrize("change", [
+    "new_working_option_order", "new_working_hedge_order",
+    "changed_option_fills", "changed_owner", "not_fully_exited",
+])
+def test_final_close_refuses_concurrent_exit_and_keeps_position_open(
+        monkeypatch, change):
+    from copy import deepcopy
+
+    old = pos()
+    old.status = "EXITING"
+    old.option_exit_order_id = ""
+    old.option_exit_requested = 0
+    old.option_exit_qty = 75
+    old.option_exit_value = 75 * 90.0
+    old.hedge_exit_order_id = ""
+    old.hedge_exit_requested = 0
+    old.hedge_exit_qty = 25
+    old.hedge_exit_value = 25 * 20000.0
+    current = deepcopy(old)
+    if change == "new_working_option_order":
+        current.option_exit_order_id = "LATE-OPTION-EXIT"
+        current.option_exit_requested = 75
+    elif change == "new_working_hedge_order":
+        current.hedge_exit_order_id = "LATE-HEDGE-EXIT"
+        current.hedge_exit_requested = 25
+    elif change == "changed_option_fills":
+        current.option_exit_value += 100
+    elif change == "changed_owner":
+        current.account_id = "DIFFERENT-ACCOUNT"
+    else:
+        current.option_exit_qty = 50
+    before = deepcopy(current)
+
+    def mutate(_id, apply):
+        apply(current)
+        return current
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(exits, "alert", Mock())
+    assert obj._finalise(old) == "reconciling"
+    hold.assert_called_once_with(
+        old, "final_close_registry_or_broker_ack_conflict")
+    assert current == before, "no concurrent ACK or account is erased"
+
+
+def test_final_close_with_retired_acks_is_durable(monkeypatch):
+    p = pos()
+    p.status = "EXITING"
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = 75
+    p.option_exit_value = 75 * 90.0
+    p.hedge_exit_order_id = ""
+    p.hedge_exit_requested = 0
+    p.hedge_exit_qty = 25
+    p.hedge_exit_value = 25 * 20000.0
+    def mutate(_id, apply):
+        apply(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    monkeypatch.setattr(exits, "alert", Mock())
+    assert obj._finalise(p) == "closed"
+    assert p.status == "CLOSED"
+    assert p.option_exit_order_id == ""
+    assert p.hedge_exit_order_id == ""
