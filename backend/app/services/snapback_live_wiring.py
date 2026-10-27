@@ -344,8 +344,64 @@ class SnapbackExecutionAdapter:
 
     # ------------------------------------------------------------- booking
 
+    def _prevalidate_fill_owner(self, request, order_id: str, filled: int) -> None:
+        """Refuse foreign broker facts BEFORE changing the shared signed ledger.
+
+        The later _record_leg() still checks inside the SQLite mutation, because
+        this first read can race a second process. Never treat a plan tag as
+        proof of ownership by itself.
+        """
+        plan_id = _plan_id_from_tag(getattr(request, "tag", ""))
+        plan = self.plan_store.get(plan_id) if plan_id else None
+        if not isinstance(plan, dict):
+            raise PermissionError("snapback_fill_plan_unavailable")
+        owner_uid = str(plan.get("owner_uid") or "").strip()
+        owner_account = str(plan.get("account_id") or "").strip()
+        if (not owner_uid or not owner_account
+                or owner_uid != str(request.uid or "").strip()
+                or owner_account != str(request.account_id or "").strip()):
+            raise PermissionError("snapback_fill_plan_account_or_owner_mismatch")
+        symbol = str(request.symbol or "").strip()
+        exchange = str(request.exchange or "").strip().upper()
+        side = str(request.side or "").strip().upper()
+        is_option = (symbol == str(plan.get("option_symbol") or "").strip()
+                     and exchange == str(plan.get("option_exchange") or "").strip().upper()
+                     and side == "BUY")
+        is_hedge = (bool(str(plan.get("futures_symbol") or "").strip())
+                    and symbol == str(plan.get("futures_symbol") or "").strip()
+                    and exchange == str(plan.get("futures_exchange") or "").strip().upper()
+                    and side == str(plan.get("hedge_side") or "").strip().upper()
+                    and side in {"BUY", "SELL"})
+        if not (is_option or is_hedge):
+            raise PermissionError("snapback_fill_does_not_match_plan_leg")
+        existing = self._store().get(plan_id)
+        if existing is None:
+            if not is_option:
+                raise PermissionError("snapback_hedge_without_owned_option")
+            return
+        if (str(existing.uid or "") != owner_uid
+                or str(existing.account_id or "") != owner_account):
+            raise PermissionError("snapback_owned_position_mismatch")
+        prior_order_id = (str(getattr(existing, "option_entry_order_id", "") or "")
+                          if is_option else str(getattr(existing, "hedge_entry_order_id", "") or ""))
+        prior_filled = (int(getattr(existing, "option_qty", 0) or 0)
+                        if is_option else int(getattr(existing, "hedge_qty", 0) or 0))
+        if prior_order_id and prior_order_id != str(order_id):
+            raise PermissionError("snapback_plan_leg_order_id_conflict")
+        if prior_filled > int(filled):
+            raise PermissionError("snapback_stale_cumulative_fill_quantity")
+
     def _book_fill(self, request, resolution, order_id: str, filled: int, average: float) -> bool:
-        """Ledger + registry. False means one of them did not land."""
+        """Verify plan binding first, then signed ledger and owned registry."""
+        try:
+            self._prevalidate_fill_owner(request, order_id, filled)
+        except Exception as exc:  # noqa: BLE001 - even a valid broker fill may be foreign
+            log.critical("Snapback refused non-owned fill before ledger write: %s", exc)
+            engage_kill_switch(
+                f"Snapback broker fill ownership cannot be established for {request.symbol}",
+                request.uid)
+            return False
+
         ok = True
         try:
             from app.services.kite_engine import fill_ledger
