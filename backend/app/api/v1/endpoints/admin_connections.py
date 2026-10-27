@@ -140,3 +140,38 @@ async def remove_telegram(user_id: str, target_id: str, user: UserContext = Depe
     from app.services.notifications import kite_telegram_store as store
     if not store.delete(user_id, target_id):
         raise HTTPException(404, 'Telegram destination not found.')
+
+
+class BrokerAssignment(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    user_id: str
+    expected_user_id: str
+    expected_updated_at_ms: int = Field(ge=0,strict=True)
+
+
+@router.post('/brokers/{account_id}/assignment')
+async def assign_broker(account_id: str, body: BrokerAssignment, user: UserContext = Depends(get_current_user)):
+    from contextlib import AsyncExitStack
+    from app.services.auth.account_policy import PolicyConflict
+    from app.api.v1.endpoints.kite import _require_account_detachable
+    _admin(user);_target(body.user_id)
+    if body.user_id==body.expected_user_id: raise HTTPException(422,'Choose another Sterling user.')
+    async with AsyncExitStack() as stack:
+        for uid in sorted({body.user_id,body.expected_user_id}):
+            await stack.enter_async_context(account_lock(uid))
+        account=_broker(account_id)
+        if account.user_id!=body.expected_user_id or account.updated_at_ms!=body.expected_updated_at_ms:
+            raise HTTPException(409,'Broker assignment changed; reload connections.')
+        await _require_account_detachable(account.user_id,account,'Broker reassignment',allow_initial_credentials=True)
+        _admin(user);_target(body.user_id)
+        try:
+            changed=accounts.reassign(account_id,actor_id=user.user_id,source_user_id=body.expected_user_id,
+                target_user_id=body.user_id,expected_updated_at_ms=body.expected_updated_at_ms)
+        except PolicyConflict as exc: raise HTTPException(409,str(exc)) from None
+        except PermissionError as exc: raise HTTPException(403,str(exc)) from None
+        except ValueError as exc: raise HTTPException(422,str(exc)) from None
+        except RuntimeError as exc: raise HTTPException(503,str(exc)) from None
+        await accounts.release_client(account_id)
+        from app.services.exchanges.kite import ticker_manager
+        await ticker_manager.stop(body.expected_user_id)
+        return accounts.to_response(changed)

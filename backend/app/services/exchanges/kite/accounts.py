@@ -1383,3 +1383,42 @@ def clear() -> None:
         except Exception as _exc:  # noqa: BLE001
             log.debug("suppressed: %s", _exc)
 
+
+
+def reassign(account_id: str, *, actor_id: str, source_user_id: str, target_user_id: str,
+             expected_updated_at_ms: int) -> _Account:
+    """Transfer a verified-detachable profile, never its authenticated session.
+
+    Caller holds both tenant execution locks and proves safe broker state first.
+    Journals and historical execution ownership are deliberately never rewritten.
+    """
+    from app.services import db
+    from app.services.auth.access_requests import _admin
+    from app.services.auth.account_policy import PolicyConflict, audit
+    a=get(source_user_id,account_id)
+    if not a or a.updated_at_ms != expected_updated_at_ms:
+        raise PolicyConflict('Broker assignment changed; reload connections.')
+    _refuse_sim(a,'assignment')
+    if source_user_id==target_user_id or _sim.is_sim_uid(target_user_id):
+        raise ValueError('Choose another active Sterling user.')
+    now=max(_now_ms(),expected_updated_at_ms+1)
+    candidate=replace(a,user_id=target_user_id,is_active=False,access_token_enc='',refresh_token_enc='',
+                      public_token='',token_expires_at_ms=None,last_login_at_ms=None,updated_at_ms=now)
+    try:
+        with db._conn() as c:
+            c.execute('BEGIN IMMEDIATE');_admin(c,actor_id)
+            if not c.execute('SELECT 1 FROM users WHERE id=? AND is_active=1',(target_user_id,)).fetchone():
+                raise ValueError('Choose an active Sterling user.')
+            _refuse_pending_intents(c,source_user_id,account_id)
+            changed=c.execute('''UPDATE kite_accounts SET user_id=?,is_active=0,access_token_enc='',
+                refresh_token_enc='',public_token='',token_expires_at_ms=NULL,last_login_at_ms=NULL,updated_at_ms=?
+                WHERE id=? AND user_id=? AND updated_at_ms=?''',
+                (target_user_id,now,account_id,source_user_id,expected_updated_at_ms))
+            if changed.rowcount!=1: raise PolicyConflict('Broker assignment changed; reload connections.')
+            audit(c,actor_id,target_user_id,'broker.assigned',
+                  {'broker_id':account_id,'user_id':source_user_id},
+                  {'broker_id':account_id,'user_id':target_user_id,'session_cleared':True},now)
+    except (PermissionError,ValueError,PolicyConflict): raise
+    except Exception as exc: raise RuntimeError('Broker assignment could not be saved; ownership unchanged.') from exc
+    _validated_at.pop(account_id,None)
+    return _publish(candidate)

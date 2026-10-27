@@ -111,3 +111,14 @@ describe('API auth scope separation', () => {
     window.removeEventListener(AUTH_EXPIRED_EVENT, expired);
   });
 });
+
+it('never scopes administration or access requests to a simulation book',async()=>{
+  localStorage.setItem('sterling.view','simulation');
+  const calls: RequestInit[]=[];
+  vi.spyOn(globalThis,'fetch').mockImplementation(async(_input,init)=>{calls.push(init || {});return new Response('{}',{status:200,headers:{'Content-Type':'application/json'}});});
+  try {
+    await api.get('/api/v1/admin/access-requests');
+    await api.post('/api/v1/settings/access-requests',{feature:'radio'});
+    expect(calls.every(call=>!new Headers(call.headers).has('X-Sterling-View'))).toBe(true);
+  } finally {localStorage.removeItem('sterling.view');vi.restoreAllMocks();}
+});

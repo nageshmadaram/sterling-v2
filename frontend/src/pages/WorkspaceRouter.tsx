@@ -5,75 +5,54 @@ import { clearAuthTokens } from '../utils/auth';
 import { notifyAuthExpired } from '../utils/liveSync';
 import { PreferenceGate } from '../components/auth/PreferenceGate';
 import { ThemeToggle } from '../components/kite/ThemeToggle';
-import '../styles/workspace.css';
 import { hasUnsavedDraft } from '../components/kite/config/unsavedDraftGuard';
-
+import { SterlingLogo } from '../components/SterlingLogo';
+import { WorkspaceChooser, WorkspaceDialog, WORKSPACE_NAMES, type Workspace } from '../components/WorkspaceChooser';
+import { WorkspaceAccessRequest } from '../components/WorkspaceAccessRequest';
+import '../styles/workspace.css';
 const KiteRuntime = lazy(() => import('./KiteRuntime'));
 const MediaWorkspace = lazy(() => import('./MediaWorkspace'));
 const Administration = lazy(() => import('./Administration'));
-export type Feature = 'kite' | 'tv' | 'radio';
+export type Feature = Workspace;
 type Destination = Feature | 'home' | 'administration';
-export type SessionPolicy = { user_id: string; username: string; role: string; administrator: boolean;
-  features: Record<Feature, boolean>; policy_revision: number };
+export type SessionPolicy = { user_id: string; username: string; role: string; administrator: boolean; features: Record<Feature, boolean>; policy_revision: number };
 const FEATURES: Feature[] = ['kite', 'radio', 'tv'];
-const names = { kite: 'Kite', tv: 'Space', radio: 'Echo' };
-const details = { kite: 'Your markets, positions and trading workspace.', tv: 'Live channels and your saved viewing library.', radio: 'Stations, music and listening collections.' };
-function readDestination(): Destination {
-  const path = window.location.pathname;
-  return path === '/administration' ? 'administration' : path === '/kite' ? 'kite' : path === '/tv' ? 'tv' : path === '/radio' ? 'radio' : 'home';
-}
+function readDestination(): Destination { const path = window.location.pathname; return path === '/administration' ? 'administration' : path === '/kite' ? 'kite' : path === '/tv' ? 'tv' : path === '/radio' ? 'radio' : 'home'; }
 export function WorkspaceRouter() {
   const qc = useQueryClient();
-  const [destination, setDestination] = useState<Destination>(readDestination);
-  const [signingOut, setSigningOut] = useState(false);
-  const [logoutError, setLogoutError] = useState('');
-  const policy = useQuery({ queryKey: ['sterling-session-policy'], queryFn: () => api.get<SessionPolicy>('/api/v1/auth/me'),
-    staleTime: 0, refetchInterval: 10_000, refetchOnWindowFocus: true, retry: false });
+  const [destination, setDestination] = useState<Destination>(readDestination), [chooserOpen, setChooserOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false), [logoutError, setLogoutError] = useState('');
+  const policy = useQuery({ queryKey: ['sterling-session-policy'], queryFn: () => api.get<SessionPolicy>('/api/v1/auth/me'), staleTime: 0, refetchInterval: 10_000, refetchOnWindowFocus: true, retry: false });
+  const session = policy.isError ? undefined : policy.data;
+  // Administrators land in management; feature grants never determine management authority.
+  const current = destination === 'home' && session?.administrator ? 'administration' : destination;
   const navigate = useCallback((next: Destination) => {
     if (!['home', 'administration', ...FEATURES].includes(next)) return;
     if (next !== destination && hasUnsavedDraft() && !window.confirm('You have unsaved settings changes. Switch workspace and discard them?')) return;
-    const url = new URL(window.location.href);
-    url.pathname = next === 'home' ? '/' : '/' + next;
-    window.history.pushState({}, '', url);
-    setDestination(next);
-    window.scrollTo(0, 0);
+    window.dispatchEvent(new Event('sterling-home'));
+    const url = new URL(window.location.href); url.pathname = next === 'home' ? '/' : '/' + next;
+    window.history.pushState({}, '', url); setDestination(next); setChooserOpen(false); window.scrollTo(0, 0);
   }, [destination]);
   useEffect(() => {
     const pop = () => setDestination(readDestination());
-    const change = (event: Event) => navigate((event as CustomEvent).detail);
-    window.addEventListener('popstate', pop); window.addEventListener('sterling-navigate', change);
-    return () => { window.removeEventListener('popstate', pop); window.removeEventListener('sterling-navigate', change); };
+    const open = () => { window.dispatchEvent(new Event('sterling-home')); setChooserOpen(true); };
+    const change = (event: Event) => { const next = (event as CustomEvent).detail; if (next === 'home') open(); else navigate(next); };
+    window.addEventListener('popstate', pop); window.addEventListener('sterling-navigate', change); window.addEventListener('sterling-select-workspace', open);
+    return () => { window.removeEventListener('popstate', pop); window.removeEventListener('sterling-navigate', change); window.removeEventListener('sterling-select-workspace', open); };
   }, [navigate]);
-  const session = policy.isError ? undefined : policy.data;
-  const enabled = FEATURES.filter(feature => session?.features?.[feature] === true);
-  const allowed = destination === 'home' || (destination === 'administration' ? session?.administrator === true : enabled.includes(destination));
-  async function logout() {
-    setSigningOut(true); setLogoutError('');
-    try { await api.post('/api/v1/auth/logout', {}); clearAuthTokens(); qc.clear(); notifyAuthExpired(); }
-    catch (error) { setLogoutError((error as Error).message); }
-    finally { setSigningOut(false); }
-  }
-  return <div className={`workspace-shell ${destination === 'home' ? 'is-launcher' : ''}`}>
-    <header className="workspace-header"><button className="workspace-wordmark" onClick={() => navigate('home')} aria-label="Sterling home">STERLING<span>STUDIO</span></button>
-      <nav aria-label="Workspace navigation">
-        {destination !== 'home' && <button onClick={() => navigate('home')}>Home</button>}
-        {destination !== 'home' && enabled.map(feature => <button key={feature} aria-current={destination === feature ? 'page' : undefined} onClick={() => navigate(feature)}>{names[feature]}</button>)}
-        {session?.administrator && <button aria-current={destination === 'administration' ? 'page' : undefined} onClick={() => navigate('administration')}>Administration</button>}
-      </nav><div className="workspace-personal">{session && <details className="workspace-settings" key={destination}><summary>Settings</summary><div><button type="button" onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); navigate('home'); }}>Switch workspace</button><p>Choose Kite, Echo or Space.</p></div></details>}<ThemeToggle /><button disabled={signingOut} onClick={() => void logout()}>{signingOut ? 'Signing out…' : 'Sign out'}</button></div>
-    </header>
+  async function logout() { setSigningOut(true); setLogoutError(''); try { await api.post('/api/v1/auth/logout', {}); clearAuthTokens(); qc.clear(); notifyAuthExpired(); } catch (error) { setLogoutError((error as Error).message); } finally { setSigningOut(false); } }
+  const chooser = session && <WorkspaceChooser features={session.features} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
+  const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current]);
+  return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''}`}>
+    {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
+      <span className="workspace-current">{current === 'administration' ? 'Administration' : current === 'home' ? '' : WORKSPACE_NAMES[current]}</span>
+      <div className="workspace-personal"><ThemeToggle /><button disabled={signingOut} onClick={() => void logout()}>{signingOut ? 'Signing out…' : 'Sign out'}</button></div></header>}
     {logoutError && <p role="alert" className="workspace-error">{logoutError}</p>}
-    {policy.isLoading ? <main className="workspace-state" role="status">Opening your workspace…</main> : !session ?
-      <main className="workspace-state"><h1>Access could not be verified</h1><p role="alert">{policy.error?.message || 'Try the connection again.'}</p><button onClick={() => void policy.refetch()}>Retry</button></main> : !allowed ?
-      <main className="workspace-state"><h1>Access unavailable</h1><p>Your administrator has not enabled this destination.</p><button onClick={() => navigate('home')}>Choose a workspace</button></main> : destination === 'home' ?
-      <main className="workspace-launcher"><div className="launcher-intro"><span className="workspace-eyebrow">YOUR PERSONAL WORKSPACE</span><h1>Welcome, {session.username}.</h1><p>Choose your workspace.</p></div>
-        {enabled.length ? <div className="workspace-cards">{enabled.map((feature, index) => <button key={feature} className={`workspace-card card-${feature}`} onClick={() => navigate(feature)}>
-          <span className="card-number">0{index + 1}</span><span className="card-glyph" aria-hidden>{feature === 'kite' ? '↗' : feature === 'tv' ? '▣' : '◉'}</span><h2>{names[feature]}</h2><p>{details[feature]}</p><span className="card-open">Open {names[feature]} <span aria-hidden>↗</span></span>
-        </button>)}</div> : <section className="workspace-empty"><h2>No features enabled</h2><p>Your account is ready. Ask your administrator to enable Kite, Echo or Space.</p></section>}
-        {new URLSearchParams(window.location.search).get('broker_login') === '1' && enabled.includes('kite') && <p className="workspace-pending">A broker connection is waiting. Choose Kite to continue.</p>}
-        {session.administrator && <button className="launcher-admin" onClick={() => navigate('administration')}><span><strong>Administration</strong><small>Manage people, access and connection settings.</small></span><span aria-hidden>↗</span></button>}
-        <footer className="launcher-footer">Your space. Your choice.</footer>
-      </main> : <Suspense fallback={<main className="workspace-state" role="status">Loading {destination === 'administration' ? 'Administration' : names[destination]}…</main>}>
-        {destination === 'administration' ? <Administration /> : destination === 'kite' ? <PreferenceGate><KiteRuntime /></PreferenceGate> : <PreferenceGate><MediaWorkspace key={destination} feature={destination} /></PreferenceGate>}
+    {policy.isLoading ? <main className="workspace-state" role="status">Opening your workspace…</main> : !session ? <main className="workspace-state"><h1>Access could not be verified</h1><p role="alert">{policy.error?.message || 'Try the connection again.'}</p><button onClick={() => void policy.refetch()}>Retry</button></main> :
+      !allowed && FEATURES.includes(current as Feature) ? <WorkspaceAccessRequest key={current} feature={current as Feature} onBack={() => navigate('home')} /> : !allowed ? <main className="workspace-state"><h1>Administrator access required</h1><button onClick={() => navigate('home')}>Return to your workspaces</button></main> :
+      current === 'home' ? <main className="workspace-launcher">{chooser}</main> : <Suspense fallback={<main className="workspace-state" role="status">Opening workspace…</main>}>
+        {current === 'administration' ? <Administration /> : current === 'kite' ? <PreferenceGate><KiteRuntime /></PreferenceGate> : <PreferenceGate><MediaWorkspace key={current} feature={current} /></PreferenceGate>}
       </Suspense>}
+    <WorkspaceDialog open={chooserOpen} onClose={() => setChooserOpen(false)}>{chooser}</WorkspaceDialog>
   </div>;
 }

@@ -1,3 +1,4 @@
+from typing import Literal
 """Secret-free configuration bootstrap and admin delegation adapters."""
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -80,3 +81,53 @@ async def update_configuration(user_id: str, body: ConfigurationEdit, response: 
         raise HTTPException(422, str(exc)) from None
     except account_policy.PolicyUnavailable as exc:
         raise HTTPException(503, str(exc)) from None
+
+
+class AccessRequestCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    feature: account_policy.Feature
+
+
+class AccessDecision(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    decision: Literal['approved','rejected']
+
+
+def request_operation(fn):
+    try: return fn()
+    except account_policy.PolicyConflict as exc: raise HTTPException(409,str(exc)) from None
+    except PermissionError as exc: raise HTTPException(403,str(exc)) from None
+    except ValueError as exc: raise HTTPException(422,str(exc)) from None
+    except account_policy.PolicyUnavailable as exc: raise HTTPException(503,str(exc)) from None
+
+
+@router.get('/settings/access-requests')
+async def own_requests(response: Response, user: UserContext = Depends(get_current_user)):
+    from app.services.auth import access_requests
+    response.headers['Cache-Control']='no-store, private'
+    if user.view or user.owner_uid: raise HTTPException(403,'Use your Sterling account to request access.')
+    return {'requests': request_operation(lambda:access_requests.list_requests(user.user_id))}
+
+
+@router.post('/settings/access-requests')
+async def create_request(body: AccessRequestCreate, user: UserContext = Depends(get_current_user)):
+    from app.services.auth import access_requests
+    if user.view or user.owner_uid: raise HTTPException(403,'Use your Sterling account to request access.')
+    return request_operation(lambda:access_requests.request_access(user.user_id,body.feature))
+
+
+@router.get('/admin/access-requests')
+async def admin_requests(response: Response, user: UserContext = Depends(get_current_user)):
+    from app.services.auth import access_requests
+    from app.core.configuration_access import require_configuration
+    require_configuration(user,'brokers',administrator_only=True)
+    response.headers['Cache-Control']='no-store, private'
+    return {'requests':request_operation(lambda:access_requests.list_requests(user.user_id,administrator=True))}
+
+
+@router.patch('/admin/access-requests/{request_id}')
+async def review_request(request_id: str, body: AccessDecision, user: UserContext = Depends(get_current_user)):
+    from app.services.auth import access_requests
+    from app.core.configuration_access import require_configuration
+    require_configuration(user,'brokers',administrator_only=True)
+    return request_operation(lambda:access_requests.decide(user.user_id,request_id,body.decision))

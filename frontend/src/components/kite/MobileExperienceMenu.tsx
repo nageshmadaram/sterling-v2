@@ -16,7 +16,8 @@ const destinations:Array<[NavItem,string,string]>=[
 ];
 export function MobileExperienceMenu({activeNav,onNavClick,userName,tools=[],onSearch}:{activeNav:NavItem;onNavClick:(nav:NavItem)=>void;userName?:string;tools?:Array<{id:NavItem;label:string}>;onSearch?:()=>void}) {
   const navOptions=useExperienceOptions(s=>s.options);
-  const visibleDestinations=[...destinations].filter(d=>!navOptions.navHidden.includes(d[0])).sort((a,b)=>navOptions.navOrder.indexOf(a[0])-navOptions.navOrder.indexOf(b[0]));
+  const toolIds=new Set(tools.map(tool=>tool.id));
+  const visibleDestinations=[...destinations].filter(d=>!navOptions.navHidden.includes(d[0]) && !toolIds.has(d[0])).sort((a,b)=>navOptions.navOrder.indexOf(a[0])-navOptions.navOrder.indexOf(b[0]));
   const [viewTitle,setViewTitle]=useState('');
   useEffect(()=>{
     const update=(event:Event)=>setViewTitle(String((event as CustomEvent).detail || ''));

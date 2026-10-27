@@ -12,6 +12,7 @@ for (const viewport of [{ width: 1440, height: 1050 }, { width: 390, height: 844
       expect(route.request().headers()['x-sterling-view']).toBeUndefined();
       const sections = { brokers: { visible: false, grants: [] }, telegram: { visible: false, grants: [] }, integrations: { visible: false, grants: [] } };
       const responses: Record<string, unknown> = {
+        '/api/v1/admin/access-requests': {requests: []},
         '/api/v1/auth/me': { user_id: 'default', username: 'Primary', role: 'admin', administrator: true, features: { kite: false, tv: false, radio: false }, policy_revision: 0 },
         '/api/v1/auth/remember': { access_token: 'synthetic', refresh_token: 'synthetic' },
         '/api/v1/settings/capabilities': { user_id: 'default', revision: 0, active: true, administrator: true, sections },
@@ -27,7 +28,8 @@ for (const viewport of [{ width: 1440, height: 1050 }, { width: 390, height: 844
     });
     await page.addInitScript(() => localStorage.setItem('sterling.view', 'simulation'));
     await page.goto('/administration?broker_login=1');
-    await page.getByLabel('Account', { exact: true }).selectOption('member');
+    await page.getByRole('combobox', { name: 'Manage user access' }).fill('Mem');
+    await page.getByRole('option', { name: /Member/ }).click();
     await expect(page.getByRole('heading', { name: 'Broker settings', exact: true })).toBeVisible();
     await expect(page.getByText('Hidden; configuration actions are disabled.')).toHaveCount(3);
     await expect(page.getByRole('checkbox', { name: 'Space (TV)', exact: true })).toBeChecked();

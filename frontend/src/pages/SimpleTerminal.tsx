@@ -149,6 +149,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
   // The STERLING logo opens KITE whenever KITE is enabled; the configured Home (which may be
   // TV or Radio) still decides where the app starts and where the page close control returns.
   const openFromLogo = () => {
+    if (kiteOnly) { window.dispatchEvent(new CustomEvent('sterling-select-workspace')); return; }
     if (!navOptions.spectrumVisible.kite) { goHome(); return; }
     initialHomePendingRef.current = false;
     window.dispatchEvent(new Event('sterling-home'));
@@ -296,7 +297,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
           display: 'flex', alignItems: 'center', gap: 0,
           height: 44, padding: '0 20px',
         }}>
-          <button type="button" className="sterling-home-button" aria-label="Sterling Home" title="Open KITE"
+          <button type="button" className="sterling-home-button" aria-label="Sterling Home" title="Choose workspace"
             onClick={openFromLogo} style={{ display: 'inline-flex', alignItems: 'center', gap: 9, marginRight: 16, userSelect: 'none',
               background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit', flexShrink: 0 }}>
             <SterlingLogo size={24} />
@@ -310,6 +311,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
           {!kiteOnly && (spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>)}
 
           <div style={{ flex: 1 }} />
+          {kiteOnly && <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />}
           {spectrum === 'kite' && <div className="kite-header-actions" style={{ display: 'flex', alignItems: 'center', gap: 6, height: '100%', minWidth: 0 }}>
             <div className="kite-topnav">
               {primary.map((item) => (
@@ -388,7 +390,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
               width:32, height:32, borderRadius:8, color:'var(--t-dim)', marginLeft:8 }}>
             ⚙
           </button>}
-          {!isConfiguredHome && (
+          {!kiteOnly && !isConfiguredHome && (
             <button
               type="button"
               className="sterling-mobile-close-page"
@@ -400,7 +402,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
             </button>
           )}
         </div>
-        {spectrum === 'kite' && (
+        {!kiteOnly && spectrum === 'kite' && (
           <div className="sterling-mobile-command-row" aria-label="Mobile navigation and search">
             <span className="sterling-mobile-current-section">{mobilePaneTitle || (navigation.find(item => item.id === kiteNav)?.label ?? kiteNav)}</span>
             <div id="sterling-mobile-header-actions" className="sterling-mobile-header-actions" />

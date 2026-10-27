@@ -42,9 +42,9 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
   await page.getByLabel('Username', { exact: true }).fill('viewer');
   await page.getByLabel('Password', { exact: true }).fill('Synthetic-password-123');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Welcome, Viewer.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Choose your workspace', exact: true })).toBeVisible();
   expect(await page.locator('iframe').count()).toBe(0);
-  await expect(page.getByRole('button', { name: /Open Kite/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Request access to Kite', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('launcher.png'), fullPage: true });
   await page.getByRole('button', { name: /Open Space/ }).click();
   const frame = page.frameLocator('iframe[title="Sterling TV player"]');
@@ -55,8 +55,9 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
   expect(requests.includes('/api/v1/auth/remember')).toBe(false);
   expect(await page.evaluate(() => localStorage.getItem('sterling.auth.access'))).toBeNull();
   expect(errors).toEqual([]);
-  await page.getByRole('button', { name: 'Home', exact: true }).click();
-  await expect(page.locator('iframe')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Choose workspace', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Choose your workspace' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close workspace selector', exact: true }).click();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('form', { name: 'Sterling login' })).toBeVisible();
 });
@@ -71,6 +72,7 @@ test('central administration creates a user, grants TV, and saves assigned broke
   await page.route('**/api/v1/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname, method = request.method();
     requests.push(path);
+    if (path === '/api/v1/admin/access-requests') { await route.fulfill({json:{requests:[]}}); return; }
     const session = { user_id: 'default', username: 'Primary', role: 'admin', administrator: true, features: { kite: false, tv: false, radio: false }, policy_revision: 0 };
     if (path === '/api/v1/auth/me') { await route.fulfill({ json: session }); return; }
     if (path === '/api/v1/settings/capabilities') { await route.fulfill({ json: { user_id: 'default', active: true, administrator: true, revision: 0, sections: hiddenSections() } }); return; }
@@ -85,6 +87,7 @@ test('central administration creates a user, grants TV, and saves assigned broke
     if (path === '/api/v1/auth/users/member/configuration-access') {
       await route.fulfill({ json: { user_id: 'member', revision, active: true, administrator: false, sections } }); return;
     }
+    if (path === '/api/v1/admin/brokers/K-SYNTHETIC/assignment') { const body = request.postDataJSON(); expect(body.expected_user_id).toBe('member'); expect(body.user_id).toBe('default'); brokers[0] = { ...(brokers[0] as object), user_id: 'default', updated_at_ms: 2 }; await route.fulfill({json: brokers[0]}); return; }
     if (path === '/api/v1/admin/brokers') {
       if (method === 'POST') {
         const body = request.postDataJSON(); expect(body.user_id).toBe('member');
@@ -100,26 +103,34 @@ test('central administration creates a user, grants TV, and saves assigned broke
     throw new Error(`Unexpected admin API ${method} ${path}`);
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Administration', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '+ Add user', exact: true }).click();
   await page.getByLabel('Username', { exact: true }).fill('NewViewer');
   await page.getByLabel('Password', { exact: true }).fill('Synthetic-password-123');
   await page.getByLabel('Repeat password', { exact: true }).fill('Synthetic-password-123');
   await page.getByRole('button', { name: 'Save user', exact: true }).click();
-  await page.getByLabel('Account', { exact: true }).selectOption('member');
+  await page.getByRole('combobox', { name: 'Manage user access' }).fill('NewViewer');
+  await page.getByRole('option', { name: /NewViewer/ }).click();
   await page.getByRole('checkbox', { name: 'Space (TV)', exact: true }).check();
   await page.getByRole('button', { name: 'Save features', exact: true }).click();
   await expect(page.getByText('Feature grants saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Broker connections', exact: true }).click();
-  await page.getByLabel('Assign to Sterling user', { exact: true }).selectOption('member');
+  await page.getByRole('combobox', { name: 'Assign to Sterling user' }).fill('NewViewer');
+  await page.getByRole('option', { name: /NewViewer/ }).click();
   await page.getByLabel('Connection label', { exact: true }).fill('Viewer Kite');
   await page.getByLabel('API key', { exact: true }).fill('synthetic-key');
   await page.getByLabel('API secret', { exact: true }).fill('synthetic-secret');
   await page.getByRole('button', { name: 'Save broker connection', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Viewer Kite', exact: true })).toBeVisible();
   await expect(page.getByLabel('API secret', { exact: true })).toHaveValue('');
+  await page.getByText('Assign to a Sterling user', {exact:true}).click();
+  await page.getByRole('combobox', {name:'Assign broker profile to'}).fill('Primary');
+  await page.getByRole('option', {name:/Primary/}).click();
+  await page.getByRole('button', {name:'Save assignment',exact:true}).click();
+  await expect(page.getByText('Assigned to Primary', {exact:true})).toBeVisible();
   await page.getByRole('button', { name: 'Telegram integrations', exact: true }).click();
-  await page.getByLabel('Integration owner', { exact: true }).selectOption('member');
+  await page.getByRole('combobox', { name: 'Integration owner' }).fill('NewViewer');
+  await page.getByRole('option', { name: /NewViewer/ }).click();
   await page.getByLabel('Destination label', { exact: true }).fill('Viewer alerts');
   await page.getByLabel('Bot token', { exact: true }).fill('synthetic-token');
   await page.getByLabel('Recipient chat ID', { exact: true }).fill('12345');
@@ -164,7 +175,7 @@ for (const width of [390, 1440]) {
     await page.getByLabel('Username', { exact: true }).fill('viewer');
     await page.getByLabel('Password', { exact: true }).fill('Synthetic-password-123');
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Choose your workspace', exact: true })).toBeVisible();
     for (const name of ['Kite', 'Echo', 'Space']) await expect(page.getByRole('button', { name: new RegExp(`Open ${name}`) })).toBeVisible();
     await expect(page.locator('iframe')).toHaveCount(0);
     await expect(page.getByRole('button', { name: /Open Space/ })).toBeInViewport();
@@ -172,18 +183,17 @@ for (const width of [390, 1440]) {
     await page.getByRole('button', { name: /Open Echo/ }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
     expect(initialized).toBe(true);
-    await page.locator('.workspace-settings > summary').click();
-    await page.getByRole('button', { name: 'Switch workspace', exact: true }).click();
-    await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
-    await expect(page.locator('iframe')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Choose workspace', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Choose your workspace' })).toBeVisible();
     await page.getByRole('button', { name: /Open Space/ }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected tv document');
-    await page.getByRole('button', { name: 'Echo', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose workspace', exact: true }).click();
+    await page.getByRole('button', { name: 'Open Echo', exact: true }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
     expect(initialized).toBe(true);
     await page.getByRole('button', { name: 'Radio display settings', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Switch workspace', exact: true }).click();
-    await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Choose your workspace' })).toBeVisible();
     expect(requests.some(path => path.startsWith('/api/v1/kite/'))).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   });

@@ -1,3 +1,4 @@
+import { UserCombobox } from './UserCombobox';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
@@ -27,7 +28,7 @@ function UserTelegram({ userId }: { userId: string }) {
 export function CentralIntegrations({ users }: { users: User[] }) {
   const [selected, setSelected] = useState('');
   return <section className="admin-wide"><h2>Telegram integrations</h2><p>Manage alert credentials and recipients for Sterling users.</p>
-    <label>Integration owner<select aria-label="Integration owner" className="bac-input" value={selected} onChange={e => setSelected(e.target.value)}><option value="">Choose a user</option>{users.filter(user => user.active).map(user => <option key={user.id} value={user.id}>{user.username}</option>)}</select></label>
+    <UserCombobox label="Integration owner" users={users.filter(user => user.active)} value={selected} onChange={setSelected} />
     {selected ? <UserTelegram key={selected} userId={selected} /> : <p>Select a user to manage their Telegram destinations.</p>}
   </section>;
 }

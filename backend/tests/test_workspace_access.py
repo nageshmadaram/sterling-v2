@@ -228,3 +228,90 @@ def test_supervisor_liveness_survives_default_deny_without_credentials():
     assert route_policy('/api/v1/health/deep', 'GET') == 'kite'
     assert route_policy('/api/v1/health/unknown', 'GET') == 'kite'
     assert route_policy('/api/v1/health/live', 'POST') == 'kite'
+
+
+def test_access_inbox_deduplicates_approves_and_preserves_other_grants(workspace):
+    from app.services.auth import access_requests as inbox
+    account_policy.set_features('default','member',{'kite':False,'radio':False,'tv':True},0)
+    request=inbox.request_access('member','radio')
+    assert inbox.request_access('member','radio')['id']==request['id']
+    assert len(inbox.list_requests('member'))==1
+    with pytest.raises(PermissionError): inbox.list_requests('member',administrator=True)
+    assert inbox.list_requests('default',administrator=True)[0]['username']=='member'
+    inbox.decide('default',request['id'],'approved')
+    assert account_policy.read('member').features=={'kite':False,'radio':True,'tv':True}
+    assert account_policy.read('member').revision==2
+    with pytest.raises(account_policy.PolicyConflict): inbox.decide('default',request['id'],'rejected')
+    request=inbox.request_access('member','kite')
+    inbox.decide('default',request['id'],'rejected')
+    assert not account_policy.read('member').features['kite']
+    assert inbox.request_access('member','kite')['status']=='rejected'
+
+
+def test_access_approval_rolls_back_if_audit_fails(workspace):
+    from app.services.auth import access_requests as inbox
+    request=inbox.request_access('member','radio')
+    with db._conn() as c:
+        c.execute("CREATE TRIGGER reject_access_audit BEFORE INSERT ON auth_audit_events BEGIN SELECT RAISE(ABORT,'synthetic'); END")
+    with pytest.raises(account_policy.PolicyUnavailable): inbox.decide('default',request['id'],'approved')
+    assert not account_policy.read('member').features['radio']
+    assert inbox.list_requests('member')[0]['status']=='pending'
+
+
+def test_access_routes_are_owner_scoped_and_admin_reviewed(workspace):
+    from app.api.v1.endpoints import settings_capabilities
+    admin, member=workspace
+    app=FastAPI();app.include_router(settings_capabilities.router,prefix='/api/v1')
+    app.dependency_overrides[get_current_user]=lambda:member
+    client=TestClient(app)
+    request=client.post('/api/v1/settings/access-requests',json={'feature':'radio'}).json()
+    assert client.get('/api/v1/admin/access-requests').status_code==403
+    assert client.patch('/api/v1/admin/access-requests/'+request['id'],json={'decision':'approved'}).status_code==403
+    app.dependency_overrides[get_current_user]=lambda:admin
+    assert client.patch('/api/v1/admin/access-requests/'+request['id'],json={'decision':'approved'}).status_code==200
+    assert account_policy.read('member').features['radio']
+
+
+def test_broker_assignment_clears_session_is_durable_and_preserves_history(workspace,monkeypatch):
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    monkeypatch.setattr(accounts,'_accounts',{})
+    broker=accounts.add('default',KiteAccountCreate(label='Profile',api_key='synthetic',api_secret='synthetic-secret'))
+    before=broker.updated_at_ms
+    with db._conn() as c: c.execute("UPDATE kite_accounts SET access_token_enc='saved-session' WHERE id=?",(broker.id,))
+    result=accounts.reassign(broker.id,actor_id='default',source_user_id='default',target_user_id='member',expected_updated_at_ms=before)
+    assert result.user_id=='member' and not result.is_active and not result.access_token_enc
+    assert accounts.get('default',broker.id) is None
+    with db._conn() as c:
+        assert c.execute('SELECT user_id FROM kite_accounts WHERE id=?',(broker.id,)).fetchone()[0]=='member'
+        audit=c.execute("SELECT before_json,after_json FROM auth_audit_events WHERE action='broker.assigned'").fetchone()
+        assert 'default' in audit['before_json'] and 'member' in audit['after_json']
+    with pytest.raises(account_policy.PolicyConflict): accounts.reassign(broker.id,actor_id='default',source_user_id='default',target_user_id='member',expected_updated_at_ms=before)
+
+
+def test_broker_assignment_audit_failure_keeps_cache_and_database_owner(workspace,monkeypatch):
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    monkeypatch.setattr(accounts,'_accounts',{})
+    broker=accounts.add('default',KiteAccountCreate(label='Profile',api_key='synthetic',api_secret='synthetic-secret'))
+    with db._conn() as c: c.execute("CREATE TRIGGER reject_assignment_audit BEFORE INSERT ON auth_audit_events BEGIN SELECT RAISE(ABORT,'synthetic'); END")
+    with pytest.raises(RuntimeError): accounts.reassign(broker.id,actor_id='default',source_user_id='default',target_user_id='member',expected_updated_at_ms=broker.updated_at_ms)
+    assert accounts.get('default',broker.id).user_id=='default'
+    with db._conn() as c: assert c.execute('SELECT user_id FROM kite_accounts WHERE id=?',(broker.id,)).fetchone()[0]=='default'
+
+
+def test_assignment_endpoint_refuses_open_exposure_before_changing_owner(workspace,monkeypatch):
+    from fastapi import HTTPException
+    from app.api.v1.endpoints import kite
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    monkeypatch.setattr(accounts,'_accounts',{})
+    broker=accounts.add('default',KiteAccountCreate(label='Profile',api_key='synthetic',api_secret='synthetic-secret'))
+    async def blocked(*args,**kwargs): raise HTTPException(423,'Broker still holds positions')
+    monkeypatch.setattr(kite,'_require_account_detachable',blocked)
+    app=FastAPI();app.include_router(admin_connections.router,prefix='/api/v1')
+    app.dependency_overrides[get_current_user]=lambda:workspace[0]
+    client=TestClient(app)
+    response=client.post(f'/api/v1/admin/brokers/{broker.id}/assignment',json={'user_id':'member','expected_user_id':'default','expected_updated_at_ms':broker.updated_at_ms})
+    assert response.status_code==423
+    assert accounts.get('default',broker.id).user_id=='default'

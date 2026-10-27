@@ -152,7 +152,7 @@ describe('Sterling Spectrum navigation and Home', () => {
       spectrumHome:'radio',
     }));
     expect(screen.getByTestId('fake-radio-content')).toBeInTheDocument();
-    expect(screen.getByTestId('kite-trading-docks')).not.toBeVisible();
+    expect(screen.queryByTestId('kite-trading-docks')).toBeNull();
   });
 
   it('uses the Radio header tab and can set Radio as Home', () => {

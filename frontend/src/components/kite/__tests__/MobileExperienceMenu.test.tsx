@@ -69,3 +69,10 @@ describe('mobile Spectrum header and drawer',()=>{
     expect(screen.getByRole('status')).toHaveTextContent('Chrome or Brave');
   });
 });
+
+it('lists each tool once rather than repeating it under app pages',()=>{
+  render(<><div id="sterling-mobile-header-actions"/><MobileExperienceMenu activeNav="dashboard" onNavClick={vi.fn()} tools={[{id:'astro',label:'Astrology'}]}/></>);
+  fireEvent.click(screen.getByRole('button',{name:'Menu'}));
+  expect(screen.getAllByRole('button',{name:'Astrology'})).toHaveLength(1);
+  expect(screen.getByRole('navigation',{name:'All app pages'})).not.toHaveTextContent('Astrology');
+});

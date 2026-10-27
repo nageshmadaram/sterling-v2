@@ -17,7 +17,7 @@ function FeatureEditor({ userId }: { userId: string }) {
   const save = useMutation({ mutationFn: () => api.put<FeaturePolicy>(`${BASE}/${encodeURIComponent(userId)}/features`,
     { features: draft?.features, expected_revision: draft?.revision }),
     onSuccess: data => { qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); } });
-  return <section><h3>Feature access</h3><p>Choose Kite, Echo (Radio) and Space (TV) independently.</p>
+  return <section><h3>Workspaces</h3><p>Choose where this user can go.</p>
     {query.isLoading && <p role="status">Loading grants…</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}
     {draft && <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>
@@ -35,9 +35,7 @@ function SectionEditor({ userId, section, policy }: { userId: string; section: C
   const qc = useQueryClient();
   const [visible, setVisible] = useState(policy.sections[section].visible);
   const [grants, setGrants] = useState<ConfigurationGrant[]>(policy.sections[section].grants.map(({ action, resource_id, expires_at_ms }) => ({ action, resource_id, expires_at_ms })));
-  const [resource, setResource] = useState('own');
   const eligibleActions: ConfigurationAction[] = section === 'telegram' ? ['recipients', 'test'] : section === 'brokers' ? ['create', 'update'] : ['create', 'update', 'test'];
-  const [action, setAction] = useState<ConfigurationAction>(section === 'telegram' ? 'recipients' : 'update');
   const save = useMutation({ mutationFn: () => api.put<ConfigurationCapabilities>(`${BASE}/${encodeURIComponent(userId)}/configuration-access`,
     { section, visible, grants, expected_revision: policy.revision }),
     onSuccess: data => { qc.setQueryData(['admin-configuration', userId], data); void qc.invalidateQueries({ queryKey: ['admin-features', userId] }); void qc.invalidateQueries({ queryKey: ['sterling-configuration-capabilities'] }); } });
@@ -46,16 +44,10 @@ function SectionEditor({ userId, section, policy }: { userId: string; section: C
     <label><input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} /> Show this settings section</label>
     <p>{visible ? grants.length ? `${grants.length} scoped actions selected. Saved-secret reveal stays disabled.` : 'Status only; no configuration actions.' : 'Hidden; configuration actions are disabled.'}</p>
     {visible && <fieldset disabled={save.isPending}><legend>Delegate actions on this user’s resources</legend>
-      <label>Action<select className="bac-input" value={action} onChange={e => setAction(e.target.value as ConfigurationAction)}>
-        {eligibleActions.map(value => <option key={value} value={value}>{value}</option>)}
-      </select></label>
-      <label>Resource ID<input className="bac-input" maxLength={128} value={resource} onChange={e => setResource(e.target.value)} /></label>
-      <p className="bac-muted">Use “own” for this user’s scope, or an exact assigned resource ID. Shared bot credentials remain administrator-only.</p>
-      <button type="button" className="bac-btn" disabled={!resource.trim() || grants.length >= 100} onClick={() => {
-        if (!grants.some(g => g.action === action && g.resource_id === resource.trim())) setGrants([...grants, { action, resource_id: resource.trim(), expires_at_ms: null }]);
-      }}>Add scope</button>
-      <ul>{grants.map((grant, index) => <li key={`${grant.action}:${grant.resource_id}`}>{grant.action} · {grant.resource_id}{' '}
-        <button type="button" className="bac-btn" onClick={() => setGrants(grants.filter((_, i) => i !== index))}>Remove scope</button>
+      <div className="admin-action-options">{eligibleActions.map(value => <label key={value}><input type="checkbox" checked={grants.some(grant => grant.action === value && grant.resource_id === 'own')} onChange={event => setGrants(event.target.checked ? [...grants, { action: value, resource_id: 'own', expires_at_ms: null }] : grants.filter(grant => !(grant.action === value && grant.resource_id === 'own')))} />{value === 'create' ? 'Add connections' : value === 'update' ? 'Edit assigned connections' : value === 'recipients' ? 'Manage alert recipients' : 'Test connections'}</label>)}</div>
+      <p className="bac-muted">Permissions apply only to this user’s assigned resources. Saved secrets are never shown.</p>
+      <ul>{grants.filter(grant => grant.resource_id !== 'own').map(grant => <li key={`${grant.action}:${grant.resource_id}`}>{grant.action} · {grant.resource_id}{' '}
+        <button type="button" className="bac-btn" onClick={() => setGrants(grants.filter(item => item.action !== grant.action || item.resource_id !== grant.resource_id))}>Remove scope</button>
       </li>)}</ul>
     </fieldset>}
     <button className="bac-btn bac-btn-primary" disabled={save.isPending}>Save settings access</button>
@@ -65,7 +57,7 @@ function SectionEditor({ userId, section, policy }: { userId: string; section: C
 
 export function AccessEditor({ userId }: { userId: string }) {
   const query = useQuery({ queryKey: ['admin-configuration', userId], queryFn: () => api.get<ConfigurationCapabilities>(`${BASE}/${encodeURIComponent(userId)}/configuration-access`) });
-  return <div className="admin-access"><FeatureEditor userId={userId} /><h2>Configuration access</h2>
+  return <div className="admin-access"><FeatureEditor userId={userId} /><h2>Settings permissions</h2>
     {query.isLoading && <p role="status">Loading settings access…</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}
     {query.data?.administrator ? <p>The designated administrator retains configuration authority.</p> : query.data && SECTIONS.map(section =>

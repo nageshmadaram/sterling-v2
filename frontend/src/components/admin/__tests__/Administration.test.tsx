@@ -11,6 +11,7 @@ const capabilities = { user_id: 'default', revision: 0, administrator: true, act
 beforeEach(() => {
   vi.resetAllMocks();
   api.get.mockImplementation(async (url: string) => {
+    if (url === '/api/v1/admin/access-requests') return {requests: []};
     if (url === '/api/v1/settings/capabilities') return capabilities;
     if (url === '/api/v1/auth/users') return { current_user_id: 'default', users: [
       { id: 'default', username: 'Primary', primary: true, role: 'admin', active: true, password_set: true },
@@ -33,7 +34,9 @@ it('opens user administration without Kite, even with a remembered simulation pr
 it('saves explicit grants with the loaded revision and keeps default configuration hidden', async () => {
   show();
   await screen.findByRole('button', { name: 'Manage Primary' });
-  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'member' } });
+  fireEvent.focus(screen.getByRole('combobox', { name: 'Manage user access' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Manage user access' }), { target: { value: 'Mem' } });
+  fireEvent.click(screen.getByRole('option', { name: /Member/ }));
   await screen.findByRole('button', { name: 'Save features' });
   expect(screen.getAllByText('Hidden; configuration actions are disabled.')).toHaveLength(3);
   fireEvent.click(screen.getByLabelText('Space (TV)', { exact: true }));

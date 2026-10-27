@@ -11,83 +11,54 @@ vi.mock('../Administration', () => ({ default: () => <div>Central administration
 vi.mock('../../components/auth/PreferenceGate', () => ({ PreferenceGate: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('../../components/kite/ThemeToggle', () => ({ ThemeToggle: () => <button>Theme</button> }));
 const base: SessionPolicy = { user_id: 'member', username: 'Member', role: 'user', administrator: false, policy_revision: 0, features: { kite: false, tv: false, radio: false } };
-beforeEach(() => { vi.resetAllMocks(); window.history.replaceState({}, '', '/'); vi.spyOn(window, 'scrollTo').mockImplementation(() => {}); });
+beforeEach(() => {
+  vi.resetAllMocks(); window.history.replaceState({}, '', '/'); vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+  api.post.mockResolvedValue({ status: 'pending' });
+});
 afterEach(() => { cleanup(); resetDraftGuard(); vi.restoreAllMocks(); });
 function show(policy: SessionPolicy) {
   api.get.mockResolvedValue(policy);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><WorkspaceRouter /></QueryClientProvider>);
-  return client;
+  render(<QueryClientProvider client={client}><WorkspaceRouter /></QueryClientProvider>); return client;
 }
-for (let mask = 0; mask < 8; mask++) {
-  it(`shows the chooser without mounting a feature for grant combination ${mask}`, async () => {
-    const policy = { ...base, features: { kite: !!(mask & 1), tv: !!(mask & 2), radio: !!(mask & 4) } };
-    show(policy);
-    await screen.findByText('Welcome, Member.');
-    for (const [feature, name] of [['kite', 'Kite'], ['tv', 'Space'], ['radio', 'Echo']] as const)
-      expect(screen.queryByRole('button', { name: new RegExp(`Open ${name}`) }) !== null).toBe(policy.features[feature]);
-    expect(screen.queryByText(/runtime mounted/)).toBeNull();
-    if (!mask) expect(screen.getByText('No features enabled')).toBeInTheDocument();
-  });
-}
-it('lets a TV-only user open TV and unmounts it on revocation', async () => {
-  const policy = { ...base, features: { kite: false, tv: true, radio: false } };
-  const client = show(policy);
-  fireEvent.click(await screen.findByRole('button', { name: /Open Space/ }));
-  await screen.findByText('tv runtime mounted');
-  expect(screen.queryByText('Kite runtime mounted')).toBeNull();
-  act(() => client.setQueryData(['sterling-session-policy'], { ...policy, features: base.features }));
-  await screen.findByText('Access unavailable');
-  expect(screen.queryByText('tv runtime mounted')).toBeNull();
-});
-it('waits for an intentional Kite selection even with a broker deep link', async () => {
-  window.history.replaceState({}, '', '/?broker_login=1');
-  show({ ...base, features: { kite: true, tv: true, radio: true } });
-  await screen.findByText('Welcome, Member.');
-  expect(screen.queryByText('Kite runtime mounted')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: /Open Echo/ }));
-  await screen.findByText('radio runtime mounted');
-  expect(screen.queryByText('Kite runtime mounted')).toBeNull();
-});
-it('offers central administration even when the admin has no feature grants', async () => {
-  show({ ...base, role: 'admin', administrator: true });
-  await screen.findByText('Welcome, Member.');
-  fireEvent.click(screen.getByRole('button', { name: 'Administration' }));
-  await screen.findByText('Central administration mounted');
-  expect(screen.queryByText('Kite runtime mounted')).toBeNull();
-});
-
-const allFeatures = { ...base, features: { kite: true, tv: true, radio: true } };
-it('returns from a workspace to the chooser through Settings without mounting another feature', async () => {
-  show(allFeatures);
-  fireEvent.click(await screen.findByRole('button', { name: /Open Echo/ }));
-  await screen.findByText('radio runtime mounted');
-  fireEvent.click(screen.getByText('Settings', { selector: 'summary' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
-  await screen.findByText('Choose your workspace.');
+for (let mask = 0; mask < 8; mask++) it(`offers granted workspaces and access requests for combination ${mask}`, async () => {
+  const policy = { ...base, features: { kite: !!(mask & 1), tv: !!(mask & 2), radio: !!(mask & 4) } }; show(policy);
+  await screen.findByRole('heading', { name: 'Choose your workspace' });
+  for (const [feature, name] of [['kite', 'Kite'], ['tv', 'Space'], ['radio', 'Echo']] as const) {
+    expect(screen.getByRole('button', { name: `${policy.features[feature] ? 'Open' : 'Request access to'} ${name}` })).toBeInTheDocument();
+  }
   expect(screen.queryByText(/runtime mounted/)).toBeNull();
-  expect(window.location.pathname).toBe('/');
-  fireEvent.click(screen.getByRole('button', { name: /Open Space/ }));
-  await screen.findByText('tv runtime mounted');
 });
-it('switches directly through the Kite, Echo and Space text controls', async () => {
-  show(allFeatures);
-  fireEvent.click(await screen.findByRole('button', { name: /Open Kite/ }));
-  await screen.findByText('Kite runtime mounted');
-  fireEvent.click(screen.getByRole('button', { name: 'Echo' }));
-  await screen.findByText('radio runtime mounted');
+it('revokes a mounted feature and automatically sends a deduplicated access request', async () => {
+  const policy = { ...base, features: { kite: false, tv: true, radio: false } }; const client = show(policy);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open Space' })); await screen.findByText('tv runtime mounted');
+  act(() => client.setQueryData(['sterling-session-policy'], { ...policy, features: base.features }));
+  await screen.findByRole('heading', { name: 'Space is not enabled for your account' });
+  expect(screen.queryByText('tv runtime mounted')).toBeNull();
+  expect(api.post).toHaveBeenCalledWith('/api/v1/settings/access-requests', { feature: 'tv' });
+});
+it('opens admin management directly, with no empty-feature message', async () => {
+  show({ ...base, role: 'admin', administrator: true }); await screen.findByText('Central administration mounted');
+  expect(screen.queryByText('No features enabled')).toBeNull(); expect(screen.queryByText('Kite runtime mounted')).toBeNull();
+});
+it('uses an overlay to switch and removes the duplicate header in Kite', async () => {
+  show({ ...base, features: { kite: true, tv: true, radio: true } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Open Kite' })); await screen.findByText('Kite runtime mounted');
+  expect(document.querySelector('.workspace-header')).toBeNull();
+  act(() => window.dispatchEvent(new Event('sterling-select-workspace')));
+  expect(screen.getByRole('dialog', { name: 'Choose your workspace' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Open Echo' })); await screen.findByText('radio runtime mounted');
   expect(screen.queryByText('Kite runtime mounted')).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Space' }));
-  await screen.findByText('tv runtime mounted');
-  expect(window.location.pathname).toBe('/tv');
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.queryByRole('navigation', { name: 'Workspace navigation' })).toBeNull();
 });
-it('keeps an unapplied settings draft when workspace switching is cancelled', async () => {
-  show(allFeatures);
-  fireEvent.click(await screen.findByRole('button', { name: /Open Kite/ }));
-  await screen.findByText('Kite runtime mounted');
-  setDraftDirty('workspace-test', true);
-  vi.spyOn(window, 'confirm').mockReturnValue(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Echo' }));
-  expect(screen.getByText('Kite runtime mounted')).toBeInTheDocument();
-  expect(window.location.pathname).toBe('/kite');
+it('preserves a settings draft when selecting another UI is cancelled', async () => {
+  show({ ...base, features: { kite: true, tv: true, radio: true } });
+  fireEvent.click(await screen.findByRole('button', { name: 'Open Kite' })); await screen.findByText('Kite runtime mounted');
+  setDraftDirty('workspace-test', true); vi.spyOn(window, 'confirm').mockReturnValue(false);
+  act(() => window.dispatchEvent(new Event('sterling-select-workspace')));
+  fireEvent.click(screen.getByRole('button', { name: 'Open Echo' }));
+  expect(screen.getByText('Kite runtime mounted')).toBeInTheDocument(); expect(window.location.pathname).toBe('/kite');
 });
