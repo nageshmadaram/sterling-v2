@@ -40,6 +40,7 @@ from app.engines.snapback.challenger import CHALLENGER_ID  # noqa: E402
 from app.engines.snapback.research_reporting import (  # noqa: E402
     choose_option_contract, closed_trade_audit, contract_replay_summary,
     current_instrument_master_provenance, eligible_expiries, mode_totals,
+    research_variant_row,
     write_research_report_once,
 )
 from app.core.research_coverage import paired_session_coverage  # noqa: E402
@@ -274,29 +275,33 @@ async def main() -> None:
                         continue
                     ub = _bars([by_u[t] for t in keep]); ob = _bars([by_o[t] for t in keep])
                     cfg = validate({"trading_mode": mode})
-                    res = replay_intraday(ub, ob, cfg, und, option_type=kind,
-                                          lot_size=int(pick.get("lot_size") or 1), option_symbol=pick["tradingsymbol"])
-                    candidate = replay_intraday(
-                        ub, ob, cfg, und, option_type=kind,
-                        lot_size=int(pick.get("lot_size") or 1),
-                        option_symbol=pick["tradingsymbol"],
-                        candidate_policy=CHALLENGER_ID,
-                    )
-                    candidate_report = {
-                        "underlying": und, "option": pick["tradingsymbol"],
-                        "bars": len(keep), "coverage": dict(coverage),
+                    shared = {
+                        "underlying": und,
+                        "option": pick["tradingsymbol"],
+                        "option_type": kind,
+                        "bars": len(keep),
+                        "coverage": dict(coverage),
                         "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
-                        **contract_replay_summary(candidate),
-                        "closed_trade_audit": closed_trade_audit(candidate),
-                        "candidate_policy": CHALLENGER_ID,
-                        "challenger_rejections": candidate["challenger_rejections"],
                     }
-                    intraday[mode].append({"underlying": und, "option": pick["tradingsymbol"],
-                                           "bars": len(keep), "coverage": coverage,
-                                           "days": len({datetime.fromtimestamp(t, IST).date() for t in keep}),
-                                           **contract_replay_summary(res),
-                                           "closed_trade_audit": closed_trade_audit(res),
-                                           "cost_feasible_challenger": candidate_report})
+                    # Never run/serialize these in one catch scope. A
+                    # challenger exception must not erase a valid baseline.
+                    baseline_report = research_variant_row(
+                        lambda: replay_intraday(
+                            ub, ob, cfg, und, option_type=kind,
+                            lot_size=int(pick.get("lot_size") or 1),
+                            option_symbol=pick["tradingsymbol"]),
+                        metadata=shared, policy="baseline")
+                    challenger_report = research_variant_row(
+                        lambda: replay_intraday(
+                            ub, ob, cfg, und, option_type=kind,
+                            lot_size=int(pick.get("lot_size") or 1),
+                            option_symbol=pick["tradingsymbol"],
+                            candidate_policy=CHALLENGER_ID),
+                        metadata=shared, policy=CHALLENGER_ID)
+                    intraday[mode].append({
+                        **baseline_report,
+                        "cost_feasible_challenger": challenger_report,
+                    })
                 except Exception as exc:  # noqa: BLE001
                     intraday[mode].append({"underlying": und, "option": pick.get("tradingsymbol"),
                                            "error": f"{type(exc).__name__}: {exc}"[:240],
