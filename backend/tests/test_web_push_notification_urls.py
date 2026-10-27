@@ -10,7 +10,7 @@ def test_signal_push_keeps_strategy_exact_signal_and_ist_timestamp():
         symbol="ABC LTD", at_ms=1793160000000,
     )
     parsed = urlsplit(link)
-    assert parsed.path == "/"
+    assert parsed.path == "/kite"
     assert parsed.netloc == ""
     assert parse_qs(parsed.query) == {
         "view": ["live"],
