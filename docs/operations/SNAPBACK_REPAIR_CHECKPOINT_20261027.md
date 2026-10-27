@@ -227,3 +227,39 @@ still report zero assigned runner/zero executed steps. Do not infer
 production functionality or profitable forward results from these
 code-only changes. No real-money orders, live safety gate enablement,
 branch merge or trading certification was performed.
+
+
+## Sixth pass — cumulative recovery and cross-tenant persistence
+
+The broker adapter now regards only a newly `accepted` cumulative
+execution increment or an exact `duplicate` as suitable input for
+Snapback's position projection. A prior `older_cumulative` observation,
+non-quantity outcome or missing/unknown ledger disposition cannot
+rewrite the position registry, even if the signed ledger has not
+quarantined the entire account. Such outcomes require reconciliation
+and halt fresh entries. An exact duplicate may still repair a previously
+missing registry after a crash, without resending the broker order.
+
+The durability store's general-purpose `put` upsert now refuses a
+same-ID record when the owning `uid`, `account_id` or `option_symbol`
+differs from the stored record. This blocks accidental owner or
+instrument reassignment through recovery/admin paths that do not use
+`insert_new`. Existing-identity status/quantity changes remain
+permitted, while every write preserves the same primary position ID.
+
+Additional focused regression cases cover: accepted/duplicate versus
+older/unknown ledger disposition; valid exchange timestamps; forbidden
+cross-owner/account/contract upserts; and same-owner updates.
+
+**Verification classification:**
+- SQLite's `INSERT ... ON CONFLICT DO UPDATE ... WHERE ...` identity
+  fence was checked separately against an isolated in-memory SQLite
+  database: 5/5 statement-level checks passed (no Sterling imports).
+- The actual Snapback adapter/store integration tests introduced in
+  this and earlier passes are **not yet executed at the latest SHA**.
+- GitHub hosted CI jobs still report `runner_id=0` and zero steps, so
+  their failed status cannot be mistaken for test evidence.
+- Neither technical/broker certification nor after-cost forward-profit
+  certification has been established. Do not merge or enable new live
+  entries. Account owner authorization and actual broker/market
+  measurements remain mandatory.
