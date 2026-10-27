@@ -78,7 +78,8 @@ def notification_url(category, *, strategy="", signal_id="", symbol="", at_ms=0)
             params["symbol"] = str(symbol)
         if str(at_ms).isdigit() and 0 < int(at_ms) < 10**14:
             params["at"] = str(at_ms)
-    return "/?" + urlencode(params)
+    # The current workspace router serves Kite at /kite; / opens the chooser.
+    return "/kite?" + urlencode(params)
 
 
 async def send(uid,event_key,title,body,category,*,force=False,
