@@ -19,7 +19,7 @@ function safeDestination(raw) {
         if (['supertrend', 'snapback', 'gamma_move', 'ema_trend'].includes(engine))
           allowed.set('strategy', engine);
         const at = target.searchParams.get('at');
-        if (at && /^\\d{10,14}$/.test(at)) allowed.set('at', at);
+        if (at && /^\d{10,14}$/.test(at)) allowed.set('at', at);
         for (const key of ['signal', 'symbol']) {
           const text = target.searchParams.get(key);
           if (text && text.length <= (key === 'signal' ? 180 : 80)) allowed.set(key, text);
