@@ -119,3 +119,58 @@ async def test_terminal_complete_with_zero_fill_is_not_an_empty_safe_order(monke
     obj = manager(observed, p)
     assert await obj._resolve_exit(NS(), p, leg="hedge", order_id="HEDGE-EXIT-1") == "unresolved"
     assert p.hedge_exit_order_id == "HEDGE-EXIT-1"
+
+
+@pytest.mark.asyncio
+async def test_known_unknown_exit_id_is_stored_for_reconciliation_without_second_sell(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    store = NS(mutate=Mock(side_effect=lambda _, fn: (fn(p), p)[1]))
+    canonical = NS(submit_order=AsyncMock(return_value=NS(
+        success=False, status="UNKNOWN", order_id="BROKER-EXIT-123", error="timeout",
+    )))
+    obj = exits.SnapbackExitManager(positions=store, canonical=canonical)
+    monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
+    order_id = await obj._submit_exit(NS(), p, leg="option", quantity=75)
+    assert order_id == "BROKER-EXIT-123"
+    assert p.option_exit_order_id == "BROKER-EXIT-123"
+    assert p.option_exit_requested == 75
+    canonical.submit_order.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", [
+    NS(success=False, status="UNKNOWN", order_id="", error="timeout"),
+    NS(success=False, status="SUBMITTING", order_id="", error="other worker"),
+])
+async def test_unknown_exit_submission_without_id_is_not_treated_as_refusal(monkeypatch, result):
+    p = pos()
+    store = NS(mutate=Mock())
+    canonical = NS(submit_order=AsyncMock(return_value=result))
+    obj = exits.SnapbackExitManager(positions=store, canonical=canonical)
+    monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
+    outcome = await obj._submit_exit(NS(), p, leg="option", quantity=75)
+    assert outcome is None
+    store.mutate.assert_not_called()
+    canonical.submit_order.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_exit_canonical_submission_exception_is_unknown_not_safe_no_send(monkeypatch):
+    p = pos()
+    canonical = NS(submit_order=AsyncMock(side_effect=TimeoutError("transport read timed out")))
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), canonical=canonical)
+    monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
+    assert await obj._submit_exit(NS(), p, leg="option", quantity=75) is None
+
+
+@pytest.mark.asyncio
+async def test_verified_exit_refusal_without_broker_id_remains_no_send(monkeypatch):
+    p = pos()
+    result = NS(success=False, status="HALTED", order_id="", error="simulation safety")
+    canonical = NS(submit_order=AsyncMock(return_value=result))
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), canonical=canonical)
+    monkeypatch.setattr(obj, "_ensure_ledger_inventory", AsyncMock())
+    monkeypatch.setattr(exits, "alert", Mock())
+    assert await obj._submit_exit(NS(), p, leg="option", quantity=75) == ""
