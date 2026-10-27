@@ -321,3 +321,36 @@ def test_research_trade_ledger_refuses_false_aggregate_profit():
 def test_absent_trade_level_rows_cannot_create_a_hash_of_fabricated_fills():
     with pytest.raises(ValueError, match="record count"):
         closed_trade_audit(replay(trade_count=5))
+
+
+@pytest.mark.parametrize("other", [
+    {"option": "OTHER", "error": "exchange master missing"},
+    {"option": "OTHER", "skipped": "no complete session"},
+    {"option": "OTHER", "trades": 0, "replay_complete": False,
+     "coverage": {"all_sessions_complete": False}},
+])
+def test_complete_profitable_subset_does_not_create_mode_wide_stress_profit(other):
+    valid = replay(
+        trade_count=1, trades=[{"quantity": 75, "net_pnl_inr": 150.0}],
+        net_pnl_inr=150.0,
+    )
+    row = dict(contract_replay_summary(valid),
+               coverage={"all_sessions_complete": True})
+    mode = mode_totals([row, other])
+    assert mode["net_inr_exact"] == 150
+    assert mode["research_complete"] is False
+    assert mode["additional_cost_stress_complete"] is False
+    assert mode["additional_cost_stress_net_inr"] is None
+    assert mode["promotion_eligible"] is False
+
+
+def test_incomplete_coverage_disqualifies_mode_wide_stress_even_if_trades_positive():
+    valid = replay(trade_count=1,
+                   trades=[{"quantity": 75, "net_pnl_inr": 150}],
+                   net_pnl_inr=150)
+    row = dict(contract_replay_summary(valid),
+               coverage={"all_sessions_complete": False})
+    mode = mode_totals([row])
+    assert mode["trades"] == 1
+    assert mode["additional_cost_stress_complete"] is False
+    assert mode["additional_cost_stress_net_inr"] is None
