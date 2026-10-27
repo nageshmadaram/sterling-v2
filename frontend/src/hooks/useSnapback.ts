@@ -376,8 +376,12 @@ export function useSnapbackSnapshot() {
     refetchInterval: (query) => {
       if (replay) return 1000;
       const snapshot = query.state.data;
+      // During a large universe scan the server publishes advisory row
+      // progress incrementally. Show it promptly without ever bypassing
+      // broker entry gating. Once idle, keep Swing lighter than short modes.
+      if (snapshot?.scanning) return 1_500;
       const mode = snapshot?.trading_mode ?? snapshot?.config.trading_mode ?? 'swing';
-      return mode === 'swing' ? 300_000 : 15_000;
+      return mode === 'swing' ? 30_000 : 5_000;
     },
     staleTime: 10_000,
   });
