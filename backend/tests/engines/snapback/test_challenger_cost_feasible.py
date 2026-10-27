@@ -84,6 +84,37 @@ def test_challenger_rejects_missing_prior_windows_or_bad_timestamp():
     assert invalid == (None, 0)
 
 
+def test_one_bar_timeout_must_not_use_three_bar_price_excursion():
+    b = candles(n=60, rise=3.0)
+    highs = b.high.copy()
+    highs[::4] = 115.0  # rare intrabar spikes spread over time
+    b = replace(b, high=highs)
+    strict, n_one = prior_premium_excursions(
+        b.time, b.open, b.high, b.close,
+        entry_time=START + 60*60, bar_seconds=60,
+        horizon_bars=1)
+    optimistic, n_three = prior_premium_excursions(
+        b.time, b.open, b.high, b.close,
+        entry_time=START + 60*60, bar_seconds=60,
+        horizon_bars=3)
+    assert (n_one, n_three) == (60, 58)
+    assert strict == 3.0 and optimistic == 15.0
+
+    baseline = make_plan(100, 50, CFG)
+    restricted = assess_cost_feasible_plan(
+        baseline, times=b.time, opens=b.open, highs=b.high,
+        closes=b.close, entry_time=START+60*60,
+        bar_seconds=60, horizon_bars=CFG.scalp_max_hold_bars)
+    overstated = assess_cost_feasible_plan(
+        baseline, times=b.time, opens=b.open, highs=b.high,
+        closes=b.close, entry_time=START+60*60,
+        bar_seconds=60, horizon_bars=3)
+    assert not restricted["accepted"]
+    assert restricted["rejection_reasons"] == [
+        "cost_stressed_target_exceeds_prior_excursion_p75"]
+    assert overstated["accepted"]
+
+
 def test_challenger_rejects_cost_stress_beyond_daily_risk_budget():
     p = {**make_plan(100, 50, CFG), "risk_budget_inr": 295.0}
     out = assess(candles(), plan=p)
