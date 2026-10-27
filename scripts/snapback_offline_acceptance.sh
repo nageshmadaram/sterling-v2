@@ -48,7 +48,10 @@ env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
   tests/engines/snapback/test_challenger_cost_feasible.py \
   tests/engines/snapback/test_option_equity_mark.py \
   tests/engines/snapback/test_research_reporting.py \
-  tests/unit/test_research_coverage.py
+  tests/unit/test_research_coverage.py \
+  tests/unit/test_snapback_session_ledger.py \
+  tests/unit/test_snapback_promotion_scope.py \
+  tests/unit/test_snapback_promotion_service.py
 research_rc=$?
 env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
   tests/unit/test_snapback_limit_entry_authority.py \
