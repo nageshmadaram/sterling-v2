@@ -476,3 +476,32 @@ Additional tests assert a forged profitable hedge scalar cannot turn
 an option-only backtest into a whole-strategy net, while an unhedged
 loss remains correctly represented. No profit or real broker receipts
 were produced; certification and new real-money entries remain blocked.
+
+
+## Thirteenth pass — retrospective instrument-master provenance
+
+The live Kite instrument master loaded by the historical research
+script is a **current snapshot** (selected using the run-time
+underlying price and future listed expiry), not an archive of
+contracts eligible at each historical signal timestamp. This creates
+survivorship/selection look-ahead and cannot support an independent
+out-of-sample profitability finding.
+
+The runner now includes
+`minute_instrument_master_provenance`, with the observed retrieval
+time, sorted public metadata SHA-256 digest, number of candidates
+and explicit flags:
+`historical_date_effective=false`,
+`retrospective_selection_bias=true` and
+`whole_strategy_oos_certification_eligible=false`.
+These metadata are purely descriptive; the digest is not a broker
+attestation and cannot establish actual past listing/price history.
+Additional tests verify digest independence from source row order and
+that changed contract specifications produce a different digest.
+
+**Until** date-effective instrument snapshots, a complete futures-
+hedge fill/cost model, independent chronological forward selection,
+actual charges and source-exact on-host risk/recovery tests are
+available, none of Snapback's historical positive option-leg
+numbers qualifies as independently proven whole-strategy profits.
+Autonomous new entries remain OFF and PR #272 is still draft.
