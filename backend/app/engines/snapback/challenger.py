@@ -78,6 +78,8 @@ def assess_cost_feasible_plan(
     entry_time: float, bar_seconds: int, horizon_bars: int,
     min_rr: float = 1.0, lock_points: float = 1.0,
     extra_cost_points: float = EXTRA_ROUNDTRIP_COST_POINTS,
+    cash_budget_inr: float | None = None,
+    premium_allocation_inr: float | None = None,
 ) -> dict[str, Any]:
     """Return a new independent candidate plan, NEVER a LIVE authorization."""
     plan = dict(baseline)
@@ -100,6 +102,16 @@ def assess_cost_feasible_plan(
         fixed_cost = float(baseline["estimated_fixed_cost_inr"])
         risk_budget = float(baseline["risk_budget_inr"])
         original_target = float(baseline["effective_target_points"])
+        available_cash = (float(cash_budget_inr)
+                          if cash_budget_inr is not None else None)
+        premium_cap = (float(premium_allocation_inr)
+                       if premium_allocation_inr is not None else None)
+        if (available_cash is not None
+                and (not math.isfinite(available_cash) or available_cash <= 0)):
+            raise ValueError("invalid cash budget")
+        if (premium_cap is not None
+                and (not math.isfinite(premium_cap) or premium_cap <= 0)):
+            raise ValueError("invalid premium allocation")
         if (type(qty) is not int or qty <= 0
                 or not all(math.isfinite(x) for x in
                            (entry, stop, var_cost, fixed_cost, risk_budget,
@@ -123,6 +135,19 @@ def assess_cost_feasible_plan(
     }
     if stressed_risk > risk_budget + 1e-8:
         return reject("additional_cost_exceeds_risk_budget", **facts)
+
+    # The baseline lot-sizer considered only its original fee assumption.
+    # Adding more slippage without revisiting the cash/premium allocation
+    # can create a candidate whose purchase exceeds the allocated capital.
+    # Refuse rather than silently borrowing funds or resizing after the
+    # signal. These caps are observed current equity, not future proceeds.
+    stressed_outlay = entry * qty + (
+        var_cost + extra_cost_points) * qty + fixed_cost
+    facts["stressed_cash_required_inr"] = round(stressed_outlay, 6)
+    if available_cash is not None and stressed_outlay > available_cash + 1e-8:
+        return reject("additional_cost_exceeds_available_cash", **facts)
+    if premium_cap is not None and stressed_outlay > premium_cap + 1e-8:
+        return reject("additional_cost_exceeds_premium_allocation", **facts)
 
     ceiling, observed = prior_premium_excursions(
         times, opens, highs, closes, entry_time=entry_time,
