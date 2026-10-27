@@ -131,11 +131,11 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
         {!terminal(attempt.phase) && <button type="button" aria-expanded={showPreview} onClick={() => setShowPreview(previous => !previous)} style={{ marginTop: 6, cursor: 'pointer' }}>{showPreview ? 'Hide live browser view' : 'Show live browser view'}</button>}
         {showPreview && <div style={{ fontSize: 11, marginTop: 4 }}>Kite page · read only · sensitive fields hidden</div>}
       </div>
-      {previewActive && <div style={{ padding: 8, background: '#f8fafc' }}>
+      {previewActive && <div style={{ padding: 8, background: 'var(--k-surface-2)', color: 'var(--k-text)' }}>
         {preview ? <>
           <img src={preview.image} alt="Live Kite login page with credential fields hidden" style={{ display: 'block', width: '100%', maxHeight: 380, objectFit: 'contain', background: '#fff', borderRadius: 6 }} />
-          <p style={{ color: '#475569', fontSize: 10, margin: '6px 0 0' }}><span className={previewClock - preview.captured_at_ms > 5000 ? 'preview-paused' : 'preview-heartbeat'}>{previewClock - preview.captured_at_ms > 5000 ? 'Update delayed' : 'Refreshing every second'}</span> · {new Date(preview.captured_at_ms).toLocaleTimeString()} · Password and OTP fields hidden</p>
-        </> : <p style={{ color: '#475569', fontSize: 11, margin: 8 }}>{previewError || 'Connecting to the Kite page preview…'}</p>}
+          <p style={{ color: 'var(--k-dim)', fontSize: 10, margin: '6px 0 0' }}><span className={previewClock - preview.captured_at_ms > 5000 ? 'preview-paused' : 'preview-heartbeat'}>{previewClock - preview.captured_at_ms > 5000 ? 'Update delayed' : 'Refreshing every second'}</span> · {new Date(preview.captured_at_ms).toLocaleTimeString()} · Password and OTP fields hidden</p>
+        </> : <p style={{ color: 'var(--k-dim)', fontSize: 11, margin: 8 }}>{previewError || 'Connecting to the Kite page preview…'}</p>}
       </div>}
       <details className="account-recovery"><summary>Activity</summary>
       <ol aria-label="Login steps" style={{ padding: '8px 12px', margin: 0, listStyle: 'none', display: 'grid', gap: 7 }}>
