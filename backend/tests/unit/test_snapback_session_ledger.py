@@ -143,3 +143,62 @@ def test_gate_counts_only_fully_observed_sessions(warehouse):
     )
 
     assert observed_session_count(warehouse) == 1
+
+
+def test_promotion_session_count_excludes_other_experiments_and_builds(warehouse):
+    from app.services.snapback_session_ledger import (
+        observed_session_count, update_session_phase,
+    )
+
+    for session, experiment in [
+        ("2026-09-17", "OLD-EXPERIMENT"),
+        ("2026-09-18", "CURRENT-EXPERIMENT"),
+        ("2026-09-21", "CURRENT-EXPERIMENT"),
+    ]:
+        _scan(warehouse, session_date=session, experiment_id=experiment)
+        update_session_phase(
+            warehouse, session, entry_phase_status="COMPLETE",
+            eod_phase_status="COMPLETE", package_status="COMPLETE",
+        )
+
+    current = session_record(warehouse, "2026-09-18")
+    build = current["runtime_build_sha"]
+
+    # A different built binary is not evidence for the current frozen build.
+    conn = warehouse._get_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE prospective_sessions SET runtime_build_sha=? WHERE session_date=?",
+                ("OTHER-BUILD", "2026-09-21"),
+            )
+    finally:
+        conn.close()
+
+    assert observed_session_count(warehouse) == 3
+    assert observed_session_count(
+        warehouse, experiment_id="CURRENT-EXPERIMENT") == 2
+    assert observed_session_count(
+        warehouse, experiment_id="CURRENT-EXPERIMENT",
+        runtime_build_sha=build,
+    ) == 1
+    assert observed_session_count(
+        warehouse, experiment_id="OLD-EXPERIMENT",
+        runtime_build_sha=build,
+    ) == 1
+    assert observed_session_count(warehouse, experiment_id="") == 0
+    assert observed_session_count(
+        warehouse, experiment_id="CURRENT-EXPERIMENT",
+        runtime_build_sha="",
+    ) == 0
+
+
+def test_scoped_session_count_read_failure_is_zero_not_uncertain_success():
+    from app.services.snapback_session_ledger import observed_session_count
+
+    class Broken:
+        def get_records_by_table(self, table):
+            raise OSError("session DB not readable")
+
+    assert observed_session_count(
+        Broken(), experiment_id="EXP", runtime_build_sha="build") == 0
