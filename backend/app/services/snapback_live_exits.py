@@ -1864,7 +1864,8 @@ class SnapbackExitManager:
         own_ids = {str(o.get("order_id") or "") for o in own} - {""}
         # A stop child without a usable ID (or repeated child ID) cannot
         # be cancelled and confirmed safely. Do not risk a second market SELL.
-        if not own_ids or len(own_ids) != len(own):
+        if (not own_ids or len(own_ids) != len(own)
+                or any(not oid.strip() or oid != oid.strip() for oid in own_ids)):
             return "stop_cancel_unconfirmed"
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
         for order in live:
