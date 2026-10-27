@@ -1184,6 +1184,22 @@ class SnapbackExitManager:
         from app.services.execution_service import ExecutionRequest, ExposureEffect
         from app.services.snapback_plan_producer import generation_id
 
+        # Risk-reducing exits must never default to an arbitrary futures
+        # direction when durable hedge metadata are incomplete/corrupt.
+        # An invented BUY could increase exposure rather than close it.
+        if leg not in {"option", "hedge"} or (
+                leg == "hedge" and str(pos.hedge_side).upper() not in {"BUY", "SELL"}):
+            log.critical("Snapback exit: unknown leg/hedge side for %s", pos.position_id)
+            engage_kill_switch("Snapback exit leg or hedge direction unverified", pos.uid)
+            return None
+        # A real broker transport may not be switched to a different account
+        # since the entry was booked; ledger and registry are account-bound.
+        if getattr(client, "_is_paper", None) is False and (
+                not pos.account_id or
+                str(getattr(client, "_account_id", "") or "") != pos.account_id):
+            log.critical("Snapback exit: broker account changed for %s", pos.position_id)
+            engage_kill_switch("Snapback exit authenticated account mismatch", pos.uid)
+            return None
         is_option = leg == "option"
         symbol = pos.option_symbol if is_option else pos.hedge_symbol
         exchange = pos.option_exchange if is_option else pos.hedge_exchange
@@ -1381,6 +1397,9 @@ class SnapbackExitManager:
         try:
             from app.services.kite_engine import fill_ledger
 
+            if leg not in {"option", "hedge"} or (
+                    leg == "hedge" and str(pos.hedge_side).upper() not in {"BUY", "SELL"}):
+                raise ValueError("unknown hedged exit direction; cannot book ledger")
             is_option = leg == "option"
             symbol = pos.option_symbol if is_option else pos.hedge_symbol
             exchange = pos.option_exchange if is_option else pos.hedge_exchange
