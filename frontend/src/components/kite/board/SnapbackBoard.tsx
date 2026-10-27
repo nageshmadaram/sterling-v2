@@ -33,7 +33,7 @@ import { openSettingsSection } from '../config/registry';
 import { useSignalColumns } from './useSignalColumns';
 import { StrategyBoardFooter } from './StrategyBoardFooter';
 import { useSignalMarketData } from './useSignalMarketData';
-import { useTodaySignalPriority } from './TodaySignalPriority';
+import { istDay, useTodaySignalPriority } from './TodaySignalPriority';
 
 const note: React.CSSProperties = {
   padding: '10px 12px', margin: 0, fontSize: 11, color: k.dim, lineHeight: 1.6,
@@ -145,8 +145,8 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const adapted = React.useMemo(() => {
     const live = (data?.rows ?? []).filter((r) =>
       selectedModes.includes(r.trading_mode ?? 'swing') &&
-      (priority.olderReady || r.timestamp_ms && new Date(r.timestamp_ms)
-        .toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) === priority.day));
+      (priority.olderReady || (r.timestamp_ms != null &&
+        istDay(new Date(r.timestamp_ms)) === priority.day)));
     const seen = new Set(live.map((r) => r.signal_id));
     const past = (shortHorizon || replay || !priority.olderReady ? [] : history.data?.signals ?? []).map((r) =>
       seen.has(r.signal_id) ? { ...r, signal_id: `${r.signal_id}:history` } : r);
