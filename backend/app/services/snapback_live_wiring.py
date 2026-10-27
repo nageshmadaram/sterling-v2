@@ -421,6 +421,7 @@ class SnapbackExecutionAdapter:
             return False
 
         ok = True
+        ledger_quarantined = False
         try:
             from app.services.kite_engine import fill_ledger
 
@@ -433,19 +434,25 @@ class SnapbackExecutionAdapter:
             )
             if applied.reconciliation_required:
                 ok = False
+                ledger_quarantined = True
                 log.critical("Snapback live: contradictory fill evidence for %s", request.symbol)
         except Exception as exc:  # noqa: BLE001
             ok = False
             log.critical("Snapback live: fill for %s not booked to the ledger: %s",
                          request.symbol, exc)
 
-        try:
-            self._record_leg(request, order_id, filled, average,
-                             exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0))
-        except Exception as exc:  # noqa: BLE001
-            ok = False
-            log.critical("Snapback live: position registry write failed for %s: %s",
-                         request.symbol, exc)
+        if not ledger_quarantined:
+            # A ledger transport/disk failure leaves a known broker fill that
+            # the exit/protection registry still needs to manage. But a
+            # quarantined *contradiction* must never replace the position
+            # registry's last trusted broker quantity, price or order identity.
+            try:
+                self._record_leg(request, order_id, filled, average,
+                                 exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0))
+            except Exception as exc:  # noqa: BLE001
+                ok = False
+                log.critical("Snapback live: position registry write failed for %s: %s",
+                             request.symbol, exc)
         if not ok:
             engage_kill_switch(
                 f"Snapback fill for {request.symbol} could not be fully booked", request.uid)
