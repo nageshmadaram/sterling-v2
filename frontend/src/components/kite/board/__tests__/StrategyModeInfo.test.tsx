@@ -8,7 +8,7 @@ describe('mode explanations', () => {
     expect(screen.getByText(/Selected: Ultra scalp · 1-minute Heikin-Ashi/)).toBeVisible();
     expect(screen.getByText(/Default: Swing · original · 60-minute Heikin-Ashi/)).toBeVisible();
     expect(screen.getByRole('table')).toBeVisible();
-    expect(screen.getByText(/No separate 1H trading mode/)).toBeVisible();
+    expect(screen.getByText(/no separate hourly trading mode/)).toBeVisible();
     expect(screen.getAllByText(/Three aligned SuperTrends on a completed Heikin-Ashi candle/).length).toBe(5);
     expect(screen.getByRole('cell', { name: '20 minutes; same-day exit' })).toBeVisible();
   });
