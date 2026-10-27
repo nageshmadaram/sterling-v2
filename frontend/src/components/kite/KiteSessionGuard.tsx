@@ -34,8 +34,10 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
 
   const [reqToken, setReqToken] = useState('');
   const [savedAccountId, setSavedAccountId] = useState<string | null>(null);
+  const [verificationTimedOut, setVerificationTimedOut] = useState(false);
   const onSessionSaved = useCallback((id: string) => {
     setSavedAccountId(id);
+    setVerificationTimedOut(false);
     void refetch();
   }, [refetch]);
   // An assisted login can finish without a callback-window broadcast.
@@ -44,7 +46,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
     if (!savedAccountId || (status?.connected && status.account_id === savedAccountId)) return;
     let checks = 0;
     const timer = window.setInterval(() => {
-      if (++checks >= 6) window.clearInterval(timer);
+      if (++checks >= 6) { window.clearInterval(timer); setVerificationTimedOut(true); }
       void refetch();
     }, 2_000);
     return () => window.clearInterval(timer);
@@ -58,7 +60,8 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
 
   const hasAccount = !!effectiveAccountId;
   const unknown = !!status?.transient || !!statusError;
-  const connected = !!status?.connected && !unknown;
+  const connected = !!status?.connected && !unknown
+    && (!savedAccountId || status.account_id === savedAccountId);
   const checking = !status && isFetching;
   const checkMessage = statusError?.message || status?.message || 'Session verification is unavailable. Retry the check or open Kite Login.';
   const permissionDenied = unknown && /permission|not permitted|allowlist/i.test(checkMessage);
@@ -177,7 +180,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const selectedDifferentAccount = savedPending && !!status?.account_id && status.account_id !== savedAccountId;
   const cardTitle = connected
     ? 'Zerodha Kite Active'
-    : savedPending ? 'Kite session saved · verifying'
+    : savedPending ? (verificationTimedOut ? 'Kite session saved · unverified' : 'Kite session saved · verifying')
     : unknown
       ? permissionDenied ? 'Kite access denied' : 'Kite session check unavailable'
       : checking ? 'Checking Kite session…'
@@ -187,7 +190,9 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
     ? `Signed in as ${status?.user_name || 'Kite User'}${status?.kite_user_id ? ` (${status.kite_user_id})` : ''} · Broker session verified. Trading still requires independent safety checks.`
     : savedPending ? (selectedDifferentAccount
       ? 'The login was saved for a different broker account than the active one. Select the saved account in Broker accounts to make it active; this does not authorize new orders.'
-      : 'Broker token saved. Checking the active Kite session and account permissions; connected status is not yet verified.')
+      : verificationTimedOut
+        ? 'The login was saved, but a usable session could not be verified. Check the active account and Kite connectivity; do not assume live access.'
+        : 'Broker token saved. Checking the active Kite session and account permissions; connected status is not yet verified.')
     : unknown
       ? permissionDenied
         ? 'Kite refused the session check. Check the API app permissions and registered outbound IP, then retry or reconnect.'
@@ -195,7 +200,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
       : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
       : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
-  const isLoginVisible = (!connected && !savedPending) || showRelogin;
+  const isLoginVisible = (!connected && !savedPending) || showRelogin || (loginRequested && !savedPending);
 
   return createPortal(
     <div className="kite-session-overlay" data-leaving={leaving ? 'true' : 'false'}
