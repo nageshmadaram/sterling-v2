@@ -1,3 +1,4 @@
+import { SwitchWorkspaceButton } from '../SwitchWorkspaceButton';
 import React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { k } from '../../styles/kiteUI';
@@ -50,6 +51,7 @@ export function KiteSettingsPopover({ onClose }: { onClose: () => void }) {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 16, color: 'var(--k-dim)', cursor: 'pointer' }}>✕</button>
         </div>
 
+        <SwitchWorkspaceButton className="bac-btn" onSwitch={onClose} />
         <div style={{ paddingBottom: 12, marginBottom: 8, borderBottom: `1px solid ${k.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 }}>
             <div>

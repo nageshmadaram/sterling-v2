@@ -30,7 +30,7 @@ for (const viewport of [{ width: 1440, height: 1050 }, { width: 390, height: 844
     await page.getByLabel('Account', { exact: true }).selectOption('member');
     await expect(page.getByRole('heading', { name: 'Broker settings', exact: true })).toBeVisible();
     await expect(page.getByText('Hidden; configuration actions are disabled.')).toHaveCount(3);
-    await expect(page.getByRole('checkbox', { name: 'TV', exact: true })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Space (TV)', exact: true })).toBeChecked();
     expect(requests.some(path => path.startsWith('/api/v1/kite'))).toBe(false);
     expect(requests.some(path => path.includes('preferences'))).toBe(false);
     // Vite's development hot-reload socket is unrelated to the trading runtime.

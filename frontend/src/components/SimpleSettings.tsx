@@ -1,3 +1,4 @@
+import { SwitchWorkspaceButton } from './SwitchWorkspaceButton';
 import { api } from '../utils/api';
 import { useKiteTelegramTargets } from '../hooks/useKiteTelegram';
 import { useKiteSettings } from '../store/useKiteSettings';
@@ -32,11 +33,13 @@ export function SimpleSettingsDrawer({ open, onClose }: { open: boolean; onClose
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 2000 }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 380, zIndex: 2001, background: 'var(--t-bg)', borderLeft: '1px solid var(--t-border)', overflowY: 'auto', scrollbarWidth: 'thin', padding: '20px 22px 48px' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(380px, 100vw)', boxSizing: 'border-box', zIndex: 2001, background: 'var(--t-bg)', borderLeft: '1px solid var(--t-border)', overflowY: 'auto', scrollbarWidth: 'thin', padding: '20px 22px 48px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid var(--t-border)' }}>
           <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--t-bright)', letterSpacing: '0.14em', textTransform: 'uppercase' }}>SETTINGS</span>
           <button onClick={onClose} style={{ background: 'var(--t-bg2)', border: '1px solid var(--t-border)', borderRadius: 4, color: 'var(--t-dim)', cursor: 'pointer', fontSize: 12, padding: '3px 8px', lineHeight: 1 }}>✕</button>
         </div>
+
+        <div style={{ marginBottom: 24 }}><SwitchWorkspaceButton className="bac-btn" onSwitch={onClose} /><p>Return to the Kite, Echo and Space selection page.</p></div>
 
         {/* ── UI preferences ── */}
         <div style={{ marginBottom: 28 }}>

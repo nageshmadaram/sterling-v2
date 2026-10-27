@@ -1,3 +1,4 @@
+import { SwitchWorkspaceButton } from '../SwitchWorkspaceButton';
 import { useEffect, useRef, useState, useId } from 'react';
 import type { MediaSuggestion } from './mediaSuggestions';
 import { useMediaSuggestions } from './useMediaSuggestions';
@@ -134,6 +135,8 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
         const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
         items[next]?.focus({preventScroll:true});
       }} role="menu" aria-label={kind === 'tv' ? 'TV appearance' : 'Radio appearance'}>
+        <SwitchWorkspaceButton role="menuitem" onSwitch={() => setSettingsOpen(false)} />
+        <div className="sterling-media-popover-divider" />
         <p className="sterling-media-settings-label">Appearance</p>
         {themes.map(option => (
           <button type="button" key={option.id} role="menuitemradio" aria-checked={theme === option.id}

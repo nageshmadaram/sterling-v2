@@ -17,13 +17,13 @@ function FeatureEditor({ userId }: { userId: string }) {
   const save = useMutation({ mutationFn: () => api.put<FeaturePolicy>(`${BASE}/${encodeURIComponent(userId)}/features`,
     { features: draft?.features, expected_revision: draft?.revision }),
     onSuccess: data => { qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); } });
-  return <section><h3>Feature access</h3><p>Choose Kite, TV and Radio independently.</p>
+  return <section><h3>Feature access</h3><p>Choose Kite, Echo (Radio) and Space (TV) independently.</p>
     {query.isLoading && <p role="status">Loading grants…</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}
     {draft && <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>
-      <div className="admin-checks">{(['kite', 'tv', 'radio'] as const).map(feature => <label key={feature}>
+      <div className="admin-checks">{(['kite', 'radio', 'tv'] as const).map(feature => <label key={feature}>
         <input type="checkbox" checked={draft.features[feature]} disabled={save.isPending} onChange={e => setDraft({ ...draft, features: { ...draft.features, [feature]: e.target.checked } })} />
-        {feature === 'kite' ? 'Kite' : feature === 'tv' ? 'TV' : 'Radio'}</label>)}</div>
+        {feature === 'kite' ? 'Kite' : feature === 'tv' ? 'Space (TV)' : 'Echo (Radio)'}</label>)}</div>
       <button className="bac-btn bac-btn-primary" disabled={save.isPending}>Save features</button>
     </form>}
     {save.isSuccess && <p role="status">Feature grants saved.</p>}

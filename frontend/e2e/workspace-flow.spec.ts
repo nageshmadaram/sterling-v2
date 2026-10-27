@@ -36,7 +36,7 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
   expect(await page.locator('iframe').count()).toBe(0);
   await expect(page.getByRole('button', { name: /Open Kite/ })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('launcher.png'), fullPage: true });
-  await page.getByRole('button', { name: /Open TV/ }).click();
+  await page.getByRole('button', { name: /Open Space/ }).click();
   const frame = page.frameLocator('iframe[title="Sterling TV player"]');
   await expect(frame.locator('body')).toContainText('Protected TV document');
   expect(requests.filter(path => path.startsWith('/api/v1/kite'))).toEqual([]);
@@ -96,7 +96,7 @@ test('central administration creates a user, grants TV, and saves assigned broke
   await page.getByLabel('Repeat password', { exact: true }).fill('Synthetic-password-123');
   await page.getByRole('button', { name: 'Save user', exact: true }).click();
   await page.getByLabel('Account', { exact: true }).selectOption('member');
-  await page.getByRole('checkbox', { name: 'TV', exact: true }).check();
+  await page.getByRole('checkbox', { name: 'Space (TV)', exact: true }).check();
   await page.getByRole('button', { name: 'Save features', exact: true }).click();
   await expect(page.getByText('Feature grants saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Broker connections', exact: true }).click();
@@ -118,3 +118,50 @@ test('central administration creates a user, grants TV, and saves assigned broke
   expect(requests.some(path => path.endsWith('/test'))).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('central-administration.png'), fullPage: true });
 });
+
+for (const width of [390, 1440]) {
+  test(`Kite Echo Space chooser and both switch paths work at ${width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width, height: 844 });
+    let signedIn = false;
+    const features = { kite: true, tv: true, radio: true };
+    const requests: string[] = [];
+    await page.route('**/api/v1/**', async route => {
+      const path = new URL(route.request().url()).pathname;
+      requests.push(path);
+      if (path === '/api/v1/auth/login') { signedIn = true; await route.fulfill({ json: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } }); return; }
+      if (path === '/api/v1/auth/me') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: 'viewer', username: 'Viewer', role: 'user', administrator: false, features, policy_revision: 1 } : { detail: 'Sign in' } }); return; }
+      if (path === '/api/v1/auth/preferences') { await route.fulfill({ json: { initialized: true, values: {} } }); return; }
+      const match = path.match(/^\/api\/v1\/media\/(tv|radio)\/(access|document)$/);
+      if (match) {
+        const [, feature, action] = match;
+        if (action === 'access') await route.fulfill({ json: { document_url: `/api/v1/media/${feature}/document`, expires_in: 600 } });
+        else await route.fulfill({ contentType: 'text/html', body: `<html><body>Protected ${feature} document</body></html>` });
+        return;
+      }
+      throw new Error(`Unexpected request ${path}`);
+    });
+    await page.goto('/radio?sterling_login=1');
+    await page.getByLabel('Username', { exact: true }).fill('viewer');
+    await page.getByLabel('Password', { exact: true }).fill('Synthetic-password-123');
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
+    for (const name of ['Kite', 'Echo', 'Space']) await expect(page.getByRole('button', { name: new RegExp(`Open ${name}`) })).toBeVisible();
+    await expect(page.locator('iframe')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath(`chooser-${width}.png`), fullPage: true });
+    await page.getByRole('button', { name: /Open Echo/ }).click();
+    await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
+    await page.locator('.workspace-settings > summary').click();
+    await page.getByRole('button', { name: 'Switch workspace', exact: true }).click();
+    await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
+    await expect(page.locator('iframe')).toHaveCount(0);
+    await page.getByRole('button', { name: /Open Space/ }).click();
+    await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected tv document');
+    await page.getByRole('button', { name: 'Echo', exact: true }).click();
+    await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
+    await page.getByRole('button', { name: 'Radio display settings', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Switch workspace', exact: true }).click();
+    await expect(page.getByText('Choose your workspace.', { exact: true })).toBeVisible();
+    expect(requests.some(path => path.startsWith('/api/v1/kite/'))).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+}

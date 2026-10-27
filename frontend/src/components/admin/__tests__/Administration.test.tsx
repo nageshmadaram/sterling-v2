@@ -36,7 +36,7 @@ it('saves explicit grants with the loaded revision and keeps default configurati
   fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'member' } });
   await screen.findByRole('button', { name: 'Save features' });
   expect(screen.getAllByText('Hidden; configuration actions are disabled.')).toHaveLength(3);
-  fireEvent.click(screen.getByLabelText('TV', { exact: true }));
+  fireEvent.click(screen.getByLabelText('Space (TV)', { exact: true }));
   api.put.mockResolvedValue({ user_id: 'member', revision: 1, features: { kite: false, tv: true, radio: false } });
   fireEvent.click(screen.getByRole('button', { name: 'Save features' }));
   await waitFor(() => expect(api.put).toHaveBeenCalledWith('/api/v1/auth/users/member/features', {

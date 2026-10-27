@@ -144,7 +144,7 @@ describe('shared IPTV/Radio mobile and desktop media header',()=>{
     fireEvent.keyDown(document.activeElement!,{key:'End'});
     expect(screen.getByRole('menuitem',{name:/Player tools/})).toHaveFocus();
     fireEvent.keyDown(document.activeElement!,{key:'Home'});
-    expect(screen.getByRole('menuitemradio',{name:/Spotify/})).toHaveFocus();
+    expect(screen.getByRole('menuitem',{name:'Switch workspace'})).toHaveFocus();
     fireEvent.keyDown(document.activeElement!,{key:'Escape'});
     expect(toggle).toHaveFocus();
   });
@@ -211,4 +211,16 @@ it.each(['radio','tv'] as const)('opens the %s source manager from the shared he
   fireEvent.click(screen.getByRole('menuitem',{name:kind==='tv'?/Channel sources/:/Station sources/}));
   expect(command.mock.calls[0][0].detail).toEqual({action:'sources'});
  }finally{window.removeEventListener(`sterling-${kind}-command`,command);}
+});
+
+it.each(['tv','radio'] as const)('returns %s settings to the workspace chooser', kind => {
+  const navigate = vi.fn();
+  window.addEventListener('sterling-navigate', navigate);
+  try {
+    render(<MediaHeaderControls kind={kind} theme="youtube" query="" onTheme={() => {}} onQuery={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: kind === 'tv' ? 'TV display settings' : 'Radio display settings' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Switch workspace' }));
+    expect(navigate.mock.calls[0][0].detail).toBe('home');
+    expect(screen.queryByRole('menu')).toBeNull();
+  } finally { window.removeEventListener('sterling-navigate', navigate); }
 });
