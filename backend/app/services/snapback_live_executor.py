@@ -1219,6 +1219,15 @@ class SnapbackLiveExecutor:
         import math
 
         is_hedge = bool(plan.get("futures_symbol")) and symbol == plan.get("futures_symbol")
+        if is_hedge and self.hedge_limit_fn is not None and price_override is None:
+            # Production has a fresh futures-book repricer. If its read failed,
+            # a plan-era quote cannot authorize an exposure-changing hedge.
+            # The executor still protects the confirmed option and marks the
+            # hedge recovery needed without submitting at an obsolete limit.
+            return ExecutionResult(
+                success=False, status="REJECTED_PLAN",
+                error="Snapback fresh futures hedge quote unavailable; no stale-price fallback",
+            )
         if is_hedge:
             order_type = str(plan.get("hedge_order_type") or "")
             raw_price = price_override if price_override is not None else plan.get("hedge_price_limit")
