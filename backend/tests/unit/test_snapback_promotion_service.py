@@ -118,3 +118,85 @@ def test_only_three_verdicts_exist(warehouse):
     )
 
     assert result.verdict in {"PASSED", "FAILED", "INCONCLUSIVE"}
+
+
+def _insert_complete_session(warehouse, monkeypatch, day: str, experiment: str):
+    from app.services.snapback_session_ledger import (
+        record_session_scan, update_session_phase,
+    )
+
+    monkeypatch.setattr(
+        "app.services.snapback_session_ledger._decisions_recorded",
+        lambda wh, session_date: 1,
+    )
+    record_session_scan(
+        warehouse, session_date=day, experiment_id=experiment,
+        calendar_version="verified-calendar-test", universe_expected=1,
+        universe_scanned=1, symbol_failures=0, market_gate_status="ELIGIBLE",
+        signals_authoritative=0,
+    )
+    update_session_phase(
+        warehouse, day, entry_phase_status="COMPLETE",
+        eod_phase_status="COMPLETE",
+    )
+    from app.services.snapback_session_ledger import session_record
+    return session_record(warehouse, day)
+
+
+def _promotion_identity(experiment: str, build: str) -> dict:
+    return {
+        "experiment_id": experiment,
+        "runtime_build_sha": build,
+        "strategy_config_hash": "test-frozen-config",
+        "strategy_rule_hash": "test-frozen-rule",
+        "execution_policy_hash": "test-frozen-policy",
+        "execution_cost_schedule_hash": "test-frozen-fees",
+    }
+
+
+def test_economic_service_does_not_count_an_older_experiments_sessions(
+        warehouse, monkeypatch):
+    _insert_complete_session(warehouse, monkeypatch, "2026-10-22", "OLDER")
+    current = _insert_complete_session(
+        warehouse, monkeypatch, "2026-10-23", "CURRENT")
+    monkeypatch.setattr(
+        "app.services.snapback_promotion._identity",
+        lambda: _promotion_identity("CURRENT", current["runtime_build_sha"]),
+    )
+
+    result = PromotionService().evaluate(
+        warehouse=warehouse, source_snapshot_sha256="scoped-snapshot")
+
+    assert result.verdict == "INCONCLUSIVE"
+    assert result.promoted is False
+    assert result.observed_sessions == 1
+    assert any("1" in r and "60" in r for r in result.reasons)
+
+
+def test_economic_service_halts_on_another_build_in_current_experiment(
+        warehouse, monkeypatch):
+    original = _insert_complete_session(
+        warehouse, monkeypatch, "2026-10-22", "CURRENT")
+    _insert_complete_session(
+        warehouse, monkeypatch, "2026-10-23", "CURRENT")
+    conn = warehouse._get_connection()
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE prospective_sessions SET runtime_build_sha=? WHERE session_date=?",
+                ("different-binary-sha", "2026-10-23"),
+            )
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(
+        "app.services.snapback_promotion._identity",
+        lambda: _promotion_identity("CURRENT", original["runtime_build_sha"]),
+    )
+    result = PromotionService().evaluate(
+        warehouse=warehouse, source_snapshot_sha256="mixed-build-snapshot")
+
+    assert result.verdict == "INCONCLUSIVE"
+    assert result.promoted is False
+    assert result.observed_sessions == 1
+    assert any("different runtime builds" in reason for reason in result.reasons)
