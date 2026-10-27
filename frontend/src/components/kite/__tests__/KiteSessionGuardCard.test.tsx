@@ -13,6 +13,7 @@ let loginPhase = 'idle';
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({data:{accounts:[]}}),
+  useActivateKiteAccount: () => ({mutate: vi.fn(), isPending:false, error:null}),
   useKiteStatus: () => ({ data: status, isFetching: false, refetch: retrySession }),
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: generateSession, isPending: false }),
