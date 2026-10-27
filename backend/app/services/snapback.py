@@ -246,6 +246,9 @@ class ScanState:
     scanned: int = 0
     scan_total: int = 0
     failures: list[str] = field(default_factory=list)
+    #: Instrument masters do not change on every minute-bar scan. Cache only
+    #: for the same authenticated account and exchange session date.
+    instrument_cache: Optional[tuple[float, date, str, tuple[list, list, list, list]]] = None
     candles: dict[Any, tuple[float, list]] = field(default_factory=dict)
     #: Wall-clock (IST epoch seconds) at which each cached tape was fetched, so a
     #: tape cached before the 15:30 close is never read as the finished session.
@@ -784,6 +787,37 @@ def _scan_preview(rows: list[dict]) -> list[dict]:
     ]
 
 
+async def _instrument_dumps_for_scan(
+    client: Any, state: ScanState, *, account_key: str,
+) -> tuple[list, list, list, list]:
+    """Cache instrument masters only within a bound account and IST date.
+
+    This reduces redundant full NFO/BFO/NSE/BSE downloads on 1m/5m scans.
+    Authoritative entry still requires a fresh contract quote, dated identity,
+    broker state and admission checks; this is not a quote cache.
+    """
+    now = time.monotonic()
+    today = _wall_now().date()
+    saved = state.instrument_cache
+    if (saved is not None and account_key and saved[2] == account_key
+            and saved[1] == today and 0 <= now - saved[0] < 600):
+        return saved[3]
+
+    rows = await asyncio.gather(
+        client.search_instruments("", "NFO", limit=1_000_000),
+        client.search_instruments("", "BFO", limit=1_000_000),
+        client.search_instruments("", "NSE", limit=1_000_000),
+        client.search_instruments("", "BSE", limit=1_000_000),
+    )
+    if any(not isinstance(r, (list, tuple)) for r in rows):
+        state.instrument_cache = None
+        raise UnreadableCandles("Broker instrument master data unreadable")
+    materialized = tuple(list(r) for r in rows)
+    # Never reuse data across account identity changes or calendar rollovers.
+    state.instrument_cache = (time.monotonic(), today, account_key, materialized)
+    return materialized
+
+
 async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: str | None = None) -> dict:
     """One universe pass: daily candles -> signals -> rows.
 
@@ -827,11 +861,11 @@ async def scan_once(uid: str, *, record_evidence: bool = False, mode_override: s
         if not acct:
             raise RuntimeError("No active Kite account")
         client = await accounts.acquire_client(acct)
-        nfo, bfo, nse, bse = await asyncio.gather(
-            client.search_instruments("", "NFO", limit=1_000_000),
-            client.search_instruments("", "BFO", limit=1_000_000),
-            client.search_instruments("", "NSE", limit=1_000_000),
-            client.search_instruments("", "BSE", limit=1_000_000),
+        identity = str(
+            getattr(acct, "account_id", "") or getattr(client, "_account_id", "") or ""
+        )
+        nfo, bfo, nse, bse = await _instrument_dumps_for_scan(
+            client, status(uid), account_key=identity,
         )
         universe = resolve_universe(cfg, nfo=nfo, bfo=bfo, equities=nse + bse)
         if mode_override is None:
