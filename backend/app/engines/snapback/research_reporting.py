@@ -62,6 +62,12 @@ def closed_trade_audit(result: Mapping[str, Any]) -> dict[str, Any]:
             "quantity": qty, **numeric,
             "exit_reason": str(trade.get("exit_reason") or ""),
         })
+    total_net = sum(r["net_pnl_inr"] for r in receipts)
+    reported_net = result.get("net_pnl_inr")
+    if (type(reported_net) not in (int, float)
+            or not math.isfinite(reported_net)
+            or abs(total_net - float(reported_net)) > 0.01):
+        raise ValueError("simulated closed trade totals contradict replay P&L")
     blob = json.dumps(receipts, sort_keys=True, separators=(",", ":"),
                       allow_nan=False).encode("utf-8")
     return {
