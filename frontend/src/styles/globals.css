@@ -1982,3 +1982,32 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
     color:var(--k-dim);
   }
 }
+
+/* Keep broker status readable on narrow screens and in accessibility text zoom. */
+.kite-session-header > div:nth-child(2) { flex:1 1 auto; min-width:0; }
+.kite-session-header h2,.kite-session-header > div:nth-child(2) p {
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.kite-session-account-actions { align-items:center; min-width:0; }
+.kite-session-account-actions small {
+  display:block; width:100%; color:var(--k-dim); line-height:1.45;
+}
+.kite-session-summary { min-width:0; }
+.kite-session-summary p { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.kite-session-panel .assisted-progress { min-width:0; }
+.kite-session-panel .assisted-progress [role="status"] {
+  overflow-wrap:anywhere; white-space:normal;
+}
+.kite-session-panel .assisted-login :is(button,select) { min-width:0; }
+@media(max-width:520px) {
+  .kite-session-panel .assisted-login > form { padding:9px!important; gap:8px!important; }
+  .kite-session-panel .assisted-progress > div:first-child {
+    align-items:center!important; justify-content:space-between; flex-wrap:wrap;
+  }
+  .kite-session-panel .kite-session-summary {
+    align-items:flex-start; gap:8px; line-height:1.4;
+  }
+  .kite-session-panel .kite-session-account-actions button {
+    flex:1 1 auto; min-height:38px;
+  }
+}
