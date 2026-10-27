@@ -29,6 +29,7 @@ refused to close a position would be a way to lose money.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -1253,15 +1254,42 @@ class SnapbackExitManager:
             log.error("Snapback exit: resolution failed for %s: %s", order_id, exc)
             return "resolution_failed"
 
-        filled = int(resolution.filled_quantity or 0)
-        average = float(resolution.average_price or 0.0)
+        # Once an exit SELL/BUY reached the broker, malformed evidence must
+        # never clear its order ID or authorize another exit attempt. In
+        # particular, an unsigned/int-truncated or over-requested cumulative
+        # quantity could accidentally count more closes than broker holdings.
+        try:
+            raw_qty = getattr(resolution, "filled_quantity", None)
+            raw_px = getattr(resolution, "average_price", None)
+            if type(raw_qty) is not int or not 0 <= raw_qty <= requested:
+                raise ValueError("invalid_exit_filled_quantity")
+            if (type(raw_px) not in (int, float) or not math.isfinite(raw_px)
+                    or raw_px < 0 or (raw_qty > 0 and raw_px <= 0)):
+                raise ValueError("invalid_exit_average_price")
+            filled, average = raw_qty, float(raw_px)
+        except (ValueError, TypeError, OverflowError) as exc:
+            log.error("Snapback exit: %s has invalid broker fill receipt: %s", order_id, exc)
+            engage_kill_switch(
+                f"Snapback exit {order_id} cannot verify broker fill quantity/price",
+                pos.uid)
+            return "unresolved"
         if filled > 0:
             if not self._book_exit(pos, leg=leg, order_id=order_id, filled=filled, average=average,
                                    exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0)):
                 return "accounting_pending"
 
-        if resolution.reconciliation_required or not resolution.settled:
+        # A complete requested quantity is NOT broker-terminal proof:
+        # OPEN/UPDATE working orders can still change. Keep their durable
+        # identity and never submit a replacement before terminal evidence.
+        if (resolution.reconciliation_required or not resolution.settled
+                or getattr(resolution, "terminal", None) is not True
+                or str(getattr(resolution, "status", "") or "").upper()
+                   not in _ORDER_TERMINAL):
             return "unresolved"
+        # Missing journal projection version is not a fully acknowledged exit.
+        version = getattr(resolution, "projection_version", None)
+        if type(version) is not int or version <= 0:
+            return "projection_pending"
 
         def apply(p: LivePosition) -> None:
             booked = p.option_exit_booked_ids if is_option else p.hedge_exit_booked_ids
@@ -1279,7 +1307,7 @@ class SnapbackExitManager:
                 p.exit_attempts += 1
 
         updated = self.store.mutate(pos.position_id, apply)
-        if updated is not None and resolution.projection_version:
+        if updated is not None:
             try:
                 if not fills.mark_projected(resolution):
                     from app.services.kite_engine import order_journal
