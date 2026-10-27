@@ -266,3 +266,31 @@ async def test_live_entry_rejects_switched_broker_account():
     )
     assert not result.success and result.status == "REJECTED_PLAN"
     broker.submit_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bought_call_uses_short_futures_hedge_and_rejects_long_futures():
+    # A long CE has positive delta. A SELL future offsets it; BUY doubles it.
+    svc, broker = executor()
+    correct = {**plan(), "option_symbol": "NIFTY_CE",
+               "option_type": "CE", "hedge_side": "SELL"}
+    accepted = await svc._submit(
+        correct, symbol="NIFTY_FUT", exchange="NFO", side="SELL",
+        quantity=25, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+    )
+    assert accepted.success
+    sent = broker.submit_order.await_args.args[0]
+    assert sent.side == "SELL" and sent.order_type == "LIMIT"
+
+    svc2, broker2 = executor()
+    incorrect = {**correct, "hedge_side": "BUY"}
+    rejected = await svc2._submit(
+        incorrect, symbol="NIFTY_FUT", exchange="NFO", side="BUY",
+        quantity=25, approval=SimpleNamespace(
+            capital_required=7500, available_capital=100000),
+        broker_client=SimpleNamespace(_is_paper=False, _account_id="account"),
+    )
+    assert rejected.status == "REJECTED_PLAN" and not rejected.success
+    broker2.submit_order.assert_not_awaited()
