@@ -68,6 +68,18 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   const preferredEngine = useKiteSettings((st) => st.defaultSignalEngine);
   const engineOrder = useKiteSettings((st) => st.engineOrder);
   const [engine, setEngine] = useSavedSelection<EngineId | 'price_rules'>('workspace.engine', (preferredEngine as EngineId) || 'supertrend');
+  // Direct browser notifications open the originating strategy rather than
+  // the last visited tab. Treat the route as read-only UI state, never admission.
+  const notificationEngineHandled = React.useRef(false);
+  React.useEffect(() => {
+    if (notificationEngineHandled.current) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') !== 'live' || params.get('notification') !== 'signals') return;
+    const requested = params.get('strategy');
+    if (!['supertrend', 'snapback', 'gamma_move', 'ema_trend'].includes(requested ?? '')) return;
+    notificationEngineHandled.current = true;
+    setEngine(requested as EngineId);
+  }, [setEngine]);
   const engineOn = useReleaseEngineEnabled();
   const openChartFor = React.useCallback(
     (quoteKey: string) => onOpenChart?.(quoteKey, 'chart'),
