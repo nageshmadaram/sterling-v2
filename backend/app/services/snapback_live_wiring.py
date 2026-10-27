@@ -210,9 +210,11 @@ class SnapbackExecutionAdapter:
                     )
             # A broker disagreement or still-working order cannot be sealed
             # as fully projected merely because its partial fill was booked.
-            if (booked_ok and resolution.projection_version
-                    and resolution.settled and not resolution.reconciliation_required):
+            if booked_ok and resolution.settled and not resolution.reconciliation_required:
                 try:
+                    version = getattr(resolution, "projection_version", None)
+                    if type(version) is not int or version <= 0:
+                        raise ValueError("canonical journal projection version missing")
                     projected = fills.mark_projected(resolution)
                     if projected is not True:
                         raise RuntimeError("journal projection was not acknowledged for the exact version")
