@@ -34,7 +34,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.services import snapback_live_positions as live_positions
 from app.services.simulation.seam import is_instant_paper
 from app.services.snapback_live_positions import (
-    ENTERING, OPEN, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE, LivePosition,
+    ENTERING, OPEN, RECONCILING, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE, LivePosition,
     LivePositionStore,
 )
 
