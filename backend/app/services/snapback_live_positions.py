@@ -339,27 +339,30 @@ class LivePositionStore:
     # --------------------------------------------------------------- writes
 
     def put(self, pos: LivePosition) -> LivePosition:
-        """Insert or replace one row. Prefer :meth:`mutate` for an existing row."""
+        """Replace only the same owner/account/contract; never transfer identity."""
         pos.updated_ms = _now_ms()
         payload = json.dumps(pos.as_dict(), default=str, separators=(",", ":"))
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
+            changed = conn.execute(
                 """
                 INSERT INTO snapback_live_positions
                     (position_id, uid, account_id, status, signal_id, option_symbol,
                      updated_ms, data_json)
                 VALUES (?,?,?,?,?,?,?,?)
                 ON CONFLICT(position_id) DO UPDATE SET
-                    uid=excluded.uid, account_id=excluded.account_id,
                     status=excluded.status, signal_id=excluded.signal_id,
-                    option_symbol=excluded.option_symbol,
                     updated_ms=excluded.updated_ms, data_json=excluded.data_json
+                WHERE snapback_live_positions.uid=excluded.uid
+                  AND snapback_live_positions.account_id=excluded.account_id
+                  AND snapback_live_positions.option_symbol=excluded.option_symbol
                 """,
                 (pos.position_id, pos.uid, pos.account_id, pos.status, pos.signal_id,
                  pos.option_symbol, pos.updated_ms, payload),
             )
+            if changed.rowcount != 1:
+                raise PermissionError("snapback_position_owner_or_contract_collision")
             conn.execute("COMMIT")
         except BaseException:
             try:
