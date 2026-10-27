@@ -1805,14 +1805,20 @@ class SnapbackExitManager:
         try:
             total = pos.option_qty
             exited = pos.option_exit_qty
+            quantities = pos.option_exit_booked_quantities
             if (type(total) is not int or type(exited) is not int
                     or not 0 <= exited <= total
-                    or any(not isinstance(oid, str) or not oid.strip()
-                           or type(qty) is not int or qty <= 0
-                           for oid, qty in pending)
-                    or len({oid for oid, _ in pending}) != len(pending)
+                    or not isinstance(quantities, dict)
+                    or any(type(oid) is not str or not oid.strip()
+                           or oid != oid.strip() or type(qty) is not int or qty <= 0
+                           or (oid in pos.option_exit_booked_ids
+                               and quantities.get(oid) != qty)
+                           or (oid not in pos.option_exit_booked_ids
+                               and oid in quantities)
+                           for oid, qty, _ in fills)
+                    or len({oid for oid, _, _ in fills}) != len(fills)
                     or sum(qty for _, qty in pending) > total - exited):
-                raise ValueError("stop fill may exceed position's remaining option units")
+                raise ValueError("stop fill cannot be attributed to exact owned quantities")
         except (TypeError, ValueError) as exc:
             self._flag_reconciling(pos, "broker_stop_exceeds_owned_option_units")
             raise RuntimeError("broker stop fill requires short exposure reconciliation") from exc
@@ -1826,14 +1832,21 @@ class SnapbackExitManager:
         def apply(p: LivePosition) -> None:
             if p.option_exit_order_id or p.option_exit_requested:
                 raise ValueError("canonical exit started while booking broker stop")
+            quantities = p.option_exit_booked_quantities
+            if not isinstance(quantities, dict):
+                raise ValueError("broker stop cumulative map missing")
             for oid, qty, price in fills:
                 if oid in p.option_exit_booked_ids:
+                    if quantities.get(oid) != qty:
+                        raise ValueError("broker stop child cumulative fill changed")
                     continue
                 if (type(p.option_qty) is not int or type(p.option_exit_qty) is not int
+                        or oid in quantities
                         or qty > p.option_qty - p.option_exit_qty):
                     raise ValueError("concurrent broker stop overfill: short exposure possible")
                 p.option_exit_qty += qty
                 p.option_exit_value += float(qty) * float(price)
+                quantities[oid] = qty
                 p.option_exit_booked_ids.append(oid)
             p.gtt_id = 0
             p.gtt_qty = 0
