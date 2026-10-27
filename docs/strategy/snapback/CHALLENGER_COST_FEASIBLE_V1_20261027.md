@@ -126,3 +126,29 @@ baseline market replay, actual brokerage/stop/hedge fills, or
 positive prospective after-cost returns have been observed. Any
 candidate promotion remains blocked by the frozen release standard;
 autonomous real-money entries remain OFF.
+
+
+## Additional cost can exceed cash and premium allocation
+
+The original research challenger increased assumed round-trip costs
+but only revalidated the stop-loss risk budget. With one option lot
+costing INR 5,000 in premium, INR 90 in baseline round-trip charges and
+INR 25 additional execution stress, it could accept a position against
+an INR 5,100 cash/allocation cap even though its stressed outlay is
+INR 5,115. Such a candidate is not implementable at the claimed sizing.
+
+The updated challenger accepts explicit current-equity
+`cash_budget_inr` and `premium_allocation_inr` limits. The replay
+passes its *current* simulated equity as cash and, when percentage
+sizing is active, its configured premium allocation. The strategy
+refuses a plan whenever premium plus estimated full round-trip costs
+exceeds either cap; it does not borrow capital or silently resize a
+previously committed one-lot signal.
+
+**Independent execution:** Tested the exact GitHub source blob
+`d138a8eac46a4eaca4148bb97ef201b60d616a29` locally under
+isolated Python 3.13. Eleven tests passed, including 500 deterministic
+synthetic risk scenarios and new cash/capital-limit rejections.
+Evidence: `docs/evidence/2026-10-27/snapback-challenger-cash-allocation-isolated-11-tests.json`.
+These are arithmetic/implementation checks, not an authenticated
+broker or market profitability test. The live master gate remains OFF.
