@@ -221,3 +221,32 @@ def test_only_trusted_exit_cumulative_disposition_can_be_booked(monkeypatch, dis
     assert manager_obj._book_exit(
         p, leg="option", order_id="EXIT-1", filled=75,
         average=90.0, exchange_ts_ms=1234)
+
+
+@pytest.mark.asyncio
+async def test_unknown_exit_send_after_stop_release_does_not_restore_competing_stop(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    protection = NS(ensure=AsyncMock())
+    positions = NS(
+        get=Mock(return_value=p),
+        mutate=Mock(),
+    )
+    obj = exits.SnapbackExitManager(positions=positions, protection=protection)
+    monkeypatch.setattr(obj, "_broker_holds", AsyncMock(return_value=True))
+    released = AsyncMock(return_value="released")
+    monkeypatch.setattr(obj, "_release_stop", released)
+    send = AsyncMock(return_value=None)
+    monkeypatch.setattr(obj, "_submit_exit", send)
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+
+    result = await obj._close_leg(NS(), p, leg="option")
+
+    assert result == "submit_unknown"
+    released.assert_awaited_once()
+    send.assert_awaited_once()
+    hold.assert_called_once()
+    protection.ensure.assert_not_awaited()
+    positions.mutate.assert_not_called()
