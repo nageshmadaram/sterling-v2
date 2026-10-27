@@ -352,7 +352,14 @@ the legacy-mode bypass.
 
 This correction affects **new exposure-increasing entry/hedge
 submission only**, not the independent risk-reducing exit/stop
-manager. A LIMIT order is not a guaranteed fill, and market data
+manager. A production-provided fresh futures hedge repricer must also
+supply the current quote. If it fails, the executor refuses the hedge
+order rather than silently using a stale plan-era limit. The
+already-confirmed option remains under its separate protection and
+hedge-recovery path; no new hedge order is sent without fresh price
+evidence. Tests cover fresh-quote absence and correct overrides.
+
+A LIMIT order is not a guaranteed fill, and market data
 liquidity, limit tick size, price band, charge schedule, broker
 account, outbound IP and real order/protection lifecycle still
 require on-host verification.
