@@ -1856,6 +1856,10 @@ class SnapbackExitManager:
         from app.services.snapback_family_mode import INTENT_CANCEL, canonical_broker_capability
 
         own_ids = {str(o.get("order_id") or "") for o in own} - {""}
+        # A stop child without a usable ID (or repeated child ID) cannot
+        # be cancelled and confirmed safely. Do not risk a second market SELL.
+        if not own_ids or len(own_ids) != len(own):
+            return "stop_cancel_unconfirmed"
         live = [o for o in own if str(o.get("status") or "").upper() not in _ORDER_TERMINAL]
         for order in live:
             oid = str(order.get("order_id") or "")
@@ -1872,10 +1876,12 @@ class SnapbackExitManager:
         except Exception as exc:  # noqa: BLE001
             log.warning("Snapback exit: order book unreadable after cancel: %s", exc)
             return "stop_cancel_unconfirmed"
-        after = [o for o in book or [] if isinstance(o, dict)
-                 and str(o.get("order_id") or "") in own_ids]
-        if (len(after) < len(own_ids)
-                or any(str(o.get("status") or "").upper() not in _ORDER_TERMINAL for o in after)):
+        from app.services.snapback_stop_cancel_verification import (
+            verified_terminal_stop_children,
+        )
+
+        after = verified_terminal_stop_children(own_ids, book)
+        if after is None:
             return "stop_cancel_unconfirmed"
 
         # Everything the stop's own order did fill is real: book it before selling the rest.
