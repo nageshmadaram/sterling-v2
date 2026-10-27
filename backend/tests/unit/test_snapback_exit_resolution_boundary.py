@@ -429,3 +429,44 @@ async def test_corrupt_exit_state_cannot_submit_another_broker_order(
     assert result is None
     canonical.submit_order.assert_not_awaited()
     halt.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_terminal_partial_exit_retires_both_ack_fields_for_safe_remainder(monkeypatch):
+    p = pos()
+    observed = receipt(qty=25, price=90.0)
+    obj = manager(observed, p)
+    protection = NS(ensure=AsyncMock())
+    obj._protection = protection
+    monkeypatch.setattr(fills, "mark_projected", Mock(return_value=True))
+    assert await obj._resolve_exit(NS(), p, leg="option", order_id="EXIT-1") == "partial"
+    assert p.option_exit_qty == 25
+    assert p.option_exit_order_id == ""
+    assert p.option_exit_requested == 0
+    protection.ensure.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_exit_ack_retirement_refuses_changed_order_and_halts(monkeypatch):
+    p = pos()
+    observed = receipt(qty=25, price=90.0)
+    obj = manager(observed, p)
+    monkeypatch.setattr(fills, "mark_projected", Mock(return_value=True))
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    # Another worker changed this slot between the fill projection and
+    # retirement. Never clear that worker's order or retry a replacement.
+    original_mutate = obj.store.mutate.side_effect
+    seen = {"n": 0}
+
+    def competing_mutation(position_id, callback):
+        seen["n"] += 1
+        if seen["n"] == 2:
+            p.option_exit_order_id = "OTHER-WORKING-ORDER"
+        return original_mutate(position_id, callback)
+
+    obj.store.mutate.side_effect = competing_mutation
+    assert await obj._resolve_exit(NS(), p, leg="option", order_id="EXIT-1") == "unresolved"
+    assert p.option_exit_order_id == "OTHER-WORKING-ORDER"
+    assert p.option_exit_requested == 75
+    halt.assert_called_once()
