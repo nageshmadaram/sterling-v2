@@ -154,3 +154,39 @@ before a runner executes steps. Previously verified 108 focused tests and
 24 isolated pure-reporting tests refer to older, different source scopes.
 Nothing has been merged or submitted to the broker; technical/live and
 economic certifications remain blocked.
+
+
+## Fourth pass — account binding and multi-process position integrity
+
+Additional **unmerged** draft-branch changes:
+- Snapback fill registry writes now bind `snapback:<plan_id>` to the
+  persisted plan's exact `owner_uid`, `account_id`, option/future
+  symbol, exchange and order direction. A plan tag alone is not
+  ownership authority. Unknown, unbound, cross-tenant or cross-contract
+  evidence is not attached to another owned position.
+- Incoming cumulative broker fills cannot reduce the quantity stored
+  for either the option or the futures hedge, or replace an existing
+  distinct broker order ID. Mismatches return UNKNOWN through the
+  adapter's dual-booking failure handler; new entries halt while an
+  authorized operator reconciles the broker, ledger and positions.
+- These ownership and monotonic checks are repeated *inside*
+  `LivePositionStore.mutate`'s `BEGIN IMMEDIATE` SQLite transaction,
+  not merely checked by a pre-transaction `get`.
+- Initial option fill registration uses exclusive `insert_new` rather
+  than `put`'s `ON CONFLICT DO UPDATE`; a concurrent different-owner
+  position with the same plan ID cannot be silently overwritten.
+- After canonical submission, malformed reference prices leave a
+  discoverable UNKNOWN broker order rather than causing an uncaught
+  exception. Where the broker returns a confirmed valid quantity/price,
+  registry booking can proceed for protective management; the
+  reference anomaly still prevents projection acknowledgment and
+  forces reconciliation.
+- Added regressions for wrong user/account, wrong symbol/exchange/side,
+  stale/changed order IDs, futures-leg quantities, races between
+  `get` and `mutate`, and same-plan SQLite insert collision.
+
+**Certification remains BLOCKED.** No GitHub-hosted runner executed
+the newly added tests on the current SHA. No authorized real-money
+order/fill/stop/hedge/exit proof or statistically positive after-cost
+forward results were obtained. The owner is medically unavailable to
+provide account/broker approval. Keep master new-entry halt OFF.
