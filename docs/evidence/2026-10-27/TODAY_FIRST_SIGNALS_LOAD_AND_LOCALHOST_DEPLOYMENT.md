@@ -95,3 +95,60 @@ Broker live functionality and positive after-cost forward profitability:
 activate real-money new entries or issue an unsupported certification.
 The operator is receiving hospital treatment and should not be asked
 to perform on-host deployment commands from the ICU.
+
+## Secondary-query audit follow-up (27 October 2026)
+
+Previously overlooked consumers of the unrestricted SuperTrend or EMA
+signal history were located by inspecting the actual dev source, not by
+assuming the workspace barrier covered every component:
+
+- `AdaptiveEdgeRightSidebar`: its tab counts independently requested
+  unrestricted SuperTrend and EMA histories while the four-strategy
+  priority barrier was still closed. It now subscribes to the shared
+  today-only SuperTrend query and the identical dated EMA query until
+  `olderReady`; after the gate releases, those two return to normal
+  history reads.
+- `KiteStartupSurfaces.EngineStartupBoundary`: its boot readiness check
+  now reads the today-only SuperTrend projection rather than the full
+  historical journal.
+- `TradeRulesPanels.AutomaticRulesPanel`: the data read used for current
+  solvability uses the today-only projection instead of full history.
+- `EnginePositionsPane`: its signal read uses the today-only projection,
+  which still explicitly includes older **active** positions. The
+  separate position inventory endpoint is unchanged.
+- `TodaySignalPriorityStatus`: the banner shows the IST day, strategy
+  response/scanning/error states, and explicitly distinguishes a
+  successful API snapshot from a completed current-day scan or a
+  nonzero signal count.
+
+This repairs four independent early unrestricted-fetch paths, but does
+**not** imply a server-side broker-wide scheduling guarantee: unrelated
+screens and scheduled backfills have separate lifecycle constraints.
+The Snapback snapshot itself can still include historical carry-forward
+candidates required for next-session Swing; its board presentation gates
+those historical rows as specified above.
+
+### Deployment and verification boundary
+
+Latest commits for the audit exist on remote `dev`. They do not update
+the running Ubuntu checkout, its backend process, Vite dev server or
+previously built assets. `VITE_BUILD_SHA` is resolved when the Vite
+server/build starts; a long-running server may need a controlled restart
+to display the new Git identity. Before any restart an authorized operator
+must confirm that open positions, protective orders and exit supervision
+are not disrupted.
+
+Source-level review confirmed that the four affected consumers now
+request today-first projections; the existing provider regression
+assertions were updated to reflect truthful API-response wording and IST
+date. **No full TypeScript/Vite build, browser test, backend test,
+localhost restart, broker integration or P&L certification has been
+executed in this GitHub-connector-only continuation.** Treat all of
+those as OPEN, not PASS.
+
+To inspect the current host later without modifying its checkout, an
+authorized operator can record `git status --short --branch`,
+`git rev-parse HEAD`, `git rev-parse origin/dev` (after a fetch),
+`./sterling.sh status`, and the browser footer's build SHA. Do not
+force-pull, overwrite uncommitted changes or restart a live risk manager
+based only on remote-branch updates.
