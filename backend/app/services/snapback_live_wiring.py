@@ -387,10 +387,12 @@ class SnapbackExecutionAdapter:
         is_option = (symbol == str(plan.get("option_symbol") or "").strip()
                      and exchange == str(plan.get("option_exchange") or "").strip().upper()
                      and side == "BUY")
+        from app.services.snapback_live_executor import _hedge_side
         is_hedge = (bool(str(plan.get("futures_symbol") or "").strip())
                     and symbol == str(plan.get("futures_symbol") or "").strip()
                     and exchange == str(plan.get("futures_exchange") or "").strip().upper()
                     and side == str(plan.get("hedge_side") or "").strip().upper()
+                    and side == _hedge_side(plan)
                     and side in {"BUY", "SELL"})
         if not (is_option or is_hedge):
             raise PermissionError("snapback_fill_does_not_match_plan_leg")
@@ -491,11 +493,13 @@ class SnapbackExecutionAdapter:
             and exchange == str(plan.get("option_exchange") or "").strip().upper()
             and side == "BUY"
         )
+        from app.services.snapback_live_executor import _hedge_side
         futures_leg = (
             bool(str(plan.get("futures_symbol") or "").strip())
             and symbol == str(plan.get("futures_symbol") or "").strip()
             and exchange == str(plan.get("futures_exchange") or "").strip().upper()
             and side == str(plan.get("hedge_side") or "").strip().upper()
+            and side == _hedge_side(plan)
             and side in {"BUY", "SELL"}
         )
         if not option_leg and not futures_leg:
