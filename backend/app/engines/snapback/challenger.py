@@ -40,7 +40,7 @@ def prior_premium_excursions(
     """
     n = len(times)
     if (len(opens) != n or len(highs) != n or len(closes) != n
-            or bar_seconds <= 0 or horizon_bars < 2 or min_windows < 1
+            or bar_seconds <= 0 or horizon_bars < 1 or min_windows < 1
             or not _valid_price(entry_time)):
         return None, 0
     if n < horizon_bars + min_windows - 1:
