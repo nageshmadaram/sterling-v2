@@ -40,6 +40,7 @@ set +e
 env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
   tests/engines/snapback/test_intraday.py \
   tests/engines/snapback/test_intraday_economics.py \
+  tests/engines/snapback/test_walkforward.py \
   tests/engines/snapback/test_research_reporting.py \
   tests/unit/test_research_coverage.py
 research_rc=$?
