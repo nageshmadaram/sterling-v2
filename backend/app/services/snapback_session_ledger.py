@@ -222,14 +222,34 @@ def session_is_complete(warehouse, session_date: str) -> bool:
     return session_scan_complete(session_record(warehouse, session_date) or {})
 
 
-def observed_session_count(warehouse) -> int:
-    """Fully observed sessions — the denominator the 60-session rule actually means."""
+def observed_session_count(
+    warehouse, *, experiment_id: Optional[str] = None,
+    runtime_build_sha: Optional[str] = None,
+) -> int:
+    """Count complete sessions, optionally bound to a *single* frozen experiment.
+
+    The promotion authority must supply both identity fields. Without this
+    scope, 40 complete sessions from an old experiment and 20 from the current
+    one could masquerade as the 60 prospective sessions the gate requires.
+    Other diagnostics may continue to request the unscoped total explicitly.
+    """
+    if experiment_id is not None and not str(experiment_id).strip():
+        return 0
+    if runtime_build_sha is not None and not str(runtime_build_sha).strip():
+        return 0
     try:
         rows = warehouse.get_records_by_table("prospective_sessions")
     except Exception as exc:
         log.warning("Snapback session ledger: unreadable (%s); counting zero", exc)
         return 0
-    return sum(1 for r in rows if session_market_evidence_complete(dict(r)))
+    return sum(
+        1 for raw in rows
+        if (experiment_id is None
+            or str(dict(raw).get("experiment_id") or "") == experiment_id)
+        and (runtime_build_sha is None
+             or str(dict(raw).get("runtime_build_sha") or "") == runtime_build_sha)
+        and session_market_evidence_complete(dict(raw))
+    )
 
 
 def incomplete_sessions(warehouse) -> List[str]:
