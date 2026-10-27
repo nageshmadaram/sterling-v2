@@ -34,9 +34,13 @@ export const TODAY_STRATEGIES: readonly TodaySignalStrategy[] = [
 ];
 
 export function istDay(date: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
+  // Do not assume locale punctuation/order: browsers can format en-CA as
+  // MM/DD/YYYY. The API and broker-evidence keys require YYYY-MM-DD.
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(date);
+  }).formatToParts(date);
+  const field = (name: string) => parts.find(part => part.type === name)?.value ?? '';
+  return `${field('year')}-${field('month')}-${field('day')}`;
 }
 
 export function stageOf(
