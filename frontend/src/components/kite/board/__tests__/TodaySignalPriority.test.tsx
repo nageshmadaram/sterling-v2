@@ -68,6 +68,7 @@ describe('cross-strategy today priority', () => {
     expect(stageOf(fresh, false, 21)).toBe('loading');
     expect(stageOf({ ...fresh, isSuccess: false }, false, 10)).toBe('loading');
     expect(stageOf({ ...fresh, isError: true }, false, 10)).toBe('error');
+    expect(stageOf(fresh, false, 10, true)).toBe('error');
   });
 
   it('releases history only after four live snapshots complete', async () => {
