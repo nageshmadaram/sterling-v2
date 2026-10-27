@@ -4,6 +4,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 let status: Record<string, unknown> = {};
+let ownedAccounts: Array<{ id: string; connected: boolean; token_expires_at_ms?: number }> = [];
 const openKiteLogin = vi.fn();
 const logoutKite = vi.fn();
 const retrySession = vi.fn();
@@ -13,7 +14,7 @@ const activateAccount = vi.fn();
 let loginPhase = 'idle';
 
 vi.mock('../../../hooks/useKite', () => ({
-  useKiteAccounts: () => ({data:{accounts:[]}}),
+  useKiteAccounts: () => ({data:{accounts:ownedAccounts,active_id:'a1'}}),
   useActivateKiteAccount: () => ({mutate: activateAccount, isPending:false, error:null}),
   useKiteStatus: () => ({ data: status, isFetching: false, refetch: retrySession }),
   useKiteAuthBroadcast: () => {},
@@ -47,6 +48,7 @@ beforeEach(() => {
   loginPhase = 'idle';
   useKiteStatusCardStore.setState({ isOpen: false });
   status = { connected: false, account_id: 'a1', user_name: 'TestUser' };
+  ownedAccounts = [];
 });
 
 describe('KiteSessionGuard floating card popover', () => {
@@ -61,6 +63,19 @@ describe('KiteSessionGuard floating card popover', () => {
     expect(screen.queryByText('Zerodha Kite Active')).toBeNull();
     expect(retrySession).toHaveBeenCalled();
   });
+  it('prioritizes verifying a persisted saved token over a second sign-in form', () => {
+    ownedAccounts = [{id:'a1', connected:true, token_expires_at_ms:Date.now() + 60000}];
+    status = {connected:false, account_id:'a1', message:'Kite validation in progress'};
+    renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
+    expect(screen.getByText('Kite session saved · unverified')).toBeInTheDocument();
+    expect(screen.queryByText('Zerodha Kite Offline')).toBeNull();
+    expect(screen.queryByText('Assisted broker login')).toBeNull();
+    expect(screen.getByRole('button', {name:'Verify broker connection'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', {name:'Re-login if verification fails'}));
+    expect(screen.getByText('Assisted broker login')).toBeInTheDocument();
+  });
+
   it('offers a guarded explicit account switch after login to an inactive account', () => {
     status = {connected:false, account_id:'a2', user_name:'Another account'};
     renderGuard();
