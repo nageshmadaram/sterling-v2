@@ -46,6 +46,7 @@ env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
   tests/engines/snapback/test_intraday_economics.py \
   tests/engines/snapback/test_walkforward.py \
   tests/engines/snapback/test_challenger_cost_feasible.py \
+  tests/engines/snapback/test_option_equity_mark.py \
   tests/engines/snapback/test_research_reporting.py \
   tests/unit/test_research_coverage.py
 research_rc=$?
@@ -57,6 +58,7 @@ env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
 execution_rc=$?
 env timeout 240s .venv/bin/python -m pytest -q -p no:cacheprovider --tb=short \
   tests/unit/test_snapback_exit_resolution_boundary.py \
+  tests/unit/test_snapback_shortfall_persistence.py \
   tests/unit/test_snapback_live_exits.py \
   tests/unit/test_snapback_reconciliation.py \
   tests/unit/test_snapback_unknown_order_recovery.py
