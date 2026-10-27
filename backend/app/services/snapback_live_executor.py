@@ -1218,7 +1218,27 @@ class SnapbackLiveExecutor:
         from app.services.execution_service import ExecutionRequest, ExecutionResult, ExposureEffect
         import math
 
+        real_transport = getattr(broker_client, "_is_paper", None) is False
+        live_request = str(plan.get("mode") or "").upper() == "LIVE" or real_transport
         is_hedge = bool(plan.get("futures_symbol")) and symbol == plan.get("futures_symbol")
+        if live_request:
+            option_matches = (
+                not is_hedge
+                and symbol == str(plan.get("option_symbol") or "")
+                and exchange == str(plan.get("option_exchange") or "")
+                and side == "BUY"
+            )
+            hedge_matches = (
+                is_hedge
+                and exchange == str(plan.get("futures_exchange") or "")
+                and side == str(plan.get("hedge_side") or "").upper()
+                and side in {"BUY", "SELL"}
+            )
+            if not (option_matches or hedge_matches):
+                return ExecutionResult(
+                    success=False, status="REJECTED_PLAN",
+                    error="Snapback entry does not match frozen contract/exchange/direction",
+                )
         if is_hedge and self.hedge_limit_fn is not None and price_override is None:
             # Production has a fresh futures-book repricer. If its read failed,
             # a plan-era quote cannot authorize an exposure-changing hedge.
@@ -1240,18 +1260,27 @@ class SnapbackLiveExecutor:
             if isinstance(raw_price, bool):
                 raise ValueError("bool cannot be a limit price")
             price = float(raw_price or 0.0)
-            lot_size = int(raw_lot_size or 0)
+            lot_float = float(raw_lot_size or 0)
+            qty_float = float(quantity)
+            if (isinstance(raw_lot_size, bool) or isinstance(quantity, bool)
+                    or not math.isfinite(lot_float) or not math.isfinite(qty_float)
+                    or lot_float <= 0 or lot_float != int(lot_float)
+                    or qty_float <= 0 or qty_float != int(qty_float)):
+                raise ValueError("invalid integral lot or quantity")
+            lot_size = int(lot_float)
+            approved_quantity = int(qty_float)
+            if approved_quantity % lot_size != 0:
+                raise ValueError("quantity not an exchange whole-lot multiple")
         except (TypeError, ValueError, OverflowError):
             return ExecutionResult(
                 success=False, status="REJECTED_PLAN",
-                error="Snapback entry limit-price or lot metadata is invalid",
+                error="Snapback entry price, quantity or lot metadata is invalid",
             )
         priced = order_type.upper() == "LIMIT" and math.isfinite(price) and price > 0
         # Production plans from build_plan carry mode=LIVE and frozen LIMIT
         # prices for both option and futures hedge. A corrupt/legacy payload
         # must never silently become an unbounded market BUY/hedge.
-        real_transport = getattr(broker_client, "_is_paper", None) is False
-        if (str(plan.get("mode") or "").upper() == "LIVE" or real_transport) and not priced:
+        if live_request and not priced:
             return ExecutionResult(
                 success=False, status="REJECTED_PLAN",
                 error="Snapback live exposure-increasing legs require a valid LIMIT price",
@@ -1273,7 +1302,7 @@ class SnapbackLiveExecutor:
             exchange=exchange,
             symbol=symbol,
             side=side,
-            quantity=int(quantity),
+            quantity=approved_quantity,
             exposure_effect=ExposureEffect.INCREASE_EXPOSURE,
             tag=f"snapback:{plan.get('plan_id')}",
             order_type=order_type.upper() if priced else "MARKET",
