@@ -53,12 +53,14 @@ def test_terminal_hedge_fill_uses_hedge_only():
     assert p.hedge_exit_booked_ids == ["BROKER-HEDGE-EXIT"]
 
 
-def test_cancelled_no_fill_leaves_position_open_and_tracks_attempt():
+def test_cancelled_no_fill_has_no_projection_or_attempt_side_effect():
     p = position()
-    book(p, deepcopy(p), filled=0, average=0)
-    assert p.option_exit_qty == 0
-    assert p.option_exit_booked_ids == []
-    assert p.exit_attempts == 1
+    original = deepcopy(p)
+    book(p, original, filled=0, average=0)
+    book(p, original, filled=0, average=0)
+    assert p == original
+    # The enclosing transactional ACK retirement increments attempts once.
+    # This pure fill projector is idempotent across restart/repeated callbacks.
 
 
 @pytest.mark.parametrize("field,value", [
