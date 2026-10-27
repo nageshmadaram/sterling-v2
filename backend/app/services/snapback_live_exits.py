@@ -863,6 +863,14 @@ class SnapbackExitManager:
             elif held is True:
                 self._clear_shortfall(pos)
             order_id = await self._submit_exit(client, pos, leg=leg, quantity=remaining)
+            if order_id is None:
+                # Submission may have reached the broker; a second SELL or
+                # restoring a prior stop can double-close this position.
+                self._flag_reconciling(
+                    self.store.get(pos.position_id) or pos,
+                    f"{leg}_exit_submission_identity_unknown",
+                )
+                return "submit_unknown"
             if not order_id:
                 if is_option:
                     # The stop was released and no sell went out: protect exactly
@@ -1159,7 +1167,7 @@ class SnapbackExitManager:
               uid=pos.uid)
         engage_kill_switch(f"Snapback position {pos.option_symbol} needs reconciliation: {note}", pos.uid)
 
-    async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> str:
+    async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> Optional[str]:
         """One canonical CLOSE_POSITION order. Returns its order id, or ``""``."""
         from app.services.execution_service import ExecutionRequest, ExposureEffect
         from app.services.snapback_plan_producer import generation_id
@@ -1186,26 +1194,33 @@ class SnapbackExitManager:
         try:
             result = await self.canonical.submit_order(request, broker_client=client,
                                                        risk_approval=None)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Snapback exit submit raised for %s: %s", symbol, exc)
-            return ""
-        if not result.success or not result.order_id:
-            log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
-            if str(result.status or "").upper() in ("REJECTED", "CANCELLED"):
-                # Nothing is working at the broker for this key and the key is spent,
-                # so the next try must be a NEW attempt. An UNKNOWN outcome is
-                # different: it keeps its key, so a retry can never send twice.
-                def bump(p: LivePosition) -> None:
-                    p.exit_attempts += 1
+        except Exception as exc:  # noqa: BLE001 - request may already exist at broker
+            log.critical("Snapback exit submit outcome unknown for %s: %s", symbol, exc)
+            return None
 
-                self.store.mutate(pos.position_id, bump)
+        status = str(getattr(result, "status", "") or "").upper()
+        broker_order_id = str(getattr(result, "order_id", "") or "")
+        if not broker_order_id:
+            if status in {"UNKNOWN", "SUBMITTING", "SUBMITTED",
+                          "ACKNOWLEDGED", "OPEN", "PARTIAL"}:
+                # No proof the broker did not receive this request. Persist an
+                # owner-scoped reconciliation hold; never place another sell.
+                return None
+            log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
+            if status in {"REJECTED", "CANCELLED"} and int(
+                    getattr(result, "filled_quantity", 0) or 0) == 0:
+                self.store.mutate(
+                    pos.position_id,
+                    lambda p: setattr(p, "exit_attempts", p.exit_attempts + 1))
             alert("EXIT NOT SENT", pos.option_symbol,
                   detail_line(qty=quantity, notes=[f"{leg} leg: {result.status} {result.error}"[:160]]),
                   key=f"snapback:{pos.position_id}:EXITREFUSED:{leg}:{int(time.time() // 120)}",
-                  severity="CRITICAL",
-                  uid=pos.uid)
+                  severity="CRITICAL", uid=pos.uid)
             return ""
 
+        # An order ID is recovery authority, regardless of a response's
+        # optimistic/negative success flag. The resolver must prove whether
+        # the known order actually reduced inventory and is terminal.
         field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
         req_name = "option_exit_requested" if is_option else "hedge_exit_requested"
 
