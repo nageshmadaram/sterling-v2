@@ -3162,8 +3162,12 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
 
       updateStartupChannelUI();
       updateSubscribeLikeUI();
-      // Right rail automatically updates to show Suggested channels matching the newly playing channel's category!
-      renderUpNextQueue(true);
+      // Start the video request before reconstructing the suggested-channel
+      // rail: large user playlists made that synchronous render delay the tap.
+      const queueGeneration = playbackGeneration;
+      requestAnimationFrame(() => {
+        if (playbackGeneration === queueGeneration) renderUpNextQueue(true);
+      });
       updateClosedCaptionText();
 
       spinner.classList.remove('hidden');
