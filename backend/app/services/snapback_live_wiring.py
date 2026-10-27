@@ -187,6 +187,7 @@ class SnapbackExecutionAdapter:
                 filled_quantity=known_qty, filled_price=known_price,
                 error=f"invalid broker fill evidence: {exc}; reconcile before new entries",
             )
+        terminal = getattr(resolution, "terminal", None) is True
         booked_ok = True
         if filled > 0:
             booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
@@ -210,7 +211,8 @@ class SnapbackExecutionAdapter:
                     )
             # A broker disagreement or still-working order cannot be sealed
             # as fully projected merely because its partial fill was booked.
-            if booked_ok and resolution.settled and not resolution.reconciliation_required:
+            if (booked_ok and terminal and resolution.settled
+                    and not resolution.reconciliation_required):
                 try:
                     version = getattr(resolution, "projection_version", None)
                     if type(version) is not int or version <= 0:
@@ -253,7 +255,7 @@ class SnapbackExecutionAdapter:
                 error="confirmed broker fill not fully booked; reconcile before new entries",
             )
 
-        if resolution.reconciliation_required or not resolution.settled:
+        if resolution.reconciliation_required or not resolution.settled or not terminal:
             # Fill settlement or broker identity is still unresolved. Regardless
             # of which resolver supplied this evidence, no second strategy may
             # increase exposure until the working order/partial is reconciled.
