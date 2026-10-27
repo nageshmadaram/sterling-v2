@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   useKiteAccounts, useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
@@ -33,6 +33,22 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const closeCard = useKiteStatusCardStore((state) => state.closeCard);
 
   const [reqToken, setReqToken] = useState('');
+  const [savedAccountId, setSavedAccountId] = useState<string | null>(null);
+  const onSessionSaved = useCallback((id: string) => {
+    setSavedAccountId(id);
+    void refetch();
+  }, [refetch]);
+  // An assisted login can finish without a callback-window broadcast.
+  // Recheck the authoritative active-account status for a bounded window.
+  useEffect(() => {
+    if (!savedAccountId || (status?.connected && status.account_id === savedAccountId)) return;
+    let checks = 0;
+    const timer = window.setInterval(() => {
+      if (++checks >= 6) window.clearInterval(timer);
+      void refetch();
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [savedAccountId, status?.connected, status?.account_id, refetch]);
   const [mounted, setMounted] = useState(isOpen);
   const [leaving, setLeaving] = useState(false);
   const prevConnected = useRef<boolean | null>(null);
@@ -157,15 +173,21 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
 
   if (!mounted || typeof document === 'undefined') return null;
 
+  const savedPending = !!savedAccountId && !(connected && status?.account_id === savedAccountId);
+  const selectedDifferentAccount = savedPending && !!status?.account_id && status.account_id !== savedAccountId;
   const cardTitle = connected
     ? 'Zerodha Kite Active'
+    : savedPending ? 'Kite session saved · verifying'
     : unknown
       ? permissionDenied ? 'Kite access denied' : 'Kite session check unavailable'
       : checking ? 'Checking Kite session…'
       : 'Zerodha Kite Offline';
 
   const cardDetail = connected
-    ? `Signed in as ${status?.user_name || 'Kite User'}${status?.kite_user_id ? ` (${status.kite_user_id})` : ''} · Live feed and order execution active.`
+    ? `Signed in as ${status?.user_name || 'Kite User'}${status?.kite_user_id ? ` (${status.kite_user_id})` : ''} · Broker session verified. Trading still requires independent safety checks.`
+    : savedPending ? (selectedDifferentAccount
+      ? 'The login was saved for a different broker account than the active one. Select the saved account in Broker accounts to make it active; this does not authorize new orders.'
+      : 'Broker token saved. Checking the active Kite session and account permissions; connected status is not yet verified.')
     : unknown
       ? permissionDenied
         ? 'Kite refused the session check. Check the API app permissions and registered outbound IP, then retry or reconnect.'
@@ -173,7 +195,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
       : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
       : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
-  const isLoginVisible = !connected || showRelogin || loginRequested;
+  const isLoginVisible = (!connected && !savedPending) || showRelogin;
 
   return createPortal(
     <div className="kite-session-overlay" data-leaving={leaving ? 'true' : 'false'}
@@ -200,12 +222,12 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
         <div className="kite-session-body">
           <div className="kite-session-summary" data-connected={connected}>
             <span aria-label={connected ? 'Kite connected' : unknown ? 'Kite session unverified' : checking ? 'Kite session checking' : 'Kite offline'}>
-              {connected ? 'CONNECTED' : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
+              {connected ? 'CONNECTED' : savedPending ? 'VERIFYING' : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
             </span>
-            <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
+            <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : savedPending ? cardDetail : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
-          {unknown && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Retry session check'}</button>}
-          {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={effectiveAccountId} autoStart={loginRequested} />}
+          {(unknown || savedPending) && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Verify broker connection'}</button>}
+          {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={effectiveAccountId} autoStart={loginRequested} onSaved={onSessionSaved} />}
           {connected && <div className="kite-session-account-actions">
             {!loginRequested && <button type="button" onClick={() => { setShowRelogin(v => !v); logout.reset?.(); }}>{showRelogin ? 'Hide broker login' : 'Log in to another account'}</button>}
             <button type="button" disabled={logout.isPending} onClick={() => logout.mutate(undefined, { onSuccess: () => {
