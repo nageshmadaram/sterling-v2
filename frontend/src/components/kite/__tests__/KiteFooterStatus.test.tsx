@@ -48,6 +48,15 @@ beforeEach(() => {
   openSettingsSection.mockReset();
 });
 
+describe('visible deployment identity', () => {
+  it('shows the actual frontend build marker, not a guessed GitHub branch', () => {
+    render(<KiteFooterStatus onOpenSession={vi.fn()} />);
+    const id = screen.getByTestId('sterling-frontend-build');
+    expect(id.textContent).toMatch(/^build (?:[a-f0-9]{8}|unknown)$/i);
+    expect(id.title).toContain('not the GitHub branch');
+  });
+});
+
 describe('the broker chip', () => {
   it('reads connected when it is', () => {
     render(<KiteFooterStatus onOpenSession={vi.fn()} />);
