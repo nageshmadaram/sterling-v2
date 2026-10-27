@@ -598,3 +598,54 @@ authorized order/stop/recovery proof, independently observed forward
 returns and economic acceptance. Snapback remains NOT CERTIFIED and
 master new-money entries OFF. CI investigation remains deferred at
 the user's instruction.
+
+
+## Development pass — verified option MTM and broker-zero naked-stop prevention
+
+Development branch updates were pushed without enabling new live entries:
+
+1. **Confirmed protective-stop risk:** `SnapbackExitManager._option_shortfall_step`
+   previously attempted to re-arm an entire `remaining`-quantity option
+   SELL GTT when the broker position book had just reported **zero**
+   option units. The comment said it would protect only broker-confirmed
+   holdings, but the code used the stale local total. This could create
+   an unowned SELL order if the broker zero reading was correct.
+   The revised path records an unconfirmed shortfall and withholds
+   any *new* stop SELL until positive units are proven. The next
+   broker read can resume option liquidation or persist shortfall
+   reconciliation. Updated the long-lived shortfall tests and added
+   dedicated zero-holdings/no-new-stop, invalid hedge-direction
+   and broker-account-drift regression cases.
+2. **Hedge exit direction/account:** Futures exit submission now
+   refuses any unknown `hedge_side` instead of defaulting to a BUY,
+   and real-broker exit submissions require the original authenticated
+   account. An invalid hedge direction also refuses signed-ledger
+   booking rather than making the wrong direction appear closed.
+3. **Measurable adverse option drawdown:** Minute replays now record
+   `max_option_close_mark_drawdown_inr` and
+   `max_option_intrabar_low_stress_drawdown_inr` in addition to
+   realized-only drawdown. Research reports preserve these numbers
+   per contract, and mode totals show the worst independent contract
+   value only when every attempted contract has data; they expressly
+   **do not** label it full futures-hedged portfolio MTM.
+4. **Executed isolated arithmetic:** The exact production-source
+   `app/engines/snapback/equity_mark.py` Git blob
+   `de9feb037c73450f813ee1037ef8f67f5bc01d45` was copied
+   byte-for-byte and run locally under pytest: **15 passed**,
+   including **500 seeded risk/cost scenarios**, invalid prices,
+   stop-loss stress vs realized loss and fee debit monotonicity.
+   The local JUnit artifact is
+   `snapback_option_equity_mark_junit.xml`; corresponding tests
+   were committed under `backend/tests/engines/snapback/test_option_equity_mark.py`.
+   This is **not** a successful full Sterling integration run.
+5. The offline acceptance script on `dev` now includes both the
+   additional option MTM tests and existing broker shortfall suite.
+   The full source runtime, exchange data archive, live broker,
+   stop/fill/restart and independent prospective performance still
+   cannot be verified from the connected GitHub code interface.
+
+**Release:** `main` stays unchanged; Snapback configuration has
+`enabled=false` and `auto_execute=false`; `dev` changes are not
+a certificate of tested broker functionality or positive after-cost
+forward P&L. Production release and any use of the new capital
+remain blocked.
