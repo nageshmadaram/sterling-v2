@@ -700,10 +700,10 @@ export function SterlingKiteEnginePane({ onSelectSignal, onOpenChart }: Props) {
   const effectiveNowMs = useEffectiveNowMs();
   const currentTodayKey = sessionDayKey(effectiveNowMs);
   const isHistoricalSim = simNowMs != null;
-  const priority = useTodaySignalPriority();
   const currentSimDayLabel = isHistoricalSim ? formatSessionDay(currentTodayKey) : 'Today';
   const s = useKiteSettings();
-  const { data: signals, isLoading: signalsLoading } = useEngineSignals();
+  const priority = useTodaySignalPriority();
+  const { data: signals, isLoading: signalsLoading } = useEngineSignals(!priority.olderReady && !isHistoricalSim);
   const { data: cfg } = useEngineConfig();
   const setCfg = usePatchEngineConfig();
   const scan = useRunScan();
