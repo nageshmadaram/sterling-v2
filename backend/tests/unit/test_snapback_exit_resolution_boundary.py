@@ -920,3 +920,45 @@ async def test_terminal_exit_vanished_registry_row_requires_reconciliation(monke
         NS(), original, leg="option", order_id="EXIT-1") == "unresolved"
     hold.assert_called_once_with(original, "terminal_exit_projection_conflict")
     projected.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field,value", [
+    ("option_exit_order_id", "OTHER-EXIT"),
+    ("option_exit_order_id", ""),
+    ("option_exit_requested", True),
+    ("option_exit_requested", 75.5),
+    ("option_exit_requested", 0),
+    ("option_exit_requested", 76),
+    ("option_exit_qty", 25),
+    ("option_qty", 75.5),
+])
+async def test_corrupt_exit_request_cannot_even_query_broker_resolver(
+        monkeypatch, field, value):
+    p = pos()
+    setattr(p, field, value)
+    resolver = AsyncMock()
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock()), resolver=resolver)
+    hold = Mock()
+    ledger = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_book_exit", ledger)
+    assert await obj._resolve_exit(
+        NS(), p, leg="option", order_id="EXIT-1") == "unresolved"
+    resolver.assert_not_awaited()
+    ledger.assert_not_called()
+    hold.assert_called_once_with(p, "exit_receipt_order_state_unverified")
+
+
+@pytest.mark.asyncio
+async def test_unknown_exit_leg_does_not_query_broker(monkeypatch):
+    p = pos()
+    resolver = AsyncMock()
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()), resolver=resolver)
+    hold = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    assert await obj._resolve_exit(
+        NS(), p, leg="other", order_id="EXIT-1") == "unresolved"
+    resolver.assert_not_awaited()
+    hold.assert_called_once_with(p, "exit_receipt_leg_unknown")
