@@ -7,6 +7,7 @@ import { useViewportScale } from './hooks/useViewportScale';
 import { LoginGate } from './components/auth/LoginGate';
 import { appQueryDefaults } from './utils/queryDefaults';
 import { ConfirmProvider } from './components/kite/ConfirmDialog';
+import './styles/product.css';
 import { WorkspaceRouter } from './pages/WorkspaceRouter';
 const queryClient = new QueryClient({ defaultOptions: appQueryDefaults });
 

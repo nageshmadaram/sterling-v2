@@ -26,9 +26,9 @@ export function HelpPane() {
         <section style={{ background: 'var(--k-bg)', border: `1px solid ${BORDER}`, borderRadius: 9, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,.025)' }}>
           <Section title="Using Sterling on your phone" description="Your same account and workspace." summary="Navigation · layout · installation" defaultOpen>
             <Row term="Navigation">Use Home, Signals, Watchlist and Terminal at the bottom. Menu opens Orders, Positions, Holdings, funds and all other pages.</Row>
-            <Row term="Settings">Menu → Settings &amp; accounts. Choose a section from the Settings section list, including Price Rules and Sterling Users.</Row>
+            <Row term="Settings">Menu → Settings. Choose a section from the Settings section list, including Price Rules and Sterling Users.</Row>
             <Row term="Layout">Menu → Mobile app style for one screen at a time, or Full app style for the desktop docks. Your choice is saved on this device.</Row>
-            <Row term="Install">Menu → Install / add to home screen. Follow your browser’s confirmation using the HTTPS app address. The backend must keep running for live data and trading.</Row>
+            <Row term="Install">Menu → Install app. Follow your browser’s confirmation using the HTTPS app address. The backend must keep running for live data and trading.</Row>
           </Section>
           <Section title="Arming automatic entry" description="Two switches, both required." summary="Master ALGO + strategy" defaultOpen>
             <Row term="Master ALGO">Trading Config, MANUAL or ALGO. While MANUAL, the three scan engines do not enter automatically. Price Rules uses its own explicit plan arming.</Row>

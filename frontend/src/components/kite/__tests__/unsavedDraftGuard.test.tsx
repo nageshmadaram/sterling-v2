@@ -1,3 +1,4 @@
+vi.mock('../../../hooks/useConfigurationCapabilities',async original=>({...await original(),useConfigurationCapabilities:()=>({data:{active:true,administrator:true,sections:{brokers:{visible:true,grants:[{action:'create',resource_id:'own',expires_at_ms:null}]},telegram:{visible:true,grants:[{action:'create',resource_id:'own',expires_at_ms:null}]},integrations:{visible:true,grants:[{action:'create',resource_id:'own',expires_at_ms:null}]}}}})}));
 vi.mock('../SterlingUsersPanel', () => ({ SterlingUsersPanel: () => <div>users</div> }));
 vi.mock('../../../hooks/useEmaTrend', () => ({ useEmaTrendConfig: () => ({ data: undefined }), useUpdateEmaTrend: () => ({ mutate: vi.fn(), isPending: false }) }));
 /**
@@ -126,13 +127,13 @@ describe('the settings hub highlights the bottom draft bar when a draft is pendi
   const openSuperTrend = async () => {
     const { ConnectPane } = await import('../ConnectPane');
     render(<ConnectPane />);
-    fireEvent.click(screen.getAllByRole('button', { name: /SuperTrend\s*Scan, entry & exit/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^SuperTrend$/i })[0]);
     expect(screen.getAllByText('SuperTrend strategy panel')[0]).toBeInTheDocument();
   };
 
   it('navigates freely when nothing is pending', async () => {
     await openSuperTrend();
-    fireEvent.click(screen.getAllByRole('button', { name: /Notifications\s*Kite Telegram alerts/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Notifications$/i })[0]);
     expect(eventSpy).not.toHaveBeenCalled();
     expect(screen.getByText('Kite alert destinations')).toBeInTheDocument();
   });
@@ -141,7 +142,7 @@ describe('the settings hub highlights the bottom draft bar when a draft is pendi
     await openSuperTrend();
     setDraftDirty('supertrend', true);
 
-    fireEvent.click(screen.getAllByRole('button', { name: /Notifications\s*Kite Telegram alerts/i })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Notifications$/i })[0]);
 
     expect(eventSpy).toHaveBeenCalled();
     expect(screen.getByText('SuperTrend strategy panel')).toBeInTheDocument();

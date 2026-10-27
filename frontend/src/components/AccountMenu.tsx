@@ -2,12 +2,15 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSterlingProfile } from './kite/ProfileMenu';
 import { useTheme, useSetTheme } from '../store/useStore';
 import { useAppearance } from '../appearance/store';
+import {useAppInstall} from '../store/useAppInstall';
 import { api } from '../utils/api';
 import { clearAuthTokens } from '../utils/auth';
 export function AccountMenu({children}:{children?:ReactNode}) {
   const dialog=useRef<HTMLDialogElement>(null);
   const profile=useSterlingProfile();
   const theme=useTheme(),setTheme=useSetTheme(),appearance=useAppearance();
+  const install=useAppInstall();
+  const [installNote,setInstallNote]=useState('');
   const [error,setError]=useState(''),[busy,setBusy]=useState(false);
   const close=()=>dialog.current?.close();
   useEffect(()=>{window.addEventListener('sterling-home',close);return()=>window.removeEventListener('sterling-home',close);},[]);
@@ -22,6 +25,8 @@ export function AccountMenu({children}:{children?:ReactNode}) {
       <button onClick={()=>action('sterling-select-workspace')}>Switch workspace</button>
       <div className="account-theme" role="group" aria-label="Appearance">{(['light','dark'] as const).map(value=><button key={value} aria-pressed={theme===value} onClick={()=>{appearance.update({preset:'',base:value,accent:''});setTheme(value);}}>{value==='light'?'☀ Light':'☾ Dark'}</button>)}</div>
       {children && <div onClick={e=>{if((e.target as HTMLElement).closest('button'))close();}}>{children}</div>}
+      {!install.installed&&<button type="button" onClick={()=>{if(install.prompt)void install.prompt.prompt();else setInstallNote(/iPhone|iPad/.test(navigator.userAgent)?'Safari → Share → Add to Home Screen':'Browser menu → Install app / Add to Home screen');}}>Install app</button>}
+      {installNote&&<p role="status">{installNote}</p>}
       <button disabled={busy} onClick={()=>void logout()}>Sign out</button>{error&&<p role="alert">{error}</p>}
       </div>
     </dialog></>;

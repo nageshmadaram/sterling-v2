@@ -1,3 +1,4 @@
+import {useModalLayer} from '../../hooks/useModalLayer';
 import {useMobileBackLayer} from '../../hooks/useMobileBackLayer';
 import { ProfilePhotoCropper } from './ProfilePhotoCropper';
 import { createPortal } from 'react-dom';
@@ -10,6 +11,7 @@ import type { List, User } from './SterlingUsersPanel';
 type Profile={username:string;display_name:string;photo:string;role:string;user_id:string};
 export function useSterlingProfile(){return useQuery({queryKey:['sterling-profile'],queryFn:()=>api.get<Profile>('/api/v1/auth/profile'),staleTime:30000});}
 export function ProfileMenu({hiddenTrigger=false}:{hiddenTrigger?:boolean}={}){const q=useSterlingProfile();const qc=useQueryClient();const [open,setOpen]=useState(false),[name,setName]=useState(''),[photo,setPhoto]=useState(''),[username,setUsername]=useState(''),[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);const trigger=useRef<HTMLButtonElement>(null);const initialized=useRef(false);
+ const panelRef=useRef<HTMLDivElement>(null);
  const photoInput=useRef<HTMLInputElement>(null);const [cropFile,setCropFile]=useState<File|null>(null);
  useEffect(()=>{if(!open){initialized.current=false;setCropFile(null);return;}if(open&&q.data&&!initialized.current){initialized.current=true;setName(q.data.display_name);setPhoto(q.data.photo);setUsername(q.data.username);setCurrent('');setPassword('');setConfirm('');setMessage('');}},[open,q.data]);
  useEffect(()=>{const show=()=>setOpen(true);window.addEventListener('sterling-open-profile',show);return()=>window.removeEventListener('sterling-open-profile',show);},[]);
@@ -25,29 +27,13 @@ export function ProfileMenu({hiddenTrigger=false}:{hiddenTrigger?:boolean}={}){c
  const removePhoto=()=>{setCropFile(null);setPhoto('');setMessage('Picture removed from preview. Save profile to apply.');};
  const label=q.data?.display_name||q.data?.username||'Sterling account';
  useMobileBackLayer(open,()=>cropFile?setCropFile(null):close(),'profile');
- // Media iframes can otherwise receive taps behind an open profile overlay.
- // The dialog is portalled to document.body, outside this inert application.
- useEffect(()=>{
-  if(!open)return;
-  const root=document.querySelector<HTMLElement>('.term-root');
-  const wasInert=root?.hasAttribute('inert')??false;
-  if(root&&!wasInert)root.setAttribute('inert','');
-  const previousOverflow=document.body.style.overflow;
-  document.body.style.overflow='hidden';
-  const onEscape=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();if(cropFile)setCropFile(null);else close();}};
-  document.addEventListener('keydown',onEscape,true);
-  return()=>{
-   document.removeEventListener('keydown',onEscape,true);
-   document.body.style.overflow=previousOverflow;
-   if(root&&!wasInert)root.removeAttribute('inert');
-  };
- },[open,cropFile]);
+ useModalLayer(open,panelRef,()=>cropFile?setCropFile(null):close());
  return <>{!hiddenTrigger && <button ref={trigger} className="sterling-profile" aria-label="Sterling account profile" aria-expanded={open} onClick={()=>setOpen(!open)} style={{display:'flex',alignItems:'center',gap:6,border:0,background:'transparent',color:'var(--k-text)',cursor:'pointer'}}>{q.data?.photo?<img src={q.data.photo} alt="" width={28} height={28} style={{borderRadius:'50%',objectFit:'cover'}}/>:<span style={{borderRadius:'50%',padding:7,background:'var(--k-surface-2)'}}>{label.slice(0,2).toUpperCase()}</span>}<span>{label}</span></button>}
  {open&&createPortal(<div className="appearance-modal sterling-profile-modal" role="dialog" aria-modal="true" aria-label={cropFile?'Crop profile picture':'Sterling profile'}
  style={{position:'fixed',inset:0,zIndex:2147483000,pointerEvents:'auto',display:'grid',placeItems:'center',background:'rgba(0,0,0,.80)',overscrollBehavior:'contain',touchAction:'auto'}}
  onPointerDown={e=>e.stopPropagation()} onTouchStart={e=>e.stopPropagation()}
  onClick={e=>{e.stopPropagation();if(e.target===e.currentTarget){cropFile?setCropFile(null):close();}}}
- onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();cropFile?setCropFile(null):close();}if(e.key==='Tab'){const controls=e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type="file"]),select');const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="profile-panel" style={{background:'var(--k-bg)',color:'var(--k-text)'}}>{cropFile?<ProfilePhotoCropper key={cropFile.name+cropFile.size+cropFile.lastModified} file={cropFile} onCancel={()=>setCropFile(null)} onApply={value=>{setPhoto(value);setCropFile(null);setMessage('Picture cropped. Save profile to apply.');}}/>:<><button autoFocus onClick={close} aria-label="Close profile">×</button><h2>Your Sterling account</h2><p>{q.data?.username} · {q.data?.role}. Broker login is managed separately in Connect.</p>{q.isError&&<p role="alert">Profile unavailable. <button type="button" className="sterling-retry-button" onClick={()=>void q.refetch()}>Retry</button></p>}
+ onKeyDown={e=>{if(e.key==='Escape'){e.stopPropagation();cropFile?setCropFile(null):close();}if(e.key==='Tab'){const controls=e.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([type="file"]),select');const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div ref={panelRef} tabIndex={-1} className="profile-panel" style={{background:'var(--k-bg)',color:'var(--k-text)'}}>{cropFile?<ProfilePhotoCropper key={cropFile.name+cropFile.size+cropFile.lastModified} file={cropFile} onCancel={()=>setCropFile(null)} onApply={value=>{setPhoto(value);setCropFile(null);setMessage('Picture cropped. Save profile to apply.');}}/>:<><button autoFocus onClick={close} aria-label="Close profile">×</button><h2>Profile</h2>{q.isError&&<p role="alert">Profile unavailable. <button type="button" className="sterling-retry-button" onClick={()=>void q.refetch()}>Retry</button></p>}
  <div className="sterling-profile-photo-editor" style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',padding:'12px 0'}}>
   {photo?<img src={photo} alt="Profile picture preview" width={72} height={72} style={{width:72,height:72,borderRadius:'50%',objectFit:'cover'}}/>:
    <span role="img" aria-label="No profile picture" style={{width:72,height:72,borderRadius:'50%',background:'var(--k-surface-2)',display:'grid',placeItems:'center',fontWeight:700}}>{(name||username||'?').slice(0,2).toUpperCase()}</span>}
@@ -65,5 +51,5 @@ export function ProfileMenu({hiddenTrigger=false}:{hiddenTrigger?:boolean}={}){c
  <label>Display name<input aria-label="Profile display name" maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label>
 <button disabled={busy||!q.data} onClick={()=>void run(async()=>{const profile=await api.patch<Profile>('/api/v1/auth/profile',{display_name:name,photo});qc.setQueryData(['sterling-profile'],profile);qc.setQueryData<List>(['sterling-users'], (old?: List) => old ? { ...old, users: old.users.map((u: User) => u.id===profile.user_id ? { ...u, photo: profile.photo } : u) } : old);setMessage('Profile saved.');})}>Save profile</button>
  <details><summary>Username & password</summary><p>Current password is required. Changes sign out your other sessions.</p><label>Username<input aria-label="New Sterling username" value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username"/></label><label>Current password<input aria-label="Current Sterling password" type="password" autoComplete="current-password" value={current} onChange={e=>setCurrent(e.target.value)}/></label><label>New password<input aria-label="New Sterling password" type="password" autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><label>Confirm new password<input aria-label="Confirm Sterling password" type="password" autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)}/></label><button disabled={busy||!current||(!password&&username===q.data?.username)||password!==confirm||(!!password&&password.length<12)} onClick={()=>void run(async()=>{const result=await api.post<SterlingTokens&{profile:Profile}>('/api/v1/auth/profile/security',{current_password:current,username,new_password:password||null});setAuthTokens(result);qc.setQueryData(['sterling-profile'],result.profile);setCurrent('');setPassword('');setConfirm('');setMessage('Account security updated. Other sessions are signed out.');})}>Update account security</button></details>
- <details><summary>Sessions & sign out</summary><p>Your settings remain saved to your Sterling account.</p><button disabled={busy} onClick={()=>void run(async()=>{await api.post('/api/v1/auth/profile/revoke-sessions');clearAuthTokens();window.location.reload();})}>Sign out all sessions</button><button disabled={busy} onClick={()=>void run(async()=>{try{await disconnectPushDevice();}finally{clearAuthTokens();window.location.reload();}})}>Sign out this browser</button></details><p role="status" aria-live="polite">{message}</p></>}</div></div>,document.body)}</>;
+ <details><summary>Sessions & sign out</summary><button disabled={busy} onClick={()=>void run(async()=>{await api.post('/api/v1/auth/profile/revoke-sessions');clearAuthTokens();window.location.reload();})}>Sign out all sessions</button><button disabled={busy} onClick={()=>void run(async()=>{try{await disconnectPushDevice();}finally{clearAuthTokens();window.location.reload();}})}>Sign out this browser</button></details><p role="status" aria-live="polite">{message}</p></>}</div></div>,document.body)}</>;
 }

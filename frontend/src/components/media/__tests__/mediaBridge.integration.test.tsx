@@ -1,3 +1,4 @@
+vi.mock('../../../hooks/useProtectedMediaDocument',()=>({useProtectedMediaDocument:(kind:string)=>({url:'/api/v1/media/'+kind+'/document',error:''})}));
 import {act,cleanup,render,screen} from '@testing-library/react';
 import {afterEach,expect,it,vi} from 'vitest';
 import '@testing-library/jest-dom/vitest';

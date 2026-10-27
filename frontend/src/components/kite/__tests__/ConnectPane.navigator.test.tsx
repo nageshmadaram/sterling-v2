@@ -58,7 +58,7 @@ vi.mock('../KiteExchangeSettingsCard', () => ({ KiteExchangeSettingsCard: () => 
 describe('ConnectPane — release strategy scope', () => {
   it('links to independent administration from Connect', () => {
     render(<ConnectPane />);
-    fireEvent.click(screen.getByRole('button', { name: /^Users & Broker Logins/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Broker accounts/i }));
     expect(screen.getByRole('link', { name: 'Open Administration' })).toHaveAttribute('href', '/administration');
   });
   it('opens Price Rules using the mobile section picker', () => {

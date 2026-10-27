@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PUBLIC = ROOT / 'frontend/public'
 
 def export():
-    html = (PUBLIC / 'tv/index.html').read_text()
+    html = (ROOT / 'backend/app/media_templates/tv.html').read_text()
     html = html.replace("  <script>if(window.top === window.self)window.location.replace('/');</script>\n", '')
     def inline(match):
         path = PUBLIC / match.group(1).lstrip('/')
@@ -20,7 +20,7 @@ def export():
     html = re.sub(r'<link rel="stylesheet" href="(/(?:media|tv)/[^\"]+\.css)">', inline, html)
     hls=(PUBLIC / 'media/hls.min.js').read_text().replace('</script', '<\\/script')
     html=html.replace('<script src="/media/hls.min.js"></script>', '<script>\n'+hls+'\n</script>')
-    for name in ['artwork.js', 'spotify-shell.js', 'extras.js', 'nav-stack.js', 'sheet-swipe.js', 'radio-home.js']:
+    for name in ['color-scheme.js', 'artwork.js', 'spotify-shell.js', 'extras.js', 'nav-stack.js', 'sheet-swipe.js', 'radio-home.js']:
         source=(PUBLIC / 'media' / name).read_text().replace('</script','<\\/script')
         html=html.replace('<script src="/media/'+name+'"></script>','<script>\n'+source+'\n</script>')
     comfort = (PUBLIC / 'media/comfort.js').read_text().replace('</script', '<\\/script')

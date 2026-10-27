@@ -1,3 +1,4 @@
+import {useModalLayer} from '../../hooks/useModalLayer';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -143,14 +144,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
     if (graceTimer.current) window.clearTimeout(graceTimer.current);
   }, []);
 
-  useEffect(() => {
-    if (!isOpen || !mounted) return;
-    const previous = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    panelRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
-    return () => { document.body.style.overflow = overflow; previous?.focus(); };
-  }, [isOpen, mounted]);
+  useModalLayer(isOpen&&mounted,panelRef,handleDismiss);
 
   const [showRelogin, setShowRelogin] = useState(false);
   useEffect(() => { logout.reset?.(); }, [connected, status?.account_id]);

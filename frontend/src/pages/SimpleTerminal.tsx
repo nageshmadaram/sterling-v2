@@ -1,6 +1,6 @@
 import { useViewStore, type AppView } from '../store/useViewStore';
 import { useSterlingProfile } from '../components/kite/ProfileMenu';
-import { useExperienceOptions, orderedNavigation } from '../store/useExperienceOptions';
+import { useExperienceOptions, orderedNavigation, NAV_OPTIONS } from '../store/useExperienceOptions';
 import { groupPrimaryNavigation } from '../components/kite/navigationDensity';
 import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { SimpleSettingsDrawer } from '../components/SimpleSettings';
@@ -181,20 +181,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
     return () => window.removeEventListener('sterling-go-home', goHome);
   });
   const {data:sterlingProfile}=useSterlingProfile();
-  const navigation = orderedNavigation([
-    { id: 'dashboard' as const, label: 'Dashboard' },
-    { id: 'astro' as const, label: 'Astrology' },
-    { id: 'pcr' as const, label: 'PCR' },
-    { id: 'orders' as const, label: 'Orders' },
-    { id: 'holdings' as const, label: 'Holdings' },
-    { id: 'positions' as const, label: 'Positions' },
-    { id: 'journal' as const, label: 'Journal' },
-    { id: 'more' as const, label: 'More' },
-    { id: 'data' as const, label: 'Data' },
-    { id: 'backtest' as const, label: 'Backtest' },
-    { id: 'connect' as const, label: 'Connect' },
-    { id: 'help' as const, label: 'Help' },
-  ], navOptions);
+  const navigation = orderedNavigation(NAV_OPTIONS.map(([id,label])=>({id,label})), navOptions);
   const { primary, overflow } = groupPrimaryNavigation(navigation);
   useEffect(() => {
     if (!navOptions.navHidden.includes(kiteNav)) return;
@@ -324,7 +311,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
               STERLING
             </span>
           </button>
-          {kiteOnly && <span className="workspace-current">KITE</span>}
+          {kiteOnly && <><span className="workspace-current">KITE</span><span id="kite-session-status" /></>}
           {!kiteOnly && (spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>)}
 
           <div style={{ flex: 1 }} />

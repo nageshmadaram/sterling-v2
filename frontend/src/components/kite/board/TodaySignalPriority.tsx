@@ -129,12 +129,15 @@ export function TodaySignalPriorityStatus() {
       : state.stages[name] === 'error' ? 'unavailable'
       : 'loading today'
   }`);
+  const ready=TODAY_STRATEGIES.filter(name=>state.stages[name]==='ready').length;
+  const errors=TODAY_STRATEGIES.filter(name=>state.stages[name]==='error').length;
   return <div
     role="status" aria-live="polite" data-testid="today-signals-priority"
     style={{ padding: '5px 12px', fontSize: 11, lineHeight: 1.5,
       borderBottom: '1px solid var(--k-border)', color: 'var(--k-text)',
       background: 'var(--k-surface)', flexShrink: 0 }}
   >
+    <details className="today-signal-brief"><summary><strong>Today</strong><span>{ready}/4 responses{errors?` · ${errors} unavailable`:state.olderReady?' · History available':' · History waiting'}</span></summary><div className="today-signal-details">
     <strong>{state.olderReady
       ? 'Current-day API checks finished across four strategies. History may now load.'
       : 'Priority: today’s signals across all four strategies. Older history is queued.'}</strong>
@@ -142,5 +145,6 @@ export function TodaySignalPriorityStatus() {
     {state.olderReady && <span style={{ marginLeft: 8, opacity: .8 }}>A response does not prove that a fresh scan ran or produced signals.</span>}
     {!state.olderReady && TODAY_STRATEGIES.some(name => state.stages[name] === 'error') &&
       <span style={{ marginLeft: 8 }}>A failed API check or scan must recover before older history loads.</span>}
+    </div></details>
   </div>;
 }

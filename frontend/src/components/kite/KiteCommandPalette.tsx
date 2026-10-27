@@ -1,3 +1,8 @@
+import {createPortal} from 'react-dom';
+import {useModalLayer} from '../../hooks/useModalLayer';
+import {NavigationIcon} from './NavigationIcon';
+import {NAV_OPTIONS} from '../../store/useExperienceOptions';
+import {useExperienceOptions} from '../../store/useExperienceOptions';
 import React, { useState, useEffect, useRef } from 'react';
 import { k } from '../../styles/kiteUI';
 import { NavItem } from './KiteLayout';
@@ -67,6 +72,9 @@ export function KiteCommandPalette({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [open, onClose]);
 
+  const navigation=useExperienceOptions(state=>state.options);
+  const modalRef=React.useRef<HTMLDivElement>(null);
+  useModalLayer(open,modalRef,onClose);
   if (!open) return null;
 
   const commands: CommandItem[] = [
@@ -103,7 +111,7 @@ export function KiteCommandPalette({
     onSelect: () => onOpenChart?.(s.symbol),
   }));
 
-  const allItems = [...symbolCommands, ...commands];
+  const allItems = [...symbolCommands, ...commands.filter(command=>!command.id.startsWith('nav-')||!navigation.navHidden.includes(command.id.slice(4))).map(command=>command.id.startsWith('nav-')?{...command,title:NAV_OPTIONS.find(([id])=>id===command.id.slice(4))?.[1]||command.title,subtitle:undefined}:command)];
   const q = query.trim().toLowerCase();
 
   const filtered = q === ''
@@ -120,8 +128,9 @@ export function KiteCommandPalette({
     item.onSelect();
   };
 
-  return (
+  return createPortal(
     <div
+      ref={modalRef} tabIndex={-1} aria-modal="true" className="product-modal-layer"
       role="dialog"
       aria-label="Global Command Palette"
       style={{
@@ -198,8 +207,8 @@ export function KiteCommandPalette({
               fontFamily: 'inherit',
             }}
           />
-          <kbd
-            style={{
+          <button type="button" aria-label="Close command palette" onClick={onClose}
+            style={{minWidth:36,minHeight:36,cursor:'pointer',
               fontSize: 10,
               fontWeight: 700,
               padding: '3px 7px',
@@ -210,7 +219,7 @@ export function KiteCommandPalette({
             }}
           >
             ESC
-          </kbd>
+          </button>
         </div>
 
         {/* Results List */}
@@ -248,7 +257,7 @@ export function KiteCommandPalette({
                     transition: 'background 0.12s',
                   }}
                 >
-                  <span style={{ fontSize: 15, flexShrink: 0 }}>{item.icon || '⚡'}</span>
+                  <span style={{ fontSize: 15, flexShrink: 0 }}><NavigationIcon id={item.id.startsWith('nav-')?item.id.slice(4):item.category==='Symbols'?'pcr':item.category==='Docks'?'dashboard':'connect'}/></span>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 12.5, fontWeight: 650, color: active ? 'var(--k-brand)' : 'var(--k-text)' }}>
                       {item.title}
@@ -293,9 +302,9 @@ export function KiteCommandPalette({
           }}
         >
           <span>Use <kbd style={{ fontWeight: 700 }}>↑</kbd> <kbd style={{ fontWeight: 700 }}>↓</kbd> to navigate, <kbd style={{ fontWeight: 700 }}>↵</kbd> to select</span>
-          <span>Sterling Kite Command Center</span>
+
         </div>
       </div>
-    </div>
+    </div>, document.body
   );
 }

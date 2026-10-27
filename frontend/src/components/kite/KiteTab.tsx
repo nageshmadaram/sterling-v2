@@ -1,3 +1,4 @@
+import {useExperienceOptions} from '../../store/useExperienceOptions';
 import { useMobileBackLayer } from '../../hooks/useMobileBackLayer';
 import { useSavedSelection } from '../../hooks/useSavedSelection';
 import { notificationDestination } from '../../lib/notificationDestination';
@@ -146,6 +147,8 @@ export function KiteTab() {
   useEffect(() => { window.dispatchEvent(new CustomEvent('kite-page-changed', {detail:nav})); }, [nav]);
 
   const handleNavClick = (n: NavItem) => {
+    const options=useExperienceOptions.getState().options;
+    if(options.navHidden.includes(n))return;
     userNavigatedRef.current = true;
     if (n !== nav && hasUnsavedDraft()) {
       window.dispatchEvent(new CustomEvent('kite-scroll-to-draft-bar'));

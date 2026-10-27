@@ -1,3 +1,4 @@
+import {useConfirm} from '../kite/ConfirmDialog';
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
@@ -7,6 +8,7 @@ import type { KiteAccount } from '../../types/kite';
 const BASE = '/api/v1/admin/brokers';
 export function BrokerCard({ broker, users, targetUser }: { broker: KiteAccount; users: User[]; targetUser?:string }) {
   const qc = useQueryClient();
+  const confirm=useConfirm();
   const loginStatus=useQuery({queryKey:['admin-broker-login',broker.id,broker.user_id],queryFn:()=>api.get<{password_saved:boolean}>(BASE+'/'+encodeURIComponent(broker.id)+'/login-credentials')});
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(broker.label);
@@ -15,7 +17,7 @@ export function BrokerCard({ broker, users, targetUser }: { broker: KiteAccount;
   const login=useMutation({mutationFn:()=>api.put(BASE+'/'+encodeURIComponent(broker.id)+'/login-credentials',{username:loginUser,password:loginPassword,expected_user_id:broker.user_id,expected_updated_at_ms:broker.updated_at_ms}),onSuccess:()=>{setLoginPassword('');setNotice('Kite login credentials saved.');void qc.invalidateQueries({queryKey:['admin-broker-login',broker.id]});},onError:()=>setLoginPassword('')});
   const [notice, setNotice] = useState('');
   const [assignee, setAssignee] = useState(targetUser && targetUser!==broker.user_id?targetUser:'');
-  const assign = useMutation({ mutationFn: () => api.post(BASE + '/' + encodeURIComponent(broker.id) + '/assignment', { user_id: assignee, expected_user_id: broker.user_id, expected_updated_at_ms: broker.updated_at_ms }), onSuccess: () => { setNotice('Assigned to '+(users.find(u=>u.id===assignee)?.username||assignee)+'. Broker sign-in is required.'); setAssignee(''); void qc.invalidateQueries({ queryKey: ['admin-brokers'] }); }, });
+  const assign = useMutation({ mutationFn: () => api.post<KiteAccount>(BASE + '/' + encodeURIComponent(broker.id) + '/assignment', { user_id: assignee, expected_user_id: broker.user_id, expected_updated_at_ms: broker.updated_at_ms }), onSuccess: changed => { setNotice('Assigned to '+(users.find(u=>u.id===changed.user_id)?.username||changed.user_id)+'. Broker sign-in is required.'); setAssignee(''); void qc.invalidateQueries({ queryKey: ['admin-brokers'] }); }, });
   const save = useMutation({ mutationFn: () => api.patch(BASE + '/' + encodeURIComponent(broker.id), {
     label, expected_updated_at_ms: broker.updated_at_ms, ...(key.trim() ? { api_key: key.trim() } : {}), ...(secret.trim() ? { api_secret: secret.trim() } : {}),
   }), onSuccess: () => { setKey(''); setSecret(''); setEditing(false); setNotice('Connection saved. Reconnect from the assigned Kite workspace if credentials changed.'); void qc.invalidateQueries({ queryKey: ['admin-brokers'] }); },
@@ -27,10 +29,10 @@ export function BrokerCard({ broker, users, targetUser }: { broker: KiteAccount;
     <span className="admin-status">{broker.connected ? 'Session stored' : 'Not signed in'}</span></div>
     <dl><dt>Broker identity</dt><dd>{broker.kite_user_id || 'Awaiting broker verification'}</dd><dt>Automatic login</dt><dd>{loginStatus.isError?'Unavailable':loginStatus.isLoading?'Checking…':loginStatus.data?.password_saved?'Credentials saved':'Password not saved'}</dd><dt>API credentials</dt><dd>{broker.has_credentials ? 'Configured · masked' : 'Not configured'}</dd></dl>
     <div className="admin-checks"><button className="bac-btn" onClick={() => { setEditing(!editing); setKey(''); setSecret(''); }}> {editing ? 'Cancel edit' : 'Edit connection'}</button>
-      <button className="bac-btn" disabled={remove.isPending} onClick={() => { if (window.confirm(`Remove ${broker.label}? Removal is refused unless exposure and pending broker activity are safely clear.`)) remove.mutate(); }}>Remove connection</button></div>
+      <button className="bac-btn" disabled={remove.isPending} onClick={async() => { if (await confirm({title:`Remove ${broker.label}?`,body:"Removal requires verified clear exposure and pending broker activity.",confirmLabel:"Remove connection",danger:true})) remove.mutate(); }}>Remove connection</button></div>
     <details className="admin-assign-panel"><summary>Assign to a Sterling user</summary><p>Map this Kite profile to another Sterling user. Reassignment requires a verified flat broker account with no pending activity. The broker session is cleared; the new user signs in again.</p>
-      <div className="admin-assignees">{users.filter(user=>user.active).map(user=><button type="button" key={user.id} disabled={user.id===broker.user_id} aria-pressed={assignee===user.id} onClick={()=>setAssignee(user.id)}>{user.username}{user.id===broker.user_id?' · Assigned':''}</button>)}</div>
-      <button type="button" className="bac-btn bac-btn-primary" disabled={!assignee || assign.isPending} onClick={() => { if(window.confirm(`Assign ${broker.label} to ${users.find(u=>u.id===assignee)?.username || assignee}? The broker session will be cleared.`)) assign.mutate(); }}>{assign.isPending ? 'Verifying assignment…' : 'Save assignment'}</button>
+      <div className="admin-assignees">{users.filter(user=>user.active).map(user=><button type="button" key={user.id} disabled={user.id===broker.user_id||assign.isPending} aria-pressed={assignee===user.id} onClick={()=>setAssignee(user.id)}>{user.username}{user.id===broker.user_id?' · Assigned':''}</button>)}</div>
+      <button type="button" className="bac-btn bac-btn-primary" disabled={!assignee || assign.isPending} onClick={async() => { if(await confirm({title:`Assign ${broker.label}?`,body:`${users.find(u=>u.id===broker.user_id)?.username||broker.user_id} → ${users.find(u=>u.id===assignee)?.username||assignee}. The saved broker session will be cleared.`,confirmLabel:"Assign broker"})) assign.mutate(); }}>{assign.isPending ? 'Verifying assignment…' : 'Save assignment'}</button>
       {assign.error && <p role="alert">{assign.error.message}</p>}
     </details>
     <details><summary>Kite automatic login</summary><form className="admin-secret-form" onSubmit={e=>{e.preventDefault();login.mutate();}}><label>Kite user ID<input required value={loginUser} onChange={e=>setLoginUser(e.target.value)} autoComplete="off"/></label><label>Kite password<input type="password" required value={loginPassword} onChange={e=>setLoginPassword(e.target.value)} autoComplete="new-password"/></label><button disabled={login.isPending}>Save login credentials</button>{login.error&&<p role="alert">{login.error.message}</p>}</form></details>

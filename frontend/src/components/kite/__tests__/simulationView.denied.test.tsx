@@ -1,3 +1,4 @@
+vi.mock('../../../hooks/useConfigurationCapabilities',async original=>({...await original(),useConfigurationCapabilities:()=>({data:{active:true,administrator:true,sections:{brokers:{visible:true,grants:[{action:'create',resource_id:'own',expires_at_ms:null}]},telegram:{visible:true,grants:[{action:'create',resource_id:'own',expires_at_ms:null}]},integrations:{visible:true,grants:[{action:'create',resource_id:'own',expires_at_ms:null}]}}}})}));
 /**
  * What the server refuses in the Simulation view must not be on screen there as a live button that
  * ends in a 403. Each of these surfaces shows a one-line reason in its place, and in the LIVE view
@@ -98,7 +99,7 @@ describe('Settings in the live view', () => {
   it('still offers broker accounts, the data credentials, the loss limit and Telegram', () => {
     render(wrap(<ConnectPane />));
     expect(screen.getByRole('button', { name: '+ Add broker account' })).toBeInTheDocument();
-    openSection(/TrueData Feed\s*Market data connection/i);
+    openSection(/^TrueData Feed$/i);
     expect(screen.getByText('TrueData credentials')).toBeInTheDocument();
     expect(screen.queryByTestId('sim-denied-note')).toBeNull();
   });
@@ -107,7 +108,7 @@ describe('Settings in the live view', () => {
     render(wrap(<ConnectPane />));
     openSection(/Trading (Config|Mode)/i);
     expect(screen.getByText('Daily loss limit editor')).toBeInTheDocument();
-    openSection(/Notifications\s*Kite Telegram alerts/i);
+    openSection(/^Notifications$/i);
     expect(screen.getByText('Kite alert destinations')).toBeInTheDocument();
   });
 });
@@ -138,21 +139,21 @@ describe('Settings in the Simulation view', () => {
 
   it('replaces the market-data credentials with a reason', () => {
     render(wrap(<ConnectPane />));
-    openSection(/TrueData Feed\s*Market data connection/i);
+    openSection(/^TrueData Feed$/i);
     expect(screen.queryByText('TrueData credentials')).toBeNull();
     expect(screen.getByTestId('sim-denied-note')).toHaveTextContent('Market-data credentials is not available in the Simulation view');
   });
 
   it('replaces Telegram alert destinations with a reason', () => {
     render(wrap(<ConnectPane />));
-    openSection(/Notifications\s*Kite Telegram alerts/i);
+    openSection(/^Notifications$/i);
     expect(screen.queryByText('Kite alert destinations')).toBeNull();
     expect(screen.getByTestId('sim-denied-note')).toHaveTextContent('Telegram alerts is not available in the Simulation view');
   });
 
   it('keeps settings that belong to the simulation itself', () => {
     render(wrap(<ConnectPane />));
-    openSection(/SuperTrend\s*Scan, entry & exit/i);
+    openSection(/^SuperTrend$/i);
     expect(screen.getByText('SuperTrend strategy panel')).toBeInTheDocument();
     expect(screen.queryByTestId('sim-denied-note')).toBeNull();
   });

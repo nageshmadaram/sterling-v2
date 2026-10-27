@@ -864,7 +864,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
         <TodaySignalPriorityStatus />
         <div ref={workspaceRef} data-testid="kite-workspace" style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           {mobile ? <>
-            <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
+            {available.length>1 && <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
               {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
                 aria-controls={`mobile-pane-${id}`} onClick={() => { if (id === 'dashboard') { setMobilePane('dashboard'); window.dispatchEvent(new Event('sterling-open-kite')); } else { if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); } }}>
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
@@ -872,7 +872,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
               <button type="button" aria-label="Open replay" aria-pressed={useReplayOpenValue} onClick={()=>{useReplayStore.getState().setOpen(!useReplayStore.getState().open);}}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M8 5l11 7-11 7V5Z"/></svg><span>Replay</span>
               </button>
-            </div>
+            </div>}
             <div className="mobile-pane-host"><MobilePullToRefresh/>
               {available.map(id => <div id={`mobile-pane-${id}`} key={id} role="tabpanel"
                 aria-label={panes[id].title} hidden={mobilePane !== id} style={{height:'100%', minWidth:0, minHeight:0}}>

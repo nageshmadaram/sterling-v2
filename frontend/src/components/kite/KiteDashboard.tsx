@@ -260,7 +260,7 @@ export function KiteDashboard() {
       <div className="kd-shell">
         <MacReveal>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-            <h1 className="kd-greeting" style={{ margin: 0 }}>Hi, {name}</h1>
+            <h1 className="kd-greeting" style={{ margin: 0 }}>Dashboard</h1>
             <div
               onClick={() => window.dispatchEvent(new CustomEvent('kite-open-command-palette'))}
               title="Search symbols, contracts, strategies & layout commands (Ctrl+K)"

@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
+<style>html:not([data-radio-ready]) body{visibility:hidden}</style>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#000000" />
@@ -2108,6 +2109,53 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
     refresh();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+})();
+
+</script>
+<style>
+html[data-color-scheme=light],html[data-color-scheme=light] body{
+  color-scheme:light;--bg-outer:#f1f3f6;--bg-canvas:#fff;--surface:#fff;--surface-1:#f8f9fb;--surface-2:#eef1f5;--surface-3:#e3e8ee;--elevated:#fff;--elevated-hover:#eef1f5;--menu-bg:#fff;--border:#dce1e8;--border-strong:#b6c0ce;--text-primary:#151b26;--text-secondary:#4d5869;--text-muted:#647084;
+  --sp-bg:#fff;--sp-surface:#f4f6f9;--sp-card:#eef1f5;--sp-card-hover:#e1e6ed;--sp-sub:#4d5869;--ytm-bg:#fff;--ytm-player:#edf1f5;--ytm-sub:#4d5869;
+  background:#f7f9fc!important;color:#151b26!important;
+}
+html[data-color-scheme=light] :is(.bg-black,.bg-zinc-900,.bg-neutral-900,[class*="bg-[#0"],[class*="bg-[#1"],[class*="bg-[#2"]){background-color:#f4f6f9!important}
+html[data-color-scheme=light] :is(.text-white,.text-gray-100,.text-gray-200,.text-zinc-100){color:#151b26!important}
+html[data-color-scheme=light] :is(.text-gray-400,.text-gray-500,.text-zinc-400,.text-neutral-400){color:#526074!important}
+html[data-color-scheme=light] :is(input,select,textarea){color:#151b26;background-color:#fff;border-color:#c9d1dd}
+html[data-color-scheme=light] :is(.sp-sidebar,.sp-topbar,.sp-main,.sp-player,.ytm-sidebar,.ytm-main,.ytm-player){background-color:var(--sp-surface)!important;color:#151b26!important}
+/* Native video and artwork retain their original colors. */
+html.radio-hosted body>div>header.hidden.lg\:flex{display:none!important}
+html.radio-hosted :is(.sps-avatar,[data-radio-avatar],#sp-avatar){display:none!important}
+html.radio-hosted header>div>div>button[data-radio-click="28"]{display:none!important}
+html[data-color-scheme=light] body :is(#app-workspace,#main-scroll,#spotify-app,#youtube-app,.sps-root,.sp-canvas-bg,.ytm-canvas-bg){background:#f7f9fc!important;color:#151b26!important}
+html[data-color-scheme=light] body.mode-spotify #spotify-app main.sp-canvas-bg{background:#f7f9fc!important}
+html[data-color-scheme=light] body :is(.tm-context,.tm-top,.tm-quick button,.solid-sp-footer,.solid-sp-mob-nav,.solid-ytm-footer,#tv-mobile-nav){background:#edf1f6!important;color:#151b26!important;border-color:#dce1e8!important}
+html[data-color-scheme=light] body :is(.tm-context button,.tm-tabs button){background:#dce4ee;color:#151b26}
+html[data-color-scheme=light] body :is(.tm-context,.tm-tabs) button[aria-pressed=true]{background:#1ed760;color:#071b0f}
+html[data-color-scheme=light] body :is(.tm-section-title,.tm-album,.tm-quick,.tm-feed-heading,.sps-header,.sps-icon,.sps-root h2,#tv-mobile-nav button[aria-current=page]){color:#151b26!important}
+html[data-color-scheme=light] body :is(.tm-album small,.tm-section-title button,.sps-root small,[class*="text-[#b3"],[class*="text-[#aaa"]){color:#526074!important}
+html[data-color-scheme=light] body :is(#tv-mobile-mini,.solid-sp-miniplayer){background:#e2ece6!important;color:#14231c!important;box-shadow:0 4px 14px #0002!important;border-color:#c4d6c9!important}
+html[data-color-scheme=light] #app-workspace #main-scroll{background:#f7f9fc!important}
+html[data-color-scheme=light] #tv-mobile-home .tm-section-title h2{color:#151b26!important}
+html[data-color-scheme=light] #tv-mobile-mini,html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#fff!important}
+html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
+
+</style>
+<script>
+/* Display-only bridge; only the embedding window can select a supported scheme. */
+(()=>{
+  const apply=value=>{
+    if(!['light','dark','grey'].includes(value))return;
+    document.documentElement.dataset.colorScheme=value;
+    document.documentElement.style.colorScheme=value==='light'?'light':'dark';
+    document.documentElement.classList.toggle('dark',value!=='light');
+  };
+  addEventListener('message',event=>{
+    if(event.source!==parent||!event.data||typeof event.data!=='object')return;
+    const d=event.data;
+    if(['sterling.radio.hydrate','sterling.tv.hydrate'].includes(d.type))apply(d.appearance);
+    if(['sterling.radio.command','sterling.tv.command'].includes(d.type)&&d.action==='appearance')apply(d.value);
+  });
 })();
 
 </script>
@@ -4418,6 +4466,7 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
       initRadioDirectory();
       initSpotifyShell();
       initRadioExtras();
+      document.documentElement.dataset.radioReady='true';
       radioNav=window.SterlingNav?.create({kind:'radio',hosted:()=>radioHosted});
       bindAudioEvents();
       bindBackgroundPlayGuard();

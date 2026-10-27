@@ -29,6 +29,7 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
   const autoStarted = useRef(false);
   const [previewClock, setPreviewClock] = useState(Date.now());
   const running = !!attempt && !terminal(attempt.phase);
+  useEffect(()=>{if(accountId&&!attempt&&!busy)setSelected(accountId);},[accountId]);
   useEffect(() => {
     if (!attempt || terminal(attempt.phase)) return;
     let active = true;

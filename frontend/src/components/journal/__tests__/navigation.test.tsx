@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import simpleTerminal from '../../../pages/SimpleTerminal.tsx?raw';
+import {NAV_OPTIONS} from '../../../store/useExperienceOptions';
 import kiteTab from '../../kite/KiteTab.tsx?raw';
 import kiteLayout from '../../kite/KiteLayout.tsx?raw';
 import palette from '../../kite/KiteCommandPalette.tsx?raw';
@@ -18,7 +18,7 @@ import { useKiteSettings } from '../../../store/useKiteSettings';
 
 describe('Journal navigation', () => {
   it('is in the top navigation, right after Positions and before More', () => {
-    expect(simpleTerminal).toMatch(/id: 'positions' as const, label: 'Positions' \},\s*\{ id: 'journal' as const, label: 'Journal' \},\s*\{ id: 'more'/);
+    const ids=NAV_OPTIONS.map(([id])=>id);expect(ids.indexOf('journal')).toBe(ids.indexOf('positions')+1);expect(ids.indexOf('more')).toBe(ids.indexOf('journal')+1);
   });
 
   it('is a section the layout knows, and KiteTab renders the Journal tab for it', () => {

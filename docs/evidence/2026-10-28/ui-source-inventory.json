@@ -1,0 +1,1401 @@
+{
+  "mediaArtifacts": [
+    {
+      "file": "backend/app/media_templates/tv.html",
+      "buttons": 86,
+      "inputs": 14,
+      "forms": 0,
+      "overlays": [
+        {
+          "id": "startup-channel-modal",
+          "label": null
+        },
+        {
+          "id": "source-manager-modal",
+          "label": null
+        }
+      ]
+    },
+    {
+      "file": "backend/app/media_templates/radio.html",
+      "buttons": 117,
+      "inputs": 15,
+      "forms": 0,
+      "overlays": [
+        {
+          "id": "startup-modal",
+          "label": "Radio startup settings"
+        },
+        {
+          "id": "audio-dsp-modal",
+          "label": null
+        }
+      ]
+    },
+    {
+      "file": "sterling-iptv/sterling-iptv.html",
+      "buttons": 86,
+      "inputs": 14,
+      "forms": 0,
+      "overlays": [
+        {
+          "id": "startup-channel-modal",
+          "label": null
+        },
+        {
+          "id": "source-manager-modal",
+          "label": null
+        }
+      ]
+    },
+    {
+      "file": "sterling-radio/sterling-radio.html",
+      "buttons": 117,
+      "inputs": 15,
+      "forms": 0,
+      "overlays": [
+        {
+          "id": "startup-modal",
+          "label": "Radio startup settings"
+        },
+        {
+          "id": "audio-dsp-modal",
+          "label": null
+        }
+      ]
+    }
+  ],
+  "description": "Static source inventory; runtime coverage is recorded separately. Counts are JSX control sites, not rendered states.",
+  "summary": {
+    "artifacts": 168,
+    "buttons": 758,
+    "forms": 16,
+    "inputs": 335,
+    "dialogs": 25
+  },
+  "artifacts": [
+    {
+      "file": "src/components/AccountMenu.tsx",
+      "buttons": 8,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 20,
+          "label": "Account and navigation",
+          "className": "account-menu"
+        }
+      ]
+    },
+    {
+      "file": "src/components/admin/AccessEditor.tsx",
+      "buttons": 5,
+      "forms": 2,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/admin/AccessRequests.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/admin/CentralConnections.tsx",
+      "buttons": 8,
+      "forms": 3,
+      "inputs": 8,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/admin/CentralIntegrations.tsx",
+      "buttons": 3,
+      "forms": 1,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/admin/UserCombobox.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/auth/BrokerLoginEntry.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/auth/LoginGate.tsx",
+      "buttons": 3,
+      "forms": 1,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/auth/PreferenceGate.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/backtest/EmaTrendBacktestPanel.tsx",
+      "buttons": 2,
+      "forms": 1,
+      "inputs": 4,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/backtest/UnifiedBacktestPane.tsx",
+      "buttons": 11,
+      "forms": 0,
+      "inputs": 15,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/charts/LiveChart.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/charts/TradingViewKiteChart.tsx",
+      "buttons": 10,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/charts/TradingViewKiteChartLegacy.tsx",
+      "buttons": 57,
+      "forms": 0,
+      "inputs": 31,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/datalake/DataLakeSettingsPanel.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 5,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/datalake/FolderPicker.tsx",
+      "buttons": 10,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": [
+        {
+          "line": 130,
+          "label": "Choose the market-data folder",
+          "className": null
+        }
+      ]
+    },
+    {
+      "file": "src/components/diagnostics/SystemDiagnosticsChecklistPanel.tsx",
+      "buttons": 6,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/EmaTrendSettings.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/ErrorBoundary.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/GammaMoveSettings.tsx",
+      "buttons": 0,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/EquitySection.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/FilterBar.tsx",
+      "buttons": 0,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/JournalTab.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/SkippedSignals.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/TradesSection.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 4,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/TradeStory.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/journal/ui.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/AdaptiveEdgePositionCalculator.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 5,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/AdaptiveEdgeRightSidebar.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/AlertsPane.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/AppearanceSettings.tsx",
+      "buttons": 12,
+      "forms": 0,
+      "inputs": 8,
+      "dialogs": [
+        {
+          "line": 49,
+          "label": "{`${preview.name} preview`}",
+          "className": "appearance-modal"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/ArchivedStrategiesPanel.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/astro/MonthHeat.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/astro/NowBoard.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/astro/OrderCell.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 130,
+          "label": "{plan.label}",
+          "className": "ko-ticket"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/astro/PlaybookBoard.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/AstroPane.tsx",
+      "buttons": 11,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 889,
+          "label": "{`${month.label} calendar`}",
+          "className": "ko-cal-pop"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/BacktestPane.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 4,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/BasketPane.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/BidsPane.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/BoardDetailPane.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/BoardFilters.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/EmaTrendBoard.tsx",
+      "buttons": 8,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/EmaTrendOperations.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/EmaTrendReplay.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/EmaTrendTicket.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/EngineToolbar.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/GammaMoveBoard.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/KiteSessionBar.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/PriceRulesBoard.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/SignalBoard.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/SnapbackBoard.tsx",
+      "buttons": 6,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/board/StrategyBoardFooter.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 44,
+          "label": "Gamma history and coverage",
+          "className": "strategy-options-panel"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/board/StrategyGuide.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/BrokerReadStatus.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/config/ConfigPrimitives.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/config/EmaTrendInstrumentPicker.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/config/EmaTrendReadiness.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/config/optionContractsMachinery.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/config/OptionContractsPicker.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/config/ScanSettings.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ConfirmDialog.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 57,
+          "label": "cdlg-title",
+          "className": "{`cdlg-panel${danger ? ' cdlg-panel--danger' : ''}`}"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/ConnectPane.tsx",
+      "buttons": 34,
+      "forms": 1,
+      "inputs": 17,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/CreateAlertModal.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/CreateGttModal.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 5,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/CustomizeLayoutModal.tsx",
+      "buttons": 12,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 57,
+          "label": "Customize Workspace Layout",
+          "className": "product-modal-layer"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/DailyLossLimitPanel.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/DataLakePane.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/DefaultSectionSettings.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/DelegatedTelegramPanel.tsx",
+      "buttons": 2,
+      "forms": 1,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/DirectionalModePanel.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 6,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/DisplayScaleSettings.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/EditAlertModal.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/EgressAddressRow.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/EnginePositionsPane.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/EngineTerminal.tsx",
+      "buttons": 10,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/FeedTestSettings.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/FundsPane.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/GttOptionsModal.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/GttPane.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/InstrumentPane.tsx",
+      "buttons": 17,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteActionButtons.tsx",
+      "buttons": 9,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteActivityRail.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteAssistedLogin.tsx",
+      "buttons": 5,
+      "forms": 1,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteCommandPalette.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": [
+        {
+          "line": 131,
+          "label": "Global Command Palette",
+          "className": "product-modal-layer"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/KiteDashboard.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteExchangeSettingsCard.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteFooterPnl.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteFooterStatus.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteLayout.tsx",
+      "buttons": 15,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 949,
+          "label": "Workspace layout menu",
+          "className": null
+        },
+        {
+          "line": 999,
+          "label": "Search instruments",
+          "className": "instrument-search-dialog"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/KiteLoginCredentials.tsx",
+      "buttons": 6,
+      "forms": 1,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteLoginLinkFallback.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteLoginModal.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 60,
+          "label": "{title}",
+          "className": null
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/KiteNotifications.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KitePortfolioAnalyticsModal.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteSessionGuard.tsx",
+      "buttons": 9,
+      "forms": 1,
+      "inputs": 1,
+      "dialogs": [
+        {
+          "line": 172,
+          "label": "Zerodha Kite Status",
+          "className": "kite-session-overlay"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/KiteSettingsPopover.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/kiteSettingsPrimitives.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteTab.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteTelegramPanel.tsx",
+      "buttons": 12,
+      "forms": 0,
+      "inputs": 6,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/KiteTicker.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/MarketDataPane.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 7,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/MobileExperienceMenu.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ModeToggle.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ModifyOrderModal.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 3,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/MotionStyleSettings.tsx",
+      "buttons": 0,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/MutualFundsPane.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 8,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/NavigationSettings.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ops/OperatorActions.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/OrdersPane.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/OrderWindow.tsx",
+      "buttons": 18,
+      "forms": 0,
+      "inputs": 13,
+      "dialogs": [
+        {
+          "line": 579,
+          "label": "{`${side} order ticket`}",
+          "className": "sterling-order-ticket"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/PcrPane.tsx",
+      "buttons": 11,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": [
+        {
+          "line": 362,
+          "label": "PCR data information",
+          "className": "kp-prefs kp-data-info"
+        },
+        {
+          "line": 371,
+          "label": "Settings",
+          "className": "kp-prefs"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/PortfolioPane.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 6,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/PositionsPane.tsx",
+      "buttons": 9,
+      "forms": 0,
+      "inputs": 5,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/PriceRulesPanel.tsx",
+      "buttons": 8,
+      "forms": 0,
+      "inputs": 11,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ProductionSettingsPanel.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 8,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ProfileMenu.tsx",
+      "buttons": 9,
+      "forms": 0,
+      "inputs": 6,
+      "dialogs": [
+        {
+          "line": 32,
+          "label": "{cropFile?'Crop profile picture':'Sterling profile'}",
+          "className": "appearance-modal sterling-profile-modal"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/ProfilePhotoCropper.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/PushSettings.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 9,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/primitives/ReplayPopover.tsx",
+      "buttons": 0,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 90,
+          "label": "{label}",
+          "className": "rd-popover"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/replay/ReplayBarControls.tsx",
+      "buttons": 15,
+      "forms": 0,
+      "inputs": 7,
+      "dialogs": [
+        {
+          "line": 434,
+          "label": "Strategy selection",
+          "className": "rd-drop-menu"
+        },
+        {
+          "line": 537,
+          "label": "Position sizing",
+          "className": "rd-drop-menu"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/replay/ReplayDock.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayFilters.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 5,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayFooterChip.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayShellBar.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayShortcuts.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 39,
+          "label": "Replay keyboard shortcuts",
+          "className": "rd-modal"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/replay/ReplaySignalsTable.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplaySummaryModal.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 160,
+          "label": "rd-summary-title",
+          "className": "rd-modal"
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/replay/ReplayTimeline.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayToastHost.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayTradesTable.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/replay/ReplayTransport.tsx",
+      "buttons": 8,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SavedKiteCredentials.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SetupChart.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SharedRiskSettings.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SignalDetailPane.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SignalEngineOrderSettings.tsx",
+      "buttons": 6,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SignalImpactCalculator.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SpectrumSettings.tsx",
+      "buttons": 5,
+      "forms": 0,
+      "inputs": 5,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SterlingKiteEnginePane.tsx",
+      "buttons": 11,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SterlingUsersPanel.tsx",
+      "buttons": 6,
+      "forms": 1,
+      "inputs": 4,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/SterlingWatchList.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 4,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ThemeToggle.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ticker/TickerStripSettings.tsx",
+      "buttons": 4,
+      "forms": 0,
+      "inputs": 6,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/ticker/TickerTile.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/TradeRulesPanels.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 7,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/kite/TradingModeControls.tsx",
+      "buttons": 6,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": [
+        {
+          "line": 493,
+          "label": "{title}",
+          "className": null
+        }
+      ]
+    },
+    {
+      "file": "src/components/kite/TradingModePanel.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/live/LiveFeedBadge.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/media/MediaHeaderControls.tsx",
+      "buttons": 10,
+      "forms": 1,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/radio/RadioWorkspace.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/sim/SimBanner.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/sim/SimDeniedNote.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/sim/SimDialog.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": [
+        {
+          "line": 64,
+          "label": "{titleId}",
+          "className": null
+        }
+      ]
+    },
+    {
+      "file": "src/components/sim/SimStatusCard.tsx",
+      "buttons": 4,
+      "forms": 1,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/sim/SpectrumNavigation.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/sim/StrategyModeSelector.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/sim/ViewSwitch.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/SimpleSettings.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/SnapbackScalpSettings.tsx",
+      "buttons": 0,
+      "forms": 0,
+      "inputs": 1,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/SwitchWorkspaceButton.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/truedata/TrueDataCredentialsPanel.tsx",
+      "buttons": 9,
+      "forms": 0,
+      "inputs": 9,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/tv/TvWorkspace.tsx",
+      "buttons": 1,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/WorkspaceAccessRequest.tsx",
+      "buttons": 2,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/components/WorkspaceChooser.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": [
+        {
+          "line": 28,
+          "label": "Choose your workspace",
+          "className": "workspace-dialog"
+        }
+      ]
+    },
+    {
+      "file": "src/pages/Administration.tsx",
+      "buttons": 13,
+      "forms": 0,
+      "inputs": 2,
+      "dialogs": []
+    },
+    {
+      "file": "src/pages/SimpleTerminal.tsx",
+      "buttons": 7,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    },
+    {
+      "file": "src/pages/WorkspaceRouter.tsx",
+      "buttons": 3,
+      "forms": 0,
+      "inputs": 0,
+      "dialogs": []
+    }
+  ]
+}

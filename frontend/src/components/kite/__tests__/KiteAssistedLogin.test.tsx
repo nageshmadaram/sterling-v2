@@ -123,3 +123,14 @@ it('Telegram starts saved-credential login after the user chooses their account'
   await waitFor(()=>expect(state.api.post).toHaveBeenCalledWith('/api/v1/kite/assisted-login',{account_id:'one'}));
   expect(state.api.post).toHaveBeenCalledTimes(1);
 });
+
+it('uses a broker profile that arrives after the login panel mounts',async()=>{
+  const client=new QueryClient();
+  const view=render(<QueryClientProvider client={client}><KiteAssistedLogin /></QueryClientProvider>);
+  expect(screen.getByRole('button',{name:'Login with saved credentials'})).toBeDisabled();
+  view.rerender(<QueryClientProvider client={client}><KiteAssistedLogin accountId="one" /></QueryClientProvider>);
+  await waitFor(()=>expect(screen.getByRole('button',{name:'Login with saved credentials'})).toBeEnabled());
+  state.api.post.mockResolvedValue({id:'arrived',phase:'failed',message:'Stopped'});
+  fireEvent.click(screen.getByRole('button',{name:'Login with saved credentials'}));
+  await waitFor(()=>expect(state.api.post).toHaveBeenCalledWith('/api/v1/kite/assisted-login',{account_id:'one'}));
+});

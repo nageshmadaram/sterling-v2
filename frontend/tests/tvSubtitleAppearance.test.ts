@@ -1,5 +1,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
-import html from '../public/tv/index.html?raw';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+const html=readFileSync(resolve(process.cwd(),'../backend/app/media_templates/tv.html'),'utf8');
 afterEach(()=>{document.body.innerHTML='';document.documentElement.removeAttribute('style');});
 it('applies saved subtitle appearance and persists user edits from the hosted player',()=>{
  const start=html.indexOf("let subStyleConfig = readTvStoredJson('streamos_sub_style_v14'");

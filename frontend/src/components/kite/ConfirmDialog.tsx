@@ -1,3 +1,4 @@
+import {useModalLayer} from '../../hooks/useModalLayer';
 /**
  * ConfirmDialog — a beautiful custom confirm overlay that replaces window.confirm().
  *
@@ -42,36 +43,8 @@ export function ConfirmDialog({
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
-  // Focus the cancel button on open (safe default)
-  useEffect(() => {
-    if (open) cancelRef.current?.focus();
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onCancel]);
-
-  // Trap focus inside dialog
-  useEffect(() => {
-    if (!open) return;
-    const trap = (e: KeyboardEvent) => {
-      if (e.key !== 'Tab') return;
-      const els = [cancelRef.current, confirmRef.current].filter(Boolean) as HTMLElement[];
-      if (!els.length) return;
-      const first = els[0], last = els[els.length - 1];
-      if (e.shiftKey ? document.activeElement === first : document.activeElement === last) {
-        e.preventDefault();
-        (e.shiftKey ? last : first).focus();
-      }
-    };
-    document.addEventListener('keydown', trap);
-    return () => document.removeEventListener('keydown', trap);
-  }, [open]);
-
+  const panelRef=useRef<HTMLDivElement>(null);
+  useModalLayer(open,panelRef,onCancel);
   if (!open) return null;
 
   return createPortal(
@@ -82,6 +55,8 @@ export function ConfirmDialog({
       aria-modal="true"
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         className={`cdlg-panel${danger ? ' cdlg-panel--danger' : ''}`}
         style={{ maxHeight: 'calc(100dvh - 32px)', overflowY: 'auto' }}
         role="alertdialog"

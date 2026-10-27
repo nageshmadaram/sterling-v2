@@ -1,0 +1,2379 @@
+{
+  "results": [
+    {
+      "name": "kite-dashboard-390-light",
+      "workspace": "kite",
+      "page": "Dashboard",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 20,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "command-palette-390-light",
+      "overlay": "command-palette",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Global Command Palette"
+      ],
+      "buttons": 33,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-astrology-390-light",
+      "workspace": "kite",
+      "page": "Astrology",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 22,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-pcr-390-light",
+      "workspace": "kite",
+      "page": "PCR",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 13,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "pcr-information-390-light",
+      "overlay": "pcr-information",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "PCR data information"
+      ],
+      "buttons": 14,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-orders-390-light",
+      "workspace": "kite",
+      "page": "Orders",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 13,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-holdings-390-light",
+      "workspace": "kite",
+      "page": "Holdings",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 10,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-positions-390-light",
+      "workspace": "kite",
+      "page": "Positions",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-journal-390-light",
+      "workspace": "kite",
+      "page": "Journal",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 17,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-markets-390-light",
+      "workspace": "kite",
+      "page": "Markets",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-data-390-light",
+      "workspace": "kite",
+      "page": "Data",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 9,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-backtest-390-light",
+      "workspace": "kite",
+      "page": "Backtest",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-settings-390-light",
+      "workspace": "kite",
+      "page": "Settings",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-account-390-light",
+      "workspace": "kite",
+      "settings": "account",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-diagnostics-390-light",
+      "workspace": "kite",
+      "settings": "diagnostics",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 31,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-feedTest-390-light",
+      "workspace": "kite",
+      "settings": "feedTest",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 9,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-mode-390-light",
+      "workspace": "kite",
+      "settings": "mode",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 45,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-manualRules-390-light",
+      "workspace": "kite",
+      "settings": "manualRules",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-autoRules-390-light",
+      "workspace": "kite",
+      "settings": "autoRules",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 30,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-engine-390-light",
+      "workspace": "kite",
+      "settings": "engine",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 36,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-gammaMove-390-light",
+      "workspace": "kite",
+      "settings": "gammaMove",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 21,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-snapback-390-light",
+      "workspace": "kite",
+      "settings": "snapback",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 34,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-emaTrend-390-light",
+      "workspace": "kite",
+      "settings": "emaTrend",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-priceRules-390-light",
+      "workspace": "kite",
+      "settings": "priceRules",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 9,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-archived-390-light",
+      "workspace": "kite",
+      "settings": "archived",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-markets-390-light",
+      "workspace": "kite",
+      "settings": "markets",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-push-390-light",
+      "workspace": "kite",
+      "settings": "push",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 10,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-experience-390-light",
+      "workspace": "kite",
+      "settings": "experience",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 346,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-dataLake-390-light",
+      "workspace": "kite",
+      "settings": "dataLake",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-help-390-light",
+      "workspace": "kite",
+      "page": "Help",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "workspace-selector-390-light",
+      "overlay": "workspace-selector",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Choose your workspace"
+      ],
+      "buttons": 11,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "profile-390-light",
+      "overlay": "profile",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Sterling profile"
+      ],
+      "buttons": 14,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "broker-status-390-light",
+      "overlay": "broker-status",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Zerodha Kite Status"
+      ],
+      "buttons": 13,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-dashboard-390-dark",
+      "workspace": "kite",
+      "page": "Dashboard",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 20,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "command-palette-390-dark",
+      "overlay": "command-palette",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Global Command Palette"
+      ],
+      "buttons": 33,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-astrology-390-dark",
+      "workspace": "kite",
+      "page": "Astrology",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 22,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-pcr-390-dark",
+      "workspace": "kite",
+      "page": "PCR",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 12,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "pcr-information-390-dark",
+      "overlay": "pcr-information",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "PCR data information"
+      ],
+      "buttons": 13,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-orders-390-dark",
+      "workspace": "kite",
+      "page": "Orders",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 12,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-holdings-390-dark",
+      "workspace": "kite",
+      "page": "Holdings",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 10,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-positions-390-dark",
+      "workspace": "kite",
+      "page": "Positions",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-journal-390-dark",
+      "workspace": "kite",
+      "page": "Journal",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 14,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-markets-390-dark",
+      "workspace": "kite",
+      "page": "Markets",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-data-390-dark",
+      "workspace": "kite",
+      "page": "Data",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 309,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-backtest-390-dark",
+      "workspace": "kite",
+      "page": "Backtest",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-settings-390-dark",
+      "workspace": "kite",
+      "page": "Settings",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-account-390-dark",
+      "workspace": "kite",
+      "settings": "account",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-diagnostics-390-dark",
+      "workspace": "kite",
+      "settings": "diagnostics",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 31,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-feedTest-390-dark",
+      "workspace": "kite",
+      "settings": "feedTest",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 9,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-mode-390-dark",
+      "workspace": "kite",
+      "settings": "mode",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 52,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-manualRules-390-dark",
+      "workspace": "kite",
+      "settings": "manualRules",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-autoRules-390-dark",
+      "workspace": "kite",
+      "settings": "autoRules",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 30,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-engine-390-dark",
+      "workspace": "kite",
+      "settings": "engine",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 36,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-gammaMove-390-dark",
+      "workspace": "kite",
+      "settings": "gammaMove",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 21,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-snapback-390-dark",
+      "workspace": "kite",
+      "settings": "snapback",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 34,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-emaTrend-390-dark",
+      "workspace": "kite",
+      "settings": "emaTrend",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-priceRules-390-dark",
+      "workspace": "kite",
+      "settings": "priceRules",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 9,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-archived-390-dark",
+      "workspace": "kite",
+      "settings": "archived",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-markets-390-dark",
+      "workspace": "kite",
+      "settings": "markets",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-push-390-dark",
+      "workspace": "kite",
+      "settings": "push",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 10,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-experience-390-dark",
+      "workspace": "kite",
+      "settings": "experience",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 346,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "settings-dataLake-390-dark",
+      "workspace": "kite",
+      "settings": "dataLake",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "kite-help-390-dark",
+      "workspace": "kite",
+      "page": "Help",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "workspace-selector-390-dark",
+      "overlay": "workspace-selector",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Choose your workspace"
+      ],
+      "buttons": 11,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "profile-390-dark",
+      "overlay": "profile",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Sterling profile"
+      ],
+      "buttons": 14,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "broker-status-390-dark",
+      "overlay": "broker-status",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Zerodha Kite Status"
+      ],
+      "buttons": 13,
+      "workspaceHeight": 780
+    },
+    {
+      "name": "radio-390-light",
+      "workspace": "radio",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "radio-display-390-light",
+      "overlay": "media-display",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "radio-390-dark",
+      "workspace": "radio",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "radio-display-390-dark",
+      "overlay": "media-display",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-390-light",
+      "workspace": "tv",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-display-390-light",
+      "overlay": "media-display",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-390-dark",
+      "workspace": "tv",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-display-390-dark",
+      "overlay": "media-display",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-overview-390-light",
+      "workspace": "administration",
+      "userTab": "Overview",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 16,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-access-390-light",
+      "workspace": "administration",
+      "userTab": "Access",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 17,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-brokers-390-light",
+      "workspace": "administration",
+      "userTab": "Brokers",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 20,
+      "workspaceHeight": null
+    },
+    {
+      "name": "assignment-confirm-390-light",
+      "overlay": "assignment-confirm",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "cdlg-title"
+      ],
+      "buttons": 22,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-telegram-390-light",
+      "workspace": "administration",
+      "userTab": "Telegram",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 14,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-activity-390-light",
+      "workspace": "administration",
+      "userTab": "Activity",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 13,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-requests-390-light",
+      "workspace": "administration",
+      "section": "Requests",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-brokers-390-light",
+      "workspace": "administration",
+      "section": "Brokers",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-accounts-390-light",
+      "workspace": "administration",
+      "section": "Accounts",
+      "theme": "light",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 8,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-overview-390-dark",
+      "workspace": "administration",
+      "userTab": "Overview",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 16,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-access-390-dark",
+      "workspace": "administration",
+      "userTab": "Access",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 17,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-brokers-390-dark",
+      "workspace": "administration",
+      "userTab": "Brokers",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 20,
+      "workspaceHeight": null
+    },
+    {
+      "name": "assignment-confirm-390-dark",
+      "overlay": "assignment-confirm",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "cdlg-title"
+      ],
+      "buttons": 22,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-telegram-390-dark",
+      "workspace": "administration",
+      "userTab": "Telegram",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 14,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-activity-390-dark",
+      "workspace": "administration",
+      "userTab": "Activity",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 13,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-requests-390-dark",
+      "workspace": "administration",
+      "section": "Requests",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-brokers-390-dark",
+      "workspace": "administration",
+      "section": "Brokers",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-accounts-390-dark",
+      "workspace": "administration",
+      "section": "Accounts",
+      "theme": "dark",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 8,
+      "workspaceHeight": null
+    },
+    {
+      "name": "sign-in-390",
+      "workspace": "sign-in",
+      "width": 390,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 2,
+      "workspaceHeight": null
+    },
+    {
+      "name": "kite-dashboard-1440-light",
+      "workspace": "kite",
+      "page": "Dashboard",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 77,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "command-palette-1440-light",
+      "overlay": "command-palette",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Global Command Palette"
+      ],
+      "buttons": 90,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "layout-menu-1440-light",
+      "overlay": "layout-menu",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Workspace layout menu"
+      ],
+      "buttons": 84,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "layout-customize-1440-light",
+      "overlay": "layout-customize",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Customize Workspace Layout"
+      ],
+      "buttons": 91,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-astrology-1440-light",
+      "workspace": "kite",
+      "page": "Astrology",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 47,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-pcr-1440-light",
+      "workspace": "kite",
+      "page": "PCR",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 38,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "pcr-information-1440-light",
+      "overlay": "pcr-information",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "PCR data information"
+      ],
+      "buttons": 39,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-orders-1440-light",
+      "workspace": "kite",
+      "page": "Orders",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 38,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-holdings-1440-light",
+      "workspace": "kite",
+      "page": "Holdings",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 36,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-positions-1440-light",
+      "workspace": "kite",
+      "page": "Positions",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 36,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-journal-1440-light",
+      "workspace": "kite",
+      "page": "Journal",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 41,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-markets-1440-light",
+      "workspace": "kite",
+      "page": "Markets",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 40,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-data-1440-light",
+      "workspace": "kite",
+      "page": "Data",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 34,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-backtest-1440-light",
+      "workspace": "kite",
+      "page": "Backtest",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 42,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-settings-1440-light",
+      "workspace": "kite",
+      "page": "Settings",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-account-1440-light",
+      "workspace": "kite",
+      "settings": "account",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-diagnostics-1440-light",
+      "workspace": "kite",
+      "settings": "diagnostics",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 72,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-feedTest-1440-light",
+      "workspace": "kite",
+      "settings": "feedTest",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 50,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-mode-1440-light",
+      "workspace": "kite",
+      "settings": "mode",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 91,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-manualRules-1440-light",
+      "workspace": "kite",
+      "settings": "manualRules",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-autoRules-1440-light",
+      "workspace": "kite",
+      "settings": "autoRules",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 71,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-engine-1440-light",
+      "workspace": "kite",
+      "settings": "engine",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 77,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-gammaMove-1440-light",
+      "workspace": "kite",
+      "settings": "gammaMove",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 62,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-snapback-1440-light",
+      "workspace": "kite",
+      "settings": "snapback",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 75,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-emaTrend-1440-light",
+      "workspace": "kite",
+      "settings": "emaTrend",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-priceRules-1440-light",
+      "workspace": "kite",
+      "settings": "priceRules",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 50,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-archived-1440-light",
+      "workspace": "kite",
+      "settings": "archived",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-markets-1440-light",
+      "workspace": "kite",
+      "settings": "markets",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-push-1440-light",
+      "workspace": "kite",
+      "settings": "push",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 51,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-experience-1440-light",
+      "workspace": "kite",
+      "settings": "experience",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 387,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-dataLake-1440-light",
+      "workspace": "kite",
+      "settings": "dataLake",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-help-1440-light",
+      "workspace": "kite",
+      "page": "Help",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 32,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "workspace-selector-1440-light",
+      "overlay": "workspace-selector",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Choose your workspace"
+      ],
+      "buttons": 36,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "profile-1440-light",
+      "overlay": "profile",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Sterling profile"
+      ],
+      "buttons": 39,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "broker-status-1440-light",
+      "overlay": "broker-status",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Zerodha Kite Status"
+      ],
+      "buttons": 38,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-dashboard-1440-dark",
+      "workspace": "kite",
+      "page": "Dashboard",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 76,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "command-palette-1440-dark",
+      "overlay": "command-palette",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Global Command Palette"
+      ],
+      "buttons": 89,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "layout-menu-1440-dark",
+      "overlay": "layout-menu",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Workspace layout menu"
+      ],
+      "buttons": 83,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "layout-customize-1440-dark",
+      "overlay": "layout-customize",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Customize Workspace Layout"
+      ],
+      "buttons": 91,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-astrology-1440-dark",
+      "workspace": "kite",
+      "page": "Astrology",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 47,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-pcr-1440-dark",
+      "workspace": "kite",
+      "page": "PCR",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 37,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "pcr-information-1440-dark",
+      "overlay": "pcr-information",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "PCR data information"
+      ],
+      "buttons": 38,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-orders-1440-dark",
+      "workspace": "kite",
+      "page": "Orders",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 38,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-holdings-1440-dark",
+      "workspace": "kite",
+      "page": "Holdings",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 36,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-positions-1440-dark",
+      "workspace": "kite",
+      "page": "Positions",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 36,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-journal-1440-dark",
+      "workspace": "kite",
+      "page": "Journal",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 39,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-markets-1440-dark",
+      "workspace": "kite",
+      "page": "Markets",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 40,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-data-1440-dark",
+      "workspace": "kite",
+      "page": "Data",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 334,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-backtest-1440-dark",
+      "workspace": "kite",
+      "page": "Backtest",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 43,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-settings-1440-dark",
+      "workspace": "kite",
+      "page": "Settings",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-account-1440-dark",
+      "workspace": "kite",
+      "settings": "account",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-diagnostics-1440-dark",
+      "workspace": "kite",
+      "settings": "diagnostics",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 72,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-feedTest-1440-dark",
+      "workspace": "kite",
+      "settings": "feedTest",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 50,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-mode-1440-dark",
+      "workspace": "kite",
+      "settings": "mode",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 93,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-manualRules-1440-dark",
+      "workspace": "kite",
+      "settings": "manualRules",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-autoRules-1440-dark",
+      "workspace": "kite",
+      "settings": "autoRules",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 71,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-engine-1440-dark",
+      "workspace": "kite",
+      "settings": "engine",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 77,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-gammaMove-1440-dark",
+      "workspace": "kite",
+      "settings": "gammaMove",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 62,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-snapback-1440-dark",
+      "workspace": "kite",
+      "settings": "snapback",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 75,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-emaTrend-1440-dark",
+      "workspace": "kite",
+      "settings": "emaTrend",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-priceRules-1440-dark",
+      "workspace": "kite",
+      "settings": "priceRules",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 50,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-archived-1440-dark",
+      "workspace": "kite",
+      "settings": "archived",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-markets-1440-dark",
+      "workspace": "kite",
+      "settings": "markets",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 48,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-push-1440-dark",
+      "workspace": "kite",
+      "settings": "push",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 51,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-experience-1440-dark",
+      "workspace": "kite",
+      "settings": "experience",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 387,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "settings-dataLake-1440-dark",
+      "workspace": "kite",
+      "settings": "dataLake",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 56,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "kite-help-1440-dark",
+      "workspace": "kite",
+      "page": "Help",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 32,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "workspace-selector-1440-dark",
+      "overlay": "workspace-selector",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Choose your workspace"
+      ],
+      "buttons": 36,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "profile-1440-dark",
+      "overlay": "profile",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Sterling profile"
+      ],
+      "buttons": 39,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "broker-status-1440-dark",
+      "overlay": "broker-status",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "Zerodha Kite Status"
+      ],
+      "buttons": 38,
+      "workspaceHeight": 788
+    },
+    {
+      "name": "radio-1440-light",
+      "workspace": "radio",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "radio-display-1440-light",
+      "overlay": "media-display",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "radio-1440-dark",
+      "workspace": "radio",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "radio-display-1440-dark",
+      "overlay": "media-display",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-1440-light",
+      "workspace": "tv",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-display-1440-light",
+      "overlay": "media-display",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-1440-dark",
+      "workspace": "tv",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 4,
+      "workspaceHeight": null
+    },
+    {
+      "name": "tv-display-1440-dark",
+      "overlay": "media-display",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 11,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-overview-1440-light",
+      "workspace": "administration",
+      "userTab": "Overview",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-access-1440-light",
+      "workspace": "administration",
+      "userTab": "Access",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 19,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-brokers-1440-light",
+      "workspace": "administration",
+      "userTab": "Brokers",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 22,
+      "workspaceHeight": null
+    },
+    {
+      "name": "assignment-confirm-1440-light",
+      "overlay": "assignment-confirm",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "cdlg-title"
+      ],
+      "buttons": 24,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-telegram-1440-light",
+      "workspace": "administration",
+      "userTab": "Telegram",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 16,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-activity-1440-light",
+      "workspace": "administration",
+      "userTab": "Activity",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-requests-1440-light",
+      "workspace": "administration",
+      "section": "Requests",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-brokers-1440-light",
+      "workspace": "administration",
+      "section": "Brokers",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-accounts-1440-light",
+      "workspace": "administration",
+      "section": "Accounts",
+      "theme": "light",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 8,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-overview-1440-dark",
+      "workspace": "administration",
+      "userTab": "Overview",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-access-1440-dark",
+      "workspace": "administration",
+      "userTab": "Access",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 19,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-brokers-1440-dark",
+      "workspace": "administration",
+      "userTab": "Brokers",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 22,
+      "workspaceHeight": null
+    },
+    {
+      "name": "assignment-confirm-1440-dark",
+      "overlay": "assignment-confirm",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [
+        "cdlg-title"
+      ],
+      "buttons": 24,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-telegram-1440-dark",
+      "workspace": "administration",
+      "userTab": "Telegram",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 16,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-user-activity-1440-dark",
+      "workspace": "administration",
+      "userTab": "Activity",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 15,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-requests-1440-dark",
+      "workspace": "administration",
+      "section": "Requests",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 7,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-brokers-1440-dark",
+      "workspace": "administration",
+      "section": "Brokers",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 18,
+      "workspaceHeight": null
+    },
+    {
+      "name": "admin-accounts-1440-dark",
+      "workspace": "administration",
+      "section": "Accounts",
+      "theme": "dark",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 8,
+      "workspaceHeight": null
+    },
+    {
+      "name": "sign-in-1440",
+      "workspace": "sign-in",
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "dialogs": [],
+      "buttons": 2,
+      "workspaceHeight": null
+    }
+  ],
+  "blockedWrites": [
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/auth/preferences"
+    }
+  ],
+  "runtimeErrors": []
+}

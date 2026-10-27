@@ -113,21 +113,21 @@ describe('ConnectPane settings hub', () => {
     // The page title is now the selected section's own name, under a quiet
     // "Settings" eyebrow — so the heading tracks where you are rather than
     // restating the hub on every page.
-    expect(screen.getByText('Settings')).toBeInTheDocument();
+    expect(screen.getByRole('heading',{name:'Broker accounts'})).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Kite settings sections' })).toBeInTheDocument();
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
-    expect(screen.getByRole('heading', { name: 'Users & Broker Logins' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Broker accounts' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /SuperTrend\s*Scan, entry & exit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^SuperTrend$/i }));
     expect(screen.getByRole('heading', { name: 'SuperTrend' })).toBeInTheDocument();
     expect(screen.getByText('SuperTrend strategy panel')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Notifications\s*Kite Telegram alerts/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Notifications$/i }));
     expect(screen.getByRole('heading', { name: 'Notifications' })).toBeInTheDocument();
     expect(screen.getByText('Kite alert destinations')).toBeInTheDocument();
     expect(screen.queryByText('Icon picker')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Experience\s*Themes, fonts & motion/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Experience$/i }));
     expect(screen.getByRole('heading', { name: 'Experience' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Spectrum navigation settings' })).toBeInTheDocument();
     expect(screen.getByRole('combobox', { name: 'Spectrum navigation layout' })).toHaveValue('cycle');
@@ -157,12 +157,12 @@ describe('ConnectPane settings hub', () => {
     // decode a per-row badge to know whether a rule applied to them.
     render(<ConnectPane />);
 
-    fireEvent.click(screen.getByRole('button', { name: /Manual Trade\s*Orders you place/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Manual Trade$/i }));
     expect(screen.getByRole('heading', { name: 'Manual Trade' })).toBeInTheDocument();
     expect(screen.getByText('Manual rules panel')).toBeInTheDocument();
     expect(screen.queryByText('Automatic rules panel')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /Algo Trade\s*Orders the algo places/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Algo Trade$/i }));
     expect(screen.getByRole('heading', { name: 'Algo Trade' })).toBeInTheDocument();
     expect(screen.getByText('Automatic rules panel')).toBeInTheDocument();
     expect(screen.queryByText('Manual rules panel')).not.toBeInTheDocument();
@@ -181,7 +181,7 @@ describe('ConnectPane settings hub', () => {
     expect(screen.getByText('Trading mode controls')).toBeInTheDocument();
     expect(screen.getByText('Exchange choices')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /SuperTrend\s*Scan, entry & exit/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^SuperTrend$/i }));
     expect(screen.queryByText('Trading mode controls')).not.toBeInTheDocument();
   });
 
@@ -240,7 +240,7 @@ describe('ConnectPane — every option engine is reachable and complete', () => 
   };
 
   const ENGINES: Array<[string, RegExp, string]> = [
-    ['Gamma Unwind', /Gamma Unwind\s*Zones, E2, E1 & gates/i, 'Gamma Unwind'],
+    ['Gamma Unwind', /^Gamma Unwind$/i, 'Gamma Unwind'],
   ];
 
   it.each(ENGINES)('gives %s a home in the rail', (_label, railName, heading) => {

@@ -18,7 +18,9 @@
     "media:styles": "node scripts/build-media-styles.mjs",
     "prebuild": "npm run media:styles",
     "predev": "npm run media:styles",
-    "pretest": "npm run media:styles"
+    "pretest": "npm run media:styles",
+    "ui:inventory": "node scripts/audit-ui.mjs",
+    "ui:verify:read-only": "node ../scripts/ui/verify-product.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.8",

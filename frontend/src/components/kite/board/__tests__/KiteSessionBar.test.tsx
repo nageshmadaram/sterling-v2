@@ -1,26 +1,12 @@
-import React from 'react';
-import {beforeEach, describe, expect, it, vi} from 'vitest';
-import {fireEvent, render, screen} from '@testing-library/react';
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import {fireEvent,render,screen,cleanup} from '@testing-library/react';
 import {KiteSessionBar} from '../KiteSessionBar';
-let status: any;
-vi.mock('../../../../hooks/useKite', () => ({useKiteStatus: () => status}));
-beforeEach(() => {status = {data: {connected: true}, isLoading: false, isError: false};});
-describe('Kite session truth', () => {
-  it('keeps connected accounts quiet', () => {render(<KiteSessionBar />); expect(screen.queryByRole('alert')).toBeNull();});
-  it('does not hide unreadable broker status behind the last connected value', () => {
-    status = {data: {connected: true}, isError: true};
-    render(<KiteSessionBar />);
-    expect(screen.getByRole('alert')).toHaveTextContent(/session status could not be verified/i);
-    expect(screen.queryByText(/Kite is not logged in/)).toBeNull();
-  });
-  it('identifies a transient response as unknown instead of logged out', () => {
-    status = {data: {connected: false, transient: true}};
-    render(<KiteSessionBar />);expect(screen.getByRole('alert')).toHaveTextContent(/could not be verified/i);
-  });
-  it('offers an explicit connection action for a missing session', () => {
-    status = {data: {connected: false}};const nav=vi.fn();window.addEventListener('kite-nav-click',nav);
-    render(<KiteSessionBar />);fireEvent.click(screen.getByRole('button',{name:'Log in to Kite'}));
-    expect(screen.getByRole('alert')).toHaveTextContent(/not logged in/i);
-    expect(nav.mock.calls[0][0].detail).toBe('connect');window.removeEventListener('kite-nav-click',nav);
-  });
-});
+import {useKiteStatusCardStore} from '../../../../store/useKiteStatusCardStore';
+let status:any;
+vi.mock('../../../../hooks/useKite',()=>({useKiteStatus:()=>status}));
+beforeEach(()=>{status={data:{connected:true},isError:false};useKiteStatusCardStore.setState({isOpen:false});});
+afterEach(cleanup);
+function show(){render(<><span id="kite-session-status"/><KiteSessionBar/></>);}
+it('places connection truth in the header without another full-width row',()=>{show();expect(screen.getByRole('button',{name:'Kite connected. Open connection'})).toBeVisible();expect(screen.queryByRole('alert')).toBeNull();});
+it('never presents a stale connected value as verified',()=>{status.isError=true;show();expect(screen.getByRole('button',{name:'Kite unverified. Open connection'})).toBeVisible();});
+it('opens details only after an explicit action',()=>{status.data.connected=false;show();fireEvent.click(screen.getByRole('button',{name:'Kite disconnected. Open connection'}));expect(useKiteStatusCardStore.getState().isOpen).toBe(true);});

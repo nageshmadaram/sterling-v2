@@ -1,3 +1,4 @@
+vi.mock('../board/TodaySignalPriority',()=>({TodaySignalPriorityProvider:({children}:any)=>children,TodaySignalPriorityStatus:()=>null}));
 import {recordDiagnostic} from '../../../lib/diagnostics';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -336,13 +337,13 @@ describe('mobile workspace', () => {
   });
 });
 
-it('offers the full docked workspace on phones without overwriting desktop preferences', async () => {
+it('keeps phones in one pane without overwriting stored desktop preferences', async () => {
   const { useMobileExperience } = await import('../../../store/useMobileExperience');
   vi.stubGlobal('innerWidth', 390);
   useMobileExperience.setState({style:'full'});
   renderLayout(props);
-  expect(screen.queryByRole('tablist',{name:'Workspace panes'})).toBeNull();
-  expect(screen.getByRole('button',{name:'Minimize Signals'})).toBeTruthy();
+  expect(screen.getByRole('tablist',{name:'Workspace panes'})).toBeTruthy();
+  expect(useMobileExperience.getState().style).toBe('full');
   act(()=>useMobileExperience.setState({style:'app'}));
   expect(screen.getByRole('tablist',{name:'Workspace panes'})).toBeTruthy();
 });

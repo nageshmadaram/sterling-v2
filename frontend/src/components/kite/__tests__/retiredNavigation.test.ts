@@ -1,3 +1,4 @@
+import {NAV_OPTIONS} from '../../../store/useExperienceOptions';
 import { describe, expect, it } from 'vitest';
 import simpleTerminal from '../../../pages/SimpleTerminal.tsx?raw';
 import kiteTab from '../KiteTab.tsx?raw';
@@ -28,6 +29,6 @@ describe('release UI carries no retired strategy destination', () => {
   });
 
   it('keeps the destinations that stay', () => {
-    expect(simpleTerminal).toMatch(/id: 'pcr' as const, label: 'PCR'[\s\S]*?id: 'orders'/);
+    const ids=NAV_OPTIONS.map(([id])=>id);expect(ids).toContain('pcr');expect(ids).toContain('orders');
   });
 });

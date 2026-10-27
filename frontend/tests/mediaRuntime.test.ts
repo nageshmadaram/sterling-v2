@@ -7,7 +7,7 @@ import {afterEach,describe,expect,it} from 'vitest';
 const opened:JSDOM[]=[];
 afterEach(()=>{opened.splice(0).forEach(dom=>dom.window.close());});
 function boot(kind:'tv'|'radio') {
-  const html=readFileSync(resolve(process.cwd(),`public/${kind}/index.html`),'utf8');
+  const html=readFileSync(resolve(process.cwd(),`../backend/app/media_templates/${kind}.html`),'utf8');
   const errors:string[]=[];
   const virtualConsole=new VirtualConsole();virtualConsole.on('jsdomError',error=>errors.push(error.message));
   const dom=new JSDOM(html,{url:`https://sterling.example/${kind}/index.html`,runScripts:'outside-only',pretendToBeVisual:true,virtualConsole});opened.push(dom);

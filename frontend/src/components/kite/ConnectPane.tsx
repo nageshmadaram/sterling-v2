@@ -1052,7 +1052,7 @@ const SECTION_ICONS: Record<ConnectSection, React.ReactNode> = {
 };
 
 const SECTION_DEFS: (SectionDef & { pageDescription: string })[] = [
-  { id: 'account', label: 'Users & Broker Logins', eyebrow: 'Sterling users & linked brokers', group: 'Connection',
+  { id: 'account', label: 'Broker accounts', eyebrow: 'Sterling users & linked brokers', group: 'Connection',
     pageDescription: 'Manage app users and broker sign-in.' },
   { id: 'truedata', label: 'TrueData Feed', eyebrow: 'Market data connection', group: 'Connection',
     pageDescription: 'TrueData credentials for historical and live market data.' },
@@ -1115,7 +1115,7 @@ function SectionHeading({ title, description }: { title: string; description: st
   return (
     <div style={{ marginBottom: 18 }}>
       <h2 style={{ margin: 0, color: 'var(--k-ink-1)', fontSize: 19, fontWeight: 750, letterSpacing: '-.02em' }}>{title}</h2>
-      <p style={{ margin: '6px 0 0', color: 'var(--k-ink-5)', fontSize: 12, lineHeight: 1.55, maxWidth: 720 }}>{description}</p>
+
     </div>
   );
 }
@@ -1212,31 +1212,7 @@ export function ConnectPane() {
       padding: 0, background: 'var(--k-bg)', display: 'flex', flexDirection: 'column',
       overflow: 'hidden',
     }}>
-      <header style={{
-        flexShrink: 0, width: '100%', boxSizing: 'border-box',
-        padding: '16px 32px 14px', borderBottom: '1px solid var(--k-border)', background: 'var(--k-bg)',
-      }}>
-        <div style={{ maxWidth: 1000, width: '100%', margin: '0 auto' }}>
-          <div style={{
-            color: 'var(--k-dim)', fontSize: 11, fontWeight: 600, letterSpacing: 0.3,
-            textTransform: 'uppercase', marginBottom: 4, fontFamily: 'inherit',
-          }}>
-            Settings
-          </div>
-          <h1 style={{
-            margin: 0, color: 'var(--k-text)', fontSize: 16, lineHeight: 1.3, fontWeight: 700,
-            letterSpacing: '-0.01em', fontFamily: 'inherit',
-          }}>
-            {page.label}
-          </h1>
-          <p style={{
-            margin: '3px 0 0', color: 'var(--k-dim)', fontSize: 12, lineHeight: 1.4,
-            fontFamily: 'inherit', maxWidth: 720,
-          }}>
-            {page.pageDescription}
-          </p>
-        </div>
-      </header>
+      <header className="settings-page-header"><h1>{page.label}</h1></header>
 
       <label className="mobile-settings-picker">Settings section
         <select aria-label="Settings section" value={section} onChange={event => select(event.target.value as ConnectSection)}>
@@ -1280,7 +1256,7 @@ export function ConnectPane() {
                   </span>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ display: 'block', color: 'var(--k-ink-1)', fontSize: 12.5, lineHeight: 1.25, fontWeight: selected ? 700 : 600 }}>{item.label}</span>
-                    <span style={{ display: 'block', color: '#919191', fontSize: 10, lineHeight: 1.3, marginTop: 2 }}>{item.eyebrow}</span>
+
                   </span>
                 </button>
               </React.Fragment>
@@ -1299,7 +1275,7 @@ export function ConnectPane() {
             {section === 'account' && !sim && (
               <>
                 <div className="account-hub">{configuration?.administrator && <a href="/administration" className="bac-btn">Open Administration</a>}
-                <div className="account-section-heading"><div><h2>Broker accounts</h2><span className="account-caption">{brokerSettings ? 'Assigned accounts and connection settings' : 'Your assigned Kite accounts'}</span></div></div>
+
 
                 {isLoading && <div style={S.hint}>Loading accounts…</div>}
                 {data?.accounts.map((account) => <AccountCard key={account.id} acc={account} />)}

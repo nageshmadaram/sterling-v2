@@ -10,15 +10,6 @@ export type List = { current_user_id: string; users: User[] };
 const BASE = '/api/v1/auth/users';
 const KEY  = ['sterling-users'];
 
-/** Gravatar URL from any string (username used as seed — no real email needed). */
-function gravatarUrl(seed: string, size = 72): string {
-  // Use a simple hash of the seed to generate a consistent colour avatar via gravatar's identicon
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) { hash = (Math.imul(31, hash) + seed.charCodeAt(i)) | 0; }
-  const hex = Math.abs(hash).toString(16).padStart(32, '0').slice(0, 32);
-  return `https://www.gravatar.com/avatar/${hex}?s=${size}&d=identicon&r=pg`;
-}
-
 function EyeIcon() {
   return (
     <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -52,7 +43,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
   const isYou    = user.id === currentId;
   const isPrimary = user.primary;
   // Priority: saved photo → Gravatar identicon
-  const avatarUrl = (user.photo && !imgError) ? user.photo : gravatarUrl(user.username);
+  const avatarUrl = user.photo || '';
 
   return (
     <div className="bac-card">
@@ -66,7 +57,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
       >
         {/* Avatar — Gravatar with initials fallback */}
         <div className="sup-avatar" aria-hidden>
-          {!imgError
+          {avatarUrl && !imgError
             ? <img src={avatarUrl} width={36} height={36} alt="" onError={() => setImgError(true)} />
             : user.username.slice(0, 2).toUpperCase()
           }
@@ -102,11 +93,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
           <div className="bac-section">
             <div className="sup-avatar-row">
               <div className="sup-avatar-lg" aria-hidden>
-                <img
-                  src={(user.photo && !imgError) ? user.photo : gravatarUrl(user.username, 96)}
-                  width={56} height={56} alt=""
-                  onError={() => setImgError(true)}
-                />
+                {user.photo&&!imgError?<img src={user.photo} width={56} height={56} alt="" onError={()=>setImgError(true)}/>:user.username.slice(0,2).toUpperCase()}
               </div>
             </div>
           </div>
@@ -208,7 +195,7 @@ export function SterlingUsersPanel({ standalone = false }: { standalone?: boolea
       <div className="sup-heading">
         <div>
           <h2 style={{ margin: 0, fontSize: 14, fontWeight: 750 }}>Sterling users</h2>
-          <span className="bac-muted" style={{ fontSize: 11 }}>Workspace access</span>
+
         </div>
         {query.data && (
           <button className="bac-btn bac-btn-primary" disabled={busy} onClick={() => openEdit()}>

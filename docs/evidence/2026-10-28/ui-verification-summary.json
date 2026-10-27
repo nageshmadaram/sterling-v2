@@ -1,0 +1,27 @@
+{
+  "frontend_tests": {
+    "files": 267,
+    "passed": 2447,
+    "failed": 0
+  },
+  "runtime": {
+    "cases": 190,
+    "failures": 0,
+    "uncaught_errors": 0,
+    "widths": [
+      390,
+      1440
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "writes_blocked": 21
+  },
+  "broker_credentials": {
+    "provider_result": "tested",
+    "totp_submitted": false,
+    "broker_session_created": false
+  },
+  "scope": "Source inventory and rendered-state coverage do not imply every live financial action was executed."
+}

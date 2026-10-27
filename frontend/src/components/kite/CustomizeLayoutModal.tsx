@@ -1,3 +1,5 @@
+import {createPortal} from 'react-dom';
+import {useModalLayer} from '../../hooks/useModalLayer';
 import React from 'react';
 import { k } from '../../styles/kiteUI';
 import {
@@ -38,6 +40,8 @@ export function CustomizeLayoutModal({
   commandBarVisible,
   onToggleCommandBar,
 }: CustomizeLayoutModalProps) {
+  const modalRef=React.useRef<HTMLDivElement>(null);
+  useModalLayer(open,modalRef,onClose);
   if (!open) return null;
 
   const isPaneVisible = (pane: WorkspacePaneId) => !layout.minimized.includes(pane);
@@ -50,8 +54,9 @@ export function CustomizeLayoutModal({
     onUpdateLayout((prev) => movePaneToSlot(prev, pane, slot));
   };
 
-  return (
+  return createPortal(
     <div
+      ref={modalRef} tabIndex={-1} aria-modal="true" className="product-modal-layer"
       role="dialog"
       aria-label="Customize Workspace Layout"
       style={{
@@ -76,7 +81,7 @@ export function CustomizeLayoutModal({
           borderRadius: 12,
           border: '1px solid var(--k-border-strong-3)',
           boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-          overflow: 'hidden',
+          maxHeight:'calc(100dvh - 24px)',overflowY:'auto',
           display: 'flex',
           flexDirection: 'column',
         }}
@@ -383,6 +388,6 @@ export function CustomizeLayoutModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>, document.body
   );
 }

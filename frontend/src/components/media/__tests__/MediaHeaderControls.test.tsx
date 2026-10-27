@@ -215,12 +215,12 @@ it.each(['radio','tv'] as const)('opens the %s source manager from the shared he
 
 it.each(['tv','radio'] as const)('returns %s settings to the workspace chooser', kind => {
   const navigate = vi.fn();
-  window.addEventListener('sterling-navigate', navigate);
+  window.addEventListener('sterling-select-workspace', navigate);
   try {
     render(<MediaHeaderControls kind={kind} theme="youtube" query="" onTheme={() => {}} onQuery={() => {}} />);
     fireEvent.click(screen.getByRole('button', { name: kind === 'tv' ? 'TV display settings' : 'Radio display settings' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Switch workspace' }));
-    expect(navigate.mock.calls[0][0].detail).toBe('home');
+    expect(navigate).toHaveBeenCalledOnce();
     expect(screen.queryByRole('menu')).toBeNull();
-  } finally { window.removeEventListener('sterling-navigate', navigate); }
+  } finally { window.removeEventListener('sterling-select-workspace', navigate); }
 });

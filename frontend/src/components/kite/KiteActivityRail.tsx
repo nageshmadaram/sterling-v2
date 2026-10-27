@@ -1,3 +1,4 @@
+import {NavigationIcon} from './NavigationIcon';
 import { useExperienceOptions, orderedNavigation } from '../../store/useExperienceOptions';
 import React from 'react';
 import { k } from '../../styles/kiteUI';
@@ -117,7 +118,7 @@ export function KiteActivityRail({
                   }}
                 />
               )}
-              {item.icon}
+              <NavigationIcon id={item.id}/>
             </button>
           );
         })}

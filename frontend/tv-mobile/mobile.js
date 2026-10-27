@@ -487,7 +487,7 @@
     if(event.source!==window.parent)return;
     const data=event.data;
     if(data?.type==='sterling.tv.hydrate'){
-      hosted=data.hostHeader===true;hydrated=true;
+      hosted=data.hostHeader===true;hydrated=true;document.documentElement.classList.toggle('tv-hosted',hosted);
       // Core hydration finishes first; restore the saved UI after its boot.
       restoreUi();schedule();return;
     }

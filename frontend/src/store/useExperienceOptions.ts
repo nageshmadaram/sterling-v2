@@ -4,8 +4,8 @@ export const EXPERIENCE_KEY = 'sterling.experience.options.v1';
 export const NAV_OPTIONS = [
   ['dashboard','Dashboard'], ['astro','Astrology'], ['pcr','PCR'],
   ['orders','Orders'], ['holdings','Holdings'], ['positions','Positions'],
-  ['journal','Journal'], ['more','More'], ['data','Data'],
-  ['backtest','Backtest'], ['connect','Connect'], ['help','Help'],
+  ['journal','Journal'], ['more','Markets'], ['data','Data'],
+  ['backtest','Backtest'], ['connect','Settings'], ['help','Help'],
 ] as const;
 export type TickerContent = 'graph'|'pcr'|'both'|'badge'|'detail'|'price';
 export type SpectrumProduct = 'kite'|'simulation'|'tv'|'radio';

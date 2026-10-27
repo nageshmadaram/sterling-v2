@@ -141,7 +141,7 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
         {themes.map(option => (
           <button type="button" key={option.id} role="menuitemradio" aria-checked={theme === option.id}
             onClick={() => { onTheme(option.id); setSettingsOpen(false); settingsToggle.current?.focus({preventScroll:true}); }}>
-            <span><strong>{option.label}</strong><small>{option.note}</small></span>
+            <span><strong>{option.label}</strong></span>
             <span aria-hidden="true">{theme === option.id ? '✓' : ''}</span>
           </button>
         ))}

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 // This Node-based security inspection stays outside src/, because the
 // browser-only frontend tsconfig intentionally excludes Node globals.
 // Vitest runs from the frontend package directory.
-const tvPage = readFileSync(resolve(process.cwd(), 'public/tv/index.html'), 'utf8');
+const tvPage = readFileSync(resolve(process.cwd(), '../backend/app/media_templates/tv.html'), 'utf8');
 const nginx = readFileSync(resolve(process.cwd(), 'nginx.conf'), 'utf8');
 const gateway = readFileSync(resolve(process.cwd(), '../scripts/serve_frontend.mjs'), 'utf8');
 const latestTv = readFileSync(resolve(process.cwd(), '../sterling-iptv/sterling-iptv.html'), 'utf8');
@@ -20,7 +20,7 @@ describe('Sterling TV static integration safety', () => {
     expect(page).toContain('aria-label="Close page and return to configured home"');
     expect(page).toContain('onClick={goHome}');
     expect(page).toContain("useKiteSettings.getState().defaultSection || 'dashboard'");
-    expect(page).toContain('className="sterling-mobile-command-row"');
+    expect(page).toContain('id="kite-session-status"');
     expect(page).toContain('id="sterling-mobile-header-actions"');
     expect(spectrumSpacingCss).not.toContain('.workspace-market-strip:not([data-page="dashboard"]) { display:none; }');
     expect(spectrumSpacingCss).not.toContain('.mobile-pane-host .kite-ticker-strip { display:none; }');
@@ -37,7 +37,7 @@ describe('Sterling TV static integration safety', () => {
   });
 
   it('preserves Radio zero volume and rejects stale remote search results',()=>{
-    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    const radio=readFileSync(resolve(process.cwd(),'../backend/app/media_templates/radio.html'),'utf8');
     expect(radio).toContain('const requested=Number.isFinite(appConfig.volume)?appConfig.volume:0.85;');
     expect(radio).toContain('searchRevision++;searchAbort?.abort();searchAbort=null;');
     expect(radio).toContain("typeof s.url_resolved==='string'");
@@ -70,7 +70,7 @@ describe('Sterling TV static integration safety', () => {
   });
 
   it('isolates Radio dialogs and restores mobile tuner, search and album identity art',()=>{
-    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    const radio=readFileSync(resolve(process.cwd(),'../backend/app/media_templates/radio.html'),'utf8');
     expect(radio).toContain('function openMobileTuner()');
     expect(radio).toContain('function syncRadioModalState()');
     expect(radio).toContain('radio-modal-open');
@@ -82,7 +82,7 @@ describe('Sterling TV static integration safety', () => {
     expect(radio).toContain('RADIO_MIRRORS');
   });
   it('ships local media styles, fonts and icons without runtime Tailwind',()=>{
-    const radio=readFileSync(resolve(process.cwd(),'public/radio/index.html'),'utf8');
+    const radio=readFileSync(resolve(process.cwd(),'../backend/app/media_templates/radio.html'),'utf8');
     for(const page of [tvPage,radio]) {
       expect(page).toContain('href="/media/interface.css"');
       expect(page).toContain('href="/media/fonts.css"');
@@ -165,21 +165,14 @@ describe('Sterling TV static integration safety', () => {
     expect(tvPage).not.toContain('programme times are illustrative');
   });
 
-  it('secures the actual Node release gateway, not only optional Nginx deployments', () => {
-    expect(gateway).toContain("decoded === '/tv/index.html'");
-    expect(gateway).toContain('sandbox allow-scripts allow-forms allow-downloads allow-presentation');
-    expect(gateway).not.toContain('sandbox allow-scripts allow-same-origin');
-    expect(gateway).toContain('media-src https: http: data: blob:');
-    expect(gateway).toContain('frame-ancestors \'self\'');
-    expect(gateway).toContain("isTvDocument ? tvCsp : isRadioDocument ? radioCsp : tradingCsp");
+  it('retires unguarded static player documents at the actual gateway', () => {
+    expect(gateway).toContain('res.writeHead(410');
+    expect(gateway).toContain("/^\\/api\\/v1\\/media\\/(tv|radio)\\/document$/");
+    expect(gateway).toContain("frame-ancestors 'self'");
   });
-
-  it('enforces an opaque-origin media document even when navigated to directly', () => {
-    expect(nginx).toContain('location = /tv/index.html');
-    expect(nginx).toContain("sandbox allow-scripts allow-forms allow-downloads allow-presentation");
+  it('keeps Nginx static documents retired and serves the authenticated launcher',()=>{
+    expect(nginx).toContain('return 410;');
+    expect(nginx).toContain('location = /tv { rewrite ^ /index.html last; }');
     expect(nginx).not.toContain('sandbox allow-scripts allow-same-origin');
-    expect(nginx).toContain("frame-ancestors 'self'");
-    expect(nginx).toContain("worker-src blob:");
-    expect(nginx).toContain('location = /tv/');
   });
 });

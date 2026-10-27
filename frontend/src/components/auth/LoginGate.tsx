@@ -88,18 +88,15 @@ export function LoginGate({ children }: { children: ReactNode }) {
   if (phase === 'ready') return <>{children}</>;
 
   return <main className="sterling-signin">
-    <section className="signin-intro"><div className="signin-brand">STERLING STUDIO</div>
-      <h1>A space<br />of your own.</h1><p>Markets, live channels and radio. Sign in once, then choose your workspace.</p>
-    </section>
+    <section className="signin-intro"><div className="signin-brand">STERLING</div></section>
     <form onSubmit={submit} className="signin-card" aria-label="Sterling login">
-      <h2>Sterling sign in</h2><p>Welcome back. Your workspace is ready when you are.</p>
+      <h1>Sign in</h1>
       <label htmlFor="sterling-username">Username</label>
       <input id="sterling-username" required autoFocus autoComplete="username" maxLength={64} value={username} onChange={e => setUsername(e.target.value)} />
       <label htmlFor="sterling-password">Password</label>
       <div className="signin-password"><input id="sterling-password" required type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} />
         <button type="button" aria-label={passwordVisible ? 'Hide password' : 'Show password'} onClick={() => setPasswordVisible(value => !value)}>{passwordVisible ? 'Hide' : 'Show'}</button></div>
       <label className="signin-remember"><input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />Remember this device</label>
-      <small>Leave unchecked on shared devices.</small>
       {error && <p role="alert" className="signin-error">{error}</p>}
       <button disabled={submitting || !username.trim() || !password} type="submit" className="signin-submit">{submitting ? 'Signing in…' : 'Sign in'}</button>
     </form>
