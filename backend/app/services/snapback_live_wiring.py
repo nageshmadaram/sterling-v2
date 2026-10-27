@@ -25,6 +25,7 @@ a safety decision rather than plumbing:
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -153,8 +154,39 @@ class SnapbackExecutionAdapter:
                 order_id=result.order_id, error=f"fill resolution failed: {exc}",
             )
 
-        filled = int(resolution.filled_quantity or 0)
-        average = float(resolution.average_price or 0.0)
+        # The canonical fill resolver normally supplies validated journal
+        # quantities. Independently check that contract here: once an order
+        # has been sent, malformed evidence is UNKNOWN, never a zero-fill
+        # rejection, a fabricated fill, or an uncaught exception.
+        raw_filled = getattr(resolution, "filled_quantity", None)
+        raw_average = getattr(resolution, "average_price", None)
+        try:
+            if type(raw_filled) is not int or raw_filled < 0:
+                raise ValueError("invalid_cumulative_fill_quantity")
+            if type(raw_average) not in (int, float) or not math.isfinite(raw_average):
+                raise ValueError("invalid_average_fill_price")
+            if raw_average < 0 or (raw_filled > 0 and raw_average <= 0):
+                raise ValueError("nonpositive_confirmed_fill_price")
+            if raw_filled > int(request.quantity):
+                raise ValueError("filled_quantity_exceeds_authorized_order")
+            filled, average = raw_filled, float(raw_average)
+        except (ValueError, TypeError, OverflowError) as exc:
+            # Preserve any known positive integer quantity for protection /
+            # manual reconciliation. Never book unverified price/quantity.
+            known_qty = raw_filled if type(raw_filled) is int and raw_filled > 0 else 0
+            known_price = (float(raw_average) if type(raw_average) in (int, float)
+                           and math.isfinite(raw_average) and raw_average > 0 else 0.0)
+            engage_kill_switch(
+                f"Snapback invalid confirmed fill for {request.symbol}: {exc}",
+                request.uid,
+            )
+            return ExecutionResult(
+                success=False, status="UNKNOWN",
+                intent_key=str(getattr(resolution, "intent_key", "") or result.intent_key),
+                order_id=result.order_id,
+                filled_quantity=known_qty, filled_price=known_price,
+                error=f"invalid broker fill evidence: {exc}; reconcile before new entries",
+            )
         booked_ok = True
         if filled > 0:
             booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
