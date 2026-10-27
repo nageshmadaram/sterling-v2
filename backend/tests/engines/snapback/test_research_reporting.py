@@ -422,8 +422,12 @@ def test_missing_snapshot_timestamp_fails_closed():
 def test_failing_challenger_does_not_erase_valid_baseline():
     metadata = {"underlying": "NIFTY", "option": "NIFTY_PE",
                 "coverage": {"all_sessions_complete": True}}
+    # A summary-only fixture has no closed-trade ledger and must fail.
+    # Supply a real zero-trade, zero-P&L fixture for a valid audited row.
     baseline = research_variant_row(
-        lambda: replay(), metadata=metadata, policy="baseline")
+        lambda: replay(trade_count=0, trades=[], net_pnl_inr=0.0,
+                       win_rate_pct=0.0),
+        metadata=metadata, policy="baseline")
     challenger = research_variant_row(
         lambda: (_ for _ in ()).throw(ValueError("candidate has no prior candles")),
         metadata=metadata, policy="snapback_intraday_cost_feasible_v1")
@@ -444,7 +448,9 @@ def test_failing_baseline_does_not_erase_valid_challenger():
     baseline = research_variant_row(
         lambda: (_ for _ in ()).throw(RuntimeError("baseline signal failed")),
         metadata=metadata, policy="baseline")
-    observed = replay(challenger_rejections={"unattainable": 7})
+    observed = replay(trade_count=0, trades=[], net_pnl_inr=0.0,
+                      win_rate_pct=0.0,
+                      challenger_rejections={"unattainable": 7})
     challenger = research_variant_row(
         lambda: observed, metadata=metadata,
         policy="snapback_intraday_cost_feasible_v1")
