@@ -783,3 +783,43 @@ async def test_partially_missing_option_cannot_sell_after_shortfall_booking_race
 
     assert await obj._option_shortfall_step(NS(), p, 75) == ("reconciling", 0)
     book.assert_called_once_with(p, quantity=50, available=25)
+
+
+@pytest.mark.parametrize("changed", [
+    "uid", "account_id", "option_symbol", "option_exchange", "status",
+])
+def test_unpriced_exit_refuses_changed_persisted_owner_or_closed_state(
+        monkeypatch, changed):
+    from dataclasses import replace
+
+    origin = pos()
+    origin.option_exit_order_id = ""
+    origin.option_exit_requested = 0
+    current = replace(origin)
+    if changed == "uid":
+        current.uid = "another-tenant"
+    elif changed == "account_id":
+        current.account_id = "another-broker-account"
+    elif changed == "option_symbol":
+        current.option_symbol = "OTHER_OPTION"
+    elif changed == "option_exchange":
+        current.option_exchange = "BSE"
+    elif changed == "status":
+        current.status = "CLOSED"
+
+    def mutate(_id, callback):
+        callback(current)
+        return current
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    halt = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", halt)
+    with pytest.raises(RuntimeError, match="must be reconciled"):
+        obj._book_unpriced_option_exit(origin, quantity=75, available=0)
+
+    halt.assert_called_once()
+    assert current.option_exit_qty == 0
+    assert current.option_exit_unknown_qty == 0
+    assert current.option_symbol == ("OTHER_OPTION" if changed == "option_symbol"
+                                     else origin.option_symbol)
