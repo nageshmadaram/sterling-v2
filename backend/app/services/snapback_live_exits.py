@@ -1379,9 +1379,14 @@ class SnapbackExitManager:
                 cumulative_value=float(filled) * float(average), source=source,
                 exchange_ts_ms=exchange_ts_ms,
                 lot_size=int((pos.lot_size if is_option else pos.hedge_lot_size) or 0))
-            if applied.reconciliation_required:
-                log.critical("Snapback exit: contradictory fill evidence for %s", symbol)
-                engage_kill_switch(f"Snapback exit fill for {symbol} is contradictory", pos.uid)
+            ledger_reason = str(getattr(applied, "reason", "") or "")
+            if (applied.reconciliation_required
+                    or ledger_reason not in {"accepted", "duplicate"}):
+                log.critical("Snapback exit: fill ledger refuses %s for %s",
+                             ledger_reason or "unknown", symbol)
+                engage_kill_switch(
+                    f"Snapback exit fill for {symbol} needs ledger reconciliation",
+                    pos.uid)
                 return False
             return True
         except Exception as exc:  # noqa: BLE001
