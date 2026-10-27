@@ -41,7 +41,7 @@ export function StrategyModeInfo({ engine, st, sb, bounded = false }: {
       <div><strong>Default: Swing · original · {supertrend ? '60-minute Heikin-Ashi' : 'Daily regular OHLC'}</strong></div>
       <div style={{ fontWeight: 650 }}>
         {supertrend
-          ? 'No separate 1H trading mode: 60-minute candles belong to the original Swing rules.'
+          ? 'The original Swing uses 60-minute candles; there is no separate hourly trading mode.'
           : 'Swing triggers at end-of-day and plans next-session entry. Short modes confirm at each completed intraday bar.'}
       </div>
       <div>{loaded ? `Selected: ${row[1]} · ${candles}` : 'Selected configuration unavailable — waiting for settings.'}</div>
