@@ -57,3 +57,9 @@ button,a{-webkit-tap-highlight-color:transparent}
 
 .workspace-header{height:56px;min-height:56px;padding:6px 16px;box-sizing:border-box}.workspace-current{display:inline!important}.workspace-media{height:calc(100dvh - 56px)}
 #sterling-mobile-header-actions{order:99;flex:0 0 auto}.account-menu-trigger{font-size:22px!important;padding:8px!important}
+
+.workspace-shell .sterling-media-quick-actions{position:relative;display:flex;align-items:center;gap:2px;flex:0 0 auto;isolation:isolate;z-index:30;color:var(--k-text)}
+.workspace-shell .sterling-media-icon-button{width:40px;height:40px;min-width:40px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:inherit;cursor:pointer;padding:8px}
+.workspace-shell .sterling-media-icon-button svg{width:21px;height:21px}
+.workspace-shell .sterling-media-settings-popover,.workspace-shell .sterling-media-expanded-search{background:var(--k-bg);color:var(--k-text);border-color:var(--k-border)}
+.workspace-shell .sterling-media-expanded-search input{color:var(--k-text)!important}

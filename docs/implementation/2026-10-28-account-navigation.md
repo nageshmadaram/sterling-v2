@@ -2,6 +2,7 @@
 
 ## Delivered
 
+- Direct media links initialize the shared toolbar after the shell mounts, preserving visible search and display controls.
 - One shell header per workspace. Profile/photo/security, appearance and sign-out are in a shared account menu. Kite identifies its workspace beside Sterling. The logo selects a workspace; Home returns to the configured enabled Kite page.
 - Mobile navigation uses the same enabled-page policy as desktop, deduplicates tools, and evicts a newly hidden current page. Inspector annotations require explicit development opt-in.
 - Broker disconnection no longer forces a blocking dialog. Explicit connection controls remain. Non-dashboard pages use the full content area; phone layouts show one pane and omit the ticker strip.
@@ -14,7 +15,7 @@
 ## Verification
 
 - 36 account/configuration/credential tests; 66 workspace/account/today-priority tests; expanded workspace suite 21 tests, including new admin credential masking/audit test.
-- 78 targeted UI tests; 150 merged signal/exit-protection tests. Production frontend build passes.
+- 83 targeted UI tests; 150 merged signal/exit-protection tests. Production frontend build passes.
 - Full rendered Kite runtime (not a stub), account menu, Echo/Space switching and light/dark messaging exercised at 390px and 1440px. Compiled frontend and central user directory exercised at 390px. Screenshots visually checked for actual inner-player contrast.
 - Live manual Kite provider preflight returns a valid provider URL. The assigned profile has no saved Kite password: automatic sign-in requires entering it through Administration → Brokers → Kite automatic login. No broker sign-in, TOTP, order or reassignment was executed during verification.
 - Before restart: read-only broker REST check found no open positions or pending orders. Consistent SQLite backup compressed under `.runtime/deployments/20261028-account-navigation/`; existing entry pause preserved.
