@@ -1077,15 +1077,18 @@ class SnapbackExitManager:
         if not self._note_shortfall(pos, "option"):
             if available > 0:
                 return "sell", available
-            # Nothing is booked and nothing is sold. The stop was released for this exit, so
-            # put it back over what the broker holds on a fresh reading (a stop is only placed
-            # over units that exist): if the reading that showed none was the bad one, the
-            # position is protected again before the next attempt.
-            try:
-                fresh = self.store.get(pos.position_id) or pos
-                await self.protection.ensure(client, fresh, int(remaining), escalate=False)
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Snapback exit: stop not restored while a shortfall is unconfirmed: %s", exc)
+            # Broker currently proves ZERO option holdings, not 'remaining'.
+            # Restoring a SELL GTT sized from our stale local registry could
+            # create a NAKED short if the broker book is right. The next
+            # observation will either find positive holdings (which are then
+            # sold), or confirm the disappearance and reconcile it. Never
+            # arm a new protective SELL based solely on local inventory
+            # against a contradictory broker-zero observation.
+            log.warning(
+                "Snapback exit: option holdings temporarily unverified for %s; "
+                "stop restoration withheld pending positive broker inventory",
+                pos.position_id,
+            )
             return "option_missing_unconfirmed", 0
         self._book_unpriced_option_exit(pos, quantity=remaining - available, available=available)
         return "sell", available
