@@ -74,8 +74,8 @@ describe('cross-strategy today priority', () => {
   it('releases history only after four live snapshots complete', async () => {
     wrap(<Display />);
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
-    expect(screen.getByRole('status')).toHaveTextContent('Today’s four strategy boards loaded');
-    expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: today loaded');
+    expect(screen.getByRole('status')).toHaveTextContent('Current-day API checks finished across four strategies');
+    expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');
   });
 
   it('keeps older history deferred when one current-day scan is running', async () => {
