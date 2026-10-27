@@ -824,3 +824,46 @@ def test_unpriced_exit_refuses_changed_persisted_owner_or_closed_state(
     assert current.option_exit_unknown_qty == 0
     assert current.option_symbol == ("OTHER_OPTION" if changed == "option_symbol"
                                      else origin.option_symbol)
+
+
+@pytest.mark.asyncio
+async def test_broker_zero_cannot_clear_triggered_stop_with_unknown_child(monkeypatch):
+    p = pos()
+    p.gtt_id = 778899
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    monkeypatch.setattr(obj, "_stop_child_orders",
+                        AsyncMock(return_value=None))
+    monkeypatch.setattr(exits, "_broker_net", AsyncMock(return_value={}))
+    monkeypatch.setattr(obj, "_held_beyond_siblings",
+                        Mock(return_value=0))
+    book = Mock()
+    hold = Mock()
+    monkeypatch.setattr(obj, "_book_if_proven_gone", book)
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+
+    result = await obj._settle_broker_stop(NS(
+        get_orders=AsyncMock(return_value=[])), p)
+
+    assert result == "reconciling"
+    hold.assert_called_once_with(p, "broker_stop_child_identity_unknown")
+    book.assert_not_called()
+    assert p.gtt_id == 778899
+    assert p.option_exit_unknown_qty == 0
+
+
+@pytest.mark.asyncio
+async def test_duplicate_triggered_child_order_id_is_unverified(monkeypatch):
+    from app.services.kite_engine import protective_stop as pstop
+
+    p = pos()
+    p.gtt_id = 999888
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    monkeypatch.setattr(pstop, "stop_state", AsyncMock(return_value=NS(
+        child_order_id="STOP-CHILD-1", verdict="TRIGGERED")))
+    monkeypatch.setattr(obj, "_booked_exit_ids", Mock(return_value=set()))
+    match = {"order_id": "STOP-CHILD-1", "status": "COMPLETE",
+             "filled_quantity": 75, "average_price": 100}
+    own = await obj._stop_child_orders(NS(), p, [match, dict(match)])
+    assert own is None, "one child ID in two rows is not unique ownership evidence"
