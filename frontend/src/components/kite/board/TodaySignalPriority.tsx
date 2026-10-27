@@ -130,7 +130,7 @@ export function TodaySignalPriorityStatus() {
       : 'loading today'
   }`);
   return <div
-    role="status" aria-live="polite" data-testid="today-signals-priority"
+    role="status" aria-live="polite" className="today-signals-priority" data-testid="today-signals-priority"
     style={{ padding: '5px 12px', fontSize: 11, lineHeight: 1.5,
       borderBottom: '1px solid var(--k-border)', color: 'var(--k-text)',
       background: 'var(--k-surface)', flexShrink: 0 }}
