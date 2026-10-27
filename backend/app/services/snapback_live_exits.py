@@ -686,6 +686,25 @@ class SnapbackExitManager:
     async def _run_exit(self, client: Any, pos: LivePosition, *, forced: bool = False) -> str:
         """Advance the stored exit as far as it can go. Returns the outcome."""
         pos = self.store.get(pos.position_id) or pos
+
+        # A crash may occur AFTER terminal fill projection and BEFORE durable
+        # order-ID retirement / journal projection acknowledgement. Even if the
+        # local quantity already reads flat, resolve that exact broker order:
+        # skipping straight to finalisation could erase recovery identity.
+        if (bool(pos.option_exit_order_id) != bool(pos.option_exit_requested)
+                or bool(pos.hedge_exit_order_id) != bool(pos.hedge_exit_requested)):
+            self._flag_reconciling(pos, "exit_ack_slot_inconsistent_at_resume")
+            return "reconciling"
+        if pos.option_exit_order_id:
+            if pos.exit_reason == "BROKER_STOP" and pos.gtt_id:
+                self._flag_reconciling(pos, "broker_stop_and_market_exit_overlap")
+                return "reconciling"
+            outcome = await self._resolve_exit(
+                client, pos, leg="option", order_id=pos.option_exit_order_id)
+            if outcome != "done":
+                return self._after_failure(pos, "option", outcome)
+            pos = self.store.get(pos.position_id) or pos
+
         if pos.exit_reason == "BROKER_STOP" and pos.option_exit_qty < pos.option_qty:
             settled = await self._settle_broker_stop(client, pos)
             if settled not in ("done", "market_exit"):
@@ -698,6 +717,13 @@ class SnapbackExitManager:
             outcome = await self._close_leg(client, pos, leg="option", forced=forced)
             if outcome != "done":
                 return self._after_failure(pos, "option", outcome)
+            pos = self.store.get(pos.position_id) or pos
+
+        if pos.has_hedge and pos.hedge_exit_order_id:
+            outcome = await self._resolve_exit(
+                client, pos, leg="hedge", order_id=pos.hedge_exit_order_id)
+            if outcome != "done":
+                return self._after_failure(pos, "hedge", outcome)
             pos = self.store.get(pos.position_id) or pos
 
         if pos.has_hedge and pos.hedge_exit_qty < pos.hedge_qty:
@@ -1388,13 +1414,18 @@ class SnapbackExitManager:
         stored_id = getattr(pos, f"{prefix}_exit_order_id")
         total = getattr(pos, f"{prefix}_qty")
         exited = getattr(pos, f"{prefix}_exit_qty")
+        booked_ids = getattr(pos, f"{prefix}_exit_booked_ids")
+        already_projected = (
+            isinstance(booked_ids, list) and order_id in booked_ids
+        )
         if (type(order_id) is not str or not order_id.strip()
                 or order_id != order_id.strip()
                 or type(stored_id) is not str or stored_id != order_id
                 or type(requested) is not int or requested <= 0
                 or type(total) is not int or type(exited) is not int
-                or total <= 0 or not 0 <= exited < total
-                or requested > total - exited):
+                or total <= 0 or not 0 <= exited <= total
+                or (not already_projected
+                    and (exited == total or requested > total - exited))):
             self._flag_reconciling(pos, "exit_receipt_order_state_unverified")
             return "unresolved"
         reference = float(pos.option_entry_price if is_option else pos.hedge_entry_price) or 1.0
@@ -1498,6 +1529,11 @@ class SnapbackExitManager:
                     raise ValueError("exit order or owner changed during retirement")
                 setattr(p, field_name, "")
                 setattr(p, requested_field, 0)
+                if filled == 0:
+                    # Count a terminal no-fill ONLY when its ACK is retired.
+                    # Repeated recovery between projection and retirement must
+                    # not inflate the idempotency attempt number.
+                    p.exit_attempts += 1
 
             try:
                 updated = self.store.mutate(pos.position_id, retire_terminal_exit)
