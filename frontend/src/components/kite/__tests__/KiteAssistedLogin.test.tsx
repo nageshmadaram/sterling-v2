@@ -123,3 +123,27 @@ it('Telegram starts saved-credential login after the user chooses their account'
   await waitFor(()=>expect(state.api.post).toHaveBeenCalledWith('/api/v1/kite/assisted-login',{account_id:'one'}));
   expect(state.api.post).toHaveBeenCalledTimes(1);
 });
+
+it('refreshes broker status after a saved session without falsely declaring connection', async () => {
+  const started = {
+    id: 'saved-attempt', account_id: 'one', username: 'AA001',
+    phase: 'awaiting_totp', message: 'Enter code',
+  };
+  const finished = {
+    ...started, phase: 'done',
+    message: 'Kite login successful for AA001. Broker session saved.',
+  };
+  state.api.post.mockResolvedValue(started);
+  state.api.get.mockResolvedValue(finished);
+  const saved = vi.fn();
+  const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  render(<QueryClientProvider client={client}>
+    <KiteAssistedLogin onSaved={saved} />
+  </QueryClientProvider>);
+  fireEvent.change(screen.getByLabelText('Broker account'), {target: {value: 'one'}});
+  fireEvent.click(screen.getByRole('button', {name: 'Login with saved credentials'}));
+  await waitFor(() => expect(saved).toHaveBeenCalledWith('one'), {timeout: 3500});
+  expect(saved).toHaveBeenCalledTimes(1);
+  expect(screen.getByText(/Broker session saved/)).toBeInTheDocument();
+  expect(screen.queryByRole('button', {name: 'Login with saved credentials'})).toBeNull();
+});
