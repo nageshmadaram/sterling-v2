@@ -67,7 +67,7 @@ async def test_durably_booked_fill_retains_normal_success_and_projection_ack(mon
     monkeypatch.setattr(a, "_book_fill", booked)
     refresh = AsyncMock()
     monkeypatch.setattr(fee_safety, "refresh", refresh)
-    ack = Mock()
+    ack = Mock(return_value=True)
     monkeypatch.setattr(fills, "mark_projected", ack)
     kill = Mock()
     monkeypatch.setattr(wiring, "engage_kill_switch", kill)
