@@ -233,6 +233,43 @@ def test_actual_signal_replay_enters_next_option_open_not_signal_price():
     assert t["entry"] == 120 and t["entry_time"] == b.time[-1]+60 and t["net_pnl_inr"] == -90
 
 
+def test_intrabar_option_low_stress_exceeds_realized_stop_loss():
+    # An OHLC candle may trade below the simulated stop fill. Never report
+    # only the optimistic closed-trade drawdown as the worst observed risk.
+    b = setup()
+    spot = concat(b, tape([100], start=b.time[-1] + 60))
+    opt = tape(
+        [200.] * (len(b) - 1) + [400., 119.],
+        highs=[201.] * (len(b) - 1) + [500., 121.],
+        lows=[199.] * (len(b) - 1) + [300., 100.],
+    )
+    result = replay(spot, opt, replace(CFG, scalp_max_hold_bars=1))
+    assert result["trade_count"] == 1
+    assert result["trades"][0]["exit_reason"] == "stop"
+    assert result["max_option_close_mark_drawdown_inr"] >= result["max_realized_drawdown_inr"]
+    assert (result["max_option_intrabar_low_stress_drawdown_inr"]
+            > result["max_realized_drawdown_inr"])
+    assert "no_futures_hedge" in result["option_mtm_basis"]
+
+
+def test_unresolved_open_option_reports_adverse_mtm_without_fake_realized_loss():
+    b = setup()
+    spot = concat(b, tape([100], start=b.time[-1] + 60))
+    opt = tape(
+        [200.] * (len(b) - 1) + [400., 119.],
+        opens=[200.] * (len(b) - 1) + [400., 120.],
+        highs=[201.] * (len(b) - 1) + [500., 121.],
+        lows=[199.] * (len(b) - 1) + [300., 117.],
+    )
+    result = replay(spot, opt, replace(CFG, scalp_max_hold_bars=20))
+    assert not result["complete"]
+    assert result["trade_count"] == 0
+    assert result["net_pnl_inr"] == 0
+    assert result["max_realized_drawdown_inr"] == 0
+    assert result["max_option_close_mark_drawdown_inr"] > 0
+    assert result["max_option_intrabar_low_stress_drawdown_inr"] > 0
+
+
 def test_contract_side_is_bound(monkeypatch):
     start = START+30*60
     b = tape([100]*4, start=start)
