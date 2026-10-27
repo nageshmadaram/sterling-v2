@@ -429,6 +429,10 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                     horizon_bars=max(1, cfg.scalp_max_hold_bars),
                     min_rr=cfg.scalp_min_net_rr,
                     lock_points=cfg.scalp_lock_points,
+                    cash_budget_inr=capital,
+                    premium_allocation_inr=(
+                        capital * cfg.premium_pct_of_capital / 100
+                        if cfg.sizing_mode != "LOTS" else None),
                 )
             if plan["accepted"]:
                 position = open_trade(plan, ts, symbol=option_symbol or symbol, option_type=option_type)
