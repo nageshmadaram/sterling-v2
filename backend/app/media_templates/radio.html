@@ -3435,7 +3435,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const revision=++playbackRevision;
       const url = overrideUrl || streamObj.streamUrl;
 
-      if (!overrideUrl) pendingPlayRecord = streamObj;
+      if (!overrideUrl) { pendingPlayRecord = streamObj; backupCursor = 0; }
 
       clearTimeout(watchdogTimer);
       if (hlsInstance) {
@@ -3456,7 +3456,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
           if(playbackRevision!==revision||userPaused)return;
-          if (isBootAttempt && err.name === 'NotAllowedError') {
+          if (err.name === 'NotAllowedError') {
+            userPaused = true; // Browser autoplay policy is not a broken stream.
             const banner = document.getElementById('boot-resume-banner');
             document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
             banner?.classList.remove('hidden');
@@ -3473,9 +3474,14 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         // Live radio needs a smaller buffer on constrained mobile devices.
         const smallScreen=window.matchMedia?.('(max-width:767px)')?.matches===true;
         const bufferSec=smallScreen
-          ? (appConfig.qualityProfile==='hifi'?35:20)
-          : (appConfig.qualityProfile==='hifi'?90:appConfig.qualityProfile==='datasaver'?30:60);
-        hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec, maxBufferLength:bufferSec });
+          ? (appConfig.qualityProfile==='hifi'?14:8)
+          : (appConfig.qualityProfile==='hifi'?35:appConfig.qualityProfile==='datasaver'?12:20);
+        hlsInstance = new Hls({
+          enableWorker: true, backBufferLength: bufferSec,
+          maxBufferLength: bufferSec, startFragPrefetch: true,
+          liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5,
+          manifestLoadingTimeOut: 5000, levelLoadingTimeOut: 5000,
+        });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -3490,10 +3496,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
 
       watchdogTimer = setTimeout(() => {
-        if (playbackRevision===revision && audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
+        if (playbackRevision===revision && (audio.paused || audio.readyState < 2) && activeStream === streamObj && !userPaused && !pendingBootStation) {
           switchBackupServer();
         }
-      }, 8500);
+      }, 6500);
 
       applyAcousticContourToAudio();
       updateAmbientColorFromId(streamObj.id);
