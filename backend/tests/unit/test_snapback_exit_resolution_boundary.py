@@ -672,3 +672,114 @@ def test_concurrent_stop_booking_cannot_clip_a_newly_reduced_position(monkeypatc
     assert p.option_exit_booked_ids == []
     assert p.gtt_id == 99873
     hold.assert_called_once_with(p, "stop_fill_registry_conflict")
+
+
+def test_unknown_stop_child_and_working_market_exit_never_book_unpriced(monkeypatch):
+    p = pos()
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    hold = Mock()
+    shortfall = Mock()
+    booking = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", hold)
+    monkeypatch.setattr(obj, "_note_shortfall", shortfall)
+    monkeypatch.setattr(obj, "_book_unpriced_option_exit", booking)
+
+    assert obj._book_if_proven_gone(p) == "reconciling"
+    hold.assert_called_once_with(
+        p, "broker_stop_and_canonical_exit_unresolved")
+    shortfall.assert_not_called()
+    booking.assert_not_called()
+
+
+def test_unpriced_shortfall_rejects_exit_started_during_transaction(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.gtt_id = 123456
+    def mutate(_position_id, callback):
+        p.option_exit_order_id = "NEW-BROKER-EXIT"
+        p.option_exit_requested = 75
+        callback(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    halt = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", halt)
+
+    with pytest.raises(RuntimeError, match="must be reconciled"):
+        obj._book_unpriced_option_exit(p, quantity=50, available=25)
+
+    halt.assert_called_once_with(
+        p, "unpriced_option_exit_conflicts_with_broker_state")
+    assert p.option_exit_qty == 0
+    assert p.option_exit_unknown_qty == 0
+    assert p.option_exit_order_id == "NEW-BROKER-EXIT"
+    assert p.gtt_id == 123456
+
+
+@pytest.mark.parametrize("quantity,already_exited", [
+    (76, 0), (51, 25), (0, 0), (1.5, 0),
+])
+def test_unpriced_shortfall_does_not_book_invalid_excess_quantity(
+        monkeypatch, quantity, already_exited):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = already_exited
+    p.gtt_id = 987654
+    def mutate(_id, callback):
+        callback(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    halt = Mock()
+    monkeypatch.setattr(obj, "_flag_reconciling", halt)
+    with pytest.raises(RuntimeError, match="must be reconciled"):
+        obj._book_unpriced_option_exit(p, quantity=quantity, available=0)
+    halt.assert_called_once()
+    assert p.option_exit_qty == already_exited
+    assert p.option_exit_unknown_qty == 0
+    assert p.gtt_id == 987654
+
+
+def test_valid_unpriced_shortfall_preserves_remaining_known_option(monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    p.option_exit_qty = 25
+    p.gtt_id = 987654
+    def mutate(_id, callback):
+        callback(p)
+        return p
+
+    obj = exits.SnapbackExitManager(
+        positions=NS(mutate=Mock(side_effect=mutate)))
+    monkeypatch.setattr(exits, "alert", Mock())
+    halt = Mock()
+    monkeypatch.setattr(exits, "engage_kill_switch", halt)
+    obj._book_unpriced_option_exit(p, quantity=50, available=0)
+
+    assert p.option_exit_qty == p.option_qty == 75
+    assert p.option_exit_unknown_qty == 50
+    assert p.gtt_id == 0
+    assert "option_exit_price_unknown" in p.flags
+    halt.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_partially_missing_option_cannot_sell_after_shortfall_booking_race(
+        monkeypatch):
+    p = pos()
+    p.option_exit_order_id = ""
+    p.option_exit_requested = 0
+    obj = exits.SnapbackExitManager(positions=NS(mutate=Mock()))
+    monkeypatch.setattr(exits, "_broker_net", AsyncMock(return_value={}))
+    monkeypatch.setattr(obj, "_held_beyond_siblings", Mock(return_value=25))
+    monkeypatch.setattr(obj, "_note_shortfall", Mock(return_value=True))
+    book = Mock(side_effect=RuntimeError("concurrent exit"))
+    monkeypatch.setattr(obj, "_book_unpriced_option_exit", book)
+
+    assert await obj._option_shortfall_step(NS(), p, 75) == ("reconciling", 0)
+    book.assert_called_once_with(p, quantity=50, available=25)
