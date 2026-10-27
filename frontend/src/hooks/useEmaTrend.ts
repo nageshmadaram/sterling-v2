@@ -30,7 +30,7 @@ export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[], rowLimit = 
       return api.get<EmaTrendSnapshot>(
         `${EMA_TREND_BASE}/snapshot?modes=${selected}&limit=${Math.min(1000, Math.max(1, rowLimit))}`);
     },
-    enabled: !scope.replay, refetchInterval: 10_000, staleTime: 3_000 });
+    enabled: !scope.replay, refetchInterval: 5_000, staleTime: 3_000 });
 }
 export function useEmaTrendLiveReadiness() {
   const scope = useScope();
