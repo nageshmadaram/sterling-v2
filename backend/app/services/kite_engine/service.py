@@ -235,6 +235,7 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
     if not isfinite(available) or available <= 0:
         return {"status": "blocked", "reason": "broker_capital_unavailable_or_insufficient"}
 
+    from app.core.mode_execution import timeframe_minutes
     try:
         result = await canonical_entry.submit_entry(
             client=client, uid=uid, account_id=acct, symbol=option_symbol,
@@ -242,7 +243,10 @@ async def place_manual_order(uid: str, option_symbol: str, side: str,
             evidence=canonical_entry.EntryEvidence(
                 available_capital=available, capital_required=0.0,
                 generation_id="manual-v1", signal_id=idem),
-            order_type="market_order", tag=idem)
+            order_type="market_order", tag=idem,
+            payload={"horizon_mode": cfg.horizon_mode,
+                     "signal_timeframe_minutes": timeframe_minutes(
+                         cfg.horizon_mode, cfg.signal_timeframe_minutes)})
     except KiteError as exc:
         state.log(uid, "order_failed", f"{side} {option_symbol}: {exc}")
         return {"status": "error", "message": str(exc)}
@@ -297,9 +301,10 @@ async def _place_live_manual_buy(client, uid, symbol, quantity, exchange, order_
             # Merged parent rows carry the newest timestamp across all legs.
             # Entry authority belongs to this contract's own signal generation.
             leg_stamp = getattr(leg, "signal_timestamp_ms", None)
-            if leg_stamp:
-                from copy import copy
-                candidate = copy(candidate)
+            from copy import copy
+            candidate = copy(candidate)
+            candidate.scan_refresh_state = getattr(leg, "scan_refresh_state", None) or getattr(candidate, "scan_refresh_state", None)
+            if leg_stamp and candidate.source == "derivatives":
                 candidate.timestamp_ms = leg_stamp
             rows.append(candidate)
         row = next((r for r in rows if not entry_data_block_reason(
@@ -764,6 +769,8 @@ async def _resolve_deep_itm(client, item, row, cfg) -> Optional[_ResolvedTrade]:
 
 
 def entry_data_block_reason(row, *, exchange: str, buffer_minutes: int) -> str:
+    if getattr(row, "scan_refresh_state", None):
+        return "signal_refresh_" + row.scan_refresh_state
     reason = market_hours.entry_block_reason(
         exchange=exchange, cash_signal=row.source != "derivatives", buffer_minutes=buffer_minutes)
     if reason:
@@ -1168,6 +1175,18 @@ def _make_place_cb(client, uid: str):
                 qty = lots * trade_lot if trade_lot > 0 else qty
                 state.log(uid, "info",
                           f"{row.underlying}: correlation ×{cmult:.1f} vs open {open_assets} ({lots} lot)")
+
+        # Apply the same initial lot ceiling used by canonical admission before
+        # presenting an executable size. This only reduces an automatic order;
+        # the canonical service independently validates broker lot metadata.
+        if getattr(client, "_is_paper", None) is False:
+            from app.core.live_minimum import configured_envelope
+            envelope = configured_envelope()
+            if envelope.max_lots is not None and trade_lot > 0:
+                ceiling = envelope.max_lots * trade_lot
+                if qty > ceiling:
+                    qty, lots = ceiling, envelope.max_lots
+                    state.log(uid, "info", f"{trade_symbol}: initial live cap → {lots} lot(s)")
 
         # ── live safety (Kite INR controls) ───────────────────────────────────
         trade_side = "BUY" if (not use_futures or signal_dir == "long") else "SELL"

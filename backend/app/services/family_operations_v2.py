@@ -333,11 +333,11 @@ def _certification_section(certification: Any) -> dict[str, Any]:
         # The overall verdict is the backend's, not a count done in the browser.
         "release_ready": (bool(certification.release_ready)
                           if certification is not None else None),
-        # Release certification is waived for this release: every gate above is
-        # reported honestly but none of them blocks an entry or a start.
+        # Legacy diagnostics may be advisory for observation/startup. The new
+        # release-entry authority separately requires G0-G9 for real new risk.
         "waived": True,
-        "advisory_note": ("release certification is waived for this release; "
-                          "these gates are informational and never block"),
+        "advisory_note": ("legacy diagnostics are waived for observation/startup only; "
+                          "live entries require G0-G9 acceptance and current safety checks"),
     }
 
 

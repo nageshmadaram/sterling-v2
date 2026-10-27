@@ -31,6 +31,19 @@ def _order(**overrides):
 
 
 class TestConfiguration:
+    def test_default_entry_is_capped_at_one_lot(self):
+        from app.core.live_minimum import MAX_LOTS_ENV
+        assert configured_envelope({}).max_lots == 1
+        assert configured_envelope({MAX_LOTS_ENV: "2"}).max_lots == 2
+
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+    def test_nonfinite_limits_never_become_unlimited_budgets(self, value):
+        from app.core.live_minimum import MAX_LOTS_ENV
+        for key in (DAILY_LOSS_ENV, GROSS_EXPOSURE_ENV, MAX_LOTS_ENV):
+            limits = configured_envelope({key: value})
+            assert key in limits.invalid
+            assert not limits.configured
+
     def test_an_unconfigured_envelope_permits_nothing(self, monkeypatch):
         monkeypatch.delenv(DAILY_LOSS_ENV, raising=False)
         monkeypatch.delenv(GROSS_EXPOSURE_ENV, raising=False)
@@ -72,6 +85,11 @@ class TestTheEnvelope:
 
 
 class TestUnknownIsNeverSmall:
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+    @pytest.mark.parametrize("field,code", [("order_value", "ORDER_VALUE_UNKNOWN"),
+        ("open_gross_exposure", "GROSS_EXPOSURE_UNKNOWN"), ("realised_loss_today", "DAILY_LOSS_UNKNOWN")])
+    def test_nonfinite_risk_inputs_fail_closed(self, field, code, value):
+        assert code in check_order(**_order(**{field: value})).blockers
     @pytest.mark.parametrize("field,code", [
         ("minimum_executable_quantity", "MINIMUM_QUANTITY_UNKNOWN"),
         ("order_value", "ORDER_VALUE_UNKNOWN"),

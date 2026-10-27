@@ -7,6 +7,10 @@ name: Regression Gate
 on:
   pull_request:
     branches: [main]
+  # Release commits need this context on their own SHA: a PR-only check does
+  # not follow the merge commit onto main.
+  push:
+    branches: [main]
 
 jobs:
   regression-gate:
@@ -29,7 +33,17 @@ jobs:
 
       - name: Run zero-regression gate
         working-directory: backend
-        run: bash scripts/regression_gate.sh origin/main
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            # On a push, origin/main already equals HEAD. Comparing to it
+            # would silently make the baseline identical to the candidate.
+            # Compare the released commit with its first parent instead.
+            git rev-parse --verify 'HEAD^' >/dev/null
+            bash scripts/regression_gate.sh 'HEAD^'
+          else
+            bash scripts/regression_gate.sh origin/main
+          fi
         env:
           ENVIRONMENT: test
           PAPER_TRADING: "true"

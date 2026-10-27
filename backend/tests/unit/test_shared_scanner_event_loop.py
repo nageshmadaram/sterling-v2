@@ -56,7 +56,7 @@ async def test_supertrend_scan_cache_write_runs_outside_the_loop(monkeypatch):
     loop_thread=threading.get_ident()
     writes=[]
     monkeypatch.setattr(state,'load_signal_cache',lambda uid:None)
-    def persist(*args):
+    def persist(*args, **kwargs):
         assert threading.get_ident()!=loop_thread
         writes.append(args)
     monkeypatch.setattr(state,'save_signal_cache',persist)

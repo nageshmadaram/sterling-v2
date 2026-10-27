@@ -29,6 +29,7 @@ refused to close a position would be a way to lose money.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import time
 from dataclasses import dataclass, field
@@ -862,6 +863,17 @@ class SnapbackExitManager:
             elif held is True:
                 self._clear_shortfall(pos)
             order_id = await self._submit_exit(client, pos, leg=leg, quantity=remaining)
+            if order_id is None:
+                # Submission may have reached the broker; a second SELL or
+                # restoring a prior stop can double-close this position.
+                try:
+                    current = self.store.get(pos.position_id) or pos
+                except Exception as exc:  # noqa: BLE001 - disk may also be full
+                    log.critical("Snapback exit hold cannot read registry: %s", exc)
+                    current = pos
+                self._flag_reconciling(
+                    current, f"{leg}_exit_submission_identity_unknown")
+                return "submit_unknown"
             if not order_id:
                 if is_option:
                     # The stop was released and no sell went out: protect exactly
@@ -1150,15 +1162,21 @@ class SnapbackExitManager:
             if note not in p.flags:
                 p.flags.append(note)
 
-        self.store.mutate(pos.position_id, apply)
+        try:
+            self.store.mutate(pos.position_id, apply)
+        except Exception as exc:  # noqa: BLE001 - never skip the safety halt
+            log.critical("Snapback cannot persist reconciliation hold for %s: %s",
+                         pos.position_id, exc)
+        engage_kill_switch(
+            f"Snapback position {pos.option_symbol} needs reconciliation: {note}",
+            pos.uid)
         alert("RECONCILIATION REQUIRED", pos.option_symbol,
               detail_line(qty=pos.option_qty, notes=[note.replace("_", " "),
                                                     "automatic handling stopped; check the broker"]),
               key=f"snapback:{pos.position_id}:RECON:{note}", severity="CRITICAL",
               uid=pos.uid)
-        engage_kill_switch(f"Snapback position {pos.option_symbol} needs reconciliation: {note}", pos.uid)
 
-    async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> str:
+    async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> Optional[str]:
         """One canonical CLOSE_POSITION order. Returns its order id, or ``""``."""
         from app.services.execution_service import ExecutionRequest, ExposureEffect
         from app.services.snapback_plan_producer import generation_id
@@ -1185,26 +1203,35 @@ class SnapbackExitManager:
         try:
             result = await self.canonical.submit_order(request, broker_client=client,
                                                        risk_approval=None)
-        except Exception as exc:  # noqa: BLE001
-            log.error("Snapback exit submit raised for %s: %s", symbol, exc)
-            return ""
-        if not result.success or not result.order_id:
-            log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
-            if str(result.status or "").upper() in ("REJECTED", "CANCELLED"):
-                # Nothing is working at the broker for this key and the key is spent,
-                # so the next try must be a NEW attempt. An UNKNOWN outcome is
-                # different: it keeps its key, so a retry can never send twice.
-                def bump(p: LivePosition) -> None:
-                    p.exit_attempts += 1
+        except Exception as exc:  # noqa: BLE001 - request may already exist at broker
+            log.critical("Snapback exit submit outcome unknown for %s: %s", symbol, exc)
+            return None
 
-                self.store.mutate(pos.position_id, bump)
+        status = str(getattr(result, "status", "") or "").upper()
+        broker_order_id = str(getattr(result, "order_id", "") or "")
+        if not broker_order_id:
+            if (status not in {"HALTED", "REJECTED_PLAN", "REJECTED_RELEASE_AUTHORITY",
+                                "REJECTED_RISK", "REJECTED_BINDING", "REJECTED_INPUT"}
+                    or bool(getattr(result, "success", False))
+                    or getattr(result, "filled_quantity", 0) != 0):
+                # No proof the broker did not receive this request. Persist an
+                # owner-scoped reconciliation hold; never place another sell.
+                return None
+            log.error("Snapback exit refused for %s: %s %s", symbol, result.status, result.error)
+            if status in {"REJECTED", "CANCELLED"} and int(
+                    getattr(result, "filled_quantity", 0) or 0) == 0:
+                self.store.mutate(
+                    pos.position_id,
+                    lambda p: setattr(p, "exit_attempts", p.exit_attempts + 1))
             alert("EXIT NOT SENT", pos.option_symbol,
                   detail_line(qty=quantity, notes=[f"{leg} leg: {result.status} {result.error}"[:160]]),
                   key=f"snapback:{pos.position_id}:EXITREFUSED:{leg}:{int(time.time() // 120)}",
-                  severity="CRITICAL",
-                  uid=pos.uid)
+                  severity="CRITICAL", uid=pos.uid)
             return ""
 
+        # An order ID is recovery authority, regardless of a response's
+        # optimistic/negative success flag. The resolver must prove whether
+        # the known order actually reduced inventory and is terminal.
         field_name = "option_exit_order_id" if is_option else "hedge_exit_order_id"
         req_name = "option_exit_requested" if is_option else "hedge_exit_requested"
 
@@ -1253,15 +1280,48 @@ class SnapbackExitManager:
             log.error("Snapback exit: resolution failed for %s: %s", order_id, exc)
             return "resolution_failed"
 
-        filled = int(resolution.filled_quantity or 0)
-        average = float(resolution.average_price or 0.0)
+        # Once an exit SELL/BUY reached the broker, malformed evidence must
+        # never clear its order ID or authorize another exit attempt. In
+        # particular, an unsigned/int-truncated or over-requested cumulative
+        # quantity could accidentally count more closes than broker holdings.
+        try:
+            raw_qty = getattr(resolution, "filled_quantity", None)
+            raw_px = getattr(resolution, "average_price", None)
+            if type(raw_qty) is not int or not 0 <= raw_qty <= requested:
+                raise ValueError("invalid_exit_filled_quantity")
+            if (type(raw_px) not in (int, float) or not math.isfinite(raw_px)
+                    or raw_px < 0 or (raw_qty > 0 and raw_px <= 0)):
+                raise ValueError("invalid_exit_average_price")
+            filled, average = raw_qty, float(raw_px)
+        except (ValueError, TypeError, OverflowError) as exc:
+            log.error("Snapback exit: %s has invalid broker fill receipt: %s", order_id, exc)
+            engage_kill_switch(
+                f"Snapback exit {order_id} cannot verify broker fill quantity/price",
+                pos.uid)
+            return "unresolved"
         if filled > 0:
             if not self._book_exit(pos, leg=leg, order_id=order_id, filled=filled, average=average,
                                    exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0)):
                 return "accounting_pending"
 
-        if resolution.reconciliation_required or not resolution.settled:
+        # A complete requested quantity is NOT broker-terminal proof:
+        # OPEN/UPDATE working orders can still change. Keep their durable
+        # identity and never submit a replacement before terminal evidence.
+        if (resolution.reconciliation_required or not resolution.settled
+                or getattr(resolution, "terminal", None) is not True
+                or str(getattr(resolution, "status", "") or "").upper()
+                   not in _ORDER_TERMINAL):
             return "unresolved"
+        # A terminal no-fill CANCELLED/REJECTED receipt has nothing to
+        # project and may legitimately carry version zero. COMPLETE/zero-fill
+        # instead conflicts with the claimed broker completion.
+        terminal_status = str(getattr(resolution, "status", "") or "").upper()
+        if filled == 0 and terminal_status not in {"CANCELLED", "REJECTED"}:
+            return "unresolved"
+        if filled > 0:
+            version = getattr(resolution, "projection_version", None)
+            if type(version) is not int or version <= 0:
+                return "projection_pending"
 
         def apply(p: LivePosition) -> None:
             booked = p.option_exit_booked_ids if is_option else p.hedge_exit_booked_ids
@@ -1279,7 +1339,7 @@ class SnapbackExitManager:
                 p.exit_attempts += 1
 
         updated = self.store.mutate(pos.position_id, apply)
-        if updated is not None and resolution.projection_version:
+        if updated is not None and filled > 0:
             try:
                 if not fills.mark_projected(resolution):
                     from app.services.kite_engine import order_journal
@@ -1328,9 +1388,14 @@ class SnapbackExitManager:
                 cumulative_value=float(filled) * float(average), source=source,
                 exchange_ts_ms=exchange_ts_ms,
                 lot_size=int((pos.lot_size if is_option else pos.hedge_lot_size) or 0))
-            if applied.reconciliation_required:
-                log.critical("Snapback exit: contradictory fill evidence for %s", symbol)
-                engage_kill_switch(f"Snapback exit fill for {symbol} is contradictory", pos.uid)
+            ledger_reason = str(getattr(applied, "reason", "") or "")
+            if (applied.reconciliation_required
+                    or ledger_reason not in {"accepted", "duplicate"}):
+                log.critical("Snapback exit: fill ledger refuses %s for %s",
+                             ledger_reason or "unknown", symbol)
+                engage_kill_switch(
+                    f"Snapback exit fill for {symbol} needs ledger reconciliation",
+                    pos.uid)
                 return False
             return True
         except Exception as exc:  # noqa: BLE001

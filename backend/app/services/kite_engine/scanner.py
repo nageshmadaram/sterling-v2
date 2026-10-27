@@ -46,6 +46,7 @@ from app.services.kite_engine.strikes import (
 )
 from app.services.kite_engine.universe import UniverseItem
 from app.services.kite_engine import state, market_hours
+from app.services.kite_engine.scan_refresh import RefreshBoard
 
 log = get_logger(__name__)
 
@@ -322,15 +323,24 @@ def _compile_rows(rows: List[EngineSignalRow]) -> List[EngineSignalRow]:
     leg_ts: Dict[tuple, int] = {}
     for r in rows:
         if r.source != "derivatives":
-            nd_key = (r.underlying, r.source, r.direction, r.timestamp_ms)
+            nd_key = (r.underlying, r.source, r.direction, r.timestamp_ms, r.horizon_mode, r.signal_timeframe_minutes)
             if nd_key not in grouped_non_derivs:
                 grouped_non_derivs[nd_key] = r
             else:
                 existing = grouped_non_derivs[nd_key]
-                if r.is_active or not existing.is_active:
+                if r.scan_refresh_state and not existing.scan_refresh_state:
+                    # A partial confluence read can leave one prior leg unknown
+                    # on the same bar as a verified sibling. Keep both without
+                    # letting the retained parent's flag replace fresh authority.
+                    merged = existing.model_copy(deep=True)
+                    symbols = {leg.option_symbol for leg in merged.legs}
+                    merged.legs.extend(leg.model_copy(deep=True) for leg in r.legs
+                                       if leg.option_symbol not in symbols)
+                    grouped_non_derivs[nd_key] = merged
+                elif r.is_active or not existing.is_active:
                     grouped_non_derivs[nd_key] = r
             continue
-        key = (r.underlying, r.option_type)
+        key = (r.underlying, r.option_type, r.horizon_mode, r.signal_timeframe_minutes)
         for source_leg in (r.legs or []):
             leg = source_leg.model_copy(deep=True)
             # Only an ungrouped premium row owns these fallback values.
@@ -385,6 +395,10 @@ def _compile_rows(rows: List[EngineSignalRow]) -> List[EngineSignalRow]:
     final_rows: List[EngineSignalRow] = list(grouped_non_derivs.values())
     final_rows.extend(grouped_derivs.values())
     for r in final_rows:
+        if r.source == "derivatives":
+            phases = {leg.scan_refresh_state for leg in r.legs}
+            r.scan_refresh_state = None if None in phases else next(
+                (phase for phase in ("failed", "pending", "replaced") if phase in phases), r.scan_refresh_state)
         if r.source == "derivatives" and len(r.legs) > 1:
             r.legs.sort(key=lambda leg: _MONEYNESS_ORDER.get(leg.moneyness, 99))
     return final_rows
@@ -650,6 +664,7 @@ class UserScan:
     scanning: bool = False
     scanning_label: str = ""
     cancelled: bool = False
+    refresh_board: Optional["RefreshBoard"] = None
 
     def finalized(self, candles, now_ms=None, **kwargs):
         return drop_forming(candles, now_ms, timeframe_ms=self.timeframe_minutes * 60_000, **kwargs)
@@ -761,7 +776,7 @@ class KiteEngineScanner:
             # since the last look unless something was saved (this process is the only
             # writer), so look again only then.
             version = state.signal_cache_version(uid)
-            if us.cache_version_seen == version and not us.scanning:
+            if us.scanning or us.cache_version_seen == version:
                 return us
             us.cache_version_seen = version
             cached = state.load_signal_cache(uid)
@@ -792,7 +807,6 @@ class KiteEngineScanner:
         us = self._users.get(uid)
         if us and us.scanning:
             us.cancelled = True
-            us.scanning = False
             us.scanning_label = "Cancelled"
             return True
         return False
@@ -959,18 +973,15 @@ class KiteEngineScanner:
             prior_premium_snapshots = _prior_leg_snapshots(us.rows)
             initial_active_confluence = {
                 r.underlying: r for r in us.rows
-                if getattr(r, "source", "") == "confluence" and getattr(r, "is_active", False)
+                if (getattr(r, "source", "") == "confluence" and getattr(r, "is_active", False)
+                    and r.horizon_mode == us.horizon_mode and r.signal_timeframe_minutes == us.timeframe_minutes)
             }
-            all_scanned_names = {item.name for item in universe}
-            if deriv_universe:
-                all_scanned_names.update(item.name for item in deriv_universe)
-            if confluence_universe:
-                all_scanned_names.update(item.name for item in confluence_universe)
-
-            initial_other_rows = [
-                r for r in us.rows
-                if r.underlying not in all_scanned_names
-            ]
+            planned = {(source, item.name) for source, items in (
+                ("spot", universe), ("derivatives", deriv_universe or []),
+                ("confluence", confluence_universe or [])) for item in items}
+            refresh = RefreshBoard(us.rows, planned, mode=us.horizon_mode,
+                timeframe=us.timeframe_minutes, previous=us.refresh_board)
+            us.refresh_board = refresh
             diag = ScanDiag(universe=len(universe),
                             indices=sum(1 for i in universe if i.is_index))
 
@@ -987,15 +998,12 @@ class KiteEngineScanner:
 
             async def _flush() -> None:
                 async with flush_lock:
-                    active_conf_underlyings = {r.underlying for r in rows if getattr(r, "source", "") == "confluence"}
-                    preserved = [
-                        conf_row for und, conf_row in initial_active_confluence.items()
-                        if und not in active_conf_underlyings
-                    ]
-                    us.rows = _compile_rows(rows + preserved + initial_other_rows)
+                    us.rows = refresh.project(rows)
                     us.generated_ms = int(time.time() * 1000)
                     model_rows = [r.model_dump() for r in us.rows]
-                    await run_blocking(state.save_signal_cache, uid, model_rows, us.generated_ms)
+                    await run_blocking(state.save_signal_cache, uid, model_rows, us.generated_ms, replace=True)
+
+            await _flush()
 
             async def _one(item: UniverseItem) -> None:
                 if us.cancelled:
@@ -1029,6 +1037,8 @@ class KiteEngineScanner:
                     diag.index_evaluated += 1
                 eval_rows = evaluate_item(us.engine, item, candles, cfg)
                 if not eval_rows:
+                    refresh.finish("spot", item.name, success=True)
+                    await _flush()
                     return
                 option_rows = nfo_rows if item.option_exchange == "NFO" else bfo_rows
                 _expiry = expiry_types_indices if (expiry_types_indices is not None and item.is_index) else expiry_types_stocks if (expiry_types_stocks is not None and not item.is_index) else expiry_types
@@ -1045,6 +1055,7 @@ class KiteEngineScanner:
                     _copy_prior_leg_snapshot(row, prior_premium_snapshots)
                     await self._stamp_spot_leg_premiums(client, us, row, sem=sem, diag=diag)
                     rows.append(row)
+                    refresh.observe(row)
 
                     is_fresh = (row.timestamp_ms == latest_ts)
                     if is_fresh:
@@ -1055,18 +1066,18 @@ class KiteEngineScanner:
                                 await place_cb(row, item)
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("kite-engine auto-exec fail %s: %s", item.name, exc)
-                # Only worth a flush when this symbol actually produced a signal —
-                # the common case (no setup) has nothing new to show.
-                if new_rows:
-                    await _flush()
+                # Successful empty groups must also retire their cached prior plans.
+                refresh.finish("spot", item.name, success=True)
+                await _flush()
 
-            # Each _one() call already flushes us.rows itself the moment it finds a
-            # signal (see above) — nothing further to do once the spot phase drains.
-            # NOTE: an unconditional _flush() here is a trap when universe is empty
-            # (confluence/derivatives-only scan_source): it would stomp us.rows with
-            # the still-empty local `rows` list before the confluence/derivatives
-            # phases below get a chance to populate it, wiping the board mid-scan.
-            await asyncio.gather(*[_one(i) for i in universe])
+            # Drain each phase before finalization, including exceptional siblings.
+            async def _phase(jobs):
+                results = await asyncio.gather(*jobs, return_exceptions=True)
+                for result in results:
+                    if isinstance(result, BaseException):
+                        raise result
+
+            await _phase([_one(i) for i in universe])
 
             # ── derivatives scan: triple-ST on each contract's OWN premium chart ──
             async def _deriv_one(item: UniverseItem) -> None:
@@ -1130,6 +1141,8 @@ class KiteEngineScanner:
                                            expiry_types=_expiry, today=today)
                 diag.deriv_resolved += len(contracts)
 
+                verified_contracts = set()
+
                 async def _contract(m: str, pick) -> None:
                     if us.cancelled:
                         return
@@ -1188,6 +1201,8 @@ class KiteEngineScanner:
                     if "long" in deriv_reds:
                         us.contract_reds[pick.option_symbol] = deriv_reds["long"]
                     drows = evaluate_derivative_contract(item, m, pick, oc, cfg)
+                    if len(oc) > cfg.warmup + 1:
+                        verified_contracts.add(pick.option_symbol)
                     latest_ts = oc[-1].timestamp_ms
                     # Keep running/just-fired entries plus the most-recent recently-ended
                     # one.
@@ -1201,6 +1216,7 @@ class KiteEngineScanner:
                             if prior:
                                 drow.underlying_spot = under_close_by_ts[max(prior)]
                         rows.append(drow)
+                        refresh.observe(drow)
                         is_fresh = (drow.timestamp_ms == latest_ts)
                         if is_fresh:
                             diag.deriv_fired += 1
@@ -1223,13 +1239,15 @@ class KiteEngineScanner:
                                     except Exception as exc:  # noqa: BLE001
                                         log.warning("kite-engine deriv auto-exec fail %s: %s", pick.option_symbol, exc)
 
-                await asyncio.gather(*[_contract(m, p) for m, p in contracts])
+                await _phase([_contract(m, p) for m, p in contracts])
 
                 # Flush after this underlying's derivatives finish so signals
                 # from already-scanned symbols appear immediately in the table.
+                refresh.finish("derivatives", item.name, success=not us.cancelled and
+                    all(pick.option_symbol in verified_contracts for _, pick in contracts))
                 await _flush()
 
-            await asyncio.gather(*[_deriv_one(i) for i in (deriv_universe or [])])
+            await _phase([_deriv_one(i) for i in (deriv_universe or [])])
 
             # ── confluence scan: underlying regime AND the leg's own premium ──────
             # A candidate strike is emitted only when the UNDERLYING fires a fresh
@@ -1268,6 +1286,8 @@ class KiteEngineScanner:
                     diag.index_evaluated += 1
                 eval_rows = evaluate_item(us.engine, item, candles, cfg)
                 if not eval_rows:
+                    refresh.finish("confluence", item.name, success=True)
+                    await _flush()
                     return
                 option_rows = nfo_rows if item.option_exchange == "NFO" else bfo_rows
                 _expiry = expiry_types_indices if (expiry_types_indices is not None and item.is_index) else expiry_types_stocks if (expiry_types_stocks is not None and not item.is_index) else expiry_types
@@ -1276,9 +1296,11 @@ class KiteEngineScanner:
                 latest_ts = candles[-1].timestamp_ms
                 prior_active_confluence = dict(initial_active_confluence)
                 for r in rows:
-                    if getattr(r, "source", "") == "confluence" and getattr(r, "is_active", False):
+                    if (getattr(r, "source", "") == "confluence" and getattr(r, "is_active", False)
+                    and r.horizon_mode == us.horizon_mode and r.signal_timeframe_minutes == us.timeframe_minutes):
                         prior_active_confluence[r.underlying] = r
                 retained_rows = _retain_signals(eval_rows, now_ms)
+                confirmation_complete = True
 
                 # Confluence must exist on one bar; never join an old underlying
                 # trigger to a premium trend observed later.
@@ -1287,9 +1309,13 @@ class KiteEngineScanner:
                         if row.is_active and row.underlying in prior_active_confluence:
                             prior = prior_active_confluence[row.underlying]
                             row.source = "confluence"
-                            row.legs = prior.legs
+                            row.legs = [leg.model_copy(deep=True) for leg in prior.legs]
+                            row.scan_refresh_state = "replaced"
+                            for leg in row.legs:
+                                leg.scan_refresh_state = "replaced"
                             row.underlying_spot = row.spot
                             rows.append(row)
+                            refresh.observe(row)
                         continue
                     # Candidate strikes for this signal's direction — the SAME picks
                     # attach_strikes resolves — then confirm each on its own premium.
@@ -1300,6 +1326,7 @@ class KiteEngineScanner:
                         if us.cancelled:
                             return
                         if not pick.token:
+                            confirmation_complete = False
                             continue  # no premium series to confirm against
                         async with sem:
                             try:
@@ -1308,10 +1335,15 @@ class KiteEngineScanner:
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("kite-engine confluence chart fail %s: %s",
                                             pick.option_symbol, exc)
+                                confirmation_complete = False
                                 continue
                         if len(oc) <= 1:
+                            confirmation_complete = False
                             continue
+                        if len(oc) <= cfg.warmup + 1:
+                            confirmation_complete = False
                         if int(oc[-1].timestamp_ms) != int(latest_ts):
+                            confirmation_complete = False
                             continue
                         diag.deriv_charts += 1
                         bars = len(oc)
@@ -1350,6 +1382,7 @@ class KiteEngineScanner:
                     row.legs = confirmed
                     row.underlying_spot = row.spot  # spot mode: `spot` IS the underlying
                     rows.append(row)
+                    refresh.observe(row)
                     if row.timestamp_ms == latest_ts:
                         diag.confluence_fired += 1
                         if place_cb is not None:
@@ -1358,17 +1391,23 @@ class KiteEngineScanner:
                             except Exception as exc:  # noqa: BLE001
                                 log.warning("kite-engine confluence auto-exec fail %s: %s",
                                             item.name, exc)
+                refresh.finish("confluence", item.name, success=confirmation_complete and not us.cancelled)
                 await _flush()
 
-            await asyncio.gather(*[_confluence_one(i) for i in (confluence_universe or [])])
+            await _phase([_confluence_one(i) for i in (confluence_universe or [])])
 
             us.diag = diag
-            us.generated_ms = int(time.time() * 1000)
-            model_rows = [r.model_dump() for r in us.rows]
-            await run_blocking(state.save_signal_cache, uid, model_rows, us.generated_ms)
         finally:
-            us.scanning = False
-            us.scanning_label = ""
+            try:
+                if "refresh" in locals():
+                    for source, name in planned:
+                        group = (source, name, us.horizon_mode, us.timeframe_minutes)
+                        if group not in refresh.completed:
+                            refresh.finish(source, name, success=False)
+                    await _flush()
+            finally:
+                us.scanning = False
+                us.scanning_label = ""
 
 
 scanner = KiteEngineScanner()

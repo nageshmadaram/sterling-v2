@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import inspect
 import logging
+import math
 from typing import Any, Mapping
 
 from app.core.live_minimum import (
@@ -169,6 +170,8 @@ def _daily_loss(uid: str) -> tuple[float | None, float | None]:
         state = live_safety.daily_loss_state(uid=uid)
         pnl = float(state["pnl_inr"])
         halt = abs(float(state["hard_halt_inr"]))
+        if not math.isfinite(pnl) or not math.isfinite(halt):
+            return None, None
     except Exception as exc:  # noqa: BLE001 - a failed risk read is never zero loss
         log.warning("live-minimum: daily loss unreadable: %s", exc)
         return None, None

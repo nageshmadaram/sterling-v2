@@ -268,6 +268,12 @@ class SafetySupervisor:
             blockers.append(protection_blocker)
             reasons.append(protection_reason)
 
+        from app.services.kite_engine.scan_refresh import admission_blocker as refresh_blocker
+        refresh_code, refresh_reason = refresh_blocker(entry_request)
+        if refresh_code:
+            blockers.append(refresh_code)
+            reasons.append(refresh_reason)
+
         from app.services.fee_safety import admission_blocker as fee_blocker
         fee_code, fee_reason = fee_blocker(uid, account_id)
         if fee_code:

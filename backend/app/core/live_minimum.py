@@ -2,7 +2,7 @@
 
 Sterling ships as a live-money product, and its first days are deliberately the
 most constrained: a fixed daily-loss budget, a fixed gross exposure, no
-averaging down, and (when the operator asks for it) a lot cap. The point is not
+averaging down, and a one-lot default cap. The point is not
 that a small loss is acceptable. It is that a sizing bug, a stale input or a
 runaway loop should meet a wall long before it meets the whole account.
 
@@ -29,8 +29,8 @@ already holds rather than invented numbers:
     Share of verified capital that may be deployed at once. 1-100, default 100.
 
 ``STERLING_LIVE_MINIMUM_MAX_LOTS``
-    Optional cap on the lots in one entry. Unset means the engines' own
-    ``execution_lots`` / ``max_lots`` knobs are the only lot cap.
+    Cap on the lots in one entry. Unset means exactly one lot. Any larger
+    operator-approved limit still requires release and economic acceptance.
 
 A limit that is present but unusable (not a number, zero, negative) is NOT
 replaced by its default: someone who typed it meant to restrict something, and
@@ -40,6 +40,7 @@ reported as invalid and the entry is refused until it is fixed.
 from __future__ import annotations
 
 import os
+import math
 from dataclasses import dataclass, field
 from typing import Any, Final, Mapping
 
@@ -66,8 +67,8 @@ class LiveMinimumEnvelope:
 
     daily_loss_budget: float | None = None
     gross_exposure_limit: float | None = None
-    #: Optional lot cap. ``None`` leaves lot counts to the engines' own knobs.
-    max_lots: int | None = None
+    #: Initial live risk is limited to one lot unless explicitly approved.
+    max_lots: int | None = 1
     #: Environment variables that were set but unusable. Never defaulted over.
     invalid: tuple[str, ...] = ()
     #: Where each limit came from, for the operator ("env", "derived: ...").
@@ -75,8 +76,8 @@ class LiveMinimumEnvelope:
 
     @property
     def configured(self) -> bool:
-        return (self.daily_loss_budget is not None
-                and self.gross_exposure_limit is not None
+        return (_finite(self.daily_loss_budget) and self.daily_loss_budget > 0
+                and _finite(self.gross_exposure_limit) and self.gross_exposure_limit > 0
                 and not self.invalid)
 
     def as_dict(self) -> dict[str, Any]:
@@ -90,6 +91,10 @@ class LiveMinimumEnvelope:
         }
 
 
+def _finite(value: Any) -> bool:
+    return type(value) in (int, float) and math.isfinite(value)
+
+
 def _positive(source: Mapping[str, str], name: str) -> float | None:
     raw = (source.get(name) or "").strip()
     if not raw:
@@ -98,7 +103,7 @@ def _positive(source: Mapping[str, str], name: str) -> float | None:
         value = float(raw)
     except ValueError:
         return None
-    return value if value > 0 else None
+    return value if math.isfinite(value) and value > 0 else None
 
 
 def _present(source: Mapping[str, str], name: str) -> bool:
@@ -123,12 +128,14 @@ def configured_envelope(env: Mapping[str, str] | None = None) -> LiveMinimumEnve
     elif _present(source, GROSS_EXPOSURE_ENV):
         invalid.append(GROSS_EXPOSURE_ENV)
 
-    max_lots: int | None = None
+    max_lots: int | None = 1
+    sources["max_lots"] = "default: one lot per entry"
     lots = _positive(source, MAX_LOTS_ENV)
     if lots is not None and lots == int(lots):
         max_lots = int(lots)
         sources["max_lots"] = MAX_LOTS_ENV
     elif _present(source, MAX_LOTS_ENV):
+        max_lots = None
         invalid.append(MAX_LOTS_ENV)
 
     pct = _positive(source, MAX_DEPLOYED_PCT_ENV)
@@ -289,18 +296,18 @@ def check_order(
             # order is a different experiment, and a part-lot cannot be executed.
             blockers.append("QUANTITY_ABOVE_MINIMUM")
 
-    if order_value is None or order_value <= 0:
+    if not _finite(order_value) or order_value <= 0:
         blockers.append("ORDER_VALUE_UNKNOWN")
-    if open_gross_exposure is None:
+    if not _finite(open_gross_exposure) or open_gross_exposure < 0:
         blockers.append("GROSS_EXPOSURE_UNKNOWN")
-    if (order_value is not None and order_value > 0 and open_gross_exposure is not None
-            and limits.gross_exposure_limit is not None
+    if (_finite(order_value) and order_value > 0 and _finite(open_gross_exposure)
+            and _finite(limits.gross_exposure_limit)
             and order_value + open_gross_exposure > limits.gross_exposure_limit):
         blockers.append("GROSS_EXPOSURE_EXCEEDED")
 
-    if realised_loss_today is None:
+    if not _finite(realised_loss_today) or realised_loss_today < 0:
         blockers.append("DAILY_LOSS_UNKNOWN")
-    elif (limits.daily_loss_budget is not None
+    elif (_finite(limits.daily_loss_budget)
           and realised_loss_today >= limits.daily_loss_budget):
         blockers.append("DAILY_LOSS_BUDGET_SPENT")
 

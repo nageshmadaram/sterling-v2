@@ -112,6 +112,14 @@ export interface OperatorActions {
 }
 
 export interface LiveOperations {
+  operator_summary?: Record<'BROKER' | 'RISK' | 'PROTECTION' | 'AUTOMATION', string>;
+  release_permission?: {
+    new_entries_allowed: boolean;
+    status: 'AUTHORIZED' | 'OBSERVATION_ONLY' | 'UNKNOWN';
+    blockers: string[];
+    strategies: Array<{strategy_id: string; mode?: string; r1_verified?: boolean; r2_verified?: boolean;
+      r3_verified?: boolean; new_entries_allowed: boolean; blockers: string[]}>;
+  };
   paper_strategies?: { ema_trend?: { status: 'AVAILABLE' | 'UNAVAILABLE'; execution_mode: 'PAPER';
     live_eligible: false; campaigns: import('./emaTrend').EmaTrendCampaign[] | null;
     supervision: import('./emaTrend').EmaTrendSupervision | null; paused?: boolean; reason?: string } };

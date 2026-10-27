@@ -334,31 +334,35 @@ async def test_startup_recovery_clean():
     assert res["recovery_state"] == "CLEAN"
 
 @pytest.mark.asyncio
-async def test_archive_disable_during_preparation_prevents_broker_send(monkeypatch):
+async def test_scope_revocation_during_preparation_prevents_broker_send(monkeypatch):
     import time
     from contextlib import contextmanager
-    from app.services import archived_strategies, snapback_family_mode
-    archived_strategies.set_enabled("u1", "intraday", True)
+    from app.services import snapback_family_mode
+    from app.core import release_scope
+    scope_allowed = True
+    monkeypatch.setattr(release_scope, "may_originate", lambda *args: scope_allowed)
     monkeypatch.setenv("ENVIRONMENT", "production")
     original = snapback_family_mode.canonical_broker_capability
     @contextmanager
     def revoke_before_send(*args, **kwargs):
-        archived_strategies.set_enabled("u1", "intraday", False)
+        nonlocal scope_allowed
+        scope_allowed = False
         with original(*args, **kwargs):
             yield
     monkeypatch.setattr(snapback_family_mode, "canonical_broker_capability", revoke_before_send)
     class Broker:
         _account_id = "acc1"
+        _is_paper = True
         sent = False
         async def place_order(self, **kwargs):
             self.sent = True
             return {"order_id": "must-not-send"}
     broker = Broker()
-    req = ExecutionRequest(uid="u1", account_id="acc1", strategy_id="intraday",
+    req = ExecutionRequest(uid="u1", account_id="acc1", strategy_id="gamma_move",
         generation_id="g", signal_id="disable-race", exchange="NSE", symbol="RELIANCE",
         side="BUY", quantity=10)
     approval = RiskApproval(approval_id="p", uid="u1", account_id="acc1",
-        strategy_id="intraday", signal_id="disable-race", symbol="RELIANCE",
+        strategy_id="gamma_move", signal_id="disable-race", symbol="RELIANCE",
         side="BUY", quantity=10, generation_id="g", available_capital=100000,
         timestamp_ms=int(time.time() * 1000))
     result = await CanonicalExecutionService().submit_order(req, broker_client=broker,

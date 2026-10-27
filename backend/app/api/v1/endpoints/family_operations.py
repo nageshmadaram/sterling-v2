@@ -12,6 +12,7 @@ timer can never put a network call between a strategy and its order.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Response
@@ -218,6 +219,8 @@ class FamilyOperationsV2(BaseModel):
     lanes: list[LaneStatus] = Field(default_factory=list)
     operator: OperatorActions = Field(default_factory=OperatorActions)
     paper_strategies: dict[str, Any] = Field(default_factory=dict)
+    release_permission: dict[str, Any] = Field(default_factory=dict)
+    operator_summary: dict[str, str] = Field(default_factory=dict)
 
 
 @router.get("/operations/family", response_model=FamilyOperationsV2)
@@ -245,7 +248,46 @@ def family_operations(
         log.exception("EMA paper operations state unavailable")
         paper={"status":"UNAVAILABLE","execution_mode":"PAPER","live_eligible":False,
                "campaigns":None,"supervision":None,"reason":"PAPER_STATE_UNAVAILABLE"}
-    return {**payload,"paper_strategies":{"ema_trend":paper}}
+    from app.services.release_entry_authority import operator_release_status
+    try:
+        permission = operator_release_status(owner, str(payload.get("broker", {}).get("account_id") or ""))
+    except Exception:
+        permission = {"new_entries_allowed": False, "status": "UNKNOWN", "strategies": [],
+                      "blockers": ["RELEASE_AUTHORITY_UNKNOWN"]}
+    safety = dict(payload.get("safety") or {})
+    if not permission["new_entries_allowed"]:
+        safety["new_risk_allowed"] = False
+        safety["blockers"] = [*(safety.get("blockers") or []),
+                              {"code": "RELEASE_NOT_AUTHORIZED", "severity": "BLOCK",
+                               "message": "Live entries require independently verified release and lane evidence",
+                               "source": "release_entry_authority"}]
+        payload = {**payload, "new_risk_allowed": False,
+                   "production_mode": "LIVE_HALTED" if payload.get("environment") == "production" else payload.get("production_mode", "UNKNOWN"),
+                   "next_safe_action": "Keep new live entries off; collect the missing release and lane acceptance evidence.",
+                   "new_risk_blockers": list(dict.fromkeys([*payload.get("new_risk_blockers", []), "RELEASE_NOT_AUTHORIZED"])),
+                   "safety": safety}
+    broker = payload.get("broker") or {}
+    from app.core.acceptance_evidence import utc_timestamp
+    from app.services.external_positions import MAX_OBSERVATION_AGE_SECONDS
+    broker_fresh = False
+    try:
+        age = (datetime.now(timezone.utc) - utc_timestamp(broker["broker_observed_at"])).total_seconds()
+        broker_fresh = 0 <= age <= MAX_OBSERVATION_AGE_SECONDS
+    except (KeyError, ValueError, TypeError, AttributeError):
+        pass
+    # No local stop id is called confirmed protection here. Broker-native
+    # protection needs a fresh independent broker observation.
+    protection = "UNKNOWN"
+    if (broker_fresh and broker.get("broker_state_readable") is True and broker.get("broker_flatness") == "PASS"
+            and broker.get("managed_positions") == [] and broker.get("external_positions") == []
+            and broker.get("unresolved_intents") == 0):
+        protection = "NO_EXPOSURE"
+    summary = {"BROKER": "READABLE" if broker_fresh and broker.get("broker_state_readable") is True else "UNKNOWN",
+               "RISK": "ALLOWED" if payload.get("new_risk_allowed") is True else "NEW_ENTRIES_BLOCKED",
+               "PROTECTION": protection,
+               "AUTOMATION": "AUTHORIZED" if payload.get("new_risk_allowed") is True and permission["new_entries_allowed"] else "OBSERVATION_ONLY"}
+    return {**payload, "paper_strategies": {"ema_trend": paper},
+            "release_permission": permission, "operator_summary": summary}
 
 
 class EgressStatusResponse(BaseModel):

@@ -77,6 +77,11 @@ def _validate(bars: Bars, timeframe: int, *, contiguous: bool = False) -> None:
         if (not _SESSION_START <= minute < _SESSION_END
                 or not math.isclose((minute - _SESSION_START) % timeframe, 0, abs_tol=1e-8)):
             raise ValueError("Candles must be aligned intraday bars in the IST trading session")
+        # A 15:15 hourly print would finish at 16:15, after the 15:30
+        # underlying session close. It is a partial closing candle, not
+        # a complete 60-minute observation, even if the broker supplies it.
+        if minute + timeframe > _SESSION_END + 1e-8:
+            raise ValueError("Candle interval ends after the continuous market session")
         if i and ist_day(t) == ist_day(ts[i - 1]):
             delta = (t - ts[i - 1]) / (timeframe * 60)
             if (not math.isclose(delta, round(delta), abs_tol=1e-8)
@@ -350,7 +355,8 @@ def advance_trade(state: PremiumTradeState, *, timestamp: float, open: float,
 
 def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
                     symbol: str = "", *, option_type: str, lot_size: int,
-                    option_symbol: str = "") -> dict[str, Any]:
+                    option_symbol: str = "",
+                    candidate_policy: str = "baseline") -> dict[str, Any]:
     """Historical research for one observed option contract; never live execution.
 
     Both tapes must contain exactly the same aligned, consecutive timestamps.
@@ -362,11 +368,16 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
     """
     if cfg.trading_mode not in ("scalp", "intraday", "ultra_scalping", "overnight"):
         raise ValueError("Select scalp or intraday mode for option-candle replay")
+    from .challenger import CHALLENGER_ID, assess_cost_feasible_plan
+    if candidate_policy not in {"baseline", CHALLENGER_ID}:
+        raise ValueError("Unknown Snapback challenger identity")
     if option_type not in ("CE", "PE") or isinstance(lot_size, bool) or int(lot_size) != lot_size or lot_size <= 0:
         raise ValueError("A CE/PE option type and positive integer contract lot size are required")
     tf = cfg.scalp_timeframe_minutes
     _validate(underlying, tf, contiguous=True)
     _validate(premium_bars, tf, contiguous=True)
+    if not len(underlying) or not len(premium_bars):
+        raise ValueError("Replay requires nonempty observed underlying and option tapes")
     if len(underlying) != len(premium_bars) or not np.array_equal(underlying.time, premium_bars.time):
         raise ValueError("Replay requires synchronized observed underlying and option candles; no gaps or synthetic prices")
     trades: list[dict[str, Any]] = []
@@ -383,6 +394,7 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
     entries_today = 0
     last_exit_index = -10 ** 9
     rejected = 0
+    challenger_rejections: dict[str, int] = {}
     unresolved_reason = None
     session_start_index = 0
     for i, ts_raw in enumerate(underlying.time):
@@ -406,12 +418,32 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
             bounded_risk_pct = min(cfg.scalp_risk_pct, remaining_daily_risk / capital * 100)
             plan = make_plan(float(premium_bars.open[i]), lot_size,
                              replace(cfg, capital_inr=capital, scalp_risk_pct=bounded_risk_pct))
+            if candidate_policy == CHALLENGER_ID and plan["accepted"]:
+                # i is the NEXT option bar. Only strictly earlier *closed*
+                # option candles may inform this independent challenger.
+                plan = assess_cost_feasible_plan(
+                    plan,
+                    times=premium_bars.time[:i], opens=premium_bars.open[:i],
+                    highs=premium_bars.high[:i], closes=premium_bars.close[:i],
+                    entry_time=ts, bar_seconds=tf * 60,
+                    horizon_bars=max(1, cfg.scalp_max_hold_bars),
+                    min_rr=cfg.scalp_min_net_rr,
+                    lock_points=cfg.scalp_lock_points,
+                    cash_budget_inr=capital,
+                    premium_allocation_inr=(
+                        capital * cfg.premium_pct_of_capital / 100
+                        if cfg.sizing_mode != "LOTS" else None),
+                )
             if plan["accepted"]:
                 position = open_trade(plan, ts, symbol=option_symbol or symbol, option_type=option_type)
                 plans.append({"entry_time": ts, "signal_time_ms": pending.timestamp_ms, **plan})
                 entries_today += 1
             else:
                 rejected += 1
+                if candidate_policy == CHALLENGER_ID:
+                    for reason in plan.get("rejection_reasons", []):
+                        challenger_rejections[reason] = (
+                            challenger_rejections.get(reason, 0) + 1)
         pending = None
         if position is not None:
             position = advance_trade(position, timestamp=ts, open=float(premium_bars.open[i]),
@@ -438,11 +470,17 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
     pnl = capital - initial
     winners = sum(t["net_pnl_inr"] > 0 for t in trades)
     return {"research_only": True, "validation_status": "unvalidated_intraday_research",
+            "candidate_policy": candidate_policy,
+            "candidate_policy_is_independent": candidate_policy == CHALLENGER_ID,
+            "challenger_rejections": challenger_rejections,
             "pricing_basis": "observed synchronized option OHLC; all-in estimated round-trip costs",
             "cost_assumption": "Observed OHLC fill prices are reference prices; estimated round-trip spread, slippage and variable fees plus fixed fees are deducted once from each closed trade's gross P&L",
             "fill_assumption": "Next-bar open entries; existing stop first, gap at open; soft target continuation assessed at close; updated trail effective next bar",
             "symbol": symbol, "option_symbol": option_symbol, "option_type": option_type,
             "lot_size": int(lot_size), "trading_mode": cfg.trading_mode,
+            "hedge_mode": cfg.hedge_mode,
+            "hedge_realized_pnl_inr": None,
+            "hedge_data_quality": "NOT_MODELLED_IN_INTRADAY_OPTION_ONLY_REPLAY",
             "trades": trades, "plans": plans, "trade_count": len(trades),
             "winning_trades": winners, "win_rate_pct": 100 * winners / len(trades) if trades else 0.0,
             "initial_capital_inr": initial, "realized_equity_inr": capital,
@@ -453,4 +491,5 @@ def replay_intraday(underlying: Bars, premium_bars: Bars, cfg: SnapbackConfig,
             "complete": position is None,
             "limitations": ["Not evidence of a profitable strategy; no out-of-sample promotion",
                             "Candle fills cannot model queue position or order-book depth at high quantity",
-                            "Open-position P&L is excluded from realized results and drawdown"]}
+                            "Open-position P&L is excluded from realized results and drawdown",
+            "Challenger uses prior candle HIGH excursions (not executable quotes) and requires untouched forward data"]}

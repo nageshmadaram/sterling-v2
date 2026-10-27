@@ -1016,12 +1016,19 @@ def _admission_summary(live: list[Any]) -> dict[str, Any]:
             blockers = list(verdict.snapshot.blockers) if verdict.snapshot else (
                 [verdict.code] if verdict.code else []
             )
+            reasons = list(verdict.snapshot.blocker_reasons) if verdict.snapshot else ([verdict.reason] if verdict.reason else [])
+            from app.services.release_entry_authority import operator_release_status
+            release = operator_release_status(uid, account_id)
+            release_allowed = release.get("new_entries_allowed") is True
+            if not release_allowed:
+                blockers.append("release_not_authorized")
+                reasons.append("Release and lane acceptance is incomplete: " + ", ".join(release.get("blockers") or ["UNKNOWN"]))
             per_account.append({
                 "account_id": account_id,
-                "may_open_new_exposure": bool(verdict.allowed),
+                "may_open_new_exposure": bool(verdict.allowed) and release_allowed,
                 "blockers": blockers,
-                "reasons": list(verdict.snapshot.blocker_reasons) if verdict.snapshot else
-                ([verdict.reason] if verdict.reason else []),
+                "reasons": reasons,
+                "release_permission": release.get("status", "UNKNOWN"),
             })
         except Exception as exc:  # noqa: BLE001
             per_account.append({

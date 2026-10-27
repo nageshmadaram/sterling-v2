@@ -144,6 +144,13 @@ def recheck_before_send() -> None:
         check()
 
 
+async def recheck_before_send_async() -> None:
+    """Keep durable admission reads and evidence hashing off the event loop."""
+    if _send_check.get() is not None:
+        from app.core.async_work import run_blocking
+        await run_blocking(recheck_before_send)
+
+
 def current_capability() -> Optional[str]:
     held = _capability.get()
     return held[0] if held else None

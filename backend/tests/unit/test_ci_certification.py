@@ -27,7 +27,7 @@ def store(tmp_path):
 def _record_all(store, sha=SHA, conclusion="success"):
     for i, context in enumerate(REQUIRED_CONTEXTS):
         store.record(runtime_sha=sha, context=context,
-                     conclusion=conclusion, run_id=str(1000 + i))
+                     conclusion=conclusion, run_id=str(1000 + i), job_id=1, runner_id=1, executed_steps=1)
 
 
 class TestTheRequiredContexts:
@@ -50,7 +50,7 @@ class TestTheRequiredContexts:
     def test_one_missing_required_context_does_not_pass(self, store):
         for context in REQUIRED_CONTEXTS[:-1]:
             store.record(runtime_sha=SHA, context=context,
-                         conclusion="success", run_id="1")
+                         conclusion="success", run_id="1", job_id=1, runner_id=1, executed_steps=1)
         report = ci_report(SHA, store=store)
         assert report.all_passed is False
         assert "A context with no record is not a context that passed." in render_ci(report)
@@ -85,14 +85,14 @@ class TestRecordsBelongToOneCommit:
     def test_a_short_sha_is_refused(self, store):
         with pytest.raises(ValueError, match="exact 40-character commit"):
             store.record(runtime_sha="49cc66ee", context="Frontend Type Check",
-                         conclusion="success", run_id="1")
+                         conclusion="success", run_id="1", job_id=1, runner_id=1, executed_steps=1)
 
     def test_an_unknown_context_name_is_refused(self, store):
         # A typo would otherwise become a tenth context while a required one
         # stayed permanently unrecorded.
         with pytest.raises(KeyError):
             store.record(runtime_sha=SHA, context="Frontend Typecheck",
-                         conclusion="success", run_id="1")
+                         conclusion="success", run_id="1", job_id=1, runner_id=1, executed_steps=1)
 
     def test_a_success_must_carry_its_run_id(self, store):
         with pytest.raises(ValueError, match="run id"):
@@ -119,6 +119,9 @@ class TestTheSync:
             "completed_at": completed,
             "status": status,
             "html_url": f"https://x/{run_id}",
+            "execution_job": {"id": run_id, "runner_id": 7, "head_sha": SHA, "name": name,
+                "status": status, "conclusion": conclusion,
+                "steps": [{"status": "completed", "conclusion": "success", "started_at": started, "completed_at": completed}]},
         }
 
     def test_it_records_only_the_required_contexts(self, store):
@@ -156,6 +159,33 @@ class TestTheSync:
         sync_ci_contexts(SHA, store=store, runs=runs)
         assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "FAIL"
 
+    @pytest.mark.parametrize("job_change", [{"runner_id": 0}, {"steps": []}, {"head_sha": OTHER_SHA}, {"id": 0}])
+    def test_success_without_actual_job_execution_stays_unknown(self, store, job_change):
+        run = self._run("Frontend Type Check")
+        run["execution_job"].update(job_change)
+        result = sync_ci_contexts(SHA, store=store, runs=[run])
+        assert "Frontend Type Check" in result.missing
+        assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "UNKNOWN"
+
+    def test_success_check_with_no_job_payload_does_not_certify(self, store):
+        run = self._run("Frontend Type Check")
+        del run["execution_job"]
+        sync_ci_contexts(SHA, store=store, runs=[run])
+        assert not ci_report(SHA, store=store).all_passed
+        assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "UNKNOWN"
+
+    def test_skipped_steps_do_not_count_as_execution(self, store):
+        run = self._run("Frontend Type Check")
+        run["execution_job"]["steps"][0]["conclusion"] = "skipped"
+        sync_ci_contexts(SHA, store=store, runs=[run])
+        assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "UNKNOWN"
+
+    def test_green_job_with_a_failed_continue_on_error_step_cannot_certify(self, store):
+        run = self._run("Frontend Type Check")
+        run["execution_job"]["steps"][0]["conclusion"] = "failure"
+        sync_ci_contexts(SHA, store=store, runs=[run])
+        assert ci_report(SHA, store=store).by_context["Frontend Type Check"].status == "UNKNOWN"
+
     def test_a_rerun_supersedes_the_earlier_attempt(self, store):
         runs = [
             self._run("Frontend Type Check", conclusion="failure", run_id=1,
@@ -192,6 +222,14 @@ class TestTheSync:
         assert record.status == "UNKNOWN"
         assert record.run_id == "2"
         assert "Frontend Type Check" in result.missing
+
+    def test_queued_rerun_without_timestamps_invalidates_an_earlier_pass(self, store):
+        first = self._run("Frontend Type Check", run_id=1)
+        rerun = self._run("Frontend Type Check", run_id=2, conclusion=None,
+                          started="", completed="", status="queued")
+        sync_ci_contexts(SHA, store=store, runs=[first, rerun])
+        record = ci_report(SHA, store=store).by_context["Frontend Type Check"]
+        assert record.status == "UNKNOWN" and record.run_id == "2"
 
     def test_an_unreachable_github_is_an_error_not_an_empty_pass(self, store, monkeypatch):
         def _boom(sha, repo=None):

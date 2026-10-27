@@ -170,7 +170,8 @@ async def test_snapback_projection_ack_failure_replays_without_counting_fill_twi
     def mutate(_id, fn):
         fn(p)
         return p
-    resolution = NS(filled_quantity=40, average_price=90, settled=True,
+    resolution = NS(filled_quantity=40, average_price=90, terminal=True,
+        status="COMPLETE", settled=True,
         reconciliation_required=False, projection_version=1, intent_key="i", exchange_ts_ms=1234)
     manager = snapback_live_exits.SnapbackExitManager(positions=NS(mutate=mutate),
         resolver=AsyncMock(return_value=resolution))
@@ -390,11 +391,17 @@ async def test_owned_gamma_stop_fill_retains_prior_exchange_day(monkeypatch):
 def test_snapback_entry_ledger_uses_durable_exchange_time(monkeypatch):
     from app.services.snapback_live_wiring import SnapbackExecutionAdapter
     from app.services.kite_engine import fill_ledger
-    broker = SnapbackExecutionAdapter(plan_store=NS())
+    plan = {"owner_uid": "u", "account_id": "a",
+            "option_symbol": "OPT", "option_exchange": "NFO"}
+    broker = SnapbackExecutionAdapter(
+        plan_store=NS(get=lambda _: plan),
+        positions=NS(get=lambda _: None),
+    )
     monkeypatch.setattr(broker, "_record_leg", Mock())
-    record = Mock(return_value=NS(reconciliation_required=False))
+    record = Mock(return_value=NS(reconciliation_required=False, reason="accepted"))
     monkeypatch.setattr(fill_ledger, "record", record)
-    request = NS(account_id="a", uid="u", symbol="OPT", exchange="NFO", side="BUY", payload={})
+    request = NS(account_id="a", uid="u", symbol="OPT", exchange="NFO",
+                 side="BUY", tag="snapback:p", payload={})
     assert broker._book_fill(request, NS(exchange_ts_ms=1234), "entry", 40, 100)
     assert record.call_args.kwargs["exchange_ts_ms"] == 1234
     assert broker._record_leg.call_args.kwargs["exchange_ts_ms"] == 1234

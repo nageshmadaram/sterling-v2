@@ -19,7 +19,7 @@ def test_default_off_persisted_and_user_isolated(sid):
     archive.set_enabled("alice", sid, True)
     assert archive.enabled("alice", sid)
     assert not archive.enabled("bob", sid)
-    assert may_originate(sid, "alice") == (sid != "navigator")
+    assert not may_originate(sid, "alice")
     archive.set_enabled("alice", sid, False)
     assert not archive.enabled("alice", sid)
     assert not may_originate(sid, "alice")
@@ -88,7 +88,7 @@ async def test_storage_failure_route_is_503(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_enabled_archive_passes_scope_but_still_requires_risk_approval(monkeypatch):
+async def test_enabled_archive_still_cannot_originate_live_risk(monkeypatch):
     from app.services.execution_service import CanonicalExecutionService, ExecutionRequest
     monkeypatch.setenv("ENVIRONMENT", "production")
     archive.set_enabled("alice", "intraday", True)
@@ -96,8 +96,8 @@ async def test_enabled_archive_passes_scope_but_still_requires_risk_approval(mon
         uid="alice", account_id="acct", strategy_id="intraday", generation_id="g",
         signal_id="s", exchange="NFO", symbol="OPTION", side="BUY", quantity=1))
     assert not result.success
-    assert result.status != "REJECTED_OUTSIDE_RELEASE_SCOPE"
-    assert "Risk" in result.error
+    assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
+    assert "observation/management only" in result.error
 
 @pytest.mark.asyncio
 async def test_settings_require_owner_identity():

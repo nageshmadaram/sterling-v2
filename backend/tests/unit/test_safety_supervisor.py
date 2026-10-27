@@ -228,3 +228,51 @@ async def test_safe_mode_engaged_after_admission_still_stops_the_order(_isolated
     assert result.success is False
     assert result.status == "HALTED"
     assert "SAFE_MODE" in result.error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('refresh_at', ['identity', 'transport'])
+async def test_supertrend_refresh_started_after_admission_stops_queued_order(_isolated_state, monkeypatch, refresh_at):
+    from types import SimpleNamespace
+    from app.engines.sterling_kite_engine.schemas import EngineSignalRow
+    from app.services.kite_engine.scan_refresh import RefreshBoard
+    from app.services.kite_engine.scanner import scanner
+    row = EngineSignalRow(underlying='A', token=1, exchange='NFO', regime='BULL',
+        alignment=dict(fast=1, mid=1, slow=1), direction='long', option_type='CE',
+        spot=100, stop_loss=90, score=1, timestamp_ms=100, source='spot', is_active=True,
+        legs=[dict(moneyness='ATM', option_type='CE', option_symbol='A-CE', strike=100, expiry='2026-12-31', is_active=True)])
+    board = RefreshBoard([row], {('spot', 'A')})
+    board.observe(row)
+    current = SimpleNamespace(refresh_board=board, rows=[row], horizon_mode='swing', timeframe_minutes=60)
+    monkeypatch.setitem(scanner._users, 'u_refresh_race', current)
+
+    class Broker:
+        sent = []
+        @property
+        def _account_id(self):
+            if refresh_at == 'identity':
+                current.refresh_board = RefreshBoard([row], {('spot', 'A')}, previous=board)
+            return 'acct_refresh_race'
+        async def place_order(self, **kwargs):
+            if refresh_at == 'transport':
+                # Model the REST client's limiter/pool await, then its final callback.
+                import asyncio
+                from app.services.snapback_family_mode import recheck_before_send
+                await asyncio.sleep(0)
+                current.refresh_board = RefreshBoard([row], {('spot', 'A')}, previous=board)
+                recheck_before_send()
+            self.sent.append(kwargs)
+            return {'order_id': 'MUST-NOT-SEND'}
+
+    broker = Broker()
+    request = ExecutionRequest(uid='u_refresh_race', account_id='acct_refresh_race',
+        strategy_id='sterling-kite', generation_id='g1', signal_id='spot:100:long',
+        exchange='NFO', symbol='A-CE', side='BUY', quantity=1,
+        exposure_effect=ExposureEffect.INCREASE_EXPOSURE)
+    approval = RiskApproval(approval_id='refresh-race', uid=request.uid,
+        account_id=request.account_id, strategy_id=request.strategy_id, signal_id=request.signal_id,
+        symbol=request.symbol, side='BUY', quantity=1, generation_id='g1', available_capital=500_000.)
+    result = await CanonicalExecutionService().submit_order(request, broker_client=broker, risk_approval=approval)
+    assert broker.sent == []
+    assert not result.success
+    assert 'refresh' in result.error.lower() or 'last known' in result.error.lower()

@@ -197,9 +197,20 @@ class LiveMachine:
                 pass
         importlib.import_module("main")
 
-        from freezegun import freeze_time
+        from freezegun import freeze_time, configure
+        from freezegun.config import settings as freezer_settings
 
-        self._freezer = freeze_time(self.now, tick=True, real_asyncio=True)
+        # Admission now runs blocking durable reads in asyncio worker threads.
+        # Freezegun's default 'threading' ignore makes time.time() in those
+        # workers read the real date while the request has the scenario date,
+        # manufacturing a weeks-old risk approval. Give workers the same
+        # ticking scenario clock, keeping real asyncio scheduling intact.
+        previous_ignore = list(freezer_settings.default_ignore_list)
+        configure(default_ignore_list=[name for name in previous_ignore if name != "threading"])
+        try:
+            self._freezer = freeze_time(self.now, tick=True, real_asyncio=True)
+        finally:
+            configure(default_ignore_list=previous_ignore)
         self._freezer.start()
 
     def teardown(self) -> None:

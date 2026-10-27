@@ -132,6 +132,38 @@ beforeEach(() => {
   post.mockReset();
 });
 
+describe('Operator release and protection truth', () => {
+  it('shows four UNKNOWN statuses when a server summary is missing', async () => {
+    get.mockResolvedValue(payload());
+    renderPanel();
+    const statuses = await screen.findByTestId('operator-four-statuses');
+    expect(within(statuses).getAllByText(/UNKNOWN/)).toHaveLength(4);
+  });
+
+  it('renders separate release stages and observation-only blockers from the backend', async () => {
+    get.mockResolvedValue(payload({operator_summary: {BROKER: 'READABLE', RISK: 'NEW_ENTRIES_BLOCKED',
+      PROTECTION: 'UNKNOWN', AUTOMATION: 'OBSERVATION_ONLY'},
+      release_permission: {new_entries_allowed: false, status: 'OBSERVATION_ONLY', blockers: ['G7'],
+        strategies: [{strategy_id: 'sterling-kite', mode: 'swing', r1_verified: true,
+          r2_verified: true, r3_verified: false, new_entries_allowed: false, blockers: ['G7']}]}}));
+    renderPanel();
+    const permission = await screen.findByTestId('release-permission');
+    expect(permission).toHaveTextContent('Observation only');
+    expect(permission).toHaveTextContent('R1 verified · R2 verified · R3 unverified');
+    expect(permission).toHaveTextContent('G7');
+    expect(screen.getByTestId('operator-four-statuses')).toHaveTextContent('PROTECTION: UNKNOWN');
+  });
+
+  it('demotes an old successful payload to UNKNOWN instead of showing current permission', async () => {
+    get.mockResolvedValue(payload({generated_at: new Date(Date.now() - 60000).toISOString(),
+      operator_summary: {BROKER: 'READABLE', RISK: 'ALLOWED', PROTECTION: 'NO_EXPOSURE', AUTOMATION: 'AUTHORIZED'}}));
+    renderPanel();
+    await screen.findByTestId('ops-unreachable');
+    expect(within(screen.getByTestId('operator-four-statuses')).getAllByText(/UNKNOWN/)).toHaveLength(4);
+    expect(screen.getByLabelText('trading mode')).toHaveTextContent('UNREACHABLE');
+  });
+});
+
 describe('ModeBanner', () => {
   it.each([
     ['LIVE', /TRADING ENABLED/],

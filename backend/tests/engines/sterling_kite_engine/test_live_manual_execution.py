@@ -128,3 +128,19 @@ async def test_manual_uses_contract_signal_time_not_merged_parent_time(live_manu
     assert result["reason"] == "stale_or_closed_manual_signal"
     assert stale.timestamp_ms == 200
     client.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_manual_retained_leg_cannot_inherit_verified_parent(live_manual, monkeypatch):
+    client, _ = live_manual
+    candidate = SimpleNamespace(source='derivatives', timestamp_ms=200, direction='long',
+        scan_refresh_state=None, legs=[SimpleNamespace(option_symbol='OPT', signal_timestamp_ms=100,
+                                                       scan_refresh_state='pending')])
+    monkeypatch.setattr(protection, '_rows_for', lambda uid: [candidate])
+    # Keep the fixture's session gate neutral; exercise exact-leg selection here.
+    monkeypatch.setattr(service, 'entry_data_block_reason', lambda row, **kw:
+                        'signal_refresh_pending' if row.scan_refresh_state else '')
+    result = await service.place_manual_order('u', 'OPT', 'BUY', 50)
+    assert result['reason'] == 'stale_or_closed_manual_signal'
+    assert candidate.scan_refresh_state is None
+    client.place_order.assert_not_awaited()

@@ -300,8 +300,12 @@ def signal_cache_version(uid:str)->int:
     return _signal_cache_version.get(uid,0)
 
 
-def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
+def save_signal_cache(uid:str,rows:list,generated_ms:int,*,replace:bool=False)->None:
     """Persist the board, merged with what is already stored.
+
+    ``replace=True`` commits the scanner's complete projection, including pending
+    and failed groups. Successful empty groups must not be resurrected by merging.
+    That authoritative write is strict: failure cannot be acknowledged as saved.
 
     The merge exists so a mid-scan flush (which only knows the instruments it has
     reached) or an instrument whose candle fetch failed does not blank the rows it
@@ -313,7 +317,7 @@ def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
     * anything older than the board's own retention is dropped.
     """
     try:
-        existing = load_signal_cache(uid)
+        existing = None if replace else load_signal_cache(uid)
         incoming_groups = {_row_group(r) for r in rows if r.get("underlying")}
         merged_by_key = {}
         if existing and existing[0]:
@@ -330,9 +334,12 @@ def save_signal_cache(uid:str,rows:list,generated_ms:int)->None:
             else:
                 merged_by_key[(r.get("underlying") or str(len(merged_by_key)), generated_ms)] = r
         merged_rows = sorted(merged_by_key.values(), key=lambda x: x.get("timestamp_ms", 0))
-        db.set_config(f"kite_engine_signals_{uid}", json.dumps({"rows": merged_rows, "generated_ms": generated_ms}))
+        persist = db.set_config_strict if replace else db.set_config
+        persist(f"kite_engine_signals_{uid}", json.dumps({"rows": merged_rows, "generated_ms": generated_ms}))
         _signal_cache_version[uid]=_signal_cache_version.get(uid,0)+1
-    except Exception:pass
+    except Exception:
+        if replace:
+            raise
 def load_signal_cache(uid:str):
     raw=db.get_config(f"kite_engine_signals_{uid}")
     if not raw:return None

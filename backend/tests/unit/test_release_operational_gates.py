@@ -349,7 +349,7 @@ def test_test_suites_gate_is_derived_from_exact_sha_ci(tmp_path, monkeypatch):
             runtime_sha=SHA,
             context=context,
             conclusion="success",
-            run_id="12345",
+            run_id="12345", job_id=1, runner_id=1, executed_steps=1,
             observed_at=datetime.now(timezone.utc).isoformat(),
             url="https://github.example.test/run/12345",
         )
@@ -373,7 +373,7 @@ def test_test_suites_gate_fails_when_exact_sha_suite_failed(tmp_path, monkeypatc
             runtime_sha=SHA,
             context=context,
             conclusion=("failure" if context == "Frontend Tests (Vitest)" else "success"),
-            run_id="12345",
+            run_id="12345", job_id=1, runner_id=1, executed_steps=1,
             observed_at=datetime.now(timezone.utc).isoformat(),
         )
 

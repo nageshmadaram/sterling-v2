@@ -76,6 +76,32 @@ def test_forming_stale_or_prior_session_signal_is_rejected():
         assert intraday.evaluate_intraday(b, CFG, asof=b.time[-1]+delta) == []
 
 
+def test_empty_candle_tapes_cannot_be_reported_as_successful_replay():
+    empty = tape([])
+    with pytest.raises(ValueError, match="nonempty observed"):
+        replay(empty, empty)
+
+
+def test_partial_hourly_candle_cannot_be_consumed_as_a_completed_bar():
+    start = datetime(2026, 9, 14, 9, 15, tzinfo=IST).timestamp()
+    # Six complete hourly intervals: final one starts 14:15 and closes 15:15.
+    times = start + np.arange(6) * 3600
+    closes = np.full(6, 100.)
+    complete = Bars(times, closes, closes + 1, closes - 1, closes,
+                    np.full(6, 1000.))
+    intraday._validate(complete, 60, contiguous=True)
+    partial = concat(complete, Bars(
+        np.array([datetime(2026, 9, 14, 15, 15, tzinfo=IST).timestamp()]),
+        np.array([100.]), np.array([101.]), np.array([99.]),
+        np.array([100.]), np.array([1000.]),
+    ))
+    with pytest.raises(ValueError, match="interval ends after"):
+        intraday._validate(partial, 60, contiguous=True)
+    hourly = replace(CFG, trading_mode="overnight", scalp_timeframe_minutes=60)
+    with pytest.raises(ValueError, match="interval ends after"):
+        replay(partial, partial, cfg=hourly)
+
+
 def test_future_prices_even_invalid_ohlc_do_not_change_current_signal():
     b = setup()
     now = b.time[-1]+60

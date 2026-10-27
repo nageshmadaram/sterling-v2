@@ -25,6 +25,7 @@ a safety decision rather than plumbing:
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -33,7 +34,7 @@ from typing import Any, Callable, Dict, List, Optional
 from app.services import snapback_live_positions as live_positions
 from app.services.simulation.seam import is_instant_paper
 from app.services.snapback_live_positions import (
-    ENTERING, OPEN, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE, LivePosition,
+    ENTERING, OPEN, RECONCILING, PROTECTION_ACTIVE, PROTECTION_FAILED, PROTECTION_NONE, LivePosition,
     LivePositionStore,
 )
 
@@ -48,6 +49,26 @@ ENTRY_FILL_TIMEOUT_S = 5.0
 def _plan_id_from_tag(tag: str) -> str:
     text = str(tag or "")
     return text.split(":", 1)[1] if text.startswith("snapback:") else ""
+
+
+def _assert_entry_fill_position_active(pos: Any, plan: Dict[str, Any],
+                                       uid: str, account_id: str) -> None:
+    """A closed/exiting or foreign-owned position cannot be reopened by late fills.
+
+    Call before any signed-ledger write AND inside the registry write transaction
+    to withstand another process changing position lifecycle between reads.
+    """
+    if (str(getattr(pos, "uid", "") or "") != uid
+            or str(getattr(pos, "account_id", "") or "") != account_id):
+        raise PermissionError("snapback_owned_position_mismatch")
+    if str(getattr(pos, "status", "") or "").upper() not in {
+            ENTERING, OPEN, RECONCILING}:
+        raise PermissionError("snapback_position_no_longer_accepts_entry_fills")
+    if (str(getattr(pos, "option_symbol", "") or "").strip()
+            != str(plan.get("option_symbol") or "").strip()
+            or str(getattr(pos, "option_exchange", "") or "").strip().upper()
+            != str(plan.get("option_exchange") or "").strip().upper()):
+        raise PermissionError("snapback_existing_option_contract_mismatch")
 
 
 def engage_kill_switch(reason: str, uid: str = "default") -> None:
@@ -135,8 +156,35 @@ class SnapbackExecutionAdapter:
         from app.services import canonical_fill_reconciliation as fills
 
         resolve = self._resolver or fills.resolve_entry_fill
-        reference = float(getattr(request, "price", 0.0) or 0.0) or float(
-            (request.payload or {}).get("limit_price") or 0.0) or 1.0
+        # The canonical service has already sent/acknowledged an order. An
+        # unusable display/reference price must not cause an uncaught exception
+        # that hides its broker identity. Live fill resolution reads actual
+        # broker observations; the fallback is only a resolver argument and
+        # NEVER constitutes valid entry/price evidence.
+        invalid_reference = False
+        try:
+            raw_reference = getattr(request, "price", None)
+            if (raw_reference is None or raw_reference == ""
+                    or (type(raw_reference) in (int, float) and raw_reference == 0)):
+                raw_reference = (request.payload or {}).get("limit_price")
+            if (raw_reference is None or raw_reference == ""
+                    or (type(raw_reference) in (int, float) and raw_reference == 0)):
+                raw_reference = 1.0
+            # Never coerce falsy malformed structures ({}, [], False) into
+            # a supposedly valid fallback quote.
+            reference = float(raw_reference)
+            if (type(raw_reference) is bool or not math.isfinite(reference)
+                    or reference <= 0):
+                raise ValueError("invalid_post_submit_reference_price")
+        except (TypeError, ValueError, OverflowError, AttributeError) as exc:
+            invalid_reference = True
+            reference = 1.0
+            log.error("Snapback unverified reference for sent order %s: %s",
+                      result.order_id, exc)
+            engage_kill_switch(
+                f"Snapback order reference unverified for {request.symbol}",
+                request.uid,
+            )
         try:
             resolution = await resolve(
                 uid=request.uid, client=broker_client, order_id=result.order_id,
@@ -153,40 +201,160 @@ class SnapbackExecutionAdapter:
                 order_id=result.order_id, error=f"fill resolution failed: {exc}",
             )
 
-        filled = int(resolution.filled_quantity or 0)
-        average = float(resolution.average_price or 0.0)
+        # The canonical fill resolver normally supplies validated journal
+        # quantities. Independently check that contract here: once an order
+        # has been sent, malformed evidence is UNKNOWN, never a zero-fill
+        # rejection, a fabricated fill, or an uncaught exception.
+        raw_filled = getattr(resolution, "filled_quantity", None)
+        raw_average = getattr(resolution, "average_price", None)
+        try:
+            if type(raw_filled) is not int or raw_filled < 0:
+                raise ValueError("invalid_cumulative_fill_quantity")
+            if type(raw_average) not in (int, float) or not math.isfinite(raw_average):
+                raise ValueError("invalid_average_fill_price")
+            if raw_average < 0 or (raw_filled > 0 and raw_average <= 0):
+                raise ValueError("nonpositive_confirmed_fill_price")
+            if raw_filled > int(request.quantity):
+                raise ValueError("filled_quantity_exceeds_authorized_order")
+            filled, average = raw_filled, float(raw_average)
+        except (ValueError, TypeError, OverflowError) as exc:
+            # Preserve any known positive integer quantity for protection /
+            # manual reconciliation. Never book unverified price/quantity.
+            known_qty = raw_filled if type(raw_filled) is int and raw_filled > 0 else 0
+            known_price = (float(raw_average) if type(raw_average) in (int, float)
+                           and math.isfinite(raw_average) and raw_average > 0 else 0.0)
+            engage_kill_switch(
+                f"Snapback invalid confirmed fill for {request.symbol}: {exc}",
+                request.uid,
+            )
+            return ExecutionResult(
+                success=False, status="UNKNOWN",
+                intent_key=str(getattr(resolution, "intent_key", "") or result.intent_key),
+                order_id=result.order_id,
+                filled_quantity=known_qty, filled_price=known_price,
+                error=f"invalid broker fill evidence: {exc}; reconcile before new entries",
+            )
+        terminal = getattr(resolution, "terminal", None) is True
         booked_ok = True
         if filled > 0:
-            booked_ok = self._book_fill(request, resolution, result.order_id, filled, average)
+            try:
+                booked_ok = self._book_fill(request, resolution, result.order_id,
+                                            filled, average) is True
+            except Exception as exc:  # noqa: BLE001 - broker exposure already exists
+                log.critical("Snapback unexpected fill-booking exception for %s: %s",
+                             result.order_id, exc)
+                booked_ok = False
             if booked_ok:
                 from app.services.fee_safety import refresh as refresh_fees
-                await refresh_fees(broker_client, request.uid, request.account_id)
-            if booked_ok and resolution.projection_version:
                 try:
-                    fills.mark_projected(resolution)
+                    await refresh_fees(broker_client, request.uid, request.account_id)
+                except Exception as exc:  # noqa: BLE001 - a booked fill exists; never resend
+                    log.error("Snapback fee authority failed after %s fill: %s",
+                              result.order_id, exc)
+                    engage_kill_switch(
+                        f"Snapback fee authority unavailable after {request.symbol} fill",
+                        request.uid,
+                    )
+                    return ExecutionResult(
+                        success=False, status="UNKNOWN",
+                        intent_key=resolution.intent_key or result.intent_key,
+                        order_id=result.order_id, filled_quantity=filled,
+                        filled_price=average,
+                        error="post-fill fee authority failed; reconcile before new entries",
+                    )
+            # A broker disagreement or still-working order cannot be sealed
+            # as fully projected merely because its partial fill was booked.
+            if (booked_ok and terminal and resolution.settled
+                    and not resolution.reconciliation_required and not invalid_reference):
+                try:
+                    version = getattr(resolution, "projection_version", None)
+                    if type(version) is not int or version <= 0:
+                        raise ValueError("canonical journal projection version missing")
+                    projected = fills.mark_projected(resolution)
+                    if projected is not True:
+                        raise RuntimeError("journal projection was not acknowledged for the exact version")
                 except Exception as exc:  # noqa: BLE001
+                    # Broker exposure and local booking may exist, while the
+                    # canonical durable journal still needs reconciliation.
+                    # Returning FILLED here would retire the plan too early.
                     log.error("Snapback live: projection ack failed for %s: %s",
                               result.order_id, exc)
+                    engage_kill_switch(
+                        f"Snapback journal projection unresolved after {request.symbol} fill",
+                        request.uid,
+                    )
+                    return ExecutionResult(
+                        success=False, status="UNKNOWN",
+                        intent_key=resolution.intent_key or result.intent_key,
+                        order_id=result.order_id, filled_quantity=filled,
+                        filled_price=average,
+                        error="post-fill journal projection unresolved; reconcile before new entries",
+                    )
 
-        if resolution.reconciliation_required or (not resolution.settled and filled == 0):
+        if filled > 0 and not booked_ok:
+            # The broker filled real units, but the signed ledger or the owned
+            # position registry is missing them. Never report this as FILLED:
+            # the executor must protect known exposure, halt new entries and
+            # reconcile the missing book, without submitting the option twice.
+            engage_kill_switch(
+                f"Snapback filled {request.symbol} without complete durable booking",
+                request.uid,
+            )
             return ExecutionResult(
-                success=False, status="UNKNOWN", intent_key=resolution.intent_key,
+                success=False, status="UNKNOWN",
+                intent_key=resolution.intent_key or result.intent_key,
+                order_id=result.order_id, filled_quantity=filled,
+                filled_price=average,
+                error="confirmed broker fill not fully booked; reconcile before new entries",
+            )
+
+        if invalid_reference:
+            # The actual broker quantity is now known and, where valid, was
+            # booked for protection. A missing/invalid pre-submit reference
+            # cannot authorize completion or journal acknowledgment.
+            return ExecutionResult(
+                success=False, status="UNKNOWN",
+                intent_key=resolution.intent_key or result.intent_key,
+                order_id=result.order_id, filled_quantity=filled,
+                filled_price=average,
+                error="post-submit reference price invalid; reconcile before new entries",
+            )
+
+        if resolution.reconciliation_required or not resolution.settled or not terminal:
+            # Fill settlement or broker identity is still unresolved. Regardless
+            # of which resolver supplied this evidence, no second strategy may
+            # increase exposure until the working order/partial is reconciled.
+            engage_kill_switch(
+                f"Snapback broker fill unresolved for {request.symbol}",
+                request.uid,
+            )
+            return ExecutionResult(
+                success=False, status="UNKNOWN",
+                intent_key=resolution.intent_key or result.intent_key,
                 order_id=result.order_id, filled_quantity=filled, filled_price=average,
-                error=resolution.reason or "entry outcome unresolved",
+                error=resolution.reason or "entry outcome unresolved; reconcile before new entries",
             )
         if filled <= 0:
-            status = str(resolution.status or "REJECTED").upper()
+            status = str(getattr(resolution, "status", "") or "").upper()
+            # Only a terminal broker CANCELLED/REJECTED receipt proves zero
+            # exposure. An OPEN/COMPLETE/empty or internally inconsistent
+            # status must remain UNKNOWN, even if settled=True is asserted.
+            if status not in {"CANCELLED", "REJECTED"} or not resolution.settled:
+                engage_kill_switch(
+                    f"Snapback unverified zero-fill terminal state for {request.symbol}",
+                    request.uid,
+                )
+                return ExecutionResult(
+                    success=False, status="UNKNOWN",
+                    intent_key=resolution.intent_key or result.intent_key,
+                    order_id=result.order_id,
+                    error="zero-fill broker outcome not terminal; reconcile before new entries",
+                )
             return ExecutionResult(
-                success=False, status="CANCELLED" if status == "CANCELLED" else "REJECTED",
-                intent_key=resolution.intent_key, order_id=result.order_id,
+                success=False, status=status,
+                intent_key=resolution.intent_key or result.intent_key,
+                order_id=result.order_id,
                 error=resolution.reason or f"order {status.lower()} with no fill",
-            )
-        if not resolution.settled:
-            # Quantity exists but the order is still working: not terminal.
-            return ExecutionResult(
-                success=False, status="UNKNOWN", intent_key=resolution.intent_key,
-                order_id=result.order_id, filled_quantity=filled, filled_price=average,
-                error=resolution.reason or "entry order still working after the fill wait",
             )
         return ExecutionResult(
             success=True, status="FILLED" if filled >= int(request.quantity) else "FILLED_PARTIAL",
@@ -196,9 +364,66 @@ class SnapbackExecutionAdapter:
 
     # ------------------------------------------------------------- booking
 
+    def _prevalidate_fill_owner(self, request, order_id: str, filled: int) -> None:
+        """Refuse foreign broker facts BEFORE changing the shared signed ledger.
+
+        The later _record_leg() still checks inside the SQLite mutation, because
+        this first read can race a second process. Never treat a plan tag as
+        proof of ownership by itself.
+        """
+        plan_id = _plan_id_from_tag(getattr(request, "tag", ""))
+        plan = self.plan_store.get(plan_id) if plan_id else None
+        if not isinstance(plan, dict):
+            raise PermissionError("snapback_fill_plan_unavailable")
+        owner_uid = str(plan.get("owner_uid") or "").strip()
+        owner_account = str(plan.get("account_id") or "").strip()
+        if (not owner_uid or not owner_account
+                or owner_uid != str(request.uid or "").strip()
+                or owner_account != str(request.account_id or "").strip()):
+            raise PermissionError("snapback_fill_plan_account_or_owner_mismatch")
+        symbol = str(request.symbol or "").strip()
+        exchange = str(request.exchange or "").strip().upper()
+        side = str(request.side or "").strip().upper()
+        is_option = (symbol == str(plan.get("option_symbol") or "").strip()
+                     and exchange == str(plan.get("option_exchange") or "").strip().upper()
+                     and side == "BUY")
+        from app.services.snapback_live_executor import _hedge_side
+        is_hedge = (bool(str(plan.get("futures_symbol") or "").strip())
+                    and symbol == str(plan.get("futures_symbol") or "").strip()
+                    and exchange == str(plan.get("futures_exchange") or "").strip().upper()
+                    and side == str(plan.get("hedge_side") or "").strip().upper()
+                    and side == _hedge_side(plan)
+                    and side in {"BUY", "SELL"})
+        if not (is_option or is_hedge):
+            raise PermissionError("snapback_fill_does_not_match_plan_leg")
+        existing = self._store().get(plan_id)
+        if existing is None:
+            if not is_option:
+                raise PermissionError("snapback_hedge_without_owned_option")
+            return
+        _assert_entry_fill_position_active(existing, plan, owner_uid, owner_account)
+        prior_order_id = (str(getattr(existing, "option_entry_order_id", "") or "")
+                          if is_option else str(getattr(existing, "hedge_entry_order_id", "") or ""))
+        prior_filled = (int(getattr(existing, "option_qty", 0) or 0)
+                        if is_option else int(getattr(existing, "hedge_qty", 0) or 0))
+        if prior_order_id and prior_order_id != str(order_id):
+            raise PermissionError("snapback_plan_leg_order_id_conflict")
+        if prior_filled > int(filled):
+            raise PermissionError("snapback_stale_cumulative_fill_quantity")
+
     def _book_fill(self, request, resolution, order_id: str, filled: int, average: float) -> bool:
-        """Ledger + registry. False means one of them did not land."""
+        """Verify plan binding first, then signed ledger and owned registry."""
+        try:
+            self._prevalidate_fill_owner(request, order_id, filled)
+        except Exception as exc:  # noqa: BLE001 - even a valid broker fill may be foreign
+            log.critical("Snapback refused non-owned fill before ledger write: %s", exc)
+            engage_kill_switch(
+                f"Snapback broker fill ownership cannot be established for {request.symbol}",
+                request.uid)
+            return False
+
         ok = True
+        ledger_quarantined = False
         try:
             from app.services.kite_engine import fill_ledger
 
@@ -209,21 +434,36 @@ class SnapbackExecutionAdapter:
                 source="entry", lot_size=int((request.payload or {}).get("lot_size") or 0),
                 exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0),
             )
-            if applied.reconciliation_required:
+            # Only a newly accepted increment or an exact idempotent repeat
+            # may project into Snapback's owned registry. An older cumulative
+            # broker postback is NOT the latest quantity in the shared ledger;
+            # applying it to a missing/stale registry would understate risk.
+            ledger_reason = str(getattr(applied, "reason", "") or "")
+            if (applied.reconciliation_required
+                    or ledger_reason not in {"accepted", "duplicate"}):
                 ok = False
-                log.critical("Snapback live: contradictory fill evidence for %s", request.symbol)
+                ledger_quarantined = True
+                log.critical(
+                    "Snapback live: fill projection withheld for %s (ledger=%s)",
+                    request.symbol, ledger_reason or "missing_disposition",
+                )
         except Exception as exc:  # noqa: BLE001
             ok = False
             log.critical("Snapback live: fill for %s not booked to the ledger: %s",
                          request.symbol, exc)
 
-        try:
-            self._record_leg(request, order_id, filled, average,
-                             exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0))
-        except Exception as exc:  # noqa: BLE001
-            ok = False
-            log.critical("Snapback live: position registry write failed for %s: %s",
-                         request.symbol, exc)
+        if not ledger_quarantined:
+            # A ledger transport/disk failure leaves a known broker fill that
+            # the exit/protection registry still needs to manage. But a
+            # quarantined *contradiction* must never replace the position
+            # registry's last trusted broker quantity, price or order identity.
+            try:
+                self._record_leg(request, order_id, filled, average,
+                                 exchange_ts_ms=int(getattr(resolution, "exchange_ts_ms", 0) or 0))
+            except Exception as exc:  # noqa: BLE001
+                ok = False
+                log.critical("Snapback live: position registry write failed for %s: %s",
+                             request.symbol, exc)
         if not ok:
             engage_kill_switch(
                 f"Snapback fill for {request.symbol} could not be fully booked", request.uid)
@@ -235,15 +475,58 @@ class SnapbackExecutionAdapter:
         plan = self.plan_store.get(plan_id) if plan_id else None
         if plan is None:
             raise LookupError(f"plan for order tag {request.tag!r} not found")
+        # An order ID and a snapback:<plan> tag do not prove tenant ownership.
+        # Rebind the actual reported fill to its persisted owner/account,
+        # contract, exchange and direction before touching another registry.
+        owner_uid = str(plan.get("owner_uid") or "").strip()
+        owner_account = str(plan.get("account_id") or "").strip()
+        if (not owner_uid or not owner_account
+                or owner_uid != str(request.uid or "").strip()
+                or owner_account != str(request.account_id or "").strip()):
+            raise PermissionError("snapback_fill_plan_account_or_owner_mismatch")
+
+        symbol = str(request.symbol or "").strip()
+        exchange = str(request.exchange or "").strip().upper()
+        side = str(request.side or "").strip().upper()
+        option_leg = (
+            symbol == str(plan.get("option_symbol") or "").strip()
+            and exchange == str(plan.get("option_exchange") or "").strip().upper()
+            and side == "BUY"
+        )
+        from app.services.snapback_live_executor import _hedge_side
+        futures_leg = (
+            bool(str(plan.get("futures_symbol") or "").strip())
+            and symbol == str(plan.get("futures_symbol") or "").strip()
+            and exchange == str(plan.get("futures_exchange") or "").strip().upper()
+            and side == str(plan.get("hedge_side") or "").strip().upper()
+            and side == _hedge_side(plan)
+            and side in {"BUY", "SELL"}
+        )
+        if not option_leg and not futures_leg:
+            raise PermissionError("snapback_fill_does_not_match_plan_leg")
         store = self._store()
-        symbol = str(request.symbol)
+        existing = store.get(plan_id)
+        if existing is not None:
+            _assert_entry_fill_position_active(existing, plan, owner_uid, owner_account)
+            # Per-order evidence is cumulative. An older postback must never
+            # overwrite the larger stored quantity, and a second order ID
+            # cannot silently replace this plan's original entry leg.
+            if option_leg:
+                current_oid = str(getattr(existing, "option_entry_order_id", "") or "")
+                current_qty = int(getattr(existing, "option_qty", 0) or 0)
+            else:
+                current_oid = str(getattr(existing, "hedge_entry_order_id", "") or "")
+                current_qty = int(getattr(existing, "hedge_qty", 0) or 0)
+            if current_oid and current_oid != str(order_id):
+                raise ValueError("snapback_plan_leg_order_id_conflict")
+            if current_qty > int(filled):
+                raise ValueError("snapback_stale_cumulative_fill_quantity")
         now_ms = exchange_ts_ms or int(time.time() * 1000)
 
-        if symbol == str(plan.get("option_symbol")):
+        if option_leg:
             rules = dict(plan.get("rules") or {})
             tick = float(plan.get("tick_size") or 0.05)
             stop = _initial_stop(rules, average, tick)
-            existing = store.get(plan_id)
             if existing is None:
                 today = datetime.fromtimestamp(now_ms / 1000, _IST).date().isoformat()
                 pos = LivePosition(
@@ -266,9 +549,17 @@ class SnapbackExecutionAdapter:
                     high_water=float(average), phase="OPEN_SCALP", opened_ms=now_ms,
                     entry_day=today,
                 )
-                store.put(pos)
+                store.insert_new(pos)
             else:
                 def apply(pos: LivePosition) -> None:
+                    # Recheck inside mutate's BEGIN IMMEDIATE transaction.
+                    # The earlier get() is merely a snapshot and may be stale.
+                    _assert_entry_fill_position_active(pos, plan, owner_uid, owner_account)
+                    if (str(pos.option_entry_order_id or "")
+                            not in {"", str(order_id)}):
+                        raise ValueError("snapback_plan_leg_order_id_conflict")
+                    if int(pos.option_qty or 0) > int(filled):
+                        raise ValueError("snapback_stale_cumulative_fill_quantity")
                     pos.option_qty = int(filled)
                     pos.option_entry_price = float(average)
                     pos.option_entry_order_id = str(order_id)
@@ -276,8 +567,14 @@ class SnapbackExecutionAdapter:
                     pos.desired_stop = max(pos.desired_stop, stop)
 
                 store.mutate(plan_id, apply)
-        elif symbol == str(plan.get("futures_symbol")):
+        elif futures_leg:
             def apply_hedge(pos: LivePosition) -> None:
+                _assert_entry_fill_position_active(pos, plan, owner_uid, owner_account)
+                if (str(pos.hedge_entry_order_id or "")
+                        not in {"", str(order_id)}):
+                    raise ValueError("snapback_plan_leg_order_id_conflict")
+                if int(pos.hedge_qty or 0) > int(filled):
+                    raise ValueError("snapback_stale_cumulative_fill_quantity")
                 pos.hedge_qty = int(filled)
                 pos.hedge_entry_price = float(average)
                 pos.hedge_entry_order_id = str(order_id)

@@ -363,6 +363,7 @@ def _default_live_continuity_for_execution_tests(monkeypatch, request):
     Production code contains no bypass.
     """
     continuity_tests = (
+        "test_release_entry_authority.py",
         "test_production_binding_execution_gate.py",
         "test_post67_production_golive.py",
         "test_release_operational_gates.py",
@@ -390,6 +391,18 @@ def _default_live_account_posture_for_unrelated_tests(monkeypatch, request):
     from app.services.exchanges.kite import accounts as kite_accounts
 
     monkeypatch.setattr(kite_accounts, "_assert_live_account_posture", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _release_permission_for_unrelated_lifecycle_tests(monkeypatch, request):
+    # Real release policy is covered without this seam in its dedicated suite.
+    # Other tests exercise broker doubles, never real release authorization.
+    if "test_release_entry_authority.py" in request.node.nodeid:
+        return
+    from app.services import release_entry_authority
+    monkeypatch.setattr(release_entry_authority, "entry_refusal", lambda request, client, *args: None)
+    monkeypatch.setattr(release_entry_authority, "operator_release_status", lambda uid, account_id: {
+        "new_entries_allowed": True, "status": "AUTHORIZED", "blockers": [], "strategies": []})
 
 
 @pytest.fixture(scope="session")

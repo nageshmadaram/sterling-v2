@@ -45,6 +45,24 @@ def units(value):
     return int(n)
 
 
+def canonical_entry_refusal(request):
+    """Re-read the exact owned rule at admission and after transport waits."""
+    doc = store.load(request.uid)
+    if doc.get("enabled") is not True:
+        return "Price Rules new entries are disabled"
+    rule = doc["rules"].get(request.generation_id)
+    if not rule or rule.get("state") != "SUBMITTING":
+        return "Price Rules entry has no owned submitting plan"
+    if (request.signal_id != rule["id"] or request.account_id != rule["account_id"]
+            or request.symbol != rule["symbol"] or request.exchange != rule["exchange"]
+            or request.side != "BUY" or request.quantity != rule["quantity"]):
+        return "Price Rules entry identity differs from its owned plan"
+    revision = (request.payload or {}).get("rule_revision")
+    if type(revision) is not int or rule["revision"] != revision + 1:
+        return "Price Rules entry revision changed before send"
+    return None
+
+
 async def client_for(uid, account_id=""):
     if uid.startswith("sim:"):
         raise PermissionError("real_account_required")

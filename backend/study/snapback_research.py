@@ -248,7 +248,11 @@ def part_gate(tapes: dict[str, Bars], base: SnapbackConfig, label: str,
     for r in v["reasons"]:
         print(f"    - {r}")
     if out:
-        out.write_text(json.dumps(d, indent=2, default=str))
+        from app.engines.snapback.research_reporting import write_research_report_once
+        # Strict JSON and atomic no-overwrite: an old result is historical
+        # evidence, not an editable scratchpad. NaN/Infinity or an existing
+        # report path must fail rather than publish a misleading artifact.
+        write_research_report_once(out, d)
         print(f"\n  written to {out}")
     if record:
         _persist(d, tapes, measured_at)

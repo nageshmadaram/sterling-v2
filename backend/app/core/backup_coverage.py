@@ -83,6 +83,12 @@ def _default_runtime_database(root: Path, filename: str) -> Path:
 
 REQUIRED_ARTIFACTS: Final[tuple[RequiredArtifact, ...]] = (
     RequiredArtifact(
+        "acceptance_register", ArtifactKind.DATABASE,
+        lambda r: r / "data/manifests/acceptance.sqlite3",
+        "append-only release, account and per-mode economic acceptance evidence",
+        required_before_live=False,
+    ),
+    RequiredArtifact(
         "authoritative_evidence_db", ArtifactKind.DATABASE,
         lambda r: Path(
             (

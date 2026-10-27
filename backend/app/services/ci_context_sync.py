@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -61,14 +62,34 @@ def check_runs_for(sha: str, *, repo: str | None = None) -> list[Mapping[str, An
         raise RuntimeError((completed.stderr or completed.stdout or "gh failed").strip()[:300])
 
     runs: list[Mapping[str, Any]] = []
-    for line in completed.stdout.splitlines():
-        line = line.strip()
-        if not line:
+    # jq may pretty-print objects across multiple lines. Decode JSON values,
+    # rather than silently dropping them one physical line at a time.
+    decoder = json.JSONDecoder()
+    stream = completed.stdout.lstrip()
+    while stream:
+        run, end = decoder.raw_decode(stream)
+        runs.append(run)
+        stream = stream[end:].lstrip()
+    for index, run in enumerate(runs):
+        match = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)/actions/runs/(\d+)/job/(\d+)", str(run.get("details_url") or run.get("html_url") or ""))
+        if not match:
+            continue
+        job_repo, workflow_id, job_id = match.groups()
+        if repo and job_repo != repo:
+            continue
+        job_response = subprocess.run(
+            [binary, "api", f"repos/{job_repo}/actions/jobs/{job_id}"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if job_response.returncode != 0:
             continue
         try:
-            runs.append(json.loads(line))
-        except json.JSONDecodeError:
+            job = json.loads(job_response.stdout)
+        except (json.JSONDecodeError, TypeError):
             continue
+        if str(job.get("id")) != job_id or str(job.get("run_id")) != workflow_id or job.get("head_sha") != sha:
+            continue
+        runs[index] = {**run, "execution_job": job}
     return runs
 
 
@@ -93,7 +114,7 @@ def sync_ci_contexts(
 
     latest: dict[str, Mapping[str, Any]] = {}
 
-    def _attempt_order(run: Mapping[str, Any]) -> tuple[str, int]:
+    def _attempt_order(run: Mapping[str, Any]) -> tuple[int, str]:
         """Order attempts by when they started, then by GitHub check-run id.
 
         A newer queued/running re-run must supersede an older completed PASS.
@@ -107,7 +128,9 @@ def sync_ci_contexts(
             run_id = int(run.get("id") or 0)
         except (TypeError, ValueError):
             run_id = 0
-        return attempted_at, run_id
+        # Queued attempts have neither timestamp. A newer check-run id must
+        # still invalidate an older PASS while it waits for a runner.
+        return run_id, attempted_at
 
     for run in found:
         name = str(run.get("name") or "")
@@ -132,6 +155,20 @@ def sync_ci_contexts(
         completed_at = str(run.get("completed_at") or "").strip()
         started_at = str(run.get("started_at") or "").strip()
         status = str(run.get("status") or "").strip().lower()
+        job = run.get("execution_job") or {}
+        job_valid = isinstance(job, Mapping) and job.get("head_sha") == sha and job.get("name") == name
+        job_id = job.get("id", 0) if job_valid else 0
+        runner_id = job.get("runner_id", 0) if job_valid else 0
+        executed_steps = sum(
+            1 for step in job.get("steps", [])
+            if isinstance(step, Mapping) and step.get("status") == "completed"
+            and step.get("conclusion") not in {None, "skipped"}
+            and step.get("started_at") and step.get("completed_at")
+        ) if job_valid else 0
+        execution_observed = (type(job_id) is int and job_id > 0 and type(runner_id) is int
+                              and runner_id > 0 and executed_steps > 0)
+        failed_steps = any(isinstance(step, Mapping) and step.get("conclusion")
+                           not in {"success", "skipped"} for step in job.get("steps", [])) if job_valid else True
 
         # A newer queued/running attempt invalidates a previously recorded PASS
         # immediately. Persist UNKNOWN for that context instead of leaving the
@@ -140,6 +177,7 @@ def sync_ci_contexts(
             not conclusion
             or (status and status != "completed")
             or (conclusion == "success" and not completed_at)
+            or (conclusion == "success" and (not execution_observed or failed_steps or job.get("conclusion") != "success" or job.get("status") != "completed"))
         )
         try:
             record_store.record(
@@ -149,6 +187,9 @@ def sync_ci_contexts(
                 run_id=str(run.get("id") or ""),
                 observed_at=(completed_at or started_at or None),
                 url=str(run.get("html_url") or ""),
+                job_id=job_id if type(job_id) is int else 0,
+                runner_id=runner_id if type(runner_id) is int else 0,
+                executed_steps=executed_steps,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("ci sync: could not record %s: %s", name, exc)

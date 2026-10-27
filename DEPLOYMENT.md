@@ -53,7 +53,7 @@ liveness watchdog. Full steps: [docs/operator/LIVE_RUNBOOK.md](docs/operator/LIV
 | Setting | Meaning |
 |---|---|
 | `STERLING_LIVE_EXECUTION` | **Master permission for new entries.** Unset or blank defaults to **off**. `true`, `1`, `on`, `yes` or `enabled` explicitly permits entries only if every independent safety gate passes. `0`, `false`, `off`, `no`, `disabled` and unrecognized values block new entries. Exits, protection and reconciliation must remain available. Restart to apply. |
-| `STERLING_LIVE_MINIMUM_MAX_LOTS` | Optional cap on lots per entry. Set `1` for the first session. |
+| `STERLING_LIVE_MINIMUM_MAX_LOTS` | Cap on lots per entry; defaults to `1`. Keep `1` for the separately authorized first session. |
 | `STERLING_LIVE_MINIMUM_DAILY_LOSS_INR` | Realised loss at which new entries stop for the day. Default: the account's daily-loss hard halt (1,500 INR). |
 | `STERLING_LIVE_MINIMUM_GROSS_EXPOSURE_INR` | Optional ceiling on capital deployed at once. Default: broker-verified capital. |
 | `STERLING_LIVE_MINIMUM_MAX_DEPLOYED_PCT` | Share of verified capital that may be deployed (1 to 100, default 100). |
@@ -63,6 +63,11 @@ until fixed; it is never silently replaced by a default.
 `STERLING_FAMILY_MODE` is retired: leave it unset. The release allows SuperTrend,
 Snapback, Gamma Unwind and individually armed Price Rules, subject to each
 strategy's own authority and the common safety interlocks.
+
+New live entries also require independently reviewed, current-SHA release and
+lane evidence. Turning the master setting on does not satisfy those gates. See
+[implementation and acceptance](docs/operations/IMPLEMENTATION_20261026.md) for
+the evidence register, remaining blockers and controlled certification process.
 
 ## Environments
 

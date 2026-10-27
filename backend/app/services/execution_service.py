@@ -20,6 +20,7 @@ import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 import inspect
+import math
 import time
 from typing import Any, Dict, Optional, Tuple
 
@@ -460,6 +461,13 @@ class CanonicalExecutionService:
     ) -> ExecutionResult:
         """Submit an order through the canonical execution pipeline."""
         from app.services.kite_engine.positions import broker_product
+
+        if (type(request.quantity) is not int or request.quantity <= 0
+                or str(request.side).upper() not in {"BUY", "SELL"}):
+            return ExecutionResult(success=False, status="REJECTED", error="Invalid order quantity or side")
+        for value in (request.price, request.trigger_price, request.capital_required):
+            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+                return ExecutionResult(success=False, status="REJECTED", error="Order prices and capital must be finite nonnegative numbers")
         request_product = broker_product((request.payload or {}).get("product", "NRML"))
         if not request_product:
             return ExecutionResult(success=False, status="REJECTED",
@@ -516,7 +524,7 @@ class CanonicalExecutionService:
                         status="REJECTED_OUTSIDE_RELEASE_SCOPE",
                         error=(
                             f"Strategy {request.strategy_id!r} cannot originate in this release; "
-                            "enable archived engines in Settings → Archived; supported originators are Gamma-Unwind, Snapback, SuperTrend, and Price Rules"
+                            "archived engines are observation/management only; supported originators are Gamma-Unwind, Snapback, SuperTrend, and Price Rules"
                         ),
                     )
 
@@ -525,6 +533,10 @@ class CanonicalExecutionService:
         if is_exposure_increasing:
             if risk_approval is None:
                 return ExecutionResult(success=False, status="REJECTED", error="Risk check rejected or missing risk approval proof")
+
+            for value in (risk_approval.available_capital, risk_approval.capital_required):
+                if value is not None and (type(value) not in (int, float) or not math.isfinite(value) or value < 0):
+                    return ExecutionResult(success=False, status="REJECTED", error="Risk approval capital must be finite and nonnegative")
 
             # A missing/future clock cannot authorize a live send.
             now_ms = int(time.time() * 1000)
@@ -674,8 +686,41 @@ class CanonicalExecutionService:
             log.warning("Execution rejected by control plane: %s", reason)
             return ExecutionResult(success=False, status="HALTED", error=reason)
 
+        if is_exposure_increasing:
+            from app.core.async_work import run_blocking
+            from app.services.release_entry_authority import entry_refusal
+
+            refusal = await run_blocking(entry_refusal, request, broker_client, risk_approval.capital_required if risk_approval else None)
+            if refusal:
+                return ExecutionResult(success=False, status="REJECTED_RELEASE_AUTHORITY", error=refusal)
+
+        approved_release_scope = None
+        if is_exposure_increasing and getattr(broker_client, "_is_paper", None) is False:
+            from app.services.release_entry_authority import entry_scope
+            try:
+                approved_release_scope = await run_blocking(entry_scope, request)
+            except Exception:
+                return ExecutionResult(success=False, status="REJECTED_RELEASE_AUTHORITY", error="Server strategy identity unavailable")
+
+        if is_exposure_increasing and str(request.strategy_id).strip().lower() == "price_rules" and getattr(broker_client, "_is_paper", None) is False:
+            from app.services.price_rules import canonical_entry_refusal
+            try:
+                refusal = await run_blocking(canonical_entry_refusal, request)
+            except Exception:
+                refusal = "Price Rules owned plan is unreadable"
+            if refusal:
+                return ExecutionResult(success=False, status="REJECTED_PRICE_RULES", error=refusal)
+
         # 1. Reserve intent in durable order journal
         payload = dict(request.payload or {})
+        if approved_release_scope is not None:
+            # Only server-derived identity is journaled as release evidence.
+            # The caller cannot relabel a real broker intent as another mode,
+            # account, source revision or experiment through payload fields.
+            payload.update(approved_release_scope)
+            payload.update(release_sha=approved_release_scope["runtime_release_sha"],
+                           signal_id=request.signal_id, plan_version=request.generation_id,
+                           evidence_type="REAL_BROKER_INTENT")
         payload["product"] = request_product
         payload["exposure_effect"] = effective_effect.value
         payload["intent_type"] = "EXIT" if effective_effect in (ExposureEffect.CLOSE_POSITION, ExposureEffect.REDUCE_EXPOSURE) else "ENTRY"
@@ -935,6 +980,19 @@ class CanonicalExecutionService:
             def before_send() -> None:
                 if not is_exposure_increasing:
                     return
+                if approved_release_scope is not None:
+                    from app.services.release_entry_authority import entry_scope
+                    if entry_scope(request) != approved_release_scope:
+                        raise PermissionError("Strategy configuration or source changed before broker send")
+                if str(request.strategy_id).strip().lower() == "price_rules" and getattr(broker_client, "_is_paper", None) is False:
+                    from app.services.price_rules import canonical_entry_refusal
+                    refusal = canonical_entry_refusal(request)
+                    if refusal:
+                        raise PermissionError(refusal)
+                from app.services.release_entry_authority import entry_refusal as release_refusal
+                refusal = release_refusal(request, broker_client, risk_approval.capital_required if risk_approval else None)
+                if refusal:
+                    raise PermissionError(refusal)
                 from app.services.shared_risk import entry_refusal
                 try:
                     shared_refusal = entry_refusal(request, cap_req, ignore_intent_key=intent.intent_key)
@@ -969,7 +1027,8 @@ class CanonicalExecutionService:
                 bound=reduce_bound,
                 before_send=before_send,
             ):
-                before_send()
+                if is_exposure_increasing:
+                    await run_blocking(before_send)
                 if inspect.iscoroutinefunction(place_fn):
                     res = await place_fn(**kwargs)
                 else:
