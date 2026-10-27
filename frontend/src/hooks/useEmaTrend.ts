@@ -19,16 +19,17 @@ export function useEmaTrendConfig() {
 }
 /** One server-batched read per refresh; each selected mode has its own SQL
  * page, while all operational campaigns remain visible across filters. */
-export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[], rowLimit = 200) {
+export function useEmaTrendSnapshot(modes?: readonly EmaTrendMode[], rowLimit = 200, todayFirstDay?: string) {
   const scope = useScope();
   const key = modes?.join(',') || 'all';
   // Historical replay has its own immutable server view. Never substitute the live snapshot.
-  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key, rowLimit],
+  return useQuery<EmaTrendSnapshot>({ queryKey: [...EMA_TREND_KEY, 'snapshot', ...scope.key, key, rowLimit, todayFirstDay ? 'today' : 'history', todayFirstDay || ''],
     queryFn: () => {
-      if (!modes?.length) return api.get<EmaTrendSnapshot>(`${EMA_TREND_BASE}/snapshot`);
+      if (!modes?.length) return api.get<EmaTrendSnapshot>(
+        `${EMA_TREND_BASE}/snapshot${todayFirstDay ? `?day=${encodeURIComponent(todayFirstDay)}` : ''}`);
       const selected = modes.map(encodeURIComponent).join(',');
       return api.get<EmaTrendSnapshot>(
-        `${EMA_TREND_BASE}/snapshot?modes=${selected}&limit=${Math.min(1000, Math.max(1, rowLimit))}`);
+        `${EMA_TREND_BASE}/snapshot?modes=${selected}&limit=${Math.min(1000, Math.max(1, rowLimit))}${todayFirstDay ? `&day=${encodeURIComponent(todayFirstDay)}` : ''}`);
     },
     enabled: !scope.replay, refetchInterval: 5_000, staleTime: 3_000 });
 }
