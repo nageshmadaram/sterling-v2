@@ -577,3 +577,34 @@ def test_existing_option_contract_drift_refuses_shared_ledger(monkeypatch):
     monkeypatch.setattr(wiring, "engage_kill_switch", Mock())
     assert not a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0)
     ledger.assert_not_called()
+
+
+def test_quarantined_broker_fill_never_rewrites_owned_position(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    record = Mock(return_value=SimpleNamespace(reconciliation_required=True))
+    monkeypatch.setattr(fill_ledger, "record", record)
+    registry = Mock()
+    monkeypatch.setattr(a, "_record_leg", registry)
+    halt = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", halt)
+
+    assert a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 110.0) is False
+    record.assert_called_once()
+    registry.assert_not_called()
+    store.mutate.assert_not_called()
+    assert existing.option_entry_price == 100.0
+    halt.assert_called_once()
+
+
+def test_ledger_write_failure_still_attempts_position_registration_for_protection(monkeypatch):
+    from app.services.kite_engine import fill_ledger
+    a, plan, existing, store = _bound_leg_context()
+    monkeypatch.setattr(fill_ledger, "record", Mock(side_effect=OSError("disk full")))
+    registry = Mock()
+    monkeypatch.setattr(a, "_record_leg", registry)
+    halt = Mock()
+    monkeypatch.setattr(wiring, "engage_kill_switch", halt)
+    assert a._book_fill(request(), resolved(), "BROKER-ORDER-1", 75, 100.0) is False
+    registry.assert_called_once()
+    halt.assert_called_once()
