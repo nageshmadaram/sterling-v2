@@ -916,7 +916,6 @@ ${v}
 (isPlaying
 (isSaved)
 (isSyncingSources)
-(it
 (item.freqKhz)
 (item.kind
 (k
@@ -1137,6 +1136,7 @@ ${v}
 ));closeSheet();}else
 ));te.after(chip);}
 ));}
+));});
 ));});[
 ));},
 ))appendSheetMore();});
@@ -1234,6 +1234,7 @@ ${v}
 ).muted;
 ).normalize(
 ).pause();const
+).paused));
 ).prepend(browse);
 ).prepend(heading);
 ).prepend(home);
@@ -1398,7 +1399,6 @@ ${v}
 );video.addEventListener(
 );where.textContent=station.country||station.subtitle||
 );}
-);});
 );});markShellNav();
 );});}
 );},
@@ -1410,6 +1410,7 @@ ${v}
 );}});
 )===cat);if(list.length
 )?.addEventListener(
+)?.addEventListener(event,()=
 )?.after(holder);
 )?.children||[];
 )?.classList.add(
@@ -1577,6 +1578,8 @@ ${v}
 ,JSON.stringify(recentsList));}catch(_){};renderPersonalizedShelves?.();},
 ,SHORTWAVE_AM_STATIONS[0]],[
 ,SHORTWAVE_AM_STATIONS],[
+,String(!paused));
+,String(!paused));});
 ,String(Math.round(pending)));});};
 ,String(b.dataset.tmAction===currentTheme)));
 ,String(b.dataset.tmAction===view)));
@@ -1856,6 +1859,7 @@ ${v}
 .44-.17.47-.41l.36-2.54c.59-.24
 .45
 .55-.45
+.5625
 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58z
 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12
 .9-2
@@ -2484,6 +2488,7 @@ ${v}
 18h10
 18l8.5-6L6
 18px
+18px);
 18px;
 19
 19%),#080808
@@ -2585,8 +2590,6 @@ ${v}
 24;
 24px
 24px)!important;
-24px)*.5625))
-24px)*.5625))!important;
 24px);overflow-y:auto;touch-action:pan-y;
 24px;}
 24x7
@@ -3799,9 +3802,7 @@ Hls.ErrorTypes.MEDIA_ERROR
 Hls.isSupported())
 Hls.isSupported();
 Home
-Home).
 Home:
-Home;
 Horizontal
 Hover
 Hub
@@ -4863,7 +4864,9 @@ Zoom
 ]
 ])
 ]);
+])audio.addEventListener(event,()=
 ])document.addEventListener(type,()=
+])document.getElementById(
 ])if(!Number.isFinite(clean[field]))delete
 ]){
 ]){const
@@ -5138,6 +5141,7 @@ anything
 anytime.
 anywhere
 app-workspace
+app.
 app.inert=false);
 app.inert=true);configureBandTuner(appConfig.activeCategory);syncSwPlayer();panel.querySelector(
 appConfig
@@ -5302,9 +5306,11 @@ audio.currentTime
 audio.duration
 audio.duration)
 audio.duration;
+audio.ended;
 audio.muted
 audio.muted;
 audio.pause();
+audio.paused
 audio.play().catch(()
 audio.play().catch(()=
 audio.play();
@@ -5330,6 +5336,7 @@ auto-play
 auto;
 auto;display:flex;justify-content:space-between;z-index:60;background:linear-gradient(#0009,transparent);}
 auto;gap:10px;align-items:center;
+auto;min-height:calc(20dvh
 auto;}
 autoInfiniteScrollCatalog
 autocomplete=
@@ -5703,6 +5710,7 @@ bufEl.textContent
 buffer
 bufferSec,
 bufferSec=smallScreen
+buffering
 buildRadioHome(){
 buildSectionRows(cat){
 buildTvRows(pool){
@@ -5755,11 +5763,13 @@ button:nth-child(5n)
 button;}));
 button=document.createElement(
 button=document.getElementById(
+button=document.getElementById(id)?.closest(
 button=document.getElementById(prefix+
 button=document.getElementById(prefix+suffix);if(!button)continue;
 button=event.target.closest(
 button=grid.parentElement.querySelector(
 button=sheet.querySelector(
+button?.setAttribute(
 button[aria-current=page]
 button[aria-pressed=true]
 button[id^=
@@ -5828,6 +5838,7 @@ callbacks.
 calls
 can
 can.
+cancel
 cancel-edit-source-btn
 cancel=()=
 cannot
@@ -6064,6 +6075,8 @@ cinema
 cinema:
 circle
 clamp(12px,4vw,24px)
+clamp(12px,4vw,24px))
+clamp(42px,7dvh,62px)
 clampedPx
 class=
 classical
@@ -6369,6 +6382,7 @@ data-radio-change=
 data-radio-click=
 data-radio-input=
 data-radio-station=
+data-radio-view=
 data-rnp-id=
 data-rnp-play
 data-tm-action=
@@ -6694,6 +6708,7 @@ embed=document.getElementById(
 embedded
 embedded-tools
 emblem
+emptied
 empty.
 empty.textContent=document.documentElement.dataset.radioView===
 empty=document.createElement(
@@ -6704,6 +6719,7 @@ enabled;
 enabled=isMobile();
 encrypted-media;
 end
+ended
 english
 enhanceRadioControls(document);
 enhanceRadioControls=root=
@@ -7012,6 +7028,7 @@ fingerprint
 finishes
 fipLive:
 fip_paris
+fires
 first
 first),
 first).
@@ -7029,7 +7046,6 @@ five
 fixed
 flash
 flash.
-flashed
 flat
 flat:
 flex
@@ -7040,7 +7056,6 @@ flex-shrink:
 flex-wrap
 flex:
 flex:0
-flex:1;min-height:calc(20dvh
 flex:1;min-width:0;
 flex:none;
 flex:none;font-size:12px;font-weight:600;background:#282828;color:white;border-radius:8px;padding:8px
@@ -7437,7 +7452,7 @@ height:100dvh!important;max-height:100dvh!important;aspect-ratio:auto!important;
 height:100dvh;max-height:100dvh;
 height:48px;
 height:4px;border-radius:8px;background:#ffffff40;position:relative;
-height:auto!important;max-height:min(38dvh,calc((100vw
+height:auto!important;max-height:none!important;
 height:clamp(48px,9dvh,68px);min-width:48px;}
 height=
 height=Number(handle.getAttribute(
@@ -8756,7 +8771,6 @@ mh1
 mid
 mid:
 middle
-min(38dvh,calc((100vw
 min(54dvh,
 min(640px,
 min(calc(100%
@@ -8767,7 +8781,7 @@ min-height:45px;
 min-height:48px;padding:5px
 min-height:60px;
 min-height:calc(100dvh
-min-height:calc(clamp(76px,12dvh,145px)
+min-height:calc(clamp(56px,8dvh,76px)
 min-w-0
 min-w-[220px]
 min-width:
@@ -8884,7 +8898,6 @@ mw
 mx-2
 mx-auto
 my-4
-my-auto
 n+c.charCodeAt(0)*7,0)%360;
 n+ch.charCodeAt(0)*7,0)%360;
 n.getAttribute(
@@ -9671,6 +9684,7 @@ publishState();
 publishSuggestions(query);
 publishSuggestions(query,
 publishSuggestions(searchInputEl.value));
+published
 pudhari
 pumpStationArtworkQueue(){
 punjab
@@ -9696,7 +9710,6 @@ py-2
 py-2.5
 py-3
 py-3.5
-py-4
 py-8
 q
 q)
@@ -9776,6 +9789,7 @@ radio-mobile-art
 radio-modal-open
 radio-np-actions
 radio-np-controls
+radio-np-feature
 radio-np-head
 radio-np-timeline
 radio-playing-context
@@ -10105,6 +10119,7 @@ represented
 republic
 request
 request,
+request.
 requestAnimationFrame(()
 requestAnimationFrame(()=
 requestAnimationFrame(loop),90);
@@ -11167,6 +11182,7 @@ stat-res
 stat.plays
 stat.plays;
 stat;
+state
 state,
 state:
 states
@@ -11413,6 +11429,7 @@ switchTheme({youtube:
 switchYtmDrawerTab(
 switchYtmDrawerTab(tab)
 switches
+switching/rendering
 sync()
 syncAllActivePlaylists(false);
 syncAllActivePlaylists(forceToast
@@ -11425,12 +11442,14 @@ syncDspModalUI();
 syncLikeIcons()
 syncLikeIcons();
 syncLikeIcons?.();renderPersonalizedShelves?.();return
+syncPlayPauseIcons(document.getElementById(
 syncPlayPauseIcons(false);
 syncPlayPauseIcons(isPaused)
 syncPlayPauseIcons(true);
 syncPlayerAspectToStream()
 syncPlayerAspectToStream();
 syncPlayerAspectToStream);
+syncPlayerUI());
 syncPlayerUI();
 syncPlayerUI(activeTrackArtwork||cover);
 syncPlayerUI(getStationIdentityThumbnail(activeStream));
@@ -11790,6 +11809,7 @@ toggleYtmQueue();
 token
 tokens.
 tokyo
+too:
 took
 tools
 tools=document.querySelector(
@@ -11805,7 +11825,7 @@ top-3
 top-3.5
 top-4
 top:
-top:clamp(76px,12dvh,145px);width:auto;
+top:clamp(56px,8dvh,76px);width:auto;
 topSix.map(ch
 topSix=[],quickSeen=new
 total
@@ -12621,8 +12641,8 @@ zoom.
 {list:radioListView,cat:appConfig.activeCategory,filters:{...(appConfig.catalogFilters||{})},view:document.documentElement.dataset.radioView,shell:spotifyShell?.state().page||null,scroll:document.querySelector(
 {margin-left:0;}
 {max-width:100%;overflow-x:clip;}
+{min-height:0;}
 {min-height:40px;}
-{min-height:calc(100dvh
 {min-height:clamp(42px,7dvh,62px);}
 {min-width:36px;min-height:36px;display:inline-flex;align-items:center;justify-content:center;}
 {min-width:44px;min-height:44px;}
@@ -12673,6 +12693,7 @@ zoom.
 {stepRadioQueue(-1);}
 {stepRadioQueue(1);}
 {syncAllActivePlaylists(false);},1200);
+{syncPlayPauseIcons(true);window.dispatchEvent(new
 {toggleLikeCurrent();showToast?.(likedStations.some(s=
 {touch-action:manipulation;}
 {transition-property:transform,opacity,background-color,border-color;transition-duration:.16s;}

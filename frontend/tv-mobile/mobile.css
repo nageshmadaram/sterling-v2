@@ -95,7 +95,7 @@
   .theme-spotify.tm-now-open #tv-now-playing { display:flex;flex-direction:column; }
   .tm-now-head { display:flex;align-items:center;justify-content:space-between;min-height:62px; }
   .tm-now-head>div { text-align:center;display:flex;flex-direction:column;gap:4px; }.tm-now-head small { font-size:9px;letter-spacing:1.5px;font-weight:600; }.tm-now-head strong { font-size:11px; }
-  .tm-now-spacer { flex:1;min-height:calc(20dvh + (100vw - 32px)*.5625 - 62px); }
+  .tm-now-spacer { flex:0 0 auto;min-height:calc(20dvh + (100vw - 32px)*.5625 - 62px); }
   /* Now Playing scrolls like Spotify: the first screen is the player, then Up next and More like this. */
   .theme-spotify.tm-now-open #tv-now-playing { display:block; }
   .tm-now-main { min-height:calc(100dvh - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column; }
@@ -312,21 +312,21 @@
   #tv-now-playing :is(button,input) {touch-action:manipulation;}
   .theme-spotify.tm-now-open #player-stage {
     left:clamp(12px,4vw,24px);right:clamp(12px,4vw,24px);
-    top:clamp(76px,12dvh,145px);width:auto;
+    top:clamp(56px,8dvh,76px);width:auto;
   }
   .theme-spotify.tm-now-open #video-surface-card {
     box-sizing:border-box;width:100%;max-width:100%;
-    height:auto!important;max-height:min(38dvh,calc((100vw - 24px)*.5625))!important;
+    height:auto!important;max-height:none!important;
     aspect-ratio:16/9!important;object-fit:contain!important;
   }
   .tm-now-spacer {
-    min-height:calc(clamp(76px,12dvh,145px) + min(38dvh,calc((100vw - 24px)*.5625)) - 62px);
+    min-height:calc(clamp(56px,8dvh,76px) + (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - clamp(42px,7dvh,62px) + 18px);
   }
   .tm-now-head {min-height:clamp(42px,7dvh,62px);}
   .tm-now-copy h2 {font-size:clamp(17px,5vw,25px);white-space:normal;
     overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;
     -webkit-box-orient:vertical;overflow:hidden;}
-  .tm-now-main {min-height:calc(100dvh - env(safe-area-inset-bottom,0px));}
+  .tm-now-main {min-height:0;}
   .tm-now-controls {gap:clamp(4px,2vw,12px);margin:clamp(8px,2dvh,16px) 0;}
   .tm-now-controls>.tm-icon {width:clamp(30px,8vw,40px);flex:0 1 auto;}
   .tm-big-play {width:clamp(48px,9dvh,68px);

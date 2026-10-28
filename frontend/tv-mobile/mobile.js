@@ -140,7 +140,7 @@
     const mute=now.querySelector('[data-tm-action="mute"]');
     const muted=document.getElementById('video-player').muted;
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
-    [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');});
+    [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');b.setAttribute('aria-pressed',String(!paused));});
     if(typeof renderTvRows==='function')renderTvRows();
   }
   // Below the player, like Spotify: the next few queued channels, then every channel in the same category
@@ -598,7 +598,7 @@
   window.addEventListener('sterling-tv-availability',()=>{
     renderCatalogControls();renderViewport();renderHome();renderUpNextQueue(true);saveUi();schedule();
   });
-  const video=document.getElementById('video-player');video.addEventListener('playing',()=>{if(activeChannel&&unavailableChannels.delete(activeChannel.url))window.dispatchEvent(new Event('sterling-tv-availability'));});['play','pause','playing','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
+  const video=document.getElementById('video-player');video.addEventListener('playing',()=>{if(activeChannel&&unavailableChannels.delete(activeChannel.url))window.dispatchEvent(new Event('sterling-tv-availability'));});['play','pause','playing','ended','emptied','error','loadedmetadata'].forEach(event=>video.addEventListener(event,schedule));
   mobile.addEventListener('change',()=>{if(!mobile.matches){expanded=false;closeSheet();}renderHome();schedule();});
   window.addEventListener('resize',schedule);
   window.addEventListener('sterling-tv-playback-intent',schedule);

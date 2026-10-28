@@ -51,7 +51,7 @@ html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
   border-color:#cad6df!important;
 }
 html[data-color-scheme="light"] body #mobile-player-sheet
-  :is(#sheet-title,#sheet-sub,.radio-np-controls button,.rnp-more button) {
+  :is(#sheet-title,#sheet-sub) {
   color:#152130!important;
 }
 html[data-color-scheme="light"] body #mobile-player-sheet
@@ -73,7 +73,7 @@ html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
   color:#fff!important;
 }
 html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
-  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) svg {
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) :is(svg,i) {
   color:#fff!important;
 }
 html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)

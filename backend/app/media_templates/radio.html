@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" data-radio-category="all" data-radio-view="home">
 <head>
 <style>html:not([data-radio-ready]) body{visibility:hidden}</style>
   <meta charset="UTF-8" />
@@ -541,7 +541,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
              REDESIGNED SLEEK COLLAPSIBLE SW / AM TUNER BAR (BRAUN / TE STYLE)
              Collapsed by default (48px slim bar). Expands only when clicked.
              ================================================================= -->
-        <section id="sw-tuner-deck" class="mb-5 bg-[#181818] border border-[#282828] rounded-lg overflow-hidden transition-all">
+        <section id="sw-tuner-deck" class="hidden mb-5 bg-[#181818] border border-[#282828] rounded-lg overflow-hidden transition-all">
           <!-- Always-Visible Slim Bar (48px height) -->
           <div class="h-12 px-3.5 flex items-center justify-between gap-3">
             <div data-radio-click="37" class="flex items-center gap-3 min-w-0 flex-1 cursor-pointer">
@@ -648,7 +648,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <!-- 5. ALL CHANNELS IN ACTIVE CATEGORY (a section view; the home page shows rows instead) -->
         <section id="sp-grid-section">
           <div class="flex items-center justify-between mb-3">
-            <h2 id="sp-grid-heading" class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">Shortwave & AM World Radio</h2>
+            <h2 id="sp-grid-heading" class="text-[18px] sm:text-[20px] font-bold tracking-tight text-white">All radio stations</h2>
             <span id="sp-grid-count" class="text-xs text-[#b3b3b3]"></span>
           </div>
           <div id="sp-cards-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3.5 sm:gap-4"></div>
@@ -1040,7 +1040,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       </button>
     </div>
 
-    <div class="my-auto flex flex-col items-center py-4">
+    <div class="radio-np-feature flex flex-col items-center">
       <div class="radio-mobile-art relative w-64 h-64 sm:w-72 sm:h-72 rounded-xl overflow-hidden shadow-2xl mb-6 bg-[#181818]">
         <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
       </div>
@@ -2604,9 +2604,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       syncDspModalUI();
       syncSwDrawerUI();
 
-      switchAppMode(appConfig.appMode || 'spotify', true);
-      // Every visit opens on Home; the last section is not restored (it flashed before Home).
+      // Set the first published host state before switching/rendering the app.
       appConfig.activeCategory = 'all';
+      switchAppMode(appConfig.appMode || 'spotify', true);
       loadCategory('all', true);
       renderPersonalizedShelves();
       renderSidebarList();
@@ -3140,11 +3140,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       searchAbort?.abort();
       radioSearchQuery = '';
       document.documentElement.classList.remove('radio-searching');
-      publishRadioState();
       if (!skipSave) safeHaptic(8);
       appConfig.activeCategory = cat;
       document.documentElement.dataset.radioCategory=cat;
       document.documentElement.dataset.radioView=cat==='all'?'home':'collection';
+      publishRadioState();
       document.querySelectorAll('.radio-search-suggestions').forEach(el=>el.remove());
       clearTimeout(searchTimer);
       ['sp-search-desktop','sp-search-mobile','ytm-search-input'].forEach(id=>{const input=document.getElementById(id);if(input)input.value='';});
@@ -3634,6 +3634,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
 
     function bindAudioEvents() {
+      // 'play' fires while buffering too: the same button must cancel that request.
+      for(const event of ['play','ended','error','emptied'])audio.addEventListener(event,()=>syncPlayerUI());
       audio.addEventListener('playing', () => {
         clearTimeout(watchdogTimer);
         isPlaying = true;
@@ -3688,7 +3690,13 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     function syncPlayerUI(overrideArt = null, resetStationMetadata = false) {
       if (!activeStream) return;
-      const icon = isPlaying ? 'fa-solid fa-pause' : 'fa-solid fa-play';
+      const paused = audio.paused || audio.ended;
+      const icon = paused ? 'fa-solid fa-play' : 'fa-solid fa-pause';
+      for(const id of ['sp-bar-play','sp-mini-play','ytm-bar-play','ytm-mini-play','sheet-play']) {
+        const button=document.getElementById(id)?.closest('button');
+        button?.setAttribute('aria-label',paused?'Play radio':'Pause radio');
+        button?.setAttribute('aria-pressed',String(!paused));
+      }
 
       if (overrideArt) {
         ['sp-np-art', 'sp-bar-art', 'sp-mini-art', 'ytm-bar-art', 'ytm-mini-art', 'ytm-stage-art', 'sheet-art'].forEach(id => {

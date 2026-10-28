@@ -170,16 +170,17 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
   html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-main {
     width:100%;max-width:100%;box-sizing:border-box;
     min-height:calc(100dvh - 24px - env(safe-area-inset-bottom,0px));
-    display:flex;flex-direction:column;gap:clamp(6px,1.3dvh,14px);
+    display:flex;flex-direction:column;justify-content:flex-start;gap:clamp(6px,1.3dvh,14px);
   }
   html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art,
   html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet>div:nth-child(2)>div:first-child {
-    width:min(76vw,36dvh,350px)!important;
-    height:min(76vw,36dvh,350px)!important;
-    max-width:100%!important;max-height:36dvh!important;
+    width:min(calc(100vw - 32px),calc(100dvh - 300px),520px)!important;
+    height:min(calc(100vw - 32px),calc(100dvh - 300px),520px)!important;
+    max-width:100%!important;max-height:60dvh!important;
     flex:0 1 auto;margin:clamp(6px,1.5dvh,16px) auto!important;
     aspect-ratio:1;
   }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-feature {margin:0;width:100%;padding:0;}
   html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet #sheet-title {
     font-size:clamp(19px,5.3vw,25px)!important;
     line-height:1.25;max-width:100%;

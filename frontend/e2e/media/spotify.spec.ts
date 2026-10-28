@@ -2,7 +2,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {test,expect,type Page} from '@playwright/test';
 
-async function openPlayer(page:Page,kind:'radio'|'tv'){
+async function openPlayer(page:Page,kind:'radio'|'tv',radioConfig:Record<string,unknown>={}){
   // Exercise the real opaque-origin player without authentication or broker fixtures.
   await page.route('**/*',route=>{
     const url=new URL(route.request().url());
@@ -10,7 +10,7 @@ async function openPlayer(page:Page,kind:'radio'|'tv'){
   });
   await page.route('**/__media_test_host__',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}iframe{border:0;width:100vw;height:100dvh}</style><iframe id="player" src="/${kind}/index.html" sandbox="allow-scripts allow-forms" allow="autoplay"></iframe><script>
     const frame=document.getElementById('player');
-    addEventListener('message',event=>{if(event.source!==frame.contentWindow||event.origin!=='null')return;if(event.data?.type==='sterling.${kind}.ready'){frame.contentWindow.postMessage({type:'sterling.${kind}.hydrate',hostHeader:false,values:${JSON.stringify(kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all',catalogSources:[]})}:{streamos_theme_v14:'spotify'})}},'*');frame.contentWindow.postMessage({type:'sterling.${kind}.ack'},'*');}});
+    addEventListener('message',event=>{if(event.source!==frame.contentWindow||event.origin!=='null')return;if(event.data?.type==='sterling.${kind}.ready'){frame.contentWindow.postMessage({type:'sterling.${kind}.hydrate',hostHeader:false,values:${JSON.stringify(kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all',catalogSources:[],...radioConfig})}:{streamos_theme_v14:'spotify'})}},'*');frame.contentWindow.postMessage({type:'sterling.${kind}.ack'},'*');}});
   </script>`}));
   await page.goto('/__media_test_host__');
   const frame=page.frameLocator('#player');
@@ -88,6 +88,17 @@ test('Radio plays a controlled audio stream and preserves user pause',async({pag
   await frame.locator('#spotify-app .solid-sp-miniplayer [data-radio-click="56"]').click();
   await expect.poll(()=>frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>!el.paused)).toBe(true);
   await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  await frame.locator('html').evaluate(el=>el.setAttribute('data-color-scheme','light'));
+  const sheetPlay=frame.locator('#sheet-play');
+  await expect(sheetPlay).toHaveClass(/fa-pause/);
+  await expect(sheetPlay.locator('..')).toHaveAttribute('aria-label','Pause radio');
+  expect(await sheetPlay.evaluate(el=>getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
+  await sheetPlay.locator('..').click();
+  await expect(sheetPlay).toHaveClass(/fa-play/);
+  await expect(sheetPlay.locator('..')).toHaveAttribute('aria-label','Play radio');
+  await expect.poll(()=>frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>el.paused)).toBe(true);
+  await sheetPlay.locator('..').click();
+  await expect(sheetPlay).toHaveClass(/fa-pause/);
   await page.clock.install();
   await frame.getByRole('button',{name:'Set sleep timer',exact:true}).first().click();
   await frame.getByRole('dialog',{name:'Wind down'}).getByRole('button',{name:'15 minutes',exact:true}).click();
@@ -551,4 +562,40 @@ test('Radio expanded player replaces device copy with Surprise station',async({p
   const before=await frame.locator('#sheet-title').innerText();
   await frame.getByRole('button',{name:'Surprise station',exact:true}).click();
   await expect(frame.locator('#sheet-title')).not.toHaveText(before);
+});
+
+
+test('Radio first visible frame is Home even with a saved SW/AM section',async({page})=>{
+  await page.addInitScript(()=>{
+    if(window===window.top)return;
+    const painted:string[]=[];(window as any).__paintedRadioSections=painted;
+    const sample=()=>{if(document.body&&getComputedStyle(document.body).visibility==='visible')painted.push(document.documentElement.dataset.radioCategory||'unset');if(painted.length<60)requestAnimationFrame(sample);};
+    requestAnimationFrame(sample);
+  });
+  const frame=await openPlayer(page,'radio',{activeCategory:'shortwave'});
+  await expect(frame.locator('html')).toHaveAttribute('data-radio-category','all');
+  await expect(frame.locator('#sw-tuner-deck')).toBeHidden();
+  await page.waitForTimeout(200);
+  const painted=await frame.locator('body').evaluate(()=>(window as any).__paintedRadioSections);
+  expect(painted.length).toBeGreaterThan(0);expect([...new Set(painted)]).toEqual(['all']);
+});
+
+for(const kind of ['radio','tv'] as const)test(`${kind} expanded artwork uses width and keeps title near controls`,async({page})=>{
+  const frame=kind==='tv'?await seededTv(page):await openPlayer(page,'radio');
+  if(kind==='tv')await frame.getByRole('button',{name:'Play Channel 02',exact:true}).first().click();
+  else await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  for(const width of [320,393,600]){
+    await page.setViewportSize({width,height:844});
+    const geometry=await frame.locator('body').evaluate((_,kind)=>{
+      const box=(s:string)=>document.querySelector(s)!.getBoundingClientRect();
+      const art=box(kind==='radio'?'.radio-mobile-art':'#video-surface-card');
+      const title=box(kind==='radio'?'#sheet-title':'#tm-now-title');
+      const controls=box(kind==='radio'?'.radio-np-controls':'.tm-now-controls');
+      return {width:art.width,artTitleGap:title.top-art.bottom,titleControlsGap:controls.top-title.bottom};
+    },kind);
+    expect(geometry.width).toBeGreaterThanOrEqual(Math.min(width-50,500));
+    expect(geometry.artTitleGap).toBeGreaterThanOrEqual(0);
+    expect(geometry.artTitleGap).toBeLessThan(80);
+    expect(geometry.titleControlsGap).toBeLessThan(130);
+  }
 });

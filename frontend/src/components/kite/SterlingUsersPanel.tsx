@@ -108,7 +108,7 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
               <span className="bac-key-label">Role</span>
               <span>{user.role === 'admin' ? 'Administrator' : 'User'}</span>
               <span className="bac-key-label">Status</span>
-              <span className={user.active ? 'bac-ok' : 'bac-err'}>{user.active ? '● Connected' : '○ Offline'}</span>
+              <span className={user.active ? 'bac-ok' : 'bac-err'}>{user.active ? 'Login enabled' : 'Login suspended'}</span>
             </div>
           </div>
 
