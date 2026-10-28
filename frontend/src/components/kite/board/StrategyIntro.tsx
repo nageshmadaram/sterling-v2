@@ -4,7 +4,7 @@
  * on phones. Desktop still exposes the existing read-only explanations.
  * Expanding information never starts scans, changes settings or places orders.
  */
-import React, { useId, useState } from 'react';
+import { useId, useState } from 'react';
 import type { EngineConfigModel } from '../../../types/kiteEngine';
 import type { SnapbackConfig } from '../../../hooks/useSnapback';
 import { StrategyModeInfo } from './StrategyModeInfo';
@@ -28,7 +28,8 @@ export function strategyIntroSummary(
   sb?: Partial<SnapbackConfig> | null,
 ): string {
   if (engine === 'supertrend') {
-    const mode = st?.horizon_mode ?? 'swing';
+    if (!st) return 'SuperTrend · Default Swing (60m Heikin-Ashi) · saved settings loading';
+    const mode = st.horizon_mode ?? 'swing';
     const selected = MODE_NAMES[mode] ?? mode.replace(/_/g, ' ');
     const minutes = st?.signal_timeframe_minutes
       ?? (mode === 'ultra_scalping' ? 1 : mode === 'scalping' ? 5
@@ -36,7 +37,8 @@ export function strategyIntroSummary(
     return `SuperTrend · Default Swing · ${selected} selected · ${minutes}m Heikin-Ashi`;
   }
   if (engine === 'snapback') {
-    const mode = sb?.trading_mode ?? 'swing';
+    if (!sb) return 'Snapback · Default Swing (Daily OHLC) · saved settings loading';
+    const mode = sb.trading_mode ?? 'swing';
     const selected = MODE_NAMES[mode] ?? mode.replace(/_/g, ' ');
     const tf = mode === 'swing' ? 'Daily OHLC'
       : `${sb?.scalp_timeframe_minutes ?? (mode === 'intraday' ? 15 : mode === 'overnight' ? 60 : 1)}m OHLC`;
