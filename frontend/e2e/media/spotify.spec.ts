@@ -399,6 +399,7 @@ test('Radio exposes all loaded stations, matching category counts and append-onl
  await expect(frame.locator('#radio-directory-browse')).toBeHidden();await expect(frame.locator('#sp-recents-section')).toBeHidden();
  expect(await frame.locator('body').evaluate(()=>eval('catalogItems.every(station=>station.category==="telugu"||(station.languages||[]).includes("telugu"))'))).toBe(true);
  await frame.locator('#sp-mchip-feat').click();
+ const categoryTotal=await frame.locator('#sp-mchip-feat').innerText();
  await frame.locator('#radio-home-shelves [data-row=everything]').getByRole('button',{name:'Show all',exact:true}).click();
  await frame.locator('#spotify-app').getByRole('button',{name:'Filter stations',exact:true}).click();
  await frame.getByRole('combobox',{name:'Radio country',exact:true}).selectOption('France');
@@ -411,8 +412,8 @@ test('Radio exposes all loaded stations, matching category counts and append-onl
 
  await frame.getByRole('combobox',{name:'Radio genre',exact:true}).selectOption('jazz');
  await expect(frame.locator('#sp-grid-count')).toHaveText('525 stations');
- // Filters apply to the selected section; other category totals stay independent.
- await expect(frame.locator('#sp-mchip-feat')).toHaveText('World FM 525');
+ // Grid filters narrow results; category chips continue to show their full totals.
+ await expect(frame.locator('#sp-mchip-feat')).toHaveText(categoryTotal);
  await expect(frame.locator('#sp-mchip-all')).toHaveText(`All ${(baseline+1050).toLocaleString()}`);
  await page.screenshot({path:'/tmp/sterling-radio-directory-filtered.png'});
 });

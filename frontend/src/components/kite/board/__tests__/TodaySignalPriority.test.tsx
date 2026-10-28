@@ -100,7 +100,7 @@ describe('cross-strategy today priority', () => {
     expect(screen.getByRole('status')).toHaveTextContent('older history queued');
   });
 
-  it('releases older read-only history after all today's checks settle, while showing the failed strategy', async () => {
+  it("releases older read-only history after all today's checks settle, while showing the failed strategy", async () => {
     source.gamma = { ...source.gamma, isError: true };
     wrap(<Display />);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Gamma-Unwind: unavailable'));
