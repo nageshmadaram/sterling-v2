@@ -1406,7 +1406,6 @@ def _generate_tma_html(nonce: str = "") -> str:
     }
     async function tmaResponseError(response) {
       const raw = await response.text();
-      if (raw.includes('ERR_NGROK_725')) return {message:'Public tunnel bandwidth limit reached. Use local Sterling or restore tunnel capacity.', authenticationRejected:false};
       let detail = {};
       try { detail = JSON.parse(raw); } catch {}
       const structured = typeof detail.detail === 'string';
