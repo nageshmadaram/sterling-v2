@@ -74,9 +74,17 @@ jobs:
         run: PYTHONPATH=. python scripts/validate_registry_postgres.py
       - name: Backup and restore into disposable verification DB
         run: |
-          pg_dump -Fc --no-owner -d sterling_registry_ci -f /tmp/sterling_registry_ci.dump
+          # Match pg_dump/pg_restore major version to the PostgreSQL 16 server.
+          # The hosted runner may ship newer clients that emit unsupported SETs.
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_dump -h localhost -U "$PGUSER" -Fc --no-owner -d sterling_registry_ci \
+            -f /tmp/sterling_registry_ci.dump
           psql -d sterling_registry_ci -v ON_ERROR_STOP=1 -c 'CREATE DATABASE sterling_registry_restore_ci;'
-          pg_restore --no-owner --exit-on-error -d sterling_registry_restore_ci /tmp/sterling_registry_ci.dump
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_restore -h localhost -U "$PGUSER" --no-owner --exit-on-error \
+            -d sterling_registry_restore_ci /tmp/sterling_registry_ci.dump
           psql -d sterling_registry_restore_ci -At -c "SELECT count(*) FROM platform_strategy_audit" | grep -qx '3'
           psql -d sterling_registry_restore_ci -At -c "SELECT count(*) FROM platform_strategy_versions" | grep -qx '1'
       - name: Rehearse schema downgrade and re-upgrade on disposable source
