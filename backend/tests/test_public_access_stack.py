@@ -445,7 +445,7 @@ def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,caps
  out=capsys.readouterr().out
  assert 'MANAGED' in out
  assert 'https://cloudflare.example.test' in out
- assert 'https://ngrok.example.test' in out
+ assert 'ngrok' not in out.lower()
 
 
 def test_up_recovers_missing_adopted_backend_via_single_manager_restart(monkeypatch,tmp_path):
@@ -810,7 +810,7 @@ def test_stopped_manager_never_reports_cached_tunnels_as_verified(monkeypatch,tm
  monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','urls'])
  stack.main()
  urls=json.loads(capsys.readouterr().out)
- assert urls['cloudflare']=='' and urls['ngrok']==''
+ assert urls['cloudflare']=='' and 'ngrok' not in urls
  assert urls['primary_telegram_desk']==''
  assert urls['kite_callback_guidance']==''
 
@@ -836,7 +836,7 @@ def test_verified_tunnels_preserved_when_gateway_owned_and_supervised():
       patch.object(stack,'_backend_listener_present',return_value=True), \
       patch.object(stack,'_backend_http_ready',return_value=True):
   reported=stack.live_presentation_status(cached,True)
- assert reported['public_ready']=={'cloudflare':True,'ngrok':False}
+ assert reported['public_ready']=={'cloudflare':True}
  assert reported['urls']=={'cloudflare':'https://cf.example.test'}
  assert reported['mini_app_url'].endswith('/tma')
  assert reported['callback_url'].endswith('/api/v1/kite/callback')
@@ -888,7 +888,7 @@ def test_up_dashboard_is_prominent_and_prints_only_verified_urls(monkeypatch,cap
  assert 'MANAGED' in out
  assert 'LOCAL APP' in out and 'http://127.0.0.1:5180' in out
  assert 'CLOUDFLARE' in out and 'https://cf.example.test' in out
- assert 'NGROK' in out and 'CONNECTING' in out
+ assert 'NGROK' not in out
  assert 'OLD-UNVERIFIED' not in out
  assert 'http://127.0.0.1:5174' in out
  assert 'main · aaaaaaaaaaaa' in out
@@ -907,7 +907,7 @@ def test_up_dashboard_contains_ansi_colors_only_for_terminal(monkeypatch,capsys)
  assert '\x1b[1;92m' in out  # verified green status
  assert '\x1b[1;95m' in out  # dev purple
  assert 'https://cf.example.test' in out
- assert 'https://ngrok.example.test' in out
+ assert 'ngrok' not in out.lower()
 
 
 def test_up_dashboard_starting_never_displays_stale_public_urls(monkeypatch,capsys):
@@ -919,7 +919,7 @@ def test_up_dashboard_starting_never_displays_stale_public_urls(monkeypatch,caps
  stack.print_up_dashboard(state,reused=False,gateway_ready=False)
  output=capsys.readouterr().out
  assert 'STARTING' in output
- assert output.count('CONNECTING')==2
+ assert output.count('CONNECTING')==1
  assert 'stale-cf' not in output and 'stale-ngrok' not in output
  assert 'http://127.0.0.1:5180' in output
  assert 'http://127.0.0.1:5174' in output
