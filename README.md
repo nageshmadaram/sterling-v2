@@ -57,10 +57,10 @@ Passwords are hashed and cannot be recovered; administrators can replace them.
 Telegram **Sterling Login** opens the signed private management form. Price Rules
 is available from Connect and the strategy strip; each plan is armed individually.
 
-## One-command local + dual public tunnels + development UI
+## One-command local + Cloudflare public tunnel + development UI
 
 The existing Sterling stack supervisor can now start **one backend**, one
-authenticated HTTP gateway and three access surfaces together:
+authenticated HTTP gateway and two access surfaces together:
 
 ```bash
 cd /home/nageshmadaram/Sterling
@@ -71,7 +71,7 @@ cd /home/nageshmadaram/Sterling
 ```
 
 On an interactive terminal, `./sterling.sh up` shows a **color-coded Sterling
-workspace dashboard** with the local app, Cloudflare, ngrok and Vite dev URLs,
+workspace dashboard** with the local app, Cloudflare and Vite dev URLs,
 their verification/connecting statuses, and the committed release SHA. Green
 means a URL was verified by the running supervisor; amber means it is still
 connecting; purple highlights the uncommitted-only developer frontend. The
@@ -87,7 +87,6 @@ same URL information without terminal escape sequences.
   shares the *same* backend and trading state; never an independent sandbox).
 - Cloudflare: the verified generated `https://….trycloudflare.com` URL,
   or your configured named tunnel address.
-- ngrok: the verified secondary public URL printed by `./sterling.sh urls`.
 
 ### Committed release vs. uncommitted development
 
@@ -98,7 +97,6 @@ another Kite engine:
 | --- | --- |
 | Local `http://127.0.0.1:5180` | A build from an immutable Git commit; never live working-tree edits |
 | Cloudflare HTTPS public URL | Exactly the same 5180 committed build and backend |
-| ngrok HTTPS public URL | Exactly the same 5180 committed build and backend |
 | Dev `http://127.0.0.1:5174` | Your local `frontend/` working directory, including uncommitted edits, with Vite hot reload |
 
 **Automatic updates (after one-time host enrollment):** the supervisor
@@ -109,7 +107,7 @@ extracts only Git-committed frontend files into the private
 `.runtime/stack/committed-source` workspace, compiles them and atomically
 switches `.runtime/stack/published`. A failing build or unexpected remote
 rewind leaves the previous published release intact. The same local:5180,
-Cloudflare and ngrok addresses now serve the new frontend without restarting
+Cloudflare addresses now serve the new frontend without restarting
 the long-lived gateway, tunnel or broker backend. Previous hashed assets
 remain available for open tabs.
 
@@ -173,22 +171,17 @@ release. A frontend commit alone cannot make backend-dependent new pages or
 new live trading strategies operational; never enable live entry merely
 because frontend URLs are synchronized.
 
-For a fixed ngrok domain or Cloudflare named tunnel, set values in
-`backend/.env` without committing tokens:
+Configure Cloudflare named-tunnel credentials in `backend/.env` without committing secrets:
 
 ```dotenv
-# Optional: ./sterling.sh start --all overrides this automatically.
-STERLING_TUNNEL_PROVIDER=both
-# Optional Cloudflare named tunnel (requires your configured Cloudflare token).
+STERLING_TUNNEL_PROVIDER=cloudflare
 STERLING_CLOUDFLARE_HOSTNAME=
-# Optional ngrok reserved domain; ngrok CLI must already be authenticated.
-STERLING_NGROK_HOSTNAME=
-# Optional when running without --all.
+STERLING_CLOUDFLARE_TUNNEL_TOKEN=
 STERLING_DEV_FRONTEND=1
 ```
 
 The single command `./sterling.sh up` is **idempotent**. When an
-already-running dual-tunnel manager is healthy and owns its port 5180 gateway,
+already-running Cloudflare manager is healthy and owns its port 5180 gateway,
 the command reuses the same running processes and URLs. When an old-version
 manager or a failed/orphaned web gateway is detected, it gracefully replaces
 **only the presentation/tunnel manager**; the existing Kite backend remains
@@ -197,27 +190,14 @@ running. At startup the manager inspects the 5180 listener with `ss` and
 Sterling Node gateway, and verifies its *new* web PID owns 5180 before
 publishing tunnel URLs. Unknown/unrelated listeners are refused, not killed.
 
-If ngrok is missing or its account cannot connect, Cloudflare and the single
-local backend continue running. The status includes the ngrok error; no
-public link is published until the tunnel passes authentication and service
-checks. You must install/login to ngrok yourself; the launcher neither stores
-your personal ngrok authtoken nor configures a domain in the ngrok dashboard.
-
-On Telegram, **/menu** displays separate Cloudflare and ngrok launch URLs when
-each is verified. **/url** reports both addresses. Telegram allows only one
-persistent Mini App Menu button; it continues to use the primary Cloudflare
-`/tma` URL. Kite OAuth continues to use the already registered *primary*
-callback URL: the launcher cannot register callbacks in the Kite developer
-console, and the ngrok link is not an alternate Kite OAuth redirect.
+On Telegram, **/menu** and **/url** expose the verified Cloudflare origin.
+The Mini App and Kite OAuth callback use the same primary Cloudflare address;
+registering that address in the Kite developer console remains an operator action.
 
 To switch an old single-tunnel launcher or recover a recognized orphan
 gateway, simply run `./sterling.sh up`. The manager never forces an
 unidentified process off a port and never restarts the Kite trading backend;
 unverified ownership produces an explicit error requiring inspection.
-
-The dual-tunnel changes require the `fix/dual-tunnel-one-command-20261017`
-branch or its reviewed merge, and tests must pass before production adoption.
-They do not automatically pull or deploy open EMA strategy PRs.
 
 ## Local development
 
@@ -258,21 +238,6 @@ reconciliation always keep working. Details: [EXECUTION.md](EXECUTION.md),
 | Risk controls | [RISK_MANAGEMENT.md](RISK_MANAGEMENT.md) |
 | Deployment and first-day settings | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | Security | [SECURITY.md](SECURITY.md) |
-
-For an assigned ngrok hostname, install ngrok and configure its authtoken locally,
-then set these values in `backend/.env` (never commit the token):
-
-```dotenv
-STERLING_TUNNEL_PROVIDER=ngrok
-STERLING_PUBLIC_HOSTNAME=https://YOUR-ASSIGNED-HOST.ngrok-free.dev
-```
-
-`./sterling.sh start` supervises ngrok forwarding to the Sterling gateway on
-port 5180 and reuses the configured hostname after restarts. Register that
-hostname plus `/api/v1/kite/callback` in the Kite Developer Console once.
-The free ngrok plan may display a browser warning and has traffic limits.
-Public-access publication updates the Telegram menu without sending a chat
-notice unless `STERLING_ACCESS_NOTIFY=1` is explicitly configured.
 
 ### Live-entry opt-in
 
