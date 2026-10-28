@@ -1064,7 +1064,10 @@ def main():
         if parsed.scheme!='https' or not parsed.hostname or parsed.path not in {'','/'} or parsed.query or parsed.fragment or parsed.username:parser.error('--hostname must be an HTTPS origin')
     for line in (ROOT/'backend/.env').read_text().splitlines() if (ROOT/'backend/.env').exists() else []:
         key,sep,value=line.strip().partition('=')
-        if sep and key.startswith('STERLING_') and key not in os.environ:
+        # Enrollment in backend/.env is authoritative for STATIC frontend publication.
+        # A stale service-level dev ref must not defeat the operator's enrollment.
+        if sep and key.startswith('STERLING_') and (
+                key not in os.environ or key in {'STERLING_PUBLISH_REF','STERLING_PUBLISH_FETCH'}):
             os.environ[key]=value.strip().strip(chr(34)+chr(39))
     if args.command=='up':
         args.all=True
