@@ -34,7 +34,7 @@ jobs:
           PAPER_TRADING: "true"
           REAL_PUBLIC_DATA: "false"
         run: |
-          python -m pytest -q tests/test_broker_normalized_read.py tests/test_broker_registry.py tests/test_platform_strategy_registry.py tests/test_platform_strategy_registry_safety.py --tb=short
+          python -m pytest -q tests/test_broker_normalized_read.py tests/test_broker_registry.py tests/test_platform_strategy_registry.py tests/test_platform_strategy_registry_safety.py tests/test_registry_signed_auth_contract.py --tb=short
       - name: Assert no order writes or route bindings in new module
         run: |
           python - <<'PY'
