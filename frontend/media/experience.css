@@ -10,8 +10,6 @@ button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-v
 @media (max-width:767px) {
  input[type=search],select { font-size:16px!important; }
  button:active,[data-radio-click]:active { opacity:.82; }
- #startup-modal,#audio-dsp-modal { align-items:flex-end!important; padding:0!important; }
- #startup-modal>div,#audio-dsp-modal>div { width:100%;max-width:100%;max-height:90dvh;overflow-y:auto;border-radius:22px 22px 0 0!important;padding:24px 20px calc(24px + env(safe-area-inset-bottom))!important;animation:media-sheet-in .2s ease-out; }
  #startup-modal button,#audio-dsp-modal button { min-height:44px; }
  #startup-channel-select { min-height:48px; }
  #sp-cards-grid,#ytm-cards-grid { gap:16px 12px!important; }
@@ -489,3 +487,19 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
 .media-comfort {overscroll-behavior:contain;}
 html.media-cursor-idle body,html.media-cursor-idle body * {cursor:none!important;}
 
+/* Native modal sheets share stable geometry; only vertical movement animates. */
+dialog:is(.media-comfort,.media-settings-dialog,.radio-source-dialog,.mx-dialog){
+ box-sizing:border-box;width:min(520px,calc(100vw - 32px));max-width:calc(100vw - 32px);
+ max-height:90dvh;margin:auto;padding:20px 24px 24px;border:1px solid #ffffff24;
+ border-radius:22px;background:#181b1a;color:#f7f7f7;overflow:auto;
+ overscroll-behavior:contain;scrollbar-gutter:stable;animation:none!important;
+}
+dialog.media-settings-dialog:not([open]){display:none;}
+dialog.media-settings-dialog>.media-sheet-content{width:100%;max-width:none;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;animation:none!important;overflow:visible;}
+dialog.media-settings-dialog::backdrop{background:#0009;backdrop-filter:blur(8px);}
+.media-sheet-handle,.media-comfort-handle{display:block;width:36px;height:5px;border-radius:8px;background:#ffffff50;margin:0 auto 18px;touch-action:none;cursor:grab;}
+dialog>header,.media-sheet-content>div:first-child{touch-action:none;}
+dialog[data-sheet-expanded=true]{height:90dvh;}
+@media(max-width:1023px){
+ dialog:is(.media-comfort,.media-settings-dialog,.radio-source-dialog,.mx-dialog){width:100%;max-width:100%;margin:auto 0 0;border-radius:24px 24px 0 0;padding:12px 20px calc(24px + env(safe-area-inset-bottom,0px));}
+}
