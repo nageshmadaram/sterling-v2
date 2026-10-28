@@ -233,3 +233,14 @@ body.tm-search-active #dynamic-category-pills-row {display:none!important;}
     font-size:11px!important;line-height:1.35!important;
   }
 }
+
+/* No ambilight halo or second rounded frame behind the picture. */
+#video-surface-card{box-shadow:none!important;filter:none!important;outline:0!important;transition:none!important;clip-path:inset(0 round 8px);border-radius:8px!important;}
+#video-surface-card>:is(#video-player,#embed-fallback){box-shadow:none!important;filter:none!important;outline:0;border-radius:inherit;}
+:is(#watch-columns,#left-watch-column,#mobile-sticky-player-wrap){border:0!important;box-shadow:none!important;}
+@media(min-width:1024px) and (max-width:1279px){
+ #watch-columns{flex-direction:column!important;}
+ #left-watch-column{width:100%!important;min-height:calc(100dvh - 20px);}
+ #video-surface-card{width:min(100%,calc((100dvh - 150px)*1.777778));height:auto!important;max-height:none!important;aspect-ratio:16/9;margin-inline:auto;}
+ #watch-up-next-rail{width:100%!important;margin-top:20px;}
+}
