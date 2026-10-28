@@ -102,6 +102,28 @@
       if(!button || button.disabled || !button.animate)return;
       button.animate([{scale:'1'},{scale:'.95'},{scale:'1'}],{duration:180,easing:'ease-out'});
     },{passive:true});
+    // After ten seconds without mouse movement during playback, hide the
+    // pointer; reveal it immediately on movement, focus or touch.
+    let cursorTimer=null;
+    const hasActivePlayback=()=>Array.from(document.querySelectorAll('audio,video'))
+      .some(media=>!media.paused&&!media.ended);
+    const cursorAwake=()=>{
+      document.documentElement.classList.remove('media-cursor-idle');
+      clearTimeout(cursorTimer);cursorTimer=null;
+      if(hasActivePlayback())cursorTimer=setTimeout(()=>{
+        if(hasActivePlayback()&&!document.hidden)
+          document.documentElement.classList.add('media-cursor-idle');
+      },10000);
+    };
+    document.addEventListener('play',cursorAwake,true);
+    document.addEventListener('pause',cursorAwake,true);
+    document.addEventListener('ended',cursorAwake,true);
+    document.addEventListener('pointermove',event=>{
+      if(event.pointerType==='mouse')cursorAwake();
+    },{passive:true});
+    document.addEventListener('pointerdown',cursorAwake,{passive:true});
+    document.addEventListener('focusin',cursorAwake);
+    window.addEventListener('pagehide',()=>clearTimeout(cursorTimer));
     refresh();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
