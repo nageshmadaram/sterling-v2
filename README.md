@@ -113,10 +113,13 @@ Cloudflare and ngrok addresses now serve the new frontend without restarting
 the long-lived gateway, tunnel or broker backend. Previous hashed assets
 remain available for open tabs.
 
-The app checks `/__sterling_web_health` roughly once per minute. An existing
-tab shows an unobtrusive **Sterling update ready** control and refreshes
-automatically when safely idle; edits, dialogs and playback are never forcibly
-interrupted. New navigations get the latest HTML with `Cache-Control: no-store`.
+The existing `PublishedReleaseWatcher` checks
+`/__sterling_web_health` every ~45 seconds. Open tabs display an
+unobtrusive **New Sterling version ready** control and may refresh after
+returning from the background when no settings draft or dialog is active.
+It does **not** forcibly restart active media or overwrite an unsaved
+trading form. New navigations get the latest HTML with
+`Cache-Control: no-store`.
 A sleeping/offline phone receives the updated UI on reconnection.
 
 Uncommitted, untracked and modified files **never enter the public frontend
@@ -142,8 +145,11 @@ STERLING_PUBLISH_FETCH=0
 ```
 
 **One-time bootstrap is still required on an older laptop installation.**
-The GitHub merge cannot edit a running process's environment or install a new
-launcher. Once the updated `scripts/sterling_stack.py` reaches the laptop
+The repository provides `scripts/enable_remote_ui_updates.sh` for an
+authorized healthy operator: it safely enrolls the existing backend
+`.env` (without touching trades, Git worktrees or secrets) and confirms
+remote `origin/main` is fetchable. The GitHub merge cannot edit a
+running process's environment or install a new launcher. Once the updated `scripts/sterling_stack.py` reaches the laptop
 and the existing presentation supervisor is restarted under its normal
 operator/service management, all *future* remote `main` merges publish
 automatically while Sterling is running. On an older already-installed
