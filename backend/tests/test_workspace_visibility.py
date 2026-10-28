@@ -35,9 +35,11 @@ def test_hide_kite_without_granting_or_revoking_access(accounts):
     assert saved.features == features
     with pytest.raises(PermissionError, match="not available"):
         access_requests.request_access("member", "kite")
-    assert access_requests.request_access("member", "radio")["status"] == "pending"
+    # Radio is already granted. Discovery visibility must not create a redundant
+    # approval request or change that existing authorization.
+    assert access_requests.request_access("member", "radio")["status"] == "granted"
     with db._conn() as c:
-        assert c.execute("SELECT COUNT(*) FROM feature_access_requests WHERE feature='kite'").fetchone()[0] == 0
+        assert c.execute("SELECT COUNT(*) FROM feature_access_requests WHERE user_id='member'").fetchone()[0] == 0
     # A hidden-but-granted feature remains granted: visibility is presentation only.
     saved = account_policy.set_features("default", "member", {**features, "kite": True}, 1, visibility=visibility)
     assert saved.features["kite"] and not saved.visibility["kite"]

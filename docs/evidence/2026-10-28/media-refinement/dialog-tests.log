@@ -1,0 +1,30 @@
+
+> sterling-frontend@0.1.0 pretest
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 1571ms.
+
+> sterling-frontend@0.1.0 test
+> vitest --run --maxWorkers=1 tests/mediaRuntime.test.ts tests/mediaExports.test.ts src/pages/__tests__/WorkspaceRouter.test.tsx
+
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  45 passed (45)
+   Start at  22:46:23
+   Duration  22.16s (tests 82%, environment 12%, transform 3%, import 2%, setup 1%)
+
+    Isolate  3 workers spawned · ~1.09s startup each (spawn + environment, per file)
+             at least ~2.19s faster with isolate: false — reuses workers across files instead of one per file

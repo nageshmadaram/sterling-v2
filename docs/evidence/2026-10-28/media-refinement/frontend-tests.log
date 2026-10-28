@@ -1,0 +1,44 @@
+
+> sterling-frontend@0.1.0 pretest
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 2747ms.
+
+> sterling-frontend@0.1.0 test
+> vitest --run --maxWorkers=2
+
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+Error: Not implemented: window.confirm
+    at module.exports (/home/nageshmadaram/Sterling/frontend/node_modules/jsdom/lib/jsdom/browser/not-implemented.js:9:17)
+    at /home/nageshmadaram/Sterling/frontend/node_modules/jsdom/lib/jsdom/browser/Window.js:962:7
+    at select (/home/nageshmadaram/Sterling/frontend/src/components/kite/ConnectPane.tsx:1163:19)
+    at onClick (/home/nageshmadaram/Sterling/frontend/src/components/kite/ConnectPane.tsx:1243:99)
+    at executeDispatch (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19116:9)
+    at runWithFiberInDEV (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:874:13)
+    at processDispatchQueue (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19166:19)
+    at /home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19767:9
+    at batchedUpdates$1 (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:3255:40)
+    at dispatchEventForPluginEventSystem (/home/nageshmadaram/Sterling/frontend/node_modules/react-dom/cjs/react-dom-client.development.js:19320:7) undefined
+The glob option "as" has been deprecated in favour of "query". Please update `as: 'raw'` to `query: '?raw', import: 'default'`.
+The glob option "as" has been deprecated in favour of "query". Please update `as: 'raw'` to `query: '?raw', import: 'default'`.
+
+ Test Files  280 passed (280)
+      Tests  2517 passed (2517)
+   Start at  22:50:56
+   Duration  297.86s (environment 43%, tests 39%, import 9%, setup 5%, transform 3%, worker 1%)
+
+Environment  jsdom was created 280 times · 224.43s total, 43% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments

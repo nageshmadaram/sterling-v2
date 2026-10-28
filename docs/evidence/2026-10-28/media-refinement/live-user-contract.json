@@ -1,0 +1,26 @@
+{
+  "at": "2026-10-28T17:28:06.979969+00:00",
+  "results": [
+    {
+      "origin": "http://127.0.0.1:8000",
+      "http_status": 422,
+      "rejected_field": "username",
+      "features_configuration_visibility_accepted": true,
+      "production_user_created": false
+    },
+    {
+      "origin": "http://127.0.0.1:5174",
+      "http_status": 422,
+      "rejected_field": "username",
+      "features_configuration_visibility_accepted": true,
+      "production_user_created": false
+    },
+    {
+      "origin": "https://apparatus-italia-cult-accurate.trycloudflare.com",
+      "http_status": 422,
+      "rejected_field": "username",
+      "features_configuration_visibility_accepted": true,
+      "production_user_created": false
+    }
+  ]
+}

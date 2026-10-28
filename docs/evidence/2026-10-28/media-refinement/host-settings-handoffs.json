@@ -1,0 +1,39 @@
+{
+  "at": "2026-10-28T17:38:50.333Z",
+  "scope": "Authenticated candidate UI; private settings mutations intercepted; media access credentials allowed; external streams blocked",
+  "results": [
+    {
+      "kind": "radio",
+      "width": 393,
+      "account_menu_closed_before_player_settings": true,
+      "startup_editable": true,
+      "sources_editable": true,
+      "tools_foreground": true
+    },
+    {
+      "kind": "tv",
+      "width": 393,
+      "account_menu_closed_before_player_settings": true,
+      "startup_editable": true,
+      "sources_editable": true,
+      "tools_foreground": true
+    },
+    {
+      "kind": "radio",
+      "width": 1440,
+      "account_menu_closed_before_player_settings": true,
+      "startup_editable": true,
+      "sources_editable": true,
+      "tools_foreground": true
+    },
+    {
+      "kind": "tv",
+      "width": 1440,
+      "account_menu_closed_before_player_settings": true,
+      "startup_editable": true,
+      "sources_editable": true,
+      "tools_foreground": true
+    }
+  ],
+  "errors": []
+}

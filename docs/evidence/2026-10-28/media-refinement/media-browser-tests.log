@@ -1,0 +1,66 @@
+
+> sterling-frontend@0.1.0 pree2e:media
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 1932ms.
+
+> sterling-frontend@0.1.0 e2e:media
+> playwright test -c playwright.media.config.ts --output=test-results-refinement-certified
+
+
+Running 40 tests using 1 worker
+
+(node:4093042) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 e2e/media/spotify.spec.ts:21:1 › Radio categories suppress home shelves and SW/AM is a separate shared player (4.8s)
+  ✓   2 e2e/media/spotify.spec.ts:43:1 › Radio standalone suggestions select a station and restore its collection (4.5s)
+  ✓   3 e2e/media/spotify.spec.ts:57:1 › Spotify TV categories and mobile widths keep the home experience separate (8.6s)
+  ✓   4 e2e/media/spotify.spec.ts:71:1 › Radio plays a controlled audio stream and preserves user pause (17.7s)
+  ✓   5 e2e/media/spotify.spec.ts:113:2 › radio sleep timer is accessible, cancellable and pauses on expiry (8.3s)
+  ✓   6 e2e/media/spotify.spec.ts:113:2 › tv sleep timer is accessible, cancellable and pauses on expiry (8.8s)
+  ✓   7 e2e/media/spotify.spec.ts:151:1 › TV queue order matches next, previous and explicit queued selection (10.1s)
+  ✓   8 e2e/media/spotify.spec.ts:170:1 › TV Live and Indian badge counts agree with all loadable channels (7.7s)
+  ✓   9 e2e/media/spotify.spec.ts:187:1 › TV menu resizes and player exposes honest programme info and instant PiP (10.2s)
+  ✓  10 e2e/media/spotify.spec.ts:223:2 › spotify bottom scrolling keeps filter rows stable and preserves loaded cards (8.7s)
+  ✓  11 e2e/media/spotify.spec.ts:223:2 › youtube bottom scrolling keeps filter rows stable and preserves loaded cards (6.4s)
+  ✓  12 e2e/media/spotify.spec.ts:223:2 › netflix bottom scrolling keeps filter rows stable and preserves loaded cards (7.2s)
+  ✓  13 e2e/media/spotify.spec.ts:256:1 › TV availability filter hides exhausted failures, persists and restores recovered channels (8.6s)
+  ✓  14 e2e/media/spotify.spec.ts:273:1 › portrait TV has no video overlay controls while landscape keeps them (7.1s)
+  ✓  15 e2e/media/spotify.spec.ts:285:1 › unavailable channels expire after three hours and can be retried immediately (8.5s)
+  ✓  16 e2e/media/spotify.spec.ts:302:1 › unchanged discovery views preserve existing cards and home shelves (4.2s)
+  ✓  17 e2e/media/spotify.spec.ts:317:1 › feature menus restore focus to the player instead of their removed controls (8.4s)
+  ✓  18 e2e/media/spotify.spec.ts:326:1 › comfort sheet padding is not treated as a backdrop dismissal (5.7s)
+  ✓  19 e2e/media/spotify.spec.ts:335:1 › standalone TV boots without a host, persists settings and tolerates damaged libraries (4.8s)
+  ✓  20 e2e/media/spotify.spec.ts:354:43 › tv offline notices support touch dismissal and reconnect (5.6s)
+  ✓  21 e2e/media/spotify.spec.ts:354:43 › radio offline notices support touch dismissal and reconnect (4.5s)
+  ✓  22 e2e/media/spotify.spec.ts:372:43 › tv echoes bounded search request IDs through the real player (3.7s)
+  ✓  23 e2e/media/spotify.spec.ts:372:43 › radio echoes bounded search request IDs through the real player (4.2s)
+  ✓  24 e2e/media/spotify.spec.ts:403:1 › Radio exposes all loaded stations, matching category counts and append-only pagination (14.0s)
+  ✓  25 e2e/media/spotify.spec.ts:433:1 › Radio source manager adds, edits, disables and deletes URL feeds without changing playback (8.6s)
+  ✓  26 e2e/media/spotify.spec.ts:456:1 › Spotify TV browse tiles use channel artwork and exact category counts (5.9s)
+  ✓  27 e2e/media/spotify.spec.ts:473:1 › standalone Radio keeps edited source URLs across a reload (6.4s)
+  ✓  28 e2e/media/spotify.spec.ts:493:1 › Radio light discovery has transparent shelf headings and distinct selected pills (6.5s)
+  ✓  29 e2e/media/spotify.spec.ts:534:1 › TV expanded video shares its clipped corners and Surprise changes channel (10.0s)
+  ✓  30 e2e/media/spotify.spec.ts:558:1 › Radio expanded player replaces device copy with Surprise station (5.0s)
+  ✓  31 e2e/media/spotify.spec.ts:569:1 › Radio first visible frame is Home even with a saved SW/AM section (3.6s)
+  ✓  32 e2e/media/spotify.spec.ts:584:43 › radio expanded artwork uses width and keeps title near controls (4.4s)
+  ✓  33 e2e/media/spotify.spec.ts:584:43 › tv expanded artwork uses width and keeps title near controls (5.0s)
+  ✓  34 e2e/media/spotify.spec.ts:614:43 › radio Wind down follows Light theme and touch drag expands then dismisses (6.9s)
+  ✓  35 e2e/media/spotify.spec.ts:614:43 › tv Wind down follows Light theme and touch drag expands then dismisses (6.3s)
+  ✓  36 e2e/media/spotify.spec.ts:628:1 › Radio equalizer is a stable native sheet and swipes closed (5.9s)
+  ✓  37 e2e/media/spotify.spec.ts:640:43 › radio expanded recommendations require scrolling and glyph stays centered (3.7s)
+  ✓  38 e2e/media/spotify.spec.ts:640:43 › tv expanded recommendations require scrolling and glyph stays centered (4.0s)
+  ✓  39 e2e/media/spotify.spec.ts:654:43 › radio scrolled player keeps live identity and playback reachable (4.8s)
+  ✓  40 e2e/media/spotify.spec.ts:654:43 › tv scrolled player keeps live identity and playback reachable (5.4s)
+
+  40 passed (4.7m)

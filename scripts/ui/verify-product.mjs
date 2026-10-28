@@ -78,7 +78,10 @@ try{
       await menu(page);await page.getByRole('button',{name:'Broker connection',exact:true}).click();await page.getByRole('dialog',{name:'Zerodha Kite Status'}).waitFor();await capture(page,`broker-status-${width}-${theme}`,{overlay:'broker-status',theme});await page.keyboard.press('Escape');
     }
     for(const [feature,title] of [['radio','Sterling Radio player'],['tv','Sterling TV player']]){
-      await page.goto(base+'/'+feature);await page.getByRole('button',{name:feature==='radio'?'Search radio stations':'Search TV channels',exact:true}).waitFor({timeout:45000});
+      await page.goto(base+'/'+feature);
+      const searchName=feature==='radio'?'Search radio stations':'Search TV channels';
+      // Desktop has a persistent search field; phones retain the search button.
+      await page.getByRole(width>=1024?'combobox':'button',{name:searchName,exact:true}).waitFor({timeout:45000});
       const frame=page.frameLocator(`iframe[title="${title}"]`);await frame.locator('body').waitFor();
       for(const theme of ['light','dark']){
         await menu(page);await page.getByRole('button',{name:theme==='light'?'☀ Light':'☾ Dark',exact:true}).click();await page.getByRole('button',{name:'Close menu'}).click();
@@ -113,7 +116,7 @@ try{
       await admin.getByRole('button',{name:'Add user',exact:true}).click();
       await admin.getByRole('form',{name:'Create Sterling user'}).waitFor();
       await capture(admin,`admin-create-user-${width}-${theme}`,{workspace:'administration',section:'create-user',theme});
-      await admin.getByLabel('Echo · radio').check();await admin.getByLabel('Broker settings',{exact:true}).check();
+      await admin.getByLabel('Allow radio access',{exact:true}).check();await admin.getByLabel('Broker settings',{exact:true}).check();
       await admin.getByLabel('Add connections',{exact:true}).check();
       await capture(admin,`admin-create-access-${width}-${theme}`,{workspace:'administration',section:'initial-access',theme});
       await admin.getByRole('button',{name:'Cancel',exact:true}).click();

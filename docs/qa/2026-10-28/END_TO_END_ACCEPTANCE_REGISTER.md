@@ -1,5 +1,37 @@
 # Sterling end-to-end acceptance register — 2026-10-28
 
+## Media refinement — later executed update, 28 October 2026
+
+Application revision: `80deaff447cc01d479ad5bcdbc0d1aab9cfe7d56`. The desktop
+header/immersive sizing and narrow recommendation-rail changes were withdrawn as
+requested. Shared player artwork/metadata spacing, centered native play/pause,
+theme and corner clipping, foreground modal sheets, radio tools, desktop search,
+cursor timeout and permitted workspace cycling are retained.
+
+Current receipts are in the [media refinement evidence bundle](../../evidence/2026-10-28/media-refinement/README.md):
+2,517 frontend tests; 40 media browser journeys; 45 focused template/dialog tests;
+28 workspace-policy tests; 42 offline admission checks; six gateway checks; a
+passing build; four actual host-settings journeys; 742 page/overlay captures at
+seven widths without document overflow or uncaught browser errors. User creation
+with initial grants, visibility and settings permissions passed against actual
+handlers and disposable SQLite. Live create-schema probes agreed across all
+three served entry points. Read-only broker profile verification for AA0595
+returned HTTP 200 at 17:29 UTC.
+
+The full backend rerun is in progress after correcting one stale test assertion
+that expected a pending request for already-granted radio. No runtime permission
+behavior was weakened. The prior failed receipt remains in local execution logs.
+
+**Physical-device acceptance remains open.** The operator reports playback at
+roughly 2–3 seconds but says the latest layout still looks off; new screenshots
+are awaited. No exact player/channel/switch timing was supplied. Phone push
+re-registration and exact signal-detail navigation are explicitly deferred at the
+operator's request; no further test notification is to be sent now. See the
+[follow-up TODO](FOLLOW_UP_TODO.md). This update does not claim complete device or
+trading certification.
+
+---
+
 ## Executed update — 28 October 2026
 
 **Application candidate:** `862c03a53e6e2ec6742d7099b0696c118037d7f7` (backend Python unchanged from `1960ace82`).

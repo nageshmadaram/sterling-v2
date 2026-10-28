@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-28T17:29:29.424135+00:00",
+  "operation": "GET Kite /user/profile; read-only; no orders or local account changes",
+  "results": [
+    {
+      "account_id": "KITE-4DDDB5FE4E",
+      "kite_user_id": "AA0595",
+      "http_status": 200,
+      "live_profile_verified": true
+    }
+  ]
+}

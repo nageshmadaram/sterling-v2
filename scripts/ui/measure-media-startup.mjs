@@ -58,6 +58,17 @@ try{
    await surface.waitFor();
    appearance.push({kind,scheme,...await surface.evaluate(el=>({background:getComputedStyle(el).backgroundColor,backgroundImage:getComputedStyle(el).backgroundImage,color:getComputedStyle(el).color,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height,videoFrame:(()=>{const v=document.getElementById('video-player');if(!v)return null;const result=[];for(let n=v;n&&result.length<6;n=n.parentElement){const c=getComputedStyle(n),b=n.getBoundingClientRect();result.push({id:n.id,background:c.backgroundColor,radius:c.borderRadius,overflow:c.overflow,border:c.borderWidth,x:b.x,y:b.y,width:b.width,height:b.height});}return result;})()}))});
    await page.screenshot({path:path.join(output,kind+'-'+scheme+'.png')});
+   await surface.evaluate(el=>el.scrollTo({top:el.scrollHeight,behavior:'instant'}));
+   // A synthetic station can have no related catalogue entries. Short detail
+   // content may never scroll the title away, so the compact strip stays hidden.
+   await frame.locator('body').evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+   appearance.at(-1).scrolled=await surface.evaluate((el,kind)=>{
+    const title=document.getElementById(kind==='radio'?'sheet-title':'tm-now-title');
+    const strip=el.querySelector('.media-scroll-strip');
+    return {scrollTop:el.scrollTop,scrollHeight:el.scrollHeight,clientHeight:el.clientHeight,stripVisible:strip?.dataset.visible,titleBottom:title?.getBoundingClientRect().bottom};
+   },kind);
+   await page.screenshot({path:path.join(output,kind+'-'+scheme+'-scrolled.png')});
+   await surface.evaluate(el=>el.scrollTo({top:0,behavior:'instant'}));
   }
   const light=appearance.find(row=>row.kind===kind&&row.scheme==='light');
   const dark=appearance.find(row=>row.kind===kind&&row.scheme==='dark');
