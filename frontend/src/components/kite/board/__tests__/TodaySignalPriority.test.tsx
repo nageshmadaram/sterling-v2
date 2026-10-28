@@ -10,16 +10,28 @@ const source = vi.hoisted(() => ({
   supertrend: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } },
   snapback: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } },
   gamma: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } },
+  accountId: 'kite-account-a',
+  snapbackTodayOnlyCalls: [] as boolean[],
+  gammaTodayOnlyCalls: [] as boolean[],
   replay: null as number | null,
 }));
 vi.mock('../../../../hooks/useSterlingKiteEngine', () => ({
   useEngineSignals: () => source.supertrend,
 }));
 vi.mock('../../../../hooks/useSnapback', () => ({
-  useSnapbackSnapshot: () => source.snapback,
+  useSnapbackSnapshot: (todayOnly = false) => {
+    source.snapbackTodayOnlyCalls.push(todayOnly);
+    return source.snapback;
+  },
 }));
 vi.mock('../../../../hooks/useGammaMove', () => ({
-  useGammaMoveSnapshot: () => source.gamma,
+  useGammaMoveSnapshot: (_enabled?: boolean, _interval?: number, _day?: string, todayOnly = false) => {
+    source.gammaTodayOnlyCalls.push(todayOnly);
+    return source.gamma;
+  },
+}));
+vi.mock('../../../../hooks/useKite', () => ({
+  useKiteStatus: () => ({ data: { account_id: source.accountId } }),
 }));
 vi.mock('../../../../hooks/useReplayStore', () => ({
   useSimNowMs: () => source.replay,
@@ -42,15 +54,20 @@ function wrap(children: React.ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(<QueryClientProvider client={client}>
-    <TodaySignalPriorityProvider>{children}</TodaySignalPriorityProvider>
-  </QueryClientProvider>);
+  const shell = (content: React.ReactNode) => <QueryClientProvider client={client}>
+    <TodaySignalPriorityProvider>{content}</TodaySignalPriorityProvider>
+  </QueryClientProvider>;
+  const result = render(shell(children));
+  return { ...result, rerenderWith: (content: React.ReactNode) => result.rerender(shell(content)) };
 }
 
 beforeEach(() => {
   source.supertrend = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } };
   source.snapback = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } };
   source.gamma = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } };
+  source.accountId = 'kite-account-a';
+  source.snapbackTodayOnlyCalls = [];
+  source.gammaTodayOnlyCalls = [];
   source.replay = null;
 });
 
@@ -73,6 +90,10 @@ describe('cross-strategy today priority', () => {
 
   it('releases history only after four live snapshots complete', async () => {
     wrap(<Display />);
+    // The shared first-load Snapback request must explicitly select its
+    // smaller today-only response, not eagerly load closed/historical rows.
+    expect(source.snapbackTodayOnlyCalls).toContain(true);
+    expect(source.gammaTodayOnlyCalls).toContain(true);
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
     expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses · history ready');
     expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');
@@ -96,8 +117,28 @@ describe('cross-strategy today priority', () => {
     source.snapback = { ...source.snapback, data: { scanning: true } };
     wrap(<Display />);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Snapback: scanning today'));
+    // Scan-in-progress has already returned an API response; do not falsely
+    // report only 3/4 responses while still correctly queuing older history.
+    expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses');
     expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
     expect(screen.getByRole('status')).toHaveTextContent('older history queued');
+  });
+
+  it('restarts the today-first barrier when a different Kite account is selected', async () => {
+    const screenView = wrap(<Display />);
+    await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
+
+    // The account mutation resets cached strategy queries while the next
+    // account's current-day snapshots are still pending.
+    source.accountId = 'kite-account-b';
+    source.snapback = { ...source.snapback, isSuccess: false, dataUpdatedAt: 0 };
+    screenView.rerenderWith(<Display />);
+    expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
+    expect(screen.getByRole('status')).toHaveTextContent('older history queued');
+
+    source.snapback = { ...source.snapback, isSuccess: true, dataUpdatedAt: Date.now() };
+    screenView.rerenderWith(<Display />);
+    await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
   });
 
   it("releases older read-only history after all today's checks settle, while showing the failed strategy", async () => {

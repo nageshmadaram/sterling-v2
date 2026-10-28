@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+import threading
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -18,6 +19,32 @@ def client(tmp_path,monkeypatch):
     app.dependency_overrides[get_current_user]=lambda:SimpleNamespace(user_id="alice")
     with TestClient(app) as client:
         yield client
+
+
+@pytest.mark.asyncio
+async def test_snapshot_projection_runs_off_async_event_loop_and_keeps_owner(monkeypatch):
+    from app.api.v1.endpoints import ema_trend as endpoint
+
+    loop_thread = threading.get_ident()
+    observed = []
+    def probe(owner, mode, day, cursor, *, modes, row_limit):
+        observed.append((threading.get_ident(), owner, mode, day,
+                         cursor, modes, row_limit))
+        return {"rows": [], "campaigns": [], "source": "offloaded"}
+
+    monkeypatch.setattr(endpoint.snapshot, "snapshot", probe)
+    result = await endpoint.get_snapshot(
+        mode=None, modes="swing", day="2026-10-28",
+        cursor=0, limit=200, user=SimpleNamespace(user_id="alice"),
+    )
+    assert result["source"] == "offloaded"
+    assert len(observed) == 1
+    worker, owner, mode, day, cursor, modes, row_limit = observed[0]
+    assert worker != loop_thread, "SQLite reads must never block FastAPI's loop"
+    assert owner == "alice"
+    assert (mode, day, cursor, modes, row_limit) == (
+        None, "2026-10-28", 0, ["swing"], 200,
+    )
 
 
 def test_default_off_strict_cas_and_invalid_mode(client):

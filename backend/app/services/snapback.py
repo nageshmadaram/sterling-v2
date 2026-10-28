@@ -2368,7 +2368,48 @@ def snapshot(uid: str) -> dict:
     return _snapshot_readonly(uid, get_effective_config(uid), status(uid))
 
 
-async def snapshot_async(uid: str) -> dict:
+def _today_priority_row(row: dict, *, day: date | None = None) -> bool:
+    """Keep today's observed signals and unexpired next-open swing candidates.
+
+    This is a *read-only display selection*, never an order-eligibility rule.
+    EOD Swing setups may be confirmed on the previous session close for a
+    next-session opening; hiding those until backfill would defeat today-first.
+    """
+    if not isinstance(row, dict):
+        return False
+    day = day or _wall_now().date()
+    stamp = row.get("signal_close_ms") or row.get("timestamp_ms")
+    try:
+        event_day = datetime.fromtimestamp(
+            float(stamp) / 1000.0, tz=_IST
+        ).date()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return False
+    if event_day == day:
+        return True
+    # Only the most recent *verified completed exchange session* may carry
+    # into a next-opening Swing view. Never guess a holiday for an unverified
+    # year, or treat a long-ago armed row as today's actionable news.
+    if (
+        (row.get("trading_mode") or "swing") != "swing"
+        or row.get("state") != "armed"
+        or row.get("restored")
+        or row.get("historical")
+    ):
+        return False
+    from app.core.session_calendar import CalendarUnavailable, is_trading_session
+    prior = day - timedelta(days=1)
+    try:
+        for _ in range(20):
+            if is_trading_session(prior, "NFO"):
+                return event_day == prior
+            prior -= timedelta(days=1)
+    except CalendarUnavailable:
+        return False
+    return False
+
+
+async def snapshot_async(uid: str, *, today_only: bool = False) -> dict:
     """Probe disk/clock in a worker using a detached board-state view.
 
     Scan-state publication remains on the loop. Readiness is informational;
@@ -2380,13 +2421,30 @@ async def snapshot_async(uid: str) -> dict:
         restored = await run_blocking(_restored_rows, uid)
         _state.setdefault(uid, ScanState(rows=restored))
     view = copy(_state[uid])
+    if today_only:
+        # Filter before deepcopy and expensive row aging. This is an additive
+        # read-only endpoint; normal snapshots and scan state remain intact.
+        session_day = _wall_now().date()
+        view.rows = [
+            row for row in view.rows
+            if _today_priority_row(row, day=session_day)
+        ]
+        view.preview_rows = [
+            row for row in view.preview_rows
+            if _today_priority_row(row, day=session_day)
+        ]
     view.rows = deepcopy(view.rows)
     view.preview_rows = deepcopy(view.preview_rows)
     view.failures = list(view.failures)
+    if today_only:
+        return await run_blocking(
+            _snapshot_readonly, uid, cfg, view, today_only=True
+        )
     return await run_blocking(_snapshot_readonly, uid, cfg, view)
 
 
-def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState) -> dict:
+def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState, *,
+                       today_only: bool = False) -> dict:
     """Config, detached rows, and durable readiness; never publishes scan state."""
     conditions = None
     try:
@@ -2422,7 +2480,11 @@ def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState) -> dict:
         # Read only what the board renders. Query all active positions without
         # limit, then the newest 100 closed ones in SQLite; fetching every
         # historical JSON row on each scan poll caused unbounded refresh work.
-        owned = default_store().board_positions(uid, recent_closed=100)
+        # Today's priority read always includes ALL active protected positions
+        # but defers the closed-position ledger until the full snapshot.
+        owned = default_store().board_positions(
+            uid, recent_closed=0 if today_only else 100
+        )
         positions = [p.as_dict() for p in owned]
     except Exception as exc:  # noqa: BLE001 - unknown inventory must be explicit
         positions_error = f"Owned Snapback positions unavailable: {type(exc).__name__}"

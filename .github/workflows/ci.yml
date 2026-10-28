@@ -61,6 +61,8 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: Verify public gateway static-file containment
+        run: node --test scripts/tests/public_static_asset.test.mjs
       - name: Install dependencies
         working-directory: frontend
         run: npm ci --silent

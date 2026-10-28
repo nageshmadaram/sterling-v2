@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.core.logging import get_logger
+from app.core.async_work import run_blocking
 from app.services.simulation.identity import is_sim_uid
 from app.engines.gamma_move import (
     CLIENT_TOP_N_OI, CONTRACT_VERSION, GammaMoveConfig, REFERENCE_VERSION,
@@ -341,7 +342,8 @@ def _decorate_live_rows(uid: str, cfg: GammaMoveConfig, rows: list[dict], *,
     return out
 
 
-async def snapshot(uid: str, day: date | str | None = None) -> dict:
+async def snapshot(uid: str, day: date | str | None = None, *,
+                   today_only: bool = False) -> dict:
     """Board snapshot for live today or one read-only historical day.
 
     Historical evidence is typed: live_recorded is exact runtime evidence;
@@ -361,35 +363,47 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
         day if isinstance(day, date) else date.fromisoformat(str(day))
     )
     historical = selected != today
+    # This optimization applies exclusively to the live current-day board.
+    # An explicit historical date always retains its complete archive index.
+    defer_history_index = today_only and day is None and not historical
 
     # Hydration also migrates every row from the pre-ledger signal store into
     # its original event day, so a direct historical request after restart can
     # recover old recorded E1s immediately.
     runner.session_for(uid, cfg)
-    archive = gamma_move_history.read_day(uid, selected)
-    indexed_days = {
-        row["day"]: dict(row)
-        for row in gamma_move_history.list_days(uid, limit=60)
-    }
-    for recent in recent_trading_days(today, 30):
-        key = recent.isoformat()
-        indexed_days.setdefault(key, {
-            "day": key,
-            "signals": 0,
-            "watches": 0,
-            "last_run_ms": 0,
-            "updated_ms": 0,
-            "issue": "",
-            "source": "available_replay",
-            "resolution": "1minute_ohlcv_proxy",
-        })
-    for row in indexed_days.values():
-        row["is_trading_day"] = is_trading_day(date.fromisoformat(row["day"]))
-    history_days = sorted(
-        indexed_days.values(),
-        key=lambda row: row["day"],
-        reverse=True,
-    )
+    # Historical archive reads may decode sizeable durable JSON/SQLite
+    # records. They previously blocked the shared FastAPI loop every time
+    # today's Gamma snapshot was polled. Keep account-scoped reads off-loop;
+    # do not change scan, live watch runtimes or order admission.
+    archive = await run_blocking(gamma_move_history.read_day, uid, selected)
+    history_days = []
+    if not defer_history_index:
+        # The first render needs live E1/watch rows, not a 60-day SQLite
+        # history index plus 30 historical replay placeholders. Defer these
+        # read-only archival records until all strategies' today views settle.
+        indexed_days = {
+            row["day"]: dict(row)
+            for row in await run_blocking(gamma_move_history.list_days, uid, limit=60)
+        }
+        for recent in recent_trading_days(today, 30):
+            key = recent.isoformat()
+            indexed_days.setdefault(key, {
+                "day": key,
+                "signals": 0,
+                "watches": 0,
+                "last_run_ms": 0,
+                "updated_ms": 0,
+                "issue": "",
+                "source": "available_replay",
+                "resolution": "1minute_ohlcv_proxy",
+            })
+        for row in indexed_days.values():
+            row["is_trading_day"] = is_trading_day(date.fromisoformat(row["day"]))
+        history_days = sorted(
+            indexed_days.values(),
+            key=lambda row: row["day"],
+            reverse=True,
+        )
     latest_trading_day = previous_trading_day(
         today, inclusive=is_trading_day(today)
     )

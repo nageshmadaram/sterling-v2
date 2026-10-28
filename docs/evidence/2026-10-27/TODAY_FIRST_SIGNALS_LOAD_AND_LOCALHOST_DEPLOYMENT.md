@@ -152,3 +152,161 @@ authorized operator can record `git status --short --branch`,
 `./sterling.sh status`, and the browser footer's build SHA. Do not
 force-pull, overwrite uncommitted changes or restart a live risk manager
 based only on remote-branch updates.
+
+
+## Snapback UI freshness follow-up (28 October 2026)
+
+Review of the actual React Query hook found that a **live idle Swing**
+Snapback snapshot refreshed only once every **30 seconds**. While the
+today-first barrier waited, the other three strategies could refresh at
+3–7.5 second intervals yet Snapback could display stale completed-scan
+rows and hold its status longer than necessary.
+
+The polling hook now requests the **read-only** Snapback snapshot every
+**5 seconds while idle**, every **1.5 seconds while scanning**, and every
+**1 second in replay**. It retains the same React Query cache identity,
+server endpoint, mode/config and broker admission controls. Polling may be
+delayed by an inactive browser tab, network, an overloaded backend or scan
+completion, so this is **not** a guaranteed signal-generation-to-entry
+latency SLA. It never triggers a new scan or submits a broker order.
+
+The priority banner also counts a received API snapshot in the
+`scanning` state as a response, while preserving the historical-query
+barrier until the scan settles. Added narrow polling and banner tests, but
+**no full Vitest, backend, device, or Kite tests have run on this new
+source commit**. GitHub Actions remains blocked before runner assignment
+(#285); deployment evidence remains blocked (#277).
+
+
+## Active Kite account switch must not reuse signal snapshots (28 October 2026)
+
+A further source audit found that `useActivateKiteAccount` previously
+invalidated only `kite-accounts` and `kite-status`. The four live strategy
+query caches — SuperTrend, Snapback, Gamma-Unwind and EMA Trend — could
+retain the previous account's response during the new account's refresh.
+The today-first release barrier was keyed only by view and IST date, so it
+could remain released for the previous account even while the new account's
+current-day data had not been obtained.
+
+The account-change mutations now reset broker-account-dependent React Query
+entries, including strategy snapshots/history and Kite positions/orders,
+before treating a new identity as current. The status cache is updated from
+the confirmed active Kite account, and `TodaySignalPriorityProvider` keys
+its historical-read release by **view + active Kite account + IST date**.
+Deleting an account, logout and an identity-changing new/renewed session
+also refresh broker-dependent caches. Simulation/live still have their
+existing independent query clients.
+
+The reset concerns **frontend GET response caches only**; it does not
+wipe any broker order, portfolio or persistence record or request a
+new market scan. Tests cover the cache predicate and reset, and the
+day/account gate transition, but they are **not verified as executed**
+under current GitHub CI runner allocation blocker #285. Owner/device
+deployment evidence also remains open under #277. Do not use cached
+UI rows as an execution authorization or claim broker readiness.
+
+
+## Minute-bar event time must use completed candle, not candle open (28 October 2026)
+
+The Snapback engine supplies `timestamp_ms` as the source candle's
+**opening** timestamp. Intraday/scalp/ultra/overnight signals are only
+defined after that candle closes; the backend also provides
+`signal_close_ms` from `signal_close_timestamp_ms` in its engine metrics.
+The prior board used `signal_close_ms ?? timestamp_ms`, so a missing
+close (for example, a restored/legacy row) was labelled at the candle
+opening time even though no signal could yet have been generated.
+
+The board now accepts the minute-bar close only when both open and close
+are valid integer timestamps and `close > open`. Otherwise it shows
+**Close time unavailable** without an invented time. Original Swing
+signals continue to be explicitly marked **day close**, because their
+daily-candle logic is not an intraday entry method. This is presentation
+integrity, not a scan frequency change or permission to submit an order.
+New regression tests cover missing, zero, nonfinite, reversed and
+equal timestamps. Full CI/host execution still blocked (#285/#277).
+
+
+## Snapback actual today-only API priority (28 October 2026)
+
+SuperTrend already supported a today-only endpoint, but Snapback's
+`GET /api/v1/config/snapback/snapshot` returned all cached scan rows
+and the newest 100 closed position records even when the UI withheld
+historical rendering. The historical data was therefore **still read and
+transferred before all four current-day strategies had finished**.
+
+Snapback now supports an additive `?today_only=true` read-only variant.
+This filters out older completed signal rows *before* deep-copying/aging
+them and reads **all active positions, but zero closed ledger rows**.
+A previous-session armed Swing setup is retained as a potential next-open
+candidate; it is still subject to the unchanged server-side quote
+freshness, readiness, and broker admission checks. The original snapshot
+endpoint remains backward-compatible and includes history.
+
+The priority provider, Snapback board, and strategy sidebar share the
+today-only React Query key until the four-strategy gate releases older
+history; only then does the board switch to the full snapshot. Simulation
+replay remains on its existing full-snapshot path.
+
+This improves read scheduling and payload size, but does not establish
+a measured scan-to-display latency, profitability, or broker-order
+certification. Unit tests for the read-only filter and worker isolation
+and an initial-hook assertion were added; their execution is still
+blocked by CI runner allocation (#285). Laptop deployment and device
+evidence remain blocked (#277).
+
+
+## Shared event-loop protection for today's EMA/Gamma reads (28 October 2026)
+
+Review of the current API uncovered another cross-strategy latency risk:
+`async def /api/v1/ema-trend/snapshot` called the synchronous
+`snapshot.snapshot(...)` directly, including tenant-scoped SQLite reads,
+up to 2,000 campaign documents and synchronous readiness projection.
+The today-first provider polls it repeatedly. Blocking the asyncio event
+loop can delay the other three strategies even when their own queries
+are prioritized.
+
+The endpoint now uses Sterling's `run_blocking` cancellation-safe worker
+helper for the entire **read-only EMA projection**. Gamma-Unwind's
+`async snapshot` similarly offloads its durable day-archive and
+60-day history-index reads, without moving the mutable live runner,
+scan state or broker protections between threads. Inputs and return
+contracts remain unchanged.
+
+Regression tests assert those reads execute on a worker thread and
+preserve authenticated tenant/mode/date arguments. **Source and test
+changes are not evidence of passing runtime tests**; GitHub Actions
+still fails before runner allocation (#285). Actual event-loop latency,
+host rollout, phone reload and Kite safety receipts remain unverified
+(#277). No trading mode or risk admission setting was changed.
+
+
+## Gamma-Unwind today-only API read, historical index deferred (28 October 2026)
+
+Following the EMA/Gamma off-loop improvement, the first Gamma-Unwind
+`/config/gamma-move/snapshot` call was still reading the full 60-day
+history index and creating 30 historical replay-day placeholders while
+the four-strategy priority gate intentionally kept older history hidden.
+
+The endpoint now accepts `?today_only=true` on the live current-day
+request. Its response retains current Gamma E1/watch candidates, scan
+status, mode, positions, durable current-day archive and record;
+`history_days` is an empty list until a full snapshot is requested.
+No 60-day index or replay-day placeholders are assembled during the
+priority phase. Explicit historical `?day=YYYY-MM-DD` requests still
+include their full index even if `today_only=true` is also present.
+Simulation replay uses the existing unmodified snapshot path.
+
+Gamma-Unwind's provider, board and strategy sidebar now share a
+separate today-priority React Query cache key while history is gated.
+After all four current-day strategy requests settle, the board switches
+to the full query key and historical selector/index may load. New
+backend tests assert no day-index query during today-priority and
+unchanged full/historical behavior; the frontend priority test checks
+the lean-request flag.
+
+This is a read-only response-scheduling improvement. It does **not**
+change E1 generation, stored archives, watch contracts, broker orders,
+protection/exit reconciliation or historical replay. Tests still require
+an executing CI runner (#285) and the running Zenbook has not yet
+deployed this commit (#277). No performance SLA or profitability
+certification is claimed.

@@ -1,9 +1,4 @@
-"""Publish one verified primary and optional second public tunnel.
-
-This utility cannot change broker callback settings at Kite. The primary
-Cloudflare HTTPS origin remains the only Telegram persistent WebApp button,
-but /menu exposes both public providers.
-"""
+"""Publish a verified Cloudflare origin and update its Telegram Mini App URL."""
 import asyncio
 import html
 import json
@@ -23,16 +18,12 @@ telegram.restore_legacy_config_from_store()
 
 
 async def run():
-    secondary = sys.argv[3] if len(sys.argv) > 3 else ''
-    alternatives = {'ngrok': secondary} if secondary else {}
-    data = public_access.publish(sys.argv[1], mode=sys.argv[2],
-                                 alternate_origins=alternatives)
+    data = public_access.publish(sys.argv[1], mode=sys.argv[2])
     urls = data['urls']
     result = {'published': True, 'telegram_configured': bool(
         telegram.TELEGRAM_TOKEN and telegram.TELEGRAM_CHAT_ID)}
     if result['telegram_configured']:
-        # Telegram allows exactly one persistent menu_button, not two.
-        # Inline /menu provides distinct Cloudflare and ngrok launch links.
+        # The verified Cloudflare address is the only persistent Mini App URL.
         menu = await telegram_bot._api('setChatMenuButton', {'menu_button': {
             'type': 'web_app', 'text': 'Sterling desk',
             'web_app': {'url': data['mini_app_url']},
@@ -47,15 +38,12 @@ async def run():
             if 'cloudflare' in urls:
                 buttons.append([{'text': 'Cloudflare · Open Sterling',
                                  'url': urls['cloudflare']}])
-            if 'ngrok' in urls:
-                buttons.append([{'text': 'ngrok · Open Sterling',
-                                 'url': urls['ngrok']}])
             buttons.append([{'text': 'Open primary Telegram desk',
                              'web_app': {'url': data['mini_app_url']}}])
             message = ('<b>Sterling public access updated</b>\n\n'
                        + '\n'.join(f'{provider.title()}: {html.escape(url)}'
                                    for provider, url in urls.items())
-                       + '\n\nUse /menu for both access links. '
+                       + '\n\nUse /menu for the Cloudflare access link. '
                        + 'Kite OAuth callback stays on the configured primary origin.')
             sent = await telegram_bot._api('sendMessage', {
                 'chat_id': telegram.TELEGRAM_CHAT_ID,

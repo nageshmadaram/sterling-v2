@@ -355,16 +355,19 @@ export function useGammaMoveSnapshot(
   enabled = true,
   refetchInterval = 0,
   day?: string,
+  todayOnly = false,
 ) {
   const replay = useSimNowMs() !== null;
   const session = useReplayStore(s => s.status.session_id);
   const historical = Boolean(day) && !replay;
+  const priorityOnly = todayOnly && !replay && !historical;
   return useQuery<GammaMoveSnapshot>({
-    queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : day || 'today'],
+    // A lean first-day response must not overwrite the full history index.
+    queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : day || (priorityOnly ? 'today-priority' : 'today')],
     queryFn: () => api.get(
       day && !replay
         ? `${BASE}/snapshot?day=${encodeURIComponent(day)}`
-        : `${BASE}/snapshot`,
+        : `${BASE}/snapshot${priorityOnly ? '?today_only=true' : ''}`,
     ),
     enabled,
     staleTime: historical ? 30_000 : 2_000,

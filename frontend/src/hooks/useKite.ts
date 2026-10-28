@@ -5,6 +5,7 @@ import { underlyingSpotKey } from '../utils/computeGreeks';
 import { registerTokens, getTick, useTokenVersion, tickFeedAgeMs, subscribeKiteOrderUpdates } from './useKiteLiveTicks';
 import { notifyOrder } from '../store/useKiteNotifications';
 import { authConnecting, authIdle } from '../store/useAuthFeedback';
+import { resetBrokerAccountQueries } from './brokerAccountQueryReset';
 import type {
   CreateAlertBody, HoldingsAuthResult, KiteAccount, KiteAccountList, KiteAlert,
   KiteAlertHistoryRow, KiteInstrumentSearch, KiteOrderUpdate, KiteSessionResult,
@@ -87,6 +88,13 @@ export function useDeleteKiteAccount() {
   return useMutation<void, Error, string>({
     mutationFn: (id) => api.delete<void>(`${K}/accounts/${id}?force=true`),
     onSuccess: () => {
+      // Deleting the active account may switch the backend to another one.
+      void resetBrokerAccountQueries(qc);
+      // The deleted identity must not remain labelled active while the
+      // server determines which, if any, Kite account is selected next.
+      qc.setQueryData<KiteStatus>(['kite-status'], (previous) => previous ? {
+        ...previous, account_id: null, connected: false, validated: false,
+      } : previous);
       qc.invalidateQueries({ queryKey: ['kite-accounts'] });
       qc.invalidateQueries({ queryKey: ['kite-status'] });
       notifyOrder({ kind: 'info', title: 'Account removed', message: 'Kite account removed.' });
@@ -102,6 +110,18 @@ export function useActivateKiteAccount() {
   return useMutation<KiteAccount, Error, string>({
     mutationFn: (id) => api.post<KiteAccount>(`${K}/accounts/${id}/activate`),
     onSuccess: (data) => {
+      // Invalidate alone retains the previous broker's signal/position rows
+      // until the next fetch. Reset account-dependent caches at the moment
+      // the server confirms the new active account, before repainting boards.
+      void resetBrokerAccountQueries(qc);
+      qc.setQueryData<KiteStatus>(['kite-status'], (previous) => previous ? {
+        ...previous,
+        account_id: data.id,
+        connected: data.connected,
+        kite_user_id: data.kite_user_id ?? null,
+        user_name: data.user_name ?? null,
+        validated: false,
+      } : previous);
       qc.invalidateQueries({ queryKey: ['kite-accounts'] });
       qc.invalidateQueries({ queryKey: ['kite-status'] });
       notifyOrder({ kind: 'info', title: 'Active account switched', message: `"${data.label}" is now the active account.` });
@@ -156,6 +176,12 @@ export function useGenerateKiteSession() {
     mutationFn: (body) => api.post<KiteSessionResult>(`${K}/session`, body),
     onMutate: () => { authConnecting('Connecting to Kite…'); },
     onSuccess: (data) => {
+      // A broker login/refresh can also select a different active account.
+      // Never carry the previous account's already-loaded signals across it.
+      const previousAccount = qc.getQueryData<KiteStatus>(['kite-status'])?.account_id;
+      if (data.account_id && data.account_id !== previousAccount) {
+        void resetBrokerAccountQueries(qc);
+      }
       qc.setQueryData<KiteStatus>(['kite-status'], (prev) => prev ? {
         ...prev,
         connected: true,
@@ -181,6 +207,12 @@ export function useRefreshKiteSession() {
     mutationFn: (body) => api.post<KiteSessionResult>(`${K}/session/refresh`, body),
     onMutate: () => { authConnecting('Renewing session…'); },
     onSuccess: (data) => {
+      // A broker login/refresh can also select a different active account.
+      // Never carry the previous account's already-loaded signals across it.
+      const previousAccount = qc.getQueryData<KiteStatus>(['kite-status'])?.account_id;
+      if (data.account_id && data.account_id !== previousAccount) {
+        void resetBrokerAccountQueries(qc);
+      }
       qc.setQueryData<KiteStatus>(['kite-status'], (prev) => prev ? {
         ...prev,
         connected: true,
@@ -492,7 +524,14 @@ export function useKiteLogout() {
   const qc = useQueryClient();
   return useMutation<{ ok: boolean }, Error, void>({
     mutationFn: () => api.post(`${K}/logout`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['kite-status'] }); qc.invalidateQueries({ queryKey: ['kite-accounts'] }); },
+    onSuccess: () => {
+      void resetBrokerAccountQueries(qc);
+      qc.setQueryData<KiteStatus>(['kite-status'], (previous) => previous ? {
+        ...previous, connected: false, validated: false,
+      } : previous);
+      qc.invalidateQueries({ queryKey: ['kite-status'] });
+      qc.invalidateQueries({ queryKey: ['kite-accounts'] });
+    },
   });
 }
 

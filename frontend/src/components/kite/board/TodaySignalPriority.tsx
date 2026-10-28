@@ -4,6 +4,7 @@ import { api } from '../../../utils/api';
 import { useView } from '../../../store/useViewStore';
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { useEngineSignals } from '../../../hooks/useSterlingKiteEngine';
+import { useKiteStatus } from '../../../hooks/useKite';
 import { useSnapbackSnapshot } from '../../../hooks/useSnapback';
 import { useGammaMoveSnapshot } from '../../../hooks/useGammaMove';
 import type { EmaTrendSnapshot } from '../../../types/emaTrend';
@@ -74,6 +75,11 @@ function activeJob(data: unknown): boolean {
 export function TodaySignalPriorityProvider({ children }: { children: React.ReactNode }) {
   const replay = useSimNowMs() !== null;
   const view = useView();
+  // Live and simulation have separate caches, but one live view can contain
+  // multiple Kite accounts. Releasing history for account A must never be
+  // reused as proof the four current-day reads loaded for account B.
+  const { data: kiteStatus } = useKiteStatus();
+  const activeAccountId = kiteStatus?.account_id || 'no-active-account';
   const [day, setDay] = React.useState(() => istDay(new Date()));
   React.useEffect(() => {
     const id = window.setInterval(() => setDay(istDay(new Date())), 30_000);
@@ -83,8 +89,8 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
   // Reuse the same React Query keys as their boards: no second request is
   // needed merely because the user opens a different strategy tab.
   const supertrend = useEngineSignals(!replay);
-  const snapback = useSnapbackSnapshot();
-  const gamma = useGammaMoveSnapshot(true, 3_000);
+  const snapback = useSnapbackSnapshot(true);
+  const gamma = useGammaMoveSnapshot(true, 3_000, undefined, true);
   const ema = useQuery<EmaTrendSnapshot>({
     queryKey: ['ema-trend', 'snapshot', view, 'current', 'swing', 200, 'today', day],
     queryFn: () => api.get<EmaTrendSnapshot>(
@@ -107,7 +113,7 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
   // The workspace may switch between live and simulation views without
   // reloading the page. A complete live-account read cannot release historical
   // queries for another tenant's view on the same calendar day.
-  const scope = `${view}:${day}`;
+  const scope = `${view}:${activeAccountId}:${day}`;
   const [releasedScope, setReleasedScope] = React.useState('');
   // An unavailable strategy must not freeze ALL other boards' history
   // indefinitely. Its current-day read was attempted and failed; preserve
@@ -129,14 +135,18 @@ export function TodaySignalPriorityStatus() {
   const state = useTodaySignalPriority();
   if (state.replay) return null;
   const failures = TODAY_STRATEGIES.filter(name => state.stages[name] === 'error');
-  const checksDone = TODAY_STRATEGIES.filter(name => state.stages[name] === 'ready').length;
+  // A live scan has already returned a current-day API response, even if
+  // the scan itself is still progressing. Count that response honestly while
+  // keeping older history queued until the scan completes.
+  const responsesReceived = TODAY_STRATEGIES.filter(name =>
+    state.stages[name] === 'ready' || state.stages[name] === 'scanning').length;
   const parts = TODAY_STRATEGIES.map(name => `${name}: ${
     state.stages[name] === 'ready' ? 'response received'
       : state.stages[name] === 'scanning' ? 'scanning today'
       : state.stages[name] === 'error' ? 'unavailable'
       : 'loading today'
   }`);
-  const summary = `Today · ${checksDone}/4 API responses${failures.length
+  const summary = `Today · ${responsesReceived}/4 API responses${failures.length
     ? ` · ${failures.length} unavailable` : ''} · ${state.olderReady
       ? 'history ready' : 'older history queued'}`;
   return <div role="status" aria-live="polite"

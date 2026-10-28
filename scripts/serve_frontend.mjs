@@ -5,6 +5,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {publicStaticFile} from './public_static_asset.mjs';
 
 // All public origins and localhost:5180 read this ONE atomic committed build.
  // The symlink target may change without restarting the Node gateway/tunnels.
@@ -16,28 +17,40 @@ const backend = new URL(process.env.STERLING_API_TARGET || 'http://127.0.0.1:800
 if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !== 'http:') throw new Error('Backend must be loopback HTTP');
 const releaseFile = process.env.STERLING_RELEASE_MANIFEST ||
   path.join(gatewayDir, '.runtime/stack/published.json');
-function committedRelease() {
+function servedReleaseHealth() {
+  // Production serves the atomically swapped symlink. Its target, not the
+  // separately-written manifest, is the only valid published-release identity.
+  // A broken or redirected symlink must never fall back to stale metadata.
+  let linked;
+  try { linked = fs.lstatSync(root).isSymbolicLink(); }
+  catch { return {ready:false, release_commit:null}; }
+  if (linked) {
+    try {
+      const actual = fs.realpathSync(root);
+      const sha = path.basename(actual);
+      const ownReleases = path.join(path.dirname(root), 'releases');
+      if (path.dirname(actual) === ownReleases &&
+          /^[a-f0-9]{40,64}$/.test(sha) &&
+          fs.statSync(path.join(actual,'index.html')).isFile()) {
+        return {ready:true, release_commit:sha};
+      }
+    } catch { /* Broken or incomplete release is unavailable. */ }
+    return {ready:false, release_commit:null};
+  }
+  // Backward compatibility for ordinary static dist folders used in dev/tests.
+  const ready = fs.existsSync(path.join(root,'index.html'));
+  if (!ready) return {ready:false, release_commit:null};
   try {
     const value = JSON.parse(fs.readFileSync(releaseFile, 'utf8'));
-    return /^[a-f0-9]{40,64}$/.test(value.sha) ? value.sha : null;
-  } catch { return null; }
+    const sha = /^[a-f0-9]{40,64}$/.test(value.sha) ? value.sha : null;
+    return {ready:true, release_commit:sha};
+  } catch { return {ready:true, release_commit:null}; }
 }
 const isApi = p => /^\/(api(?:\/|$)|tma(?:\/|$)|health(?:\/|$)|healthz(?:\/|$))/.test(p);
 const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff':'font/woff','.woff2':'font/woff2','.json':'application/json'};
-// The supervisor owns this 0600 state file. The secondary ngrok tunnel
-// reaches the gateway over local HTTP, but its PUBLIC hop is verified HTTPS.
-// Never trust a caller-provided X-Forwarded-Proto header on its own.
+// The supervisor owns this 0600 state file. Only the Cloudflare tunnel is trusted.
 const stackStatusFile = process.env.STERLING_STACK_STATUS_FILE ||
   path.join(gatewayDir, '.runtime/stack/status.json');
-function isSupervisorNgrokHost(host) {
-  if (typeof host !== 'string') return false;
-  try {
-    const state = JSON.parse(fs.readFileSync(stackStatusFile, 'utf8'));
-    const candidate = new URL(state.ngrok_url || '');
-    return candidate.protocol === 'https:' && candidate.host === host &&
-      Number(state.children?.ngrok) > 1 && state.phase !== 'stopped';
-  } catch { return false; }
-}
 function proxyHeaders(req) {
   const headers = {...req.headers};
   // Preserve the public host for the backend's remote-auth boundary; never
@@ -51,12 +64,12 @@ function proxyHeaders(req) {
   headers['x-forwarded-host'] = req.headers.host;
   let publicCloudflare = false;
   try { const state = JSON.parse(fs.readFileSync(stackStatusFile,'utf8')); publicCloudflare = new URL(state.cloudflare_url || '').host === req.headers.host && Number(state.children?.cloudflare) > 1; } catch {}
-  const candidate = publicCloudflare ? req.headers['cf-connecting-ip'] : isSupervisorNgrokHost(req.headers.host) ? String(req.headers['x-forwarded-for'] || '').split(',').at(-1)?.trim() : req.socket.remoteAddress;
+  const candidate = publicCloudflare ? req.headers['cf-connecting-ip'] : req.socket.remoteAddress;
   if (typeof candidate === 'string' && net.isIP(candidate)) headers['x-sterling-client-ip'] = candidate;
   const country = req.headers['cf-ipcountry'];
   if (publicCloudflare && typeof country === 'string' && /^[A-Z]{2}$/.test(country)) headers['x-sterling-client-country'] = country;
   headers['x-forwarded-proto'] =
-    req.headers['cf-visitor']?.includes('https') || isSupervisorNgrokHost(req.headers.host)
+    publicCloudflare && req.headers['cf-visitor']?.includes('https')
       ? 'https' : 'http';
   return headers;
 }
@@ -75,8 +88,7 @@ const server = http.createServer((req,res) => {
   const pathname = new URL(req.url,'http://localhost').pathname;
   if (pathname === '/__sterling_web_health') {
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-    res.end(JSON.stringify({service:'sterling-web',ready:fs.existsSync(path.join(root,'index.html')),
-      release_commit:committedRelease()})); return;
+    res.end(JSON.stringify({service:'sterling-web', ...servedReleaseHealth()})); return;
   }
   if (['/tma/','/api/v1/tma/'].includes(pathname)) { res.writeHead(302, {Location:pathname.slice(0,-1), 'Cache-Control':'no-store'}); res.end(); return; }
   if (isApi(pathname)) {
@@ -107,6 +119,12 @@ const server = http.createServer((req,res) => {
     req.on('aborted',()=>upstream.destroy()); req.pipe(upstream); return;
   }
   if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405);res.end();return;}
+  // Do not serve an unmanaged static symlink even when a stale manifest says
+  // an old release was ready. Keep API/proxy endpoints independent.
+  if (!servedReleaseHealth().ready) {
+    res.writeHead(503, {'Cache-Control':'no-store','Content-Type':'text/plain'});
+    res.end('Frontend release unavailable'); return;
+  }
   // All TV entry paths must resolve to the dedicated, opaque-origin
   // multimedia document. Never fall back to the trading SPA for /tv.
   if (['/tv/','/radio/'].includes(pathname)) {
@@ -124,12 +142,14 @@ const server = http.createServer((req,res) => {
     res.writeHead(410, {'Cache-Control':'no-store','Content-Type':'text/plain'});
     res.end('Open this player from the Sterling launcher.'); return;
   }
-  let file = target;
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    if (path.extname(decoded) || (/^\/(docs|redoc|openapi)(\/|$)/.test(decoded) || /(?:^|\/)\./.test(decoded))) {res.writeHead(404);res.end();return;}
-    file=path.join(root,'index.html');
+  // Existing hidden files were previously exposed because the old hidden
+  // path check only applied to *missing* assets. Never serve dotfiles or let
+  // nested public-file symlinks escape the active immutable frontend release.
+  const file = publicStaticFile(root,pathname);
+  if (!file) {
+    res.writeHead(404,{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    res.end(); return;
   }
-  if (!fs.existsSync(file)) {res.writeHead(503);res.end('Frontend build missing');return;}
   const nonce = randomBytes(18).toString('base64');
   const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
   res.writeHead(200,{'Content-Type':mime[path.extname(file)] || 'application/octet-stream',

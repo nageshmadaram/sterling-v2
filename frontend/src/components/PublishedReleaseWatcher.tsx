@@ -1,6 +1,6 @@
 /** Detect published frontend changes on *this* Sterling gateway.
  *
- * The host serves local, Cloudflare and ngrok from one atomically switched
+ * The host serves local and Cloudflare from one atomically switched
  * release. Do not confuse GitHub main HEAD with what this device can load.
  * A hidden/returned, idle app may reload; active trading, media playback,
  * dialogs and unsaved settings always require a deliberate tap.

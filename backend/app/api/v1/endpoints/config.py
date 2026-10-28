@@ -100,6 +100,7 @@ async def gamma_move_history(
 async def gamma_move_snapshot(
     user: UserContext = Depends(get_current_user),
     day: Optional[str] = None,
+    today_only: bool = False,
 ) -> dict:
     """Live board or one exact recorded trading-day view."""
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
@@ -110,7 +111,7 @@ async def gamma_move_snapshot(
         return simulation_runner.get_gamma_snapshot()
     from app.services.gamma_move import snapshot
     try:
-        return await snapshot(uid, day=day)
+        return await snapshot(uid, day=day, today_only=today_only)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"invalid day: {exc}") from exc
     except Exception as exc:
@@ -791,14 +792,17 @@ async def update_snapback_config(body: dict = Body(...),
 
 
 @router.get("/snapback/snapshot")
-async def snapback_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
+async def snapback_snapshot(
+    user: UserContext = Depends(get_current_user),
+    today_only: bool = False,
+) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     from app.services.simulation import simulation_runner
     uid = _snapback_uid(user)
     if simulation_runner.has_session_view and getattr(simulation_runner, '_uid', None) == uid:
         return simulation_runner.get_snapback_snapshot()
     from app.services.snapback import snapshot_async
-    return await snapshot_async(uid)
+    return await snapshot_async(uid, today_only=today_only)
 
 
 @router.post("/snapback/scan")

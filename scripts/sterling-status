@@ -120,23 +120,13 @@ try:
             line("Dev hot-reload", state["dev_url"])
         if mode != "local":
             cf_url = (state.get("urls") or {}).get("cloudflare", "")
-            ng_url = (state.get("urls") or {}).get("ngrok", "")
             cf_ready = (state.get("public_ready") or {}).get("cloudflare", False)
-            ng_ready = (state.get("public_ready") or {}).get("ngrok", False)
             if cf_url:
                 line("Cloudflare", cf_url, "VERIFIED" if cf_ready else "unverified")
             elif state.get("cloudflare_url", "").startswith("https://"):
                 line("Cloudflare", state["cloudflare_url"], "unverified")
             else:
                 line("Cloudflare", "not discovered yet")
-            if ng_url:
-                line("ngrok", ng_url, "VERIFIED" if ng_ready else "unverified")
-            elif state.get("ngrok_error") == "NGROK_BINARY_NOT_INSTALLED":
-                line("ngrok", "not installed", "run: snap install ngrok")
-            elif state.get("ngrok_url", "").startswith("https://"):
-                line("ngrok", state["ngrok_url"], "unverified")
-            else:
-                line("ngrok", "not discovered yet")
         if state.get("callback_url"):
             line("Kite callback", state["callback_url"])
         if state.get("mini_app_url"):
