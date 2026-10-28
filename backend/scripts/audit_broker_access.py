@@ -74,6 +74,19 @@ def _transport_boundary(path: str) -> bool:
 
 
 def _classified(path: str, method: str, kind: str) -> tuple[str, str]:
+    # A configured URL is not itself proof of an outbound broker request.
+    if kind == "provider_http" and path == "backend/app/core/config.py":
+        return "static_provider_configuration", "static provider defaults; review runtime consumers"
+    if kind == "sql_write" and path == "backend/scripts/validate_registry_postgres.py":
+        return "disposable_database_test_exception", "synthetic rollback/trigger test; guarded disposable DB"
+    if kind == "provider_http" and path == "backend/app/services/market_data/truedata.py":
+        return "legacy_market_data_provider_exception", "existing alternate read provider; boundary review"
+    if kind in {"sdk_import", "sdk_constructor", "provider_http"} and path.startswith(
+        ("kitelake/", "backend/study/", "backend/scripts/")
+    ):
+        return "legacy_offline_sdk_exception", "out-of-band research/ingestion; verify no live admission"
+    if kind == "sdk_constructor" and path == "backend/app/services/simulation.py":
+        return "unknown_requires_review", "simulation hydration constructs real Kite client; inspect isolation"
     if _transport_boundary(path):
         return "approved_broker_transport", "approved boundary; provider network calls stay here"
     if _read_boundary(path):
@@ -168,7 +181,7 @@ def _event(path: str, source: str, qualname: tuple[str, ...], node: ast.AST):
         "file": path, "function": ".".join(qualname),
         "line": getattr(node, "lineno", 0), "method": method,
         "kind": kind, "classification": classification,
-        "risk": ("high" if classification in {"forbidden_direct_access", "legacy_broker_write_exception"}
+        "risk": ("high" if classification in {"forbidden_direct_access", "legacy_broker_write_exception", "legacy_offline_sdk_exception"}
                  else "review" if "exception" in classification or classification == "unknown_requires_review"
                  else "controlled"),
         "reason": reason, "expression_hash": fingerprint,

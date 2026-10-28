@@ -56,3 +56,20 @@ def test_registry_sql_writes_outside_service_flagged():
     rows = audit.scan([("backend/app/services/foo.py", code)])
     assert any(r["kind"] == "sql_write" and r["classification"] == "forbidden_direct_access"
                for r in rows)
+
+
+def test_source_audit_distinguishes_static_url_from_outbound_transport():
+    records = audit.scan([
+        ("backend/app/core/config.py",
+         "API_URL = 'https://api.kite.trade'\n"),
+        ("backend/study/broker_probe.py",
+         "from kiteconnect import KiteConnect\n"),
+        ("backend/scripts/validate_registry_postgres.py",
+         "q = 'DELETE FROM platform_strategy_versions'\n"),
+    ])
+    by_file = {r["file"]: r for r in records}
+    assert by_file["backend/app/core/config.py"]["classification"] == "static_provider_configuration"
+    assert by_file["backend/study/broker_probe.py"]["classification"] == "legacy_offline_sdk_exception"
+    assert by_file["backend/study/broker_probe.py"]["risk"] == "high"
+    assert by_file["backend/scripts/validate_registry_postgres.py"]["classification"] == "disposable_database_test_exception"
+    assert len(audit.new_unreviewed([], records)) == 3  # even new exceptions require review
