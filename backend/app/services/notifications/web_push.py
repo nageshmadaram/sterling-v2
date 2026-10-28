@@ -99,7 +99,11 @@ def _send(uid,event_key,title,body,category,*,force=False,
     for row in rows:
         with db._conn() as c:
             if c.execute('SELECT 1 FROM push_deliveries WHERE device_id=? AND event_key=?',(row['id'],event_key)).fetchone():continue
-            recent=c.execute('SELECT COUNT(*) FROM push_deliveries WHERE device_id=? AND delivered_ms>?',(row['id'],int(time.time()*1000)-3600000)).fetchone()[0]
+            # An operator's bounded test allowance must not be exhausted by
+            # ordinary alerts before they can verify their new phone. Tests
+            # still have their own 20/hour cap and retain event deduplication.
+            manual_test=force and str(event_key).startswith('test:')
+            recent=c.execute("SELECT COUNT(*) FROM push_deliveries WHERE device_id=? AND delivered_ms>? AND (?=0 OR event_key LIKE 'test:%')",(row['id'],int(time.time()*1000)-3600000,int(manual_test))).fetchone()[0]
             if recent>=(20 if force else cfg['max_per_hour']):continue
         # The operator requested useful message content, rather than the
         # previous generic lock-screen placeholder. Do not include tokens,
