@@ -15,7 +15,10 @@ const ALL_ENGINES = [
 describe('all strategy mobile overview rows', () => {
   it.each(ALL_ENGINES)('%s renders a single collapsed-by-default, expandable summary', engine => {
     render(<StrategyIntro engine={engine} />);
-    const button = screen.getByRole('button', { name: /▾/ });
+    const button = screen.getByRole('region', { name: 'Strategy overview' })
+      .querySelector<HTMLButtonElement>('.strategy-mobile-overview-trigger');
+    expect(button).not.toBeNull();
+    if (!button) throw new Error('Missing strategy summary control');
     const overview = screen.getByRole('region', { name: 'Strategy overview' });
     expect(overview).not.toHaveClass('is-expanded');
     expect(button).toHaveAttribute('aria-expanded', 'false');
