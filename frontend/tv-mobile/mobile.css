@@ -312,7 +312,7 @@
   #tv-now-playing :is(button,input) {touch-action:manipulation;}
   .theme-spotify.tm-now-open #player-stage {
     left:clamp(12px,4vw,24px);right:clamp(12px,4vw,24px);
-    top:clamp(56px,8dvh,76px);width:auto;
+    top:clamp(70px,calc((100dvh - (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - 300px) / 2),180px);width:auto;
   }
   .theme-spotify.tm-now-open #video-surface-card {
     box-sizing:border-box;width:100%;max-width:100%;
@@ -320,7 +320,7 @@
     aspect-ratio:16/9!important;object-fit:contain!important;
   }
   .tm-now-spacer {
-    min-height:calc(clamp(56px,8dvh,76px) + (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - clamp(42px,7dvh,62px) + 18px);
+    min-height:calc(clamp(70px,calc((100dvh - (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - 300px) / 2),180px) + (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - clamp(42px,7dvh,62px) + 18px);
   }
   .tm-now-head {min-height:clamp(42px,7dvh,62px);}
   .tm-now-copy h2 {font-size:clamp(17px,5vw,25px);white-space:normal;

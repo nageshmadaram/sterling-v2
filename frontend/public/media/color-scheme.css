@@ -165,3 +165,6 @@ html[data-color-scheme=light] body [class*="text-[#1ed760]"]{color:#126139!impor
 /* Playback controls remain legible over the unchanged native picture. */
 html[data-color-scheme=light] body #video-surface-card #custom-video-hud,
 html[data-color-scheme=light] body #video-surface-card #custom-video-hud :is(button,svg,span,div,i){color:#fff!important;}
+html[data-color-scheme=light] body :is(.rnp-more,.tm-now-more){background:#e8eef4!important;color:#152130!important;border-color:#d4dee7!important;}
+html[data-color-scheme=light] body .media-scroll-strip>div{background:#f8fafc;color:#152130;box-shadow:0 1px 0 #ccd5df;}
+html[data-color-scheme=light] body :is(.radio-play-glyph,.tm-big-play svg){color:inherit;}

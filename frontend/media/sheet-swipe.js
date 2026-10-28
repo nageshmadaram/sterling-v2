@@ -16,7 +16,7 @@
  }
  function move(x,y,event){
   const g=gesture;if(!g)return;const dy=y-g.y,dx=x-g.x;
-  if(!g.on){if(Math.abs(dy)<8&&Math.abs(dx)<8)return;if(Math.abs(dx)>Math.abs(dy)||(!g.pointer&&dy<0)){gesture=null;return;}
+  if(!g.on){if(Math.abs(dy)<8&&Math.abs(dx)<8)return;if(Math.abs(dx)>Math.abs(dy)||(g.pointer==null&&dy<0)){gesture=null;return;}
    g.on=true;g.panel.style.transition='none';g.panel.style.willChange='transform';}
   if(event.cancelable)event.preventDefault();g.dy=dy;if(!raf)raf=requestAnimationFrame(paint);
  }

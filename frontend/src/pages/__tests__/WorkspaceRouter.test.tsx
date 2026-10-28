@@ -114,17 +114,14 @@ it('preserves a selected photo during a failed policy poll while closing the pro
   expect(screen.getByRole('dialog', { name: 'Crop profile picture' })).toBeInTheDocument();
 });
 
-it('cycles Echo and Space only through permitted destinations, and restores a minimized header', async () => {
+it('cycles Echo and Space only through permitted destinations while retaining the header', async () => {
   show({ ...base, features: { kite: false, tv: true, radio: true } });
   fireEvent.click(await screen.findByRole('button',{name:'Open Echo'}));
   await screen.findByText('radio runtime mounted');
   fireEvent.click(screen.getByRole('button',{name:'Switch workspace from Echo'}));
   await screen.findByText('tv runtime mounted');
   expect(window.location.pathname).toBe('/tv');
-  fireEvent.click(screen.getByRole('button',{name:'Minimize media header'}));
-  expect(document.querySelector('.workspace-shell')).toHaveClass('media-header-minimized');
-  fireEvent.click(screen.getByRole('button',{name:'Show media header'}));
-  expect(document.querySelector('.workspace-shell')).not.toHaveClass('media-header-minimized');
+  expect(screen.queryByRole('button',{name:'Minimize media header'})).toBeNull();
   fireEvent.click(screen.getByRole('button',{name:'Switch workspace from Space'}));
   await screen.findByText('radio runtime mounted');
   expect(window.location.pathname).toBe('/radio');

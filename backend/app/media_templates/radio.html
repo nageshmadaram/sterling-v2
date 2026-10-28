@@ -260,7 +260,7 @@
 <style id="sterling-radio-mobile-recovery">
 @media(max-width:1023px) {
   #mobile-player-sheet {background:linear-gradient(170deg,rgba(var(--ambient-rgb,28,90,56),.85),#121212 62%)!important;}
-  #mobile-player-sheet>div:nth-child(2){margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
+  #mobile-player-sheet .radio-np-feature{margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
   #mobile-player-sheet .radio-mobile-art{width:min(82vw,350px)!important;height:min(82vw,350px)!important;max-height:45dvh!important;aspect-ratio:1;flex-shrink:1!important;margin-bottom:14px!important;}
   #mobile-player-sheet .radio-mobile-art img{width:100%;height:100%;object-fit:cover;}
   #mobile-player-sheet [data-radio-click="56"]{width:68px;min-height:68px;}
@@ -270,14 +270,14 @@
 @media(max-width:1023px) and (orientation:landscape) {
   #mobile-player-sheet{padding:0!important;}
   #mobile-player-sheet .rnp-main{display:grid;grid-template-columns:56vw minmax(0,1fr);grid-template-rows:1fr auto auto auto 1fr;column-gap:16px;min-height:100dvh;}
-  #mobile-player-sheet .rnp-main>div:first-child{grid-column:2;grid-row:2;min-height:52px;padding:4px calc(16px + env(safe-area-inset-right,0px)) 0 0;}
-  #mobile-player-sheet .rnp-main>div:nth-child(2){display:contents;}
+  #mobile-player-sheet .rnp-main .radio-np-head{grid-column:2;grid-row:2;min-height:52px;padding:4px calc(16px + env(safe-area-inset-right,0px)) 0 0;}
+  #mobile-player-sheet .rnp-main .radio-np-feature{display:contents;}
   /* Artwork is portrait's rounded square card, centred on the player gradient (no side bars). */
   #mobile-player-sheet .radio-mobile-art{grid-column:1;grid-row:1/-1;align-self:center;justify-self:center;width:min(calc(56vw - 32px),calc(100dvh - 32px))!important;height:min(calc(56vw - 32px),calc(100dvh - 32px))!important;max-height:none!important;aspect-ratio:1;margin:16px!important;border-radius:10px!important;box-shadow:0 18px 45px #0006!important;}
   #mobile-player-sheet .radio-mobile-art img{object-fit:cover;}
-  #mobile-player-sheet .rnp-main>div:nth-child(2)>div:last-child{grid-column:2;grid-row:3;margin-top:4px;padding-right:calc(16px + env(safe-area-inset-right,0px));}
-  #mobile-player-sheet .rnp-main>div:nth-child(3){grid-column:2;grid-row:4;padding:10px calc(16px + env(safe-area-inset-right,0px)) 8px 0;}
-  #mobile-player-sheet .rnp-main>div:nth-child(3)>*+*{margin-top:10px!important;}
+  #mobile-player-sheet .rnp-main .radio-np-copy{grid-column:2;grid-row:3;margin-top:4px;padding-right:calc(16px + env(safe-area-inset-right,0px));}
+  #mobile-player-sheet .rnp-main .radio-np-playback{grid-column:2;grid-row:4;padding:10px calc(16px + env(safe-area-inset-right,0px)) 8px 0;}
+  #mobile-player-sheet .rnp-main .radio-np-playback>*+*{margin-top:10px!important;}
   #mobile-player-sheet #sheet-title{font-size:22px!important;letter-spacing:-.6px;}
   #mobile-player-sheet #sheet-sub{font-size:12px!important;margin-top:4px!important;}
   #mobile-player-sheet .rnp-more{margin:22px 16px 0;}
@@ -1017,6 +1017,7 @@
        SOLID OPAQUE MOBILE FULL-SCREEN PLAYER SHEET (PERFECT CIRCULAR PLAY BUTTON)
        ========================================================================= -->
   <div id="mobile-player-sheet" class="drawer-hidden lg:hidden fixed inset-0 z-[90] solid-mobile-sheet flex flex-col justify-between p-5 overflow-y-auto">
+    <div class="media-scroll-strip" id="radio-scroll-strip" data-visible="false"><div><button type="button" data-radio-scroll-top class="media-scroll-copy"><strong id="radio-scroll-title"></strong><small id="radio-scroll-sub"></small></button><button type="button" data-radio-click="56" aria-label="Play radio"><span id="sheet-scroll-play" class="radio-play-glyph" aria-hidden="true"></span></button></div></div>
     <div class="rnp-main">
     <!-- Same layout as TV's Now Playing: header, artwork, title, live timeline, five controls, footer. -->
     <div class="radio-np-head flex items-center justify-between shrink-0">
@@ -1034,7 +1035,7 @@
         <img id="sheet-art" src="" class="w-full h-full object-cover" alt="Now-playing artwork" />
       </div>
 
-      <div class="w-full flex items-center justify-between gap-3">
+      <div class="radio-np-copy w-full flex items-center justify-between gap-3">
         <div class="min-w-0 flex-1">
           <h2 id="sheet-title" class="text-xl font-bold text-white truncate">Select a Station</h2>
           <p id="sheet-sub" class="text-sm text-[#b3b3b3] truncate mt-0.5">Live Broadcast</p>
@@ -1045,7 +1046,7 @@
       </div>
     </div>
 
-    <div class="w-full space-y-5">
+    <div class="radio-np-playback w-full space-y-5">
       <div>
         <input id="sheet-range" type="range" min="0" max="100" value="100" data-radio-input="59" class="pro-slider w-full accent-white" aria-label="Playback position" />
         <div class="radio-np-timeline flex justify-between mt-2">
@@ -1075,6 +1076,7 @@
     </div>
     </div>
     <!-- Below the player, as in TV: the next stations in this list, then stations like this one. -->
+    <section class="rnp-more media-about" aria-label="About this station"><header><h3>About this station</h3></header><strong id="sheet-about-title"></strong><p id="sheet-about-meta"></p><p id="sheet-about-broadcast"></p></section>
     <section class="rnp-more" aria-label="Up next"><header><h3>Up next</h3></header><div id="sheet-up-next"></div></section>
     <section class="rnp-more" id="sheet-similar-block" aria-labelledby="sheet-similar-title"><header><h3 id="sheet-similar-title">More like this</h3></header><div id="sheet-similar-list"></div><div id="sheet-similar-row" hidden></div><button type="button" class="rnp-show-more" hidden>Show more</button></section>
   </div>
@@ -2840,8 +2842,6 @@
       syncRadioModalState();
     }
     // Register the actual scrollable sheets with TV's common swipe handler.
-    window.SterlingSheetSwipe?.register('#startup-modal[open] > .media-sheet-content', closeStartupModal);
-    window.SterlingSheetSwipe?.register('#audio-dsp-modal[open] > .media-sheet-content', closeDspModal);
     for (const id of ['startup-modal', 'audio-dsp-modal']) {
       const dialog=document.getElementById(id);
       dialog.addEventListener('close',syncRadioModalState);
@@ -3705,7 +3705,7 @@
       if (!activeStream) return;
       const paused = audio.paused || audio.ended;
       const icon = paused ? 'fa-solid fa-play' : 'fa-solid fa-pause';
-      for(const id of ['sp-bar-play','sp-mini-play','ytm-bar-play','ytm-mini-play','sheet-play']) {
+      for(const id of ['sp-bar-play','sp-mini-play','ytm-bar-play','ytm-mini-play','sheet-play','sheet-scroll-play']) {
         const button=document.getElementById(id)?.closest('button');
         button?.setAttribute('aria-label',paused?'Play radio':'Pause radio');
         button?.setAttribute('aria-pressed',String(!paused));
@@ -3734,14 +3734,18 @@
       document.getElementById('sp-mini-play').className = `${icon} text-base`;
       document.getElementById('ytm-bar-play').className = `${icon} text-sm`;
       document.getElementById('ytm-mini-play').className = `${icon} text-base`;
-      const sheetIcon=document.getElementById('sheet-play');
+      for(const id of ['sheet-play','sheet-scroll-play']){const sheetIcon=document.getElementById(id);
       sheetIcon.className='radio-play-glyph';
       sheetIcon.innerHTML=paused?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
+      }
+      document.getElementById('radio-scroll-title').textContent=activeStream.title;
+      document.getElementById('radio-scroll-sub').textContent=activeStream.subtitle||'Live radio';
       document.getElementById('sp-np-eq').classList.toggle('paused', !isPlaying);
 
       const context=document.getElementById('sheet-context');if(context)context.textContent=activeStream.category==='telugu'?'Telugu radio':activeStream.category==='akashvani'?'Akashvani':activeStream.category==='tamil'?'Tamil radio':'Your stations';
       syncLikeIcons();
       syncSwPlayer();
+      if(document.getElementById('mobile-player-sheet').classList.contains('drawer-visible'))renderSheetMore();
     }
 
     function updateMediaSession(artUrl, title, artist) {
@@ -3765,7 +3769,8 @@
       const source=[station.title,station.subtitle,station.category,station.freqKhz];
       let cached=radioSearchTextCache.get(station);
       if(!cached || source.some((value,index)=>value!==cached.source[index])) {
-        cached={source,title:normalizeRadioSearch(station.title),hay:normalizeRadioSearch(source.join(' '))};
+        const hay=normalizeRadioSearch(source.join(' '));
+        cached={source,title:normalizeRadioSearch(station.title),hay,compactHay:hay.replace(/[^\p{L}\p{N}]+/gu,''),tokens:hay.split(/[^\p{L}\p{N}]+/gu).filter(Boolean)};
         radioSearchTextCache.set(station,cached);
       }
       return cached;
@@ -3789,13 +3794,13 @@
     function getRadioSearchMatches(pool, query, limit=Infinity) {
       const q=normalizeRadioSearch(query).trim();
       const terms=q.split(/\s+/).filter(Boolean);
-      const compactQuery=compactRadioSearch(q),seen=new Set();
+      const compactQuery=q.replace(/[^\p{L}\p{N}]+/gu,''),seen=new Set();
       const prefix=[],other=[],fallback=[];
       for(const station of pool) {
         if(!station || typeof station!=='object' || seen.has(station.id))continue;
         seen.add(station.id);
         const fields=radioSearchFields(station);
-        const compactHay=compactRadioSearch(fields.hay);
+        const compactHay=fields.compactHay;
         const direct=terms.every(term=>fields.hay.includes(term)) ||
           (compactQuery.length>=2 && compactHay.includes(compactQuery));
         if(direct){
@@ -3805,8 +3810,8 @@
         }
         // Fuzzy suggestions only when exact results do not fill the window.
         // Use an O(n) one-edit check; never sort the entire catalogue.
-        if(limit===Infinity || compactQuery.length<4 || fallback.length>=limit)continue;
-        const tokens=fields.hay.split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
+        if(compactQuery.length<4 || fallback.length>=Math.min(limit,100))continue;
+        const tokens=fields.tokens;
         const nearToken=term=>tokens.some((token,index)=>{
           if(token.includes(term)||(term.length>=4&&radioOneEditApart(term,token)))return true;
           // Multiword station names must tolerate both omitted spaces and
@@ -4026,7 +4031,7 @@
 
     // Now Playing, below the fold: "Up next" from the current list and "More like this" (same band,
     // language and tags first), 30 rows at a time like TV.
-    let rnpFor='',rnpPool=[],rnpShown=0;
+    let rnpFor='',rnpPool=[],rnpShown=0,rnpQueueKey='';
     const rnpRow=(ch,attr)=>`<button type="button" class="rnp-row" ${attr} data-rnp-id="${escapeRadioText(ch.id)}"><img src="${getStationIdentityThumbnail(ch)}" alt="" loading="lazy" decoding="async"><span><strong>${escapeRadioText(ch.title)}</strong><small>${escapeRadioText(ch.freqKhz?`${ch.freqKhz} kHz · ${ch.country||''}`:ch.subtitle||'')}</small></span></button>`;
     function radioMoreLike(anchor){
       const tags=new Set(anchor.tags||[]),langs=new Set(anchor.languages||[]),out=[];
@@ -4038,9 +4043,13 @@
     }
     function renderSheetMore(){
       if(!activeStream)return;
+      document.getElementById('sheet-about-title').textContent=activeStream.title;
+      document.getElementById('sheet-about-meta').textContent=[activeStream.country,...(activeStream.languages||[])].filter(Boolean).join(' · ')||activeStream.subtitle||'Live radio';
+      document.getElementById('sheet-about-broadcast').textContent=activeStream.freqKhz?`${activeStream.freqKhz} kHz · Live broadcast`:'Live broadcast · Station programming may change';
       const queue=radioQueue(),at=queue.findIndex(ch=>ch.id===activeStream.id);
       const next=at<0?queue.slice(0,5):[...queue.slice(at+1),...queue.slice(0,at)].slice(0,5);
-      const up=document.getElementById('sheet-up-next');if(up)up.innerHTML=next.map(ch=>rnpRow(ch,'data-rnp-play')).join('');
+      const key=activeStream.id+'|'+next.map(ch=>ch.id).join('|');
+      const up=document.getElementById('sheet-up-next');if(up&&rnpQueueKey!==key){rnpQueueKey=key;up.innerHTML=next.map(ch=>rnpRow(ch,'data-rnp-play')).join('');}
       if(rnpFor===activeStream.id)return;rnpFor=activeStream.id;rnpPool=radioMoreLike(activeStream);rnpShown=0;
       document.getElementById('sheet-similar-title').textContent=`More like this · ${rnpPool.length.toLocaleString()} ${rnpPool.length===1?'station':'stations'}`;
       document.getElementById('sheet-similar-list').innerHTML='';appendSheetMore();
@@ -4051,9 +4060,9 @@
       const more=document.querySelector('#sheet-similar-block .rnp-show-more');if(more)more.hidden=rnpShown>=rnpPool.length;
     }
     (()=>{const sheet=document.getElementById('mobile-player-sheet');if(!sheet)return;
-      sheet.addEventListener('click',event=>{const row=event.target.closest('[data-rnp-play]');if(row){const ch=findStationById(row.dataset.rnpId)||rnpPool.find(c=>c.id===row.dataset.rnpId);if(ch){if(row.closest('#sheet-similar-list'))radioRowQueue=[...rnpPool];startPlayback(ch);sheet.scrollTo({top:0,behavior:'smooth'});}return;}
+      sheet.addEventListener('click',event=>{if(event.target.closest('[data-radio-scroll-top]')){sheet.scrollTo({top:0,behavior:'smooth'});return;}const row=event.target.closest('[data-rnp-play]');if(row){const ch=findStationById(row.dataset.rnpId)||rnpPool.find(c=>c.id===row.dataset.rnpId);if(ch){if(row.closest('#sheet-similar-list'))radioRowQueue=[...rnpPool];startPlayback(ch);sheet.scrollTo({top:0,behavior:'smooth'});}return;}
         if(event.target.closest('.rnp-show-more'))appendSheetMore();});
-      sheet.addEventListener('scroll',()=>{if(sheet.scrollTop+sheet.clientHeight>sheet.scrollHeight-240&&rnpShown<rnpPool.length)appendSheetMore();},{passive:true});
+      sheet.addEventListener('scroll',()=>{document.getElementById('radio-scroll-strip').dataset.visible=String(sheet.querySelector('.radio-np-feature').getBoundingClientRect().bottom<sheet.getBoundingClientRect().top+62);if(sheet.scrollTop+sheet.clientHeight>sheet.scrollHeight-240&&rnpShown<rnpPool.length)appendSheetMore();},{passive:true});
     })();
     function stepRadioQueue(direction) {
       const episodes=activeStream?.kind==='podcast_episode'&&episodeList.some(ch=>ch.id===activeStream.id);
@@ -4247,8 +4256,8 @@
       // Swipe down to close follows the finger (media/sheet-swipe.js), for every overlay here.
       window.SterlingSheetSwipe?.register('#mobile-player-sheet.drawer-visible',()=>closeMobileSheet());
       window.SterlingSheetSwipe?.register('#sw-player-window:not(.hidden)',()=>closeSwPlayer());
-      window.SterlingSheetSwipe?.register('#startup-modal:not(.hidden)>div',()=>closeStartupModal());
-      window.SterlingSheetSwipe?.register('#audio-dsp-modal:not(.hidden)>div',()=>closeDspModal());
+      window.SterlingSheetSwipe?.register('#startup-modal[open]',()=>closeStartupModal());
+      window.SterlingSheetSwipe?.register('#audio-dsp-modal[open]',()=>closeDspModal());
       // Compact player swipes reopen Now Playing, without intercepting playback buttons.
       document.querySelectorAll('[data-radio-click="0"]').forEach(mini=>{
         let gesture=null;
@@ -4325,8 +4334,8 @@
     new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(node=>{if(node.nodeType===1){enhanceRadioControls(node);observeArtwork(node);}}))).observe(document.body,{childList:true,subtree:true});
     document.addEventListener('keydown',event=>{
       const sheet=document.getElementById('mobile-player-sheet');
-      if(event.key==='Escape' && !document.getElementById('audio-dsp-modal').classList.contains('hidden')){event.preventDefault();closeDspModal();return;}
-      if(event.key==='Escape' && !document.getElementById('startup-modal').classList.contains('hidden')){event.preventDefault();closeStartupModal();return;}
+      if(event.key==='Escape' && document.getElementById('audio-dsp-modal').open){event.preventDefault();closeDspModal();return;}
+      if(event.key==='Escape' && document.getElementById('startup-modal').open){event.preventDefault();closeStartupModal();return;}
       if(sheet.classList.contains('drawer-visible')) {
         if(event.key==='Escape'){event.preventDefault();closeMobileSheet();return;}
         if(event.key==='Tab'){

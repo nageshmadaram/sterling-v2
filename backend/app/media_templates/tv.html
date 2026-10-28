@@ -683,7 +683,7 @@
   #tv-now-playing :is(button,input) {touch-action:manipulation;}
   .theme-spotify.tm-now-open #player-stage {
     left:clamp(12px,4vw,24px);right:clamp(12px,4vw,24px);
-    top:clamp(56px,8dvh,76px);width:auto;
+    top:clamp(70px,calc((100dvh - (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - 300px) / 2),180px);width:auto;
   }
   .theme-spotify.tm-now-open #video-surface-card {
     box-sizing:border-box;width:100%;max-width:100%;
@@ -691,7 +691,7 @@
     aspect-ratio:16/9!important;object-fit:contain!important;
   }
   .tm-now-spacer {
-    min-height:calc(clamp(56px,8dvh,76px) + (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - clamp(42px,7dvh,62px) + 18px);
+    min-height:calc(clamp(70px,calc((100dvh - (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - 300px) / 2),180px) + (100vw - 2 * clamp(12px,4vw,24px)) * .5625 - clamp(42px,7dvh,62px) + 18px);
   }
   .tm-now-head {min-height:clamp(42px,7dvh,62px);}
   .tm-now-copy h2 {font-size:clamp(17px,5vw,25px);white-space:normal;
@@ -903,14 +903,14 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
   <!-- =========================================================================
        3. DEFAULT BOOT CHANNEL MODAL
        ========================================================================= -->
-  <div id="startup-channel-modal" class="hidden fixed inset-0 z-[118] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="closeStartupChannelModal()">
-    <div class="bg-[#16161b] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
+  <dialog id="startup-channel-modal" class="media-settings-dialog" aria-label="TV startup settings">
+    <div class="media-sheet-content bg-[#16161b] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-xl w-full max-h-[85dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
       <div class="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
         <div>
           <h3 class="text-sm font-semibold text-white">Default Boot Stream</h3>
           <p class="text-[11px] text-zinc-400 mt-0.5">Choose which channel plays automatically when launching StreamOS</p>
         </div>
-        <button onclick="closeStartupChannelModal()" class="w-7 h-7 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center">✕</button>
+        <button aria-label="Close tv startup settings" onclick="closeStartupChannelModal()" class="w-7 h-7 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center">✕</button>
       </div>
 
       <div class="p-4 bg-[#121216] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -949,13 +949,13 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         </button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- =========================================================================
        4. IPTV PLAYLIST SOURCES & SETTINGS MODAL
        ========================================================================= -->
-  <div id="source-manager-modal" class="hidden fixed inset-0 z-[115] bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4" onclick="closeSourceManagerModal()">
-    <div class="bg-[#16161b] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full max-h-[88dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
+  <dialog id="source-manager-modal" class="media-settings-dialog" aria-label="TV channel sources">
+    <div class="media-sheet-content bg-[#16161b] border border-white/15 rounded-t-2xl sm:rounded-2xl max-w-2xl w-full max-h-[88dvh] flex flex-col shadow-2xl overflow-hidden text-xs" onclick="event.stopPropagation()">
 
       <div class="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
         <div>
@@ -970,7 +970,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
             Upload .M3U
             <input type="file" accept=".m3u,.m3u8,text/plain" onchange="handleLocalM3uFileUpload(event)" class="hidden" />
           </label>
-          <button onclick="closeSourceManagerModal()" class="w-7 h-7 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center">✕</button>
+          <button aria-label="Close tv channel sources" onclick="closeSourceManagerModal()" class="w-7 h-7 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white flex items-center justify-center">✕</button>
         </div>
       </div>
 
@@ -1026,7 +1026,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         </div>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- =========================================================================
        5. MAIN WORKSPACE
@@ -2252,11 +2252,11 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
     function openStartupChannelModal() {
       updateStartupChannelUI();
       renderStartupChannelsPicker('');
-      document.getElementById('startup-channel-modal').classList.remove('hidden');
+      if(!document.getElementById('startup-channel-modal').open)document.getElementById('startup-channel-modal').showModal();
     }
 
     function closeStartupChannelModal() {
-      document.getElementById('startup-channel-modal').classList.add('hidden');
+      if(document.getElementById('startup-channel-modal').open)document.getElementById('startup-channel-modal').close();
     }
 
     function renderStartupChannelsPicker(query = '') {
@@ -2537,13 +2537,14 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
     function openSourceManagerModal() {
       renderSourcesManagerList();
       updateSourceBadgesUI();
-      document.getElementById('source-manager-modal').classList.remove('hidden');
+      if(!document.getElementById('source-manager-modal').open)document.getElementById('source-manager-modal').showModal();
     }
 
-    window.SterlingSheetSwipe?.register('#startup-channel-modal:not(.hidden)>div',()=>closeStartupChannelModal());
-    window.SterlingSheetSwipe?.register('#source-manager-modal:not(.hidden)>div',()=>closeSourceManagerModal());
+    window.SterlingSheetSwipe?.register('#startup-channel-modal[open]',()=>closeStartupChannelModal());
+    window.SterlingSheetSwipe?.register('#source-manager-modal[open]',()=>closeSourceManagerModal());
+    for(const id of ['startup-channel-modal','source-manager-modal']){const dialog=document.getElementById(id);dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close();});dialog.addEventListener('cancel',event=>{event.preventDefault();dialog.close();});}
     function closeSourceManagerModal() {
-      document.getElementById('source-manager-modal').classList.add('hidden');
+      if(document.getElementById('source-manager-modal').open)document.getElementById('source-manager-modal').close();
       resetSourceForm();
     }
 
@@ -2990,7 +2991,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
           hud.classList.remove('mobile-hud-hidden');
           clearTimeout(mobileHudFadeTimer);
           if (!hud.classList.contains('mobile-hud-hidden')) {
-            mobileHudFadeTimer = setTimeout(() => {if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');}, 2500);
+            mobileHudFadeTimer = setTimeout(() => {if(!hud.querySelector(':focus-visible'))hud.classList.add('mobile-hud-hidden');}, 10000);
           }
         }
         return;
@@ -3643,7 +3644,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
                          !document.getElementById('audio-eq-popover')?.classList.contains('hidden') ||
                          !document.getElementById('subtitle-settings-popover')?.classList.contains('hidden');
           if (!anyPop) videoSurfaceCardRef.classList.add('cursor-idle');
-        }, 2800);
+        }, 10000);
       }
     }
     if (videoSurfaceCardRef) {
@@ -4791,7 +4792,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
   const mini=document.createElement('div');mini.id='tv-mobile-mini';mini.setAttribute('aria-label','Now playing');
   mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
   const now=document.createElement('section');now.id='tv-now-playing';now.setAttribute('aria-label','Now Playing');now.setAttribute('role','dialog');now.setAttribute('aria-modal','true');now.hidden=true;
-  now.innerHTML=`<div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer">${action('surprise','Surprise channel','surprise')}<div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
+  now.innerHTML=`<div class="media-scroll-strip" id="tv-scroll-strip" data-visible="false"><div><button type="button" data-tm-action="scroll-top" class="media-scroll-copy"><strong id="tv-scroll-title"></strong><small id="tv-scroll-sub"></small></button>${action('play','Play live TV','play')}</div></div><div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer">${action('surprise','Surprise channel','surprise')}<div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more media-about" aria-label="About this channel"><div class="tm-now-more-head"><h3>About this channel</h3></div><strong id="tv-about-title"></strong><p id="tv-about-meta"></p><p>Live broadcast · Programme information depends on the broadcaster</p></section><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let shellPage=null,tvRows=null,tvRowsKey='',tvListView=false;
@@ -4885,6 +4886,10 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
       const source=artwork(activeChannel),miniArt=mini.querySelector('img');if(miniArt.getAttribute('src')!==source)miniArt.src=source;
       setPlayerText(mini.querySelector('strong'),activeChannel.name);
       setPlayerText(document.getElementById('tm-now-title'),activeChannel.name);
+      setPlayerText(document.getElementById('tv-scroll-title'),activeChannel.name);
+      setPlayerText(document.getElementById('tv-scroll-sub'),[activeChannel.group,activeChannel.lang].filter(Boolean).join(' · '));
+      setPlayerText(document.getElementById('tv-about-title'),activeChannel.name);
+      setPlayerText(document.getElementById('tv-about-meta'),[activeChannel.group,activeChannel.lang].filter(Boolean).join(' · '));
       setPlayerText(document.getElementById('tm-now-subtitle'),`${activeChannel.group||'Channel'} · ${activeChannel.lang||'Global'}`);
       setPlayerText(document.getElementById('tm-now-group'),activeChannel.group||'Your live channels');
       if(expanded&&!now.hidden)renderNowMore();
@@ -4899,7 +4904,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
     const mute=now.querySelector('[data-tm-action="mute"]');
     const muted=document.getElementById('video-player').muted;
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
-    [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');b.setAttribute('aria-pressed',String(!paused));});
+    [mini,now].forEach(el=>el.querySelectorAll('[data-tm-action="play"]').forEach(b=>{setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');b.setAttribute('aria-pressed',String(!paused));}));
     if(typeof renderTvRows==='function')renderTvRows();
   }
   // Below the player, like Spotify: the next few queued channels, then every channel in the same category
@@ -4922,7 +4927,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
     document.getElementById('tm-now-related').insertAdjacentHTML('beforeend',batch.map(ch=>relatedRow(ch,'data-tm-related="true"')).join(''));
     now.querySelector('[data-tm-action="related-more"]').hidden=relatedShown>=relatedPool.length;
   }
-  now.addEventListener('scroll',()=>{document.body.style.setProperty('--tm-now-scroll',`${now.scrollTop}px`);if(now.scrollTop+now.clientHeight>now.scrollHeight-200&&relatedShown<relatedPool.length)appendRelated();},{passive:true});
+  now.addEventListener('scroll',()=>{document.getElementById('tv-scroll-strip').dataset.visible=String(document.getElementById('tm-now-title').getBoundingClientRect().bottom<now.getBoundingClientRect().top+62);document.body.style.setProperty('--tm-now-scroll',`${now.scrollTop}px`);if(now.scrollTop+now.clientHeight>now.scrollHeight-200&&relatedShown<relatedPool.length)appendRelated();},{passive:true});
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
   let sheetReturnFocus=null;
   let sheetNav=null;
@@ -5049,6 +5054,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
       case 'close-search': shell.querySelector('.tm-search').hidden=true;run('home');break;
       case 'expand': setExpanded(true);break;
       case 'collapse': setExpanded(false);break;
+      case 'scroll-top':now.scrollTo({top:0,behavior:'smooth'});break;
       case 'play': { const video=document.getElementById('video-player'); if(video.classList.contains('hidden'))togglePlayPause();else if(video.paused && video.readyState===0)resumeTvPlayback();else togglePlayPause();schedule();break; }
       case 'save': toggleSubscribeAndFavorite();renderHome();sync();break;
       case 'surprise': window.tvExtras?.surprise();schedule();break;

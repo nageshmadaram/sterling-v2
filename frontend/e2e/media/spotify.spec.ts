@@ -92,7 +92,8 @@ test('Radio plays a controlled audio stream and preserves user pause',async({pag
   const sheetPlay=frame.locator('#sheet-play');
   await expect(sheetPlay.locator('svg path')).toHaveAttribute('d','M6 5h4v14H6zm8 0h4v14h-4z');
   await expect(sheetPlay.locator('..')).toHaveAttribute('aria-label','Pause radio');
-  expect(await sheetPlay.evaluate(el=>getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
+  const contrast=await sheetPlay.evaluate(el=>{const luminance=(color:string)=>{const values=color.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v=>{v/=255;return v<=.04045?v/12.92:((v+.055)/1.055)**2.4;});return .2126*values[0]+.7152*values[1]+.0722*values[2];};const a=luminance(getComputedStyle(el).color),b=luminance(getComputedStyle(el.closest('button')!).backgroundColor);return (Math.max(a,b)+.05)/(Math.min(a,b)+.05);});
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
   await sheetPlay.locator('..').click();
   await expect(sheetPlay.locator('svg path')).toHaveAttribute('d','M8 5v14l11-7z');
   await expect(sheetPlay.locator('..')).toHaveAttribute('aria-label','Play radio');
@@ -273,7 +274,7 @@ test('portrait TV has no video overlay controls while landscape keeps them',asyn
  const frame=await seededTv(page);
  await frame.getByRole('button',{name:'Play Channel 01',exact:true}).first().click();
  await expect(frame.locator('#custom-video-hud')).toBeHidden();
- await expect(frame.locator('#tv-now-playing [data-tm-action=play]')).toBeVisible();
+ await expect(frame.locator('#tv-now-playing .tm-now-controls [data-tm-action=play]')).toBeVisible();
  await page.setViewportSize({width:844,height:390});
  // Leave the full-screen sheet before interacting with the underlying video.
  await frame.locator('#tv-now-playing [data-tm-action=collapse]').click();
@@ -593,7 +594,7 @@ for(const kind of ['radio','tv'] as const)test(`${kind} expanded artwork uses wi
       const controls=box(kind==='radio'?'.radio-np-controls':'.tm-now-controls');
       return {width:art.width,artTitleGap:title.top-art.bottom,titleControlsGap:controls.top-title.bottom};
     },kind);
-    expect(geometry.width).toBeGreaterThanOrEqual(Math.min(width-50,500));
+    expect(geometry.width).toBeGreaterThanOrEqual(Math.min(width-50,844-380));
     expect(geometry.artTitleGap).toBeGreaterThanOrEqual(0);
     expect(geometry.artTitleGap).toBeLessThan(80);
     expect(geometry.titleControlsGap).toBeLessThan(130);
@@ -648,4 +649,19 @@ for(const kind of ['radio','tv'] as const)test(`${kind} expanded recommendations
   },kind);
   expect(positions.nextTop).toBeGreaterThanOrEqual(positions.height-1);
   expect(Math.abs(positions.dx)).toBeLessThanOrEqual(1);expect(Math.abs(positions.dy)).toBeLessThanOrEqual(1);
+});
+
+for(const kind of ['radio','tv'] as const)test(`${kind} scrolled player keeps live identity and playback reachable`,async({page})=>{
+ const frame=kind==='tv'?await seededTv(page):await openPlayer(page,'radio');
+ if(kind==='tv')await frame.getByRole('button',{name:'Play Channel 02',exact:true}).first().click();
+ else await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+ const surface=frame.locator(kind==='radio'?'#mobile-player-sheet':'#tv-now-playing');
+ const title=await frame.locator(kind==='radio'?'#sheet-title':'#tm-now-title').innerText();
+ await expect(frame.getByRole('region',{name:kind==='radio'?'About this station':'About this channel'})).toBeAttached();
+ await surface.evaluate(el=>el.scrollTo({top:innerHeight+150,behavior:'instant'}));
+ const bar=frame.locator(kind==='radio'?'#radio-scroll-strip':'#tv-scroll-strip');
+ await expect(bar).toHaveAttribute('data-visible','true');
+ await expect(bar.locator('strong')).toHaveText(title);
+ await expect(bar.getByRole('button',{name:/^(Play|Pause)/})).toBeVisible();
+ await bar.locator('.media-scroll-copy').click();await expect.poll(()=>surface.evaluate(el=>el.scrollTop)).toBeLessThan(10);
 });

@@ -20,7 +20,8 @@ try{
  await page.getByRole('form',{name:'Create Sterling user'}).waitFor();
  await page.getByLabel('Username',{exact:true}).fill('browser-created');
  for(const name of ['Password','Repeat password'])await page.getByLabel(name,{exact:true}).fill('Synthetic-browser-member-passphrase-123');
- for(const name of ['Kite · trading workspace','Echo · radio','Space · television'])await page.getByLabel(name,{exact:true}).check();
+ for(const name of ['Allow kite access','Allow radio access','Allow tv access'])await page.getByLabel(name,{exact:true}).check();
+ await page.getByLabel('Show tv in workspace chooser',{exact:true}).uncheck();
  for(const label of ['Broker settings','Telegram settings','Integration settings']){
   await page.getByLabel(label,{exact:true}).check();
   const section=page.locator('.admin-initial-section').filter({has:page.getByLabel(label,{exact:true})});
@@ -29,7 +30,7 @@ try{
  await page.getByRole('button',{name:'Save user',exact:true}).click();
  await page.getByRole('heading',{name:'browser-created',exact:true}).waitFor({timeout:20000});
  await page.getByRole('button',{name:'Access',exact:true}).click();
- await expect(page.getByLabel('Kite',{exact:true})).toBeChecked();
+ await expect(page.getByLabel('Allow kite access',{exact:true})).toBeChecked();
  await page.screenshot({path:path.join(output,'admin-created-browser.png')});
  const login=await page.request.post(base+'/api/v1/auth/login',{form:{username:'browser-created',password:'Synthetic-browser-member-passphrase-123'}});
  if(login.status()!==200)throw Error('Created user cannot sign in: '+login.status());
@@ -37,6 +38,7 @@ try{
  const me=await page.request.get(base+'/api/v1/auth/me',{headers:{Authorization:'Bearer '+auth.access_token}});
  const policy=await me.json();
  expect(policy.features).toEqual({kite:true,tv:true,radio:true});
+ expect(policy.visibility).toEqual({kite:true,tv:false,radio:true});record.visibility=policy.visibility;
  const capabilities=await (await page.request.get(base+'/api/v1/settings/capabilities',{headers:{Authorization:'Bearer '+auth.access_token}})).json();
  const grants=Object.fromEntries(Object.entries(capabilities.sections).map(([name,section])=>[name,{visible:section.visible,actions:section.grants.map(g=>g.action).sort()}]));
  expect(grants).toEqual({brokers:{visible:true,actions:['create','update']},telegram:{visible:true,actions:['recipients','test']},integrations:{visible:true,actions:['create','test','update']}});

@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen} from '@testing-library/react';
+import {cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import {MediaAccountSettings} from '../MediaAccountSettings';
 import {MediaHeaderControls} from '../MediaHeaderControls';
@@ -14,22 +14,22 @@ describe('mobile media appearance moved to the hamburger',()=>{
     expect(screen.queryByRole('button',{name:kind==='tv'?'TV display settings':'Radio display settings'})).toBeNull();
   });
 
-  it.each(['tv','radio'] as const)('preserves appearance and player actions for %s',kind=>{
+  it.each(['tv','radio'] as const)('preserves appearance and player actions for %s',async kind=>{
     const order:string[]=[];const closed=()=>order.push('closed');window.addEventListener('sterling-close-account-menu',closed);
-    const change=vi.fn(),features=vi.fn(()=>order.push('features')),command=vi.fn(()=>order.push('command'));
+    const change=vi.fn(),features=vi.fn(()=>order.push('features')),command=vi.fn((_event:Event)=>order.push('command'));
     window.addEventListener(`sterling-${kind}-command`,command);
     try{
       render(<MediaAccountSettings kind={kind} theme="spotify" onTheme={change} onFeatures={features}/>);
       expect(screen.getByRole('group',{name:'Player interface'})).toBeInTheDocument();
       expect(screen.getByRole('button',{name:'Spotify'})).toHaveAttribute('aria-pressed','true');
       fireEvent.click(screen.getByRole('button',{name:kind==='radio'?'YouTube Music':'YouTube'}));
-      expect(change).toHaveBeenCalledWith('youtube');
+      await waitFor(()=>expect(change).toHaveBeenCalledWith('youtube'));
       fireEvent.click(screen.getByRole('button',{name:kind==='tv'?'Default channel':'Default station'}));
       fireEvent.click(screen.getByRole('button',{name:kind==='tv'?'Channel sources':'Station sources'}));
-      expect(command.mock.calls.map(call=>call[0].detail)).toEqual([{action:'startup'},{action:'sources'}]);
+      await waitFor(()=>expect(command.mock.calls.map(call=>(call[0] as CustomEvent).detail)).toEqual([{action:'startup'},{action:'sources'}]));
       fireEvent.click(screen.getByRole('button',{name:'Player tools & preferences'}));
-      expect(features).toHaveBeenCalledOnce();
-      expect(order).toEqual(['closed','closed','command','closed','command','closed','features']);
+      await waitFor(()=>expect(features).toHaveBeenCalledOnce());
+      expect(order).toEqual(['closed','closed','closed','command','command','closed','features']);
     }finally{window.removeEventListener(`sterling-${kind}-command`,command);window.removeEventListener('sterling-close-account-menu',closed);}
   });
 });

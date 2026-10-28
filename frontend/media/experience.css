@@ -88,7 +88,7 @@ html[data-radio-category]:not([data-radio-category=all]) section:has(>#ytm-mostp
  .mode-spotify :is(#sp-cards-grid,#ytm-cards-grid) {gap:20px 14px!important;}
  .mode-spotify #mobile-player-sheet {padding:16px 24px calc(24px + env(safe-area-inset-bottom));background:linear-gradient(180deg,rgba(var(--ambient-rgb),1),#181818 85%)!important;}
  .mode-spotify #mobile-player-sheet .radio-mobile-art {width:100%;height:auto;aspect-ratio:1;border-radius:8px;max-width:520px;margin:28px auto 32px;}
- .mode-spotify #mobile-player-sheet>div:nth-child(2) {display:block;width:100%;margin:auto 0;padding:0;}
+ .mode-spotify #mobile-player-sheet .radio-np-feature {display:block;width:100%;margin:auto 0;padding:0;}
  .mode-spotify #mobile-player-sheet #sheet-title {font-size:24px;line-height:1.25;}
  .mode-spotify #mobile-player-sheet #sheet-sub {font-size:14px;line-height:1.5;}
  .mode-spotify #mobile-player-sheet [data-radio-click="56"] {width:76px;height:76px;}
@@ -471,19 +471,6 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
 .rh-row-large .rh-tile .rh-mosaic{width:180px;height:180px}.rh-row-large .rh-tile .rh-mosaic img{width:90px;height:90px}@media(max-width:1023px){.rh-row-large .rh-tile .rh-mosaic{width:186px;height:186px}.rh-row-large .rh-tile .rh-mosaic img{width:93px;height:93px}}
 .radio-genre-chips[hidden]{display:none!important}
 
-/* Sterling unified player refinement */
-@media(max-width:767px) {
-  #startup-modal>div,#audio-dsp-modal>div {
-    box-sizing:border-box;width:100%!important;max-width:100%!important;
-    flex:0 0 auto;border-radius:24px 24px 0 0!important;
-    max-height:min(88dvh,740px)!important;overflow-y:auto;
-    touch-action:pan-y;overscroll-behavior:contain;
-  }
-  #startup-modal>div::before,#audio-dsp-modal>div::before {
-    content:"";display:block;width:38px;height:4px;border-radius:8px;
-    background:currentColor;opacity:.28;margin:0 auto 16px;
-  }
-}
 .media-comfort {overscroll-behavior:contain;}
 html.media-cursor-idle body,html.media-cursor-idle body * {cursor:none!important;}
 
@@ -503,3 +490,22 @@ dialog[data-sheet-expanded=true]{height:90dvh;}
 @media(max-width:1023px){
  dialog:is(.media-comfort,.media-settings-dialog,.radio-source-dialog,.mx-dialog){width:100%;max-width:100%;margin:auto 0 0;border-radius:24px 24px 0 0;padding:12px 20px calc(24px + env(safe-area-inset-bottom,0px));}
 }
+
+/* Expanded Radio and TV share the same below-the-fold rhythm. */
+.media-scroll-strip{position:sticky;top:0;height:0;z-index:100;visibility:hidden;pointer-events:none;}
+.media-scroll-strip[data-visible=true]{visibility:visible;pointer-events:auto;}
+.media-scroll-strip>div{display:flex;align-items:center;gap:12px;height:62px;padding:7px 12px;background:#171c19;box-shadow:0 1px 0 #ffffff20;border-radius:0 0 12px 12px;}
+.media-scroll-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:3px;text-align:left;}
+.media-scroll-copy strong,.media-scroll-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;}
+.media-scroll-copy strong{font-size:14px;}.media-scroll-copy small{font-size:11px;opacity:.72;}
+.media-scroll-strip button:not(.media-scroll-copy){width:44px;height:44px;display:grid;place-items:center;flex:none;}
+.media-scroll-strip svg{width:25px;height:25px;fill:currentColor;}
+:is(.rnp-more,.tm-now-more){border-radius:18px;padding:18px 16px;margin:20px 0 0;background:#ffffff0d;border:1px solid #ffffff10;}
+:is(.rnp-more,.tm-now-more) header,:is(.rnp-more,.tm-now-more) .tm-now-more-head{margin:0 0 14px;padding:0;}
+:is(.rnp-more,.tm-now-more) h3{font-size:18px;line-height:1.3;}
+.media-about>strong{display:block;font-size:21px;line-height:1.3;margin:8px 0;}
+.media-about>p{font-size:13px;line-height:1.6;opacity:.75;margin:5px 0;}
+:is(#sheet-similar-list,#tm-now-related){display:grid;grid-auto-flow:column;grid-auto-columns:minmax(130px,42%);gap:14px;overflow-x:auto;scroll-snap-type:x proximity;padding-bottom:12px;}
+:is(#sheet-similar-list,#tm-now-related)>button{display:flex;flex-direction:column;align-items:stretch;gap:9px;min-width:0;padding:0;scroll-snap-align:start;}
+:is(#sheet-similar-list,#tm-now-related)>button>img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border-radius:8px;}
+:is(#sheet-similar-list,#tm-now-related)>button strong{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;}

@@ -46,3 +46,16 @@ it('dismisses an offline notice and reveals it only for the next connection loss
  Object.defineProperty(w.navigator,'onLine',{value:true});w.dispatchEvent(new w.Event('online'));expect(notice.hidden).toBe(true);
  Object.defineProperty(w.navigator,'onLine',{value:false});w.dispatchEvent(new w.Event('offline'));expect(notice.hidden).toBe(false);
 });
+
+it('hides the playback cursor only after ten seconds, then restores it on movement or pause',()=>{
+ vi.useFakeTimers();const {w,doc}=mount();const media=doc.querySelector('audio')!;
+ let paused=false;Object.defineProperty(media,'paused',{get:()=>paused});
+ media.dispatchEvent(new w.Event('play'));
+ vi.advanceTimersByTime(9999);expect(doc.documentElement.classList.contains('media-cursor-idle')).toBe(false);
+ vi.advanceTimersByTime(1);expect(doc.documentElement.classList.contains('media-cursor-idle')).toBe(true);
+ const move=new w.Event('pointermove',{bubbles:true});Object.defineProperty(move,'pointerType',{value:'mouse'});doc.dispatchEvent(move);
+ expect(doc.documentElement.classList.contains('media-cursor-idle')).toBe(false);
+ vi.advanceTimersByTime(10000);expect(doc.documentElement.classList.contains('media-cursor-idle')).toBe(true);
+ paused=true;media.dispatchEvent(new w.Event('pause'));expect(doc.documentElement.classList.contains('media-cursor-idle')).toBe(false);
+ vi.advanceTimersByTime(10000);expect(doc.documentElement.classList.contains('media-cursor-idle')).toBe(false);
+});

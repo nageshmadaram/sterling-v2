@@ -28,6 +28,7 @@
 !failedAt
 !fetchedLanguageUrls.has(langObj.m3uUrl))
 !have.has(station.streamUrl))];}
+!hay.replace(/\s+/g,
 !hideUnavailableChannels
 !hls))
 !hostAcknowledged)
@@ -193,6 +194,7 @@
 #active-title+span
 #af2896
 #audio-dsp-modal
+#audio-dsp-modal[open]
 #b3b3b3;
 #bc5900
 #c084fc
@@ -265,7 +267,7 @@
 #sheet-sub{font-size:12px!important;margin-top:4px!important;}
 #sheet-title{font-size:22px!important;letter-spacing:-.6px;}
 #source-manager-modal
-#source-manager-modal:not(.hidden)
+#source-manager-modal[open]
 #sp-cards-grid,#ytm-cards-grid
 #sp-grid-section
 #sp-recents-section
@@ -273,8 +275,9 @@
 #spotify-app
 #spotify-app,#ytmusic-app
 #startup-channel-modal,:is(.theme-spotify,:is(.theme-youtube,.theme-netflix))
-#startup-channel-modal:not(.hidden)
+#startup-channel-modal[open]
 #startup-modal
+#startup-modal[open]
 #sticky-chip-bar
 #sticky-chip-bar,
 #sticky-chip-bar,.theme-spotify.tm-browse-search
@@ -355,6 +358,7 @@ ${activeChannel?
 ${activeEpg.map(s
 ${activeGroup}
 ${activeLang}
+${activeStream.freqKhz}
 ${activeStream.title}
 ${allChannels.length.toLocaleString()}
 ${anchor.title}
@@ -615,7 +619,7 @@ ${v}
 (!activePreviewContainer)
 (!activeStream
 (!activeStream)
-(!allTermsMatch)
+(!allTermsMatch
 (!anyPop)
 (!audio.src)
 (!bar.classList.contains(
@@ -630,6 +634,7 @@ ${v}
 (!closest)
 (!ctx)
 (!dock.classList.contains(
+(!document.getElementById(
 (!document.hidden)
 (!enabled)
 (!entered)
@@ -827,6 +832,7 @@ ${v}
 (chips)
 (cleaned
 (close,
+(compactQuery.length
 (const
 (control)
 (countBadge)
@@ -872,8 +878,10 @@ ${v}
 (ev,
 (event.cancelBubble)
 (event.data?.type
+(event.key
 (event.key===
 (event.source
+(event.target
 (favorites.length
 (filteredChannels.length
 (forceToast)
@@ -969,6 +977,7 @@ ${v}
 (no
 (now
 (one
+(oneEdit(term,token)
 (or
 (orientation:landscape)
 (orientation:landscape){
@@ -1066,6 +1075,7 @@ ${v}
 (tag)
 (targetSources.length
 (term
+(term.length
 (the
 (typeof
 (unavailable)
@@ -1124,9 +1134,11 @@ ${v}
 ))
 ))%360/360,s=.42,l=.28;
 ))&&!hls?
+))))));
 )));
 ))+(e.key===
 )).join(
+)).split(/\s+/).filter(Boolean);
 )):null;}).filter(Boolean);
 ));
 ));closeSheet();}else
@@ -1157,12 +1169,13 @@ ${v}
 )){event.preventDefault();target.click();}
 )){if(currentTheme===
 )){if(tvUserPaused)resumeTvPlayback();else
-))};
+)){sheet.scrollTo({top:0,behavior:
 )+
 )+action(
 ),
 ),()=
 ),2500);
+),[activeChannel.group,activeChannel.lang].filter(Boolean).join(
 ),activeChannel.group||
 ),activeChannel.name);
 ),air=document.getElementById(prefix+
@@ -1177,8 +1190,10 @@ ${v}
 ),openExtras:()=
 ),recents=document.getElementById(
 ),rootMargin:
+),seen=new
 ),surface=document.getElementById(
 ),te=document.getElementById(prefix+
+),tokens:hay.split(/[^\p{L}\p{N}]+/gu).filter(Boolean)};
 ).
 ).addEventListener(
 ).after(collections);collections.addEventListener(
@@ -1187,11 +1202,14 @@ ${v}
 ).before(browse);
 ).before(shell);
 ).classList.add(
+).classList.contains(
 ).classList.remove(
 ).classList.toggle(
 ).className
 ).className=
 ).close();
+).dataset.visible=String(document.getElementById(
+).dataset.visible=String(sheet.querySelector(
 ).find(ch=
 ).focus();
 ).focus();}
@@ -1206,6 +1224,7 @@ ${v}
 ).forEach(main=
 ).forEach(mini=
 ).forEach(tile=
+).getBoundingClientRect().bottom
 ).getBoundingClientRect().height};handle.setPointerCapture(e.pointerId);});
 ).hidden)return;
 ).hidden=false;document.getElementById(
@@ -1214,6 +1233,7 @@ ${v}
 ).hidden=true;
 ).hidden=true;renderHome();break;
 ).hidden=true;run(
+).includes(compactQuery))
 ).innerHTML
 ).innerHTML=
 ).innerHTML=upcoming.map(ch=
@@ -1227,6 +1247,7 @@ ${v}
 ).matches;
 ).muted;
 ).normalize(
+).open)
 ).open)document.getElementById(
 ).open){event.preventDefault();closeDspModal();return;}
 ).open){event.preventDefault();closeStartupModal();return;}
@@ -1259,6 +1280,10 @@ ${v}
 ).textContent
 ).textContent=
 ).textContent=(station.freqKhz||9410)+
+).textContent=[activeStream.country,...(activeStream.languages||[])].filter(Boolean).join(
+).textContent=activeStream.freqKhz?
+).textContent=activeStream.subtitle||
+).textContent=activeStream.title;
 ).textContent=currentTheme===
 ).textContent=recentsList.length
 ).textContent=slider.value+
@@ -1345,7 +1370,7 @@ ${v}
 );if(row){const
 );if(seenSets.has(sig)||rows[i].items.length===pool.length)rows.splice(i,1);else
 );if(te
-);if(up)up.innerHTML=next.map(ch=
+);if(up&&rnpQueueKey!==key){rnpQueueKey=key;up.innerHTML=next.map(ch=
 );image.src=getStationIdentityThumbnail(station);image.alt=
 );indicator.id=
 );indicator.setAttribute(
@@ -1377,7 +1402,6 @@ ${v}
 );return;}
 );s.removeAttribute(
 );s.setAttribute(
-);setPlayerGlyph(b,paused?
 );setPlayerGlyph(b,saved?
 );setTimeout(()=
 );sheet.classList.remove(
@@ -1502,6 +1526,7 @@ ${v}
 ){view=
 )||
 )||!await
+)||activeStream.subtitle||
 )||radioHome.root.parentElement;
 )}
 )}${[
@@ -1546,6 +1571,7 @@ ${v}
 +lang,title:
 +lang,title:lang,items:pool.filter(c=
 +new
++next.map(ch=
 +r,label:
 +s.region,s);regions.add(s.region);}}
 +t,s);for(const
@@ -1577,7 +1603,7 @@ ${v}
 ,SHORTWAVE_AM_STATIONS[0]],[
 ,SHORTWAVE_AM_STATIONS],[
 ,String(!paused));
-,String(!paused));});
+,String(!paused));}));
 ,String(Math.round(pending)));});};
 ,String(b.dataset.tmAction===currentTheme)));
 ,String(b.dataset.tmAction===view)));
@@ -1705,7 +1731,7 @@ ${v}
 ,resumeTvPlayback);navigator.mediaSession.setActionHandler(
 ,revealControls);
 ,revealControls,{passive:true});
-,rnpPool=[],rnpShown=0;
+,rnpPool=[],rnpShown=0,rnpQueueKey=
 ,s=
 ,saveUi);
 ,saved?
@@ -1903,9 +1929,17 @@ ${v}
 .radio-mobile-art{grid-column:1;grid-row:1/-1;align-self:center;justify-self:center;width:min(calc(56vw
 .radio-mobile-art{width:min(82vw,350px)!important;height:min(82vw,350px)!important;max-height:45dvh!important;aspect-ratio:1;flex-shrink:1!important;margin-bottom:14px!important;}
 .radio-np-controls
+.radio-np-copy{grid-column:2;grid-row:3;margin-top:4px;padding-right:calc(16px
+.radio-np-feature
+.radio-np-feature{display:contents;}
+.radio-np-feature{margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
 .radio-np-head
+.radio-np-head{grid-column:2;grid-row:2;min-height:52px;padding:4px
+.radio-np-playback
+.radio-np-playback{grid-column:2;grid-row:4;padding:10px
 .radio-search-suggestions
 .rchip
+.replace(/[^\p{L}\p{N}]+/gu,
 .replace(/\(.*?\)|\[.*?\]/g,
 .replace(/\b(hd|sd|live|tv|channel|india|uk|us|4k|1080p|720p)\b/gi,
 .rnp-main
@@ -2221,6 +2255,7 @@ ${v}
 1);
 1)radioRowQueue=list;}playStationById(id);},
 1)radioRowQueue=list;}playStationById(id);},toast:message=
+1)return
 1)rows.splice(1,0,...rows.splice(h,1));}
 1)rows.splice(1,0,...rows.splice(te,1));
 1){const
@@ -2299,6 +2334,7 @@ ${v}
 100.1
 100.2
 1000)}
+10000);
 1000000).toFixed(1)}
 100;
 100dvh
@@ -2522,6 +2558,8 @@ ${v}
 2%);
 2&&stationArtworkQueue.length){
 2)
+2),180px)
+2),180px);width:auto;
 2);
 2){showToast(
 2,
@@ -2595,7 +2633,6 @@ ${v}
 24x7
 25
 250
-2500);
 2500){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
 2500){radioRefreshAt=now;updateRadioDirectoryCounts();}if(now-radioHomeAt
 25000);
@@ -2618,7 +2655,6 @@ ${v}
 270
 28
 28,
-2800);
 284
 29
 29,
@@ -2670,6 +2706,7 @@ ${v}
 300);
 30000))return
 300px
+300px)
 30;
 30px
 30px;
@@ -2734,6 +2771,7 @@ ${v}
 4)];
 4)g.mosaic.push(artwork(ch));by.set(ch.group,g);}
 4)m.push(s);};
+4)return
 4,
 4-1
 4-4
@@ -3087,6 +3125,7 @@ ${v}
 :is(button,input)
 :next===
 :not([hidden])~:not([hidden])
+:now.scrollTo({top:0,behavior:
 :root
 :root,
 :scope
@@ -3183,7 +3222,9 @@ ${v}
 =0?maxResults:Infinity;
 =1)v.volume=saved.volume;
 =100)
+=1;
 =1;i--){const
+=2
 =2&&Boolean(hidden));
 =200)applySearch(data.value);
 =200){searchInputEl.value=saved.query;document.getElementById(
@@ -3192,6 +3233,9 @@ ${v}
 =3&&catalogLanguage===
 =3)out.push([score,ch.pop||0,ch]);}
 =3)rows.push({id:
+=4
+=4&&radioOneEditApart(term,token)))return
+=4)
 =40)catalogLanguage=saved.language;
 =4096)startupChannelConfig=parsed;
 =500000&&new
@@ -3207,11 +3251,12 @@ ${v}
 =========================================================================
 =CHANNEL_FAILURE_TTL){unavailableChannels.delete(url);changed=true;}
 =Date.now()&&Date.now()-entry[1]
+=Math.min(limit,100))continue;
 =band.start)||pool[0])?.freqKhz||band.start;
 =bandListShown;more.textContent=
 =catalogItems.length)return;
 =catalogItems.length;button.textContent=
-=limit)break;
+=maxFuzzy)break;
 =min).sort((a,b)=
 =pool.length*0.9).slice(0,5))rows.push({id:
 =pool.length;
@@ -3294,6 +3339,8 @@ AbortController(),timeout=setTimeout(()=
 AbortController();
 AbortController();podcastAbort=controller;
 AbortError
+About
+Accept
 Acoustic
 Action
 Activate
@@ -3734,6 +3781,7 @@ Frozen
 Full
 Full-screen
 Fullscreen
+Fuzzy
 GEC)
 GENERATOR
 GESTURES
@@ -3810,7 +3858,6 @@ Hussain
 Hyd
 Hyderabad
 Hydrate
-ID
 IMG
 IN
 INDIAN
@@ -4106,6 +4153,7 @@ Movies
 Movies,
 Multi-language
 Multiview
+Multiword
 Music
 Music,
 MutationObserver(records=
@@ -4149,6 +4197,7 @@ Nothing
 Notification
 Now
 Now-playing
+O(n)
 OLED
 ON
 ONLY
@@ -4171,6 +4220,7 @@ Oldies
 OmniCast
 Once
 One
+One-character
 Only
 Opacity
 Opaque
@@ -4341,6 +4391,7 @@ Red
 Reduce
 Refreshing
 Regional
+Register
 Related
 Relay
 Release
@@ -4482,7 +4533,6 @@ Set(),allChoices=[];
 Set(),items=[];
 Set(),list=[];for(const
 Set(),pool=[...filtered,...catalogItems].filter(station=
-Set(),prefix=[],other=[];
 Set();
 Set();dots.replaceChildren(...tunerPool().filter(s=
 Set();for(const
@@ -4550,7 +4600,6 @@ Squishes
 Sri
 Sriram
 St
-Stable
 Stadium
 Stage
 Standalone
@@ -4830,6 +4879,7 @@ Zoom
 [data-radio-click=
 [data-radio-click]
 [data-radio-click][role=
+[data-radio-scroll-top]
 [data-rnp-play]
 [data-tm-action=
 [data-tm-action=resize-sheet]
@@ -4937,6 +4987,9 @@ a)
 a,
 a.count)
 a.findIndex(t
+a.length&&j
+a.length)j++;
+a.length||j
 a.score);
 a=s*Math.min(l,1-l);
 aaj
@@ -5071,6 +5124,7 @@ allBtn.className
 allCategoriesList
 allCategoriesList.map(cat
 allChannels
+allChannels)
 allChannels){
 allChannels){if(!isChannelVisible(ch)||!ch.group)continue;const
 allChannels.filter(c
@@ -5213,6 +5267,7 @@ applySearchNow(query);
 applySearchSuggestion(${escapeJsAttr(term)})
 applySearchSuggestion(term)
 applySearchTimer=0,lastApplySearch=0;
+approximate
 arabic
 arabiya
 are
@@ -5355,6 +5410,11 @@ await
 b
 b)
 b.count
+b.length)
+b.length)i++;
+b.length)i++;else
+b.length){
+b.length?1:0)
 b.score
 b.setAttribute(
 b4u
@@ -5520,7 +5580,6 @@ bg-black
 bg-black/55
 bg-black/65
 bg-black/70
-bg-black/75
 bg-black/80
 bg-black/85
 bg-black/90
@@ -5822,7 +5881,7 @@ cache
 cacheKey
 cached;
 cached=radioSearchTextCache.get(station);
-cached={source,title:normalizeRadioSearch(station.title),hay:normalizeRadioSearch(source.join(
+cached={source,title:normalizeRadioSearch(station.title),hay,compactHay:hay.replace(/[^\p{L}\p{N}]+/gu,
 calc((100dvh
 calc(0.875rem
 calc(100dvh
@@ -5840,6 +5899,7 @@ can.
 cancel
 cancel-edit-source-btn
 cancel=()=
+candidate=terms.every(term
 cannot
 canplay
 canvas
@@ -5918,6 +5978,7 @@ catalogMore=document.getElementById(
 catalogScope
 catalogScope=view===
 catalogSources
+catalogue.
 catch
 categories
 categories){const
@@ -6048,6 +6109,7 @@ chardikla
 charset=
 check
 check:
+check;
 checkbox
 checked
 chennai
@@ -6146,6 +6208,7 @@ close-search
 close-sheet
 close:
 closeDspModal()
+closeDspModal());
 closeDspModal();
 closeMobileSheet()
 closeMobileSheet());
@@ -6172,6 +6235,7 @@ closeStartupChannelModal()
 closeStartupChannelModal());
 closeStartupChannelModal();
 closeStartupModal()
+closeStartupModal());
 closeStartupModal();
 closeSwPlayer()
 closeSwPlayer());
@@ -6214,6 +6278,13 @@ commitSwTune(nextVal);
 commitSwTune(slider.value));
 commitSwTune(this.value);
 commitSwTune(val)
+common
+compactHay.includes(compactQuery));
+compactHay=fields.compactHay;
+compactQuery
+compactQuery.length
+compactQuery=q.replace(/[^\p{L}\p{N}]+/gu,
+compactRadioSearch
 compatible
 compositor-friendly
 computeFilteredCatalogPool()
@@ -6377,6 +6448,7 @@ data-radio-category=
 data-radio-change=
 data-radio-click=
 data-radio-input=
+data-radio-scroll-top
 data-radio-station=
 data-radio-view=
 data-rnp-id=
@@ -6391,6 +6463,7 @@ data-tm-quality=
 data-tm-queued=
 data-tm-related=
 data-tm-shelf=
+data-visible=
 data.items.length)
 data.items.map((ep,
 data.value===
@@ -6425,6 +6498,7 @@ deleteIptvSource(id)
 deleted
 deleted.
 depend
+depends
 desktop
 details
 detectChannelLanguage(c.name,
@@ -6440,14 +6514,18 @@ devotional
 dhabi
 dial
 dialog
+dialog)
+dialog.
 dialog.addEventListener(
 dialog=document.getElementById(id);
+dialog=document.getElementById(id);dialog.addEventListener(
 didHydrate)return;
 didHydrate=false;
 didHydrate=true;
 different
 digvijaya
 dimensions;
+direct=terms.every(term=
 direction
 directory
 disabled
@@ -6509,15 +6587,8 @@ displaying
 distinct
 div
 div:first-child
-div:first-child{grid-column:2;grid-row:2;min-height:52px;padding:4px
 div:last-child
 div:last-child:not(.preview-thumb-box)
-div:last-child{grid-column:2;grid-row:3;margin-top:4px;padding-right:calc(16px
-div:nth-child(2)
-div:nth-child(2){display:contents;}
-div:nth-child(2){margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
-div:nth-child(3)
-div:nth-child(3){grid-column:2;grid-row:4;padding:10px
 divide-white/[0.04]
 divide-white/[0.05]
 divide-y
@@ -6649,6 +6720,7 @@ e.clientY
 e.clientY;
 e.currentTarget.getBoundingClientRect();
 e.currentTarget;
+e.g.
 e.key
 e.preventDefault();
 e.stopPropagation();
@@ -6671,6 +6743,8 @@ edit
 edit-source-id
 editId
 editId);
+edits
+edits+(i
 education
 effect
 el
@@ -6682,6 +6756,7 @@ el.getClientRects().length);
 el.getClientRects().length);const
 el.innerHTML
 el.insertAdjacentHTML(
+el.querySelectorAll(
 el.remove());
 el.remove());if(event.key===
 el.setAttribute(
@@ -6697,6 +6772,7 @@ element,
 element.addEventListener(
 else
 else.
+else{i++;j++;}
 embed
 embed-fallback
 embed.classList.add(
@@ -6803,6 +6879,7 @@ eqPreampGain.connect(audioCtx.destination);
 eqPreampGain.gain.value
 eqPulse
 equalizer
+equivalent.
 error
 escalateStage(channel)
 escalateStage(channel);
@@ -6922,6 +6999,8 @@ failures
 fakt
 fallback
 fallback)
+fallback.length
+fallback.push(station);
 fallback;
 fallback;}
 fallbackArt:id=
@@ -6980,7 +7059,7 @@ fetchedLanguageUrls
 fetchedLanguageUrls.add(langObj.m3uUrl);
 few
 field
-fields.hay.includes(term)))continue;
+fields.hay.includes(term))
 fields=radioSearchFields(station);
 fight
 filamchi
@@ -7060,6 +7139,7 @@ flex:none;font-size:12px;font-weight:600;background:#282828;color:white;border-r
 floating
 flowers
 fm
+fmrainbo
 focus
 focus:bg-[#121212]
 focus:bg-[#17171f]
@@ -7126,6 +7206,7 @@ force
 forceState
 forcedLang
 forcedLang:
+foreground
 forgetPlayerOpen();
 forgetPlayerOpen(){if(radioPlayerNav&&!radioNav?.isRestoring())radioNav?.drop(radioPlayerNav);radioPlayerNav=null;}
 formatSec(audio.currentTime);
@@ -7426,6 +7507,7 @@ hay
 hay.includes(
 hay.includes(kw))
 hay.includes(kw)))
+hay=normalizeRadioSearch(source.join(
 hdUrl=pick.artworkUrl100?.replace(
 head
 header
@@ -7724,6 +7806,7 @@ i).slice(0,
 i++)
 i,
 i=(i+direction+base.length)%base.length;
+i=0,j=0,edits=0;
 i=0;i
 i=favorites.findIndex(c=
 i=firstNew;i
@@ -7767,6 +7850,7 @@ if(!browse){browse=document.createElement(
 if(!button){button=document.createElement(
 if(!button){if(isMobile()&&event.target.closest(
 if(!cached
+if(!candidate)continue;
 if(!catalogItems.includes(station)&&activeStream!==station&&appConfig.activeCategory!==
 if(!catalogItems.length)
 if(!channel
@@ -7788,6 +7872,7 @@ if(!indexed
 if(!input){input=document.createElement(
 if(!isChannelVisible(c))continue;
 if(!isChannelVisible(ch)||seen.has(ch.url))continue;
+if(!isChannelVisible(ch)||used.has(ch.url))continue;
 if(!isMobile())return;lastHomeKey=
 if(!isPlaying&&!pendingBootStation)
 if(!j.songs?.[0]?.artist
@@ -7815,6 +7900,7 @@ if(!row)return;
 if(!saved||typeof
 if(!scheduled){scheduled=true;requestAnimationFrame(sync);}
 if(!scope)return;const
+if(!scored.length
 if(!sheet.classList.contains(
 if(!skipSave&&Object.values(appConfig.catalogFilters||{}).some(v=
 if(!skipSave&&cat!==appConfig.activeCategory)rememberRadioPlace();
@@ -7826,7 +7912,6 @@ if(!station
 if(!station)return;
 if(!streamObj
 if(!surface||!wrap)return;
-if(!terms.every(term=
 if(!tvRows){const
 if(!validUrl||generation!==playbackRevision||!activeStream||activeStream.id!==streamObj.id||!isPlaying)return;
 if(!value&&nowNav){if(!tvNav?.isRestoring())tvNav?.drop(nowNav);nowNav=null;}
@@ -7836,6 +7921,7 @@ if(!values||typeof
 if(!value||typeof
 if(!window.SterlingRadioCatalog)appendLiveLanguageStations(
 if(!window.SterlingRadioCatalog||!window.SterlingRadioDirectory)return;
+if(++edits
 if(Array.isArray(appConfig.catalogSources)&&appConfig.catalogSources.length){
 if(Array.isArray(data.favorites)){favorites.splice(0,favorites.length,...data.favorites.filter(c=
 if(Array.isArray(data.liked)){likedStations=data.liked.filter(s=
@@ -7848,9 +7934,12 @@ if(BAND_CATEGORIES.includes(cat))return
 if(Boolean(value)===wasFloating)return;
 if(Date.now()
 if(Date.now()-(stationArtworkChecked.get(key)||0)
+if(Math.abs(a.length-b.length)
 if(Math.abs(dy)
 if(Number.isFinite(clean.volume))clean.volume=Math.max(0,Math.min(1,clean.volume));
 if([
+if(a.length
+if(a[i]===b[j]){i++;j++;continue;}
 if(abort.signal.aborted)break;
 if(action===
 if(activeChannel)
@@ -7861,6 +7950,7 @@ if(anchor.band&&ch.band===anchor.band)score+=6;if(anchor.category&&ch.category==
 if(appConfig.activeCategory===
 if(artworkCache.has(ch.url))return
 if(audio.paused)
+if(b.length
 if(btn){btn.classList.toggle(
 if(button.dataset.tmCategory){const
 if(button.dataset.tmChannel){const
@@ -7878,6 +7968,7 @@ if(ch.url===seed?.url||!isChannelVisible(ch))continue;
 if(changed)window.dispatchEvent(new
 if(clean.lastStationSnapshot&&!station(clean.lastStationSnapshot))delete
 if(code===
+if(compactQuery.length
 if(create){create.dataset.spsCreate=
 if(currentTheme===
 if(data.action===
@@ -7885,6 +7976,7 @@ if(data?.type!==
 if(data?.type===
 if(didHydrate
 if(dir===
+if(direct){
 if(document.documentElement.dataset.radioView===
 if(document.getElementById(
 if(document.hidden)return;
@@ -7958,7 +8050,6 @@ if(playbackRevision===revision&&!userPaused&&d.fatal)switchBackupServer();
 if(playbackRevision===revision&&!userPaused)handlePlayPromise(audio.play());
 if(playbackRevision===revision)updateActivePlayerSongArtwork(streamObj);
 if(position
-if(prefix.length
 if(query.trim()&&burst){publishSuggestions(query);applySearchTimer=setTimeout(()=
 if(query.trim())return
 if(radioCatalog)refreshRadioDirectory();else
@@ -7984,6 +8075,7 @@ if(ruler){const
 if(saved.background===
 if(savedStation){activeStream=savedStation;syncPlayerUI(getStationIdentityThumbnail(savedStation));}
 if(score
+if(scored.length
 if(scrollFramePending)return;
 if(searchInputEl.value.trim())clearSelectionSearch();
 if(sheet.classList.contains(
@@ -8007,8 +8099,11 @@ if(surface){
 if(target
 if(te&&!document.getElementById(prefix+
 if(telugu.length&&catalogLanguage!==
+if(term.length
+if(terms.every(nearToken))
 if(text.length
 if(ticks){let
+if(token.includes(term)||(term.length
 if(trackKey===lastArtworkTrackKey&&Date.now()-lastArtworkTrackCheck
 if(tvUserPaused)return;
 if(typeof
@@ -8295,6 +8390,7 @@ key)
 key,
 key;
 key=JSON.stringify([activeChannel?.url,recentHistory.slice(0,8).map(ch=
+key=activeStream.id+
 key=band.id+
 key=station.id||station.title;
 key=station?.id;if(!key||stationArtworkPending.has(key)||Date.now()-(stationArtworkChecked.get(key)||0)
@@ -8634,6 +8730,7 @@ mainVideoEl.videoHeight
 mainVideoEl.videoHeight));
 mainVideoEl.videoWidth
 majha
+make
 makes
 makkal
 malai
@@ -8716,6 +8813,7 @@ max=
 maxBufferLength:
 maxCap
 maxCap)
+maxFuzzy=Math.min(limit,60),used=new
 maxLeft
 maxResults=Infinity)
 maxTop
@@ -8746,7 +8844,10 @@ md:right-6
 me,
 meanwhile.
 media
+media-about
 media-browse-grid
+media-scroll-copy
+media-scroll-strip
 media-settings-dialog
 media-sheet-content
 media-shelf-count
@@ -8779,7 +8880,7 @@ min-height:45px;
 min-height:48px;padding:5px
 min-height:60px;
 min-height:calc(100dvh
-min-height:calc(clamp(56px,8dvh,76px)
+min-height:calc(clamp(70px,calc((100dvh
 min-w-0
 min-w-[220px]
 min-width:
@@ -8911,6 +9012,7 @@ name=activeChannel?.name||
 name=b.dataset.tmAction;
 name=document.createElement(
 nameVal
+names
 names/URLs
 names=[...SHELL_GROUPS.filter(n=
 nandighosha
@@ -8952,6 +9054,7 @@ near
 nearBottom
 nearRight
 nearRight)
+nearToken=term=
 need
 needs
 netflix
@@ -9004,6 +9107,7 @@ normalizeChannelCategory(
 normalizeChannelCategory(rawGroup
 normalizeChannelCategory(rawGroup,
 normalizeRadioSearch
+normalizeRadioSearch(value)
 normalizeSearch
 normalizeSearch(query);
 normalizedGroup
@@ -9016,6 +9120,7 @@ now
 now-playing
 now.
 now.addEventListener(
+now.getBoundingClientRect().top+62);document.body.style.setProperty(
 now.has(station.streamUrl)),have=new
 now.hidden=!(enabled&&expanded&&currentTheme===
 now.hidden=true;
@@ -9058,6 +9163,7 @@ ok
 old
 old=current[index];if(old&&old.outerHTML===node.outerHTML)return;if(old)old.replaceWith(node);else
 oldies
+omitted
 omnicast_v11_config
 omnicast_v11_counts
 omnicast_v11_extras
@@ -9089,8 +9195,11 @@ oncontextmenu=
 ondblclick=
 one
 one,
+one-edit
 one-way
 one.
+oneEdit(term,token+(tokens[index+1]||
+oneEdit=(a,b)=
 onerror=
 ones
 oninput=
@@ -9172,6 +9281,7 @@ order.length];
 order[(order.indexOf(currentTheme)
 ordered.filter(c=
 ordered=index
+ordinary
 origin.
 originalBatch(...args);
 originalBatch=renderNextBatch;renderNextBatch=function(...args){
@@ -9220,7 +9330,6 @@ own
 owns
 p
 p)
-p-0
 p-0.5
 p-1
 p-1.5
@@ -9271,6 +9380,7 @@ paint
 paint;
 painted
 paints
+pair=token+(tokens[index+1]||
 pal
 pan-x;
 pan-y;}
@@ -9609,8 +9719,9 @@ preferredTvMuted
 preferredTvMuted;
 preferredTvMuted=false;v.muted=false;
 prefix
-prefix-first
-prefix.concat(other).slice(0,limit);
+prefix-first,
+prefix.concat(other,fallback).slice(0,limit);
+prefix=[],other=[],fallback=[];
 preload=
 preserveGrid=radioGridView===viewKey&&radioGridRows.length
 preserves
@@ -9651,6 +9762,7 @@ printed
 pro-slider
 profile;
 programme
+programming
 promise
 prompt
 properties
@@ -9710,8 +9822,9 @@ py-8
 q
 q)
 q);
+q.replace(/\s+/g,
 q.split(/\s+/).filter(Boolean);
-q=normalizeRadioSearch(query),terms=q.trim().split(/\s+/).filter(Boolean);
+q=normalizeRadioSearch(query).trim();
 qPop
 qPop.classList.add(
 qprof-${q}
@@ -9725,7 +9838,6 @@ quadGrid.innerHTML
 quadHlsInstances
 quadHlsInstances.forEach(h
 quadHlsInstances.push(h);
-quadratic
 quality
 quality-levels-list
 quality-popover
@@ -9785,12 +9897,17 @@ radio-mobile-art
 radio-modal-open
 radio-np-actions
 radio-np-controls
+radio-np-copy
 radio-np-feature
 radio-np-head
+radio-np-playback
 radio-np-timeline
 radio-play-glyph
 radio-playing-context
 radio-rows-holder
+radio-scroll-strip
+radio-scroll-sub
+radio-scroll-title
 radio-search-suggestions
 radio-searching
 radio/i.test(station.title));
@@ -9824,8 +9941,8 @@ radioDirectorySnapshot=snapshot;radioHomeKey=
 radioDirectoryUi=window.SterlingRadioDirectory.mount({catalog:radioCatalog,getConfig:()=
 radioExtras=null;
 radioExtras=window.SterlingMediaExtras.mount({kind:
-radioExtras?.open()
 radioExtras?.open(),
+radioExtras?.open();
 radioExtras?.surprise());
 radioFilterTitle(){
 radioGridMarkup(items,offset,spotify){
@@ -9847,6 +9964,8 @@ radioNav.push(()=
 radioNav=null;
 radioNav=window.SterlingNav?.create({kind:
 radioNav?.back();
+radioOneEditApart(a,b)
+radioOneEditApart(term,pair);
 radioPlace(){return
 radioPlayerNav=null;
 radioQueue(){
@@ -9902,7 +10021,6 @@ rank
 ranked.length&&ranked[index].score
 ranked.map(item=
 ranked=[];
-ranking
 rasterization,
 rather
 ratio
@@ -10433,7 +10551,6 @@ scale(1.035)
 scaleY(0.25);
 scaleY(1);
 scaling
-scans.
 schedule
 schedule()
 schedule();
@@ -10454,6 +10571,7 @@ score=0;
 scored
 scored.length
 scored.map(s
+scored.push({ch,score:0});
 scored[position].score
 screen
 screen.orientation?.lock?.(
@@ -10467,6 +10585,7 @@ scroll-mini-video-slot
 scroll-smooth
 scroll-snap-align:
 scroll-snap-type:
+scroll-top
 scrollFramePending=false;
 scrollFramePending=true;
 scrollMiniDismissed
@@ -10664,6 +10783,9 @@ share:
 shared
 shared.
 sheet
+sheet-about-broadcast
+sheet-about-meta
+sheet-about-title
 sheet-art
 sheet-context
 sheet-cur
@@ -10673,6 +10795,7 @@ sheet-mute
 sheet-play
 sheet-queue
 sheet-range
+sheet-scroll-play
 sheet-share
 sheet-similar-block
 sheet-similar-list
@@ -10685,6 +10808,7 @@ sheet-up-next
 sheet.
 sheet.addEventListener(
 sheet.classList.add(
+sheet.getBoundingClientRect().top+62);if(sheet.scrollTop+sheet.clientHeight
 sheet.innerHTML=
 sheet.querySelector(
 sheet.scrollHeight-240&&rnpShown
@@ -10694,12 +10818,13 @@ sheet=document.getElementById(
 sheetArt=document.getElementById(
 sheetIcon.className=
 sheetIcon.innerHTML=paused?
-sheetIcon=document.getElementById(
+sheetIcon=document.getElementById(id);
 sheetMute=document.getElementById(
 sheetNav=null;
 sheetReturnFocus=null;
 sheetSim
 sheetSim.innerHTML
+sheets
 shelf
 shelf(
 shelf(cat,allChannels.filter(ch=
@@ -10840,7 +10965,6 @@ sm:inline-flex
 sm:items-center
 sm:mx-5
 sm:opacity-0
-sm:p-4
 sm:pl-0
 sm:pt-3
 sm:px-0
@@ -10906,6 +11030,7 @@ songs
 songs,
 sonic
 sony
+sort
 sort.
 sorted
 sorted.find(s
@@ -10913,7 +11038,6 @@ sortedCats
 sortedCats.map(cat
 sorted[0];
 sorted[sorted.length
-sorting
 sound
 sound)
 sound,
@@ -11037,6 +11161,8 @@ space-y-2.5
 space-y-3
 space-y-4
 space-y-5
+spaces
+spaces/punctuation
 span
 span;}));}
 span=document.createElement(
@@ -11044,6 +11170,7 @@ spanish
 spatial
 spatial:
 specific
+spelling
 spinner
 spinner)
 spinner);
@@ -11127,6 +11254,7 @@ stageBottom
 standalone
 standard
 star
+starplus
 start
 start;
 start=null;
@@ -11406,9 +11534,11 @@ sw_ree_spain
 sw_rnz_pacific
 sw_voa_global
 sw_wrmi_miami
+swamping
 swayam
 swclean
 swclean:
+swipe
 swipes
 swiss_jazz
 switch
@@ -11559,6 +11689,7 @@ term.toLowerCase());
 term;
 terms
 terms.length;
+terms=q.split(/\s+/).filter(Boolean);
 text
 text-2xl
 text-[#121212]
@@ -11806,8 +11937,14 @@ toggleTheatreMode();
 toggleYtmQueue()
 toggleYtmQueue();
 token
+token.includes(term)
 tokens.
+tokens.some((token,index)
+tokens.some((token,index)=
+tokens=fields.tokens;
+tokens=normalizeSearch([ch.name,ch.group,ch.lang].join(
 tokyo
+tolerate
 too:
 took
 tools
@@ -11824,7 +11961,7 @@ top-3
 top-3.5
 top-4
 top:
-top:clamp(56px,8dvh,76px);width:auto;
+top:clamp(70px,calc((100dvh
 topSix.map(ch
 topSix=[],quickSeen=new
 total
@@ -11901,6 +12038,8 @@ tunerPool();
 tunerPool()[0];
 tunerPool(){const
 tv
+tv-about-meta
+tv-about-title
 tv-booting
 tv-booting).
 tv-head-icon
@@ -11915,6 +12054,9 @@ tv-mobile-sheet
 tv-mobile-shell
 tv-now-playing
 tv-rows-holder
+tv-scroll-strip
+tv-scroll-sub
+tv-scroll-title
 tv-tools-open
 tv-tools-reveal
 tv5monde
@@ -11949,7 +12091,9 @@ type=
 typeof
 types
 typing;
+typo,
 typographic
+typos
 udaya
 ui-monospace,
 uiStorage=()=
@@ -11966,6 +12110,7 @@ undefined
 under
 underlay
 underline
+undiscoverable.
 univision
 unknown;
 unmute
@@ -12052,6 +12197,7 @@ urlVal;
 use
 used
 used.
+used.add(ch.url);
 user
 user-opened
 user-scalable=no,
@@ -12300,6 +12446,7 @@ where
 where=document.createElement(
 which
 while
+while(i
 while(position
 while(stationArtworkInflight
 while(unavailableChannels.size
@@ -12348,6 +12495,7 @@ will-change:
 window
 window)
 window)new
+window.
 window.AudioContext
 window.Hls
 window.SterlingRadioDirectory.match(station,appConfig.catalogFilters||{})):pool;}
@@ -12515,8 +12663,6 @@ z-30
 z-40
 z-50
 z-[100]
-z-[115]
-z-[118]
 z-[120]
 z-[130]
 z-[165]
@@ -12581,12 +12727,13 @@ zoom.
 {display:flex;align-items:center;gap:14px;width:100%;min-height:64px;text-align:left;border-bottom:1px
 {display:none!important;}
 {display:none;}
-{document.body.style.setProperty(
 {document.documentElement.dataset.spsPage=page||
+{document.getElementById(
 {drag={y:e.clientY,height:sheet.querySelector(
 {el.textContent=band.label;});
 {el.textContent=band.title;});
 {event.preventDefault();dialog.close();});
+{event.preventDefault();dialog.close();});}
 {favorites=value;}],
 {flex-basis:min(59vw,224px);}
 {flex-wrap:wrap;gap:4px;}
@@ -12622,12 +12769,12 @@ zoom.
 {if(e.target===sheet)closeSheet();});
 {if(entries.some(entry=
 {if(event.key===
-{if(event.target===dialog)dialog.close();});
+{if(event.target.closest(
+{if(event.target===dialog)dialog.close();});dialog.addEventListener(
 {if(generation===playbackGeneration&&!tvUserPaused&&video.paused)video.play().catch(()=
 {if(ids?.length
 {if(node.nodeType===1){enhanceRadioControls(node);observeArtwork(node);}}))).observe(document.body,{childList:true,subtree:true});
 {if(seen.has(station.streamUrl))return
-{if(sheet.scrollTop+sheet.clientHeight
 {if(shellActive()&&spotifyShell)spotifyShell.show(
 {if(shellCats.size===allChannels.length)return
 {if(startY===null||e.touches.length!==1)return;const
@@ -12679,6 +12826,7 @@ zoom.
 {return
 {saveUi();if(document.visibilityState===
 {scrollFramePending=false;onScroll();});
+{setPlayerGlyph(b,paused?
 {setScrollPip(false);onScroll();});
 {shellPage=page;markShellNav();}
 {signal:controller.signal})
@@ -12758,6 +12906,7 @@ zoom.
 });
 });break;
 });clearSelectionSearch();closeSheet();if(currentTheme===
+});return;}const
 });}
 });};
 });}return;}

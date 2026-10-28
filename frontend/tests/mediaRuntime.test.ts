@@ -6,6 +6,7 @@ describe('Radio and TV search tolerance and settings routing',()=>{
     expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"fmrainbow",8).length')).toBe(1);
     expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"fmrainbo",8).length')).toBe(1);
     expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"rainbo",8).length')).toBe(1);
+    expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"fmrainbo").length')).toBe(1);
     expect(errors).toEqual([]);
   });
   it('finds TV channels without whitespace and with a bounded typo',()=>{
@@ -33,12 +34,12 @@ describe('Radio and TV search tolerance and settings routing',()=>{
   it('keeps radio startup and equalizer settings mutually exclusive',()=>{
     const {w,errors}=boot('radio');
     (w as any).openStartupModal();
-    expect(w.document.getElementById('startup-modal')?.classList.contains('hidden')).toBe(false);
+    expect((w.document.getElementById('startup-modal') as HTMLDialogElement).open).toBe(true);
     (w as any).openDspModal();
-    expect(w.document.getElementById('startup-modal')?.classList.contains('hidden')).toBe(true);
-    expect(w.document.getElementById('audio-dsp-modal')?.classList.contains('hidden')).toBe(false);
+    expect((w.document.getElementById('startup-modal') as HTMLDialogElement).open).toBe(false);
+    expect((w.document.getElementById('audio-dsp-modal') as HTMLDialogElement).open).toBe(true);
     (w as any).openStartupModal();
-    expect(w.document.getElementById('audio-dsp-modal')?.classList.contains('hidden')).toBe(true);
+    expect((w.document.getElementById('audio-dsp-modal') as HTMLDialogElement).open).toBe(false);
     expect(errors).toEqual([]);
   });
 });
@@ -174,7 +175,7 @@ describe('Actual sandboxed media documents on mobile',()=>{
     const volume=w.document.getElementById('sheet-range')!;touch(volume,'touchstart',0);touch(volume,'touchend',180);
     expect(sheet.classList.contains('drawer-visible')).toBe(true);
     // Swipe down from the header: the sheet follows the finger, then closes (media/sheet-swipe.js).
-    const handle=sheet.firstElementChild!.querySelector('span')!;touch(handle,'touchstart',0);
+    const handle=sheet.querySelector('.radio-playing-context')!;touch(handle,'touchstart',0);
     for(const y of [20,60,120,180])touch(handle,'touchmove',y);touch(handle,'touchend',180);
     await new Promise(resolve=>setTimeout(resolve,250));
     expect(sheet.classList.contains('drawer-hidden')).toBe(true);
@@ -218,7 +219,7 @@ describe('Actual sandboxed media documents on mobile',()=>{
     const sheet=w.document.getElementById('mobile-player-sheet')!;
     expect(sheet.classList.contains('drawer-visible')).toBe(true);
     (sheet.querySelector('[data-radio-click="29"]') as HTMLElement).click();
-    expect(w.document.getElementById('audio-dsp-modal')?.classList.contains('hidden')).toBe(false);
+    expect((w.document.getElementById('audio-dsp-modal') as HTMLDialogElement).open).toBe(true);
     expect(w.document.documentElement.classList.contains('radio-modal-open')).toBe(true);
     (w.document.querySelector('#dsp-flat') as HTMLElement).click();
     (w.document.querySelector('#audio-dsp-modal [data-radio-click="9"]') as HTMLElement).click();
@@ -360,7 +361,7 @@ it.each(['radio','tv'] as const)('opens the %s URL source manager through its ho
  const {w,errors}=boot(kind);
  w.dispatchEvent(new w.MessageEvent('message',{source:w.parent,data:{type:`sterling.${kind}.command`,action:'sources'}}));
  if(kind==='radio')expect((w.document.querySelector('.radio-source-dialog') as HTMLDialogElement).open).toBe(true);
- else expect(w.document.getElementById('source-manager-modal')?.classList.contains('hidden')).toBe(false);
+ else expect((w.document.getElementById('source-manager-modal') as HTMLDialogElement).open).toBe(true);
  expect(errors).toEqual([]);
 });
 

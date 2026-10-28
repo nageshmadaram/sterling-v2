@@ -33,7 +33,7 @@ describe('Sterling users', () => {
     fireEvent.change(screen.getByLabelText('Repeat password'), { target: { value: 'Synthetic-password-123' } });
     api.post.mockResolvedValue({ id: 'new' });
     fireEvent.click(screen.getByRole('button', { name: 'Save user' }));
-    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/v1/auth/users', { username: 'new-user', password: 'Synthetic-password-123', role: 'user', active: true, features:{kite:false,radio:false,tv:false},configuration:{brokers:{visible:false,grants:[]},telegram:{visible:false,grants:[]},integrations:{visible:false,grants:[]}} }));
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/v1/auth/users', { username: 'new-user', password: 'Synthetic-password-123', role: 'user', active: true, features:{kite:false,radio:false,tv:false},visibility:{kite:true,radio:true,tv:true},configuration:{brokers:{visible:false,grants:[]},telegram:{visible:false,grants:[]},integrations:{visible:false,grants:[]}} }));
   });
 });
 
@@ -41,7 +41,7 @@ it('sets initial workspace and settings access in the creation request',async()=
   show();fireEvent.click(await screen.findByRole('button',{name:/Add user/}));
   fireEvent.change(screen.getByLabelText('Username'),{target:{value:'configured-user'}});
   for(const name of ['Password','Repeat password'])fireEvent.change(screen.getByLabelText(name,{exact:true}),{target:{value:'Synthetic-password-123'}});
-  fireEvent.click(screen.getByLabelText('Echo · radio'));
+  fireEvent.click(screen.getByLabelText('Allow radio access'));
   fireEvent.click(screen.getByLabelText('Broker settings'));
   fireEvent.click(screen.getByLabelText('Add connections'));
   api.post.mockResolvedValue({id:'configured'});

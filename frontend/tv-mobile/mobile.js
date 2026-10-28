@@ -32,7 +32,7 @@
   const mini=document.createElement('div');mini.id='tv-mobile-mini';mini.setAttribute('aria-label','Now playing');
   mini.innerHTML=`<button class="tm-mini-open" data-tm-action="expand" aria-label="Open Now Playing"><img alt=""/><span class="tm-mini-copy"><strong></strong><small class="tm-live-dot">Live</small></span></button>${action('save','Save channel to your library','plus')}${action('play','Play or pause live TV','play')}<div class="tm-mini-live" aria-hidden="true"></div>`;
   const now=document.createElement('section');now.id='tv-now-playing';now.setAttribute('aria-label','Now Playing');now.setAttribute('role','dialog');now.setAttribute('aria-modal','true');now.hidden=true;
-  now.innerHTML=`<div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer">${action('surprise','Surprise channel','surprise')}<div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
+  now.innerHTML=`<div class="media-scroll-strip" id="tv-scroll-strip" data-visible="false"><div><button type="button" data-tm-action="scroll-top" class="media-scroll-copy"><strong id="tv-scroll-title"></strong><small id="tv-scroll-sub"></small></button>${action('play','Play live TV','play')}</div></div><div class="tm-now-main"><div class="tm-now-head">${action('collapse','Close Now Playing','down')}<div><small>PLAYING FROM</small><strong id="tm-now-group">Your television, everywhere</strong></div>${action('more','Now Playing options','more')}</div><div class="tm-now-spacer" aria-hidden="true"></div><div class="tm-now-copy"><div><h2 id="tm-now-title"></h2><p id="tm-now-subtitle"></p></div>${action('save','Save channel to your library','plus')}</div><div class="tm-timeline"><div class="tm-timeline-track" aria-hidden="true"></div><div class="tm-timeline-label"><span>Live broadcast</span><span class="tm-live-dot">LIVE</span></div></div><div class="tm-now-controls">${action('mute','Mute or unmute TV','volume')}${action('previous','Previous channel','prev')}${action('play','Play or pause live TV','play','tm-big-play')}${action('next','Next channel','next')}${action('pip','Picture in picture','pip')}</div><div class="tm-now-footer">${action('surprise','Surprise channel','surprise')}<div>${action('epg','Channel information and programme guide','info')}${action('queue','Open channel queue','queue')}</div></div></div><section class="tm-now-more media-about" aria-label="About this channel"><div class="tm-now-more-head"><h3>About this channel</h3></div><strong id="tv-about-title"></strong><p id="tv-about-meta"></p><p>Live broadcast · Programme information depends on the broadcaster</p></section><section class="tm-now-more" aria-label="Up next"><div class="tm-now-more-head"><h3>Up next</h3><button data-tm-action="queue">Open queue</button></div><div id="tm-now-next"></div></section><section class="tm-now-more" aria-labelledby="tm-now-related-title"><div class="tm-now-more-head"><h3 id="tm-now-related-title">More like this</h3></div><div id="tm-now-related"></div><button class="tm-now-show-more" data-tm-action="related-more" hidden>Show more</button></section>`;
   const sheet=document.createElement('div');sheet.id='tv-mobile-sheet';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','TV features');sheet.setAttribute('aria-modal','true');
   document.body.append(nav,mini,now,sheet);
   let shellPage=null,tvRows=null,tvRowsKey='',tvListView=false;
@@ -126,6 +126,10 @@
       const source=artwork(activeChannel),miniArt=mini.querySelector('img');if(miniArt.getAttribute('src')!==source)miniArt.src=source;
       setPlayerText(mini.querySelector('strong'),activeChannel.name);
       setPlayerText(document.getElementById('tm-now-title'),activeChannel.name);
+      setPlayerText(document.getElementById('tv-scroll-title'),activeChannel.name);
+      setPlayerText(document.getElementById('tv-scroll-sub'),[activeChannel.group,activeChannel.lang].filter(Boolean).join(' · '));
+      setPlayerText(document.getElementById('tv-about-title'),activeChannel.name);
+      setPlayerText(document.getElementById('tv-about-meta'),[activeChannel.group,activeChannel.lang].filter(Boolean).join(' · '));
       setPlayerText(document.getElementById('tm-now-subtitle'),`${activeChannel.group||'Channel'} · ${activeChannel.lang||'Global'}`);
       setPlayerText(document.getElementById('tm-now-group'),activeChannel.group||'Your live channels');
       if(expanded&&!now.hidden)renderNowMore();
@@ -140,7 +144,7 @@
     const mute=now.querySelector('[data-tm-action="mute"]');
     const muted=document.getElementById('video-player').muted;
     setPlayerGlyph(mute,muted?'muted':'volume');mute.setAttribute('aria-label',muted?'Unmute TV':'Mute TV');
-    [mini,now].forEach(el=>{const b=el.querySelector('[data-tm-action="play"]');setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');b.setAttribute('aria-pressed',String(!paused));});
+    [mini,now].forEach(el=>el.querySelectorAll('[data-tm-action="play"]').forEach(b=>{setPlayerGlyph(b,paused?'play':'pause');b.setAttribute('aria-label',paused?'Play live TV':'Pause live TV');b.setAttribute('aria-pressed',String(!paused));}));
     if(typeof renderTvRows==='function')renderTvRows();
   }
   // Below the player, like Spotify: the next few queued channels, then every channel in the same category
@@ -163,7 +167,7 @@
     document.getElementById('tm-now-related').insertAdjacentHTML('beforeend',batch.map(ch=>relatedRow(ch,'data-tm-related="true"')).join(''));
     now.querySelector('[data-tm-action="related-more"]').hidden=relatedShown>=relatedPool.length;
   }
-  now.addEventListener('scroll',()=>{document.body.style.setProperty('--tm-now-scroll',`${now.scrollTop}px`);if(now.scrollTop+now.clientHeight>now.scrollHeight-200&&relatedShown<relatedPool.length)appendRelated();},{passive:true});
+  now.addEventListener('scroll',()=>{document.getElementById('tv-scroll-strip').dataset.visible=String(document.getElementById('tm-now-title').getBoundingClientRect().bottom<now.getBoundingClientRect().top+62);document.body.style.setProperty('--tm-now-scroll',`${now.scrollTop}px`);if(now.scrollTop+now.clientHeight>now.scrollHeight-200&&relatedShown<relatedPool.length)appendRelated();},{passive:true});
   function schedule() { if(!scheduled){scheduled=true;requestAnimationFrame(sync);} }
   let sheetReturnFocus=null;
   let sheetNav=null;
@@ -290,6 +294,7 @@
       case 'close-search': shell.querySelector('.tm-search').hidden=true;run('home');break;
       case 'expand': setExpanded(true);break;
       case 'collapse': setExpanded(false);break;
+      case 'scroll-top':now.scrollTo({top:0,behavior:'smooth'});break;
       case 'play': { const video=document.getElementById('video-player'); if(video.classList.contains('hidden'))togglePlayPause();else if(video.paused && video.readyState===0)resumeTvPlayback();else togglePlayPause();schedule();break; }
       case 'save': toggleSubscribeAndFavorite();renderHome();sync();break;
       case 'surprise': window.tvExtras?.surprise();schedule();break;

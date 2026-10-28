@@ -48,10 +48,10 @@ button:focus-visible,[data-radio-click]:focus-visible {outline:2px solid #1ed760
   .solid-ytm-footer {border-radius:0!important;}
   #mobile-player-sheet {padding:12px 24px calc(24px + env(safe-area-inset-bottom,0px));background:linear-gradient(160deg,rgba(var(--ambient-rgb,28,90,56),.98) 0%,#18241e 52%,#090d0b 100%)!important;}
   .mode-ytmusic #mobile-player-sheet {background:linear-gradient(155deg,rgba(var(--ambient-rgb,28,90,56),.68) 0%,#181818 48%,#060606 100%)!important;}
-  #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(100%,340px);height:auto;aspect-ratio:1;max-height:38dvh;margin-bottom:24px;}
+  #mobile-player-sheet .radio-mobile-art {width:min(100%,340px);height:auto;aspect-ratio:1;max-height:38dvh;margin-bottom:24px;}
   #sheet-title {font-size:24px;font-weight:700;letter-spacing:-.5px;}
   #sheet-sub {font-size:13px;}
-  #mobile-player-sheet>div:nth-child(3) {padding-top:4px;}
+  #mobile-player-sheet .radio-np-playback {padding-top:4px;}
 }
 @media(max-width:1023px) and (orientation:landscape) {
   #sp-top-compact-grid {grid-template-columns:repeat(4,minmax(0,1fr));}
@@ -122,7 +122,7 @@ html.radio-hosted.radio-searching #spotify-app>header:nth-child(2),
 html.radio-hosted.radio-searching #ytmusic-app>header:nth-child(2) {display:none!important;}
 @media(max-width:767px) {
   #mobile-player-sheet {padding:16px 22px calc(18px + env(safe-area-inset-bottom,0px))!important;}
-  #mobile-player-sheet>div:nth-child(2)>div:first-child {width:min(80vw,320px)!important;max-height:min(45dvh,320px)!important;margin-inline:auto;}
+  #mobile-player-sheet .radio-mobile-art {width:min(80vw,320px)!important;max-height:min(45dvh,320px)!important;margin-inline:auto;}
 }
 
 /* Never let translucent desktop players show underlying scrollable cards. */
@@ -173,14 +173,14 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
     display:flex;flex-direction:column;justify-content:flex-start;gap:clamp(6px,1.3dvh,14px);
   }
   html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art,
-  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet>div:nth-child(2)>div:first-child {
-    width:min(calc(100vw - 32px),calc(100dvh - 300px),520px)!important;
-    height:min(calc(100vw - 32px),calc(100dvh - 300px),520px)!important;
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art {
+    width:min(calc(100vw - 32px),calc(100dvh - 380px),520px)!important;
+    height:min(calc(100vw - 32px),calc(100dvh - 380px),520px)!important;
     max-width:100%!important;max-height:60dvh!important;
     flex:0 1 auto;margin:clamp(14px,2.5dvh,24px) auto clamp(18px,3dvh,28px)!important;
     aspect-ratio:1;
   }
-  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-feature {margin:0;width:100%;padding:0;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-feature {margin:0!important;width:100%;padding:0!important;}
   html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet #sheet-title {
     font-size:clamp(19px,5.3vw,25px)!important;
     line-height:1.25;max-width:100%;
@@ -255,24 +255,9 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
   #sp-rail-similar>* {min-width:0;overflow:hidden;text-overflow:ellipsis;}
 }
 
-/* Keep Radio's recommendations near playback rather than leaving a blank
-   viewport-sized spacer below the second row of player controls. */
-@media(max-width:1023px) and (orientation:portrait) {
-  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix)
-    #mobile-player-sheet .rnp-main {
-    min-height:0!important;
-    height:auto!important;
-    padding-bottom:clamp(8px,1.4dvh,14px);
-  }
-  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix)
-    #mobile-player-sheet .rnp-more {
-    margin-top:clamp(12px,2dvh,20px)!important;
-  }
-}
-
 /* The control glyph has its own square box; font baselines never move it. */
-#sheet-play.radio-play-glyph{display:grid;place-items:center;width:28px;height:28px;margin:0;line-height:1;}
-#sheet-play.radio-play-glyph svg{display:block;width:28px;height:28px;fill:currentColor;}
+.radio-play-glyph{display:grid;place-items:center;width:28px;height:28px;margin:0;line-height:1;}
+.radio-play-glyph svg{display:block;width:28px;height:28px;fill:currentColor;}
 #mobile-player-sheet #sheet-sub{margin-top:6px!important;line-height:1.5;}
 
 /* Only the artwork container clips its image; no halo or backing frame. */

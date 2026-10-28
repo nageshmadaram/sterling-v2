@@ -311,7 +311,7 @@ export function SimpleTerminal({ kiteOnly = false }: { kiteOnly?: boolean } = {}
               STERLING
             </span>
           </button>
-          {kiteOnly && <><span className="workspace-current">KITE</span><span id="kite-session-status" /></>}
+          {kiteOnly && <><button type="button" className="workspace-current workspace-cycle" aria-label="Switch workspace from Kite" title="Switch to the next permitted workspace" onClick={()=>window.dispatchEvent(new Event('sterling-cycle-workspace'))}>KITE <span aria-hidden="true">⌄</span></button><span id="kite-session-status" /></>}
           {!kiteOnly && (spectrum === 'kite' ? <SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /> : <div className="sterling-media-destinations"><SpectrumNavigation workspace={spectrum} onSelect={chooseSpectrum} /></div>)}
 
           <div style={{ flex: 1 }} />
