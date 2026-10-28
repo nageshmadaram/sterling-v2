@@ -2660,7 +2660,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200),event.data.requestId);
         if(action==='select-suggestion'&&typeof value==='string'){const ch=findStationById(value);if(ch){startPlayback(ch);clearAllSearches();}}
         if(action==='sources')openRadioSources();
-        if (action === 'more' || action === 'startup') openStartupModal();
+        if (action === 'more') { initRadioExtras(); radioExtras?.open(); }
+        if (action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
         if (action === 'back') radioNav?.back();
         return;
@@ -3794,7 +3795,6 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function getRadioSearchMatches(pool, query, limit=Infinity) {
       const q=normalizeRadioSearch(query).trim();
       const terms=q.split(/\s+/).filter(Boolean);
-      if(!terms.length)return pool.slice(0,limit);
       const compactQuery=compactRadioSearch(q),seen=new Set();
       const prefix=[],other=[],fallback=[];
       for(const station of pool) {
