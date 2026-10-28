@@ -113,3 +113,35 @@ html[data-color-scheme="light"] body :is([id^="sp-chip-"],[id^="sp-mchip-"],[id^
   color:#fff!important;
   font-weight:700;
 }
+
+/* Sterling unified player refinement: native sheets inherit light mode. */
+html[data-color-scheme="light"] :is(.media-comfort,.mx-dialog,.radio-source-dialog) {
+  background:#fff!important;background-image:none!important;color:#172333!important;
+  border:1px solid #d2dae5!important;box-shadow:0 24px 70px #20314935;
+  color-scheme:light;
+}
+html[data-color-scheme="light"] :is(.media-comfort,.mx-dialog,.radio-source-dialog)
+  :is(h2,h3,p,small,label,strong,header) {color:#172333!important;}
+html[data-color-scheme="light"] :is(.media-comfort,.mx-dialog,.radio-source-dialog)
+  :is(.media-timer-options button,.media-timer-cancel,.mx-secondary,.mx-setting) {
+  background:#eef2f7!important;color:#172333!important;border-color:#becbd9!important;
+}
+html[data-color-scheme="light"] :is(.media-comfort,.mx-dialog,.radio-source-dialog)
+  :is(.media-timer-options button,.media-timer-cancel,.mx-secondary,.mx-setting) :is(small,span) {
+  color:inherit!important;
+}
+html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal):not(.hidden)>div {
+  background:#fff!important;color:#172333!important;border:1px solid #cbd4df!important;
+}
+html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
+  :is(.text-white,.text-\\[\\#b3b3b3\\]) {color:#172333!important;}
+html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
+  :is(.bg-\\[\\#242424\\],.bg-\\[\\#202020\\],.bg-\\[\\#121212\\]) {
+  background:#edf2f7!important;border-color:#cbd4df!important;
+}
+html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
+  :is(button,select,input) {color:#172333;}
+html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
+  button.bg-white {color:#fff!important;background:#233e50!important;}
+html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
+  :is(input,select) {background:#fff!important;color:#172333!important;border:1px solid #b9c5d5!important;}
