@@ -1126,13 +1126,26 @@ def main():
         if not running:raise RuntimeError('Sterling stack manager is not running')
         os.kill(state['manager_pid'],signal.SIGTERM if args.command=='stop' else signal.SIGUSR1);print('Request accepted');return
     if args.command=='up' and running:
-        # Re-running the one-command launcher is idempotent. A verified
-        # current gateway is already supervised; do not churn its tunnels.
+        # Re-running the one-command launcher is idempotent ONLY when the
+        # manager actually loaded the desired frontend publisher settings.
+        # A verified old gateway can otherwise keep serving refs/heads/dev
+        # forever after the operator enrolled origin/main in backend/.env.
         expected_mode='local' if args.provider=='local' else ('named' if args.hostname else 'quick')
+        release_ref=os.environ.get('STERLING_PUBLISH_REF') or 'origin/main'
+        fetch_setting=os.environ.get('STERLING_PUBLISH_FETCH')
+        release_auto_fetch=(release_ref=='origin/main' and
+                            (fetch_setting is None or
+                             fetch_setting.strip().lower() in {'1','true','on','yes'}))
+        # Some old manager protocols did not expose release status at all.
+        # Their mode/version checks still apply; known incompatible release
+        # settings must NEVER be treated as an idempotent match.
+        release_matches=(not state.get('release_ref') or
+                         (state.get('release_ref')==release_ref and
+                          state.get('release_auto_fetch') is release_auto_fetch))
         current=(state.get('manager_protocol',0)>=4 and
                  state.get('mode')==expected_mode and
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and
-                 state.get('web_port')==args.port)
+                 state.get('web_port')==args.port and release_matches)
         if current and state.get('phase')!='stopped':
             # An adopted backend may disappear after launcher startup. The old
             # idempotent path kept reusing a manager that could no longer
