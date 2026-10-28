@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, Dict, List
+from types import SimpleNamespace
 
 import pytest
 
@@ -71,10 +72,15 @@ class BrokerSpy:
 @pytest.fixture
 def plan_store(tmp_path):
     from app.services.snapback_plan_store import PlanStore
+    from tests.feature_grants import grant_kite
+
+    grant_kite("default")
 
     store = PlanStore(db_path=str(tmp_path / "plans.db"))
     store.publish(
         plan_id="PLAN-1", opportunity_id="OPP-1", account_id="KITE-FAMILY",
+        owner_uid="default", order_type="LIMIT", limit_price=120.0, lot_size=1,
+        hedge_order_type="LIMIT", futures_lot_size=1,
         option_symbol="NIFTY26OCT25000PE", option_quantity=150,
         option_instrument_token=250001,
         futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
@@ -82,6 +88,7 @@ def plan_store(tmp_path):
         risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,
         policy_snapshot_hash="pol-1", runtime_build_sha="build-1",
         option_exchange="NFO", futures_exchange="NFO",
+        signal_side="fade_up", option_type="PE", hedge_side="BUY",
     )
     store.arm("PLAN-1", expected_revision=1, idempotency_key="k1", armed_by="u1")
     return store
@@ -95,6 +102,7 @@ def _executor(plan_store, broker, **over):
     defaults = dict(
         plan_store=plan_store,
         execution_service=broker,
+        broker_client_fn=lambda uid, account_id: SimpleNamespace(_account_id=account_id),
         reconciliation_fn=lambda account_id: {"clean": True, "fresh": True},
         risk_approval_fn=lambda **k: _approval(**k),
         protection_fn=broker.place_protection,
@@ -136,7 +144,7 @@ def test_the_full_sequence_runs_in_order(plan_store):
 
 def test_exact_plan_account_client_is_passed_to_canonical_execution(plan_store):
     broker = BrokerSpy()
-    sentinel_client = object()
+    sentinel_client = SimpleNamespace(_account_id="KITE-FAMILY")
     seen = []
 
     async def resolve(uid, account_id):
@@ -344,7 +352,9 @@ def test_fade_down_call_uses_short_futures_hedge(tmp_path):
     store = PlanStore(db_path=str(tmp_path / "fade-down-plans.db"))
     store.publish(
         plan_id="PLAN-DOWN", opportunity_id="OPP-DOWN",
-        account_id="KITE-FAMILY",
+        account_id="KITE-FAMILY", owner_uid="default",
+        order_type="LIMIT", limit_price=120.0, lot_size=1,
+        hedge_order_type="LIMIT", futures_lot_size=1,
         option_symbol="NIFTY26OCT25000CE", option_quantity=150,
         option_instrument_token=250002,
         futures_symbol="NIFTY26OCTFUT", target_futures_quantity=75,
@@ -352,7 +362,7 @@ def test_fade_down_call_uses_short_futures_hedge(tmp_path):
         risk_amount=9000.0, cash_required=9000.0, margin_required=140000.0,
         policy_snapshot_hash="pol-down", runtime_build_sha="build-1",
         option_exchange="NFO", futures_exchange="NFO",
-        signal_side="fade_down", option_type="CE",
+        signal_side="fade_down", option_type="CE", hedge_side="SELL",
     )
     store.arm(
         "PLAN-DOWN", expected_revision=1,

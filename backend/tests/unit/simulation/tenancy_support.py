@@ -50,6 +50,8 @@ def install_fake_sim_client(monkeypatch, factory=None):
 
 def live_account(owner=OWNER, *, connected=True, key="LIVEKEY1", label="Live"):
     """A stored LIVE Kite account for ``owner`` (optionally holding a session)."""
+    from tests.feature_grants import grant_kite
+    grant_kite(owner)
     account = kite_accounts.add(owner, KiteAccountCreate(label=label, api_key=key, api_secret="s3cret"))
     if connected:
         kite_accounts.save_session(owner, account.id, access_token="ACCESS-TOKEN",

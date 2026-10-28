@@ -21,6 +21,8 @@ def _mock_adapter():
 
 @pytest.fixture()
 def client():
+    from tests.feature_grants import grant_broker_configuration
+    grant_broker_configuration("default", "alice", "bob")
     app = create_app()
     app.state.adapter = _mock_adapter()
     with TestClient(app) as c:

@@ -422,7 +422,7 @@ def test_a_rejected_option_sell_re_arms_the_stop_and_is_retried_under_a_new_key(
     pos = _open(env)
     old_gtt = pos.gtt_id
     env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
-    env.broker.mode = "reject"
+    env.broker.mode = "reject_order"
 
     first = _tick(env)
 
@@ -431,7 +431,7 @@ def test_a_rejected_option_sell_re_arms_the_stop_and_is_retried_under_a_new_key(
     # The quote is already through the stop, so Kite cannot hold a new stop GTT
     # there (protective_stop refuses a breached stop); the exit is retried
     # instead and the position stays EXITING rather than being forgotten.
-    assert first["exits"][0]["outcome"] == "submit_failed"
+    assert first["exits"][0]["outcome"] == "unfilled"
 
     env.broker.mode = "fill"
     _tick(env)
@@ -467,7 +467,7 @@ def test_a_hedge_that_will_not_close_is_retried_alerted_and_halts_new_entries(en
 
     pos = _open(env)
     env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
-    env.broker.hedge_mode = "reject"
+    env.broker.hedge_mode = "reject_order"
 
     for _ in range(4):
         _tick(env)
@@ -487,7 +487,7 @@ def test_a_hedge_that_will_not_close_is_retried_alerted_and_halts_new_entries(en
 def test_a_restart_in_the_middle_of_an_exit_never_resends_the_leg(env):
     pos = _open(env)
     env.broker.set_quote(f"NFO:{OPTION_SYMBOL}", 190.0, 191.0)
-    env.broker.hedge_mode = "reject"
+    env.broker.hedge_mode = "reject_order"
     _tick(env)                                         # option sold; the hedge sell was refused
     sent = len([o for o in env.broker.placed if o["side"] == "SELL" and o["symbol"] == OPTION_SYMBOL])
     assert sent == 1

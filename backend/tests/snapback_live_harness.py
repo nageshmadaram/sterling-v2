@@ -147,7 +147,11 @@ class LiveBroker:
                  "transaction_type": side, "product": product, "quantity": qty,
                  "tag": kwargs.get("tag"), "filled_quantity": 0, "average_price": 0.0,
                  "status": "OPEN"}
-        if mode == "fill":
+        if mode == "reject_order":
+            # A broker-observed terminal rejection has an exact order identity.
+            # A transport exception without that proof remains ambiguous.
+            order["status"] = "REJECTED"
+        elif mode == "fill":
             self._fill(order, qty, price)
         elif mode == "partial":
             self._fill(order, max(1, qty // 2), price, status="OPEN")
@@ -379,6 +383,8 @@ def live_env(tmp_path, monkeypatch, allow_live_execution):
     live_safety.set_kill_switch(False, "test start")
 
     uid = f"sbuser-{next(_counter)}-{uuid.uuid4().hex[:6]}"
+    from tests.feature_grants import grant_kite
+    grant_kite(uid)
     cfg = SnapbackConfig(enabled=True, auto_execute=True, trading_mode="swing")
     monkeypatch.setattr(snapback, "get_config", lambda u=None: cfg)
     # The shared master AUTO switch is on.
