@@ -49,3 +49,26 @@ PR: https://github.com/nageshmadaram/sterling/pull/293
 - GitHub Actions job failure is not proof of a code regression until job logs are available.
 - No fake performance measurements, notification acknowledgements or Kite connection claims.
 - Do not discard permissions to make stale API user creation appear to succeed.
+
+## Continuation audit: confirmed baseline receipts vs new changes
+
+**Existing baseline execution (application `862c03a53e6e2ec6742d7099b0696c118037d7f7`):**
+- [Source receipts](../acceptance/README.md) record 2,505 passing frontend tests, 12,585 backend tests (30 skipped), 33 media browser journeys, and a 743-capture, seven-width Light/Dark page/overlay sweep. These are historical receipts for the earlier application release, not retests of this PR.
+- [Controlled media timing](../acceptance/controlled-media-timing.json) covers ten local WAV and HLS emulated sessions per player: Radio median/P95 58.9/80.2 ms; TV 89.5/140.2 ms. These numbers are **not** phone, actual broadcaster, 4G, or speaker startup measurements.
+- [Admin acceptance](../acceptance/admin-create-browser.json) records real browser -> API -> disposable SQLite creation, permission persistence, and a synthetic test-user sign-in. This is not evidence that the production Add User request from the report succeeded.
+- [Exact notification](../acceptance/exact-signal-notification.json): push provider accepted one request; `phone_observation` remains `pending`. [Browser signal](../acceptance/exact-signal-browser.json) opened the NIFTY FIN SERVICE detail panel with Setup chart and Option chain controls; this is not the exact notification being opened on a phone.
+- [Kite runtime](../acceptance/runtime-final.json) records a connected account and its specific backend/profile verification, while the status poll showed `validated=false`. This historical account receipt does not certify a fresh Kite connection on this PR.
+
+**Important version nuance:**
+- Remote `rescue/sterling-20261028-142648` is **44 commits behind** main and contains the old Add User schema. GitHub `main` and `dev` contain `UserCreate.features` and `UserCreate.configuration` with corresponding credential-service grants.
+- The earlier runtime receipt names backend source `1960ace82`, whose GitHub source also contains those fields. Therefore, the historical `extra_forbidden` response cannot be attributed to the **currently recorded runtime** without a new runtime routing/worker check. A stale worker, different backend target, or request made before deployment remain hypotheses.
+- Read-only probe: `python3 scripts/verify_user_create_contract.py` checks the actual loopback backend's `/openapi.json` to distinguish an old contract from current source without creating an account or transmitting credentials. An inaccessible schema is UNKNOWN, not PASS.
+
+**Additional PR-only work / scoped checks:**
+- Radio's header and expanded-player options use delegated `data-radio-click="82"` rather than inline `onclick`, retaining control under a restrictive script policy. The hosted `more` command uses the same Extras panel.
+- Startup/DSP overlays are mutually exclusive before opening Extras; native Extras swipe closure restores focus without disturbing another dialog. Portrait Radio no longer reserves blank viewport height beneath controls.
+- Actual extracted JS Radio/TV search functions were executed against deterministic fake station/channel records: normal, omitted-spaces, and one-character spelling errors returned the expected station/channel. This is isolated function execution, not an end-to-end application test.
+- All modified source JS and player-template inline scripts parsed without JavaScript syntax errors. Basic CSS brace-balance checks passed. These checks do not prove TypeScript, Vitest, Playwright, visual design or hardware playback.
+- New regression tests exist in source; GitHub CI, regression and Snapback workflow results for this PR are FAIL. The connector's job log fetches reported BlobNotFound/absent logs. Do not classify the failures as source defects or infrastructure failures without the missing logs.
+
+**Release decision:** NOT CERTIFIED; retain PR as draft, do not merge/deploy or enable live orders until the active runtime and tests are verified. Preserve the local rescue working tree.
