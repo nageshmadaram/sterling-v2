@@ -4,7 +4,10 @@ import logging
 
 log = logging.getLogger(__name__)
 
-TELEGRAM_TOKEN    = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# Both names are accepted by load_sterling_env. A historical deployment that
+# still uses TELEGRAM_TOKEN must not silently disable the control bot.
+# Explicit TELEGRAM_BOT_TOKEN always wins when non-empty.
+TELEGRAM_TOKEN    = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN") or "").strip()
 TELEGRAM_CHAT_ID  = os.getenv("TELEGRAM_CHAT_ID", "")
 TELEGRAM_REACHABLE: bool = False   # updated by test/send success; read by GET endpoint
 
@@ -19,7 +22,7 @@ def restore_legacy_config_from_store() -> None:
     from app.core.security import decrypt
     from app.services.db import get_config
 
-    env_token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    env_token = (os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN") or "").strip()
     env_chat = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
     stored_token = get_config("telegram_bot_token")
     stored_chat = get_config("telegram_chat_id")
