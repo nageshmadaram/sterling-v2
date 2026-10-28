@@ -2190,3 +2190,40 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
     overflow:hidden;text-overflow:ellipsis;
   }
 }
+
+
+/* The one-line strategy rule applies to every mobile viewport, even when
+   the user selects the alternate 'desktop-like' mobile experience style.
+   Scope to Signals only so no other settings or modal is hidden. */
+@media(max-width:900px) {
+  .signals-workspace > .strategy-mobile-overview {
+    flex:0 0 auto;box-sizing:border-box;width:100%;max-width:100%;
+    border-bottom:1px solid var(--k-border);
+  }
+  .signals-workspace > .strategy-mobile-overview > .strategy-mobile-overview-trigger {
+    display:flex!important;align-items:center;justify-content:space-between;
+    width:100%;height:34px;min-height:34px;
+    padding:6px 12px;border:0;background:var(--k-bg);
+    color:var(--k-text);font-size:11px;font-weight:650;
+    text-align:left;cursor:pointer;
+  }
+  .signals-workspace > .strategy-mobile-overview > .strategy-mobile-overview-trigger
+  > .strategy-mobile-overview-title {
+    min-width:0;flex:1;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .signals-workspace > .strategy-mobile-overview:not(.is-expanded)
+  > .strategy-mobile-overview-content {display:none!important;}
+  .signals-workspace > .strategy-mobile-overview.is-expanded
+  > .strategy-mobile-overview-content {
+    display:block!important;max-height:min(55dvh,440px);
+    overflow-y:auto;overscroll-behavior:contain;
+  }
+  .signals-workspace > .strategy-mobile-overview.is-expanded
+  .strategy-mode-info[data-has-modes="true"] > div {display:block!important;}
+  .signals-workspace > .strategy-mobile-overview.is-expanded
+  .strategy-mode-info {max-height:none!important;overflow:visible!important;}
+  .signals-workspace > .strategy-mobile-overview .strategy-mode-info table {
+    display:table;min-width:580px;
+  }
+}
