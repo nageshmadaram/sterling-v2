@@ -255,3 +255,17 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
   #sp-rail-similar>* {min-width:0;overflow:hidden;text-overflow:ellipsis;}
 }
 
+/* Keep Radio's recommendations near playback rather than leaving a blank
+   viewport-sized spacer below the second row of player controls. */
+@media(max-width:1023px) and (orientation:portrait) {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix)
+    #mobile-player-sheet .rnp-main {
+    min-height:0!important;
+    height:auto!important;
+    padding-bottom:clamp(8px,1.4dvh,14px);
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix)
+    #mobile-player-sheet .rnp-more {
+    margin-top:clamp(12px,2dvh,20px)!important;
+  }
+}
