@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import {InitialAccessFields,newAccess,type InitialAccess} from '../admin/InitialAccess';
+import {useUnsavedDraftGuard} from './config/unsavedDraftGuard';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../utils/api';
 import { useIsSimulation } from '../../store/useViewStore';
 export type User = { id: string; username: string; role: 'admin' | 'user'; active: boolean; password_set: boolean; primary: boolean; photo?: string };
-export type Draft = { id?: string; username: string; password: string; repeat: string; role: 'admin' | 'user'; active: boolean; primary?: boolean };
+export type Draft = { id?: string; username: string; password: string; repeat: string; role: 'admin' | 'user'; active: boolean; primary?: boolean; access?:InitialAccess };
 
 export type List = { current_user_id: string; users: User[] };
 
@@ -134,26 +136,29 @@ function UserCard({ user, currentId, busy, onEdit, onDelete }: {
   );
 }
 
-export function SterlingUsersPanel({ standalone = false }: { standalone?: boolean } = {}) {
+export function SterlingUsersPanel({ standalone = false, initialCreate=false, onCreated }: { standalone?: boolean; initialCreate?:boolean; onCreated?:(id:string)=>void } = {}) {
   const selectedSimulation = useIsSimulation();
   const simulation = selectedSimulation && !standalone;
   const qc         = useQueryClient();
   const query      = useQuery({ queryKey: KEY, queryFn: () => api.get<List>(BASE), enabled: !simulation });
 
-  const [draft,   setDraft]   = useState<Draft | null>(null);
+  const [draft,   setDraft]   = useState<Draft | null>(()=>initialCreate?{username:'',password:'',repeat:'',role:'user',active:true,access:newAccess()}:null);
   const [visible, setVisible] = useState(false);
   const [error,   setError]   = useState('');
   const [notice,  setNotice]  = useState('');
 
   const save = useMutation({
     mutationFn: (v: Draft) => {
-      const { id, repeat: _r, ...body } = v;
+      const {id,username,password,role,active}=v;
+      const body={username:username.trim(),password,role,active,...(!id&&v.access?{features:v.access.features,configuration:v.access.configuration}:{})};
       return id ? api.put<User>(`${BASE}/${encodeURIComponent(id)}`, body)
                 : api.post<User>(BASE, body);
     },
     onSuccess: (_result, v) => {
       setDraft(null); setVisible(false);
       qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ['admin-directory'] });
+      if(!v.id)onCreated?.(_result.id);
       setNotice(v.id === query.data?.current_user_id
         ? 'Sterling login updated. Sign in again with your updated credentials.'
         : 'User saved. Existing sessions for an edited user are signed out.');
@@ -176,10 +181,11 @@ export function SterlingUsersPanel({ standalone = false }: { standalone?: boolea
   const openEdit = (user?: User) => {
     setError(''); setNotice(''); setVisible(false);
     setDraft({ id: user?.id, username: user?.username || '', password: '', repeat: '',
-               role: user?.role || 'user', active: user?.active ?? true });
+               role: user?.role || 'user', active: user?.active ?? true, ...(!user?{access:newAccess()}:{}) });
   };
 
   const patch = (v: Partial<Draft>) => setDraft(prev => prev ? { ...prev, ...v } : null);
+  useUnsavedDraftGuard('admin-user-form',!!draft&&(!!draft.username||!!draft.password||!!draft.access&&JSON.stringify(draft.access)!==JSON.stringify(newAccess())));
   const busy  = save.isPending || remove.isPending;
   const locked = draft?.id === query.data?.current_user_id
               || query.data?.users.some(u => u.id === draft?.id && u.primary);
@@ -212,7 +218,7 @@ export function SterlingUsersPanel({ standalone = false }: { standalone?: boolea
 
       {/* ── User cards ── */}
       {query.data && (
-        <div style={{ marginTop: 10 }}>
+        <div className="sup-user-list" style={{ marginTop: 10 }}>
           {query.data.users.map(user => (
             <UserCard
               key={user.id}
@@ -233,7 +239,7 @@ export function SterlingUsersPanel({ standalone = false }: { standalone?: boolea
             {draft.id ? 'Update user' : 'Add new user'}
           </div>
           <form
-            className="bac-form"
+            className="bac-form" aria-label={draft.id?'Edit Sterling user':'Create Sterling user'}
             onSubmit={e => {
               e.preventDefault(); setError('');
               if (draft.password !== draft.repeat) { setError('Passwords do not match.'); return; }
@@ -245,7 +251,7 @@ export function SterlingUsersPanel({ standalone = false }: { standalone?: boolea
           >
             <label className="bac-label">Username
               <input className="bac-input" required minLength={3} maxLength={64}
-                value={draft.username} autoComplete="username"
+                value={draft.username} autoComplete="username" autoFocus pattern="[A-Za-z0-9_.@\-]{3,64}" title="3–64 letters, numbers, dots, @, underscores or dashes"
                 onChange={e => patch({ username: e.target.value })} />
             </label>
 
@@ -279,6 +285,8 @@ export function SterlingUsersPanel({ standalone = false }: { standalone?: boolea
                 onChange={e => patch({ active: e.target.checked })} />
               Login enabled
             </label>
+
+            {!draft.id&&draft.access&&<InitialAccessFields value={draft.access} onChange={access=>patch({access})}/>}
 
             {save.error && <p className="bac-err">✗ {(save.error as Error).message}</p>}
 

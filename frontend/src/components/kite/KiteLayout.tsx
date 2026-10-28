@@ -286,6 +286,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
     }
   }, [setMobilePane]);
   const previousMobileNav = useRef(activeNav);
+  const pendingMobilePane=useRef<WorkspacePaneId|null>(null);
   const detailPreviousPane = useRef<WorkspacePaneId | null>(null);
   const orderPreviousPane = useRef<WorkspacePaneId | null>(null);
   const mobilePaneRef = useRef(mobilePane);
@@ -504,7 +505,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   }), [activeNav, mainViewTitle, sidebar, rightSidebar, bottomBar, centerTopBar, content, isSimFullHeight]);
 
   const available = useMemo(() => WORKSPACE_PANES.filter((id) => panes[id].content != null), [panes]);
-  useEffect(()=>{if(!available.includes(mobilePane))setMobilePane('dashboard');},[available,mobilePane,setMobilePane]);
+  useEffect(()=>{const pending=pendingMobilePane.current;if(pending&&available.includes(pending)){pendingMobilePane.current=null;setMobilePane(pending);}else if(!available.includes(mobilePane))setMobilePane('dashboard');},[available,mobilePane,setMobilePane]);
   const isVisible = useCallback((id: WorkspacePaneId) => available.includes(id) && !layout.minimized.includes(id), [available, layout.minimized]);
   const slotIsVisible = useCallback((slot: WorkspaceSlotId) => isVisible(layout.slots[slot]), [isVisible, layout.slots]);
 
@@ -872,9 +873,9 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
         <TodaySignalPriorityStatus />
         <div ref={workspaceRef} data-testid="kite-workspace" style={{ position: 'relative', display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
           {mobile ? <>
-            {available.length>1 && <div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
-              {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).filter(id => available.includes(id)).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
-                aria-controls={`mobile-pane-${id}`} onClick={() => { if (id === 'dashboard') { setMobilePane('dashboard'); window.dispatchEvent(new Event('sterling-open-kite')); } else { if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); } }}>
+            {<div className="mobile-pane-tabs" role="tablist" aria-label="Workspace panes">
+              {(['dashboard','signals','watchlist','terminal'] as WorkspacePaneId[]).map(id => <button key={id} type="button" role="tab" aria-selected={mobilePane === id}
+                aria-controls={`mobile-pane-${id}`} onClick={() => { if(!available.includes(id)){pendingMobilePane.current=id;onNavClick('dashboard');return;} if (id === 'dashboard') { setMobilePane('dashboard'); window.dispatchEvent(new Event('sterling-open-kite')); } else { if(id === 'terminal') window.dispatchEvent(new CustomEvent('kite-terminal-mode',{detail:'normal'})); setMobilePane(id); } }}>
                 <PaneGlyph pane={id} size={20} /><span>{id === 'dashboard' ? 'Home' : panes[id].title}</span>
               </button>)}
               <button type="button" aria-label="Open replay" aria-pressed={useReplayOpenValue} onClick={()=>{useReplayStore.getState().setOpen(!useReplayStore.getState().open);}}>

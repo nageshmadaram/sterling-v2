@@ -30,8 +30,10 @@ export default function Administration(){
   const directory=useQuery({queryKey:['admin-directory'],queryFn:()=>api.get<Directory>('/api/v1/admin/directory'),refetchInterval:10000,enabled:allowed});
   const inbox=useQuery({queryKey:['admin-access-requests'],queryFn:()=>api.get<{requests:AccessRequest[]}>('/api/v1/admin/access-requests'),refetchInterval:10000,enabled:allowed});
   const [selected,setSelected]=useState(''),[checked,setChecked]=useState<string[]>([]);
+  const [search,setSearch]=useState(''),[status,setStatus]=useState('all'),[creating,setCreating]=useState(false),[createKey,setCreateKey]=useState(0);
   const [section,setSection]=useState<Section>('people'),[detail,setDetail]=useState<Detail>('overview'),[personOpen,setPersonOpen]=useState(false);
   const users=directory.data?.users||[],person=users.find(user=>user.id===selected);
+  const shown=users.filter(user=>(status==='all'||(status==='active'?user.active:!user.active))&&[user.username,user.id,...user.brokers.map(b=>b.kite_user_id||b.label)].join(' ').toLowerCase().includes(search.trim().toLowerCase()));
   const pending=inbox.data?.requests.filter(request=>request.status==='pending')||[];
   const selectedUsers=users.filter(user=>user.active&&checked.includes(user.id));
   useEffect(()=>{if(users.length&&!users.some(user=>user.id===selected))setSelected(users[0].id);},[users,selected]);
@@ -43,7 +45,8 @@ export default function Administration(){
   }),onSuccess:()=>{void qc.invalidateQueries({queryKey:['admin-directory']});void qc.invalidateQueries({queryKey:['admin-features']});}});
   async function leave(){return !hasUnsavedDraft()||await confirm({title:'Discard unsaved changes?',confirmLabel:'Discard',danger:true});}
   async function chooseUser(id:string){if((id!==selected||detail!=='overview')&&!await leave())return;setSelected(id);setDetail('overview');setPersonOpen(true);}
-  async function chooseSection(next:Section){if((next!==section||next==='people')&&!await leave())return;setSection(next);if(next==='people'){setPersonOpen(false);setDetail('overview');}}
+  async function openCreate(){if(!await leave())return;setCreating(true);setCreateKey(key=>key+1);setSection('accounts');}
+  async function chooseSection(next:Section){if((next!==section||next==='people')&&!await leave())return;setSection(next);setCreating(false);if(next==='people'){setPersonOpen(false);setDetail('overview');}}
   async function chooseDetail(next:Detail){if(next!==detail&&!await leave())return;setDetail(next);}
   async function changeBulk(feature:Feature,enabled:boolean){
     if(!enabled&&!await confirm({title:`Revoke ${names[feature]} access?`,body:selectedUsers.map(user=>user.username).join(', '),confirmLabel:'Revoke access',danger:true}))return;
@@ -53,18 +56,21 @@ export default function Administration(){
   if(capabilities.isError)return <main className="administration"><p role="alert">Administration unavailable.</p><button className="bac-btn" onClick={()=>void capabilities.refetch()}>Retry</button></main>;
   if(!allowed)return <main className="administration"><p role="alert">Administrator access required.</p></main>;
   return <main className="administration admin-directory" data-person-open={personOpen}>
-    <header className="directory-heading"><h1>Administration</h1><button className="bac-btn" onClick={()=>void chooseSection('accounts')}>Manage accounts</button></header>
+    <header className="directory-heading"><div><span className="admin-brand">STERLING · ADMINISTRATOR</span><h1>Administration</h1><p>People, access and connections in one place.</p></div><button className="bac-btn bac-btn-primary" onClick={()=>void openCreate()}>Add user</button></header>
+    <section className="admin-summary" aria-label="Administration overview"><div><strong>{users.length}</strong><span>Total users</span></div><div><strong>{users.filter(u=>u.active).length}</strong><span>Active logins</span></div><div><strong>{users.filter(u=>u.online).length}</strong><span>Online now</span></div><button onClick={()=>void chooseSection('requests')}><strong>{pending.length}</strong><span>Pending requests</span></button></section>
     <nav className="admin-tabs" aria-label="Administration sections">
-      {([['people',`Users · ${users.length}`],['requests',`Requests${pending.length?' · '+pending.length:''}`],['brokers','Brokers'],['accounts','Accounts']] as const).map(([id,label])=><button type="button" key={id} aria-current={section===id?'page':undefined} onClick={()=>void chooseSection(id)}>{label}</button>)}
+      {([['people',`Users · ${users.length}`],['requests',`Requests${pending.length?' · '+pending.length:''}`],['brokers','Brokers'],['accounts','Login accounts']] as const).map(([id,label])=><button type="button" key={id} aria-current={section===id?'page':undefined} onClick={()=>void chooseSection(id)}>{label}</button>)}
     </nav>
     {directory.isLoading&&<p role="status">Loading users…</p>}
     {directory.error&&<p role="alert">{directory.error.message} <button onClick={()=>void directory.refetch()}>Retry</button></p>}
     {section==='people'&&selectedUsers.length>0&&<section className="directory-bulk" aria-label="Bulk access"><header><h2>{selectedUsers.length} selected</h2><button type="button" onClick={()=>setChecked([])}>Clear</button></header>{features.map(feature=><div key={feature}><strong>{names[feature]}</strong><button disabled={bulk.isPending} onClick={()=>void changeBulk(feature,true)}>Enable</button><button disabled={bulk.isPending} onClick={()=>void changeBulk(feature,false)}>Revoke</button></div>)}{bulk.error&&<p role="alert">{bulk.error.message}</p>}{bulk.isSuccess&&<p role="status">Access updated for {bulk.data.updated} users.</p>}</section>}
-    {section==='requests'?<AccessRequests requests={inbox.data?.requests||[]}/>:section==='brokers'?<CentralConnections users={users}/>:section==='accounts'?<SterlingUsersPanel standalone/>:
+    {section==='requests'?<AccessRequests requests={inbox.data?.requests||[]}/>:section==='brokers'?<CentralConnections users={users}/>:section==='accounts'?<SterlingUsersPanel key={createKey} standalone initialCreate={creating} onCreated={async id=>{await directory.refetch();setSelected(id);setSection('people');setPersonOpen(true);setDetail('overview');setCreating(false);}}/>:
     <div className="directory-layout">
       <section className="directory-people" aria-label="User directory">
-        <label className="directory-select-all"><input type="checkbox" disabled={bulk.isPending} checked={users.some(user=>user.active)&&users.filter(user=>user.active).every(user=>checked.includes(user.id))} onChange={event=>setChecked(event.target.checked?users.filter(user=>user.active).map(user=>user.id):[])}/>Select all</label>
-        {users.map(user=><div className={`directory-person ${selected===user.id?'selected':''}`} key={user.id}>
+        <div className="directory-search"><label>Find a user<input type="search" placeholder="Name or broker identity" value={search} onChange={e=>setSearch(e.target.value)}/></label><label>Account status<select value={status} onChange={e=>setStatus(e.target.value)}><option value="all">All accounts</option><option value="active">Active logins</option><option value="suspended">Suspended logins</option></select></label></div>
+        <label className="directory-select-all"><input type="checkbox" disabled={bulk.isPending} checked={shown.some(user=>user.active)&&shown.filter(user=>user.active).every(user=>checked.includes(user.id))} onChange={event=>setChecked(event.target.checked?shown.filter(user=>user.active).map(user=>user.id):[])}/>Select all</label>
+        {!shown.length&&<p className="admin-empty">{users.length?'No users match your search.':'No users to display.'}</p>}
+        {shown.map(user=><div className={`directory-person ${selected===user.id?'selected':''}`} key={user.id}>
           <input aria-label={`Select ${user.username}`} type="checkbox" disabled={!user.active||bulk.isPending} checked={checked.includes(user.id)} onChange={event=>setChecked(event.target.checked?[...checked,user.id]:checked.filter(id=>id!==user.id))}/>
           <button type="button" aria-pressed={selected===user.id} onClick={()=>void chooseUser(user.id)}><Avatar person={user}/><span className="directory-person-text"><strong>{user.username}</strong><span className="directory-presence" data-online={user.online}>{!user.active?'Suspended':user.online?'Online':'Offline'}</span><span className="directory-grants">{user.primary?<b>Administrator</b>:features.filter(feature=>user.features[feature]).map(feature=><b key={feature}>{names[feature]}</b>)}</span></span></button>
         </div>)}
@@ -72,6 +78,7 @@ export default function Administration(){
       <section className="directory-detail" aria-label="Selected user">
         <button type="button" className="directory-back bac-btn" onClick={()=>{if(!hasUnsavedDraft())setPersonOpen(false);else void leave().then(ok=>{if(ok)setPersonOpen(false);});}}>‹ Users</button>
 
+        {!person&&!directory.isLoading&&<div className="admin-empty"><h2>Select a user</h2><p>Review workspace access, settings permissions, connections and activity.</p></div>}
         {person&&<>
           <header className="directory-user-heading"><Avatar person={person}/><div><h2>{person.username}</h2><span>{person.primary?'Administrator':person.active?'Active account':'Suspended'}</span></div><span className="directory-presence" data-online={person.online}>{person.online?'Online':'Offline'}</span></header>
           <nav className="directory-detail-tabs" aria-label="User management">{([['overview','Overview'],['access','Access'],['brokers',`Brokers · ${person.brokers.length}`],['telegram',`Telegram · ${person.telegram.length}`],['activity','Activity']] as const).map(([id,label])=><button type="button" key={id} aria-current={detail===id?'page':undefined} onClick={()=>void chooseDetail(id)}>{label}</button>)}</nav>

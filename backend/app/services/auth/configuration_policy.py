@@ -98,14 +98,12 @@ def require(user_id: str, section: Section, action: Action | None = None,
     return policy
 
 
-def replace_section(actor_id: str, user_id: str, section: Section, *, visible: bool,
-                    grants: list[dict], expected_revision: int) -> dict:
-    from app.services.auth.user_store import _now_ms
+def validate_section(section: Section, *, visible: bool, grants: list[dict], now: int) -> None:
+    """Shared validation for delegated settings and atomic account creation."""
     if section not in SECTIONS or type(visible) is not bool:
         raise ValueError('Invalid configuration section.')
     if len(grants) > 100:
         raise ValueError('At most 100 scoped grants are allowed per section.')
-    now = _now_ms()
     seen = set()
     for grant in grants:
         if set(grant) != {'action', 'resource_id', 'expires_at_ms'}:
@@ -124,6 +122,13 @@ def replace_section(actor_id: str, user_id: str, section: Section, *, visible: b
         if (action, resource) in seen:
             raise ValueError('Duplicate configuration grant.')
         seen.add((action, resource))
+
+
+def replace_section(actor_id: str, user_id: str, section: Section, *, visible: bool,
+                    grants: list[dict], expected_revision: int) -> dict:
+    from app.services.auth.user_store import _now_ms
+    now = _now_ms()
+    validate_section(section, visible=visible, grants=grants, now=now)
     account_policy._available()
     try:
         with db._conn() as c:

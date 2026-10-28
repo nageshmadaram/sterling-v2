@@ -46,3 +46,60 @@ async def test_broker_account_owner_is_suspended_without_detaching_protection(ad
     assert result['ok']
     assert not user_store.get_by_id(created['id']).is_active
     assert accounts.list_accounts(created['id'])
+
+@pytest.mark.asyncio
+async def test_create_commits_identity_and_initial_access_together(admin):
+    from app.services.auth import account_policy, configuration_policy
+    body=api.UserCreate(username='configured-member',password='Synthetic-member-password-123',
+        features={'kite':True,'radio':True,'tv':False},
+        configuration={'brokers':{'visible':True,'grants':[{'action':'create','resource_id':'own','expires_at_ms':None}]},
+                       'telegram':{'visible':True,'grants':[{'action':'recipients','resource_id':'own','expires_at_ms':None}]}})
+    created=await api.add_user(body,admin)
+    policy=account_policy.read(created['id'])
+    assert policy.revision==1 and policy.features=={'kite':True,'radio':True,'tv':False}
+    settings=configuration_policy.read(created['id'])
+    assert settings['sections']['brokers']['visible']
+    configuration_policy.require(created['id'],'brokers','create')
+    configuration_policy.require(created['id'],'telegram','recipients')
+    with pytest.raises(PermissionError):configuration_policy.require(created['id'],'integrations','test')
+    with db._conn() as c:
+        event=c.execute("SELECT * FROM auth_audit_events WHERE target_id=? AND action='user.add'",(created['id'],)).fetchone()
+        assert event and 'Synthetic-member-password' not in str(dict(event))
+        assert c.execute('SELECT COUNT(*) FROM auth_event_outbox WHERE user_id=?',(created['id'],)).fetchone()[0]==1
+
+@pytest.mark.asyncio
+async def test_invalid_initial_access_leaves_no_user_or_cache_entry(admin):
+    body=api.UserCreate(username='invalid-config',password='Synthetic-member-password-123',
+        features={'kite':True,'radio':False,'tv':False},
+        configuration={'telegram':{'visible':True,'grants':[{'action':'reveal','resource_id':'own','expires_at_ms':None}]}})
+    with pytest.raises(HTTPException) as rejected:await api.add_user(body,admin)
+    assert rejected.value.status_code==422
+    assert user_store.get_by_username('invalid-config') is None
+    with db._conn() as c:assert not c.execute("SELECT 1 FROM users WHERE username='invalid-config'").fetchone()
+
+@pytest.mark.asyncio
+async def test_failed_initial_grant_rolls_back_identity_and_policy(admin):
+    with db._conn() as c:c.execute("CREATE TRIGGER test_grant_failure BEFORE INSERT ON user_feature_grants BEGIN SELECT RAISE(ABORT,'synthetic disk write failure'); END")
+    with pytest.raises(HTTPException):
+        await api.add_user(api.UserCreate(username='rolled-back',password='Synthetic-member-password-123',features={'kite':True,'radio':True,'tv':True}),admin)
+    assert user_store.get_by_username('rolled-back') is None
+    with db._conn() as c:
+        assert not c.execute("SELECT 1 FROM users WHERE username='rolled-back'").fetchone()
+        assert c.execute("SELECT COUNT(*) FROM auth_audit_events WHERE action='user.add'").fetchone()[0]==0
+
+
+def test_http_create_accepts_initial_access_and_new_user_can_authenticate(admin):
+    from fastapi.testclient import TestClient
+    from app.core import tokens
+    from main import create_app
+    stored=user_store.get_by_id(admin.user_id)
+    token=tokens._mint(stored.id,stored.username,stored.role,stored.token_version,'access',900)
+    client=TestClient(create_app(),headers={'Authorization':'Bearer '+token})
+    response=client.post('/api/v1/auth/users',json={'username':'http-member','password':'Synthetic-member-password-123','role':'user','active':True,'features':{'kite':False,'radio':True,'tv':True},'configuration':{'integrations':{'visible':True,'grants':[{'action':'test','resource_id':'own','expires_at_ms':None}]}}})
+    assert response.status_code==200,response.text
+    assert 'Synthetic-member-password' not in response.text
+    user=user_store.verify_credentials('http-member','Synthetic-member-password-123')
+    assert user and user.id==response.json()['id']
+    from app.services.auth import account_policy,configuration_policy
+    assert account_policy.read(user.id).features=={'kite':False,'radio':True,'tv':True}
+    configuration_policy.require(user.id,'integrations','test')

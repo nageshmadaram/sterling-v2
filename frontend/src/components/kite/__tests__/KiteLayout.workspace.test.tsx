@@ -380,3 +380,15 @@ it('reveals the main page when another desktop pane is maximized', () => {
   expect(screen.getByText('dashboard body')).toBeVisible();
   expect(screen.queryByTitle('Restore Dashboard')).toBeNull();
 });
+
+it('keeps mobile navigation on settings and restores Signals after leaving',()=>{
+  vi.stubGlobal('innerWidth',390);
+  const onNavClick=vi.fn();
+  const qc=new QueryClient();
+  const view=render(<QueryClientProvider client={qc}><KiteLayout {...props} activeNav="connect" onNavClick={onNavClick} sidebar={null} rightSidebar={null} bottomBar={null} content={<div>Settings</div>}/></QueryClientProvider>);
+  expect(screen.getByRole('tablist',{name:'Workspace panes'})).toBeVisible();
+  fireEvent.click(screen.getByRole('tab',{name:'Signals'}));
+  expect(onNavClick).toHaveBeenCalledWith('dashboard');
+  view.rerender(<QueryClientProvider client={qc}><KiteLayout {...props} onNavClick={onNavClick}/></QueryClientProvider>);
+  expect(screen.getByRole('tab',{name:'Signals'})).toHaveAttribute('aria-selected','true');
+});

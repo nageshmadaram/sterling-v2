@@ -41,6 +41,19 @@ async def list_users(response:Response,user:UserContext=Depends(get_current_user
     return {'current_user_id':user.user_id,'users':[public(u) for u in user_store.all_users()]}
 
 
+class FeatureGrants(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kite: StrictBool
+    tv: StrictBool
+    radio: StrictBool
+
+
+class InitialSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    visible: StrictBool = False
+    grants: list[dict] = Field(default_factory=list, max_length=100)
+
+
 class UserEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username:str=Field(min_length=3,max_length=64)
@@ -49,16 +62,21 @@ class UserEdit(BaseModel):
     active:bool=True
 
 
+class UserCreate(UserEdit):
+    features: FeatureGrants = Field(default_factory=lambda: FeatureGrants(kite=False,tv=False,radio=False))
+    configuration: dict[str, InitialSection] = Field(default_factory=dict)
+
+
 def save(user,body,action,target_id=None):
     admin(user)
-    try:return public(operator_credentials.manage(user.user_id,action,body.username,body.password,target_id=target_id,role=body.role,active=body.active))
+    try:return public(operator_credentials.manage(user.user_id,action,body.username,body.password,target_id=target_id,role=body.role,active=body.active, **({'features': body.features.model_dump(), 'configuration': {k:v.model_dump() for k,v in body.configuration.items()}} if isinstance(body,UserCreate) else {})))
     except ValueError as exc:raise HTTPException(422,str(exc)) from None
     except PermissionError:raise HTTPException(403,'Sterling administrator access required.') from None
     except RuntimeError as exc:raise HTTPException(503,str(exc)) from None
 
 
 @router.post('')
-async def add_user(body:UserEdit,user:UserContext=Depends(get_current_user)):
+async def add_user(body:UserCreate,user:UserContext=Depends(get_current_user)):
     return save(user,body,'add')
 
 
@@ -79,11 +97,6 @@ async def delete_user(user_id:str,user:UserContext=Depends(get_current_user)):
     return {'ok':True,'user':result,'message':'Login suspended. Identity and broker connections retained.'}
 
 
-class FeatureGrants(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    kite: StrictBool
-    tv: StrictBool
-    radio: StrictBool
 
 
 class FeatureEdit(BaseModel):

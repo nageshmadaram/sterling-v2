@@ -6,7 +6,7 @@ from app.services.auth import user_store
 from app.core.passwords import hash_password
 
 
-def manage(actor_id: str, action: str, username: str, password: str, *, target_id: str | None = None, role: str | None = None, active: bool | None = None):
+def manage(actor_id: str, action: str, username: str, password: str, *, target_id: str | None = None, role: str | None = None, active: bool | None = None, features: dict | None = None, configuration: dict | None = None):
     actor = user_store.get_by_id(actor_id)
     if not actor or not actor.is_active or actor.role != 'admin':
         raise PermissionError('Administrator access required')
@@ -39,6 +39,21 @@ def manage(actor_id: str, action: str, username: str, password: str, *, target_i
         import uuid
         candidate = user_store._User(id='USR-'+uuid.uuid4().hex[:10].upper(), username=username,
                                      password_hash=hash_password(password), role=chosen_role, is_active=chosen_active)
+    from app.services.auth import account_policy, configuration_policy
+    if action != 'add' and (features is not None or configuration is not None):
+        raise ValueError('Use the access editor to change an existing user’s permissions.')
+    if features is not None and (set(features) != set(account_policy.FEATURES)
+            or any(type(v) is not bool for v in features.values())):
+        raise ValueError('Provide explicit booleans for Kite, TV and Radio.')
+    if configuration is not None:
+        if set(configuration) - set(configuration_policy.SECTIONS):
+            raise ValueError('Unknown configuration section.')
+        for section, policy in configuration.items():
+            if set(policy) != {'visible', 'grants'}:
+                raise ValueError('Invalid configuration section fields.')
+            configuration_policy.validate_section(section, **policy, now=candidate.updated_at_ms)
+            if not policy['visible'] and policy['grants']:
+                raise ValueError('Enable the section before granting actions.')
     import sqlite3
     try:
         with db._conn() as c:
@@ -68,10 +83,21 @@ def manage(actor_id: str, action: str, username: str, password: str, *, target_i
                 policy_revision = (int(row['revision']) if row else 0) + 1
                 c.execute('INSERT INTO account_policy_revisions VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision',
                           (candidate.id, policy_revision))
+            if action == 'add':
+                policy_revision = 1
+                c.execute('INSERT INTO account_policy_revisions VALUES(?,?)', (candidate.id, policy_revision))
+                for feature in account_policy.FEATURES:
+                    c.execute('INSERT INTO user_feature_grants VALUES(?,?,?,?,?)',
+                              (candidate.id, feature, int((features or {}).get(feature, False)), actor_id, candidate.updated_at_ms))
+                for section, policy in (configuration or {}).items():
+                    c.execute('INSERT INTO user_configuration_sections VALUES(?,?,?)', (candidate.id, section, int(policy['visible'])))
+                    for grant in policy['grants']:
+                        c.execute('INSERT INTO user_configuration_grants VALUES(?,?,?,?,?,?,?)',
+                                  (candidate.id, section, grant['action'], grant['resource_id'], grant['expires_at_ms'], actor_id, candidate.updated_at_ms))
             from app.services.auth.account_policy import audit
             event_id = audit(c, actor_id, candidate.id, 'user.' + action,
                   {'username': target.username, 'role': target.role, 'active': target.is_active} if target else {},
-                  {'username': candidate.username, 'role': candidate.role, 'active': candidate.is_active},
+                  {'username': candidate.username, 'role': candidate.role, 'active': candidate.is_active, **({'features': features or dict.fromkeys(account_policy.FEATURES, False), 'configuration': configuration or {}} if action == 'add' else {})},
                   candidate.updated_at_ms)
             if policy_revision is not None:
                 c.execute('INSERT INTO auth_event_outbox(event_id,user_id,revision) VALUES(?,?,?)', (event_id,candidate.id,policy_revision))
