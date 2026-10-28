@@ -150,7 +150,7 @@ async def test_history_and_chain_source_evidence():
     assert candles[0].source == "existing_market_adapter"
     options = await reader.option_chain(instrument)
     assert options[0].right == "CE"
-    assert options[0].iv == pytest.approx(0.15)
+    assert str(options[0].iv) == '0.15'
     assert options[0].gamma is None  # no evidence to treat default zero as measured Greek
 
 
