@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, act } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { setDraftDirty, resetDraftGuard } from '../../components/kite/config/unsavedDraftGuard';
@@ -10,6 +10,7 @@ vi.mock('../MediaWorkspace', () => ({ default: ({ feature }: { feature: string }
 vi.mock('../Administration', () => ({ default: () => <div>Central administration mounted</div> }));
 vi.mock('../../components/auth/PreferenceGate', () => ({ PreferenceGate: ({ children }: { children: React.ReactNode }) => <>{children}</> }));
 vi.mock('../../components/kite/ThemeToggle', () => ({ ThemeToggle: () => <button>Theme</button> }));
+vi.mock('../../components/kite/ProfilePhotoCropper', () => ({ ProfilePhotoCropper: () => <div>Selected photo crop preserved</div> }));
 const base: SessionPolicy = { user_id: 'member', username: 'Member', role: 'user', administrator: false, policy_revision: 0, features: { kite: false, tv: false, radio: false } };
 beforeEach(() => {
   vi.resetAllMocks(); window.history.replaceState({}, '', '/'); vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
@@ -61,4 +62,25 @@ it('preserves a settings draft when selecting another UI is cancelled', async ()
   act(() => window.dispatchEvent(new Event('sterling-select-workspace')));
   fireEvent.click(screen.getByRole('button', { name: 'Open Echo' }));
   expect(screen.getByText('Kite runtime mounted')).toBeInTheDocument(); expect(window.location.pathname).toBe('/kite');
+});
+
+it('preserves a selected photo during a failed policy poll while closing the protected workspace', async () => {
+  const policy = { ...base, features: { kite: true, tv: true, radio: true } };
+  const client = show(policy);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open Kite' }));
+  await screen.findByText('Kite runtime mounted');
+  act(() => window.dispatchEvent(new Event('sterling-open-profile')));
+  fireEvent.change(await screen.findByLabelText('Choose profile picture'), {
+    target: { files: [new File(['synthetic photo'], 'portrait.png', { type: 'image/png' })] },
+  });
+  expect(await screen.findByRole('dialog', { name: 'Crop profile picture' })).toBeInTheDocument();
+  api.get.mockRejectedValue(new Error('Connection interrupted'));
+  await act(async () => { await client.refetchQueries({ queryKey: ['sterling-session-policy'] }); });
+  await waitFor(() => expect(screen.queryByText('Kite runtime mounted')).toBeNull());
+  expect(screen.getByText('Access could not be verified')).toBeInTheDocument();
+  expect(screen.getByRole('dialog', { name: 'Crop profile picture' })).toHaveTextContent('Selected photo crop preserved');
+  api.get.mockResolvedValue(policy);
+  await act(async () => { await client.refetchQueries({ queryKey: ['sterling-session-policy'] }); });
+  expect(await screen.findByText('Kite runtime mounted')).toBeInTheDocument();
+  expect(screen.getByRole('dialog', { name: 'Crop profile picture' })).toBeInTheDocument();
 });

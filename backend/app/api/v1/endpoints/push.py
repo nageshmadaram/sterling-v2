@@ -3,7 +3,7 @@ import json
 import re
 import time
 from typing import Literal
-from fastapi import APIRouter,Depends,HTTPException
+from fastapi import APIRouter,Depends,HTTPException,Request
 from pydantic import BaseModel,Field
 from app.core.auth import get_current_user,UserContext
 from app.core.security import encrypt
@@ -44,11 +44,17 @@ def configure(body:PushConfig,user:UserContext=Depends(get_current_user)):
 class Subscription(BaseModel):
     subscription:dict
     label:str=Field(default='This browser',max_length=60)
+    origin:str=Field(default='',max_length=2048)
 
 @router.post('/subscribe')
-def subscribe(body:Subscription,user:UserContext=Depends(get_current_user)):
+def subscribe(body:Subscription,user:UserContext=Depends(get_current_user),request:Request=None):
     require_db()
-    try:s=push.validate_subscription(body.subscription)
+    try:
+        s=push.validate_subscription(body.subscription)
+        request_origin=request.headers.get('origin','') if request is not None else ''
+        origin=push.site_origin(body.origin or request_origin)
+        if request_origin and origin!=push.site_origin(request_origin):
+            raise ValueError('Registration origin mismatch')
     except Exception:raise HTTPException(422,'Invalid browser push subscription')
     identifier=hashlib.sha256(s['endpoint'].encode()).hexdigest()
     with db._conn() as c:
@@ -59,7 +65,8 @@ def subscribe(body:Subscription,user:UserContext=Depends(get_current_user)):
         if count>=16 and not c.execute('SELECT 1 FROM push_devices WHERE id=? AND uid=?',(identifier,uid(user))).fetchone():raise HTTPException(409,'Device limit reached. Remove an old device first.')
         prior=c.execute('SELECT uid FROM push_devices WHERE id=?',(identifier,)).fetchone()
         if prior and prior['uid']!=uid(user):c.execute('DELETE FROM push_deliveries WHERE device_id=?',(identifier,))
-        c.execute('INSERT INTO push_devices(id,uid,label,subscription_enc,enabled,created_ms) VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET uid=excluded.uid,label=excluded.label,subscription_enc=excluded.subscription_enc,enabled=1',(identifier,uid(user),body.label,encrypt(json.dumps(s)),int(time.time()*1000)))
+        c.execute('INSERT INTO push_devices(id,uid,label,subscription_enc,enabled,created_ms) VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET uid=excluded.uid,label=excluded.label,subscription_enc=excluded.subscription_enc,enabled=1,last_error=\'\'',(identifier,uid(user),body.label,encrypt(json.dumps(s)),int(time.time()*1000)))
+        c.execute('INSERT INTO push_device_origins VALUES(?,?) ON CONFLICT(device_id) DO UPDATE SET origin=excluded.origin',(identifier,origin))
     return {'id':identifier}
 
 @router.delete('/devices/{device_id}')
@@ -70,6 +77,7 @@ def remove(device_id:str,user:UserContext=Depends(get_current_user)):
         removed=c.execute('DELETE FROM push_devices WHERE id=? AND uid=?',(device_id,uid(user))).rowcount
         if removed:
             c.execute('DELETE FROM push_deliveries WHERE device_id=?',(device_id,))
+            c.execute('DELETE FROM push_device_origins WHERE device_id=?',(device_id,))
     return {'removed':True}
 
 @router.post('/test')

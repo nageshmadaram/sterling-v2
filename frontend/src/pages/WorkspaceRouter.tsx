@@ -49,7 +49,10 @@ export function WorkspaceRouter() {
       current === 'home' ? <main className="workspace-launcher">{chooser}</main> : <Suspense fallback={<main className="workspace-state" role="status">Opening workspace…</main>}>
         {current === 'administration' ? <Administration /> : current === 'kite' ? <PreferenceGate><KiteRuntime /></PreferenceGate> : <PreferenceGate><MediaWorkspace key={current} feature={current} /></PreferenceGate>}
       </Suspense>}
-    {session && <ProfileMenu hiddenTrigger />}
+    {/* Account editing has its own authenticated API. Preserve a crop/draft
+        across a failed workspace-policy poll; protected workspaces above
+        still fail closed until the current policy can be verified. */}
+    {policy.data && <ProfileMenu hiddenTrigger />}
     <WorkspaceDialog open={chooserOpen} onClose={() => setChooserOpen(false)}>{chooser}</WorkspaceDialog>
   </div>;
 }

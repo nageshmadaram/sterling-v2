@@ -21,6 +21,7 @@ def init(c):
     c.execute("CREATE TABLE IF NOT EXISTS push_config(uid TEXT PRIMARY KEY,data TEXT NOT NULL)")
     c.execute("CREATE TABLE IF NOT EXISTS push_devices(id TEXT PRIMARY KEY,uid TEXT NOT NULL,label TEXT NOT NULL,subscription_enc TEXT NOT NULL,enabled INTEGER NOT NULL,created_ms INTEGER NOT NULL,last_delivery_ms INTEGER NOT NULL DEFAULT 0,last_error TEXT NOT NULL DEFAULT '')")
     c.execute('CREATE TABLE IF NOT EXISTS push_deliveries(device_id TEXT NOT NULL,event_key TEXT NOT NULL,delivered_ms INTEGER NOT NULL,PRIMARY KEY(device_id,event_key))')
+    c.execute("CREATE TABLE IF NOT EXISTS push_device_origins(device_id TEXT PRIMARY KEY,origin TEXT NOT NULL)")
 
 def vapid():
     if not db.is_available():raise RuntimeError('Push database unavailable')
@@ -40,7 +41,41 @@ def config(uid):
 
 def devices(uid):
     with db._conn() as c:
-        init(c);return [dict(r) for r in c.execute('SELECT id,label,enabled,created_ms,last_delivery_ms,last_error FROM push_devices WHERE uid=?',(uid,)).fetchall()]
+        init(c);return [dict(r) for r in c.execute("SELECT d.id,d.label,d.enabled,d.created_ms,d.last_delivery_ms,d.last_error,COALESCE(o.origin,'') AS origin FROM push_devices d LEFT JOIN push_device_origins o ON o.device_id=d.id WHERE d.uid=?",(uid,)).fetchall()]
+
+def site_origin(value):
+    """Origin metadata only; never follows a supplied URL or changes click paths."""
+    if not value:return ''
+    if any(ch.isspace() for ch in str(value)) or '\\' in str(value):
+        raise ValueError('Invalid site address')
+    u=urlsplit(str(value))
+    if (u.scheme not in ('https','http') or not u.hostname or u.username or u.password
+            or u.path not in ('','/') or u.query or u.fragment
+            or (u.scheme=='http' and u.hostname not in ('localhost','127.0.0.1','::1'))):
+        raise ValueError('Use this browser’s HTTPS site address.')
+    _=u.port  # Reject malformed ports before storing the origin.
+    return u.scheme+'://'+u.netloc.lower()
+
+def current_site_origin():
+    # The stack publishes its verified address here for the Telegram menu too.
+    # An old browser registration cannot navigate a retired tunnel hostname.
+    value=db.get_config('sterling_tma_url','') or os.environ.get('STERLING_TMA_URL','')
+    try:
+        u=urlsplit(value)
+        return site_origin(u.scheme+'://'+u.netloc) if u.netloc else ''
+    except ValueError:return ''
+
+def active_site_origins():
+    origins={current_site_origin()}-{''}
+    if os.environ.get('STERLING_UNDER_TEST')!='1':
+        from pathlib import Path
+        try:
+            state=json.loads((Path(__file__).resolve().parents[4]/'.runtime/stack/status.json').read_text())
+            for provider,value in state.get('urls',{}).items():
+                if state.get('public_ready',{}).get(provider):
+                    origins.add(site_origin(value))
+        except (OSError,ValueError,TypeError):pass
+    return origins
 
 def validate_subscription(s):
     endpoint=str(s.get('endpoint') or '');u=urlsplit(endpoint)
@@ -95,8 +130,14 @@ def _send(uid,event_key,title,body,category,*,force=False,
     if not force and (not cfg['enabled'] or not cfg.get(category) or quiet(cfg)):return 0
     pub,pem=vapid();count=0
     with db._conn() as c:
-        init(c);rows=c.execute('SELECT * FROM push_devices WHERE uid=? AND enabled=1',(uid,)).fetchall()
+        init(c);rows=c.execute("SELECT d.*,COALESCE(o.origin,'') AS origin FROM push_devices d LEFT JOIN push_device_origins o ON o.device_id=d.id WHERE d.uid=? AND d.enabled=1",(uid,)).fetchall()
+    current_origins=active_site_origins()
     for row in rows:
+        if current_origins and row['origin'] not in current_origins:
+            with db._conn() as c:
+                c.execute("UPDATE push_devices SET enabled=0,last_error=? WHERE id=? AND uid=? AND subscription_enc=?",
+                          ('Site address changed or was not recorded. Open the current Sterling address and enable notifications again.',row['id'],uid,row['subscription_enc']))
+            continue
         with db._conn() as c:
             if c.execute('SELECT 1 FROM push_deliveries WHERE device_id=? AND event_key=?',(row['id'],event_key)).fetchone():continue
             # An operator's bounded test allowance must not be exhausted by

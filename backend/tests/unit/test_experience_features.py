@@ -143,3 +143,36 @@ async def test_manual_push_test_has_a_separate_bounded_allowance(client,monkeypa
    conn.execute('INSERT INTO push_deliveries VALUES(?,?,?)',(identifier,'test:prior-'+str(index),now))
  assert await web_push.send('alice','test:over-limit','T','B','alerts',force=True)==0
  assert len(sent)==1
+
+@pytest.mark.asyncio
+async def test_push_retires_unknown_or_old_site_then_accepts_current_reregistration(client,monkeypatch):
+ import pywebpush
+ c,_=client
+ payload={'subscription':subscription(),'origin':'https://retired.trycloudflare.com'}
+ identifier=c.post('/push/subscribe',json=payload).json()['id']
+ assert c.get('/push').json()['devices'][0]['origin']==payload['origin']
+ db.set_config_strict('sterling_tma_url','https://current.trycloudflare.com/tma')
+ sent=[]
+ monkeypatch.setattr(pywebpush,'webpush',lambda **kw:sent.append(kw))
+ assert await web_push.send('alice','test:old','T','B','alerts',force=True)==0
+ row=c.get('/push').json()['devices'][0]
+ assert not row['enabled'] and 'Site address changed' in row['last_error']
+ assert sent==[]
+ reply=c.post('/push/subscribe',json={**payload,'origin':'https://current.trycloudflare.com'})
+ assert reply.json()['id']==identifier
+ assert c.get('/push').json()['devices'][0]['last_error']==''
+ assert await web_push.send('alice','test:current','T','Details in the notification','alerts',force=True)==1
+ assert json.loads(sent[0]['data'])['url']=='/kite?view=live&notification=alerts'
+ assert c.delete('/push/devices/'+identifier).status_code==200
+ with db._conn() as conn:
+  assert not conn.execute('SELECT 1 FROM push_device_origins WHERE device_id=?',(identifier,)).fetchone()
+
+@pytest.mark.parametrize('origin',['http://evil.test','https://u:p@example.com','https://example.com/path','https://example.com#x','https://example.com:bad'])
+def test_push_rejects_non_origin_or_insecure_site_metadata(client,origin):
+ c,_=client
+ assert c.post('/push/subscribe',json={'subscription':subscription(),'origin':origin}).status_code==422
+
+def test_push_origin_must_match_the_registering_browser(client):
+ c,_=client
+ assert c.post('/push/subscribe',headers={'Origin':'https://current.trycloudflare.com'},json={'subscription':subscription(),'origin':'https://retired.trycloudflare.com'}).status_code==422
+ assert c.get('/push').json()['devices']==[]
