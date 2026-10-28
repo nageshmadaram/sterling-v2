@@ -5,6 +5,7 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {publicStaticFile} from './public_static_asset.mjs';
 
 // All public origins and localhost:5180 read this ONE atomic committed build.
  // The symlink target may change without restarting the Node gateway/tunnels.
@@ -141,12 +142,14 @@ const server = http.createServer((req,res) => {
     res.writeHead(410, {'Cache-Control':'no-store','Content-Type':'text/plain'});
     res.end('Open this player from the Sterling launcher.'); return;
   }
-  let file = target;
-  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-    if (path.extname(decoded) || (/^\/(docs|redoc|openapi)(\/|$)/.test(decoded) || /(?:^|\/)\./.test(decoded))) {res.writeHead(404);res.end();return;}
-    file=path.join(root,'index.html');
+  // Existing hidden files were previously exposed because the old hidden
+  // path check only applied to *missing* assets. Never serve dotfiles or let
+  // nested public-file symlinks escape the active immutable frontend release.
+  const file = publicStaticFile(root,pathname);
+  if (!file) {
+    res.writeHead(404,{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});
+    res.end(); return;
   }
-  if (!fs.existsSync(file)) {res.writeHead(503);res.end('Frontend build missing');return;}
   const nonce = randomBytes(18).toString('base64');
   const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
   res.writeHead(200,{'Content-Type':mime[path.extname(file)] || 'application/octet-stream',

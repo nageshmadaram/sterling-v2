@@ -103,3 +103,27 @@ stale `published.json` value. Static SPA/assets return HTTP 503 while this
 condition exists; API and broker proxy endpoints remain separate. A valid
 managed release restores static readiness without restarting the gateway.
 This is source behavior pending real-host and device verification.
+
+
+## Public static file isolation
+
+The production gateway's public-static resolver now denies `/.env`, dotfiles
+at any nested depth, malformed URL escapes and static-file symlinks that
+resolve outside the active frontend release. This protection applies to
+**existing files** as well as missing paths: the former gateway only excluded
+hidden paths during its SPA fallback. Normal asset requests and extensionless
+SPA routes still work. Backend API and WebSocket proxy routes are not changed.
+
+A standalone Node regression test does not require frontend npm dependencies
+or broker credentials:
+
+```bash
+node --test scripts/tests/public_static_asset.test.mjs
+```
+
+The six isolated policy tests passed under Node 22 in an independent sandbox.
+The full Node HTTP gateway integration was added to
+`backend/tests/test_public_access_stack.py` and must still be executed on an
+authorized host/runner. CI includes the standalone test once GitHub-hosted
+runner allocation is restored; this does not waive the full security or
+live-trading release gates.

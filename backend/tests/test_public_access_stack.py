@@ -211,6 +211,50 @@ def test_missing_asset_and_source_never_become_spa(gateway):
   assert missing.value.code==404
 
 
+def test_existing_hidden_file_and_nested_symlink_cannot_escape_public_assets(tmp_path):
+ """Integration check of the real Node gateway, without broker dependencies."""
+ with socket.socket() as sock:
+  sock.bind(('127.0.0.1',0))
+  port=sock.getsockname()[1]
+ public=tmp_path/'dist'
+ (public/'assets').mkdir(parents=True)
+ (public/'index.html').write_text('<html>PUBLIC STERLING</html>')
+ (public/'assets/app.js').write_text('PUBLIC SCRIPT')
+ (public/'.env').write_text('SHOULD NEVER BE SERVED')
+ outside=tmp_path/'private-key.txt'
+ outside.write_text('OUTSIDE RELEASE')
+ (public/'assets/escaped.txt').symlink_to(outside)
+ (public/'assets/untyped').symlink_to(outside)
+ (public/'jump').symlink_to(tmp_path,target_is_directory=True)
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
+   env={**os.environ,'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':'0',
+        'STERLING_STATIC_ROOT':str(public)},
+   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ origin=f'http://127.0.0.1:{port}'
+ try:
+  for _ in range(60):
+   try:
+    with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=.25) as response:
+     if json.load(response)['ready']:break
+   except (OSError,urllib.error.URLError):
+    pass
+   time.sleep(.05)
+  else:pytest.fail('Gateway failed to serve valid static fixture')
+  for path in ['/.env','/%2eenv','/assets/escaped.txt','/assets/untyped',
+               '/jump/private-key.txt','/private/.token','/assets/missing.js']:
+   with pytest.raises(urllib.error.HTTPError) as denied:
+    urllib.request.urlopen(origin+path,timeout=2)
+   assert denied.value.code==404,path
+  with urllib.request.urlopen(origin+'/assets/app.js',timeout=2) as response:
+   assert response.read().decode()=='PUBLIC SCRIPT'
+  with urllib.request.urlopen(origin+'/signals',timeout=2) as response:
+   assert 'PUBLIC STERLING' in response.read().decode()
+  assert process.poll() is None
+ finally:
+  process.terminate()
+  process.wait(5)
+
+
 def test_backend_outage_keeps_public_desk_shell_and_protects_private_data(gateway):
  with urllib.request.urlopen(gateway+'/tma') as response:
   assert response.status==200
