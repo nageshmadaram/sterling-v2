@@ -3775,20 +3775,51 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
       return cached;
     }
-    // Stable prefix-first ranking without sorting or quadratic ID scans.
+    // Search remains prefix-first, but spaces/punctuation and a single
+    // spelling error must not make a station undiscoverable.
+    const compactRadioSearch = value => normalizeRadioSearch(value)
+      .replace(/[^\\p{L}\\p{N}]+/gu,'');
+    function radioOneEditApart(a,b) {
+      if(Math.abs(a.length-b.length)>1)return false;
+      let i=0,j=0,edits=0;
+      while(i<a.length&&j<b.length) {
+        if(a[i]===b[j]){i++;j++;continue;}
+        if(++edits>1)return false;
+        if(a.length>b.length)i++;
+        else if(b.length>a.length)j++;
+        else{i++;j++;}
+      }
+      return edits+(i<a.length||j<b.length?1:0)<=1;
+    }
     function getRadioSearchMatches(pool, query, limit=Infinity) {
-      const q=normalizeRadioSearch(query),terms=q.trim().split(/\s+/).filter(Boolean);
-      const seen=new Set(),prefix=[],other=[];
+      const q=normalizeRadioSearch(query).trim();
+      const terms=q.split(/\\s+/).filter(Boolean);
+      if(!terms.length)return pool.slice(0,limit);
+      const compactQuery=compactRadioSearch(q),seen=new Set();
+      const prefix=[],other=[],fallback=[];
       for(const station of pool) {
         if(!station || typeof station!=='object' || seen.has(station.id))continue;
         seen.add(station.id);
         const fields=radioSearchFields(station);
-        if(!terms.every(term=>fields.hay.includes(term)))continue;
-        const matches=fields.title.startsWith(q)?prefix:other;
-        if(matches.length<limit)matches.push(station);
-        if(prefix.length>=limit)break;
+        const compactHay=compactRadioSearch(fields.hay);
+        const direct=terms.every(term=>fields.hay.includes(term)) ||
+          (compactQuery.length>=2 && compactHay.includes(compactQuery));
+        if(direct){
+          const matches=fields.title.startsWith(q)?prefix:other;
+          if(matches.length<limit)matches.push(station);
+          continue;
+        }
+        // Fuzzy suggestions only when exact results do not fill the window.
+        // Use an O(n) one-edit check; never sort the entire catalogue.
+        if(limit===Infinity || compactQuery.length<4 || fallback.length>=limit)continue;
+        const tokens=fields.hay.split(/[^\\p{L}\\p{N}]+/gu).filter(Boolean);
+        if(terms.every(term=>term.length<4?
+            tokens.some(token=>token.includes(term)):
+            tokens.some(token=>token.includes(term)||radioOneEditApart(term,token)))) {
+          fallback.push(station);
+        }
       }
-      return prefix.concat(other).slice(0,limit);
+      return prefix.concat(other,fallback).slice(0,limit);
     }
     function radioSuggestionItems(query) {
       const hasTerms=normalizeRadioSearch(query).trim().length>0;
