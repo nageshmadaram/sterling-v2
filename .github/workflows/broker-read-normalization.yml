@@ -1,0 +1,52 @@
+name: Broker Read Normalization Validation
+
+on:
+  push:
+    branches:
+      - upgrade/broker-read-normalization-20261029
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  read-contract:
+    name: Broker Normalized Read Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install existing backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compile service and models
+        run: |
+          python -m compileall -q backend/app/schemas/broker_read.py backend/app/services/exchanges/normalized_read.py
+      - name: Run synthetic adapter / registry tests
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+        run: |
+          python -m pytest -q tests/test_broker_normalized_read.py tests/test_broker_registry.py tests/test_platform_strategy_registry.py tests/test_platform_strategy_registry_safety.py tests/test_registry_signed_auth_contract.py --tb=short
+      - name: Assert no order writes or route bindings in new module
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          path = Path('backend/app/services/exchanges/normalized_read.py')
+          root = ast.parse(path.read_text())
+          forbidden = {'place_order','cancel_order','modify_order','submit_order','place_gtt','place_order_option','flatten'}
+          classes = [node for node in root.body if isinstance(node, ast.ClassDef) and node.name == 'NormalizedKiteReader']
+          assert len(classes) == 1
+          methods = {node.name for node in classes[0].body if isinstance(node, (ast.FunctionDef,ast.AsyncFunctionDef))}
+          assert not forbidden.intersection(methods), forbidden.intersection(methods)
+          assert not {'FastAPI','APIRouter','@router'}.intersection(path.read_text().split())
+          print('PASS: read facade has no order-writing methods or HTTP route declarations')
+          PY
