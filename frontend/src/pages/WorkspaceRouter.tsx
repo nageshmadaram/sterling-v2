@@ -14,7 +14,7 @@ const MediaWorkspace = lazy(() => import('./MediaWorkspace'));
 const Administration = lazy(() => import('./Administration'));
 export type Feature = Workspace;
 type Destination = Feature | 'home' | 'administration';
-export type SessionPolicy = { user_id: string; username: string; role: string; administrator: boolean; features: Record<Feature, boolean>; policy_revision: number };
+export type SessionPolicy = { user_id: string; username: string; role: string; administrator: boolean; features: Record<Feature, boolean>; visibility?: Record<Feature, boolean>; policy_revision: number };
 const FEATURES: Feature[] = ['kite', 'radio', 'tv'];
 function readDestination(): Destination { const path = window.location.pathname; return path === '/administration' ? 'administration' : path === '/kite' ? 'kite' : path === '/tv' ? 'tv' : path === '/radio' ? 'radio' : 'home'; }
 export function WorkspaceRouter() {
@@ -42,13 +42,13 @@ export function WorkspaceRouter() {
 
   // Cycle only explicitly granted workspaces; never bypass a per-user grant.
   const cycleWorkspace = useCallback(() => {
-    const enabled = FEATURES.filter(feature => session?.features[feature]);
+    const enabled = FEATURES.filter(feature => session?.features[feature] && session?.visibility?.[feature] !== false);
     if (!enabled.length) { setChooserOpen(true); return; }
     const index = enabled.indexOf(current as Feature);
     navigate(enabled[(index + 1) % enabled.length]);
   }, [current, navigate, session]);
 
-  const chooser = session && <WorkspaceChooser features={session.features} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
+  const chooser = session && <WorkspaceChooser features={session.features} visibility={session.visibility} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
   const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current]);
   return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''} ${mediaHeaderMinimized && (current==='tv'||current==='radio')?'media-header-minimized':''}`}>
     {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
@@ -63,6 +63,7 @@ export function WorkspaceRouter() {
       <button type="button" className="workspace-reveal-header" onClick={()=>setMediaHeaderMinimized(false)}
         aria-label="Show media header" title="Show Radio / TV controls">Show controls <span aria-hidden="true">⌄</span></button>}
     {policy.isLoading ? <main className="workspace-state" role="status">Opening your workspace…</main> : !session ? <main className="workspace-state"><h1>Access could not be verified</h1><p role="alert">{policy.error?.message || 'Try the connection again.'}</p><button onClick={() => void policy.refetch()}>Retry</button></main> :
+      !allowed && FEATURES.includes(current as Feature) && session.visibility?.[current as Feature] === false ? <main className="workspace-access-state"><button type="button" className="bac-btn workspace-access-back" onClick={() => navigate('home')}>← Back to workspaces</button><p className="workspace-eyebrow">WORKSPACE ACCESS</p><h1>Workspace unavailable</h1><p>This workspace is not shown for your account. Contact your administrator if you need assistance.</p></main> :
       !allowed && FEATURES.includes(current as Feature) ? <WorkspaceAccessRequest key={current} feature={current as Feature} onBack={() => navigate('home')} /> : !allowed ? <main className="workspace-state"><h1>Administrator access required</h1><button onClick={() => navigate('home')}>Return to your workspaces</button></main> :
       current === 'home' ? <main className="workspace-launcher">{chooser}</main> : <Suspense fallback={<main className="workspace-state" role="status">Opening workspace…</main>}>
         {current === 'administration' ? <Administration /> : current === 'kite' ? <PreferenceGate><KiteRuntime /></PreferenceGate> : <PreferenceGate><MediaWorkspace key={current} feature={current} /></PreferenceGate>}
