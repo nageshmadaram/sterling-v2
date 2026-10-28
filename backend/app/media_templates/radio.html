@@ -1035,7 +1035,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <i class="fa-solid fa-chevron-down text-lg"></i>
       </button>
       <span class="radio-playing-context"><small>PLAYING FROM</small><strong id="sheet-context">Your station</strong></span>
-      <button data-radio-click="29" class="w-10 h-10 btn-circle text-white" title="More options" aria-label="More options">
+      <button type="button" onclick="radioExtras?.open()" class="w-10 h-10 btn-circle text-white" title="Radio options" aria-label="Radio options">
         <i class="fa-solid fa-ellipsis text-lg"></i>
       </button>
     </div>
@@ -2168,6 +2168,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       safeHaptic(10);
       populateStartupSelectDropdown();
       syncStartupModalUI();
+      closeDspModal(); // Keep only one foreground settings dialog.
       document.getElementById('startup-modal').classList.remove('hidden');
       syncRadioModalState();
       document.querySelector('#startup-modal button')?.focus();
@@ -2838,6 +2839,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function openDspModal() {
       safeHaptic(10);
       syncDspModalUI();
+      closeStartupModal(); // Keep only one foreground settings dialog.
       document.getElementById('audio-dsp-modal').classList.remove('hidden');
       syncRadioModalState();
       document.querySelector('#audio-dsp-modal button')?.focus();
@@ -2847,6 +2849,24 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('audio-dsp-modal').classList.add('hidden');
       syncRadioModalState();
     }
+    // Register the actual scrollable sheets with TV's common swipe handler.
+    window.SterlingSheetSwipe?.register('#startup-modal:not(.hidden) > div', closeStartupModal);
+    window.SterlingSheetSwipe?.register('#audio-dsp-modal:not(.hidden) > div', closeDspModal);
+    for (const id of ['startup-modal', 'audio-dsp-modal']) {
+      document.getElementById(id).addEventListener('click', event => {
+        if (event.target !== event.currentTarget) return;
+        if (id === 'startup-modal') closeStartupModal(); else closeDspModal();
+      });
+    }
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      if (!document.getElementById('audio-dsp-modal').classList.contains('hidden')) {
+        event.stopPropagation(); closeDspModal();
+      } else if (!document.getElementById('startup-modal').classList.contains('hidden')) {
+        event.stopPropagation(); closeStartupModal();
+      }
+    }, true);
+
 
     function setStreamQualityProfile(profile) {
       appConfig.qualityProfile = profile;
