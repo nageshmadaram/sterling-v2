@@ -190,3 +190,7 @@ button,a{-webkit-tap-highlight-color:transparent}
 @media(max-width:1023px) {
   .workspace-compact-toggle {display:none!important;}
 }
+
+.workspace-access-state .workspace-access-back{display:inline-flex;align-items:center;margin:0 0 24px;padding:10px 16px;border:1px solid var(--k-border);border-radius:8px;background:var(--k-surface-2);color:var(--k-text);cursor:pointer}
+.workspace-access-state .workspace-access-back:hover{border-color:var(--k-brand)}
+@media(max-width:600px){.workspace-access-state{margin:10px auto;padding:20px}.workspace-access-state h1{font-size:24px}}
