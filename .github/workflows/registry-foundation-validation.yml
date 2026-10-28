@@ -71,7 +71,7 @@ jobs:
           python -m pip install 'psycopg[binary]>=3.2,<4'
       - name: Run PostgreSQL migration and safety smoke
         working-directory: backend
-        run: python scripts/validate_registry_postgres.py
+        run: PYTHONPATH=. python scripts/validate_registry_postgres.py
       - name: Backup and restore into disposable verification DB
         run: |
           pg_dump -Fc --no-owner -d sterling_registry_ci -f /tmp/sterling_registry_ci.dump
