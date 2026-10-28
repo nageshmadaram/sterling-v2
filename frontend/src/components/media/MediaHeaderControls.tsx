@@ -20,7 +20,9 @@ type Props = {
 
 /** Same compact, touch-accessible controls for video and audio workspaces. */
 export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEnter, onFeatures, settingsInAccountMenu = false }: Props) {
-  const [searchOpen, setSearchOpen] = useState(false);
+  // Desktop search is an immediately visible text field; phones keep the compact icon.
+  const [searchOpen, setSearchOpen] = useState(() => typeof window !== 'undefined' &&
+    Boolean(window.matchMedia?.('(min-width: 1024px)').matches));
   const [activeSuggestion,setActiveSuggestion]=useState(-1);
   const suggestionId=useId();
   const [draft, setDraft] = useState(query);
