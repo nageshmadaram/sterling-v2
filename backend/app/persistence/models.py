@@ -55,3 +55,8 @@ class MirroredRecord(Base):
     key: Mapped[str] = mapped_column(String, primary_key=True)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
     updated_ts: Mapped[int] = mapped_column(Integer, nullable=False)
+
+# Stage-1 additive strategy registry; Alembic imports this metadata module.
+from app.persistence.strategy_registry_models import (  # noqa: F401
+    PlatformStrategyRow, PlatformStrategyVersionRow, PlatformStrategyRunRow,
+)
