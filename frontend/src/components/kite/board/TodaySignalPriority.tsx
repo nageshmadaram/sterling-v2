@@ -136,20 +136,24 @@ export function TodaySignalPriorityStatus() {
       : state.stages[name] === 'error' ? 'unavailable'
       : 'loading today'
   }`);
-  return <div
-    role="status" aria-live="polite" className="today-signals-priority" data-testid="today-signals-priority"
-    style={{ padding: '5px 12px', fontSize: 11, lineHeight: 1.5,
-      borderBottom: '1px solid var(--k-border)', color: 'var(--k-text)',
-      background: 'var(--k-surface)', flexShrink: 0 }}
-  >
-    <details className="today-priority-details today-signal-brief">
-      <summary aria-label="Show per-strategy signal loading status"><strong>Today · {checksDone}/4 received{failures.length ? ` · ${failures.length} unavailable` : state.olderReady ? ' · History ready' : ' · Loading'}</strong></summary>
-      <strong>{state.olderReady
-      ? `Today-first checks finished: ${checksDone}/4 received${failures.length ? ` · ${failures.length} unavailable` : ''}. History may load.`
-      : `Today first · ${checksDone}/4 received · older history queued`}</strong>
-      <span>IST {state.day} · {parts.join(' · ')}</span>
-      <p>A response does not prove that a fresh scan ran or produced signals.</p>
-      {failures.length > 0 && <p role="alert">Unavailable: {failures.join(', ')}. Check that strategy's API and scan. Existing rows are not proof of today's signals.</p>}
+  const summary = `Today · ${checksDone}/4 API responses${failures.length
+    ? ` · ${failures.length} unavailable` : ''} · ${state.olderReady
+      ? 'history ready' : 'older history queued'}`;
+  return <div role="status" aria-live="polite"
+    className="today-signals-priority" data-testid="today-signals-priority">
+    <details className="today-priority-details">
+      <summary aria-label="Expand current-day strategy loading details" title={summary}>
+        <strong className="today-priority-summary-text">{summary}</strong>
+        <span aria-hidden="true" className="today-priority-chevron">▾</span>
+      </summary>
+      <div className="today-priority-expanded">
+        <p>IST {state.day} · {parts.join(' · ')}</p>
+        <p>A response only confirms that the API responded, not that a fresh scan
+          generated a signal. A failed strategy does not hide other boards' history.</p>
+        {failures.length > 0 && <p role="alert">
+          Unavailable: {failures.join(', ')}. Review the API and scan status.
+        </p>}
+      </div>
     </details>
   </div>;
 }

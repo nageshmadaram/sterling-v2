@@ -1,4 +1,4 @@
-import { StrategyModeInfo } from './board/StrategyModeInfo';
+import { StrategyIntro } from './board/StrategyIntro';
 import {useSavedSelection} from '../../hooks/useSavedSelection';
 const PriceRulesBoard = lazy(() => import('./board/PriceRulesBoard').then(m => ({ default: m.PriceRulesBoard })));
 import { openSettingsSection } from './config/registry';
@@ -12,7 +12,6 @@ import { useEmaTrendSnapshot } from '../../hooks/useEmaTrend';
 import { emaTrendCampaignsToBoard, emaTrendSetupsToBoard } from './board/emaTrendAdapter';
 const SnapbackBoard = lazy(() => import('./board/SnapbackBoard').then(m => ({ default: m.SnapbackBoard })));
 import { EngineTabs, type EngineTabState } from './board/EngineToolbar';
-import { StrategyGuide } from './board/StrategyGuide';
 import { gammaMoveToBoard } from './board/gammaMoveAdapter';
 import { supertrendToBoard } from './board/supertrendAdapter';
 import { ACTIONABLE, type BoardSignal, type EngineId } from './board/boardTypes';
@@ -291,8 +290,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
           </span>
         </PaneHeaderActions>
       </div>
-      <StrategyModeInfo bounded engine={engine} st={stCfg.data} sb={sbSnapshot.data?.config} />
-      <StrategyGuide engine={engine} />
+      <StrategyIntro key={engine} engine={engine} st={stCfg.data} sb={sbSnapshot.data?.config} />
 
       {settingsOpen && (
         <div style={{ flexShrink: 0, overflow: 'hidden' }}>

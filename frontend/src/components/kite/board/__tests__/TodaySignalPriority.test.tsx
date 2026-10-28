@@ -74,11 +74,22 @@ describe('cross-strategy today priority', () => {
   it('releases history only after four live snapshots complete', async () => {
     wrap(<Display />);
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
-    expect(screen.getByRole('status')).toHaveTextContent('Today-first checks finished: 4/4 received');
+    expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses · history ready');
     expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');
-    expect(screen.getByLabelText('Show per-strategy signal loading status')).toHaveTextContent('Today · 4/4 received');
-    expect(screen.getByRole('status')).toHaveTextContent('A response does not prove that a fresh scan ran');
+    expect(screen.getByRole('status')).toHaveTextContent('▾');
+    expect(screen.getByRole('status')).toHaveTextContent('A response only confirms that the API responded');
     expect(screen.getByRole('status')).toHaveTextContent(/IST \d{4}-\d{2}-\d{2}/);
+  });
+
+  it('keeps the current-day API explanation collapsed until explicitly expanded', async () => {
+    wrap(<Display />);
+    const summary = screen.getByLabelText('Expand current-day strategy loading details');
+    expect(summary.tagName).toBe('SUMMARY');
+    expect(summary.closest('details')).not.toHaveAttribute('open');
+    // A single compact summary remains visible, with full facts available.
+    expect(summary).toHaveTextContent('Today ·');
+    summary.click();
+    expect(summary.closest('details')).toHaveAttribute('open');
   });
 
   it('keeps older history deferred when one current-day scan is running', async () => {
@@ -89,7 +100,7 @@ describe('cross-strategy today priority', () => {
     expect(screen.getByRole('status')).toHaveTextContent('older history queued');
   });
 
-  it("releases older read-only history after all today's checks settle, while showing the failed strategy", async () => {
+  it('releases older read-only history after all today's checks settle, while showing the failed strategy', async () => {
     source.gamma = { ...source.gamma, isError: true };
     wrap(<Display />);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Gamma-Unwind: unavailable'));
