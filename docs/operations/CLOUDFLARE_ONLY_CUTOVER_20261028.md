@@ -92,3 +92,14 @@ For non-production gateways using a plain static `dist` directory, the
 health endpoint retains the manifest compatibility fallback. A reported SHA
 is evidence of the *local gateway's* active build, not proof of a live
 Cloudflare tunnel, device reload, successful test suite, or broker readiness.
+
+
+## Invalid public release target must fail closed
+
+If the public `published` symlink is broken, redirected outside the managed
+`releases/<sha>` directory or missing a complete `index.html`, the gateway
+reports `ready: false` and `release_commit: null` instead of repeating a
+stale `published.json` value. Static SPA/assets return HTTP 503 while this
+condition exists; API and broker proxy endpoints remain separate. A valid
+managed release restores static readiness without restarting the gateway.
+This is source behavior pending real-host and device verification.

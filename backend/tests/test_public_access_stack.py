@@ -765,6 +765,37 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
   manifest.write_text(json.dumps({'sha':'b'*40,'ref':'HEAD'}))
   with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
    assert json.load(response)['release_commit']=='b'*40
+  # A directory outside the managed releases tree cannot claim readiness,
+  # even with a complete index.html and a previously valid published.json.
+  outside=tmp_path/'untrusted'/('c'*40)
+  outside.mkdir(parents=True)
+  (outside/'index.html').write_text('EXTERNAL')
+  swap=tmp_path/'published.next'
+  swap.symlink_to(outside,target_is_directory=True)
+  swap.replace(pointer)
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   health=json.load(response)
+   assert health['ready'] is False
+   assert health['release_commit'] is None
+  with pytest.raises(urllib.error.HTTPError) as blocked:
+   urllib.request.urlopen(origin+'/',timeout=2)
+  assert blocked.value.code==503
+  # Broken symlinks must also fail closed rather than using the old manifest.
+  pointer.unlink()
+  pointer.symlink_to(tmp_path/'missing',target_is_directory=True)
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   health=json.load(response)
+   assert health['ready'] is False
+   assert health['release_commit'] is None
+  with pytest.raises(urllib.error.HTTPError) as blocked:
+   urllib.request.urlopen(origin+'/',timeout=2)
+  assert blocked.value.code==503
+  pointer.unlink()
+  pointer.symlink_to(second,target_is_directory=True)
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   health=json.load(response)
+   assert health['ready'] is True
+   assert health['release_commit']=='b'*40
   assert process.poll() is None
  finally:
   process.terminate()

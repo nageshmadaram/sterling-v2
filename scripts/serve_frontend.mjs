@@ -16,24 +16,34 @@ const backend = new URL(process.env.STERLING_API_TARGET || 'http://127.0.0.1:800
 if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !== 'http:') throw new Error('Backend must be loopback HTTP');
 const releaseFile = process.env.STERLING_RELEASE_MANIFEST ||
   path.join(gatewayDir, '.runtime/stack/published.json');
-function committedRelease() {
-  // The gateway serves from the atomically swapped published symlink, not
-  // from published.json. During a promotion (or after a manifest-write error)
-  // these can briefly disagree. Report the release whose files are served.
-  try {
-    if (fs.lstatSync(root).isSymbolicLink()) {
+function servedReleaseHealth() {
+  // Production serves the atomically swapped symlink. Its target, not the
+  // separately-written manifest, is the only valid published-release identity.
+  // A broken or redirected symlink must never fall back to stale metadata.
+  let linked;
+  try { linked = fs.lstatSync(root).isSymbolicLink(); }
+  catch { return {ready:false, release_commit:null}; }
+  if (linked) {
+    try {
       const actual = fs.realpathSync(root);
       const sha = path.basename(actual);
-      if (path.basename(path.dirname(actual)) === 'releases' &&
-          /^[a-f0-9]{40,64}$/.test(sha)) return sha;
-    }
-  } catch { return null; }
-  // Compatibility: development/test gateways may use a regular dist path.
-  // Their release manifest is informational, not publication authority.
+      const ownReleases = path.join(path.dirname(root), 'releases');
+      if (path.dirname(actual) === ownReleases &&
+          /^[a-f0-9]{40,64}$/.test(sha) &&
+          fs.statSync(path.join(actual,'index.html')).isFile()) {
+        return {ready:true, release_commit:sha};
+      }
+    } catch { /* Broken or incomplete release is unavailable. */ }
+    return {ready:false, release_commit:null};
+  }
+  // Backward compatibility for ordinary static dist folders used in dev/tests.
+  const ready = fs.existsSync(path.join(root,'index.html'));
+  if (!ready) return {ready:false, release_commit:null};
   try {
     const value = JSON.parse(fs.readFileSync(releaseFile, 'utf8'));
-    return /^[a-f0-9]{40,64}$/.test(value.sha) ? value.sha : null;
-  } catch { return null; }
+    const sha = /^[a-f0-9]{40,64}$/.test(value.sha) ? value.sha : null;
+    return {ready:true, release_commit:sha};
+  } catch { return {ready:true, release_commit:null}; }
 }
 const isApi = p => /^\/(api(?:\/|$)|tma(?:\/|$)|health(?:\/|$)|healthz(?:\/|$))/.test(p);
 const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff':'font/woff','.woff2':'font/woff2','.json':'application/json'};
@@ -77,8 +87,7 @@ const server = http.createServer((req,res) => {
   const pathname = new URL(req.url,'http://localhost').pathname;
   if (pathname === '/__sterling_web_health') {
     res.writeHead(200,{'Content-Type':'application/json','Cache-Control':'no-store'});
-    res.end(JSON.stringify({service:'sterling-web',ready:fs.existsSync(path.join(root,'index.html')),
-      release_commit:committedRelease()})); return;
+    res.end(JSON.stringify({service:'sterling-web', ...servedReleaseHealth()})); return;
   }
   if (['/tma/','/api/v1/tma/'].includes(pathname)) { res.writeHead(302, {Location:pathname.slice(0,-1), 'Cache-Control':'no-store'}); res.end(); return; }
   if (isApi(pathname)) {
@@ -109,6 +118,12 @@ const server = http.createServer((req,res) => {
     req.on('aborted',()=>upstream.destroy()); req.pipe(upstream); return;
   }
   if (!['GET','HEAD'].includes(req.method)) {res.writeHead(405);res.end();return;}
+  // Do not serve an unmanaged static symlink even when a stale manifest says
+  // an old release was ready. Keep API/proxy endpoints independent.
+  if (!servedReleaseHealth().ready) {
+    res.writeHead(503, {'Cache-Control':'no-store','Content-Type':'text/plain'});
+    res.end('Frontend release unavailable'); return;
+  }
   // All TV entry paths must resolve to the dedicated, opaque-origin
   // multimedia document. Never fall back to the trading SPA for /tv.
   if (['/tv/','/radio/'].includes(pathname)) {
