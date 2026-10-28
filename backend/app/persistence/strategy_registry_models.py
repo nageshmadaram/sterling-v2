@@ -4,7 +4,7 @@ No table here grants broker execution permission or changes execution state.
 """
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.persistence.base import Base
@@ -22,6 +22,7 @@ class PlatformStrategyRow(Base):
     slug: Mapped[str] = mapped_column(String(96), nullable=False)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     state: Mapped[str] = mapped_column(String(16), nullable=False, default="draft", server_default="draft")
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())
     created_at_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
     updated_at_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
