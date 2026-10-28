@@ -105,3 +105,61 @@ two-finger pinch and double tap on artwork, scrolling content and media
 controls; confirm there is **no page-scale change** and that station/channel
 switching and single-finger scrolling still work. This cannot be certified from
 a simulated event dispatch.
+
+
+## 2026-10-28 CI rerun receipt — certification remains NO-GO
+
+**Exact tested source SHA:** `bf153f8f2b70f38520d65ab5c6c7425b305c2ffb`
+(at the time these jobs were requested). These are GitHub Actions
+job-execution receipts, **not** successful application test results.
+
+| Workflow | GitHub run ID | Attempt | Conclusion | Runner/steps |
+|---|---:|---:|---|---|
+| CI | 40598169088 | 2 | FAILURE | empty runner name, 0 steps for Type Check, Vitest, Python 3.12/3.13, mobile-checks, Docker Smoke and Sterling Release Gate |
+| Snapback release gate | 40598169055 | 2 | FAILURE | no runner-assigned steps |
+| Regression Gate | 40598169031 | 2 | FAILURE | no runner-assigned steps |
+
+The repository-connected action successfully requested reruns of all failed
+jobs for all three workflow runs. The jobs completed with failures again
+within seconds. CI run attempt 2's Type Check job, for example, started
+`2026-10-28T02:28:53Z`, ended `2026-10-28T02:28:56Z` and
+records `runner_name=""`, `steps=[]`. No actual npm test, Python,
+Docker or Playwright execution is evidenced. Job-log downloads return
+404 missing-blobs through this connector. The check-run metadata reports
+annotations, but their URL is not authorized for retrieval.
+
+**Blocker tracking:** https://github.com/nageshmadaram/sterling/issues/276
+
+**Result:** NO-GO — both full test evidence and real Android/broker evidence
+are absent. This is not proof that any individual code-level test fails; it
+shows the configured GitHub runner has not executed it. Do not remove
+regression jobs, fake their receipts or bypass live trading safety.
+Source changes committed after this exact SHA are also untested by these
+workflows and require a new exact-SHA run once runners work.
+
+**Unresolved environmental dependency:** GitHub Actions organization/account
+policy, capacity, or billing/usage must be examined by an authorized
+repository administrator. The true root cause has not been identified, so
+no billing diagnosis should be asserted as fact.
+
+### Remaining certification evidence, in strict sequence
+
+1. Healthy CI runner -> complete frontend build/typecheck/Vitest and backend
+   Python tests against one pinned SHA, archived artifacts and exit codes.
+2. Backend and frontend start/health/contract checks, then authenticated
+   endpoints and tenant-isolation drills; record API/WS latency metrics.
+3. Real Android portrait/landscape on the deployed exact SHA: page-by-page
+   Light/Dark visual proofs, profile upload/crop, Space/Echo zero-zoom,
+   first-frame/first-audible timing with network profiles, and history/signal
+   scanning states.
+4. Real mobile push delivery in background and lock screen, including exact
+   strategy/signal deep link and notification payload with no credentials.
+5. Authorized broker identity validation for the intended account; exposure
+   must be readable and confirmed, plus independent stop/exit/restart proofs
+   under approved safety guards.
+6. Exact-SHA isolated backup/restore, disconnected/reconnected drills, final
+   immutable manifest and release authority review.
+7. Forward after-cost economic data with an appropriate out-of-sample period.
+   No promise of profits. Live-entry permission remains off pending acceptance.
+
+All missing items remain **BLOCKED/UNVERIFIED** until their real receipts exist.
