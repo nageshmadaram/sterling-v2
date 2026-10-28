@@ -193,3 +193,21 @@ body.tm-search-active #dynamic-category-pills-row {display:none!important;}
   border-color:rgba(255,255,255,.5)!important;
   max-width:90%;
 }
+
+/* Sterling unified player refinement */
+#video-surface-card,
+#video-surface-card video,
+#video-surface-card iframe {outline:0!important;border:0!important;}
+#video-surface-card {overflow:hidden;isolation:isolate;}
+@media(min-width:1280px) {
+  #watch-columns {display:flex;align-items:stretch;gap:14px;}
+  #watch-columns #left-watch-column {flex:1 1 0;min-width:0;width:auto;}
+  #watch-columns #watch-up-next-rail {
+    flex:0 0 270px;width:270px!important;max-width:270px;min-width:0;
+    overflow-x:hidden;padding:6px 8px!important;
+  }
+  #watch-up-next-rail :is(h3,h4,p,strong,small) {
+    overflow:hidden;text-overflow:ellipsis;min-width:0;
+  }
+}
+
