@@ -62,6 +62,7 @@ class MeResponse(BaseModel):
     username: str
     role: str
     features: dict[str, bool]
+    visibility: dict[str, bool]
     policy_revision: int
     administrator: bool
 
@@ -145,5 +146,5 @@ async def me(response: Response, user: UserContext = Depends(get_current_user)) 
     except account_policy.PolicyUnavailable as exc:
         raise HTTPException(503, str(exc)) from None
     return MeResponse(user_id=user.user_id, username=user.username, role=user.role,
-                      features=policy.features, policy_revision=policy.revision,
+                      features=policy.features, visibility=policy.visibility, policy_revision=policy.revision,
                       administrator=policy.administrator)
