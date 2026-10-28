@@ -4014,8 +4014,10 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
           if(scored.length>=maxFuzzy)break;
           if(!isChannelVisible(ch)||used.has(ch.url))continue;
           const tokens=normalizeSearch([ch.name,ch.group,ch.lang].join(' ')).split(/\s+/).filter(Boolean);
-          const candidate=terms.every(term => tokens.some(token =>
-            token.includes(term)||(term.length>=4&&oneEdit(term,token))));
+          const candidate=terms.every(term => tokens.some((token,index) =>
+            token.includes(term) ||
+            (term.length>=4 && (oneEdit(term,token) ||
+              oneEdit(term,token+(tokens[index+1]||''))))));
           if(!candidate)continue;
           used.add(ch.url);
           scored.push({ch,score:0});
