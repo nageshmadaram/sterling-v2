@@ -63,13 +63,14 @@ class UserEdit(BaseModel):
 
 
 class UserCreate(UserEdit):
+    visibility: FeatureGrants = Field(default_factory=lambda: FeatureGrants(kite=True,tv=True,radio=True))
     features: FeatureGrants = Field(default_factory=lambda: FeatureGrants(kite=False,tv=False,radio=False))
     configuration: dict[str, InitialSection] = Field(default_factory=dict)
 
 
 def save(user,body,action,target_id=None):
     admin(user)
-    try:return public(operator_credentials.manage(user.user_id,action,body.username,body.password,target_id=target_id,role=body.role,active=body.active, **({'features': body.features.model_dump(), 'configuration': {k:v.model_dump() for k,v in body.configuration.items()}} if isinstance(body,UserCreate) else {})))
+    try:return public(operator_credentials.manage(user.user_id,action,body.username,body.password,target_id=target_id,role=body.role,active=body.active, **({'features': body.features.model_dump(), 'configuration': {k:v.model_dump() for k,v in body.configuration.items()}, 'visibility': body.visibility.model_dump()} if isinstance(body,UserCreate) else {})))
     except ValueError as exc:raise HTTPException(422,str(exc)) from None
     except PermissionError:raise HTTPException(403,'Sterling administrator access required.') from None
     except RuntimeError as exc:raise HTTPException(503,str(exc)) from None
@@ -103,12 +104,14 @@ class FeatureEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expected_revision: int = Field(ge=0, strict=True)
     features: FeatureGrants
+    visibility: FeatureGrants | None = None
 
 
 def policy_public(policy):
     return {'user_id': policy.user_id, 'revision': policy.revision,
             'active': policy.active, 'administrator': policy.administrator,
-            'features': policy.features}
+            'features': policy.features,
+            'visibility': policy.visibility}
 
 
 @router.get('/{user_id}/features')
@@ -132,7 +135,8 @@ async def update_features(user_id: str, body: FeatureEdit, response: Response,
     response.headers['Cache-Control'] = 'no-store, private'
     try:
         return policy_public(account_policy.set_features(
-            user.user_id, user_id, body.features.model_dump(), body.expected_revision))
+            user.user_id, user_id, body.features.model_dump(), body.expected_revision,
+            visibility=body.visibility.model_dump() if body.visibility is not None else None))
     except account_policy.PolicyConflict as exc:
         raise HTTPException(409, str(exc)) from None
     except PermissionError as exc:

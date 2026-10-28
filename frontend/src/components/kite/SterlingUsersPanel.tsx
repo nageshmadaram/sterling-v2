@@ -12,6 +12,18 @@ export type List = { current_user_id: string; users: User[] };
 const BASE = '/api/v1/auth/users';
 const KEY  = ['sterling-users'];
 
+/** Do not silently strip permissions to accommodate an old API. */
+export function explainSterlingUserError(message: string): string {
+  if (/extra_forbidden/i.test(message) &&
+      /features/i.test(message) && /configuration/i.test(message)) {
+    return 'This Sterling server is running an outdated Add User API. ' +
+      'It rejects workspace and settings grants supported by the current app. ' +
+      'Nothing was created; deploy the matching backend release and retry. ' +
+      'Permissions were not removed from the request.';
+  }
+  return message;
+}
+
 function EyeIcon() {
   return (
     <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -150,7 +162,7 @@ export function SterlingUsersPanel({ standalone = false, initialCreate=false, on
   const save = useMutation({
     mutationFn: (v: Draft) => {
       const {id,username,password,role,active}=v;
-      const body={username:username.trim(),password,role,active,...(!id&&v.access?{features:v.access.features,configuration:v.access.configuration}:{})};
+      const body={username:username.trim(),password,role,active,...(!id&&v.access?{features:v.access.features,configuration:v.access.configuration,visibility:v.access.visibility}:{})};
       return id ? api.put<User>(`${BASE}/${encodeURIComponent(id)}`, body)
                 : api.post<User>(BASE, body);
     },
@@ -164,7 +176,7 @@ export function SterlingUsersPanel({ standalone = false, initialCreate=false, on
         : 'User saved. Existing sessions for an edited user are signed out.');
     },
     onError: (e: Error) => {
-      setError(e.message); setVisible(false);
+      setError(explainSterlingUserError(e.message)); setVisible(false);
       setDraft(prev => prev ? { ...prev, password: '', repeat: '' } : null);
     },
   });
@@ -288,7 +300,7 @@ export function SterlingUsersPanel({ standalone = false, initialCreate=false, on
 
             {!draft.id&&draft.access&&<InitialAccessFields value={draft.access} onChange={access=>patch({access})}/>}
 
-            {save.error && <p className="bac-err">✗ {(save.error as Error).message}</p>}
+            {save.error && <p className="bac-err" role="alert">✗ {explainSterlingUserError((save.error as Error).message)}</p>}
 
             <div className="bac-row-gap">
               <button type="submit" className="bac-btn bac-btn-primary" disabled={busy}>

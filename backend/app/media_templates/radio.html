@@ -461,7 +461,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- Right Controls: icon buttons, labels in tooltips -->
       <div class="radio-header-actions flex items-center gap-1.5">
-        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="radio-head-icon" title="Settings: station sources, sleep timer, alarm and more" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+        <button type="button" id="radio-extras-btn" data-radio-click="82" class="radio-head-icon" title="Settings: station sources, sleep timer, alarm and more" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
         <button data-radio-click="28" class="radio-head-icon" title="Startup station" aria-label="Startup station"><i class="fa-solid fa-thumbtack"></i></button>
         <button data-radio-click="29" class="radio-head-icon" title="Equalizer" aria-label="Equalizer"><i class="fa-solid fa-sliders"></i></button>
         <button data-radio-click="30" class="radio-head-icon" title="Switch player style" aria-label="Switch player style"><i class="fa-solid fa-palette"></i></button>
@@ -1035,7 +1035,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <i class="fa-solid fa-chevron-down text-lg"></i>
       </button>
       <span class="radio-playing-context"><small>PLAYING FROM</small><strong id="sheet-context">Your station</strong></span>
-      <button data-radio-click="29" class="w-10 h-10 btn-circle text-white" title="More options" aria-label="More options">
+      <button type="button" data-radio-click="82" class="w-10 h-10 btn-circle text-white" title="Radio options" aria-label="Radio options">
         <i class="fa-solid fa-ellipsis text-lg"></i>
       </button>
     </div>
@@ -2168,6 +2168,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       safeHaptic(10);
       populateStartupSelectDropdown();
       syncStartupModalUI();
+      closeDspModal(); // Keep only one foreground settings dialog.
       document.getElementById('startup-modal').classList.remove('hidden');
       syncRadioModalState();
       document.querySelector('#startup-modal button')?.focus();
@@ -2659,7 +2660,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200),event.data.requestId);
         if(action==='select-suggestion'&&typeof value==='string'){const ch=findStationById(value);if(ch){startPlayback(ch);clearAllSearches();}}
         if(action==='sources')openRadioSources();
-        if (action === 'more' || action === 'startup') openStartupModal();
+        if (action === 'more') { closeStartupModal(); closeDspModal(); initRadioExtras(); radioExtras?.open(); }
+        if (action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
         if (action === 'back') radioNav?.back();
         return;
@@ -2838,6 +2840,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     function openDspModal() {
       safeHaptic(10);
       syncDspModalUI();
+      closeStartupModal(); // Keep only one foreground settings dialog.
       document.getElementById('audio-dsp-modal').classList.remove('hidden');
       syncRadioModalState();
       document.querySelector('#audio-dsp-modal button')?.focus();
@@ -2847,6 +2850,24 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('audio-dsp-modal').classList.add('hidden');
       syncRadioModalState();
     }
+    // Register the actual scrollable sheets with TV's common swipe handler.
+    window.SterlingSheetSwipe?.register('#startup-modal:not(.hidden) > div', closeStartupModal);
+    window.SterlingSheetSwipe?.register('#audio-dsp-modal:not(.hidden) > div', closeDspModal);
+    for (const id of ['startup-modal', 'audio-dsp-modal']) {
+      document.getElementById(id).addEventListener('click', event => {
+        if (event.target !== event.currentTarget) return;
+        if (id === 'startup-modal') closeStartupModal(); else closeDspModal();
+      });
+    }
+    document.addEventListener('keydown', event => {
+      if (event.key !== 'Escape') return;
+      if (!document.getElementById('audio-dsp-modal').classList.contains('hidden')) {
+        event.stopPropagation(); closeDspModal();
+      } else if (!document.getElementById('startup-modal').classList.contains('hidden')) {
+        event.stopPropagation(); closeStartupModal();
+      }
+    }, true);
+
 
     function setStreamQualityProfile(profile) {
       appConfig.qualityProfile = profile;
@@ -3755,20 +3776,54 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
       return cached;
     }
-    // Stable prefix-first ranking without sorting or quadratic ID scans.
+    // Search remains prefix-first, but spaces/punctuation and a single
+    // spelling error must not make a station undiscoverable.
+    const compactRadioSearch = value => normalizeRadioSearch(value)
+      .replace(/[^\p{L}\p{N}]+/gu,'');
+    function radioOneEditApart(a,b) {
+      if(Math.abs(a.length-b.length)>1)return false;
+      let i=0,j=0,edits=0;
+      while(i<a.length&&j<b.length) {
+        if(a[i]===b[j]){i++;j++;continue;}
+        if(++edits>1)return false;
+        if(a.length>b.length)i++;
+        else if(b.length>a.length)j++;
+        else{i++;j++;}
+      }
+      return edits+(i<a.length||j<b.length?1:0)<=1;
+    }
     function getRadioSearchMatches(pool, query, limit=Infinity) {
-      const q=normalizeRadioSearch(query),terms=q.trim().split(/\s+/).filter(Boolean);
-      const seen=new Set(),prefix=[],other=[];
+      const q=normalizeRadioSearch(query).trim();
+      const terms=q.split(/\s+/).filter(Boolean);
+      const compactQuery=compactRadioSearch(q),seen=new Set();
+      const prefix=[],other=[],fallback=[];
       for(const station of pool) {
         if(!station || typeof station!=='object' || seen.has(station.id))continue;
         seen.add(station.id);
         const fields=radioSearchFields(station);
-        if(!terms.every(term=>fields.hay.includes(term)))continue;
-        const matches=fields.title.startsWith(q)?prefix:other;
-        if(matches.length<limit)matches.push(station);
-        if(prefix.length>=limit)break;
+        const compactHay=compactRadioSearch(fields.hay);
+        const direct=terms.every(term=>fields.hay.includes(term)) ||
+          (compactQuery.length>=2 && compactHay.includes(compactQuery));
+        if(direct){
+          const matches=fields.title.startsWith(q)?prefix:other;
+          if(matches.length<limit)matches.push(station);
+          continue;
+        }
+        // Fuzzy suggestions only when exact results do not fill the window.
+        // Use an O(n) one-edit check; never sort the entire catalogue.
+        if(limit===Infinity || compactQuery.length<4 || fallback.length>=limit)continue;
+        const tokens=fields.hay.split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
+        const nearToken=term=>tokens.some((token,index)=>{
+          if(token.includes(term)||(term.length>=4&&radioOneEditApart(term,token)))return true;
+          // Multiword station names must tolerate both omitted spaces and
+          // a typo, e.g. "fmrainbo" for "FM Rainbow".
+          if(term.length<4)return false;
+          const pair=token+(tokens[index+1]||'');
+          return radioOneEditApart(term,pair);
+        });
+        if(terms.every(nearToken)) fallback.push(station);
       }
-      return prefix.concat(other).slice(0,limit);
+      return prefix.concat(other,fallback).slice(0,limit);
     }
     function radioSuggestionItems(query) {
       const hasTerms=normalizeRadioSearch(query).trim().length>0;
@@ -4313,6 +4368,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       "19": function(event) { updateCustomEq(); },
       "80": function(event) { loadCategory('all'); },
       "81": function(event) { closeSwPlayer(); },
+      "82": function(event) { closeStartupModal(); closeDspModal(); initRadioExtras(); radioExtras?.open(); },
       "20": function(event) { loadCategory('shortwave'); },
       "21": function(event) { onSearchInput(this.value, 'sp-clear-desktop'); },
       "22": function(event) { clearAllSearches(); },

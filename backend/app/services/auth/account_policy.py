@@ -80,6 +80,14 @@ def migrate(c: sqlite3.Connection) -> None:
         enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), actor_id TEXT NOT NULL,
         updated_at_ms INTEGER NOT NULL, PRIMARY KEY(user_id,feature)
     )''')
+    # Presentation policy is independent of feature authorization. Legacy accounts
+    # default to showing all workspaces; hidden entries are persisted explicitly.
+    c.execute('''CREATE TABLE IF NOT EXISTS user_workspace_visibility (
+        user_id TEXT NOT NULL REFERENCES users(id),
+        feature TEXT NOT NULL CHECK(feature IN ('kite','tv','radio')),
+        visible INTEGER NOT NULL CHECK(visible IN (0,1)),
+        PRIMARY KEY(user_id,feature)
+    )''')
     c.execute('''CREATE TABLE IF NOT EXISTS auth_audit_events (
         id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, target_id TEXT NOT NULL,
         action TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
@@ -115,6 +123,7 @@ class Policy:
     active: bool
     administrator: bool
     features: dict[str, bool]
+    visibility: dict[str, bool]
 
 
 def read(user_id: str) -> Policy:
@@ -127,11 +136,14 @@ def read(user_id: str) -> Policy:
                 EXISTS(SELECT 1 FROM platform_admin a WHERE a.user_id=u.id AND u.role='admin') AS administrator
                 FROM users u LEFT JOIN account_policy_revisions p ON p.user_id=u.id WHERE u.id=?''', (user_id,)).fetchone()
             grants = c.execute('SELECT feature,enabled FROM user_feature_grants WHERE user_id=?', (user_id,)).fetchall()
+            rows_visibility = c.execute('SELECT feature,visible FROM user_workspace_visibility WHERE user_id=?', (user_id,)).fetchall()
         active = bool(row and row['is_active'] == 1)
         stored = {r['feature']: r['enabled'] == 1 for r in grants}
+        stored_visibility = {r['feature']: r['visible'] == 1 for r in rows_visibility}
         return Policy(user_id, int(row['revision'] or 0) if row else 0, active,
                       bool(active and row['administrator']),
-                      {feature: active and stored.get(feature, False) for feature in FEATURES})
+                      {feature: active and stored.get(feature, False) for feature in FEATURES},
+                      {feature: active and stored_visibility.get(feature, True) for feature in FEATURES})
     except sqlite3.Error as exc:
         raise PolicyUnavailable('Account policy could not be loaded; access denied.') from exc
 
@@ -153,11 +165,15 @@ def audit(c, actor_id: str, target_id: str, action: str, before: dict, after: di
     return event_id
 
 
-def set_features(actor_id: str, target_id: str, features: dict[str, bool], expected_revision: int) -> Policy:
+def set_features(actor_id: str, target_id: str, features: dict[str, bool], expected_revision: int,
+                 *, visibility: dict[str, bool] | None = None) -> Policy:
     """Compare-and-swap, audit and invalidation outbox in a single transaction."""
     from app.services.auth import user_store
     if set(features) != set(FEATURES) or any(type(v) is not bool for v in features.values()):
         raise ValueError('Provide explicit booleans for Kite, TV and Radio.')
+    if visibility is not None and (set(visibility) != set(FEATURES)
+            or any(type(v) is not bool for v in visibility.values())):
+        raise ValueError('Provide explicit visibility booleans for Kite, TV and Radio.')
     _available()
     try:
         with db._conn() as c:
@@ -174,16 +190,26 @@ def set_features(actor_id: str, target_id: str, features: dict[str, bool], expec
                 raise PolicyConflict('Account policy changed; reload before saving.')
             old = {r['feature']: bool(r['enabled']) for r in c.execute(
                 'SELECT feature,enabled FROM user_feature_grants WHERE user_id=?', (target_id,))}
+            old_visibility = {r['feature']: bool(r['visible']) for r in c.execute(
+                'SELECT feature,visible FROM user_workspace_visibility WHERE user_id=?', (target_id,))}
             now = user_store._now_ms()
             for feature, enabled in features.items():
                 c.execute('''INSERT INTO user_feature_grants VALUES(?,?,?,?,?)
                     ON CONFLICT(user_id,feature) DO UPDATE SET enabled=excluded.enabled,
                     actor_id=excluded.actor_id,updated_at_ms=excluded.updated_at_ms''',
                           (target_id, feature, int(enabled), actor_id, now))
+            if visibility is not None:
+                for feature, visible in visibility.items():
+                    c.execute('''INSERT INTO user_workspace_visibility(user_id,feature,visible) VALUES(?,?,?)
+                        ON CONFLICT(user_id,feature) DO UPDATE SET visible=excluded.visible''',
+                              (target_id, feature, int(visible)))
             c.execute('''INSERT INTO account_policy_revisions VALUES(?,?)
                 ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision''', (target_id, revision + 1))
             event_id = audit(c, actor_id, target_id, 'features.updated',
-                             {f: old.get(f, False) for f in FEATURES}, features, now)
+                             {'features': {f: old.get(f, False) for f in FEATURES},
+                              'visibility': {f: old_visibility.get(f, True) for f in FEATURES}},
+                             {'features': features,
+                              'visibility': visibility if visibility is not None else {f: old_visibility.get(f, True) for f in FEATURES}}, now)
             c.execute('INSERT INTO auth_event_outbox(event_id,user_id,revision) VALUES(?,?,?)',
                       (event_id, target_id, revision + 1))
     except sqlite3.Error as exc:

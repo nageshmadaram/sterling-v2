@@ -45,6 +45,12 @@ def request_access(user_id, feature):
                 raise PermissionError('An active Sterling account is required.')
             if c.execute('SELECT 1 FROM user_feature_grants WHERE user_id=? AND feature=? AND enabled=1', (user_id,feature)).fetchone():
                 return {'feature': feature, 'status': 'granted'}
+            # Hiding a restricted workspace must also prevent direct/API requests:
+            # someone typing /kite must not bypass the administrator's choice.
+            hidden = c.execute('SELECT visible FROM user_workspace_visibility WHERE user_id=? AND feature=?',
+                               (user_id,feature)).fetchone()
+            if hidden is not None and not hidden['visible']:
+                raise PermissionError('This workspace is not available for access requests.')
             prior=c.execute("SELECT * FROM feature_access_requests WHERE user_id=? AND feature=? AND status='pending'", (user_id,feature)).fetchone()
             if prior: return dict(prior)
             # A declined request remains visible instead of auto-resubmitting on every visit.
@@ -72,6 +78,12 @@ def decide(actor, request_id, decision):
             now=_now_ms()
             if decision=='approved':
                 target=row['user_id'];feature=row['feature']
+                # Older pending requests cannot grant a workspace the admin
+                # subsequently hid from the member. Make it visible first.
+                visibility=c.execute('SELECT visible FROM user_workspace_visibility WHERE user_id=? AND feature=?',
+                                     (target,feature)).fetchone()
+                if visibility is not None and not visibility['visible']:
+                    raise PermissionError('Show this workspace for the user before approving access.')
                 prior=c.execute('SELECT revision FROM account_policy_revisions WHERE user_id=?',(target,)).fetchone()
                 revision=(int(prior['revision']) if prior else 0)+1
                 c.execute('''INSERT INTO user_feature_grants VALUES(?,?,1,?,?) ON CONFLICT(user_id,feature)

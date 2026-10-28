@@ -19,7 +19,7 @@
 
   // ── Panel ───────────────────────────────────────────────────────────────
   const dialog=el('dialog','mx-dialog');dialog.setAttribute('aria-label',`${a.kind==='tv'?'TV':'Radio'} extras`);
-  dialog.innerHTML=`<header><div><small>MORE WAYS TO ${a.kind==='tv'?'WATCH':'LISTEN'}</small><h2>Extras</h2></div><button type="button" data-mx="close" aria-label="Close extras">✕</button></header>
+  dialog.innerHTML=`<header><div><small>MORE WAYS TO ${a.kind==='tv'?'WATCH':'LISTEN'}</small><h2>${a.kind==='radio'?'Your Radio, your way':'Extras'}</h2></div><button type="button" data-mx="close" aria-label="Close extras">✕</button></header>
   <section data-mx-part="settings" hidden><h3>Settings</h3><div class="mx-settings"></div></section>
   <section class="mx-quick"><button type="button" data-mx="surprise"><b>🎲</b><span>Surprise me<small>Play a random ${noun} from this list</small></span></button></section>
   <section data-mx-part="sleep" hidden><h3>Sleep timer</h3><p class="mx-note">${a.kind==='tv'?'Video':'Sound'} fades out over the last 30 seconds, then stops.</p><div class="mx-chips" data-mx-sleep></div><p class="mx-status" data-mx-sleep-status role="status"></p></section>
@@ -36,7 +36,12 @@
   if(a.settings?.length){$('[data-mx-part="settings"]').hidden=false;$('.mx-settings').replaceChildren(...a.settings.map(([label,detail,run])=>{const b=el('button','mx-setting');b.type='button';b.append(el('span','',label),el('small','',detail));b.addEventListener('click',()=>{close();run();});return b;}));}
   let returnFocus=null;
   function open(section){returnFocus=document.activeElement;render();if(!dialog.open)dialog.showModal();dialog.scrollTop=0;if(section)$(`[data-mx-part="${section}"]`)?.scrollIntoView({block:'start'});}
-  function close(){dialog.close();returnFocus?.focus?.({preventScroll:true});}
+  function close(){if(dialog.open)dialog.close();}
+  // A swipe closes native dialogs directly. Restore focus in the single close
+  // event, but never steal focus from a settings dialog opened immediately after.
+  dialog.addEventListener('close',()=>{
+    if(!document.querySelector('dialog[open]'))returnFocus?.focus?.({preventScroll:true});
+  });
   dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
   dialog.addEventListener('click',e=>{if(e.target===dialog)close();});
   dialog.addEventListener('keydown',e=>e.stopPropagation());

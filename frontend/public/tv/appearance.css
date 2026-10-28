@@ -193,3 +193,43 @@ body.tm-search-active #dynamic-category-pills-row {display:none!important;}
   border-color:rgba(255,255,255,.5)!important;
   max-width:90%;
 }
+
+/* Sterling unified player refinement */
+#video-surface-card,
+#video-surface-card video,
+#video-surface-card iframe {outline:0!important;border:0!important;}
+#video-surface-card {overflow:hidden;isolation:isolate;}
+@media(min-width:1280px) {
+  #watch-columns {display:flex;align-items:stretch;gap:14px;}
+  #watch-columns #left-watch-column {flex:1 1 0;min-width:0;width:auto;}
+  #watch-columns #watch-up-next-rail {
+    flex:0 0 270px;width:270px!important;max-width:270px;min-width:0;
+    overflow-x:hidden;padding:6px 8px!important;
+  }
+  #watch-up-next-rail :is(h3,h4,p,strong,small) {
+    overflow:hidden;text-overflow:ellipsis;min-width:0;
+  }
+}
+
+
+/* Concise up-next entries: artwork supports the title rather than consuming it. */
+@media(min-width:1280px) {
+  #watch-up-next-rail #up-next-container>div:has(.preview-thumb-box) {
+    padding:5px 4px!important;gap:9px!important;min-height:62px;
+    border-radius:8px!important;max-width:100%;width:100%!important;
+  }
+  #watch-up-next-rail #up-next-container .preview-thumb-box {
+    width:100px!important;max-width:100px;flex:0 0 100px!important;
+    border:0!important;border-radius:6px!important;overflow:hidden;
+  }
+  #watch-up-next-rail #up-next-container>div:has(.preview-thumb-box)>div:last-child>span:last-child {
+    display:none!important;
+  }
+  #watch-up-next-rail #up-next-container h4 {
+    font-size:12px!important;line-height:1.35!important;
+    min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;
+  }
+  #watch-up-next-rail #up-next-container p {
+    font-size:11px!important;line-height:1.35!important;
+  }
+}

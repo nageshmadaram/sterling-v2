@@ -61,7 +61,10 @@
       if(status.textContent!==label)status.textContent=label;
       dialog.querySelector('.media-timer-cancel').hidden = !deadline;
     }
-    function close() { dialog.style.transform = ''; dialog.close(); if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true}); }
+    function close() { dialog.style.transform = ''; if(dialog.open)dialog.close(); }
+    // The common swipe handler also invokes native dialog.close(): restore focus
+    // for both gestures and explicit close buttons.
+    dialog.addEventListener('close',()=>{if(returnFocus?.isConnected)returnFocus.focus({preventScroll:true});});
     dialog.addEventListener('click',event=>{
       const choice = event.target.closest('[data-minutes]');
       if (choice) {
@@ -75,26 +78,7 @@
     });
     dialog.addEventListener('keydown',event=>event.stopPropagation());
     dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
-    let drag = null;
-    dialog.addEventListener('pointerdown',event=>{
-      if(event.pointerType==='mouse' || event.target.closest('button') || !event.target.closest('header,.media-comfort-handle'))return;
-      drag={id:event.pointerId,y:event.clientY,distance:0};
-      dialog.setPointerCapture(event.pointerId);
-    });
-    dialog.addEventListener('pointermove',event=>{
-      if(!drag || event.pointerId!==drag.id)return;
-      drag.distance=Math.max(0,event.clientY-drag.y);
-      if(!reduced.matches)dialog.style.transform=`translateY(${Math.min(180,drag.distance)}px)`;
-    });
-    function endDrag(event) {
-      if(!drag || event.pointerId!==drag.id)return;
-      const dismiss=event.type==='pointerup' && drag.distance>85;
-      drag=null;dialog.style.transform='';
-      if(dismiss)close();
-    }
-    dialog.addEventListener('pointerup',endDrag);
-    dialog.addEventListener('pointercancel',endDrag);
-    dialog.addEventListener('lostpointercapture',endDrag);
+    // One gesture owner: media/sheet-swipe.js handles mobile drag-dismiss.
     function attach(container) {
       if(!container || container.querySelector('.media-timer-trigger'))return;
       const button=document.createElement('button');button.type='button';button.className='media-timer-trigger';button.title='Sleep timer';
@@ -118,6 +102,28 @@
       if(!button || button.disabled || !button.animate)return;
       button.animate([{scale:'1'},{scale:'.95'},{scale:'1'}],{duration:180,easing:'ease-out'});
     },{passive:true});
+    // After ten seconds without mouse movement during playback, hide the
+    // pointer; reveal it immediately on movement, focus or touch.
+    let cursorTimer=null;
+    const hasActivePlayback=()=>Array.from(document.querySelectorAll('audio,video'))
+      .some(media=>!media.paused&&!media.ended);
+    const cursorAwake=()=>{
+      document.documentElement.classList.remove('media-cursor-idle');
+      clearTimeout(cursorTimer);cursorTimer=null;
+      if(hasActivePlayback())cursorTimer=setTimeout(()=>{
+        if(hasActivePlayback()&&!document.hidden)
+          document.documentElement.classList.add('media-cursor-idle');
+      },10000);
+    };
+    document.addEventListener('play',cursorAwake,true);
+    document.addEventListener('pause',cursorAwake,true);
+    document.addEventListener('ended',cursorAwake,true);
+    document.addEventListener('pointermove',event=>{
+      if(event.pointerType==='mouse')cursorAwake();
+    },{passive:true});
+    document.addEventListener('pointerdown',cursorAwake,{passive:true});
+    document.addEventListener('focusin',cursorAwake);
+    window.addEventListener('pagehide',()=>clearTimeout(cursorTimer));
     refresh();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();

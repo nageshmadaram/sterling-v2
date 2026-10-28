@@ -5,7 +5,7 @@ import { api } from '../../utils/api';
 import type { ConfigurationCapabilities, ConfigurationSection, ConfigurationAction, ConfigurationGrant } from '../../hooks/useConfigurationCapabilities';
 
 type Features = { kite: boolean; tv: boolean; radio: boolean };
-type FeaturePolicy = { user_id: string; revision: number; features: Features };
+type FeaturePolicy = { user_id: string; revision: number; features: Features; visibility: Features };
 const BASE = '/api/v1/auth/users';
 const SECTIONS: ConfigurationSection[] = ['brokers', 'telegram', 'integrations'];
 
@@ -14,22 +14,25 @@ function FeatureEditor({ userId }: { userId: string }) {
   const key = ['admin-features', userId];
   const query = useQuery({ queryKey: key, queryFn: () => api.get<FeaturePolicy>(`${BASE}/${encodeURIComponent(userId)}/features`) });
   const [draft, setDraft] = useState<FeaturePolicy | null>(null);
-  const dirty=!!draft&&!!query.data&&JSON.stringify(draft.features)!==JSON.stringify(query.data.features);
+  const dirty=!!draft&&!!query.data&&(JSON.stringify(draft.features)!==JSON.stringify(query.data.features)||JSON.stringify(draft.visibility)!==JSON.stringify(query.data.visibility));
   useUnsavedDraftGuard('admin-features:'+userId,dirty);
   useEffect(() => { if (query.data&&!dirty) setDraft(query.data); }, [query.data]);
   const save = useMutation({ mutationFn: () => api.put<FeaturePolicy>(`${BASE}/${encodeURIComponent(userId)}/features`,
-    { features: draft?.features, expected_revision: draft?.revision }),
-    onSuccess: data => { setDraft(data); qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); } });
-  return <section><h3>Workspaces</h3>
+    { features: draft?.features, visibility: draft?.visibility, expected_revision: draft?.revision }),
+    onSuccess: data => { setDraft(data); qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); void qc.invalidateQueries({ queryKey: ['admin-directory'] }); void qc.invalidateQueries({ queryKey: ['sterling-session-policy'] }); } });
+  return <section><h3>Workspaces</h3><p>Access and visibility are independent. Hide a workspace to remove it from this user's chooser and block new access requests for it.</p>
     {query.isLoading && <p role="status">Loading grants…</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}
     {draft && <form onSubmit={e => { e.preventDefault(); save.mutate(); }}>
-      <div className="admin-checks">{(['kite', 'radio', 'tv'] as const).map(feature => <label key={feature}>
-        <input type="checkbox" checked={draft.features[feature]} disabled={save.isPending} onChange={e => setDraft({ ...draft, features: { ...draft.features, [feature]: e.target.checked } })} />
-        {feature === 'kite' ? 'Kite' : feature === 'tv' ? 'Space (TV)' : 'Echo (Radio)'}</label>)}</div>
-      <button className="bac-btn bac-btn-primary" disabled={save.isPending}>Save features</button>
+      <div className="admin-workspace-access-head"><strong>Workspace</strong><span>Allow access</span><span>Show in menu</span></div>
+      <div className="admin-workspace-access-grid">{(['kite', 'radio', 'tv'] as const).map(feature => <div className="admin-workspace-access-row" key={feature}>
+        <strong>{feature === 'kite' ? 'Kite' : feature === 'tv' ? 'Space (TV)' : 'Echo (Radio)'}</strong>
+        <label><input type="checkbox" aria-label={`Allow ${feature} access`} checked={draft.features[feature]} disabled={save.isPending} onChange={e => setDraft({ ...draft, features: { ...draft.features, [feature]: e.target.checked } })} /></label>
+        <label><input type="checkbox" aria-label={`Show ${feature} in workspace chooser`} checked={draft.visibility?.[feature] ?? true} disabled={save.isPending} onChange={e => setDraft({ ...draft, visibility: {kite: draft.visibility?.kite ?? true, radio: draft.visibility?.radio ?? true, tv: draft.visibility?.tv ?? true, [feature]: e.target.checked} })} /></label>
+      </div>)}</div>
+      <button className="bac-btn bac-btn-primary" disabled={save.isPending||!dirty}>Save workspace settings</button>
     </form>}
-    {save.isSuccess && <p role="status">Feature grants saved.</p>}
+    {save.isSuccess && <p role="status">Workspace access and menu visibility saved.</p>}
     {save.isError && <p role="alert">{save.error.message} <button className="bac-btn" onClick={() => { save.reset(); void query.refetch().then(result=>{if(result.data)setDraft(result.data);}); }}>Reload grants</button></p>}
   </section>;
 }
