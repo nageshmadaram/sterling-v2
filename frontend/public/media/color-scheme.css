@@ -134,9 +134,9 @@ html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal):not(.hidden
   background:#fff!important;color:#172333!important;border:1px solid #cbd4df!important;
 }
 html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
-  :is(.text-white,.text-\\[\\#b3b3b3\\]) {color:#172333!important;}
+  :is(.text-white,[class*="text-[#b3b3b3]"]) {color:#172333!important;}
 html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
-  :is(.bg-\\[\\#242424\\],.bg-\\[\\#202020\\],.bg-\\[\\#121212\\]) {
+  :is([class*="bg-[#242424]"],[class*="bg-[#202020]"],[class*="bg-[#121212]"]) {
   background:#edf2f7!important;border-color:#cbd4df!important;
 }
 html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
