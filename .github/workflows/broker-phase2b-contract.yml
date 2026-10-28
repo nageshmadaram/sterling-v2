@@ -1,0 +1,61 @@
+name: Phase 2B Broker Contracts and Direct Access
+
+on:
+  push:
+    branches:
+      - upgrade/broker-contract-guardrails-20261029
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  broker-contract-and-registry:
+    name: Phase 2B / Contract + Direct Access Guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked Sterling backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compile modified code and guard
+        run: |
+          python -m compileall -q backend/app/schemas/broker_read.py backend/app/services/exchanges/normalized_read.py backend/scripts/audit_broker_access.py
+      - name: Targeted provider, normalization, authentication and immutable registry tests
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_broker_normalized_read.py \
+            tests/test_broker_registry.py \
+            tests/test_broker_read_contract_edges.py \
+            tests/test_broker_kite_provider_boundary.py \
+            tests/test_broker_access_policy.py \
+            tests/test_platform_strategy_registry.py \
+            tests/test_platform_strategy_registry_safety.py \
+            tests/test_registry_signed_auth_contract.py
+      - name: Inventory every detectable legacy broker call and reject new unreviewed access
+        run: |
+          python backend/scripts/audit_broker_access.py \
+            --json /tmp/broker-access-inventory.json \
+            --markdown /tmp/broker-access-inventory.md
+      - name: Upload full file/function/risk inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: broker-access-inventory
+          path: |
+            /tmp/broker-access-inventory.json
+            /tmp/broker-access-inventory.md
+          if-no-files-found: warn

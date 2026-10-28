@@ -85,14 +85,24 @@ def _depth(symbol: str, raw: dict, ts: datetime | None) -> MarketDepth | None:
 
     def levels(name: str) -> tuple[DepthLevel, ...]:
         rows = _rows(raw.get(name, []))
-        return tuple(DepthLevel(
-            price=_number(r.get("price"), required=True),
-            quantity=_number(r.get("quantity"), required=True),
-            orders=int(r["orders"]) if r.get("orders") is not None else None,
-        ) for r in rows)
+        result = []
+        for r in rows:
+            price = _number(r.get("price"), required=True)
+            quantity = _number(r.get("quantity"), required=True)
+            if price <= 0 or quantity < 0:
+                raise BrokerReadFailure("INVALID_BROKER_DEPTH")
+            orders = r.get("orders")
+            if orders is not None:
+                # bool and fractional values are not valid order counts.
+                if isinstance(orders, bool) or not str(orders).isdigit():
+                    raise BrokerReadFailure("INVALID_BROKER_DEPTH")
+                orders = int(orders)
+            result.append(DepthLevel(price=price, quantity=quantity, orders=orders))
+        return tuple(result)
 
-    return MarketDepth(symbol=symbol, bids=levels("buy"), asks=levels("sell"),
-                       observed_at_utc=ts)
+    exchange = symbol.partition(":")[0]
+    return MarketDepth(symbol=symbol, exchange=exchange,
+                       bids=levels("buy"), asks=levels("sell"), observed_at_utc=ts)
 
 
 def normalize_kite_quotes(payload: dict, symbols: Sequence[str], *,
@@ -104,8 +114,10 @@ def normalize_kite_quotes(payload: dict, symbols: Sequence[str], *,
         raise BrokerReadFailure("INVALID_BROKER_PAYLOAD")
     items = []
     for symbol in symbols:
-        if not isinstance(symbol, str) or ":" not in symbol:
+        if (not isinstance(symbol, str) or ":" not in symbol
+                or not all(part.strip() for part in symbol.split(":", 1))):
             raise ValueError("Kite quotes need EXCHANGE:SYMBOL")
+        exchange = symbol.partition(":")[0]
         item = _object(payload.get(symbol))
         ts = _timestamp(item.get("timestamp"))
         age_ms = (fetched_at_utc.astimezone(timezone.utc) - ts).total_seconds() * 1000 if ts else None
@@ -113,8 +125,11 @@ def normalize_kite_quotes(payload: dict, symbols: Sequence[str], *,
         quality = "unknown" if age_ms is None or age_ms < -1000 else (
             "stale" if age_ms > stale_after_ms else "fresh"
         )
+        last_price = _number(item.get("last_price"), required=True)
+        if last_price <= 0:
+            raise BrokerReadFailure("INVALID_BROKER_NUMBER")
         items.append(Quote(
-            symbol=symbol, last_price=_number(item.get("last_price"), required=True),
+            symbol=symbol, exchange=exchange, last_price=last_price,
             observed_at_utc=ts, fetched_at_utc=fetched_at_utc,
             stale=quality != "fresh", quality=quality,
             depth=_depth(symbol, item.get("depth"), ts),
@@ -210,13 +225,26 @@ class NormalizedKiteReader:
         except Exception:
             raise BrokerReadFailure("BROKER_HOLDINGS_UNAVAILABLE") from None
 
+    @staticmethod
+    def _order_status(raw: str) -> str:
+        # Unknown provider status is an observation, NEVER a filled order.
+        known = {
+            "COMPLETE": "filled", "OPEN": "open",
+            "CANCELLED": "cancelled", "REJECTED": "rejected",
+            "TRIGGER PENDING": "pending", "VALIDATION PENDING": "pending",
+            "OPEN PENDING": "pending", "MODIFY PENDING": "pending",
+            "CANCEL PENDING": "pending", "AMO REQ RECEIVED": "pending",
+            "PUT ORDER REQ RECEIVED": "pending", "LAPSED": "expired",
+        }
+        return known.get(raw.upper().strip(), "unknown")
+
     async def orders(self) -> tuple[OrderObservation, ...]:
         try:
             return tuple(OrderObservation(
                 order_id=_required(r, "order_id"),
                 exchange=_required(r, "exchange"),
                 symbol=_required(r, "tradingsymbol"),
-                status=_required(r, "status").lower(),
+                status=self._order_status(_required(r, "status")),
                 side=str(r["transaction_type"]).upper() if r.get("transaction_type") else None,
                 product=r.get("product"),
                 quantity=_number(r.get("quantity"), required=True),
@@ -249,7 +277,8 @@ class NormalizedKiteReader:
         symbols = tuple(symbols)
         if not symbols or len(symbols) > 50:
             raise ValueError("request between 1 and 50 symbols")
-        if any(not isinstance(s, str) or ":" not in s for s in symbols):
+        if any(not isinstance(s, str) or ":" not in s
+               or not all(part.strip() for part in s.split(":", 1)) for s in symbols):
             raise ValueError("Kite quotes need EXCHANGE:SYMBOL")
         try:
             raw = await self._client.get_quote(symbols)
@@ -286,6 +315,9 @@ class NormalizedKiteReader:
         try:
             raw = await self._client.get_option_chain(instrument)
             rows = [_object(item) for item in raw]
+            for r in rows:
+                if str(r.get("option_type", "")).lower() not in ("call", "put"):
+                    raise BrokerReadFailure("UNSUPPORTED_OPTION_RIGHT")
             return tuple(OptionChainObservation(
                 underlying=_required(r, "underlying"),
                 strike=_number(r.get("strike"), required=True),
