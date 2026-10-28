@@ -129,14 +129,18 @@ export function TodaySignalPriorityStatus() {
   const state = useTodaySignalPriority();
   if (state.replay) return null;
   const failures = TODAY_STRATEGIES.filter(name => state.stages[name] === 'error');
-  const checksDone = TODAY_STRATEGIES.filter(name => state.stages[name] === 'ready').length;
+  // A live scan has already returned a current-day API response, even if
+  // the scan itself is still progressing. Count that response honestly while
+  // keeping older history queued until the scan completes.
+  const responsesReceived = TODAY_STRATEGIES.filter(name =>
+    state.stages[name] === 'ready' || state.stages[name] === 'scanning').length;
   const parts = TODAY_STRATEGIES.map(name => `${name}: ${
     state.stages[name] === 'ready' ? 'response received'
       : state.stages[name] === 'scanning' ? 'scanning today'
       : state.stages[name] === 'error' ? 'unavailable'
       : 'loading today'
   }`);
-  const summary = `Today · ${checksDone}/4 API responses${failures.length
+  const summary = `Today · ${responsesReceived}/4 API responses${failures.length
     ? ` · ${failures.length} unavailable` : ''} · ${state.olderReady
       ? 'history ready' : 'older history queued'}`;
   return <div role="status" aria-live="polite"

@@ -152,3 +152,27 @@ authorized operator can record `git status --short --branch`,
 `./sterling.sh status`, and the browser footer's build SHA. Do not
 force-pull, overwrite uncommitted changes or restart a live risk manager
 based only on remote-branch updates.
+
+
+## Snapback UI freshness follow-up (28 October 2026)
+
+Review of the actual React Query hook found that a **live idle Swing**
+Snapback snapshot refreshed only once every **30 seconds**. While the
+today-first barrier waited, the other three strategies could refresh at
+3–7.5 second intervals yet Snapback could display stale completed-scan
+rows and hold its status longer than necessary.
+
+The polling hook now requests the **read-only** Snapback snapshot every
+**5 seconds while idle**, every **1.5 seconds while scanning**, and every
+**1 second in replay**. It retains the same React Query cache identity,
+server endpoint, mode/config and broker admission controls. Polling may be
+delayed by an inactive browser tab, network, an overloaded backend or scan
+completion, so this is **not** a guaranteed signal-generation-to-entry
+latency SLA. It never triggers a new scan or submits a broker order.
+
+The priority banner also counts a received API snapshot in the
+`scanning` state as a response, while preserving the historical-query
+barrier until the scan settles. Added narrow polling and banner tests, but
+**no full Vitest, backend, device, or Kite tests have run on this new
+source commit**. GitHub Actions remains blocked before runner assignment
+(#285); deployment evidence remains blocked (#277).

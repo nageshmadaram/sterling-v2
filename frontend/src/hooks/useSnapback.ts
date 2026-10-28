@@ -371,23 +371,27 @@ export function useSnapbackConfig() {
   });
 }
 
+/**
+ * Snapback's live Swing snapshot previously polled once per 30 seconds. A
+ * newly generated signal could therefore be absent from the board and the
+ * cross-strategy today-first banner until the next slow poll. Keep reads
+ * lightweight and bounded at 5 seconds while idle, with a faster cadence
+ * during an incremental scan. This is display refresh only, not an entry
+ * trigger, a market-data promise or a change to broker admission.
+ */
+export function snapbackSnapshotPollMs(replay: boolean, scanning = false): number {
+  if (replay) return 1_000;
+  return scanning ? 1_500 : 5_000;
+}
+
 export function useSnapbackSnapshot() {
   const replay = useSimNowMs() !== null;
   const session = useReplayStore(s => s.status.session_id);
   return useQuery<SnapbackSnapshot>({
     queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : 'live'],
     queryFn: () => api.get(`${BASE}/snapshot`),
-    refetchInterval: (query) => {
-      if (replay) return 1000;
-      const snapshot = query.state.data;
-      // During a large universe scan the server publishes advisory row
-      // progress incrementally. Show it promptly without ever bypassing
-      // broker entry gating. Once idle, keep Swing lighter than short modes.
-      if (snapshot?.scanning) return 1_500;
-      const mode = snapshot?.trading_mode ?? snapshot?.config.trading_mode ?? 'swing';
-      return mode === 'swing' ? 30_000 : 5_000;
-    },
-    staleTime: 10_000,
+    refetchInterval: (query) => snapbackSnapshotPollMs(replay, query.state.data?.scanning),
+    staleTime: 3_000,
   });
 }
 
