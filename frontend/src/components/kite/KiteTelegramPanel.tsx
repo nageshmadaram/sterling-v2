@@ -302,7 +302,7 @@ function TargetRow({ target }: { target: KiteTelegramTarget }) {
     <div style={S.row}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <span style={dotStyle(target.reachable)} title={target.reachable ? 'Reachable' : 'Untested / unreachable'} />
+          <span style={dotStyle(target.reachable)} title={target.reachable ? 'Last test accepted by Telegram; current phone delivery is unverified' : 'Untested or last delivery failed'} />
           <span style={S.name}>{target.label}</span>
           {!target.enabled && <span style={{ ...S.meta, fontStyle: 'italic' }}>disabled</span>}
         </div>
@@ -314,7 +314,7 @@ function TargetRow({ target }: { target: KiteTelegramTarget }) {
       {target.credential_error && <div role="alert" style={S.err}>{target.credential_error}</div>}
       {test.data && (
         <div style={test.data.reachable ? S.ok : S.err}>
-          {test.data.reachable ? '✓ Test message delivered' : '✗ Could not deliver — check token & chat id'}
+          {test.data.reachable ? '✓ Telegram accepted the test; check the receiving phone' : '✗ Could not deliver — check token & chat id'}
         </div>
       )}
       {test.error && <div style={S.err}>✗ {test.error.message}</div>}
@@ -392,7 +392,17 @@ export function KiteTelegramPanel() {
           {status.data.control.state === 'not_available_this_user'
             ? <p style={S.hint}>The server control bot belongs to its configured operator. Your alert destinations are managed below.</p>
             : <>
-              {!status.data.control.configured && <p style={S.err}>Control bot is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID for the server, then restart it.</p>}
+              {!status.data.control.configured && <p role="alert" style={S.err}>Control bot configuration missing. Set TELEGRAM_BOT_TOKEN (or the supported legacy TELEGRAM_TOKEN) and TELEGRAM_CHAT_ID in the backend environment. Changes to the environment require a backend restart.</p>}
+              {status.data.control.configured && status.data.control.state !== 'polling' && <div role="alert" style={{ ...S.err, lineHeight: 1.6, padding: '9px 11px', border: '1px solid var(--k-border)', borderRadius: 7 }}>
+                Telegram commands are not verified as working.
+                {status.data.control.error_code === 'WEBHOOK_ACTIVE' ? ' An old webhook owns this bot. Do not delete it blindly; identify which service registered it.'
+                  : status.data.control.error_code === 'POLL_CONFLICT' ? ' Another process may be polling the same bot token. Telegram supports only one polling consumer.'
+                  : status.data.control.error_code === 'INVALID_TOKEN' ? ' The bot token was rejected or revoked.'
+                  : status.data.control.error_code === 'ACCESS_DENIED' ? ' Telegram denied access to this bot or chat.'
+                  : status.data.control.error_code === 'NETWORK_ERROR' ? ' The Sterling backend cannot reach Telegram.'
+                  : status.data.control.state === 'waiting_configuration' ? ' The backend is missing a usable token/chat configuration.'
+                  : ' Use Check Menu Connection to identify the blocker; saved credentials alone are not delivery proof.'}
+              </div>}}
               <p style={S.hint}>Open your control bot in Telegram and send <CopyHandle text="/menu" />. Commands: /app, /login, /health, /signals, /positions, /orders, /funds, /pcr, /strategies and /help.</p>
               <button style={S.btn} disabled={check.isPending || !status.data.control.configured} onClick={() => check.mutate()}> {check.isPending ? 'CHECKING…' : 'CHECK MENU CONNECTION'}</button>
             </>}
@@ -402,7 +412,16 @@ export function KiteTelegramPanel() {
             <div style={S.hint}>Kite Redirect URL: <CopyHandle text={status.data.public_access.callback_url || ''} /></div>
             {status.data.public_access.mode === 'quick' && <p style={S.hint}>Temporary Cloudflare address. Replacements update automatically in Telegram. Register the current callback in Kite for phone login, or use a stable hostname.</p>}
           </div>}
-          <p style={S.hint}>{status.data.queued_lifecycle_alerts} lifecycle alerts queued. Signal alerts {status.data.signal_alerts_enabled ? 'on' : 'off'}; protection and exit alerts continue.</p>
+          <p style={S.hint}>{status.data.queued_lifecycle_alerts} lifecycle alerts queued. Signal alerts {status.data.signal_alerts_enabled ? 'on' : 'off'}; protection and exit alerts are not silenced by the signal toggle.</p>
+          {status.data.queued_lifecycle_alerts > 0 && <div role="alert" style={S.err}>
+            {status.data.queued_lifecycle_alerts} lifecycle alert(s) remain queued. Their delivery has not been acknowledged by the server. Check the configured alert destinations.
+          </div>}
+          {status.data.unreadable_alert_targets > 0 && <div role="alert" style={S.err}>
+            {status.data.unreadable_alert_targets} saved bot target(s) have unreadable credentials. Edit each affected bot to restore its token; do not create a second bot unnecessarily.
+          </div>}
+          {status.data.enabled_alert_targets === 0 && status.data.control.state === 'not_available_this_user' && <div role="alert" style={S.err}>
+            No enabled Telegram alert destinations are configured for this account.
+          </div>}
           <label style={{ ...S.label, display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="checkbox" checked={status.data.signal_alerts_enabled} disabled={signalAlerts.isPending}
               onChange={(event) => signalAlerts.mutate(event.target.checked)} /> Signal alerts
