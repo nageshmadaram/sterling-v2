@@ -41,6 +41,7 @@ export function PublishedReleaseWatcher() {
   const built = String(import.meta.env.VITE_BUILD_SHA || '');
   const [available, setAvailable] = useState('');
   const availableRef = useRef('');
+  const dismissedRef = useRef('');
   const lastHiddenAt = useRef<number | null>(null);
 
   useEffect(() => {
@@ -62,7 +63,7 @@ export function PublishedReleaseWatcher() {
         };
         if (value.service !== 'sterling-web' || value.ready !== true
             || !isNewPublishedRelease(built, value.release_commit)) return;
-        if (cancelled) return;
+        if (cancelled || dismissedRef.current === value.release_commit) return;
         availableRef.current = value.release_commit;
         setAvailable(value.release_commit);
         if (reopened && canAutoRefreshPublishedRelease(
@@ -114,6 +115,9 @@ export function PublishedReleaseWatcher() {
       }
       window.location.reload();
     }}>Update</button>
-    <button type="button" aria-label="Dismiss update notice" onClick={() => setAvailable('')}>×</button>
+    <button type="button" aria-label="Dismiss update notice" onClick={() => {
+      dismissedRef.current = available;
+      setAvailable('');
+    }}>×</button>
   </aside>;
 }
