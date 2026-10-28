@@ -1186,3 +1186,22 @@ def test_public_probe_reports_executor_failure_and_stays_fail_closed(monkeypatch
  def unavailable(*a,**k):raise RuntimeError('private URL token=secret')
  monkeypatch.setattr(stack,'ThreadPoolExecutor',unavailable)
  assert stack.probe_public_endpoint('https://probe.example.test')==(False,'PUBLIC_RuntimeError')
+
+def test_enrolled_remote_publisher_overrides_stale_service_environment(monkeypatch,tmp_path):
+ """An old systemd process environment cannot defeat explicit UI enrollment."""
+ (tmp_path/'backend').mkdir()
+ (tmp_path/'backend'/'.env').write_text(
+   'STERLING_PUBLISH_REF=origin/main\nSTERLING_PUBLISH_FETCH=1\n'
+ )
+ monkeypatch.setattr(stack,'ROOT',tmp_path)
+ monkeypatch.setattr(stack,'STATE',tmp_path/'runtime')
+ monkeypatch.setenv('STERLING_PUBLISH_REF','refs/heads/dev')
+ monkeypatch.setenv('STERLING_PUBLISH_FETCH','0')
+ monkeypatch.setattr(stack,'read_state',lambda:{})
+ monkeypatch.setattr(stack,'alive',lambda pid:False)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:False)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:False)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','status'])
+ stack.main()
+ assert os.environ['STERLING_PUBLISH_REF']=='origin/main'
+ assert os.environ['STERLING_PUBLISH_FETCH']=='1'
