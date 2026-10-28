@@ -60,7 +60,7 @@ is available from Connect and the strategy strip; each plan is armed individuall
 ## One-command local + Cloudflare public tunnel + development UI
 
 The existing Sterling stack supervisor can now start **one backend**, one
-authenticated HTTP gateway and two access surfaces together:
+authenticated HTTP gateway and three access surfaces together:
 
 ```bash
 cd /home/nageshmadaram/Sterling
