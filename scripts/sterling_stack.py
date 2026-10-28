@@ -230,6 +230,16 @@ def _stop_old_managed_presentation(pid):
     """Gracefully replace only our old manager; never terminate its broker."""
     if not alive(pid):
         return
+    # status.json can outlive the process; a reused PID is never authority to kill.
+    try:
+        proc=Path(f'/proc/{pid}')
+        argv=proc.joinpath('cmdline').read_bytes().split(b'\0')
+        expected=str((ROOT/'scripts/sterling_stack.py').resolve()).encode()
+        if (proc.stat().st_uid!=os.getuid() or expected not in argv or
+                b'run' not in argv):
+            raise RuntimeError('Presentation manager identity mismatch')
+    except (OSError,ValueError) as exc:
+        raise RuntimeError('Presentation manager ownership unverified') from exc
     os.kill(pid,signal.SIGTERM)
     # The previous launcher may wait for web/tunnel close independently.
     # Never escalate to SIGKILL if it has not drained yet.
