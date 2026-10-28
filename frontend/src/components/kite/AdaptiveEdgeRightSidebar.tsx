@@ -98,7 +98,7 @@ export function AdaptiveEdgeRightSidebar({ onSelectSignal, onOpenChart, onOpenBo
   // just to display tab counts while today's signals are still loading.
   const engineSignals = useEngineSignals(!priority.olderReady);
   const gmSnapshot = useGammaMoveSnapshot();
-  const sbSnapshot = useSnapbackSnapshot();
+  const sbSnapshot = useSnapbackSnapshot(!priority.olderReady);
   const emaSnapshot = useEmaTrendSnapshot(['swing'], 200, priority.olderReady ? undefined : priority.day);
   const stCfg = useEngineConfig();
 

@@ -89,7 +89,7 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
   // Reuse the same React Query keys as their boards: no second request is
   // needed merely because the user opens a different strategy tab.
   const supertrend = useEngineSignals(!replay);
-  const snapback = useSnapbackSnapshot();
+  const snapback = useSnapbackSnapshot(true);
   const gamma = useGammaMoveSnapshot(true, 3_000);
   const ema = useQuery<EmaTrendSnapshot>({
     queryKey: ['ema-trend', 'snapshot', view, 'current', 'swing', 200, 'today', day],

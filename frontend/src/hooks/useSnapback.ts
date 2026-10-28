@@ -384,12 +384,13 @@ export function snapbackSnapshotPollMs(replay: boolean, scanning = false): numbe
   return scanning ? 1_500 : 5_000;
 }
 
-export function useSnapbackSnapshot() {
+export function useSnapbackSnapshot(todayOnly = false) {
   const replay = useSimNowMs() !== null;
   const session = useReplayStore(s => s.status.session_id);
+  const currentDayOnly = todayOnly && !replay;
   return useQuery<SnapbackSnapshot>({
-    queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : 'live'],
-    queryFn: () => api.get(`${BASE}/snapshot`),
+    queryKey: [...SNAPSHOT_KEY, replay ? session || 'replay' : currentDayOnly ? 'live-today' : 'live'],
+    queryFn: () => api.get(`${BASE}/snapshot${currentDayOnly ? '?today_only=true' : ''}`),
     refetchInterval: (query) => snapbackSnapshotPollMs(replay, query.state.data?.scanning),
     staleTime: 3_000,
   });

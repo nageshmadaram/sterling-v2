@@ -11,13 +11,17 @@ const source = vi.hoisted(() => ({
   snapback: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } },
   gamma: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } },
   accountId: 'kite-account-a',
+  snapbackTodayOnlyCalls: [] as boolean[],
   replay: null as number | null,
 }));
 vi.mock('../../../../hooks/useSterlingKiteEngine', () => ({
   useEngineSignals: () => source.supertrend,
 }));
 vi.mock('../../../../hooks/useSnapback', () => ({
-  useSnapbackSnapshot: () => source.snapback,
+  useSnapbackSnapshot: (todayOnly = false) => {
+    source.snapbackTodayOnlyCalls.push(todayOnly);
+    return source.snapback;
+  },
 }));
 vi.mock('../../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: () => source.gamma,
@@ -58,6 +62,7 @@ beforeEach(() => {
   source.snapback = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } };
   source.gamma = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } };
   source.accountId = 'kite-account-a';
+  source.snapbackTodayOnlyCalls = [];
   source.replay = null;
 });
 
@@ -80,6 +85,9 @@ describe('cross-strategy today priority', () => {
 
   it('releases history only after four live snapshots complete', async () => {
     wrap(<Display />);
+    // The shared first-load Snapback request must explicitly select its
+    // smaller today-only response, not eagerly load closed/historical rows.
+    expect(source.snapbackTodayOnlyCalls).toContain(true);
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
     expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses · history ready');
     expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');

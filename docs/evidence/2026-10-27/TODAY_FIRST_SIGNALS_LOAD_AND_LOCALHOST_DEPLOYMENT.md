@@ -224,3 +224,32 @@ daily-candle logic is not an intraday entry method. This is presentation
 integrity, not a scan frequency change or permission to submit an order.
 New regression tests cover missing, zero, nonfinite, reversed and
 equal timestamps. Full CI/host execution still blocked (#285/#277).
+
+
+## Snapback actual today-only API priority (28 October 2026)
+
+SuperTrend already supported a today-only endpoint, but Snapback's
+`GET /api/v1/config/snapback/snapshot` returned all cached scan rows
+and the newest 100 closed position records even when the UI withheld
+historical rendering. The historical data was therefore **still read and
+transferred before all four current-day strategies had finished**.
+
+Snapback now supports an additive `?today_only=true` read-only variant.
+This filters out older completed signal rows *before* deep-copying/aging
+them and reads **all active positions, but zero closed ledger rows**.
+A previous-session armed Swing setup is retained as a potential next-open
+candidate; it is still subject to the unchanged server-side quote
+freshness, readiness, and broker admission checks. The original snapshot
+endpoint remains backward-compatible and includes history.
+
+The priority provider, Snapback board, and strategy sidebar share the
+today-only React Query key until the four-strategy gate releases older
+history; only then does the board switch to the full snapshot. Simulation
+replay remains on its existing full-snapshot path.
+
+This improves read scheduling and payload size, but does not establish
+a measured scan-to-display latency, profitability, or broker-order
+certification. Unit tests for the read-only filter and worker isolation
+and an initial-hook assertion were added; their execution is still
+blocked by CI runner allocation (#285). Laptop deployment and device
+evidence remain blocked (#277).

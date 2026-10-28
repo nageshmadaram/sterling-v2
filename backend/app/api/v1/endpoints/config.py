@@ -791,14 +791,17 @@ async def update_snapback_config(body: dict = Body(...),
 
 
 @router.get("/snapback/snapshot")
-async def snapback_snapshot(user: UserContext = Depends(get_current_user)) -> dict:
+async def snapback_snapshot(
+    user: UserContext = Depends(get_current_user),
+    today_only: bool = False,
+) -> dict:
     """Config, what the last scan found, and every reason nothing is armed."""
     from app.services.simulation import simulation_runner
     uid = _snapback_uid(user)
     if simulation_runner.has_session_view and getattr(simulation_runner, '_uid', None) == uid:
         return simulation_runner.get_snapback_snapshot()
     from app.services.snapback import snapshot_async
-    return await snapshot_async(uid)
+    return await snapshot_async(uid, today_only=today_only)
 
 
 @router.post("/snapback/scan")
