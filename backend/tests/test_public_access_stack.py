@@ -1205,3 +1205,17 @@ def test_enrolled_remote_publisher_overrides_stale_service_environment(monkeypat
  stack.main()
  assert os.environ['STERLING_PUBLISH_REF']=='origin/main'
  assert os.environ['STERLING_PUBLISH_FETCH']=='1'
+
+def test_old_manager_identity_mismatch_never_signals_process(monkeypatch,tmp_path):
+ """Stale status.json PID must not allow terminating an unrelated process."""
+ fake=tmp_path/'unrelated-process'
+ fake.mkdir()
+ (fake/'cmdline').write_bytes(b'/usr/bin/python\0/srv/unrelated.py\0run\0')
+ original_path=Path
+ monkeypatch.setattr(stack,'Path',lambda value:fake if str(value)=='/proc/456789' else original_path(value))
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ def fail_kill(*args):
+  raise AssertionError('Must not terminate unrelated PID')
+ monkeypatch.setattr(stack.os,'kill',fail_kill)
+ with pytest.raises(RuntimeError,match='identity mismatch'):
+  stack._stop_old_managed_presentation(456789)
