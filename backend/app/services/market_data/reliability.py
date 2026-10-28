@@ -180,6 +180,29 @@ class MarketDataResolver:
     def monitor(self) -> QualityMonitor:
         return self._monitor
 
+    async def provider_health(self) -> dict:
+        """Explicit read-only health probe; unknown is never interpreted as up."""
+        results = {}
+        for tier in ORDER:
+            source = self._sources.get(tier)
+            if source is None:
+                results[tier] = "not_configured"
+                continue
+            probe = getattr(source, "read_health", None)
+            if not callable(probe):
+                results[tier] = "unknown"
+                continue
+            try:
+                value = await probe()
+                status = value.get("status") if isinstance(value, dict) else getattr(value, "status", None)
+                results[tier] = status if status in (
+                    "healthy", "unavailable", "simulation", "unknown"
+                ) else "unknown"
+            except Exception:
+                log.warning("market_data_provider_health_failed tier=%s", tier)
+                results[tier] = "unavailable"
+        return {"providers": results, "execution_authorized": False}
+
     async def snapshot(self, key: InstrumentKey, *, clock: datetime,
                        require_depth: bool = False,
                        candles: tuple[Candle, ...] = ()) -> MarketSnapshot:
@@ -230,6 +253,9 @@ class BrokerQuoteSource:
     """Optional wrapper for Phase 2A normalized read facade. No broker write calls."""
     def __init__(self, normalized_reader):
         self._reader = normalized_reader
+
+    async def read_health(self):
+        return await self._reader.health()
 
     async def read_quote(self, key: InstrumentKey) -> Quote | None:
         rows = await self._reader.quotes([key.qualified])

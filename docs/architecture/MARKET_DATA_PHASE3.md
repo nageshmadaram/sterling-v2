@@ -44,7 +44,7 @@ depth 20. Good realtime quality requires score >=85, a defensible timestamp,
 and (when requested) complete depth. This quality is **not an execution gate**;
 future strategy/risk gate integration requires its own review.
 
-`QualityMonitor.health()` provides an internal read-only status summary;
+`MarketDataResolver.provider_health()` performs explicit read-only connectivity probes when supported; it reports `unknown` for unverified providers and `simulation` for paper mode, never authenticated real health. `QualityMonitor.health()` provides an internal read-only status summary;
 `QualityEvent` contains UTC time, exchange/symbol, issue code, source and
 score, bounded to 500 recent events and a structured logger. The service does
 not create an unauthenticated HTTP endpoint or UI widget. Production monitoring

@@ -191,3 +191,29 @@ def test_option_chain_canonicalization_is_not_a_trading_signal():
     with pytest.raises(ValueError):
         normalize_option_chain(KEY, [option.model_copy(update={"underlying":"RELIANCE"})],
                                source="broker")
+
+
+@pytest.mark.asyncio
+async def test_provider_health_is_explicit_fail_closed_and_non_authorizing():
+    class Healthy:
+        async def read_health(self):
+            return SimpleNamespace(status="healthy")
+        async def read_quote(self, key):
+            return None
+    class Unchecked:
+        async def read_quote(self, key):
+            return None
+    class Broken:
+        async def read_health(self):
+            raise RuntimeError("access_token=secret")
+        async def read_quote(self, key):
+            return None
+    resolver = MarketDataResolver({
+        "broker": Healthy(), "alternate": Unchecked(), "lake": Broken(),
+    })
+    status=await resolver.provider_health()
+    assert status["providers"] == {
+        "broker": "healthy", "alternate": "unknown",
+        "lake": "unavailable", "previous": "not_configured",
+    }
+    assert status["execution_authorized"] is False
