@@ -1,0 +1,36 @@
+..........................................                               [100%]
+=============================== warnings summary ===============================
+tests/e2e_live/test_admission_dry_run.py: 25 warnings
+tests/e2e_live/test_gamma_reconcile_e2e.py: 2 warnings
+tests/e2e_live/test_sim_e2e.py: 11 warnings
+tests/e2e_live/test_trade_journal_e2e.py: 12 warnings
+  /home/nageshmadaram/Sterling/backend/app/api/v1/endpoints/opening_volume_leaders.py:268: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @router.on_event("startup")
+
+tests/e2e_live/test_admission_dry_run.py: 25 warnings
+tests/e2e_live/test_gamma_reconcile_e2e.py: 2 warnings
+tests/e2e_live/test_sim_e2e.py: 11 warnings
+tests/e2e_live/test_trade_journal_e2e.py: 12 warnings
+  /home/nageshmadaram/Sterling/backend/app/api/v1/endpoints/opening_volume_leaders.py:275: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @router.on_event("shutdown")
+
+tests/e2e_live/test_admission_dry_run.py::test_configured_live_account_without_kite_session_stays_up_and_serves_login
+  /home/nageshmadaram/Sterling/backend/tests/e2e_live/test_admission_dry_run.py:72: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient
+
+tests/e2e_live/test_admission_dry_run.py::test_configured_live_account_without_kite_session_stays_up_and_serves_login
+  /home/nageshmadaram/Sterling/backend/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+42 passed, 102 warnings in 218.45s (0:03:38)

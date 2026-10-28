@@ -1,0 +1,42 @@
+{
+  "at": "2026-10-28T13:08:34.573Z",
+  "release": "862c03a53e6e2ec6742d7099b0696c118037d7f7",
+  "release_provenance": "Caller-supplied immutable asset release",
+  "scope": "Real browser -> actual production API handlers -> disposable SQLite; real JWT and policy; no production data or external network.",
+  "viewport": {
+    "width": 393,
+    "height": 844
+  },
+  "features": {
+    "kite": true,
+    "tv": true,
+    "radio": true
+  },
+  "configuration": {
+    "brokers": {
+      "visible": true,
+      "actions": [
+        "create",
+        "update"
+      ]
+    },
+    "telegram": {
+      "visible": true,
+      "actions": [
+        "recipients",
+        "test"
+      ]
+    },
+    "integrations": {
+      "visible": true,
+      "actions": [
+        "create",
+        "test",
+        "update"
+      ]
+    }
+  },
+  "created_user_can_sign_in": true,
+  "runtime_errors": [],
+  "pass": true
+}

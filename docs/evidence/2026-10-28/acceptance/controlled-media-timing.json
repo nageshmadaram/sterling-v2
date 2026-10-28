@@ -1,0 +1,380 @@
+{
+  "recorded_at": "2026-10-28T13:03:17.321Z",
+  "scope": "Local controlled WAV playing event and HLS first decoded video frame in Chrome mobile emulation. No physical speaker, phone, broadcaster or 4G claim.",
+  "viewport": {
+    "width": 393,
+    "height": 844
+  },
+  "samples": [
+    {
+      "kind": "radio",
+      "switch": 0,
+      "elapsed_ms": 72.10000002384186,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 1,
+      "elapsed_ms": 48.400000005960464,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.021134,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 2,
+      "elapsed_ms": 49.19999998807907,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.02322,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 3,
+      "elapsed_ms": 58.900000005960464,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.02014,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 4,
+      "elapsed_ms": 41.400000005960464,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.022516,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 5,
+      "elapsed_ms": 69.59999999403954,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.02322,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 6,
+      "elapsed_ms": 80.19999998807907,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.033182,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 7,
+      "elapsed_ms": 53.10000002384186,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.015663,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 8,
+      "elapsed_ms": 50.400000005960464,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.02322,
+      "videoWidth": null
+    },
+    {
+      "kind": "radio",
+      "switch": 9,
+      "elapsed_ms": 62.80000001192093,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.023129,
+      "videoWidth": null
+    },
+    {
+      "kind": "tv",
+      "switch": 0,
+      "elapsed_ms": 102,
+      "readyState": 1,
+      "muted": false,
+      "currentTime": 0.1,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 1,
+      "elapsed_ms": 81.2000000178814,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.1,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 2,
+      "elapsed_ms": 85.90000000596046,
+      "readyState": 1,
+      "muted": false,
+      "currentTime": 0.1,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 3,
+      "elapsed_ms": 85.30000001192093,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 4,
+      "elapsed_ms": 89.5,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.1,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 5,
+      "elapsed_ms": 140.2000000178814,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 6,
+      "elapsed_ms": 106,
+      "readyState": 1,
+      "muted": false,
+      "currentTime": 0.1,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 7,
+      "elapsed_ms": 87.90000000596046,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.1,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 8,
+      "elapsed_ms": 89.09999999403954,
+      "readyState": 4,
+      "muted": false,
+      "currentTime": 0.103676,
+      "videoWidth": 320
+    },
+    {
+      "kind": "tv",
+      "switch": 9,
+      "elapsed_ms": 106,
+      "readyState": 1,
+      "muted": false,
+      "currentTime": 0,
+      "videoWidth": 320
+    }
+  ],
+  "summary": [
+    {
+      "kind": "radio",
+      "n": 10,
+      "median_ms": 58.900000005960464,
+      "p95_ms": 80.19999998807907
+    },
+    {
+      "kind": "tv",
+      "n": 10,
+      "median_ms": 89.5,
+      "p95_ms": 140.2000000178814
+    }
+  ],
+  "appearance": [
+    {
+      "kind": "radio",
+      "scheme": "light",
+      "background": "rgb(244, 247, 250)",
+      "backgroundImage": "linear-gradient(165deg, rgb(226, 238, 231) 0%, rgb(248, 250, 252) 53%, rgb(241, 244, 248) 100%)",
+      "color": "rgb(21, 33, 48)",
+      "width": 393,
+      "height": 844,
+      "videoFrame": null
+    },
+    {
+      "kind": "radio",
+      "scheme": "dark",
+      "background": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(rgb(54, 35, 20) 0%, rgb(54, 35, 20) 22%, rgb(18, 18, 18) 82%)",
+      "color": "rgb(255, 255, 255)",
+      "width": 393,
+      "height": 844,
+      "videoFrame": null
+    },
+    {
+      "kind": "tv",
+      "scheme": "light",
+      "background": "rgb(244, 247, 250)",
+      "backgroundImage": "linear-gradient(165deg, rgb(226, 238, 231) 0%, rgb(248, 250, 252) 53%, rgb(241, 244, 248) 100%)",
+      "color": "rgb(21, 33, 48)",
+      "width": 393,
+      "height": 844,
+      "videoFrame": [
+        {
+          "id": "video-player",
+          "background": "rgb(0, 0, 0)",
+          "radius": "8px",
+          "overflow": "clip",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "video-surface-card",
+          "background": "rgb(0, 0, 0)",
+          "radius": "8px",
+          "overflow": "hidden",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "mobile-sticky-player-wrap",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "left-watch-column",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "watch-columns",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "player-stage",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        }
+      ]
+    },
+    {
+      "kind": "tv",
+      "scheme": "dark",
+      "background": "rgba(0, 0, 0, 0)",
+      "backgroundImage": "linear-gradient(165deg, rgb(77, 91, 37), rgb(20, 27, 23) 48%, rgb(16, 16, 16) 95%)",
+      "color": "rgb(255, 255, 255)",
+      "width": 393,
+      "height": 844,
+      "videoFrame": [
+        {
+          "id": "video-player",
+          "background": "rgb(0, 0, 0)",
+          "radius": "8px",
+          "overflow": "clip",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "video-surface-card",
+          "background": "rgb(0, 0, 0)",
+          "radius": "8px",
+          "overflow": "hidden",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "mobile-sticky-player-wrap",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "left-watch-column",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "watch-columns",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        },
+        {
+          "id": "player-stage",
+          "background": "rgba(0, 0, 0, 0)",
+          "radius": "0px",
+          "overflow": "visible",
+          "border": "0px",
+          "x": 15.71875,
+          "y": 67.515625,
+          "width": 361.5625,
+          "height": 203.375
+        }
+      ]
+    }
+  ]
+}

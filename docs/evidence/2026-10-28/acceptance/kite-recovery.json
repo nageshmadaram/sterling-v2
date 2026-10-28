@@ -1,0 +1,31 @@
+{
+  "before": {
+    "connected": false,
+    "is_paper": false,
+    "account_id": null,
+    "has_refresh_token": false,
+    "kite_user_id": null,
+    "user_name": null,
+    "message": "No active Kite account",
+    "token_expires_at_ms": null,
+    "expires_in_s": null,
+    "validated": false,
+    "auto_renewed": false,
+    "transient": false
+  },
+  "after": {
+    "connected": false,
+    "is_paper": false,
+    "account_id": "KITE-4DDDB5FE4E",
+    "has_refresh_token": false,
+    "kite_user_id": "AA0595",
+    "user_name": null,
+    "message": "Session expired at 06:00 IST \u2014 reconnect via Kite login.",
+    "token_expires_at_ms": null,
+    "expires_in_s": null,
+    "validated": false,
+    "auto_renewed": false,
+    "transient": false
+  },
+  "action": "Guarded activation of the sole owned account with an already saved session; no login credentials or orders submitted"
+}

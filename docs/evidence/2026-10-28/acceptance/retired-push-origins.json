@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-28T07:21:01.789883+00:00",
+  "reason": "User observed dead boundaries-leu-paint-versus and replies-evans-thesis-remainder notification destinations. Legacy registrations lack origin metadata; current member registration was witnessed and retained.",
+  "retired": [
+    {
+      "device_id": "c74cf9318dd90f9aee0c1f1b78a893d73ec126df77aca04d60d29adc23ac6dd9",
+      "recorded_origin": "",
+      "created_ms": 1792088613864
+    },
+    {
+      "device_id": "a31d583abeb55dc008608c7df5f023c8660632114f4833ecac77841361411971",
+      "recorded_origin": "",
+      "created_ms": 1792911557659
+    }
+  ],
+  "active_origins": [
+    "https://andreas-solving-houston-exempt.trycloudflare.com"
+  ]
+}

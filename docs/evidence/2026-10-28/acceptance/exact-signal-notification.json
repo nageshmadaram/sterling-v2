@@ -1,0 +1,13 @@
+{
+  "at": "2026-10-28T13:00:19.377210+00:00",
+  "title": "Sterling \u00b7 exact signal details \u00b7 18:30:13",
+  "body": "Existing NIFTY FIN SERVICE Supertrend signal. Tap to open this signal\u2019s details. Read-only navigation check; no order is placed.",
+  "accepted_by_provider": 1,
+  "phone_observation": "pending",
+  "destination": "/kite?view=live&notification=signals&strategy=supertrend&signal=supertrend%3A257801%3A1793179800000%3Aspot%3Ascalping%3A5&symbol=NIFTY+FIN+SERVICE&at=1793179800000",
+  "origin": "https://andreas-solving-houston-exempt.trycloudflare.com",
+  "existing_signal": {
+    "underlying": "NIFTY FIN SERVICE",
+    "timestamp_ms": 1793179800000
+  }
+}

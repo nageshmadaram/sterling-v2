@@ -1,0 +1,41 @@
+{
+  "observed_at": "2026-10-28T07:10:00.095680+00:00",
+  "account": "administrator",
+  "provider_response": {
+    "delivered": 2
+  },
+  "physical_receipt": "awaiting user observation",
+  "expected_title": "Sterling test notification",
+  "expected_body": "Your device can receive Sterling updates.",
+  "expected_navigation": "/kite?view=live&notification=alerts",
+  "runtime": {
+    "captured_at": "2026-10-28T07:08:51.730399+00:00",
+    "checkout_sha_at_start": "c741a2e5448329000ece4ac9c1541edf924f5bb3",
+    "source_sha256_at_start": "8fcc6670919a0cb091a6132a61aa12207f6d336f2ff1f90f9f2688e04b608837",
+    "declared_runtime_sha": "c741a2e5448329000ece4ac9c1541edf924f5bb3",
+    "api_contract": "sterling-api-v1",
+    "source_dirty_at_start": false,
+    "current_checkout_sha": "c741a2e5448329000ece4ac9c1541edf924f5bb3",
+    "frontend_build_sha": null,
+    "compatible": false,
+    "blockers": [
+      "frontend_build_unknown",
+      "frontend_backend_contract_mismatch"
+    ],
+    "provenance_scope": "startup source snapshot; immutable release artifacts still required"
+  },
+  "kite": {
+    "connected": true,
+    "is_paper": false,
+    "account_id": "KITE-4DDDB5FE4E",
+    "has_refresh_token": false,
+    "kite_user_id": "AA0595",
+    "user_name": "Madaram Nagesh",
+    "message": "Connected",
+    "token_expires_at_ms": 1793233800000,
+    "expires_in_s": 62399,
+    "validated": false,
+    "auto_renewed": false,
+    "transient": false
+  }
+}

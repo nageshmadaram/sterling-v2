@@ -1,0 +1,28 @@
+
+> sterling-frontend@0.1.0 pretest
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 873ms.
+
+> sterling-frontend@0.1.0 test
+> vitest --run src/components/kite/board/__tests__/SignalBoard.render.test.tsx src/components/kite/board/__tests__/supertrendAdapter.identity.test.ts
+
+
+ RUN  v5.0.3 /home/nageshmadaram/Sterling/frontend
+
+
+ Test Files  2 passed (2)
+      Tests  30 passed (30)
+   Start at  17:56:45
+   Duration  1.52s (tests 39%, environment 31%, transform 19%, import 7%, setup 4%, worker 1%)
+

@@ -1,0 +1,30 @@
+
+> sterling-frontend@0.1.0 pree2e:media
+> npm run media:styles
+
+
+> sterling-frontend@0.1.0 media:styles
+> node scripts/build-media-styles.mjs
+
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+
+Rebuilding...
+
+Done in 863ms.
+
+> sterling-frontend@0.1.0 e2e:media
+> playwright test -c playwright.media.config.ts --grep controlled audio|first visible|expanded artwork --output=test-results-phone-focused
+
+
+Running 4 tests using 1 worker
+
+(node:3754425) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 e2e/media/spotify.spec.ts:71:1 › Radio plays a controlled audio stream and preserves user pause (7.1s)
+  ✓  2 e2e/media/spotify.spec.ts:568:1 › Radio first visible frame is Home even with a saved SW/AM section (1.3s)
+  ✓  3 e2e/media/spotify.spec.ts:583:43 › radio expanded artwork uses width and keeps title near controls (1.7s)
+  ✓  4 e2e/media/spotify.spec.ts:583:43 › tv expanded artwork uses width and keeps title near controls (2.1s)
+
+  4 passed (13.4s)

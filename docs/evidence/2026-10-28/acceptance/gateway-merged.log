@@ -1,0 +1,14 @@
+✔ serves genuine static assets and SPA routes from active release symlink (9.771957ms)
+✔ existing dotfiles cannot be served (1.80313ms)
+✔ symlink targets outside active release cannot be served (3.065991ms)
+✔ nested folder symlinks cannot escape public build (2.664918ms)
+✔ invalid paths and missing assets fail closed, without SPA fallback (6.065758ms)
+✔ plain dist remains supported without a symlink (5.914373ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 241.267612

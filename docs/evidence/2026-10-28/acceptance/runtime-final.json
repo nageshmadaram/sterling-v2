@@ -1,0 +1,83 @@
+{
+  "kite": {
+    "connected": true,
+    "validated": false,
+    "is_paper": false,
+    "account_id": "KITE-4DDDB5FE4E",
+    "kite_user_id": "AA0595",
+    "message": "Connected",
+    "transient": false,
+    "token_expires_at_ms": 1793233800000
+  },
+  "supertrend": {
+    "scanning": false,
+    "rows": 16,
+    "scan": {}
+  },
+  "snapback": {
+    "scanned": 200,
+    "scan_total": 200,
+    "scanning": false,
+    "last_scan_ms": 1793192553541,
+    "last_error": null,
+    "positions_error": null,
+    "rows": 1,
+    "scan": {}
+  },
+  "gamma": {
+    "rows": 0,
+    "scan": {
+      "last_run_ms": 1793177105796,
+      "total_seconds": 4.82
+    }
+  },
+  "ema": {
+    "rows": 505,
+    "scan": {
+      "id": "65333980aac95766756a4998",
+      "status": "COMPLETED",
+      "progress": 100,
+      "errors": []
+    }
+  },
+  "snapback_config": {
+    "enabled": true,
+    "auto_execute": false
+  },
+  "gamma_config": {
+    "enabled": true,
+    "auto_execute": false
+  },
+  "push": {
+    "active_devices": 1,
+    "devices": [
+      {
+        "label": "This browser",
+        "enabled": 1,
+        "origin": "https://andreas-solving-houston-exempt.trycloudflare.com",
+        "last_error": ""
+      }
+    ]
+  },
+  "at": "2026-10-28T13:03:29.329092+00:00",
+  "application_commit": "862c03a53e6e2ec6742d7099b0696c118037d7f7",
+  "backend_provenance": "Backend Python code unchanged from 1960ace82; latest application changes are media templates/assets and an admin UI label.",
+  "local_frontend": {
+    "http_status": 200,
+    "service": "sterling-web",
+    "ready": true,
+    "release_commit": "862c03a53e6e2ec6742d7099b0696c118037d7f7"
+  },
+  "public_frontend": {
+    "http_status": 200,
+    "service": "sterling-web",
+    "ready": true,
+    "release_commit": "862c03a53e6e2ec6742d7099b0696c118037d7f7"
+  },
+  "backend": {
+    "pid": 3674704,
+    "active": "active",
+    "runtime_sha": "1960ace82e29f90308a234e2de1a5d94d7c67ab6"
+  },
+  "kite_validation_semantics": "validated=false on this cached status read means no fresh broker call for that poll; separate GET /user/profile receipt verifies the real broker session."
+}

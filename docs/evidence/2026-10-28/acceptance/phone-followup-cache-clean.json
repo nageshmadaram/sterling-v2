@@ -1,0 +1,41 @@
+{
+  "at": "2026-10-28T13:00:53.051140+00:00",
+  "items": [
+    {
+      "cache": "uv",
+      "logical_bytes": 58262726
+    },
+    {
+      "cache": "thumbnails",
+      "logical_bytes": 10389057
+    },
+    {
+      "cache": "mesa_shader_cache",
+      "logical_bytes": 6094580
+    },
+    {
+      "cache": "fontconfig",
+      "logical_bytes": 15605320
+    },
+    {
+      "cache": "flatpak",
+      "logical_bytes": 8483029
+    },
+    {
+      "cache": "typescript",
+      "logical_bytes": 4534603
+    },
+    {
+      "cache": "pip",
+      "logical_bytes": 328
+    },
+    {
+      "cache": "pip-audit",
+      "logical_bytes": 845682
+    },
+    {
+      "completed_pytest_fixtures": true
+    }
+  ],
+  "available_bytes": 2113806336
+}

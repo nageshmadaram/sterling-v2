@@ -1,0 +1,107 @@
+{
+  "status": {
+    "connected": true,
+    "is_paper": false,
+    "account_id": "KITE-4DDDB5FE4E",
+    "has_refresh_token": false,
+    "kite_user_id": "AA0595",
+    "user_name": "Madaram Nagesh",
+    "message": "Connected",
+    "token_expires_at_ms": 1793233800000,
+    "expires_in_s": 65439,
+    "validated": false,
+    "auto_renewed": false,
+    "transient": false
+  },
+  "accounts": {
+    "active_id": "KITE-4DDDB5FE4E",
+    "accounts": [
+      {
+        "id": "KITE-4DDDB5FE4E",
+        "is_active": true,
+        "connected": true,
+        "kite_user_id": "AA0595",
+        "token_expires_at_ms": 1793233800000
+      }
+    ]
+  },
+  "supertrend": {
+    "scanning": false,
+    "rows": 0,
+    "positions": 0
+  },
+  "snapback": {
+    "scanned": 0,
+    "scan_total": 0,
+    "scanning": false,
+    "last_scan_ms": 0,
+    "last_error": "engine disabled",
+    "positions_error": null,
+    "rows": 0,
+    "positions": 0
+  },
+  "gamma": {
+    "scan": {},
+    "rows": 0,
+    "positions": 0
+  },
+  "ema": {
+    "scan": {
+      "config_revision": 1,
+      "created_ms": 1793168267752,
+      "errors": [
+        {
+          "reason": "MARKET_DATA_SESSION_UNAVAILABLE"
+        }
+      ],
+      "finished_ms": 1793168267816,
+      "id": "e741e45e9973ad4b71a62610",
+      "modes": [
+        "swing"
+      ],
+      "progress": 0,
+      "provenance": {
+        "artifact_id": "e741e45e9973ad4b71a62610",
+        "artifact_kind": "scan",
+        "live_eligible": false,
+        "origin": {
+          "account_id": "SIM-FE272B8DC7",
+          "config_hash": "b3bc25f0c2a1ba29729ebd60",
+          "config_revision": 1,
+          "config_status": "VALIDATED",
+          "dataset_id": null,
+          "dataset_sha256": null,
+          "evidence_track": "PAPER_OR_MODELLED",
+          "execution_uid": "sim:USR-0FD8F15C82",
+          "execution_vehicle": "SELECTED_INSTRUMENT",
+          "mode": null,
+          "profile": null,
+          "rule_hash": "dffd57bc89c515857ba8be7a",
+          "runtime_source_sha256": "942cf4de26feb8513adcaf659ca40566cb303e210a46d514fa5b8542fca59cdf",
+          "strategy_version": "1.1.0",
+          "tenant_kind": "SIMULATION",
+          "universe_hash": "870a06f0f4a4a65376baaae2",
+          "workspace_baseline_sha256": "bf25fd1cdeeaf79f54c0e7ea1f956d5be02e35f582e6b8e2bd35ab10a2c6fdec"
+        },
+        "origin_status": "CAPTURED_AT_CREATION",
+        "owner_uid": "USR-0FD8F15C82",
+        "parent": null,
+        "projected_ms": 1793168267835,
+        "projection_source": {
+          "rule_hash": "dffd57bc89c515857ba8be7a",
+          "runtime_source_sha256": "942cf4de26feb8513adcaf659ca40566cb303e210a46d514fa5b8542fca59cdf",
+          "strategy_version": "1.1.0",
+          "workspace_baseline_sha256": "bf25fd1cdeeaf79f54c0e7ea1f956d5be02e35f582e6b8e2bd35ab10a2c6fdec"
+        },
+        "schema_version": 1
+      },
+      "results": [],
+      "revision": 3,
+      "status": "FAILED",
+      "updated_ms": 1793168267835
+    },
+    "rows": 0,
+    "positions": 0
+  },
+  "observed_at": "2026-10-28T06:19:32.534596+00:00"
+}

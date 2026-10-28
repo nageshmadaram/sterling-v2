@@ -1,5 +1,37 @@
 # Sterling end-to-end acceptance register — 2026-10-28
 
+## Executed update — 28 October 2026
+
+**Application candidate:** `862c03a53e6e2ec6742d7099b0696c118037d7f7` (backend Python unchanged from `1960ace82`).
+**Overall status: browser/API acceptance passed; physical-device certification pending.**
+The historical source-only and unavailable-CI receipts below remain as dated history.
+Current execution evidence is in [the evidence bundle](../../evidence/2026-10-28/acceptance/README.md).
+
+| Area | Executed outcome | Remaining acceptance |
+|---|---|---|
+| Storage | Regenerable caches and completed test data cleaned; production databases, credentials, user artifacts and backup history retained | Continue to retain operational disk reserve |
+| Broker login/header | AA0595 connected and validated after restart; stale status-query race fixed; local/public frontend release verified; backend Python provenance recorded separately | Physical phone confirmation of all broker surfaces |
+| Signals and strategy loading | Compact disclosure/filters; four released boards remain visible when disabled; current-day reads precede history; slow history work moved off API event loop; Snapback scan completed 200 stocks and produced a row | Actual qualifying signals are market dependent; archived strategy release restrictions remain |
+| Mobile navigation | Home / Signals / Watchlist / Terminal / Replay remain available in settings; selecting an absent pane returns to its dashboard context | Final phone navigation check |
+| Administration | Unified responsive theme, summary, searchable/filterable directory, user details, access, requests, brokers, Telegram and activity | Final phone visual check |
+| Add user | Browser-to-API-to-SQLite flow passed in a disposable environment; created user can sign in; all selected workspace and settings access persists in the same transaction; invalid/failed grants leave no partial account | Operator's intended production user creation; no test account added to production |
+| Radio Light mode | Category and region chips: selected black/white text, other chips white/bordered; shelf headings transparent/dark text | Operator confirmed prior chip/shelf fixes; new play/pause contrast fix awaits recheck |
+| TV/radio expanded players | Light/Dark palette checks; enlarged artwork and compact title/controls; native play/pause state and contrast; first-load Home; clipped video and matching frame bounds/radii; Surprise controls replace device-copy text | Phone orientation, native video compositor and no-zoom checks |
+| Media startup | Ten controlled decode/start samples per player: Radio median/P95 58.9/80.2 ms; TV 89.5/140.2 ms; operator observed BBC Earth US 1080 starting in ~2 seconds once | Real phone broadcaster/network first-audible/first-frame and switch timings |
+| Profile picture | Native file picker, blob preview CSP, draft survives failed background verification; crop/upload contracts covered in browser/unit/API checks | Operator confirmed phone save; persistence after reload remains unconfirmed |
+| Push delivery | Operator received current-origin check; tapping opened Positions; signal test opened Supertrend | Background/lock-screen/terminated-browser combinations |
+| Exact signal navigation | Live browser found and opened the exact signal details after fixing source timestamp vs display-close mismatch; future Supertrend alerts use stable source identities | Final labeled phone detail check pending |
+| Build and tests | Build passed; 2,505 frontend tests; 12,585 backend tests with 30 skips; 33 media browser journeys; gateway containment checks | See receipts for offline admission suite and final visual sweep; CI runner/Docker/Python 3.13 not certified |
+| Visual coverage | Seven widths in both themes; 743 page/overlay captures; no document overflow or uncaught browser errors | Physical-device rendering, 200% text-size/accessibility exploration and full screenshot-diff certification |
+| Trading safety | Flatness checked read-only before restarts; consistent compressed backups saved; auto execution remains off for enabled scans; entry/release/binding/protection gates retained | Independently authorized protection/recovery and economics evidence; no live promotion |
+
+No physical phone, broadcaster timing, exact phone detail-opening, or saved-phone-photo
+result is marked PASS without an operator/device receipt. The overall register is
+not a complete trading or physical-device certificate.
+
+---
+
+
 **Review scope:** latest GitHub `dev` integration, screenshot-grounded mobile defects,
 read-only signal visibility, Space/Echo streaming, Web Push and Kite connection.
 **Important:** This is a source review and regression-test register. Neither a

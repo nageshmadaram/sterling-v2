@@ -1,0 +1,23 @@
+{
+  "observed_at": "2026-10-28T07:15:38.811211+00:00",
+  "site": "https://andreas-solving-houston-exempt.trycloudflare.com",
+  "origin_evidence": "User confirmed opening this exact URL and enabling notifications",
+  "devices": [
+    {
+      "id": "b709b4ac4a4f06bf1017e46c13ffa2d909cd3162c3ca62af3793e285b709a7bb",
+      "label": "S22 Ultra",
+      "enabled": 1,
+      "created_ms": 1793171675105,
+      "last_delivery_ms": 1793171707540,
+      "last_error": ""
+    }
+  ],
+  "provider_response": {
+    "delivered": 1
+  },
+  "physical_receipt": "pending",
+  "origin_migration": {
+    "at": "2026-10-28T07:20:09.704271+00:00",
+    "method": "Backfilled metadata for the exact newly created member registration, witnessed by the user confirming registration at the current URL. Earlier registrations remain unverified and will be retired."
+  }
+}

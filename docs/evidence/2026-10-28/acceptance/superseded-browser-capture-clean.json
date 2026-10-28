@@ -1,0 +1,10 @@
+{
+  "removed_generated_captures": [
+    "visual-final",
+    "visual-published",
+    "media-focus-results",
+    "media-recheck-results"
+  ],
+  "retained": "visual-certified-code, visual-deployed-final, final logs and selected evidence screenshots",
+  "available_bytes": 2275422208
+}

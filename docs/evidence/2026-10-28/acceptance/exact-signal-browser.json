@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-28T12:30:40.905Z",
+  "symbol": "NIFTY FIN SERVICE",
+  "timestamp_ms": 1793179800000,
+  "destination": "/kite?view=live&notification=signals&strategy=supertrend&symbol=NIFTY+FIN+SERVICE&at=1793179800000",
+  "detail_header": "NIFTY FIN SERVICE\n24,418.25\n📈 Setup chart\nOption chain",
+  "pass": true,
+  "blocked_mutations": [
+    "/api/v1/auth/preferences",
+    "/api/v1/kite/ticker/subscribe",
+    "/api/v1/kite/ticker/subscribe",
+    "/api/v1/kite/ticker/subscribe"
+  ]
+}

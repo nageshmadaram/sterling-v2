@@ -1,0 +1,11 @@
+file:///home/nageshmadaram/Sterling/scripts/ui/verify-admin-create.mjs:8
+if(new URL(base).hostname!=='127.0.0.1'||new URL(base).protocol!=='http:')throw Error('Only the loopback HTTP fixture is permitted; refusing to transmit credentials.');
+                                                                                ^
+
+Error: Only the loopback HTTP fixture is permitted; refusing to transmit credentials.
+    at file:///home/nageshmadaram/Sterling/scripts/ui/verify-admin-create.mjs:8:81
+    at ModuleJob.run (node:internal/modules/esm/module_job:561:25)
+    at async node:internal/modules/esm/loader:647:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.22.1

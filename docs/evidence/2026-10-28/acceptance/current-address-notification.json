@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-28T07:24:16.557743+00:00",
+  "title": "Sterling \u00b7 current address check",
+  "body": "Current site registration verified. Tap to open Sterling on andreas-solving-houston-exempt.trycloudflare.com.",
+  "accepted_by_provider": 1,
+  "phone_observation": {
+    "verbatim": "yeah, got the current sterling current address check , clikcing it opened positions page",
+    "delivered": true,
+    "current_site_opened": true,
+    "landing_page": "Positions",
+    "latency": "Not measured"
+  },
+  "destination": "/kite?view=live&notification=alerts",
+  "origin": "https://andreas-solving-houston-exempt.trycloudflare.com"
+}

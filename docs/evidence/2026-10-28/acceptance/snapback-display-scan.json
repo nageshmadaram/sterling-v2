@@ -1,0 +1,32 @@
+{
+  "at": "2026-10-28T07:30:50.480409+00:00",
+  "before": {
+    "enabled": false,
+    "auto_execute": false
+  },
+  "after": {
+    "enabled": true,
+    "auto_execute": false
+  },
+  "scope": "Enable requested signal calculation; auto execution remains false.",
+  "result": {
+    "positions_error": null,
+    "scanned": 76,
+    "scan_total": 200,
+    "scanning": true,
+    "last_scan_ms": 0,
+    "last_error": null
+  },
+  "rows": 0,
+  "api_returned_at": "2026-10-28T07:31:31.786885+00:00",
+  "completed_scan_readback": {
+    "observed_at": "2026-10-28T07:47:01.719249+00:00",
+    "positions_error": null,
+    "scanned": 200,
+    "scan_total": 200,
+    "scanning": false,
+    "last_scan_ms": 1793173364017,
+    "last_error": null,
+    "row_count": 1
+  }
+}

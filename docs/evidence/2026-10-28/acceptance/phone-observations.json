@@ -1,0 +1,30 @@
+{
+  "observed_on": "2026-10-28",
+  "source": "Operator responses in this chat; not agent-emulated observations",
+  "observations": [
+    {
+      "check": "Profile-photo crop/save on mobile",
+      "result": "saved",
+      "operator_text": "its getting saved",
+      "reload_persistence": "not explicitly confirmed"
+    },
+    {
+      "check": "TV first playback",
+      "channel": "BBC Earth US 1080",
+      "approx_seconds": 2,
+      "samples": 1,
+      "browser_network": "not provided",
+      "switch_time": "not provided"
+    },
+    {
+      "check": "Radio selected chips / shelves, player corners and Surprise controls",
+      "operator_text": "yeah but play/pause is not correct ; also make sure to have the album art/thumbnail to fit max space; too much of space below the name",
+      "interpretation": "Prior visual fixes confirmed; follow-up defects fixed in 862c03a53 and awaiting phone recheck"
+    },
+    {
+      "check": "Radio initial section",
+      "operator_text": "opening radio opens sw/am page on first load and then redirects to home (all)",
+      "followup": "Initial markup and boot state now Home; 60-frame browser sampling regression passes with saved shortwave selection."
+    }
+  ]
+}

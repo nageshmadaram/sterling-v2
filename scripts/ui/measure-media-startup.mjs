@@ -27,11 +27,11 @@ try{
    }
    return url.origin===base?route.continue():route.abort();
   });
-  await page.route('**/__timing_host__',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}iframe{border:0;width:100vw;height:100dvh}</style><iframe id="player" src="/${kind}/index.html" sandbox="allow-scripts allow-forms" allow="autoplay"></iframe><script>const f=document.getElementById('player');addEventListener('message',e=>{if(e.source===f.contentWindow&&e.data?.type==='sterling.${kind}.ready')f.contentWindow.postMessage({type:'sterling.${kind}.hydrate',hostHeader:true,appearance:'light',values:${JSON.stringify(kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',catalogSources:[]})}:{streamos_theme_v14:'spotify'})}},'*');});</script>`}));
+  await page.route('**/__timing_host__',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0}iframe{border:0;width:100vw;height:100dvh}</style><iframe id="player" src="/${kind}/index.html" sandbox="allow-scripts allow-forms" allow="autoplay"></iframe><script>const f=document.getElementById('player');addEventListener('message',e=>{if(e.source===f.contentWindow&&e.data?.type==='sterling.${kind}.ready'){f.contentWindow.postMessage({type:'sterling.${kind}.hydrate',hostHeader:true,appearance:'light',values:${JSON.stringify(kind==='radio'?{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',catalogSources:[]})}:{streamos_theme_v14:'spotify'})}},'*');f.contentWindow.postMessage({type:'sterling.${kind}.ack'},'*');}});</script>`}));
   await page.goto(base+'/__timing_host__');
   const frame=await page.locator('#player').contentFrame();
   await frame.locator(kind==='radio'?'#sp-mchip-all':'#tv-mobile-shell').waitFor();
-  for(let i=0;i<5;i++){
+  for(let i=0;i<10;i++){
    await frame.locator('body').evaluate((_body,{kind,index,base})=>{
     document.getElementById('measure-start')?.remove();window.__timing=null;
     const button=document.createElement('button');button.id='measure-start';button.textContent='Measure playback';button.style.cssText='position:fixed;inset:0 auto auto 0;z-index:2147483647;padding:16px';
@@ -56,7 +56,7 @@ try{
    await frame.locator(`html[data-color-scheme=${scheme}]`).waitFor();
    const surface=frame.locator(kind==='radio'?'#mobile-player-sheet':'#tv-now-playing');
    await surface.waitFor();
-   appearance.push({kind,scheme,...await surface.evaluate(el=>({background:getComputedStyle(el).backgroundColor,backgroundImage:getComputedStyle(el).backgroundImage,color:getComputedStyle(el).color,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}))});
+   appearance.push({kind,scheme,...await surface.evaluate(el=>({background:getComputedStyle(el).backgroundColor,backgroundImage:getComputedStyle(el).backgroundImage,color:getComputedStyle(el).color,width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height,videoFrame:(()=>{const v=document.getElementById('video-player');if(!v)return null;const result=[];for(let n=v;n&&result.length<6;n=n.parentElement){const c=getComputedStyle(n),b=n.getBoundingClientRect();result.push({id:n.id,background:c.backgroundColor,radius:c.borderRadius,overflow:c.overflow,border:c.borderWidth,x:b.x,y:b.y,width:b.width,height:b.height});}return result;})()}))});
    await page.screenshot({path:path.join(output,kind+'-'+scheme+'.png')});
   }
   const light=appearance.find(row=>row.kind===kind&&row.scheme==='light');
