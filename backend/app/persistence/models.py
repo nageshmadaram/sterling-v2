@@ -60,3 +60,5 @@ class MirroredRecord(Base):
 from app.persistence.strategy_registry_models import (  # noqa: F401
     PlatformStrategyRow, PlatformStrategyVersionRow, PlatformStrategyRunRow,
 )
+
+from app.persistence.strategy_registry_audit import PlatformStrategyAuditRow  # noqa: F401
