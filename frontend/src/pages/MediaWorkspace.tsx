@@ -9,10 +9,33 @@ export default function MediaWorkspace({ feature }: { feature: 'tv' | 'radio' })
   const onState = useCallback((value: { theme: MediaTheme; query: string }) => setState(value), []);
   const [toolbar,setToolbar]=useState<HTMLElement|null>(null);
   const [menuHost,setMenuHost]=useState<HTMLElement|null>(null);
-  useLayoutEffect(()=>{
-    setToolbar(document.getElementById('workspace-toolbar'));
-    setMenuHost(document.getElementById('sterling-media-account-settings'));
-  },[]);
+  useLayoutEffect(() => {
+    // AccountMenu lives in the outer router and may commit after this
+    // suspended media workspace. Re-resolve its portal host when the menu
+    // opens rather than permanently falling back to the header's sun button.
+    const resolveHosts = () => {
+      const nextToolbar = document.getElementById('workspace-toolbar');
+      const nextMenu = document.getElementById('sterling-media-account-settings');
+      setToolbar(previous => previous === nextToolbar ? previous : nextToolbar);
+      setMenuHost(previous => previous === nextMenu ? previous : nextMenu);
+    };
+    resolveHosts();
+    const onMenuOpen = () => resolveHosts();
+    window.addEventListener('sterling-media-menu-open', onMenuOpen);
+    const observer = new MutationObserver(() => {
+      resolveHosts();
+      if (document.getElementById('workspace-toolbar') &&
+          document.getElementById('sterling-media-account-settings')) observer.disconnect();
+    });
+    if (!document.getElementById('workspace-toolbar') ||
+        !document.getElementById('sterling-media-account-settings')) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('sterling-media-menu-open', onMenuOpen);
+    };
+  }, [feature]);
   const command = (action: string, value?: string) => window.dispatchEvent(new CustomEvent(`sterling-${feature}-command`, { detail: { action, value } }));
   return <main className="workspace-media" aria-label={feature === 'tv' ? 'Space workspace' : 'Echo workspace'}>
     {toolbar && createPortal(
