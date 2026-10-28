@@ -107,9 +107,17 @@ try{
         }
 
       }
-      for(const label of ['Requests','Brokers','Accounts']){
+      for(const label of ['Requests','Brokers','Login accounts']){
         await admin.getByRole('navigation',{name:'Administration sections'}).getByRole('button',{name:new RegExp('^'+label)}).click();await admin.waitForTimeout(180);await capture(admin,`admin-${label.toLowerCase()}-${width}-${theme}`,{workspace:'administration',section:label,theme});
       }
+      await admin.getByRole('button',{name:'Add user',exact:true}).click();
+      await admin.getByRole('form',{name:'Create Sterling user'}).waitFor();
+      await capture(admin,`admin-create-user-${width}-${theme}`,{workspace:'administration',section:'create-user',theme});
+      await admin.getByLabel('Echo · radio').check();await admin.getByLabel('Broker settings',{exact:true}).check();
+      await admin.getByLabel('Add connections',{exact:true}).check();
+      await capture(admin,`admin-create-access-${width}-${theme}`,{workspace:'administration',section:'initial-access',theme});
+      await admin.getByRole('button',{name:'Cancel',exact:true}).click();
+
     }
     await adminContext.close();console.log('Administrator audit complete: '+width);
     const anonymous=await browser.newContext({viewport:{width,height:900}}),login=await anonymous.newPage();await login.goto(base+'/?sterling_login=1');await login.getByRole('button',{name:'Sign in',exact:true}).waitFor();await capture(login,`sign-in-${width}`,{workspace:'sign-in'});await anonymous.close();

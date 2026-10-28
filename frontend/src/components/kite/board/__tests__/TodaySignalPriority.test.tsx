@@ -119,7 +119,7 @@ describe('cross-strategy today priority', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Snapback: scanning today'));
     // Scan-in-progress has already returned an API response; do not falsely
     // report only 3/4 responses while still correctly queuing older history.
-    expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses');
+    await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses'));
     expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
     expect(screen.getByRole('status')).toHaveTextContent('older history queued');
   });

@@ -175,7 +175,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
   it('polls while flat so ticker-driven E1 can appear', () => {
     renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
-    expect(snapshotArgs).toEqual([true, 3000, undefined]);
+    expect(snapshotArgs).toEqual([true, 3000, undefined, false]);
   });
 
   it('automatically loads up to five recent missing completed sessions', () => {
@@ -215,7 +215,7 @@ describe('GammaMoveBoard / Gamma Unwind', () => {
 
     renderEvidence(<GammaMoveBoard nowMs={Date.now()} />);
 
-    expect(snapshotArgs).toEqual([true, 0, '2026-10-01']);
+    expect(snapshotArgs).toEqual([true, 0, '2026-10-01', false]);
   });
 
   it('bootstraps an empty unrecorded live board once', () => {
@@ -585,9 +585,9 @@ it('returns from historical selection to the current session without scanning or
   renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
   fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
   fireEvent.change(screen.getByLabelText('Gamma history date'), { target: { value: '2026-10-02' } });
-  expect(snapshotArgs).toEqual([true, 0, '2026-10-02']);
+  expect(snapshotArgs).toEqual([true, 0, '2026-10-02', false]);
   fireEvent.click(screen.getByRole('button', { name: 'Reset strategy view' }));
-  expect(snapshotArgs).toEqual([true, 3000, undefined]);
+  expect(snapshotArgs).toEqual([true, 3000, undefined, false]);
   expect(scanState.mutate).not.toHaveBeenCalled();
   expect(armState.mutate).not.toHaveBeenCalled();
 });
