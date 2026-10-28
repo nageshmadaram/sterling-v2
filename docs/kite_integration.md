@@ -166,7 +166,7 @@ Attempts are owner-scoped, expire after five minutes, and can be cancelled.
 Changing/removing saved credentials invalidates a pending attempt. The returned
 broker identity must match the saved username before any session is persisted.
 No TOTP seed, code, browser profile, screenshot, or trace is persisted by this flow.
-ngrok request inspection is disabled by the launcher. Completion uses the existing
+Cloudflare is the only public tunnel managed by the launcher. Completion uses the existing
 account-specific durable Telegram confirmation. Choosing a login does not change
 the active account used for trading.
 
