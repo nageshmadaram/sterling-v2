@@ -1,3 +1,31 @@
+describe('Radio and TV search tolerance and settings routing',()=>{
+  it('finds radio channels across omitted spaces and one-letter typos',()=>{
+    const {w,errors}=boot('radio');
+    const pool=[{id:'rainbow-audit',title:'FM Rainbow Hyderabad',subtitle:'India · Telugu Urdu',category:'telugu'}];
+    (w as any).__searchAuditPool=pool;
+    expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"fmrainbow",8).length')).toBe(1);
+    expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"rainbo",8).length')).toBe(1);
+    expect(errors).toEqual([]);
+  });
+  it('finds TV channels without whitespace and with a bounded typo',()=>{
+    const {w,errors}=boot('tv');
+    expect(w.eval('getRankedSearchMatches("redbull",8).length')).toBeGreaterThan(0);
+    expect(w.eval('getRankedSearchMatches("red bulll",8).length')).toBeGreaterThan(0);
+    expect(errors).toEqual([]);
+  });
+  it('keeps radio startup and equalizer settings mutually exclusive',()=>{
+    const {w,errors}=boot('radio');
+    (w as any).openStartupModal();
+    expect(w.document.getElementById('startup-modal')?.classList.contains('hidden')).toBe(false);
+    (w as any).openDspModal();
+    expect(w.document.getElementById('startup-modal')?.classList.contains('hidden')).toBe(true);
+    expect(w.document.getElementById('audio-dsp-modal')?.classList.contains('hidden')).toBe(false);
+    (w as any).openStartupModal();
+    expect(w.document.getElementById('audio-dsp-modal')?.classList.contains('hidden')).toBe(true);
+    expect(errors).toEqual([]);
+  });
+});
+
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {Script} from 'node:vm';
