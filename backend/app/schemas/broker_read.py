@@ -85,6 +85,7 @@ class DepthLevel(Observation):
 
 class MarketDepth(Observation):
     symbol: str = Field(min_length=1)
+    exchange: str = Field(min_length=1)
     bids: tuple[DepthLevel, ...]
     asks: tuple[DepthLevel, ...]
     observed_at_utc: datetime | None = None
@@ -92,6 +93,7 @@ class MarketDepth(Observation):
 
 class Quote(Observation):
     symbol: str = Field(min_length=1)
+    exchange: str = Field(min_length=1)
     last_price: Decimal
     observed_at_utc: datetime | None = None
     fetched_at_utc: datetime
