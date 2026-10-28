@@ -3778,7 +3778,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     // Search remains prefix-first, but spaces/punctuation and a single
     // spelling error must not make a station undiscoverable.
     const compactRadioSearch = value => normalizeRadioSearch(value)
-      .replace(/[^\\p{L}\\p{N}]+/gu,'');
+      .replace(/[^\p{L}\p{N}]+/gu,'');
     function radioOneEditApart(a,b) {
       if(Math.abs(a.length-b.length)>1)return false;
       let i=0,j=0,edits=0;
@@ -3793,7 +3793,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     }
     function getRadioSearchMatches(pool, query, limit=Infinity) {
       const q=normalizeRadioSearch(query).trim();
-      const terms=q.split(/\\s+/).filter(Boolean);
+      const terms=q.split(/\s+/).filter(Boolean);
       if(!terms.length)return pool.slice(0,limit);
       const compactQuery=compactRadioSearch(q),seen=new Set();
       const prefix=[],other=[],fallback=[];
@@ -3812,7 +3812,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         // Fuzzy suggestions only when exact results do not fill the window.
         // Use an O(n) one-edit check; never sort the entire catalogue.
         if(limit===Infinity || compactQuery.length<4 || fallback.length>=limit)continue;
-        const tokens=fields.hay.split(/[^\\p{L}\\p{N}]+/gu).filter(Boolean);
+        const tokens=fields.hay.split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
         if(terms.every(term=>term.length<4?
             tokens.some(token=>token.includes(term)):
             tokens.some(token=>token.includes(term)||radioOneEditApart(term,token)))) {
