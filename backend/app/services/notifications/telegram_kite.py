@@ -809,7 +809,6 @@ def kite_menu_kb() -> dict:
     app_url = access.get("app_url", "")
     return {"inline_keyboard": [
         *([[{"text":"☁️ Sterling · Cloudflare", "url":urls["cloudflare"]}]] if urls.get("cloudflare") else []),
-        *([[{"text":"🌐 Sterling · ngrok", "url":urls["ngrok"]}]] if urls.get("ngrok") else []),
         *([[{"text":"Open full app", "url":app_url}]] if app_url and not urls else []),
         *([[{"text": "📱 Open primary Sterling Mini App", "web_app": {"url": tma_url}}]] if tma_url else []),
         [_btn("📡 Signals",    "ksig"),     _btn("📈 PCR",       "kpcr")],
@@ -2842,13 +2841,11 @@ async def handle_text_command(chat_id: str, text: str, message_id: int | None = 
             lines = ["🌐 <b>STERLING PUBLIC LINKS</b>"]
             if urls.get("cloudflare"):
                 lines.append("Cloudflare: <code>" + _html.escape(urls["cloudflare"]) + "</code>")
-            if urls.get("ngrok"):
-                lines.append("ngrok: <code>" + _html.escape(urls["ngrok"]) + "</code>")
             if tma_url:
                 lines.append("Primary Telegram desk: <code>" + _html.escape(tma_url) + "</code>")
             if not urls and not tma_url:
                 lines.append("No verified HTTPS tunnel has been published yet.")
-            lines.append("Use /menu for separate Cloudflare and ngrok launch buttons.")
+            lines.append("Use /menu for the Cloudflare launch button.")
             lines.append("Kite callback uses only the primary configured address.")
             await _send("\n".join(lines), chat_id, kite_menu_kb())
     elif command in {"/app", "/miniapp", "/tma"}:
