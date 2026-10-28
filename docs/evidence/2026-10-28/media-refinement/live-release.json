@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-28T17:49:18.958515+00:00",
+  "results": [
+    {
+      "origin": "http://127.0.0.1:5180",
+      "http_status": 200,
+      "service": "sterling-web",
+      "ready": true,
+      "release_commit": "8e16afec4a53ec65f71c4e85602f1c08d07dadec"
+    },
+    {
+      "origin": "https://apparatus-italia-cult-accurate.trycloudflare.com",
+      "http_status": 200,
+      "service": "sterling-web",
+      "ready": true,
+      "release_commit": "8e16afec4a53ec65f71c4e85602f1c08d07dadec"
+    }
+  ]
+}

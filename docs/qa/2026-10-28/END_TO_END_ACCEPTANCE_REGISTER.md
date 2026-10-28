@@ -2,7 +2,7 @@
 
 ## Media refinement — later executed update, 28 October 2026
 
-Application revision: `80deaff447cc01d479ad5bcdbc0d1aab9cfe7d56`. The desktop
+Application revision: `8e16afec4a53ec65f71c4e85602f1c08d07dadec`. The desktop
 header/immersive sizing and narrow recommendation-rail changes were withdrawn as
 requested. Shared player artwork/metadata spacing, centered native play/pause,
 theme and corner clipping, foreground modal sheets, radio tools, desktop search,
@@ -19,8 +19,11 @@ three served entry points. Read-only broker profile verification for AA0595
 returned HTTP 200 at 17:29 UTC.
 
 The full backend rerun is in progress after correcting one stale test assertion
-that expected a pending request for already-granted radio. No runtime permission
-behavior was weakened. The prior failed receipt remains in local execution logs.
+that expected a pending request for already-granted radio. It has exposed a
+timing-sensitive sampler test: the fixed sleep now waits for actual recovery,
+and all 25 focused sampler tests pass. No runtime permissions or retry behavior
+were weakened. Prior failed receipts are retained; no complete backend PASS is
+claimed while the rerun is unfinished.
 
 **Physical-device acceptance remains open.** The operator reports playback at
 roughly 2–3 seconds but says the latest layout still looks off; new screenshots

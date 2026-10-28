@@ -282,6 +282,7 @@ class TestChainSamplerCoordinator:
     @pytest.mark.asyncio
     async def test_error_triggers_backoff_not_a_crash(self):
         attempts = {"n": 0}
+        recovered = asyncio.Event()
 
         async def quote_fetcher(symbols):
             attempts["n"] += 1
@@ -297,6 +298,7 @@ class TestChainSamplerCoordinator:
 
         async def on_sample(key, slice_, result, now_ms):
             sampled.append(result)
+            recovered.set()
 
         coordinator = ChainSamplerCoordinator(quote_fetcher=quote_fetcher, instrument_index=FakeIndex(), on_sample=on_sample)
         config = SimpleNamespace(mode="dynamic", dynamic_strike_radius=2, broad_strike_radius=5, strike_step_override=None, max_spread_pct=0.08, max_quote_age_seconds=20, min_chain_completeness=0.8, flow_sample_seconds=60)
@@ -305,6 +307,11 @@ class TestChainSamplerCoordinator:
             return 24500.0
 
         coordinator.ensure_started(account_scope="acct1", underlying="NIFTY", exchange="NFO", expiry="2026-08-06", spot_provider=spot_provider, config=config)
-        await asyncio.sleep(0.6)  # long enough for the fast (non-rate-limited attempt#... ) retry to land
-        await coordinator.stop_all()
+        # Wait for recovery itself: a fixed 0.6s sleep races the 0.5s retry
+        # when the event loop is busy running the complete acceptance suite.
+        try:
+            await asyncio.wait_for(recovered.wait(), timeout=5)
+        finally:
+            await coordinator.stop_all()
         assert attempts["n"] >= 2
+        assert sampled

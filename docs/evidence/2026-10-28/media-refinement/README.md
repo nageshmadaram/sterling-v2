@@ -1,9 +1,9 @@
 # Media refinement execution evidence — 28 October 2026
 
-The application changes are committed at `80deaff447cc01d479ad5bcdbc0d1aab9cfe7d56`.
+The application changes are committed through `8e16afec4a53ec65f71c4e85602f1c08d07dadec`.
 Local immutable publication on port 5180 and the currently verified public
-origin served this revision. The backend was restarted on the Python sources at
-`182f622c2`; subsequent application changes through `80deaff44` are frontend/media
+origin [served this revision](live-release.json). The backend was restarted on the Python sources at
+`182f622c2`; subsequent application changes through `8e16afec4` are frontend/media
 changes. Test and audit harness corrections recorded alongside this bundle do not
 alter application behavior. Earlier acceptance evidence remains historical.
 
@@ -17,10 +17,10 @@ deferred to the [follow-up TODO](../../../qa/2026-10-28/FOLLOW_UP_TODO.md).
 |---|---|
 | Frontend suite | [2,517 passing tests in 280 files](frontend-tests.log). Final complete run used two workers after an earlier high-contention five-second test timeout. |
 | Build | [TypeScript and Vite passed](build.log). The publication manager also built and served the immutable application revision. |
-| Media browser | [40 passing browser journeys](media-browser-tests.log): playback state, contrast, corners, sheets, first-load Home, sizing and scroll behavior. This run preceded the final TV native-dialog migration; focused template tests and actual-host handoffs below cover that migration. |
+| Media browser | [40 passing browser journeys](media-browser-tests.log): playback state, contrast, corners, sheets, first-load Home, sizing and scroll behavior. The final rerun includes the native TV dialogs and explicit Light palette for the TV tools sheet. |
 | Focused templates/dialogs | [45 passing tests](dialog-tests.log), including generated-export consistency and native TV settings dialogs. |
 | Actual host settings | [Four passing phone/desktop radio/TV handoffs](host-settings-handoffs.json) on the published revision: account menu closes, startup/source fields accept text, tools open in the foreground. External streams and private settings writes were blocked. |
-| Workspace authorization | [28 passing focused tests](workspace-policy-tests.log). The [initial full backend run](backend-initial-run.log) had 12,595 passes, 30 skips and one stale test expecting a pending request for already-granted radio; the corrected assertion also checks no redundant request row is created. No authorization behavior was changed to satisfy the test. A fresh full run is still in progress. |
+| Workspace authorization | [28 passing focused tests](workspace-policy-tests.log). The [initial full backend run](backend-initial-run.log) had 12,595 passes, 30 skips and one stale test expecting a pending request for already-granted radio; the corrected assertion also checks no redundant request row is created. No authorization behavior was changed to satisfy the test. A fresh full run is still in progress. It exposed a second timing-sensitive sampler test: a fixed 0.6-second sleep raced a 0.5-second backoff under load. The test now waits for recovery with bounded cleanup; [all 25 sampler tests pass](chain-sampler-tests.log). Production retry logic is unchanged. |
 | Gateway containment | [Six passing tests](gateway-tests.log). |
 | Offline admission/recovery | [42 passing tests](offline-admission-tests.log); fake broker and isolated processes, not actual trading recovery certification. |
 | Page/overlay sweep | [742 captures at seven widths](visual-audit.json): 320, 360, 393, 412, 600, 844 and 1440, both themes, member/admin pages and overlays. No document overflow or uncaught browser errors. Desktop was rerun after correcting the audit's obsolete search-button locator. This is coverage and geometry evidence, not a claim that every captured pixel is approved. |

@@ -29,5 +29,15 @@
   play/pause centering, artwork/title spacing and both themes after screenshot
   corrections. Browser emulation cannot certify the physical video compositor.
 
+## Automated verification still running
+
+- [ ] Collect `.runtime/acceptance-20261028/refinement-pytest-release.log` when the
+  full backend process finishes. Its sampler retry test failed before the test
+  was changed from a fixed sleep to an event-based recovery wait. The corrected
+  sampler module passes all 25 tests. Inspect the full traceback and any further
+  failures, rerun the corrected cases, and retain honest final receipts before
+  marking the complete backend suite passed. This item was not deferred by the
+  operator; it remains active verification work.
+
 Automated browser/API evidence is recorded separately in the acceptance register.
 These TODOs are not a scheduled reminder or an assertion of complete certification.
