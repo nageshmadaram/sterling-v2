@@ -66,7 +66,7 @@ export function StrategyIntro({ engine, st, sb }: {
     </button>
     <div id={id} className="strategy-mobile-overview-content">
       <StrategyModeInfo bounded engine={engine} st={st} sb={sb} />
-      <StrategyGuide engine={engine} />
+      <StrategyGuide engine={engine} inDisclosure />
       {engine === 'price_rules' && <p className="strategy-mobile-overview-fallback">
         Published and armed plans are listed below. Opening this explanation never arms or triggers an entry.
       </p>}
