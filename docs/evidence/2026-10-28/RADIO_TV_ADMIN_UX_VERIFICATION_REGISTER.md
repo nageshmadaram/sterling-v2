@@ -72,3 +72,17 @@ PR: https://github.com/nageshmadaram/sterling/pull/293
 - New regression tests exist in source; GitHub CI, regression and Snapback workflow results for this PR are FAIL. The connector's job log fetches reported BlobNotFound/absent logs. Do not classify the failures as source defects or infrastructure failures without the missing logs.
 
 **Release decision:** NOT CERTIFIED; retain PR as draft, do not merge/deploy or enable live orders until the active runtime and tests are verified. Preserve the local rescue working tree.
+
+## Workspace chooser visibility and explicit access requests
+
+**Implemented on this draft PR; not yet deployed or full-suite certified.**
+
+- New user: administration's Add User form has `Allow access` and `Show in menu` controls per Kite / Echo / Space. An initial visibility map is written in the same account/permission transaction. Default is visible for all three, while access remains default-denied.
+- Existing user: Administration -> People -> select user -> Access -> Workspaces provides the same two controls and revision-checked save; hiding does not grant access or delete/revoke existing grants.
+- Durable SQLite table `user_workspace_visibility` is an additive migration. Accounts without rows (legacy users) default to visible, keeping previous behavior.
+- `GET /api/v1/auth/me` and admin feature policy expose effective visibility. Chooser and header-cycle filter out hidden destinations. A hidden, ungranted direct URL shows a back action and an unavailable message; no request control appears.
+- Non-hidden but restricted workspaces show `Back to workspaces` **above the page title** plus an explicit `Request access` button. No network mutation happens on route mount, refresh, or Back; only deliberate button clicks POST to the existing access inbox.
+- The backend also refuses access requests targeting hidden, ungranted workspaces with 403, preventing a client from bypassing the chooser by POSTing directly.
+- New automated tests: `backend/tests/test_workspace_visibility.py`, `frontend/src/components/admin/InitialAccess.test.tsx`, `frontend/src/components/admin/AccessEditor.test.tsx`; updated `WorkspaceRouter.test.tsx` replaces prior auto-request expectation with explicit submission, Back, and hidden direct-route coverage.
+- **Safety boundary**: Show in menu is discoverability, not authorization. A hidden workspace already granted to someone remains authorized by direct URL until the administrator also unchecks `Allow access`. Broker/trading gates and protective operations are unchanged.
+- **Execution boundary**: Tests are committed only. Latest GitHub CI, Regression Gate and Snapback Gate remain failing with job logs inaccessible through this connector; no pass is claimed and main/dev/host are unchanged.
