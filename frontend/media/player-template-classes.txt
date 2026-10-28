@@ -68,6 +68,7 @@
 !src.url.toLowerCase().endsWith(
 !streamObj.title
 !streamUrl
+!tvUserPaused)
 !userPaused
 !v.paused
 !vid.muted;
@@ -290,6 +291,7 @@
 #toast
 #tv-mobile-home
 #tv-mobile-home,
+#tv-mobile-home,#tv-mobile-shell,#tv-mobile-nav
 #tv-mobile-home,.theme-netflix.tm-watch-view
 #tv-mobile-mini
 #tv-mobile-mini,
@@ -779,6 +781,7 @@ ${v}
 (activeChannel)
 (activeChannel.group
 (activeChannel.lang
+(activeChannel===channel
 (activePreviewContainer)
 (activePreviewHls)
 (activeStream
@@ -793,6 +796,7 @@ ${v}
 (appConfig.volume
 (artist===wantedArtist
 (audio.currentTime
+(audio.paused
 (audio.paused)
 (audioCtx
 (audioCtx)
@@ -867,6 +871,7 @@ ${v}
 (episodeList.length)
 (eqLowFilter
 (eqPop
+(err.name
 (ev)
 (ev,
 (event.cancelBubble)
@@ -902,7 +907,6 @@ ${v}
 (id
 (idx
 (indSubbar)
-(isBootAttempt
 (isCcEnabled)
 (isHls
 (isIndianMode
@@ -992,6 +996,8 @@ ${v}
 (pipTitle
 (pipTitle)
 (playButton)
+(playbackGeneration
+(playbackGeneration===generation)
 (playbackRevision===revision
 (playlistFilterMode
 (pointer:
@@ -1002,6 +1008,7 @@ ${v}
 (query
 (query.startsWith(
 (r.ok)
+(radioBooted
 (radioBooted)
 (radioHosted)
 (radioSearchQuery.trim())
@@ -1809,6 +1816,7 @@ ${v}
 -translate-y-2
 -webkit-appearance:
 -webkit-backdrop-filter:
+-webkit-box-orient:vertical;overflow:hidden;}
 -webkit-font-smoothing:
 -webkit-overflow-scrolling:
 -webkit-tap-highlight-color:
@@ -1965,6 +1973,7 @@ ${v}
 .tm-now-copy
 .tm-now-footer
 .tm-now-head
+.tm-now-head,.tm-now-copy,.tm-timeline,.tm-now-controls,.tm-now-footer
 .tm-now-main
 .tm-now-more
 .tm-now-more-head
@@ -2045,6 +2054,7 @@ ${v}
 /media/hls.min.js
 /media/icons.css
 /media/interface.css
+/media/mobile-no-zoom.js
 /media/nav-stack.js
 /media/radio-bands.js
 /media/radio-catalog.js
@@ -2284,7 +2294,6 @@ ${v}
 100.1
 100.2
 1000)}
-10000);
 1000000).toFixed(1)}
 100;
 100dvh
@@ -2572,11 +2581,12 @@ ${v}
 24;
 24px
 24px)!important;
+24px)*.5625))
+24px)*.5625))!important;
 24px);overflow-y:auto;touch-action:pan-y;
 24px;}
 24x7
 25
-25,
 250
 2500);
 2500){radioRefreshAt=now;refreshRadioDirectory(snapshot);}
@@ -2797,8 +2807,10 @@ ${v}
 50);
 50,
 500
+5000
 5000);
 5000)renderRadioHome();}
+5000,
 50000)
 500000)return;
 500000||new
@@ -2823,6 +2835,7 @@ ${v}
 56px
 57
 58
+5800);
 580px)
 59
 59.1K
@@ -2878,14 +2891,12 @@ ${v}
 65
 65%
 65)
-6500
-6500,
+6500);
 66
 67
 67.5K
 68
 68.4K
-6800);
 69
 6H3V5h18v1zm0
 6H3v1h18v-1z
@@ -2930,6 +2941,7 @@ ${v}
 75%),
 75%,#121212f5);color:#aaa;
 750);
+7500);
 76
 767px)
 77.0K
@@ -2974,7 +2986,6 @@ ${v}
 85&&Math.abs(dx)
 85,
 850);
-8500);
 85})
 88
 88.2K
@@ -3063,6 +3074,7 @@ ${v}
 :is(.theme-spotify,:is(.theme-youtube,.theme-netflix))
 :is(.theme-youtube,.theme-netflix)
 :is(.theme-youtube,.theme-netflix).tm-catalog-view
+:is(button,input)
 :next===
 :not([hidden])~:not([hidden])
 :root
@@ -3203,12 +3215,12 @@ ${v}
 ?(pool.length===1?
 ?0:Math.max(0,list.findIndex(station=
 ?10:-10));}});
+?12:20);
+?14:8)
 ?1:-1)+buttons.length)%buttons.length]?.focus();}if(event.key===
-?30:60);
-?35:20)
+?35:appConfig.qualityProfile===
 ?40:e.key===
 ?4:8))if(count
-?90:appConfig.qualityProfile===
 ?95:Number(handle.getAttribute(
 ??
 ?Object.fromEntries(Object.entries(value).filter(([,entry])=
@@ -3835,6 +3847,7 @@ IntersectionObserver(entries=
 IntersectionObserver===
 Invalidate
 Isai
+Isolated
 J
 JAZZ
 JPEG
@@ -4236,6 +4249,7 @@ Previous
 Previous,
 Primary
 Prime
+Prioritize
 Pritam
 Pro
 Profile
@@ -4331,6 +4345,7 @@ Reset
 Resizable
 Resolution
 Restored
+Restrict
 Results
 Resume
 Retro
@@ -4430,6 +4445,7 @@ Saved
 Saver
 Scale
 Scaling:
+Schedule
 Schifrin
 Sci-Fi
 Science
@@ -4935,6 +4951,7 @@ accent-[var(--accent)]
 accent-white
 accent:
 accept=
+accessibility
 account
 accurate
 across
@@ -5069,6 +5086,7 @@ alone
 already-playing
 also
 alt=
+altering
 always
 am
 am_air_hyd_mw
@@ -5147,6 +5165,7 @@ appear
 appearance
 appearance:
 appears
+appears.
 appendLiveLanguageStations(lang)
 appendNextRightRailBatch()
 appendNextRightRailBatch();
@@ -5246,6 +5265,7 @@ ask
 asmita
 aspect-ratio:
 aspect-ratio:1!important;border-radius:4px!important;border:0!important;
+aspect-ratio:16/9!important;object-fit:contain!important;
 aspect-square
 aspect-video
 assam
@@ -5279,11 +5299,11 @@ audio.duration;
 audio.muted
 audio.muted;
 audio.pause();
-audio.paused
 audio.play().catch(()
 audio.play().catch(()=
 audio.play();
 audio.preservesPitch
+audio.readyState
 audio.src
 audio.volume
 audio.volume,setVolume:value=
@@ -5304,6 +5324,7 @@ auto-play
 auto;
 auto;display:flex;justify-content:space-between;z-index:60;background:linear-gradient(#0009,transparent);}
 auto;gap:10px;align-items:center;
+auto;}
 autoInfiniteScrollCatalog
 autocomplete=
 automatic
@@ -5633,6 +5654,7 @@ box-shadow
 box-shadow:
 box-shadow:0
 box-sizing:
+box-sizing:border-box;width:100%;max-width:100%;
 box.appendChild(frag);
 box.appendChild(headerCard);
 box.classList.remove(
@@ -5658,6 +5680,7 @@ browse=document.createElement(
 browse=document.getElementById(
 browser
 browsers
+browsers.
 btn
 btn-circle
 btn.classList.toggle(
@@ -5680,6 +5703,7 @@ buildTvRows(pool){
 building
 built-in
 builtin://verified
+bulk
 bull
 bump=(key,s)=
 burst
@@ -5787,6 +5811,7 @@ cached={source,title:normalizeRadioSearch(station.title),hay:normalizeRadioSearc
 calc((100dvh
 calc(0.875rem
 calc(100dvh
+calc(10px
 calc(16px
 calc(20px
 calc(5px
@@ -5885,7 +5910,6 @@ categories:shellCategories,openCategory:shellOpenCategory,
 categories=[
 categories=[[
 category
-category!
 category)
 category,
 category-chips
@@ -6032,6 +6056,7 @@ chutti
 cinema
 cinema:
 circle
+clamp(12px,4vw,24px)
 clampedPx
 class=
 classical
@@ -6246,7 +6271,9 @@ covers;
 create:()=
 create:openRadioSources,createLabel:
 create=nav.querySelector(
+creation
 cricket
+critical
 cross
 ctx
 ctx.clearRect(0,0,c.width,c.height);
@@ -6362,6 +6389,7 @@ dblclick
 dd
 de
 deck).
+decoded
 decoding
 decoding=
 dedicated
@@ -6373,6 +6401,7 @@ default
 defcon
 defer
 defs
+delay
 delete
 deleteIptvSource(${escapeJsAttr(src.id)})
 deleteIptvSource(id)
@@ -6399,6 +6428,7 @@ didHydrate=false;
 didHydrate=true;
 different
 digvijaya
+dimensions;
 direction
 directory
 disabled
@@ -6521,6 +6551,7 @@ doordarshan
 dot;}));}
 dot=document.createElement(
 dots=ticks.querySelector(
+double-tap
 down
 down,
 down:
@@ -6692,6 +6723,7 @@ entry===
 entry[0]===
 entry[1]===
 env(safe-area-inset-bottom,
+env(safe-area-inset-bottom,0px))!important;
 env(safe-area-inset-bottom,0px))!important;}
 env(safe-area-inset-bottom,0px));
 env(safe-area-inset-bottom,0px));background:linear-gradient(0deg,#121212
@@ -6749,7 +6781,6 @@ eqPreampGain.connect(audioCtx.destination);
 eqPreampGain.gain.value
 eqPulse
 equalizer
-err.name
 error
 escalateStage(channel)
 escalateStage(channel);
@@ -6800,7 +6831,9 @@ expandPlayerAndScrollTop()
 expandPlayerAndScrollTop();
 expanded=false;switchTheme(name);renderHome();sync();break;
 expanded=value;sync();
+expensive
 experience
+experience,
 experiences.
 expireUnavailableChannels()
 explicit
@@ -7111,6 +7144,7 @@ from-black/95
 frozen.
 fuji
 full
+full-height
 fullscreen
 fullscreen.
 fullscreenchange
@@ -7354,6 +7388,7 @@ handleVideoSurfaceTap(event)
 handledKeys:[
 handler).
 handler.
+handset
 handshake
 has
 has=list=
@@ -7391,8 +7426,11 @@ height
 height)
 height:
 height:100dvh!important;max-height:100dvh!important;aspect-ratio:auto!important;border-radius:0!important;box-shadow:none!important;padding-left:env(safe-area-inset-left,0px);
+height:100dvh;max-height:100dvh;
 height:48px;
 height:4px;border-radius:8px;background:#ffffff40;position:relative;
+height:auto!important;max-height:min(38dvh,calc((100vw
+height:clamp(48px,9dvh,68px);min-width:48px;}
 height=
 height=Number(handle.getAttribute(
 help,
@@ -7410,6 +7448,9 @@ hideScrubHover()
 hideUnavailableChannels=false;
 hideUnavailableChannels=saved.hideUnavailable===true;
 hideUnavailableChannels=value===
+hideWhenPlayable
+hideWhenPlayable();
+hideWhenPlayable,
 hifi
 high:
 highest-scoring
@@ -8008,6 +8049,7 @@ indSubbar.classList.add(
 indSubbar.classList.remove(
 indSubbar.innerHTML
 indefinitely.
+independent
 index.
 index;
 index=0;while(index
@@ -8037,7 +8079,7 @@ initSpotifyShell(){
 initWebAudioEqualizer()
 initWebAudioEqualizer();
 initial
-initial-scale=1.0,
+initial-scale=1,
 initials
 initials=ch.name.split(/\s+/).slice(0,2).map(w=
 inline
@@ -8361,7 +8403,9 @@ left-3.5
 left-4
 left-watch-column
 left:0;right:auto;top:0;width:calc(58%
+left:0;top:0;right:auto;width:calc(55%
 left:auto;width:calc(50%
+left:clamp(12px,4vw,24px);right:clamp(12px,4vw,24px);
 leftCol
 leftCol.classList.toggle(
 legacy
@@ -8470,6 +8514,8 @@ listings
 lists
 live
 liveCategory
+liveMaxLatencyDurationCount:
+liveSyncDurationCount:
 living
 load-more
 load-more-catalog-btn
@@ -8517,6 +8563,7 @@ loop(time)
 loops
 lostpointercapture
 lounge
+low-powered
 low:
 lowLatencyMode:
 lowshelf
@@ -8583,6 +8630,7 @@ mantavya
 map
 map=new
 marathi
+margin-left:56%!important;
 margin-left:auto;
 margin-left:calc(60%
 margin-top:10px;margin-bottom:6px;gap:4px;
@@ -8631,6 +8679,8 @@ max-h-[85dvh]
 max-h-[88dvh]
 max-h-[calc(100dvh-160px)]
 max-height:
+max-height:100dvh!important;aspect-ratio:auto!important;
+max-height:100dvh;overflow-x:hidden;overflow-y:auto;
 max-height:40dvh!important;aspect-ratio:16/9!important;border:0;border-radius:8px!important;box-shadow:0
 max-height:calc(100dvh
 max-height:none!important;aspect-ratio:16/9!important;border-radius:0!important;border:0;box-shadow:none!important;
@@ -8644,12 +8694,12 @@ max-width:100%;overflow:auto;
 max:
 max=
 maxBufferLength:
-maxBufferLength:bufferSec
 maxCap
 maxCap)
 maxLeft
 maxResults=Infinity)
 maxTop
+maximum-scale=1,
 may
 mazhavil
 mb-0.5
@@ -8697,6 +8747,7 @@ mh1
 mid
 mid:
 middle
+min(38dvh,calc((100vw
 min(54dvh,
 min(640px,
 min(calc(100%
@@ -8707,6 +8758,7 @@ min-height:45px;
 min-height:48px;padding:5px
 min-height:60px;
 min-height:calc(100dvh
+min-height:calc(clamp(76px,12dvh,145px)
 min-w-0
 min-w-[220px]
 min-width:
@@ -8891,7 +8943,6 @@ newCh
 newId
 newId,
 newWidth
-newly
 news
 news18
 news7
@@ -9025,6 +9076,7 @@ ones
 oninput=
 onkeydown=
 only
+only:
 onmousedown=
 onmouseleave=
 onmousemove=
@@ -9069,7 +9121,7 @@ openRadioSection({tag},cat)});
 openRadioSection({zone:id},
 openRadioSection({zone},cat)});
 openRadioSources()],[
-openRadioSources(){radioDirectoryUi?.openSources();}
+openRadioSources(){if(!radioDirectoryUi)initRadioDirectory();radioDirectoryUi?.openSources();}
 openRightRailEpg()
 openRightRailEpg();
 openRightRailEpg===
@@ -9129,6 +9181,7 @@ outside
 over
 over;
 overflow-hidden
+overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;
 overflow-x-auto
 overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;
 overflow-x:auto;max-width:100%;scrollbar-width:none;
@@ -9189,6 +9242,7 @@ padding:6px
 padding:7px
 padding:8px
 padding:8px;
+padding:env(safe-area-inset-top,0px)
 page
 page.
 page;
@@ -9200,6 +9254,7 @@ painted
 paints
 pal
 pan-x;
+pan-y;}
 panel
 panel.addEventListener(
 panel.classList.remove(
@@ -9233,6 +9288,7 @@ parts=[f.tag&&cap(f.tag),f.language&&cap(f.language),f.country].filter(Boolean);
 parts[1][0]).toUpperCase();
 passive:
 path
+path.
 path;
 pattern
 pattern=hue%3===0?
@@ -9269,6 +9325,7 @@ per
 permission
 phone
 phone,
+phones.
 pick
 pick(s))if(v){if(!map.has(v))map.set(v,[]);map.get(v).push(s);}return
 pick=data.results.find(item=
@@ -9292,6 +9349,7 @@ pills.map(p
 pills=document.getElementById(
 pinActiveAsStartupChannel()
 pinActiveAsStartupChannel();
+pinch
 pip
 pip-dismiss
 pip-drag-header
@@ -9576,6 +9634,7 @@ pro-slider
 profile;
 programme
 promise
+prompt
 properties
 proximity;scroll-padding-inline:16px;scrollbar-width:none;
 proxy
@@ -9668,6 +9727,8 @@ queue=episodes?episodeList:radioQueue();if(!queue.length)return;
 queue=radioQueue(),at=queue.findIndex(ch=
 queueFromList(el){
 queueFromList(this);
+queueGeneration
+queueGeneration)
 queued
 queues
 quick=[],quickSeen=new
@@ -9729,6 +9790,7 @@ radioCached.delete(key);
 radioCached.get(key)
 radioCached.has(key)
 radioCached.set(key,
+radioCatalog)
 radioCatalog.load();
 radioCatalog.reload(appConfig.catalogSources);
 radioCatalog.reload(appConfig.catalogSources);return;}
@@ -9805,6 +9867,7 @@ rail.classList.add(
 rail.classList.contains(
 rail.classList.remove(
 rail.classList.toggle(
+rail:
 railSim
 railSim.innerHTML
 railTitleEl
@@ -9876,6 +9939,7 @@ recentsList[0]
 recognition
 recommendations,
 recommendations=ranked.map(item=
+reconstructing
 record
 record.addedNodes.forEach(node=
 recordChannelPlay(channel)
@@ -9960,6 +10024,7 @@ removeItem(key){this.setItem(key,
 removeRecent:id=
 removeRecent:url=
 removed,
+render
 renderBandList();
 renderBandList(reset=true){
 renderCarouselCards
@@ -10029,6 +10094,9 @@ replacing
 reported
 represented
 republic
+request
+request,
+requestAnimationFrame(()
 requestAnimationFrame(()=
 requestAnimationFrame(loop),90);
 requestAnimationFrame(loop);
@@ -10825,6 +10893,7 @@ sorting
 sound
 sound)
 sound,
+sound.
 source
 source-form-title
 source-manager-modal
@@ -10962,6 +11031,7 @@ spinner/player
 spinnerLabel
 spinnerLabel.textContent
 spiritual
+split
 sport
 sports
 sports:
@@ -11044,6 +11114,7 @@ startCardHoverPreview(cardEl,
 startCardHoverPreview(item,
 startEditIptvSource(${escapeJsAttr(src.id)})
 startEditIptvSource(id)
+startFragPrefetch:
 startHlsPlayback(channel,
 startNativeHlsPlayback(channel,
 startPlayback(activeStream));
@@ -11253,6 +11324,7 @@ subtitle:
 sufficient
 suffix])
 suggest
+suggested-channel
 suggestedTerms
 suggestion
 suggestions
@@ -11364,6 +11436,7 @@ syncSwDrawerUI();
 syncSwPlayer()
 syncSwPlayer();
 synced
+synchronous
 synchronously
 synth
 system-ui,
@@ -11406,6 +11479,8 @@ talkies
 tamil
 tamil:
 tap
+tap-to-play
+tap.
 tapping.
 taps
 tarang
@@ -11718,12 +11793,14 @@ top-3
 top-3.5
 top-4
 top:
+top:clamp(76px,12dvh,145px);width:auto;
 topSix.map(ch
 topSix=[],quickSeen=new
 total
 total;
 touch-action:
 touch-action:manipulation;
+touch-action:pan-y;overscroll-behavior:contain;}
 touch/keyboard
 touch;
 touchcancel
@@ -11947,8 +12024,10 @@ used
 used.
 user
 user-opened
+user-scalable=no,
 user-select:
 user-selected
+user-tap/startup
 userHasInteracted
 userHasInteractedWithAudio
 userPaused
@@ -12036,6 +12115,7 @@ video
 video,
 video-player
 video-surface-card
+video.
 video.addEventListener(
 video.addEventListener(event,schedule));
 video.buffered.end(video.buffered.length
@@ -12062,6 +12142,7 @@ video.setAttribute(
 video.src
 video.volume
 video.webkitEnterFullscreen();
+video/player
 video;
 video=document.getElementById(
 videoSurfaceCardRef
@@ -12203,6 +12284,7 @@ width:
 width:100%!important;
 width:100%;height:100%;
 width:100%;height:100%;object-fit:cover;
+width:100%;height:100dvh!important;
 width:100%;max-height:82dvh;overflow:auto;background:#222;border-radius:16px
 width:100%;padding:13px;border-radius:8px;border:1px
 width:17px;height:17px;
@@ -12258,6 +12340,7 @@ window.parent.postMessage({
 window.parent.postMessage({type:
 window.self)window.location.replace(
 window.setInterval(announceRadioReady,
+window.setTimeout(()
 window.setTimeout(bootRadioApplication,
 window.tvExtras=window.SterlingMediaExtras?.mount({kind:
 window.tvExtras?.open(),
@@ -12428,6 +12511,8 @@ zoneOf(s)===id);return
 zoneTiles=Object.entries(zones).map(([id,label])=
 zones,
 zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirectory?.zoneOf||(()=
+zoom
+zoom.
 {
 {--accent:#e50914;--bg-outer:#090909;--bg-canvas:#111;}
 {...c,count:counts.get(c.key),art:mosaic[0],mosaic};});
@@ -12447,6 +12532,7 @@ zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirect
 {band:t.band,freqKhz:s.freqKhz||t.khz};})()});
 {bandListShown+=80;renderBandList(false);});
 {bottom:calc(60px
+{box-sizing:border-box;width:100%;max-width:100%;
 {catalog(
 {catalogCategory=cat;})});}}
 {catalogLanguage=
@@ -12478,9 +12564,11 @@ zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirect
 {font-size:16px!important;min-height:44px;}
 {font-size:21px;letter-spacing:-.04em;}
 {font-size:9px;color:#1ed760;letter-spacing:1px;margin-bottom:6px;}
+{font-size:clamp(17px,5vw,25px);white-space:normal;
 {frame=0;sheet.style.setProperty(
 {from
 {gap:4px;}
+{gap:clamp(4px,2vw,12px);margin:clamp(8px,2dvh,16px)
 {gesture=null;},{passive:true});
 {gestureResumeArmed=false;[
 {height:calc(58px
@@ -12519,15 +12607,20 @@ zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirect
 {let
 {list:radioListView,cat:appConfig.activeCategory,filters:{...(appConfig.catalogFilters||{})},view:document.documentElement.dataset.radioView,shell:spotifyShell?.state().page||null,scroll:document.querySelector(
 {margin-left:0;}
+{max-width:100%;overflow-x:clip;}
 {min-height:40px;}
+{min-height:calc(100dvh
+{min-height:clamp(42px,7dvh,62px);}
 {min-width:36px;min-height:36px;display:inline-flex;align-items:center;justify-content:center;}
 {min-width:44px;min-height:44px;}
 {nowNav=null;setExpanded(false);})||null;
+{once:true});
 {opacity:0!important;pointer-events:none!important;}
 {opacity:0;transform:translateY(14px);}
 {opacity:1!important;pointer-events:auto!important;}
 {opacity:1;transform:translateY(0);}}
 {opacity:1;}
+{overflow-x:hidden;}
 {padding-bottom:calc(148px
 {padding-bottom:calc(20px
 {padding:14px;background:#1ed76012;border-radius:10px;}
@@ -12575,9 +12668,12 @@ zones=window.SterlingRadioDirectory?.zones||{},zoneOf=window.SterlingRadioDirect
 {visibility:visible;}
 {width:100%;height:100dvh;overflow:hidden;}
 {width:100%;height:auto;aspect-ratio:16/9;border-radius:7px;}
+{width:100%;max-width:100%;min-height:0;height:100dvh;touch-action:pan-x
 {width:20px;height:20px;}
 {width:22px;height:22px;flex-shrink:0;}
 {width:64px;height:24px;margin:0
+{width:clamp(30px,8vw,40px);flex:0
+{width:clamp(48px,9dvh,68px);
 {window.parent.postMessage({type:
 {x:e.touches[0].clientX,y:e.touches[0].clientY}:null;
 {}

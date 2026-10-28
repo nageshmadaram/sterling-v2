@@ -44,7 +44,7 @@ describe('mode explanations', () => {
     render(<StrategyModeInfo engine="supertrend" bounded st={{ horizon_mode: 'swing' }} />);
     expect(screen.getByText(/Selected: Swing · 60-minute Heikin-Ashi/)).toBeVisible();
     expect(screen.getByText(/Three SuperTrends:/)).not.toBeVisible();
-    fireEvent.click(screen.getByText('Compare modes and configuration'));
+    fireEvent.click(screen.getByText(/Default: Swing \(original\) · Selected: Swing · Conditions & modes/));
     expect(screen.getByText(/Three SuperTrends:/)).toBeVisible();
   });
   it('does not invent a loaded SuperTrend configuration', () => {

@@ -411,6 +411,11 @@ class LiveMachine:
         self._lifespan = main.lifespan(self._app)
         try:
             await self._lifespan.__aenter__()
+            # The fixture's operator explicitly grants workspace access. New
+            # production identities correctly start without feature grants.
+            policy = self.m('app.services.auth.account_policy')
+            current = policy.read(UID)
+            policy.set_features(UID, UID, dict.fromkeys(policy.FEATURES, True), current.revision)
         finally:
             asyncio.create_task = real_create_task
 

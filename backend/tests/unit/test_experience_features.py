@@ -90,7 +90,9 @@ async def test_push_dedupe_quiet_and_opt_in(client,monkeypatch):
  cfg={**web_push.DEFAULTS,'enabled':True};c.put('/push/config',json=cfg)
  assert await web_push.send('alice','one','T','B','signals')==1
  assert await web_push.send('alice','one','T','B','signals')==0
- assert json.loads(sent[0]['data'])['title']=='Sterling update'
+ payload=json.loads(sent[0]['data'])
+ assert payload['title']=='T' and payload['body']=='B'
+ assert payload['url']=='/kite?view=live&notification=signals'
  assert web_push.quiet({**cfg,'quiet_enabled':True},datetime(2026,10,12,23,0,tzinfo=ZoneInfo('Asia/Kolkata')))
 
 @pytest.mark.asyncio

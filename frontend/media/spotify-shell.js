@@ -156,8 +156,10 @@
  /** Paint a now-playing sheet (and optional mini player) from its artwork image. */
  function bindTint(img,targets){
   const apply=()=>{const col=tint(img);for(const [el,kind] of targets){if(!el)continue;
-   if(!col){el.style.removeProperty('background');continue;}
-   el.style.setProperty('background',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`,'important');}};
+   if(!col){el.style.removeProperty('--sps-artwork-backdrop');continue;}
+   // Artwork supplies a dark-theme accent, not an inline !important override
+   // of the host's light palette. CSS applies it only in the dark scheme.
+   el.style.setProperty('--sps-artwork-backdrop',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`);}};
   img.addEventListener('load',apply);if(img.complete)apply();
  }
  // Pull down at the top of a scrolling page to refresh, like the Spotify app. The page scrolls inside its

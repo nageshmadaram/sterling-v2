@@ -162,6 +162,39 @@ def test_consumed_token_preserves_existing_login_recovery(mobile_client, monkeyp
     broker.close.assert_awaited_once()
 
 
+def test_login_activates_assigned_profile_when_no_account_is_active(mobile_client, monkeypatch):
+    acct = accounts.add("phone-user", KiteAccountCreate(label="Assigned", api_key="key", api_secret="secret"))
+    acct.is_active = False
+    accounts._persist(acct)
+    broker = SimpleNamespace(generate_session=AsyncMock(return_value={
+        "access_token": "saved-access", "user_id": "PHONE123", "user_name": "Phone Trader",
+    }), close=AsyncMock())
+    monkeypatch.setattr(accounts, "build_client", lambda _: broker)
+    response = mobile_client.post("/api/v1/kite/session", json={
+        "account_id": acct.id, "request_token": callback_url(account_id=acct.id),
+    })
+    assert response.status_code == 200, response.text
+    status = mobile_client.get("/api/v1/kite/status").json()
+    assert status["connected"] is True
+    assert status["account_id"] == acct.id
+    assert status["kite_user_id"] == "PHONE123"
+
+
+def test_login_does_not_replace_another_active_account(mobile_client, monkeypatch):
+    current = accounts.add("phone-user", KiteAccountCreate(label="Current", api_key="one", api_secret="secret"))
+    target = accounts.add("phone-user", KiteAccountCreate(label="Other", api_key="two", api_secret="secret"))
+    broker = SimpleNamespace(generate_session=AsyncMock(return_value={
+        "access_token": "saved-access", "user_id": "PHONE123",
+    }), close=AsyncMock())
+    monkeypatch.setattr(accounts, "build_client", lambda _: broker)
+    response = mobile_client.post("/api/v1/kite/session", json={
+        "account_id": target.id, "request_token": callback_url(account_id=target.id),
+    })
+    assert response.status_code == 200, response.text
+    assert accounts.get_active("phone-user").id == current.id
+    assert accounts.get("phone-user", target.id).connected
+
+
 async def test_failed_exchange_closes_client_without_publishing_session(monkeypatch):
     acct = SimpleNamespace(id="KITE-A", api_key="key", api_secret="secret")
     broker = SimpleNamespace(generate_session=AsyncMock(side_effect=RuntimeError("offline")), close=AsyncMock())

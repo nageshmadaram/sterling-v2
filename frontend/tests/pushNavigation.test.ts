@@ -39,10 +39,10 @@ describe('mobile Web Push navigation', () => {
   it('preserves signal detail and rejects off-site or broken destinations', () => {
     const { context } = mockWorker();
     const link = context.safeDestination(
-      '/?view=live&notification=signals&strategy=snapback&signal=SB%3A123&at=1793160000000',
+      '/?view=live&notification=signals&strategy=snapback&at=1793160000000&signal=SB%3A123',
     );
     expect(link).toBe(
-      'https://sterling.example/kite?view=live&notification=signals&strategy=snapback&signal=SB%3A123&at=1793160000000',
+      'https://sterling.example/kite?view=live&notification=signals&strategy=snapback&at=1793160000000&signal=SB%3A123',
     );
     expect(context.safeDestination('https://attacker.example/steal')).toBe('https://sterling.example/');
     expect(context.safeDestination('/missing?notification=signals')).toBe('https://sterling.example/');

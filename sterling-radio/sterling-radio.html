@@ -3,7 +3,48 @@
 <head>
 <style>html:not([data-radio-ready]) body{visibility:hidden}</style>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Isolated media iframe only: no pinch or double-tap page zoom on phones. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <script>
+/* Sterling Space/Echo touch policy.
+ * Loaded only by the isolated TV and Radio media documents. Never attach to
+ * the parent Sterling app: other workspaces retain browser zoom/accessibility.
+ * A single finger still scrolls/swipes; controls retain normal tap handling.
+ */
+(() => {
+  'use strict';
+  const isMobile = () => typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 1023px)').matches;
+
+  function suppressPinch(event) {
+    if (isMobile() && event.cancelable && event.touches?.length > 1) {
+      event.preventDefault();
+    }
+  }
+
+  function suppressGesture(event) {
+    if (isMobile() && event.cancelable) event.preventDefault();
+  }
+
+  // iOS Safari emits gesture*; Android Chrome uses touch* for pinch.
+  // The capture phase is intentional: playback overlays may stop bubbling.
+  document.addEventListener('touchstart', suppressPinch, { capture: true, passive: false });
+  document.addEventListener('touchmove', suppressPinch, { capture: true, passive: false });
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(type, suppressGesture, { capture: true, passive: false });
+  }
+
+  // A double-tap can still dispatch to the media player's existing click
+  // handler (e.g. fullscreen); only prevent the browser's default zoom.
+  document.addEventListener('dblclick', suppressGesture, { capture: true, passive: false });
+
+  // Trackpad pinch maps to Ctrl+wheel in some mobile webviews/emulators.
+  document.addEventListener('wheel', (event) => {
+    if (isMobile() && event.ctrlKey && event.cancelable) event.preventDefault();
+  }, { capture: true, passive: false });
+})();
+
+</script>
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="true" />
   <meta name="mobile-web-app-capable" content="true" />
@@ -404,7 +445,7 @@
  const stationCount=n=>{n=Number(n)||0;return `${n.toLocaleString()} ${n===1?'station':'stations'}`;};
  function mount({getConfig,onFilter,onSources,catalog,artwork,onPlay}){
   const doc=document,controls=[],dialog=doc.createElement('dialog');dialog.className='radio-source-dialog';dialog.setAttribute('aria-label','Radio sources');
-  dialog.innerHTML='<header><div><small>YOUR RADIO, YOUR WAY</small><h2>Station sources</h2></div><button type="button" data-close aria-label="Close radio sources">✕</button></header><p>Turn any source on or off. Edit or delete it. Deleted built-in sources stay in the library below. Settings sync with your Sterling account.</p><p class="radio-source-total" role="status"></p><p class="radio-source-loading"><span></span><button type="button" data-pause>Pause loading</button></p><div class="radio-source-list"></div><details class="radio-source-library"><summary>Add from library</summary><div></div></details><form><h3>Add your own source</h3><label>Source name<input name="name" maxlength="80" required placeholder="My stations"></label><label>Source URL<input name="url" type="url" maxlength="2048" required placeholder="https://example.com/radio.m3u"></label><label>Format<select name="kind"><option value="m3u">M3U / M3U8 playlist</option><option value="json">JSON station list</option><option value="directory">Paged Radio Browser API</option><option value="stream">Single station stream</option></select></label><label>Group<input name="group" maxlength="40" list="radio-source-groups" placeholder="My sources"></label><datalist id="radio-source-groups"></datalist><div class="radio-source-actions"><button type="submit">Save source</button><button type="button" data-cancel-edit hidden>Cancel edit</button></div></form><p class="radio-source-notice" role="status"></p><footer><button type="button" data-reload>Reload all</button><button type="button" data-defaults>Restore defaults</button></footer>';
+  dialog.innerHTML='<header><div><small>YOUR RADIO, YOUR WAY</small><h2>Station sources</h2></div><button type="button" data-close aria-label="Close radio sources">✕</button></header><p>Turn any source on or off. Edit or delete it. Deleted built-in sources stay in the library below. Settings sync with your Sterling account.</p><p class="radio-source-total" role="status"></p><p class="radio-source-loading"><span></span><button type="button" data-pause>Pause loading</button></p><div class="radio-source-list"></div><details class="radio-source-library"><summary>Add from library</summary><div></div></details><form><h3>Add your own source</h3><label>Source name<input name="name" maxlength="80" required placeholder="My stations"></label><label>Source URL<input name="url" type="url" maxlength="2048" required placeholder="https://example.com/radio.m3u"></label><label>Format<select name="kind" aria-label="Format"><option value="m3u">M3U / M3U8 playlist</option><option value="json">JSON station list</option><option value="directory">Paged Radio Browser API</option><option value="stream">Single station stream</option></select></label><label>Group<input name="group" maxlength="40" list="radio-source-groups" placeholder="My sources"></label><datalist id="radio-source-groups"></datalist><div class="radio-source-actions"><button type="submit">Save source</button><button type="button" data-cancel-edit hidden>Cancel edit</button></div></form><p class="radio-source-notice" role="status"></p><footer><button type="button" data-reload>Reload all</button><button type="button" data-defaults>Restore defaults</button></footer>';
   doc.body.append(dialog);let returnFocus=null,editing=null,lastSnapshot=null;
   const presets=()=>window.SterlingRadioPresets?.sources?.()||window.SterlingRadioCatalog.defaults();
   const groupLabel=id=>window.SterlingRadioPresets?.groupLabel?.(id)||(id==='custom'?'My sources':id);
@@ -803,8 +844,10 @@
  /** Paint a now-playing sheet (and optional mini player) from its artwork image. */
  function bindTint(img,targets){
   const apply=()=>{const col=tint(img);for(const [el,kind] of targets){if(!el)continue;
-   if(!col){el.style.removeProperty('background');continue;}
-   el.style.setProperty('background',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`,'important');}};
+   if(!col){el.style.removeProperty('--sps-artwork-backdrop');continue;}
+   // Artwork supplies a dark-theme accent, not an inline !important override
+   // of the host's light palette. CSS applies it only in the dark scheme.
+   el.style.setProperty('--sps-artwork-backdrop',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`);}};
   img.addEventListener('load',apply);if(img.complete)apply();
  }
  // Pull down at the top of a scrolling page to refresh, like the Spotify app. The page scrolls inside its
@@ -1464,6 +1507,65 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
   .radio-head-icon:focus-visible {outline:2px solid #fff;outline-offset:2px;}
   .radio-desktop-chips {position:sticky;top:-12px;z-index:5;margin:-12px -24px 8px;padding:12px 24px 10px;background:linear-gradient(180deg,rgba(var(--ambient-rgb,28,90,56),.55),rgba(18,18,18,.92));backdrop-filter:blur(8px);}
   .radio-desktop-chips>button {font-size:13px;padding:7px 14px;border-radius:999px;}
+}
+
+
+/* Mobile radio: size to usable iframe viewport, not a fixed design handset.
+   Pan stays functional, but pinch zoom is not an interaction in the embedded
+   media workspace; global page/system accessibility zoom remains available. */
+@media(max-width:1023px) {
+  html,body {width:100%;max-width:100%;height:100%;min-height:0;overflow:hidden;touch-action:pan-x pan-y;}
+  #spotify-app,#ytmusic-app {max-width:100%;min-height:0;overflow:hidden;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet {
+    box-sizing:border-box;width:100%;max-width:100%;
+    min-height:100dvh;max-height:100dvh;overflow-y:auto!important;
+    overflow-x:hidden!important;
+    padding:clamp(8px,2dvh,18px) clamp(12px,4vw,24px)
+      calc(12px + env(safe-area-inset-bottom,0px))!important;
+    overscroll-behavior:contain;touch-action:pan-y;
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-main {
+    width:100%;max-width:100%;box-sizing:border-box;
+    min-height:calc(100dvh - 24px - env(safe-area-inset-bottom,0px));
+    display:flex;flex-direction:column;gap:clamp(6px,1.3dvh,14px);
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art,
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet>div:nth-child(2)>div:first-child {
+    width:min(76vw,36dvh,350px)!important;
+    height:min(76vw,36dvh,350px)!important;
+    max-width:100%!important;max-height:36dvh!important;
+    flex:0 1 auto;margin:clamp(6px,1.5dvh,16px) auto!important;
+    aspect-ratio:1;
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet #sheet-title {
+    font-size:clamp(19px,5.3vw,25px)!important;
+    line-height:1.25;max-width:100%;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet #sheet-sub {font-size:clamp(11px,3.2vw,14px)!important;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-controls {
+    display:flex;align-items:center;justify-content:space-between;
+    min-width:0;max-width:100%;gap:clamp(5px,2vw,16px);
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-controls [data-radio-click="56"] {
+    width:clamp(50px,9dvh,68px)!important;
+    height:clamp(50px,9dvh,68px)!important;
+    min-height:50px!important;
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet :is(button,a) {touch-action:manipulation;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-more {margin-top:clamp(14px,3dvh,28px);}
+}
+@media(max-width:1023px) and (orientation:landscape) {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-main {
+    display:grid;grid-template-columns:minmax(0,48%) minmax(0,1fr);
+    grid-template-rows:auto auto auto 1fr;column-gap:clamp(10px,2vw,22px);
+    min-height:100dvh;
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art {
+    width:min(46vw,80dvh)!important;height:min(46vw,80dvh)!important;
+    max-height:80dvh!important;align-self:center;grid-column:1;
+  }
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-controls {grid-column:2;}
 }
 
 </style>
@@ -2129,6 +2231,7 @@ html.radio-hosted :is(.sps-avatar,[data-radio-avatar],#sp-avatar){display:none!i
 html.radio-hosted header>div>div>button[data-radio-click="28"]{display:none!important}
 html[data-color-scheme=light] body :is(#app-workspace,#main-scroll,#spotify-app,#youtube-app,.sps-root,.sp-canvas-bg,.ytm-canvas-bg){background:#f7f9fc!important;color:#151b26!important}
 html[data-color-scheme=light] body.mode-spotify #spotify-app main.sp-canvas-bg{background:#f7f9fc!important}
+html[data-color-scheme=light] body :is(#spotify-app,#ytmusic-app)>header{background:#f7f9fc!important;color:#151b26!important;border-color:#dce1e8!important}
 html[data-color-scheme=light] body :is(.tm-context,.tm-top,.tm-quick button,.solid-sp-footer,.solid-sp-mob-nav,.solid-ytm-footer,#tv-mobile-nav){background:#edf1f6!important;color:#151b26!important;border-color:#dce1e8!important}
 html[data-color-scheme=light] body :is(.tm-context button,.tm-tabs button){background:#dce4ee;color:#151b26}
 html[data-color-scheme=light] body :is(.tm-context,.tm-tabs) button[aria-pressed=true]{background:#1ed760;color:#071b0f}
@@ -2137,8 +2240,61 @@ html[data-color-scheme=light] body :is(.tm-album small,.tm-section-title button,
 html[data-color-scheme=light] body :is(#tv-mobile-mini,.solid-sp-miniplayer){background:#e2ece6!important;color:#14231c!important;box-shadow:0 4px 14px #0002!important;border-color:#c4d6c9!important}
 html[data-color-scheme=light] #app-workspace #main-scroll{background:#f7f9fc!important}
 html[data-color-scheme=light] #tv-mobile-home .tm-section-title h2{color:#151b26!important}
-html[data-color-scheme=light] #tv-mobile-mini,html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#fff!important}
-html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
+html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#14231c!important}
+html:not([data-color-scheme="light"]) :is(#mobile-player-sheet,.solid-sp-miniplayer)[style*="--sps-artwork-backdrop"]{
+  background:var(--sps-artwork-backdrop)!important;
+}
+
+
+/* Embedded Space/Echo player sheets must follow Sterling's selected theme.
+   Keep native video and album artwork unmodified, but never force the
+   surrounding controls to dark surfaces when the user selected Light. */
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing){
+  background:#f4f7fa!important;
+  background-image:linear-gradient(165deg,#e2eee7 0%,#f8fafc 53%,#f1f4f8 100%)!important;
+  color:#152130!important;
+  color-scheme:light;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)::before{
+  background:transparent!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(h1,h2,h3,strong,p,small,span,button,label,svg,i) {
+  color:inherit;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-head,.rnp-main,.rnp-more,.tm-now-head,.tm-now-main,.tm-now-copy,.tm-now-controls,.tm-now-footer,.tm-now-more){
+  color:#152130!important;
+  border-color:#cad6df!important;
+}
+html[data-color-scheme="light"] body #mobile-player-sheet
+  :is(#sheet-title,#sheet-sub,.radio-np-controls button,.rnp-more button) {
+  color:#152130!important;
+}
+html[data-color-scheme="light"] body #tv-now-playing
+  :is(.tm-now-copy h2,.tm-now-copy p,.tm-now-head,.tm-now-footer,.tm-timeline-label,.tm-now-more){
+  color:#152130!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls button,.tm-now-controls>.tm-icon,.tm-now-head button){
+  color:#152130!important;
+  -webkit-tap-highlight-color:transparent;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) {
+  background:#1b3035!important;
+  color:#fff!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) svg {
+  color:#fff!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.tm-timeline-track,.rnp-live-track){
+  background:#a8b9c4!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  button:focus-visible { outline:2px solid #234c7f!important; outline-offset:2px; }
 
 </style>
 <script>
@@ -4320,9 +4476,13 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
         onFilter:(filters,fromHome)=>{rememberRadioPlace();if(fromHome)loadCategory('all',true);appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
       });
       window.addEventListener('pagehide',event=>{if(!event.persisted)radioCatalog.pause();});
-      void radioCatalog.load();
+      // Prioritize the selected station's first audio request over the bulk
+      // remote directory refresh on low-powered mobile browsers.
+      window.setTimeout(() => {
+        if (radioBooted && radioCatalog) void radioCatalog.load();
+      }, 900);
     }
-    function openRadioSources(){radioDirectoryUi?.openSources();}
+    function openRadioSources(){if(!radioDirectoryUi)initRadioDirectory();radioDirectoryUi?.openSources();}
     /* Spotify-style Search / Recents / Your Library, shared with TV (media/spotify-shell.js). */
     let spotifyShell=null,shellCategoryCache={size:-1,list:[]};
     const SHELL_TAGS=[['news','News & talk'],['pop','Pop'],['bollywood','Bollywood'],['rock','Rock'],['jazz','Jazz'],['classical','Classical'],['dance','Dance'],['talk','Talk'],['devotional','Devotional'],['oldies','Oldies'],['hits','Hits'],['folk','Folk'],['sports','Sports']];
@@ -4463,7 +4623,9 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
       loadCategory('all', true);
       renderPersonalizedShelves();
       renderSidebarList();
-      initRadioDirectory();
+      // Station catalog source hydration is independent of the first sound.
+      // Schedule its expensive creation after the selected audio request, not
+      // on the critical user-tap/startup path.
       initSpotifyShell();
       initRadioExtras();
       document.documentElement.dataset.radioReady='true';
@@ -4483,6 +4645,9 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
       if (appConfig.bootBehavior !== 'quiet') {
         attemptBootAutoplay(bootStation);
       }
+      window.setTimeout(() => {
+        if (radioBooted) initRadioDirectory();
+      }, 0);
 
       setInterval(() => {
         if (isPlaying && activeStream && activeStream.kind === 'radio') {
@@ -5295,7 +5460,7 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
       const revision=++playbackRevision;
       const url = overrideUrl || streamObj.streamUrl;
 
-      if (!overrideUrl) pendingPlayRecord = streamObj;
+      if (!overrideUrl) { pendingPlayRecord = streamObj; backupCursor = 0; }
 
       clearTimeout(watchdogTimer);
       if (hlsInstance) {
@@ -5316,7 +5481,8 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
           if(playbackRevision!==revision||userPaused)return;
-          if (isBootAttempt && err.name === 'NotAllowedError') {
+          if (err.name === 'NotAllowedError') {
+            userPaused = true; // Browser autoplay policy is not a broken stream.
             const banner = document.getElementById('boot-resume-banner');
             document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
             banner?.classList.remove('hidden');
@@ -5333,9 +5499,14 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
         // Live radio needs a smaller buffer on constrained mobile devices.
         const smallScreen=window.matchMedia?.('(max-width:767px)')?.matches===true;
         const bufferSec=smallScreen
-          ? (appConfig.qualityProfile==='hifi'?35:20)
-          : (appConfig.qualityProfile==='hifi'?90:appConfig.qualityProfile==='datasaver'?30:60);
-        hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec, maxBufferLength:bufferSec });
+          ? (appConfig.qualityProfile==='hifi'?14:8)
+          : (appConfig.qualityProfile==='hifi'?35:appConfig.qualityProfile==='datasaver'?12:20);
+        hlsInstance = new Hls({
+          enableWorker: true, backBufferLength: bufferSec,
+          maxBufferLength: bufferSec, startFragPrefetch: true,
+          liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5,
+          manifestLoadingTimeOut: 5000, levelLoadingTimeOut: 5000,
+        });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -5350,10 +5521,10 @@ html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
       }
 
       watchdogTimer = setTimeout(() => {
-        if (playbackRevision===revision && audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
+        if (playbackRevision===revision && (audio.paused || audio.readyState < 2) && activeStream === streamObj && !userPaused && !pendingBootStation) {
           switchBackupServer();
         }
-      }, 8500);
+      }, 6500);
 
       applyAcousticContourToAudio();
       updateAmbientColorFromId(streamObj.id);

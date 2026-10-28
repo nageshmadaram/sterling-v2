@@ -98,6 +98,13 @@ async def complete_login(user_id: str, acct, request_token: str, *, login_state:
         raise LoginIdentityError(str(exc)) from exc
     if saved is None:
         raise LoginIdentityError("The account no longer exists. Add an account in Connect and retry.")
+    # Assigned profiles deliberately arrive inactive. A successful first login
+    # must make that profile available to /status and the desk. Never replace
+    # an existing active account here: switching it requires exposure checks.
+    from app.services.execution_identity_lock import account_lock
+    async with account_lock(user_id):
+        if accounts.get_active(user_id) is None:
+            accounts.set_active(user_id, acct.id)
     await accounts.release_client(acct.id)
     from app.services.notifications import telegram_lifecycle
     detail = ["Your Kite broker login was successful and the session is saved in Sterling.",

@@ -131,7 +131,7 @@ const server = http.createServer((req,res) => {
   }
   if (!fs.existsSync(file)) {res.writeHead(503);res.end('Frontend build missing');return;}
   const nonce = randomBytes(18).toString('base64');
-  const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
+  const tradingCsp = `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' https://*.telegram.org https://telegram.org https://t.me; base-uri 'self'; form-action 'self'`;
   res.writeHead(200,{'Content-Type':mime[path.extname(file)] || 'application/octet-stream',
     'Cache-Control':file.endsWith('index.html')?'no-store':(decoded.startsWith('/media/') || /^\/(tv|radio)\/.*\.css$/.test(decoded))?'no-cache':'public, max-age=3600',
     'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer',

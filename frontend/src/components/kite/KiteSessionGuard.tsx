@@ -243,7 +243,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
             </span>
             <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : savedPending ? cardDetail : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
-          {(unknown || savedPending) && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Verify broker connection'}</button>}
+          {(unknown || savedPending) && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : savedPending ? 'Verify broker connection' : 'Retry session check'}</button>}
           {savedPending && !selectedDifferentAccount && !connected && !loginRequested &&
             <button type="button" onClick={() => setShowRelogin(v => !v)}>
               {showRelogin ? 'Hide broker re-login' : 'Re-login if verification fails'}

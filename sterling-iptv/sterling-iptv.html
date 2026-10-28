@@ -2,7 +2,48 @@
 <html lang="en" class="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Isolated media iframe only: no pinch or double-tap page zoom on phones. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <script>
+/* Sterling Space/Echo touch policy.
+ * Loaded only by the isolated TV and Radio media documents. Never attach to
+ * the parent Sterling app: other workspaces retain browser zoom/accessibility.
+ * A single finger still scrolls/swipes; controls retain normal tap handling.
+ */
+(() => {
+  'use strict';
+  const isMobile = () => typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 1023px)').matches;
+
+  function suppressPinch(event) {
+    if (isMobile() && event.cancelable && event.touches?.length > 1) {
+      event.preventDefault();
+    }
+  }
+
+  function suppressGesture(event) {
+    if (isMobile() && event.cancelable) event.preventDefault();
+  }
+
+  // iOS Safari emits gesture*; Android Chrome uses touch* for pinch.
+  // The capture phase is intentional: playback overlays may stop bubbling.
+  document.addEventListener('touchstart', suppressPinch, { capture: true, passive: false });
+  document.addEventListener('touchmove', suppressPinch, { capture: true, passive: false });
+  for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+    document.addEventListener(type, suppressGesture, { capture: true, passive: false });
+  }
+
+  // A double-tap can still dispatch to the media player's existing click
+  // handler (e.g. fullscreen); only prevent the browser's default zoom.
+  document.addEventListener('dblclick', suppressGesture, { capture: true, passive: false });
+
+  // Trackpad pinch maps to Ctrl+wheel in some mobile webviews/emulators.
+  document.addEventListener('wheel', (event) => {
+    if (isMobile() && event.ctrlKey && event.cancelable) event.preventDefault();
+  }, { capture: true, passive: false });
+})();
+
+</script>
   <meta name="referrer" content="no-referrer" />
   <meta name="theme-color" content="#070709" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -231,8 +272,10 @@
  /** Paint a now-playing sheet (and optional mini player) from its artwork image. */
  function bindTint(img,targets){
   const apply=()=>{const col=tint(img);for(const [el,kind] of targets){if(!el)continue;
-   if(!col){el.style.removeProperty('background');continue;}
-   el.style.setProperty('background',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`,'important');}};
+   if(!col){el.style.removeProperty('--sps-artwork-backdrop');continue;}
+   // Artwork supplies a dark-theme accent, not an inline !important override
+   // of the host's light palette. CSS applies it only in the dark scheme.
+   el.style.setProperty('--sps-artwork-backdrop',kind==='mini'?col:`linear-gradient(180deg,${col} 0%,${col} 22%,#121212 82%)`);}};
   img.addEventListener('load',apply);if(img.complete)apply();
  }
  // Pull down at the top of a scrolling page to refresh, like the Spotify app. The page scrolls inside its
@@ -1191,6 +1234,55 @@
   .tm-rows-view #tv-rows-holder { display:block;padding:0 0 12px; }
   .tm-rows-view #platform-viewport,.tm-rows-view #load-more-wrap,.tm-rows-view .tm-feed-heading { display:none!important; }
 }
+
+/* Fit the video/player to available handset dimensions; landscape can use the
+   full-height split layout. Restrict pinch only inside the embedded media
+   experience, without altering Sterling's outer page accessibility zoom. */
+@media(max-width:1023px) {
+  html,body {width:100%;max-width:100%;min-height:0;height:100dvh;touch-action:pan-x pan-y;}
+  body {overflow-x:hidden;}
+  #tv-now-playing {box-sizing:border-box;width:100%;max-width:100%;
+    max-height:100dvh;overflow-x:hidden;overflow-y:auto;
+    padding:env(safe-area-inset-top,0px) clamp(12px,4vw,24px)
+      calc(10px + env(safe-area-inset-bottom,0px))!important;
+    touch-action:pan-y;overscroll-behavior:contain;}
+  #tv-now-playing :is(button,input) {touch-action:manipulation;}
+  .theme-spotify.tm-now-open #player-stage {
+    left:clamp(12px,4vw,24px);right:clamp(12px,4vw,24px);
+    top:clamp(76px,12dvh,145px);width:auto;
+  }
+  .theme-spotify.tm-now-open #video-surface-card {
+    box-sizing:border-box;width:100%;max-width:100%;
+    height:auto!important;max-height:min(38dvh,calc((100vw - 24px)*.5625))!important;
+    aspect-ratio:16/9!important;object-fit:contain!important;
+  }
+  .tm-now-spacer {
+    min-height:calc(clamp(76px,12dvh,145px) + min(38dvh,calc((100vw - 24px)*.5625)) - 62px);
+  }
+  .tm-now-head {min-height:clamp(42px,7dvh,62px);}
+  .tm-now-copy h2 {font-size:clamp(17px,5vw,25px);white-space:normal;
+    overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden;}
+  .tm-now-main {min-height:calc(100dvh - env(safe-area-inset-bottom,0px));}
+  .tm-now-controls {gap:clamp(4px,2vw,12px);margin:clamp(8px,2dvh,16px) 0;}
+  .tm-now-controls>.tm-icon {width:clamp(30px,8vw,40px);flex:0 1 auto;}
+  .tm-big-play {width:clamp(48px,9dvh,68px);
+    height:clamp(48px,9dvh,68px);min-width:48px;}
+  #tv-mobile-home,#tv-mobile-shell,#tv-mobile-nav {max-width:100%;overflow-x:clip;}
+}
+@media(max-width:1023px) and (orientation:landscape) {
+  .theme-spotify.tm-now-open #player-stage {
+    left:0;top:0;right:auto;width:calc(55% - 8px);
+    height:100dvh;max-height:100dvh;
+  }
+  .theme-spotify.tm-now-open #video-surface-card {
+    width:100%;height:100dvh!important;
+    max-height:100dvh!important;aspect-ratio:auto!important;
+  }
+  .tm-now-head,.tm-now-copy,.tm-timeline,.tm-now-controls,.tm-now-footer {
+    margin-left:56%!important;
+  }
+}
 </style>
 <!-- TV MOBILE STYLE END -->
 <style>
@@ -1318,20 +1410,20 @@ button {touch-action:manipulation;}
 
 
 /* Cohesive Spectrum media surfaces: station-driven motion-free colors. */
-body.theme-spotify[data-tv-backdrop="auto"] #tv-now-playing,
-body.theme-spotify[data-tv-backdrop="auto"] #tv-mobile-mini,
-body.theme-spotify[data-tv-backdrop="auto"] #main-scroll {
+html:not([data-color-scheme="light"]) body.theme-spotify[data-tv-backdrop="auto"] #tv-now-playing,
+html:not([data-color-scheme="light"]) body.theme-spotify[data-tv-backdrop="auto"] #tv-mobile-mini,
+html:not([data-color-scheme="light"]) body.theme-spotify[data-tv-backdrop="auto"] #main-scroll {
   background:linear-gradient(165deg,hsl(var(--tv-channel-hue,155) 42% 25%),#141b17 48%,#101010 95%)!important;
 }
-body.theme-netflix[data-tv-backdrop="auto"] #tv-now-playing,
-body.theme-netflix[data-tv-backdrop="auto"] #player-stage {
+html:not([data-color-scheme="light"]) body.theme-netflix[data-tv-backdrop="auto"] #tv-now-playing,
+html:not([data-color-scheme="light"]) body.theme-netflix[data-tv-backdrop="auto"] #player-stage {
   background:linear-gradient(155deg,hsl(var(--tv-channel-hue,5) 42% 21%),#161010 54%,#090909)!important;
 }
-body.theme-youtube[data-tv-backdrop="auto"] #player-stage {
+html:not([data-color-scheme="light"]) body.theme-youtube[data-tv-backdrop="auto"] #player-stage {
   background:linear-gradient(170deg,hsl(var(--tv-channel-hue,5) 25% 19%),#0f0f0f 68%)!important;
 }
-body[data-tv-backdrop="black"] #tv-now-playing,
-body[data-tv-backdrop="black"] #tv-mobile-mini,
+html:not([data-color-scheme="light"]) body[data-tv-backdrop="black"] #tv-now-playing,
+html:not([data-color-scheme="light"]) body[data-tv-backdrop="black"] #tv-mobile-mini,
 body[data-tv-backdrop="black"] #player-stage {background:#090909!important;}
 body.tm-search-active #sticky-chip-bar,
 body.tm-search-active #tm-browse-categories,
@@ -1993,6 +2085,7 @@ html.radio-hosted :is(.sps-avatar,[data-radio-avatar],#sp-avatar){display:none!i
 html.radio-hosted header>div>div>button[data-radio-click="28"]{display:none!important}
 html[data-color-scheme=light] body :is(#app-workspace,#main-scroll,#spotify-app,#youtube-app,.sps-root,.sp-canvas-bg,.ytm-canvas-bg){background:#f7f9fc!important;color:#151b26!important}
 html[data-color-scheme=light] body.mode-spotify #spotify-app main.sp-canvas-bg{background:#f7f9fc!important}
+html[data-color-scheme=light] body :is(#spotify-app,#ytmusic-app)>header{background:#f7f9fc!important;color:#151b26!important;border-color:#dce1e8!important}
 html[data-color-scheme=light] body :is(.tm-context,.tm-top,.tm-quick button,.solid-sp-footer,.solid-sp-mob-nav,.solid-ytm-footer,#tv-mobile-nav){background:#edf1f6!important;color:#151b26!important;border-color:#dce1e8!important}
 html[data-color-scheme=light] body :is(.tm-context button,.tm-tabs button){background:#dce4ee;color:#151b26}
 html[data-color-scheme=light] body :is(.tm-context,.tm-tabs) button[aria-pressed=true]{background:#1ed760;color:#071b0f}
@@ -2001,8 +2094,61 @@ html[data-color-scheme=light] body :is(.tm-album small,.tm-section-title button,
 html[data-color-scheme=light] body :is(#tv-mobile-mini,.solid-sp-miniplayer){background:#e2ece6!important;color:#14231c!important;box-shadow:0 4px 14px #0002!important;border-color:#c4d6c9!important}
 html[data-color-scheme=light] #app-workspace #main-scroll{background:#f7f9fc!important}
 html[data-color-scheme=light] #tv-mobile-home .tm-section-title h2{color:#151b26!important}
-html[data-color-scheme=light] #tv-mobile-mini,html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#fff!important}
-html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
+html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#14231c!important}
+html:not([data-color-scheme="light"]) :is(#mobile-player-sheet,.solid-sp-miniplayer)[style*="--sps-artwork-backdrop"]{
+  background:var(--sps-artwork-backdrop)!important;
+}
+
+
+/* Embedded Space/Echo player sheets must follow Sterling's selected theme.
+   Keep native video and album artwork unmodified, but never force the
+   surrounding controls to dark surfaces when the user selected Light. */
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing){
+  background:#f4f7fa!important;
+  background-image:linear-gradient(165deg,#e2eee7 0%,#f8fafc 53%,#f1f4f8 100%)!important;
+  color:#152130!important;
+  color-scheme:light;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)::before{
+  background:transparent!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(h1,h2,h3,strong,p,small,span,button,label,svg,i) {
+  color:inherit;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-head,.rnp-main,.rnp-more,.tm-now-head,.tm-now-main,.tm-now-copy,.tm-now-controls,.tm-now-footer,.tm-now-more){
+  color:#152130!important;
+  border-color:#cad6df!important;
+}
+html[data-color-scheme="light"] body #mobile-player-sheet
+  :is(#sheet-title,#sheet-sub,.radio-np-controls button,.rnp-more button) {
+  color:#152130!important;
+}
+html[data-color-scheme="light"] body #tv-now-playing
+  :is(.tm-now-copy h2,.tm-now-copy p,.tm-now-head,.tm-now-footer,.tm-timeline-label,.tm-now-more){
+  color:#152130!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls button,.tm-now-controls>.tm-icon,.tm-now-head button){
+  color:#152130!important;
+  -webkit-tap-highlight-color:transparent;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) {
+  background:#1b3035!important;
+  color:#fff!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) svg {
+  color:#fff!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.tm-timeline-track,.rnp-live-track){
+  background:#a8b9c4!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  button:focus-visible { outline:2px solid #234c7f!important; outline-offset:2px; }
 
 </style>
 <script>
@@ -4498,8 +4644,12 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
 
       updateStartupChannelUI();
       updateSubscribeLikeUI();
-      // Right rail automatically updates to show Suggested channels matching the newly playing channel's category!
-      renderUpNextQueue(true);
+      // Start the video request before reconstructing the suggested-channel
+      // rail: large user playlists made that synchronous render delay the tap.
+      const queueGeneration = playbackGeneration;
+      requestAnimationFrame(() => {
+        if (playbackGeneration === queueGeneration) renderUpNextQueue(true);
+      });
       updateClosedCaptionText();
 
       spinner.classList.remove('hidden');
@@ -4537,11 +4687,12 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         const cfg = {
           enableWorker: true,
           lowLatencyMode: true,
-          backBufferLength: IS_MOBILE_VIEW() ? 10 : 25,
-          maxBufferLength: IS_MOBILE_VIEW() ? 15 : 28,
-          manifestLoadingTimeOut: 6500,
+          backBufferLength: IS_MOBILE_VIEW() ? 7 : 18,
+          maxBufferLength: IS_MOBILE_VIEW() ? 10 : 20,
+          startFragPrefetch: true,
+          manifestLoadingTimeOut: 5000,
           manifestLoadingMaxRetry: 1,
-          levelLoadingTimeOut: 6500
+          levelLoadingTimeOut: 5000
         };
 
         hls = new Hls(cfg);
@@ -4550,15 +4701,25 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
 
         const watchdog = setTimeout(() => {
           if (!parsed && activeChannel === channel && playbackGeneration===generation) escalateStage(channel);
-        }, 6800);
+        }, 5800);
 
         hls.on(Hls.Events.MANIFEST_PARSED, (_, data) => {
           if(playbackGeneration!==generation)return;
           parsed = true;
           clearTimeout(watchdog);
-          spinner.classList.add('hidden');
+          // A parsed playlist is not decoded video. Keep the loading overlay
+          // until the first frame is playable or a tap-to-play prompt appears.
+          const hideWhenPlayable = () => {
+            if (playbackGeneration===generation) spinner.classList.add('hidden');
+          };
+          if (video.readyState >= 3) hideWhenPlayable();
+          else video.addEventListener('canplay', hideWhenPlayable, {once:true});
           populateQualityLevelsMenu(data.levels || []);
           safeAutoplayVideo(video);
+          setTimeout(() => {
+            if (activeChannel===channel && playbackGeneration===generation
+                && video.readyState < 2 && !tvUserPaused) escalateStage(channel);
+          }, 6500);
         });
 
         hls.on(Hls.Events.FRAG_LOADED, () => {
@@ -4603,7 +4764,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
       const generation=playbackGeneration;
       const watchdog = setTimeout(() => {
         if (activeChannel === channel && playbackGeneration===generation && video.readyState < 2) escalateStage(channel);
-      }, 10000);
+      }, 7500);
       video.onloadedmetadata = () => {
         clearTimeout(watchdog);
         if(playbackGeneration!==generation)return;

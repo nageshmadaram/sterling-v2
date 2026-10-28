@@ -15,7 +15,7 @@ from app.services.navigator import config_store, runtime as nav_runtime
 
 
 @pytest.fixture(autouse=True)
-def isolated_db():
+def isolated_db(monkeypatch):
     # `db._DB_PATH` is module-global. Pointing it at a temp file without
     # restoring it leaves every LATER test in the session reading a database
     # that this fixture then deletes — which is how the replay test two files
@@ -25,6 +25,17 @@ def isolated_db():
     os.close(fd)
     db._DB_PATH = path
     db.init()
+    # These endpoint tests predate account admission. Provision real synthetic
+    # grants rather than weakening the production default-deny boundary.
+    from app.services.auth import user_store, account_policy
+    monkeypatch.setattr(user_store, '_users', {})
+    monkeypatch.setattr(user_store, '_loaded', True)
+    user_store._init_table()
+    user_store.add('primary', 'Synthetic-navigator-123', role='admin', user_id='default')
+    for uid in ('default', 'user-a', 'user-b'):
+        if uid != 'default':
+            user_store.add(uid, 'Synthetic-navigator-123', user_id=uid)
+        account_policy.set_features('default', uid, dict.fromkeys(account_policy.FEATURES, True), 0)
     nav_service.clear_cache("default")
     nav_service.clear_cache("user-a")
     nav_service.clear_cache("user-b")

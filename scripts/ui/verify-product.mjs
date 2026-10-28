@@ -18,7 +18,7 @@ async function capture(page,name,metadata={}){
   if(metrics.overflow)throw Error(name+': document overflows horizontally');
 }
 async function contextFor(who,width){
-  const context=await browser.newContext({viewport:{width,height:900},hasTouch:width<900});
+  const context=await browser.newContext({viewport:{width,height:width===844?390:width<900?844:900},hasTouch:width<900});
   context.on('page',page=>page.on('pageerror',error=>runtimeErrors.push({message:error.message,path:new URL(page.url()).pathname})));
   await context.addInitScript(token=>{if(window===window.top)try{sessionStorage.setItem('sterling.auth.access',token);}catch{}},sessions[who].token);
   await context.route('**/api/v1/**',async route=>{
@@ -42,6 +42,17 @@ try{
         await page.waitForTimeout(350);
         await capture(page,`kite-${label.toLowerCase().replace(/\W+/g,'-')}-${width}-${theme}`,{workspace:'kite',page:label,theme});
         if(label==='Dashboard'){
+          const signals=page.getByRole('tab',{name:'Signals',exact:true});
+          if(width<=900){
+            await signals.waitFor({timeout:45000});
+            await signals.click();await page.waitForTimeout(250);
+            await capture(page,`signals-${width}-${theme}`,{workspace:'kite',page:'Signals',theme});
+            const tabs=page.locator('.signal-engine-tabs [role=tab]');
+            for(let i=0;i<await tabs.count();i++){
+              const tab=tabs.nth(i),engine=await tab.innerText();await tab.click();await page.waitForTimeout(180);
+              await capture(page,`signals-${engine.toLowerCase().replace(/\W+/g,'-')}-${width}-${theme}`,{workspace:'kite',page:'Signals',engine,theme});
+            }
+          }
           await page.keyboard.press('Control+k');await page.getByRole('dialog',{name:'Global Command Palette'}).waitFor();await capture(page,`command-palette-${width}-${theme}`,{overlay:'command-palette',theme});await page.keyboard.press('Escape');
           const layout=page.getByTitle('Open workspace layouts');
           if(await layout.isVisible()){
@@ -72,7 +83,7 @@ try{
       for(const theme of ['light','dark']){
         await menu(page);await page.getByRole('button',{name:theme==='light'?'☀ Light':'☾ Dark',exact:true}).click();await page.getByRole('button',{name:'Close menu'}).click();
         await frame.locator(`html[data-color-scheme=${theme}]`).waitFor();await capture(page,`${feature}-${width}-${theme}`,{workspace:feature,theme});
-        await page.getByRole('button',{name:feature==='radio'?'Radio display settings':'TV display settings',exact:true}).click();await capture(page,`${feature}-display-${width}-${theme}`,{overlay:'media-display',theme});await page.keyboard.press('Escape');
+        await menu(page);await page.getByRole('group',{name:'Player interface'}).waitFor();await capture(page,`${feature}-display-${width}-${theme}`,{overlay:'media-display',theme});await page.getByRole('button',{name:'Close menu'}).click();
       }
     }
     await context.close();console.log('Member audit complete: '+width);

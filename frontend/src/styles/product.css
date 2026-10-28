@@ -46,3 +46,21 @@
 
 .product-modal-layer{animation:none!important;transition:none!important;transform:none!important;opacity:1!important}.sterling-profile-modal{background:#0006!important;backdrop-filter:blur(3px)}.profile-panel>button:not([aria-label="Close profile"]){float:none!important;display:inline-flex;align-items:center;margin:0 0 4px!important}
 .workspace-shell>.admin-directory{margin:0 auto!important;align-self:stretch}
+
+/* A collapsed phone signal is a readable quote summary. Open its row or plan
+   for the complete columns and trading controls; keep those touch targets full size. */
+@media(max-width:900px){
+ body[data-mobile-style=app] .sterling-signal-board .sb-parent{padding:6px 10px!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-parent-fields{gap:3px 6px!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-parent[aria-expanded=false] .sb-parent-price{display:none!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-parent-fields>.sb-parent-time{flex-basis:auto!important;margin-left:auto;font-size:9px!important;gap:4px!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-parent-count{font-size:9px!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row:not(.sb-parent)[aria-expanded=false]{grid-template-columns:repeat(4,minmax(0,1fr))!important;padding:6px 10px!important;gap:4px 6px!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell=trade]{display:none!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] .sb-entry-move{display:none!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell]{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell],
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell] span{font-size:11px!important;line-height:1.35!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-cell=instrument]{font-size:12px!important}
+ body[data-mobile-style=app] .sterling-signal-board .sb-row[aria-expanded=false] [data-mobile-label]::before{font-size:9px!important;margin-bottom:1px}
+}

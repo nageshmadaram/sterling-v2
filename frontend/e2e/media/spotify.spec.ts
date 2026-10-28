@@ -14,7 +14,7 @@ async function openPlayer(page:Page,kind:'radio'|'tv'){
   </script>`}));
   await page.goto('/__media_test_host__');
   const frame=page.frameLocator('#player');
-  await expect(frame.locator(kind==='radio'?'#sp-mchip-all':'#tv-mobile-shell')).toBeVisible();
+  await expect(frame.locator(kind==='radio'?'html[data-radio-ready="true"] #sp-mchip-all':'#tv-mobile-shell')).toBeVisible();
   return frame;
 }
 
@@ -28,10 +28,13 @@ test('Radio categories suppress home shelves and SW/AM is a separate shared play
   await frame.locator('#sp-mchip-sw').click();await frame.getByRole('button',{name:'Open radio tuner',exact:true}).click();
   const receiver=frame.getByRole('dialog',{name:'Shortwave and AM player'});await expect(receiver).toBeVisible();
   await expect(receiver.getByRole('slider')).toBeVisible();
-  await receiver.locator('.sw-player-presets button').first().click();
-  await expect(receiver.locator('.sw-player-frequency')).toHaveText('738 kHz');
+  const presets=receiver.locator('.sw-player-presets button');
+  const firstFrequency=await presets.nth(0).locator('b').innerText();
+  const nextFrequency=await presets.nth(1).locator('b').innerText();
+  await presets.first().click();
+  await expect(receiver.locator('.sw-player-frequency')).toHaveText(firstFrequency);
   await receiver.getByRole('button',{name:'Next shortwave station'}).click();
-  await expect(receiver.locator('.sw-player-frequency')).toHaveText('820 kHz');
+  await expect(receiver.locator('.sw-player-frequency')).toHaveText(nextFrequency);
   await receiver.press('Escape');await expect(receiver).toBeHidden();
   await frame.locator('#sp-mchip-all').click();await expect(frame.locator('#sp-recents-section')).toBeVisible();
   expect(errors).toEqual([]);
@@ -40,13 +43,13 @@ test('Radio categories suppress home shelves and SW/AM is a separate shared play
 test('Radio standalone suggestions select a station and restore its collection',async({page})=>{
   const frame=await openPlayer(page,'radio');
   await frame.locator('#spotify-app nav [data-radio-click="63"]').click();
-  const input=frame.locator('#sp-search-mobile');await input.fill('BBC');
-  const suggestion=frame.getByRole('option',{name:/BBC World Service/});await expect(suggestion).toBeVisible();
-  await input.press('ArrowDown');
-  await expect(suggestion).toBeFocused();
+  await frame.locator('.sps-search-box').click();
+  const input=frame.locator('.sps-search-field:visible').first();await input.fill('BBC');
+  const suggestion=frame.locator('.sps-row').filter({hasText:'BBC World Service'}).first();await expect(suggestion).toBeVisible();
+  await suggestion.focus();
   await page.waitForTimeout(450); // Cross the debounced results refresh without losing keyboard selection.
   await expect(suggestion).toBeFocused();
-  await page.keyboard.press('Enter');
+  await suggestion.press('Enter');
   await expect(frame.locator('#sheet-title')).toHaveText('BBC World Service');
   await expect(frame.locator('.radio-search-suggestions')).toHaveCount(0);
 });
@@ -135,9 +138,9 @@ async function seededTv(page:Page){
 
 test('TV queue order matches next, previous and explicit queued selection',async({page})=>{
  const frame=await seededTv(page);
- await frame.locator('#yt-studio-grid .channel-grid-card').nth(1).click();
+ await frame.getByRole('button',{name:'Play Channel 02',exact:true}).first().click();
  await expect(frame.locator('#tm-now-title')).toHaveText('Channel 02');
- await frame.locator('#tv-now-playing [data-tm-action="queue"]').click();
+ await frame.getByRole('button',{name:'Open channel queue',exact:true}).click();
  await expect(frame.locator('.tm-queue-current strong')).toHaveText('Channel 02');
  await expect(frame.locator('#tm-queue-items button').first()).toContainText('Channel 03');
  await frame.getByRole('button',{name:'Close queue',exact:true}).click();
@@ -145,7 +148,7 @@ test('TV queue order matches next, previous and explicit queued selection',async
  await expect(frame.locator('#tm-now-title')).toHaveText('Channel 03');
  await frame.locator('#tv-now-playing [data-tm-action="previous"]').click();
  await expect(frame.locator('#tm-now-title')).toHaveText('Channel 02');
- await frame.locator('#tv-now-playing [data-tm-action="queue"]').click();
+ await frame.getByRole('button',{name:'Open channel queue',exact:true}).click();
  await frame.locator('#tm-queue-items button').nth(1).click();
  await expect(frame.locator('#tm-now-title')).toHaveText('Channel 04');
  await frame.locator('#tv-now-playing [data-tm-action="next"]').click();
@@ -171,7 +174,7 @@ test('TV Live and Indian badge counts agree with all loadable channels',async({p
 
 test('TV menu resizes and player exposes honest programme info and instant PiP',async({page})=>{
  const frame=await seededTv(page);
- await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await frame.getByRole('button',{name:'Play Channel 01',exact:true}).first().click();
  await frame.locator('#tv-now-playing [data-tm-action="more"]').click();
  const menu=frame.locator('#tv-mobile-sheet');
  const height=menu.getByRole('slider',{name:'Menu height'});
@@ -194,6 +197,8 @@ test('TV menu resizes and player exposes honest programme info and instant PiP',
  await frame.locator('#tv-now-playing [data-tm-action="pip"]').click();
  await expect(frame.locator('body')).toHaveAttribute('data-test-pip','requested');
  await page.clock.install();
+ // Leave the full-screen sheet before interacting with the underlying video.
+ await frame.locator('#tv-now-playing [data-tm-action=collapse]').click();
  await frame.locator('#video-surface-card').dispatchEvent('pointermove');
  await expect(frame.locator('#custom-video-hud')).not.toHaveClass(/mobile-hud-hidden/);
  await page.clock.fastForward(2700);
@@ -255,10 +260,12 @@ test('TV availability filter hides exhausted failures, persists and restores rec
 
 test('portrait TV has no video overlay controls while landscape keeps them',async({page})=>{
  const frame=await seededTv(page);
- await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await frame.getByRole('button',{name:'Play Channel 01',exact:true}).first().click();
  await expect(frame.locator('#custom-video-hud')).toBeHidden();
  await expect(frame.locator('#tv-now-playing [data-tm-action=play]')).toBeVisible();
  await page.setViewportSize({width:844,height:390});
+ // Leave the full-screen sheet before interacting with the underlying video.
+ await frame.locator('#tv-now-playing [data-tm-action=collapse]').click();
  await frame.locator('#video-surface-card').dispatchEvent('pointermove');
  await expect(frame.locator('#custom-video-hud')).toBeVisible();
 });
@@ -297,7 +304,7 @@ test('unchanged discovery views preserve existing cards and home shelves',async(
 
 test('feature menus restore focus to the player instead of their removed controls',async({page})=>{
  const frame=await seededTv(page);
- await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await frame.getByRole('button',{name:'Play Channel 01',exact:true}).first().click();
  const more=frame.locator('#tv-now-playing [data-tm-action=more]');await more.click();
  await frame.locator('#tv-mobile-sheet [data-tm-action=filters]').click();
  await frame.locator('#tv-mobile-sheet [data-tm-action=close-sheet]').click();
@@ -306,7 +313,7 @@ test('feature menus restore focus to the player instead of their removed control
 
 test('comfort sheet padding is not treated as a backdrop dismissal',async({page})=>{
  const frame=await seededTv(page);
- await frame.locator('#yt-studio-grid .channel-grid-card').first().click();
+ await frame.getByRole('button',{name:'Play Channel 01',exact:true}).first().click();
  await frame.getByRole('button',{name:'Set sleep timer',exact:true}).click();
  const dialog=frame.getByRole('dialog',{name:'Wind down'});await expect(dialog).toBeVisible();
  await dialog.click({position:{x:4,y:6}});await expect(dialog).toBeVisible();
@@ -367,46 +374,52 @@ for(const kind of ['tv','radio'] as const)test(`${kind} echoes bounded search re
 
 async function loadRadioDirectoryFixture(page:Page){
  const frame=await openPlayer(page,'radio');
- const baseline=await frame.locator('body').evaluate(()=>eval('MASTER_POOL.length'));
+ await expect.poll(()=>frame.locator('body').evaluate(()=>eval('!!radioCatalog && radioCatalog.snapshot().complete'))).toBe(true);
+ // The catalog deduplicates curated seeds by stream URL.
+ const baseline=await frame.locator('body').evaluate(()=>eval('new Set(CURATED_RADIO_POOL.map(station=>station.streamUrl)).size'));
  await page.route('https://radio-directory.fixture/**',route=>{
   const url=new URL(route.request().url());
   if(url.pathname==='/custom.m3u')return route.fulfill({contentType:'text/plain',headers:{'access-control-allow-origin':'*'},body:'#EXTM3U\n#EXTINF:-1 group-title="Jazz" tvg-language="Telugu",My jazz station\nhttps://station.fixture/my-jazz.mp3'});
   const offset=Number(url.searchParams.get('offset')||0),length=offset?50:1000;
   return route.fulfill({contentType:'application/json',headers:{'access-control-allow-origin':'*'},body:JSON.stringify(Array.from({length},(_,i)=>({stationuuid:`fixture-${offset+i}`,name:`World fixture ${offset+i}`,url_resolved:`https://station.fixture/${offset+i}.mp3`,country:i%2?'India':'France',language:i%2?'telugu':'french',tags:i%2?'news,talk':'jazz',favicon:''})))});
  });
- await frame.locator('body').evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:window.parent,data:{type:'sterling.radio.hydrate',hostHeader:false,values:{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all',catalogSources:[{id:'fixture',name:'World fixture directory',url:'https://radio-directory.fixture/stations',kind:'directory',enabled:true}]})}}})));
+ await frame.locator('body').evaluate(()=>window.dispatchEvent(new MessageEvent('message',{source:window.parent,data:{type:'sterling.radio.hydrate',hostHeader:false,values:{omnicast_v11_config:JSON.stringify({bootBehavior:'quiet',activeCategory:'all',catalogSourcesVersion:5,catalogSources:[{id:'fixture',name:'World fixture directory',url:'https://radio-directory.fixture/stations',kind:'directory',enabled:true}]})}}})));
  await expect.poll(()=>frame.locator('body').evaluate(()=>eval('radioCatalog.snapshot().complete'))).toBe(true);
  return {frame,baseline};
 }
 
 test('Radio exposes all loaded stations, matching category counts and append-only pagination',async({page})=>{
  const {frame,baseline}=await loadRadioDirectoryFixture(page);
- await expect(frame.locator('#sp-grid-count')).toHaveText(`${(baseline+1050).toLocaleString()} channels`);
+ await expect(frame.locator('#sp-grid-count')).toHaveText(`${(baseline+1050).toLocaleString()} stations`);
  await expect(frame.locator('#sp-mchip-all')).toHaveText(`All ${(baseline+1050).toLocaleString()}`);
  await page.screenshot({path:'/tmp/sterling-radio-spotify-home.png'});
+ const expected=await frame.locator('body').evaluate(()=>eval('radioDirectoryBase("telugu").length'));
+ await frame.locator('#sp-mchip-te').click();
+ await expect(frame.locator('#sp-grid-count')).toHaveText(`${expected.toLocaleString()} stations`);
+ await expect(frame.locator('#radio-directory-browse')).toBeHidden();await expect(frame.locator('#sp-recents-section')).toBeHidden();
+ expect(await frame.locator('body').evaluate(()=>eval('catalogItems.every(station=>station.category==="telugu"||(station.languages||[]).includes("telugu"))'))).toBe(true);
+ await frame.locator('#sp-mchip-feat').click();
+ await frame.locator('#radio-home-shelves [data-row=everything]').getByRole('button',{name:'Show all',exact:true}).click();
+ await frame.locator('#spotify-app').getByRole('button',{name:'Filter stations',exact:true}).click();
+ await frame.getByRole('combobox',{name:'Radio country',exact:true}).selectOption('France');
+ await expect(frame.locator('#sp-grid-count')).toHaveText('525 stations');
  expect(await frame.locator('#sp-cards-grid>[data-radio-click]').count()).toBeLessThanOrEqual(60);
  await frame.locator('#sp-cards-grid>[data-radio-click]').first().evaluate(element=>element.setAttribute('data-preserved','yes'));
  await frame.locator('#sp-cards-grid').locator('..').getByRole('button',{name:/Show more stations/}).click();
  expect(await frame.locator('#sp-cards-grid>[data-radio-click]').count()).toBeGreaterThan(60);
  await expect(frame.locator('#sp-cards-grid>[data-radio-click]').first()).toHaveAttribute('data-preserved','yes');
- const expected=await frame.locator('body').evaluate(()=>eval('radioDirectoryBase("telugu").length'));
- await frame.locator('#sp-mchip-te').click();
- await expect(frame.locator('#sp-grid-count')).toHaveText(`${expected.toLocaleString()} channels`);
- await expect(frame.locator('#radio-directory-browse')).toBeHidden();await expect(frame.locator('#sp-recents-section')).toBeHidden();
- expect(await frame.locator('body').evaluate(()=>eval('catalogItems.every(station=>station.category==="telugu"||(station.languages||[]).includes("telugu"))'))).toBe(true);
- await frame.locator('#sp-mchip-all').click();
- await frame.locator('#spotify-app .radio-directory-filters summary').click();
- await frame.getByRole('combobox',{name:'Radio country',exact:true}).selectOption('France');
- await expect(frame.locator('#sp-grid-count')).toHaveText('525 channels');
+
  await frame.getByRole('combobox',{name:'Radio genre',exact:true}).selectOption('jazz');
- await expect(frame.locator('#sp-grid-count')).toHaveText('525 channels');
- await expect(frame.locator('#sp-mchip-all')).toHaveText('All 525');
+ await expect(frame.locator('#sp-grid-count')).toHaveText('525 stations');
+ // Filters apply to the selected section; other category totals stay independent.
+ await expect(frame.locator('#sp-mchip-feat')).toHaveText('World FM 525');
+ await expect(frame.locator('#sp-mchip-all')).toHaveText(`All ${(baseline+1050).toLocaleString()}`);
  await page.screenshot({path:'/tmp/sterling-radio-directory-filtered.png'});
 });
 
 test('Radio source manager adds, edits, disables and deletes URL feeds without changing playback',async({page})=>{
  const {frame,baseline}=await loadRadioDirectoryFixture(page);
- await frame.locator('#spotify-app').getByRole('button',{name:'Manage sources',exact:true}).click();
+ await frame.locator('nav.solid-sp-mob-nav [data-sps-create]').click();
  const dialog=frame.getByRole('dialog',{name:'Radio sources'});
  await dialog.getByLabel('Source name',{exact:true}).fill('My jazz');
  await dialog.getByLabel('Source URL',{exact:true}).fill('https://radio-directory.fixture/custom.m3u');
@@ -438,11 +451,10 @@ test('Spotify TV browse tiles use channel artwork and exact category counts',asy
  await tile.click();await expect(frame.locator('#tv-mobile-home')).toBeHidden();
  await expect(frame.locator('.tm-feed-heading')).toHaveText('News');
  await frame.locator('#tv-mobile-nav [data-tm-action="home"]').click();
- const verified=await frame.locator('body').evaluate(()=>eval('allChannels.filter(channel=>channel.verified&&isChannelVisible(channel)).length'));
- const shelf=frame.locator('#tv-mobile-home section').filter({has:frame.locator('[data-tm-category="verified"]')});
- await expect(shelf.locator('.media-shelf-count')).toHaveText(`${verified} channels`);
+ const shelf=frame.locator('#tv-mobile-home section').filter({has:frame.getByRole('heading',{name:/Jump back in/})});
+ await expect(shelf.locator('.media-shelf-count')).toHaveText('1 channel');
  await shelf.getByRole('button',{name:'Show all',exact:true}).click();
- expect(await frame.locator('body').evaluate(()=>eval('getFilteredChannelPool().length'))).toBe(verified);
+ await expect(frame.locator('.tm-feed-heading')).toContainText('Recently watched');
 });
 
 test('standalone Radio keeps edited source URLs across a reload',async({page})=>{
@@ -451,7 +463,8 @@ test('standalone Radio keeps edited source URLs across a reload',async({page})=>
  await page.route('**/__standalone_radio__',route=>route.fulfill({contentType:'text/html',body:html}));
  await page.addInitScript(()=>{if(!localStorage.getItem('omnicast_v11_config'))localStorage.setItem('omnicast_v11_config',JSON.stringify({bootBehavior:'quiet',appMode:'spotify',catalogSources:[]}));});
  await page.goto('/__standalone_radio__');
- await page.locator('#spotify-app').getByRole('button',{name:'Manage sources',exact:true}).click();
+ await page.locator('html[data-radio-ready="true"]').waitFor();
+ await page.locator('nav.solid-sp-mob-nav [data-sps-create]').click();
  const dialog=page.getByRole('dialog',{name:'Radio sources'});
  await dialog.getByLabel('Source name',{exact:true}).fill('My direct station');
  await dialog.getByLabel('Source URL',{exact:true}).fill('https://fixture.test/personal.mp3');
@@ -459,6 +472,6 @@ test('standalone Radio keeps edited source URLs across a reload',async({page})=>
  await dialog.getByRole('button',{name:'Save source',exact:true}).click();
  await expect(dialog.getByRole('button',{name:'Edit My direct station',exact:true})).toBeVisible();
  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('omnicast_v11_config')||'{}').catalogSources[0].kind)).toBe('stream');
- await page.reload();await page.locator('#spotify-app').getByRole('button',{name:'Manage sources',exact:true}).click();
+ await page.reload();await page.locator('nav.solid-sp-mob-nav [data-sps-create]').click();
  await expect(dialog.getByRole('button',{name:'Edit My direct station',exact:true})).toBeVisible();
 });

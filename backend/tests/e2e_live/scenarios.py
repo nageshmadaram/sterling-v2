@@ -82,11 +82,26 @@ def supertrend_row(*, direction: str = "long", ts_ms: Optional[int] = None,
         alignment=AlignmentChip(fast=trend, mid=trend, slow=trend),
         direction=direction, option_type=opt,
         legs=[OptionLeg(moneyness="ATM", option_type=opt, option_symbol=symbol, strike=strike,
-                        expiry=expiry, lot_size=NIFTY_LOT, token=token)],
+                        expiry=expiry, lot_size=NIFTY_LOT, token=token, is_active=True)],
         spot=spot, underlying_spot=spot,
         stop_loss=spot - 150.0 if direction == "long" else spot + 150.0,
         score=85.0, timestamp_ms=ts_ms if ts_ms is not None else supertrend_bar_ms(),
         is_fresh=True, is_active=True, source="spot", adx=adx, atr_pct=60.0)
+
+
+def publish_supertrend_evidence(machine, uid, row):
+    # A lifecycle fixture must publish fresh scanner authority as a real scan
+    # does. Calling the placement callback with an unobserved cached row is
+    # correctly refused by the newer execution-boundary refresh guard.
+    refresh = machine.m('app.services.kite_engine.scan_refresh').RefreshBoard(
+        [], [(row.source, row.underlying)],
+        mode=row.horizon_mode, timeframe=row.signal_timeframe_minutes)
+    refresh.observe(row)
+    refresh.finish(row.source, row.underlying, success=True)
+    config = machine.m('app.engines.sterling_kite_engine.config').SterlingKiteEngineConfig()
+    user_scan = machine.m('app.services.kite_engine.scanner').scanner._user(uid, config)
+    user_scan.rows = [row]
+    user_scan.refresh_board = refresh
 
 
 async def drive_supertrend(machine, *, ltp: float = 180.0, signal_ts_ms: Optional[int] = None,
@@ -105,6 +120,7 @@ async def drive_supertrend(machine, *, ltp: float = 180.0, signal_ts_ms: Optiona
     before = len(ex.entry_posts())
     row = supertrend_row(ts_ms=signal_ts_ms,
                          token=int(ex.instrument(SUPERTREND_SYMBOL, "NFO")["instrument_token"]))
+    publish_supertrend_evidence(machine, UID, row)
     await service._make_place_cb(client, UID)(row, None)
     out = Outcome("supertrend")
     out.activity = [f"{e.kind}: {e.message}" for e in state.activity(UID)]

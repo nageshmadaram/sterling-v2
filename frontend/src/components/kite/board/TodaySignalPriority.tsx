@@ -142,11 +142,11 @@ export function TodaySignalPriorityStatus() {
       borderBottom: '1px solid var(--k-border)', color: 'var(--k-text)',
       background: 'var(--k-surface)', flexShrink: 0 }}
   >
-    <strong>{state.olderReady
+    <details className="today-priority-details today-signal-brief">
+      <summary aria-label="Show per-strategy signal loading status"><strong>Today · {checksDone}/4 received{failures.length ? ` · ${failures.length} unavailable` : state.olderReady ? ' · History ready' : ' · Loading'}</strong></summary>
+      <strong>{state.olderReady
       ? `Today-first checks finished: ${checksDone}/4 received${failures.length ? ` · ${failures.length} unavailable` : ''}. History may load.`
       : `Today first · ${checksDone}/4 received · older history queued`}</strong>
-    <details className="today-priority-details">
-      <summary aria-label="Show per-strategy signal loading status">Loading details</summary>
       <span>IST {state.day} · {parts.join(' · ')}</span>
       <p>A response does not prove that a fresh scan ran or produced signals.</p>
       {failures.length > 0 && <p role="alert">Unavailable: {failures.join(', ')}. Check that strategy's API and scan. Existing rows are not proof of today's signals.</p>}

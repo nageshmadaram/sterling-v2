@@ -122,20 +122,20 @@ button {touch-action:manipulation;}
 
 
 /* Cohesive Spectrum media surfaces: station-driven motion-free colors. */
-body.theme-spotify[data-tv-backdrop="auto"] #tv-now-playing,
-body.theme-spotify[data-tv-backdrop="auto"] #tv-mobile-mini,
-body.theme-spotify[data-tv-backdrop="auto"] #main-scroll {
+html:not([data-color-scheme="light"]) body.theme-spotify[data-tv-backdrop="auto"] #tv-now-playing,
+html:not([data-color-scheme="light"]) body.theme-spotify[data-tv-backdrop="auto"] #tv-mobile-mini,
+html:not([data-color-scheme="light"]) body.theme-spotify[data-tv-backdrop="auto"] #main-scroll {
   background:linear-gradient(165deg,hsl(var(--tv-channel-hue,155) 42% 25%),#141b17 48%,#101010 95%)!important;
 }
-body.theme-netflix[data-tv-backdrop="auto"] #tv-now-playing,
-body.theme-netflix[data-tv-backdrop="auto"] #player-stage {
+html:not([data-color-scheme="light"]) body.theme-netflix[data-tv-backdrop="auto"] #tv-now-playing,
+html:not([data-color-scheme="light"]) body.theme-netflix[data-tv-backdrop="auto"] #player-stage {
   background:linear-gradient(155deg,hsl(var(--tv-channel-hue,5) 42% 21%),#161010 54%,#090909)!important;
 }
-body.theme-youtube[data-tv-backdrop="auto"] #player-stage {
+html:not([data-color-scheme="light"]) body.theme-youtube[data-tv-backdrop="auto"] #player-stage {
   background:linear-gradient(170deg,hsl(var(--tv-channel-hue,5) 25% 19%),#0f0f0f 68%)!important;
 }
-body[data-tv-backdrop="black"] #tv-now-playing,
-body[data-tv-backdrop="black"] #tv-mobile-mini,
+html:not([data-color-scheme="light"]) body[data-tv-backdrop="black"] #tv-now-playing,
+html:not([data-color-scheme="light"]) body[data-tv-backdrop="black"] #tv-mobile-mini,
 body[data-tv-backdrop="black"] #player-stage {background:#090909!important;}
 body.tm-search-active #sticky-chip-bar,
 body.tm-search-active #tm-browse-categories,

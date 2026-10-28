@@ -14,6 +14,7 @@ html.radio-hosted :is(.sps-avatar,[data-radio-avatar],#sp-avatar){display:none!i
 html.radio-hosted header>div>div>button[data-radio-click="28"]{display:none!important}
 html[data-color-scheme=light] body :is(#app-workspace,#main-scroll,#spotify-app,#youtube-app,.sps-root,.sp-canvas-bg,.ytm-canvas-bg){background:#f7f9fc!important;color:#151b26!important}
 html[data-color-scheme=light] body.mode-spotify #spotify-app main.sp-canvas-bg{background:#f7f9fc!important}
+html[data-color-scheme=light] body :is(#spotify-app,#ytmusic-app)>header{background:#f7f9fc!important;color:#151b26!important;border-color:#dce1e8!important}
 html[data-color-scheme=light] body :is(.tm-context,.tm-top,.tm-quick button,.solid-sp-footer,.solid-sp-mob-nav,.solid-ytm-footer,#tv-mobile-nav){background:#edf1f6!important;color:#151b26!important;border-color:#dce1e8!important}
 html[data-color-scheme=light] body :is(.tm-context button,.tm-tabs button){background:#dce4ee;color:#151b26}
 html[data-color-scheme=light] body :is(.tm-context,.tm-tabs) button[aria-pressed=true]{background:#1ed760;color:#071b0f}
@@ -22,8 +23,10 @@ html[data-color-scheme=light] body :is(.tm-album small,.tm-section-title button,
 html[data-color-scheme=light] body :is(#tv-mobile-mini,.solid-sp-miniplayer){background:#e2ece6!important;color:#14231c!important;box-shadow:0 4px 14px #0002!important;border-color:#c4d6c9!important}
 html[data-color-scheme=light] #app-workspace #main-scroll{background:#f7f9fc!important}
 html[data-color-scheme=light] #tv-mobile-home .tm-section-title h2{color:#151b26!important}
-html[data-color-scheme=light] #tv-mobile-mini,html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#fff!important}
-html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
+html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#14231c!important}
+html:not([data-color-scheme="light"]) :is(#mobile-player-sheet,.solid-sp-miniplayer)[style*="--sps-artwork-backdrop"]{
+  background:var(--sps-artwork-backdrop)!important;
+}
 
 
 /* Embedded Space/Echo player sheets must follow Sterling's selected theme.

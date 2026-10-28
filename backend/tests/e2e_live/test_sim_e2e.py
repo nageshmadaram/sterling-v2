@@ -60,6 +60,12 @@ async def settle(world):
         await exch.deliver_postbacks()
 
 
+async def place_supertrend(world, row):
+    S.publish_supertrend_evidence(world.machine, SIM, row)
+    service = world.machine.m('app.services.kite_engine.service')
+    return await service._make_place_cb(world.client, SIM)(row, None)
+
+
 async def sim_pass(world):
     """One runtime pass: resting orders, GTTs and marks, evaluated regardless of the wall-clock session."""
     rt = world.machine.m("app.services.simulation.sim_runtime")
@@ -116,7 +122,7 @@ async def test_a_supertrend_entry_on_the_sim_tenant_fills_virtually_is_protected
     ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 180.0)                       # bid 179.75 / ask 180.25
     ex.spot["NIFTY 50"] = 25000.0
     row = S.supertrend_row(token=int(ex.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"]))
-    await service._make_place_cb(world.client, SIM)(row, None)
+    await place_supertrend(world, row)
     activity = [f"{e.kind}: {e.message}" for e in state.activity(SIM)]
 
     (entry,) = _orders(world, transaction_type="BUY")                       # a virtual order, Kite-shaped
@@ -285,7 +291,7 @@ async def test_a_trailed_virtual_stop_moves_and_the_owners_ticks_exit_the_sim_po
     ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 180.0)
     ex.spot["NIFTY 50"] = 25000.0
     token = int(ex.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"])
-    await service._make_place_cb(world.client, SIM)(S.supertrend_row(token=token), None)
+    await place_supertrend(world, S.supertrend_row(token=token))
     await settle(world)
     pos = positions.get(SIM, S.SUPERTREND_SYMBOL)
     assert pos.status == positions.OPEN and pos.gtt_id and pos.stop_premium == 93.6
@@ -328,7 +334,7 @@ async def test_a_gap_through_the_virtual_stop_leaves_its_child_resting_and_the_e
     ex.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", 180.0)
     ex.spot["NIFTY 50"] = 25000.0
     token = int(ex.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"])
-    await service._make_place_cb(world.client, SIM)(S.supertrend_row(token=token), None)
+    await place_supertrend(world, S.supertrend_row(token=token))
     await settle(world)
     pos = positions.get(SIM, S.SUPERTREND_SYMBOL)
     assert pos.status == positions.OPEN and pos.stop_premium == 93.6 and pos.gtt_id
@@ -379,7 +385,7 @@ async def _enter_supertrend(world, *, ltp: float = 180.0):
     machine.exchange.set_quote(f"NFO:{S.SUPERTREND_SYMBOL}", ltp)
     machine.exchange.spot["NIFTY 50"] = 25000.0
     token = int(machine.exchange.instrument(S.SUPERTREND_SYMBOL, "NFO")["instrument_token"])
-    await service._make_place_cb(world.client, SIM)(S.supertrend_row(token=token), None)
+    await place_supertrend(world, S.supertrend_row(token=token))
     await settle(world)
     return token
 

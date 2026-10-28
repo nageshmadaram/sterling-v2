@@ -2468,7 +2468,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if (radioBooted && radioCatalog) void radioCatalog.load();
       }, 900);
     }
-    function openRadioSources(){radioDirectoryUi?.openSources();}
+    function openRadioSources(){if(!radioDirectoryUi)initRadioDirectory();radioDirectoryUi?.openSources();}
     /* Spotify-style Search / Recents / Your Library, shared with TV (media/spotify-shell.js). */
     let spotifyShell=null,shellCategoryCache={size:-1,list:[]};
     const SHELL_TAGS=[['news','News & talk'],['pop','Pop'],['bollywood','Bollywood'],['rock','Rock'],['jazz','Jazz'],['classical','Classical'],['dance','Dance'],['talk','Talk'],['devotional','Devotional'],['oldies','Oldies'],['hits','Hits'],['folk','Folk'],['sports','Sports']];

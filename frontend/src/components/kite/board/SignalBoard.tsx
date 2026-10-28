@@ -588,7 +588,7 @@ function cellContent(
           <>
             {entry.toFixed(2)}
             {move != null && Math.abs(move) > 0.001 && (
-              <span style={{ fontSize: 9.5, marginLeft: 3, fontWeight: 600, color: move >= 0 ? k.green : k.red }}>
+              <span className="sb-entry-move" style={{ fontSize: 9.5, marginLeft: 3, fontWeight: 600, color: move >= 0 ? k.green : k.red }}>
                 ({move >= 0 ? '+' : ''}{move.toFixed(2)})
               </span>
             )}
@@ -831,7 +831,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
         {signal.mode && MODE_ENGINES.has(signal.engine) && <Pill tone={k.dim} title={signal.viewOnly ? "Signal from a mode this strategy is not set to trade. Switch the strategy to this mode in Settings to trade it." : "Trading mode"}>{MODE_LABEL[signal.mode]}{signal.viewOnly ? " · view only" : ""}</Pill>}
         {/* Right-aligned and tabular so the decimal points line up down the
             column, the same rule the leg cells follow. */}
-        <span style={{
+        <span className="sb-parent-price" style={{
           width: PARENT_METRICS.priceWidth, flexShrink: 0, textAlign: 'right',
           fontSize: 11, color: dirTone, fontVariantNumeric: 'tabular-nums',
         }}>
@@ -840,7 +840,7 @@ function GroupHeader({ signal, legCount, expanded, onToggle, onOpenDetail, nowMs
             : ''}
         </span>
 
-        <span style={{
+        <span className="sb-parent-count" style={{
           width: PARENT_METRICS.countWidth, flexShrink: 0,
           fontSize: 10, color: k.dim, whiteSpace: 'nowrap',
         }}>

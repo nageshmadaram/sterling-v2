@@ -77,6 +77,7 @@ test('real Node gateway retires unguarded player documents and preserves the SPA
     const trade = await fetch(origin + '/');
     assert.equal(trade.status, 200);
     assert.equal(await trade.text(), '<html><body>TRADING APP</body></html>');
+    assert.match(trade.headers.get('content-security-policy') || '', /img-src 'self' data: blob:/);
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /sandbox allow-scripts/);
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /script-src-attr 'unsafe-inline'/);
     assert.doesNotMatch(trade.headers.get('content-security-policy') || '', /media-src https:/);

@@ -54,7 +54,7 @@ describe('Telegram settings end to end', () => {
     expect(await screen.findByText('My alerts')).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith(path, { label: 'My alerts', bot_token: 'synthetic-token', chat_id: '123', enabled: true });
     fireEvent.click(screen.getByRole('button', { name: 'TEST' }));
-    expect(await screen.findByText('✓ Test message delivered')).toBeInTheDocument();
+    expect(await screen.findByText('✓ Telegram accepted the test; check the receiving phone')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Enabled' }));
     await waitFor(() => expect(api.put).toHaveBeenCalledWith(`${path}/one`, { enabled: false }));
     fireEvent.click(screen.getByRole('button', { name: 'EDIT' }));
@@ -85,12 +85,12 @@ describe('Telegram settings end to end', () => {
     targets = [{ id: 'one', label: 'Broken', chat_id: '123', enabled: true, reachable: false,
       bot_token_set: true, bot_token_hint: '', credential_error: 'Saved bot token cannot be decrypted. Enter its token again.' }];
     show();
-    expect(await screen.findByRole('alert')).toHaveTextContent('cannot be decrypted');
+    expect(await screen.findByText('Saved bot token cannot be decrypted. Enter its token again.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'TEST' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'EDIT' }));
     fireEvent.change(screen.getByLabelText('BOT TOKEN'), { target: { value: 'replacement-token' } });
     fireEvent.click(screen.getByRole('button', { name: 'SAVE' }));
-    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText('Saved bot token cannot be decrypted. Enter its token again.')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'TEST' })).toBeEnabled();
   });
 
@@ -109,7 +109,7 @@ describe('Telegram settings end to end', () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(toggle).not.toBeChecked());
     expect(api.put).toHaveBeenCalledWith(`${path}/preferences`, { signal_alerts_enabled: false });
-    expect(screen.getByText(/protection and exit alerts continue/)).toBeInTheDocument();
+    expect(screen.getByText(/protection and exit alerts are not silenced/)).toBeInTheDocument();
   });
 
 });

@@ -57,10 +57,12 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
     if (lastSavedAttempt.current === attempt.id) return;
     lastSavedAttempt.current = attempt.id;
     void qc.invalidateQueries({ queryKey: ['kite-accounts'] });
-    void qc.invalidateQueries({ queryKey: ['kite-status'] });
+    void qc.cancelQueries({ queryKey: ['kite-status'] }).then(() =>
+      qc.invalidateQueries({ queryKey: ['kite-status'] }));
     void qc.invalidateQueries({ queryKey: ['kite-diagnostics-summary'] });
     onSaved?.(attempt.account_id);
   }, [attempt?.id, attempt?.phase, attempt?.account_id, qc, onSaved]);
+
 
   const previewActive = showPreview && !!attempt && ['submitting_password', 'awaiting_totp', 'verifying_totp'].includes(attempt.phase);
   useEffect(() => {

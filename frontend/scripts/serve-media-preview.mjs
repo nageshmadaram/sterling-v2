@@ -10,6 +10,14 @@ const server=http.createServer(async(req,res)=>{
   try{
     const pathname=decodeURIComponent(new URL(req.url,'http://localhost').pathname);
     if(pathname==='/'){res.writeHead(200,{'Content-Type':'text/plain'});res.end('Media preview ready');return;}
+    // Test-only loopback harness reads canonical private templates. Never
+    // recreate the retired, unauthenticated documents under public/.
+    if(['/tv/index.html','/radio/index.html'].includes(pathname)){
+      const kind=pathname.split('/')[1];
+      const template=path.resolve(root,`../../backend/app/media_templates/${kind}.html`);
+      res.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store'});
+      createReadStream(template).on('error',()=>res.destroy()).pipe(res);return;
+    }
     const file=path.resolve(root,'.'+pathname);
     if(!file.startsWith(root+path.sep)||!(await stat(file)).isFile()){res.writeHead(404);res.end();return;}
     res.writeHead(200,{'Content-Type':types[path.extname(file)]||'application/octet-stream','Cache-Control':'no-store'});

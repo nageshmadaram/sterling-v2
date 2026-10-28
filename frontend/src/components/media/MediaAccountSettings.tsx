@@ -10,7 +10,7 @@ export function MediaAccountSettings({kind,theme,onTheme,onFeatures}:{
     <div className="media-account-appearance" role="group" aria-label="Player interface">
       {(['spotify','youtube','netflix'] as const).map(mode=><button key={mode}
         type="button" aria-pressed={theme===mode} onClick={()=>onTheme(mode)}>
-        {mode==='youtube'&&kind==='radio'?'YouTube Music':mode[0].toUpperCase()+mode.slice(1)}
+        {mode==='youtube'?(kind==='radio'?'YouTube Music':'YouTube'):mode==='netflix'?'Netflix':'Spotify'}
       </button>)}
     </div>
     <div className="media-account-actions">

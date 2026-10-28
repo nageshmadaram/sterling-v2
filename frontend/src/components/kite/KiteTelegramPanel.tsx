@@ -402,7 +402,7 @@ export function KiteTelegramPanel() {
                   : status.data.control.error_code === 'NETWORK_ERROR' ? ' The Sterling backend cannot reach Telegram.'
                   : status.data.control.state === 'waiting_configuration' ? ' The backend is missing a usable token/chat configuration.'
                   : ' Use Check Menu Connection to identify the blocker; saved credentials alone are not delivery proof.'}
-              </div>}}
+              </div>}
               <p style={S.hint}>Open your control bot in Telegram and send <CopyHandle text="/menu" />. Commands: /app, /login, /health, /signals, /positions, /orders, /funds, /pcr, /strategies and /help.</p>
               <button style={S.btn} disabled={check.isPending || !status.data.control.configured} onClick={() => check.mutate()}> {check.isPending ? 'CHECKING…' : 'CHECK MENU CONNECTION'}</button>
             </>}

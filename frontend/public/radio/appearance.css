@@ -159,7 +159,7 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
 @media(max-width:1023px) {
   html,body {width:100%;max-width:100%;height:100%;min-height:0;overflow:hidden;touch-action:pan-x pan-y;}
   #spotify-app,#ytmusic-app {max-width:100%;min-height:0;overflow:hidden;}
-  #mobile-player-sheet {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet {
     box-sizing:border-box;width:100%;max-width:100%;
     min-height:100dvh;max-height:100dvh;overflow-y:auto!important;
     overflow-x:hidden!important;
@@ -167,46 +167,46 @@ body.mode-spotify #sp-np-art,body.mode-ytmusic #ytm-stage-art,body.mode-netflix 
       calc(12px + env(safe-area-inset-bottom,0px))!important;
     overscroll-behavior:contain;touch-action:pan-y;
   }
-  #mobile-player-sheet .rnp-main {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-main {
     width:100%;max-width:100%;box-sizing:border-box;
     min-height:calc(100dvh - 24px - env(safe-area-inset-bottom,0px));
     display:flex;flex-direction:column;gap:clamp(6px,1.3dvh,14px);
   }
-  #mobile-player-sheet .radio-mobile-art,
-  #mobile-player-sheet>div:nth-child(2)>div:first-child {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art,
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet>div:nth-child(2)>div:first-child {
     width:min(76vw,36dvh,350px)!important;
     height:min(76vw,36dvh,350px)!important;
     max-width:100%!important;max-height:36dvh!important;
     flex:0 1 auto;margin:clamp(6px,1.5dvh,16px) auto!important;
     aspect-ratio:1;
   }
-  #mobile-player-sheet #sheet-title {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet #sheet-title {
     font-size:clamp(19px,5.3vw,25px)!important;
     line-height:1.25;max-width:100%;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
   }
-  #mobile-player-sheet #sheet-sub {font-size:clamp(11px,3.2vw,14px)!important;}
-  #mobile-player-sheet .radio-np-controls {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet #sheet-sub {font-size:clamp(11px,3.2vw,14px)!important;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-controls {
     display:flex;align-items:center;justify-content:space-between;
     min-width:0;max-width:100%;gap:clamp(5px,2vw,16px);
   }
-  #mobile-player-sheet .radio-np-controls [data-radio-click="56"] {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-controls [data-radio-click="56"] {
     width:clamp(50px,9dvh,68px)!important;
     height:clamp(50px,9dvh,68px)!important;
     min-height:50px!important;
   }
-  #mobile-player-sheet :is(button,a) {touch-action:manipulation;}
-  #mobile-player-sheet .rnp-more {margin-top:clamp(14px,3dvh,28px);}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet :is(button,a) {touch-action:manipulation;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-more {margin-top:clamp(14px,3dvh,28px);}
 }
 @media(max-width:1023px) and (orientation:landscape) {
-  #mobile-player-sheet .rnp-main {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .rnp-main {
     display:grid;grid-template-columns:minmax(0,48%) minmax(0,1fr);
     grid-template-rows:auto auto auto 1fr;column-gap:clamp(10px,2vw,22px);
     min-height:100dvh;
   }
-  #mobile-player-sheet .radio-mobile-art {
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-mobile-art {
     width:min(46vw,80dvh)!important;height:min(46vw,80dvh)!important;
     max-height:80dvh!important;align-self:center;grid-column:1;
   }
-  #mobile-player-sheet .radio-np-controls {grid-column:2;}
+  html body:is(.mode-spotify,.mode-ytmusic,.mode-netflix) #mobile-player-sheet .radio-np-controls {grid-column:2;}
 }

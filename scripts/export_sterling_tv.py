@@ -20,7 +20,7 @@ def export():
     html = re.sub(r'<link rel="stylesheet" href="(/(?:media|tv)/[^\"]+\.css)">', inline, html)
     hls=(PUBLIC / 'media/hls.min.js').read_text().replace('</script', '<\\/script')
     html=html.replace('<script src="/media/hls.min.js"></script>', '<script>\n'+hls+'\n</script>')
-    for name in ['color-scheme.js', 'artwork.js', 'spotify-shell.js', 'extras.js', 'nav-stack.js', 'sheet-swipe.js', 'radio-home.js']:
+    for name in ['mobile-no-zoom.js', 'color-scheme.js', 'artwork.js', 'spotify-shell.js', 'extras.js', 'nav-stack.js', 'sheet-swipe.js', 'radio-home.js']:
         source=(PUBLIC / 'media' / name).read_text().replace('</script','<\\/script')
         html=html.replace('<script src="/media/'+name+'"></script>','<script>\n'+source+'\n</script>')
     comfort = (PUBLIC / 'media/comfort.js').read_text().replace('</script', '<\\/script')

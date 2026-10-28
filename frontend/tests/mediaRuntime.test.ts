@@ -323,6 +323,7 @@ it('Music Mixes chips open categorized stations and safe YouTube links across al
  const {w,errors,flush}=boot('radio');
  (w as any).IntersectionObserver=class {observe(){} unobserve(){} disconnect(){}};
  new Script(readFileSync('media/radio-home.js','utf8')).runInContext(opened.at(-1)!.getInternalVMContext());
+ w.eval("if(!radioCatalog)initRadioDirectory()");
  await w.eval("radioCatalog.reload(window.SterlingRadioPresets.sources().filter(s=>s.kind==='builtin'&&MUSIC_MIX_GROUPS.includes(s.group)))");
  for(const prefix of ['sp-chip-','sp-mchip-','ytm-chip-']){
   (w.document.getElementById(prefix+'mix') as HTMLElement).click();flush();

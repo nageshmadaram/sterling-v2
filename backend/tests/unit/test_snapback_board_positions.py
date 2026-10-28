@@ -16,7 +16,7 @@ def position(uid, key, status=OPEN):
 def prepare(monkeypatch, store):
     monkeypatch.setattr(snapback, "get_config", lambda uid: SnapbackConfig(enabled=True))
     monkeypatch.setattr(snapback, "status", lambda uid: SimpleNamespace(
-        rows=[], scanned=0, scanning=False, last_scan_ms=0, last_error=None, failures=[]))
+        rows=[], scanned=0, scan_total=0, scanning=False, last_scan_ms=0, last_error=None, failures=[]))
     monkeypatch.setattr(snapback_readiness, "live_conditions",
                         lambda *a, **kw: snapback_readiness.LiveConditions(blockers=["kill_switch"]))
     monkeypatch.setattr(snapback_live_positions, "default_store", lambda: store)
