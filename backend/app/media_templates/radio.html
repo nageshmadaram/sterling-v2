@@ -2660,7 +2660,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         if(action==='suggest'&&typeof value==='string')publishRadioSuggestions(value.slice(0,200),event.data.requestId);
         if(action==='select-suggestion'&&typeof value==='string'){const ch=findStationById(value);if(ch){startPlayback(ch);clearAllSearches();}}
         if(action==='sources')openRadioSources();
-        if (action === 'more') { initRadioExtras(); radioExtras?.open(); }
+        if (action === 'more') { closeStartupModal(); closeDspModal(); initRadioExtras(); radioExtras?.open(); }
         if (action === 'startup') openStartupModal();
         if (action === 'minimize') closeMobileSheet();
         if (action === 'back') radioNav?.back();
@@ -4368,7 +4368,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       "19": function(event) { updateCustomEq(); },
       "80": function(event) { loadCategory('all'); },
       "81": function(event) { closeSwPlayer(); },
-      "82": function(event) { initRadioExtras(); radioExtras?.open(); },
+      "82": function(event) { closeStartupModal(); closeDspModal(); initRadioExtras(); radioExtras?.open(); },
       "20": function(event) { loadCategory('shortwave'); },
       "21": function(event) { onSearchInput(this.value, 'sp-clear-desktop'); },
       "22": function(event) { clearAllSearches(); },
