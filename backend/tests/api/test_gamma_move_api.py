@@ -146,6 +146,35 @@ def test_zero_signal_funnel_diagnoses_each_stage():
     })
 
 
+def test_gamma_snapshot_archive_reads_do_not_block_fastapi_loop(client, monkeypatch):
+    import asyncio
+    import threading
+
+    from app.services import gamma_move, gamma_move_history
+
+    main_thread = threading.get_ident()
+    readers = []
+    original_read = gamma_move_history.read_day
+    original_list = gamma_move_history.list_days
+
+    def read_day(owner, day):
+        readers.append(("day", threading.get_ident(), owner))
+        return original_read(owner, day)
+
+    def list_days(owner, limit=60):
+        readers.append(("index", threading.get_ident(), owner))
+        return original_list(owner, limit=limit)
+
+    monkeypatch.setattr(gamma_move_history, "read_day", read_day)
+    monkeypatch.setattr(gamma_move_history, "list_days", list_days)
+
+    body = asyncio.run(gamma_move.snapshot("default"))
+    assert body["today"]
+    assert {kind for kind, _, _ in readers} == {"day", "index"}
+    assert all(thread != main_thread and owner == "default"
+               for _, thread, owner in readers)
+
+
 def test_snapshot_names_the_reference_constraints(client):
     body = client.get("/config/gamma-move/snapshot").json()
     assert body["strategy"]["name"] == "Gamma Unwind V1"

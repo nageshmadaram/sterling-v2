@@ -253,3 +253,28 @@ certification. Unit tests for the read-only filter and worker isolation
 and an initial-hook assertion were added; their execution is still
 blocked by CI runner allocation (#285). Laptop deployment and device
 evidence remain blocked (#277).
+
+
+## Shared event-loop protection for today's EMA/Gamma reads (28 October 2026)
+
+Review of the current API uncovered another cross-strategy latency risk:
+`async def /api/v1/ema-trend/snapshot` called the synchronous
+`snapshot.snapshot(...)` directly, including tenant-scoped SQLite reads,
+up to 2,000 campaign documents and synchronous readiness projection.
+The today-first provider polls it repeatedly. Blocking the asyncio event
+loop can delay the other three strategies even when their own queries
+are prioritized.
+
+The endpoint now uses Sterling's `run_blocking` cancellation-safe worker
+helper for the entire **read-only EMA projection**. Gamma-Unwind's
+`async snapshot` similarly offloads its durable day-archive and
+60-day history-index reads, without moving the mutable live runner,
+scan state or broker protections between threads. Inputs and return
+contracts remain unchanged.
+
+Regression tests assert those reads execute on a worker thread and
+preserve authenticated tenant/mode/date arguments. **Source and test
+changes are not evidence of passing runtime tests**; GitHub Actions
+still fails before runner allocation (#285). Actual event-loop latency,
+host rollout, phone reload and Kite safety receipts remain unverified
+(#277). No trading mode or risk admission setting was changed.

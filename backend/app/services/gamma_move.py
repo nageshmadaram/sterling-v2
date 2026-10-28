@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.core.logging import get_logger
+from app.core.async_work import run_blocking
 from app.services.simulation.identity import is_sim_uid
 from app.engines.gamma_move import (
     CLIENT_TOP_N_OI, CONTRACT_VERSION, GammaMoveConfig, REFERENCE_VERSION,
@@ -366,10 +367,14 @@ async def snapshot(uid: str, day: date | str | None = None) -> dict:
     # its original event day, so a direct historical request after restart can
     # recover old recorded E1s immediately.
     runner.session_for(uid, cfg)
-    archive = gamma_move_history.read_day(uid, selected)
+    # Historical archive reads may decode sizeable durable JSON/SQLite
+    # records. They previously blocked the shared FastAPI loop every time
+    # today's Gamma snapshot was polled. Keep account-scoped reads off-loop;
+    # do not change scan, live watch runtimes or order admission.
+    archive = await run_blocking(gamma_move_history.read_day, uid, selected)
     indexed_days = {
         row["day"]: dict(row)
-        for row in gamma_move_history.list_days(uid, limit=60)
+        for row in await run_blocking(gamma_move_history.list_days, uid, limit=60)
     }
     for recent in recent_trading_days(today, 30):
         key = recent.isoformat()
