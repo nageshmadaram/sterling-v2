@@ -209,5 +209,8 @@ class StrategyRegistryService:
             ))
             db.flush()
             _audit(db, actor, strategy.owner_id, "create_run", "run",
-                   key, reason, None, version.content_sha256)
+                   key, reason, None, _digest({
+                       "run_id": key, "version_id": version.id, "version_sha256": version.content_sha256,
+                       "mode": intent.mode, "state": "queued",
+                   }))
         return key

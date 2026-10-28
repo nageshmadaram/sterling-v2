@@ -155,6 +155,9 @@ def test_duplicate_version_and_lock_are_fail_closed(store, authorized):
         svc.update_strategy(access_token="signed-admin", strategy_id=key,
                             display_name="new", reason="blocked")
     assert _count(engine, "platform_strategy_audit") == 3
+    with pytest.raises(DBAPIError):
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE platform_strategies SET is_locked=0 WHERE id=:id"), {"id": key})
 
 
 def test_metadata_update_and_soft_retirement_are_audited(store, authorized):
@@ -171,6 +174,9 @@ def test_metadata_update_and_soft_retirement_are_audited(store, authorized):
     with engine.connect() as c:
         assert c.execute(text("SELECT state FROM platform_strategies WHERE id=:id"),
                          {"id": key}).scalar_one() == "retired"
+    with pytest.raises(DBAPIError):
+        with engine.begin() as conn:
+            conn.execute(text("UPDATE platform_strategies SET state='draft' WHERE id=:id"), {"id": key})
 
 
 def test_safety_migration_downgrade_requires_disposable_db(store):

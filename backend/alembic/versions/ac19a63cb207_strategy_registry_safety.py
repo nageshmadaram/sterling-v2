@@ -79,10 +79,39 @@ def upgrade():
         op.execute(sa.text("DROP TRIGGER trg_strategy_no_hard_delete_update"))
     else:
         op.execute(sa.text("DROP TRIGGER trg_strategy_no_hard_delete_update ON platform_strategies"))
+    # Once locked or retired, even direct UPDATE cannot re-open the registry.
+    if dialect == "sqlite":
+        op.execute(sa.text("""
+        CREATE TRIGGER trg_strategy_state_monotone BEFORE UPDATE ON platform_strategies
+        WHEN (OLD.is_locked = 1 AND NEW.is_locked <> 1)
+          OR (OLD.state = 'retired' AND NEW.state <> 'retired')
+        BEGIN SELECT RAISE(ABORT, 'locked or retired strategy cannot be reopened'); END
+        """))
+    else:
+        op.execute(sa.text("""
+        CREATE FUNCTION sterling_guard_strategy_state() RETURNS TRIGGER AS $
+        BEGIN
+            IF (OLD.is_locked AND NOT NEW.is_locked)
+               OR (OLD.state = 'retired' AND NEW.state <> 'retired') THEN
+                RAISE EXCEPTION 'locked or retired strategy cannot be reopened';
+            END IF;
+            RETURN NEW;
+        END;
+        $ LANGUAGE plpgsql
+        """))
+        op.execute(sa.text("""
+        CREATE TRIGGER trg_strategy_state_monotone BEFORE UPDATE ON platform_strategies
+        FOR EACH ROW EXECUTE FUNCTION sterling_guard_strategy_state()
+        """))
 
 
 def downgrade():
     dialect = _dialect()
+    if dialect == "sqlite":
+        op.execute(sa.text("DROP TRIGGER trg_strategy_state_monotone"))
+    else:
+        op.execute(sa.text("DROP TRIGGER trg_strategy_state_monotone ON platform_strategies"))
+        op.execute(sa.text("DROP FUNCTION sterling_guard_strategy_state()"))
     for prefix, table, actions in (
         ("trg_strategy_versions_immutable", "platform_strategy_versions", ("update", "delete")),
         ("trg_strategy_audit_immutable", "platform_strategy_audit", ("update", "delete")),
