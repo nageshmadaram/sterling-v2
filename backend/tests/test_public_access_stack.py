@@ -233,222 +233,116 @@ def test_backend_failure_does_not_require_new_tunnel(monkeypatch):
  assert stack.tunnel_unavailable('https://public.example',5180) is False
 
 
-def test_ngrok_launch_preserves_fixed_hostname(monkeypatch):
+def test_cloudflare_named_tunnel_keeps_configured_hostname(monkeypatch, tmp_path):
  from types import SimpleNamespace
- args=SimpleNamespace(provider='ngrok',hostname='https://fixed.ngrok-free.dev',port=5180)
- instance=stack.Stack(args);instance.binary='/usr/local/bin/ngrok'
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ instance=stack.Stack(SimpleNamespace(provider='cloudflare',
+     hostname='https://named.example.test',port=5180,dev=False,dev_port=5174))
+ instance.binary='/usr/bin/cloudflared'
  monkeypatch.setattr(instance,'stop_child',lambda name:None)
  calls=[]
  class Process:
   pid=123
   stdout=[]
  def spawn(command,**kwargs):
-  calls.append(command)
-  return Process()
+  calls.append(command);return Process()
  monkeypatch.setattr(stack.subprocess,'Popen',spawn)
  instance.launch_tunnel();instance.launch_tunnel()
  assert calls[0]==calls[1]
- assert calls[0][1:]==['http','http://127.0.0.1:5180','--url',args.hostname,'--inspect=false','--log','stdout','--log-format','json']
- assert instance.status['app_url']==args.hostname
- assert instance.status['mode']=='ngrok'
+ assert calls[0][:3]==['/usr/bin/cloudflared','tunnel','--no-autoupdate']
+ assert calls[0][-1]=='run'
+ assert instance.status['app_url']=='https://named.example.test'
+ assert instance.status['cloudflare_url']==instance.status['app_url']
+ assert instance.status['mode']=='named'
+ assert set(instance.children)=={'cloudflare'}
 
 
-def test_dual_publication_is_atomic_and_fails_closed_for_invalid_secondary():
+def test_cloudflare_only_publication_is_atomic_and_rejects_legacy_mode():
  from app.services import db,public_access
  db.init()
- first=public_access.publish('https://primary.example.test',mode='both',
-     alternate_origins={'ngrok':'https://alternate.ngrok-free.app'})
- assert first['app_url']=='https://primary.example.test'
- assert first['urls']=={'cloudflare':'https://primary.example.test','ngrok':'https://alternate.ngrok-free.app'}
- assert first['callback_url']=='https://primary.example.test/api/v1/kite/callback'
- assert public_access.status()['urls']==first['urls']
+ current=public_access.publish('https://primary.example.test',mode='quick')
+ assert current['urls']=={'cloudflare':'https://primary.example.test'}
+ assert current['callback_url']=='https://primary.example.test/api/v1/kite/callback'
+ assert public_access.status()['urls']==current['urls']
  assert db.get_config_strict('sterling_tma_url')=='https://primary.example.test/tma'
  with pytest.raises(ValueError):
-  public_access.publish('https://changed.example.test',mode='both',
-      alternate_origins={'ngrok':'http://localhost:5180'})
+  public_access.publish('https://other.example.test',mode='both')
+ with pytest.raises(ValueError):
+  public_access.publish('https://other.example.test',mode='ngrok')
+ with pytest.raises(ValueError):
+  public_access.publish('https://invalid.ngrok-free.dev',mode='quick')
  assert public_access.status()['app_url']=='https://primary.example.test'
- # A lost tunnel is removed from the published secondary set on next
- # successful primary verification, without changing primary callback URL.
- single=public_access.publish('https://primary.example.test',mode='both')
- assert single['urls']=={'cloudflare':'https://primary.example.test'}
  with db._conn() as connection:
   connection.execute("DELETE FROM system_config WHERE key IN ('sterling_public_access','sterling_tma_url')")
   connection.commit()
 
 
-def test_menu_links_both_verified_tunnels_and_one_primary_miniapp(monkeypatch):
+def test_cloudflare_menu_has_single_launch_link(monkeypatch):
  from app.services.notifications import telegram_kite as desk
  from app.services import public_access
  monkeypatch.setattr(public_access,'status',lambda:{
     'app_url':'https://cf.example.test',
-    'urls':{'cloudflare':'https://cf.example.test',
-            'ngrok':'https://secondary.ngrok-free.app'}})
+    'urls':{'cloudflare':'https://cf.example.test'}})
  monkeypatch.setattr(desk,'_get_tma_url',lambda:'https://cf.example.test/tma')
  buttons=desk.kite_menu_kb()['inline_keyboard']
  assert buttons[0]==[{'text':'☁️ Sterling · Cloudflare','url':'https://cf.example.test'}]
- assert buttons[1]==[{'text':'🌐 Sterling · ngrok','url':'https://secondary.ngrok-free.app'}]
- assert buttons[2][0]['web_app']['url']=='https://cf.example.test/tma'
  assert sum('web_app' in entry for row in buttons for entry in row)==1
 
 
-def test_secondary_ngrok_never_exposes_unverified_or_local_hostname():
+def test_cloudflare_only_launcher_preserves_dev_and_backend(monkeypatch,tmp_path):
  from types import SimpleNamespace
- assert stack.safe_hostname('https://fixed.ngrok-free.app/','ngrok')=='https://fixed.ngrok-free.app'
- for value in ('http://localhost:5180','https://127.0.0.1',
-               'https://example.test/path','https://bad.example.test?token=1',
-               'https://bad.example.test:5180'):
-  with pytest.raises(ValueError):
-   stack.safe_hostname(value,'ngrok')
- good=json.dumps({'lvl':'info','msg':'started tunnel',
-                 'url':'https://auto.ngrok-free.app'})
- assert stack.ngrok_url_from_log(good)=='https://auto.ngrok-free.app'
- assert stack.ngrok_url_from_log(json.dumps({'msg':'authentication token error',
-      'url':'https://auto.ngrok-free.app'}))==''
- assert stack.ngrok_url_from_log(json.dumps({'msg':'started tunnel',
-      'url':'http://localhost:5180'}))==''
- assert stack.ngrok_url_from_log(json.dumps({'msg':'started tunnel',
-      'url':'https://attacker.example.test'}))==''
-
-
-def test_dual_launcher_starts_optional_secondary_and_dev_on_same_backend(monkeypatch,tmp_path):
- class VacantPort:
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ instance=stack.Stack(SimpleNamespace(provider='cloudflare',hostname='',
+     port=5180,dev=True,dev_port=5174))
+ class Probe:
   def __enter__(self):return self
-  def __exit__(self,*args):return None
+  def __exit__(self,*args):return False
   def connect_ex(self,address):return 1
- monkeypatch.setattr(stack.socket,'socket',lambda:VacantPort())
- from types import SimpleNamespace
- args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='https://secondary.ngrok-free.app',
-                      port=5180,dev=True,dev_port=5174)
- instance=stack.Stack(args)
- instance.ngrok_binary='/usr/local/bin/ngrok'
+ monkeypatch.setattr(stack.socket,'socket',lambda:Probe())
  created=[]
  class Process:
   pid=321
-  stdout=[]
   def poll(self):return None
  def spawn(command,**kwargs):
   created.append((command,kwargs))
   return Process()
  monkeypatch.setattr(stack.subprocess,'Popen',spawn)
- monkeypatch.setattr(stack,'STATE',tmp_path)
  monkeypatch.setattr(instance,'stop_child',lambda *_:None)
- instance.launch_ngrok()
  instance.start_dev()
- assert created[0][0]==[
-   '/usr/local/bin/ngrok','http','http://127.0.0.1:5180','--url',
-   'https://secondary.ngrok-free.app','--inspect=false','--log','stdout',
-   '--log-format','json']
- assert created[1][0]==['npm','run','dev','--','--host','127.0.0.1',
-                        '--port','5174','--strictPort']
- assert created[1][1]['env']['API_TARGET']=='http://127.0.0.1:8000'
+ assert created[0][0]==['npm','run','dev','--','--host','127.0.0.1',
+                          '--port','5174','--strictPort']
+ assert created[0][1]['env']['API_TARGET']=='http://127.0.0.1:8000'
  assert instance.status['local_url']=='http://127.0.0.1:5180'
  assert instance.status['dev_url']=='http://127.0.0.1:5174'
- assert instance.status['ngrok_url']=='https://secondary.ngrok-free.app'
+ assert instance.children.keys()=={'dev'}
+ assert instance.backend_owned is False
 
 
-def test_primary_publisher_receives_only_verified_secondary(monkeypatch):
+def test_cloudflare_only_publisher_calls_public_access_once(monkeypatch):
  from types import SimpleNamespace
- args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False)
- instance=stack.Stack(args)
+ instance=stack.Stack(SimpleNamespace(provider='cloudflare',hostname='',
+     port=5180,dev=False,dev_port=5174))
  instance.python='python'
  instance.status.update(app_url='https://cf.example.test',
-     ngrok_url='https://secondary.ngrok-free.app',
-     public_ready={'cloudflare':True,'ngrok':True})
+    public_ready={'cloudflare':True})
  calls=[]
  def publish(cmd,**kwargs):
   calls.append(cmd)
   return SimpleNamespace(returncode=0,stdout='{"published":true,"telegram_menu_updated":true}')
  monkeypatch.setattr(stack.subprocess,'run',publish)
  assert instance.publish()
- assert calls[-1][-3:]==['https://cf.example.test','both',
-                         'https://secondary.ngrok-free.app']
+ assert calls[-1][-2:]==['https://cf.example.test','quick']
  assert instance.status['callback_url']=='https://cf.example.test/api/v1/kite/callback'
- instance.status['public_ready']['ngrok']=False
- assert instance.publish()
- assert calls[-1][-1]==''
 
 
-def test_named_primary_and_single_ngrok_urls_are_reported_without_guessing(monkeypatch,tmp_path):
- from types import SimpleNamespace
- monkeypatch.setattr(stack,'STATE',tmp_path)
- calls=[]
- class Process:
-  pid=412
-  stdout=[]
-  def poll(self):return None
- def fake_popen(command,**kwargs):
-  calls.append(command)
-  return Process()
- monkeypatch.setattr(stack.subprocess,'Popen',fake_popen)
- for provider,host,key in [
-   ('both','https://named-cloudflare.example.test','cloudflare_url'),
-   ('ngrok','https://reserved.ngrok-free.app','ngrok_url'),
- ]:
-  args=SimpleNamespace(provider=provider,hostname=host,port=5180,
-       dev=False,dev_port=5174,ngrok_hostname='')
-  supervisor=stack.Stack(args)
-  supervisor.binary='/usr/bin/cloudflared' if provider=='both' else '/usr/bin/ngrok'
-  supervisor.launch_tunnel()
-  assert supervisor.status['app_url']==host
-  assert supervisor.status[key]==host
-  assert supervisor.status['tunnel_started_at']
- assert calls[0][:3]==['/usr/bin/cloudflared','tunnel','--no-autoupdate']
- assert calls[1][:3]==['/usr/bin/ngrok','http','http://127.0.0.1:5180']
-
-
-def test_missing_ngrok_does_not_stop_cloudflare_or_backend(monkeypatch,tmp_path):
- from types import SimpleNamespace
- monkeypatch.setattr(stack,'STATE',tmp_path)
- args=SimpleNamespace(provider='both',hostname='',ngrok_hostname='',
-      port=5180,dev=True,dev_port=5174)
- supervisor=stack.Stack(args)
- supervisor.ngrok_binary=None
- supervisor.children['backend']=object()
- supervisor.launch_ngrok()
- assert supervisor.status['ngrok_error']=='NGROK_BINARY_NOT_INSTALLED'
- assert supervisor.status['ngrok_url']==''
- assert 'backend' in supervisor.children
- assert supervisor.status['local_url']=='http://127.0.0.1:5180'
-
-
-def test_unverified_ngrok_republication_preserves_primary_without_secondary(monkeypatch):
- from types import SimpleNamespace
- args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False)
- supervisor=stack.Stack(args)
- supervisor.python='python'
- supervisor.status.update(app_url='https://named.example.test',
-     ngrok_url='https://secondary.ngrok-free.app',
-     public_ready={'cloudflare':True,'ngrok':False})
- calls=[]
- def fake_publisher(command,**kwargs):
-  calls.append(command)
-  return SimpleNamespace(returncode=0,
-      stdout='{"published":true,"telegram_menu_updated":true}')
- monkeypatch.setattr(stack.subprocess,'run',fake_publisher)
- assert supervisor.publish()
- assert calls[-1][-1]==''
- assert supervisor.status['callback_url']=='https://named.example.test/api/v1/kite/callback'
-
-
-def test_ngrok_https_is_trusted_only_when_supervisor_owns_matching_tunnel(gateway,tmp_path):
+def test_secondary_forwarded_headers_are_untrusted(gateway,tmp_path):
  status=tmp_path/'status.json'
- status.write_text(json.dumps({
-   'ngrok_url':'https://verified.ngrok-free.app','children':{'ngrok':456},
-   'phase':'ready',
- }))
- def request(host):
-  req=urllib.request.Request(gateway+'/api/v1/test',headers={
-   'Host':host,'Authorization':'Bearer test','X-Forwarded-Proto':'https'})
-  with urllib.request.urlopen(req) as response:return json.load(response)
- good=request('verified.ngrok-free.app')
- assert good['proto']=='https'
- assert good['host']=='verified.ngrok-free.app'
- assert request('untrusted.example.test')['proto']=='http'
- status.write_text(json.dumps({
-   'ngrok_url':'https://verified.ngrok-free.app','children':{'ngrok':456},
-   'phase':'stopped',
- }))
- assert request('verified.ngrok-free.app')['proto']=='http'
+ status.write_text(json.dumps({'phase':'ready','children':{},'cloudflare_url':''}))
+ req=urllib.request.Request(gateway+'/api/v1/test',headers={
+  'Host':'other.example.test','Authorization':'Bearer test','X-Forwarded-Proto':'https'})
+ with urllib.request.urlopen(req) as response:
+  payload=json.load(response)
+ assert payload['proto']=='http'
 
 
 def test_ss_listener_parser_recognizes_only_reported_listening_pid(monkeypatch):
@@ -531,7 +425,7 @@ def test_exited_gateway_does_not_count_as_started(monkeypatch):
 
 def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,capsys):
  monkeypatch.setattr(stack,'STATE',tmp_path)
- existing={'manager_pid':80808,'manager_protocol':4,'mode':'both',
+ existing={'manager_pid':80808,'manager_protocol':4,'mode':'quick',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
   'local_url':'http://127.0.0.1:5180',
   'public_ready':{'cloudflare':True,'ngrok':True},
@@ -557,7 +451,7 @@ def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,caps
 def test_up_recovers_missing_adopted_backend_via_single_manager_restart(monkeypatch,tmp_path):
  from types import SimpleNamespace
  monkeypatch.setattr(stack,'STATE',tmp_path)
- old={'manager_pid':909,'manager_protocol':4,'mode':'both','phase':'reconnecting',
+ old={'manager_pid':909,'manager_protocol':4,'mode':'quick','phase':'reconnecting',
       'web_port':5180,'dev_url':'http://127.0.0.1:5174','children':{'web':810}}
  monkeypatch.setattr(stack,'read_state',lambda:old)
  running={'value':True}
@@ -583,7 +477,7 @@ def test_up_recovers_missing_adopted_backend_via_single_manager_restart(monkeypa
 
 def test_up_preserves_bound_backend_during_reconnect(monkeypatch,tmp_path):
  monkeypatch.setattr(stack,'STATE',tmp_path)
- old={'manager_pid':909,'manager_protocol':4,'mode':'both','phase':'reconnecting',
+ old={'manager_pid':909,'manager_protocol':4,'mode':'quick','phase':'reconnecting',
       'web_port':5180,'dev_url':'http://127.0.0.1:5174'}
  monkeypatch.setattr(stack,'read_state',lambda:old)
  monkeypatch.setattr(stack,'alive',lambda pid:True)
@@ -659,7 +553,7 @@ def test_healthy_manager_must_own_listener_not_just_responsive_port(monkeypatch)
 def test_start_web_reclaims_old_matching_listener_before_spawning(monkeypatch,tmp_path):
  from types import SimpleNamespace
  monkeypatch.setattr(stack,'STATE',tmp_path)
- args=SimpleNamespace(provider='both',hostname='',port=5180,dev=True,dev_port=5174)
+ args=SimpleNamespace(provider='cloudflare',hostname='',port=5180,dev=True,dev_port=5174)
  manager=stack.Stack(args)
  order=[]
  class Probe:
@@ -686,7 +580,7 @@ def test_start_web_reclaims_old_matching_listener_before_spawning(monkeypatch,tm
 def test_start_web_refuses_unknown_listener_without_launching_second(monkeypatch,tmp_path):
  from types import SimpleNamespace
  monkeypatch.setattr(stack,'STATE',tmp_path)
- args=SimpleNamespace(provider='both',hostname='',port=5180,dev=False,dev_port=5174)
+ args=SimpleNamespace(provider='cloudflare',hostname='',port=5180,dev=False,dev_port=5174)
  manager=stack.Stack(args)
  class Probe:
   def __enter__(self):return self
@@ -707,7 +601,7 @@ def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp
  monkeypatch.setenv('STERLING_UP_WAIT_SECONDS','0')
  monkeypatch.setattr(stack,'STATE',tmp_path)
  monkeypatch.setattr(stack,'read_state',lambda:{
-  'manager_pid':80808,'manager_protocol':4,'mode':'both',
+  'manager_pid':80808,'manager_protocol':4,'mode':'quick',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,
   'phase':'starting','local_url':'http://127.0.0.1:5180'})
  monkeypatch.setattr(stack,'alive',lambda pid:True)
@@ -856,7 +750,7 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
 def test_release_update_worker_reports_committed_version_without_restarting_services(monkeypatch,tmp_path):
  from types import SimpleNamespace
  monkeypatch.setattr(stack,'STATE',tmp_path)
- manager=stack.Stack(SimpleNamespace(provider='both',hostname='',
+ manager=stack.Stack(SimpleNamespace(provider='cloudflare',hostname='',
                                      port=5180,dev=True,dev_port=5174))
  monkeypatch.setattr(manager.publisher,'publish',lambda:('c'*40,True))
  monkeypatch.setattr(stack.subprocess,'run',
@@ -871,7 +765,7 @@ def test_release_update_worker_reports_committed_version_without_restarting_serv
 def test_release_update_worker_fails_closed_and_retains_prior_release(monkeypatch,tmp_path):
  from types import SimpleNamespace
  monkeypatch.setattr(stack,'STATE',tmp_path)
- manager=stack.Stack(SimpleNamespace(provider='both',hostname='',
+ manager=stack.Stack(SimpleNamespace(provider='cloudflare',hostname='',
                                      port=5180,dev=True,dev_port=5174))
  def fail_compile():
   raise subprocess.CalledProcessError(2,['npm','run','build'])
@@ -896,7 +790,7 @@ def test_stopped_manager_never_reports_cached_tunnels_as_verified(monkeypatch,tm
  monkeypatch.setattr(stack,'STATE',tmp_path)
  old={
   'manager_pid':3386654, 'phase':'stopped','local_url':'http://127.0.0.1:5180',
-  'dev_url':'http://127.0.0.1:5174','mode':'both',
+  'dev_url':'http://127.0.0.1:5174','mode':'quick',
   'public_ready':{'cloudflare':True,'ngrok':True},
   'urls':{'cloudflare':'https://cf.example.test','ngrok':'https://ngrok.example.test'},
   'cloudflare_url':'https://cf.example.test','ngrok_url':'https://ngrok.example.test',
@@ -922,7 +816,7 @@ def test_stopped_manager_never_reports_cached_tunnels_as_verified(monkeypatch,tm
 
 
 def test_live_manager_with_dead_gateway_does_not_claim_public_readiness():
- cached={'phase':'ready','mode':'both','public_ready':{'cloudflare':True,'ngrok':True},
+ cached={'phase':'ready','mode':'quick','public_ready':{'cloudflare':True,'ngrok':True},
          'urls':{'cloudflare':'https://cf.example.test'}}
  from unittest.mock import patch
  with patch.object(stack,'_managed_web_owns_port',return_value=False):
@@ -933,7 +827,7 @@ def test_live_manager_with_dead_gateway_does_not_claim_public_readiness():
 
 
 def test_verified_tunnels_preserved_when_gateway_owned_and_supervised():
- cached={'phase':'ready','mode':'both','public_ready':{'cloudflare':True,'ngrok':False},
+ cached={'phase':'ready','mode':'quick','public_ready':{'cloudflare':True,'ngrok':False},
          'urls':{'cloudflare':'https://cf.example.test','ngrok':'https://old.ngrok.test'},
          'mini_app_url':'https://cf.example.test/tma',
          'callback_url':'https://cf.example.test/api/v1/kite/callback'}
@@ -950,7 +844,7 @@ def test_verified_tunnels_preserved_when_gateway_owned_and_supervised():
 
 def test_last_known_public_urls_are_hidden_when_backend_dies(monkeypatch):
  """Gateway and tunnels can be alive after an adopted API has vanished."""
- cached={'phase':'ready','mode':'both',
+ cached={'phase':'ready','mode':'quick',
          'public_ready':{'cloudflare':True,'ngrok':True},
          'urls':{'cloudflare':'https://old-cf.example.test',
                  'ngrok':'https://old-ngrok.example.test'},
@@ -1042,17 +936,15 @@ def test_wait_for_up_status_returns_genuinely_verified_urls(monkeypatch):
  assert stack.wait_for_up_status(999,seconds=2)==state
 
 
-def test_ngrok_stays_visible_even_when_cloudflare_is_reconnecting(monkeypatch,capsys):
+def test_public_dashboard_never_renders_legacy_secondary(monkeypatch,capsys):
  monkeypatch.setattr(stack,'_terminal_color_enabled',lambda:False)
  state={'phase':'reconnecting','public_ready':{'cloudflare':False,'ngrok':True},
-        'urls':{'ngrok':'https://verified.ngrok-free.dev'},
-        'ngrok_url':'https://verified.ngrok-free.dev',
+        'urls':{'ngrok':'https://retired.ngrok-free.dev'},
         'cloudflare_url':'https://unverified.trycloudflare.com'}
  stack.print_up_dashboard(state,reused=True,gateway_ready=True)
  out=capsys.readouterr().out
- assert 'LOCAL APP' in out and 'READY' in out
- assert 'NGROK' in out and 'VERIFIED' in out
- assert 'https://verified.ngrok-free.dev' in out
+ assert 'NGROK' not in out.upper()
+ assert 'retired.ngrok-free.dev' not in out
  assert 'https://unverified.trycloudflare.com (unverified)' in out
 
 
@@ -1155,7 +1047,7 @@ def test_gateway_ownership_resolves_relative_script_in_same_checkout(monkeypatch
 
 
 def test_startup_reports_discovered_url_before_verification(monkeypatch):
- initial={'manager_pid':999,'phase':'starting','mode':'both'}
+ initial={'manager_pid':999,'phase':'starting','mode':'quick'}
  discovered={**initial,'cloudflare_url':'https://new.trycloudflare.com'}
  ready={**discovered,'phase':'ready','ngrok_url':'https://new.ngrok-free.app',
         'public_ready':{'cloudflare':True,'ngrok':True}}
@@ -1170,7 +1062,7 @@ def test_startup_reports_discovered_url_before_verification(monkeypatch):
  assert not updates[1].get('public_ready')
 
 
-@pytest.mark.parametrize('mode,provider',[('ngrok','ngrok'),('quick','cloudflare'),('named','cloudflare')])
+@pytest.mark.parametrize('mode,provider',[('quick','cloudflare'),('named','cloudflare')])
 def test_single_provider_startup_does_not_wait_for_unused_tunnel(monkeypatch,mode,provider):
  state={'manager_pid':999,'phase':'ready','mode':mode,'public_ready':{provider:True}}
  monkeypatch.setattr(stack,'read_state',lambda:state)
@@ -1180,37 +1072,36 @@ def test_single_provider_startup_does_not_wait_for_unused_tunnel(monkeypatch,mod
  assert stack.wait_for_up_status(999,seconds=2)==state
 
 
-def test_ngrok_quota_error_is_reported_without_echoing_provider_page(monkeypatch,capsys):
+def test_provider_http_error_does_not_echo_private_body(monkeypatch,capsys):
  import io
- def exhausted(*args,**kwargs):
-  raise urllib.error.HTTPError('https://quota.ngrok-free.dev',403,'Forbidden',{},
-                               io.BytesIO(b'private provider text ERR_NGROK_725'))
- monkeypatch.setattr(stack,'fetch',exhausted)
- assert stack.probe_public_endpoint('https://quota.ngrok-free.dev')==(False,'ERR_NGROK_725')
- state={'mode':'both','public_errors':{'ngrok':'ERR_NGROK_725'},
-        'ngrok_url':'https://quota.ngrok-free.dev'}
+ def denied(*args,**kwargs):
+  raise urllib.error.HTTPError('https://cf.example.test',403,'Forbidden',{},
+                               io.BytesIO(b'private provider error'))
+ monkeypatch.setattr(stack,'fetch',denied)
+ assert stack.probe_public_endpoint('https://cf.example.test')==(False,'APP_HTTP_403')
+ state={'mode':'quick','public_errors':{'cloudflare':'APP_HTTP_403'}}
  stack.print_up_dashboard(state,reused=True,gateway_ready=True)
  out=capsys.readouterr().out
- assert 'Monthly bandwidth exhausted (ERR_NGROK_725)' in out
- assert 'UNAVAILABLE' in out and 'private provider text' not in out
+ assert 'APP_HTTP_403' in out
+ assert 'private provider error' not in out
+
 
 @pytest.mark.parametrize('verified,expected',[
- ({'cloudflare':True,'ngrok':True},'ready'),
- ({'cloudflare':True,'ngrok':False},'degraded'),
- ({'cloudflare':False,'ngrok':True},'degraded'),
- ({'cloudflare':False,'ngrok':False},'reconnecting'),
  ({'cloudflare':True},'ready'),
+ ({'cloudflare':False},'reconnecting'),
 ])
-def test_provider_phase_reports_partial_availability(verified,expected):
+def test_provider_phase_reports_availability(verified,expected):
  assert stack.public_phase(verified)==expected
 
 
-def test_publication_selects_only_a_verified_provider():
- state={'app_url':'https://primary.example','public_ready':{'cloudflare':False,'ngrok':True},
-        'urls':{'ngrok':'https://working.example'}}
- assert stack.verified_origin(state)=='https://working.example'
- state['public_ready']['ngrok']=False
+def test_publication_selects_only_verified_cloudflare():
+ state={'app_url':'https://primary.example',
+        'public_ready':{'cloudflare':False},
+        'urls':{'cloudflare':'https://primary.example'}}
  assert stack.verified_origin(state)==''
+ state['public_ready']['cloudflare']=True
+ assert stack.verified_origin(state)=='https://primary.example'
+
 
 @pytest.mark.parametrize('route,expected',[
  ('/','APP_TIMEOUT'),('/tma','TELEGRAM_TIMEOUT'),('/health','HEALTH_TIMEOUT'),
