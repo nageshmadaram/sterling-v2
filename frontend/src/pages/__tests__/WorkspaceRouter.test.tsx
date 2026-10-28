@@ -32,14 +32,43 @@ for (let mask = 0; mask < 8; mask++) it(`offers granted workspaces and access re
   }
   expect(screen.queryByText(/runtime mounted/)).toBeNull();
 });
-it('revokes a mounted feature and automatically sends a deduplicated access request', async () => {
+it('revokes a mounted feature without sending a request until explicitly clicked', async () => {
   const policy = { ...base, features: { kite: false, tv: true, radio: false } }; const client = show(policy);
   fireEvent.click(await screen.findByRole('button', { name: 'Open Space' })); await screen.findByText('tv runtime mounted');
   act(() => client.setQueryData(['sterling-session-policy'], { ...policy, features: base.features }));
   await screen.findByRole('heading', { name: 'Space is not enabled for your account' });
   expect(screen.queryByText('tv runtime mounted')).toBeNull();
+  expect(api.post).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: '← Back to workspaces' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Request access to Space' }));
+  await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1));
   expect(api.post).toHaveBeenCalledWith('/api/v1/settings/access-requests', { feature: 'tv' });
 });
+
+it('shows a back button above the access screen and never requests when navigating back', async () => {
+  show({ ...base });
+  fireEvent.click(await screen.findByRole('button', { name: 'Request access to Kite' }));
+  expect(await screen.findByRole('heading', { name: 'Kite is not enabled for your account' })).toBeInTheDocument();
+  expect(api.post).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '← Back to workspaces' }));
+  expect(await screen.findByRole('heading', { name: 'Choose your workspace' })).toBeInTheDocument();
+  expect(api.post).not.toHaveBeenCalled();
+});
+
+it('does not expose hidden Kite in the chooser, including direct URL requests', async () => {
+  const visibility = {kite:false,radio:true,tv:true};
+  const policy = {...base,features:{kite:false,radio:true,tv:true},visibility};
+  show(policy);
+  await screen.findByRole('heading',{name:'Choose your workspace'});
+  expect(screen.queryByRole('button',{name:/Kite/})).toBeNull();
+  expect(screen.getByRole('button',{name:'Open Echo'})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Open Space'})).toBeInTheDocument();
+  act(()=>window.dispatchEvent(new CustomEvent('sterling-navigate',{detail:'kite'})));
+  await screen.findByRole('heading',{name:'Workspace unavailable'});
+  expect(screen.queryByRole('button',{name:/Request access to Kite/})).toBeNull();
+  expect(api.post).not.toHaveBeenCalled();
+});
+
 it('opens admin management directly, with no empty-feature message', async () => {
   show({ ...base, role: 'admin', administrator: true }); await screen.findByText('Central administration mounted');
   expect(screen.queryByText('No features enabled')).toBeNull(); expect(screen.queryByText('Kite runtime mounted')).toBeNull();
