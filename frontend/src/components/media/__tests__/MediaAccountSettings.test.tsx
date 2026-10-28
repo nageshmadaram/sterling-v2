@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import {MediaAccountSettings} from '../MediaAccountSettings';
 import {MediaHeaderControls} from '../MediaHeaderControls';
 
-afterEach(()=>cleanup());
+afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 
 describe('mobile media appearance moved to the hamburger',()=>{
   it.each(['tv','radio'] as const)('keeps search in the header and removes the sun for %s',kind=>{
