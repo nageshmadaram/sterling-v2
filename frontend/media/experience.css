@@ -472,3 +472,20 @@ html[data-radio-category]:not([data-radio-home="1"]) #radio-home-shelves{display
 @media(max-width:1023px){.rh-row-large .rh-card{width:186px}.rh-row-large .rh-card img{width:186px;height:186px}}
 .rh-row-large .rh-tile .rh-mosaic{width:180px;height:180px}.rh-row-large .rh-tile .rh-mosaic img{width:90px;height:90px}@media(max-width:1023px){.rh-row-large .rh-tile .rh-mosaic{width:186px;height:186px}.rh-row-large .rh-tile .rh-mosaic img{width:93px;height:93px}}
 .radio-genre-chips[hidden]{display:none!important}
+
+/* Sterling unified player refinement */
+@media(max-width:767px) {
+  #startup-modal>div,#audio-dsp-modal>div {
+    box-sizing:border-box;width:100%!important;max-width:100%!important;
+    flex:0 0 auto;border-radius:24px 24px 0 0!important;
+    max-height:min(88dvh,740px)!important;overflow-y:auto;
+    touch-action:pan-y;overscroll-behavior:contain;
+  }
+  #startup-modal>div::before,#audio-dsp-modal>div::before {
+    content:"";display:block;width:38px;height:4px;border-radius:8px;
+    background:currentColor;opacity:.28;margin:0 auto 16px;
+  }
+}
+.media-comfort {overscroll-behavior:contain;}
+html.media-cursor-idle body,html.media-cursor-idle body * {cursor:none!important;}
+
