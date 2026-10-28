@@ -43,7 +43,7 @@ export function WorkspaceRouter() {
   return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''}`}>
     {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
       <span className="workspace-current">{current === 'administration' ? 'Administration' : current === 'home' ? '' : WORKSPACE_NAMES[current]}</span>
-      <div id="workspace-toolbar" className="workspace-personal" /><AccountMenu /></header>}
+      <div id="workspace-toolbar" className="workspace-personal" /><AccountMenu mediaKind={current==='tv'||current==='radio'?current:undefined}/></header>}
     {policy.isLoading ? <main className="workspace-state" role="status">Opening your workspace…</main> : !session ? <main className="workspace-state"><h1>Access could not be verified</h1><p role="alert">{policy.error?.message || 'Try the connection again.'}</p><button onClick={() => void policy.refetch()}>Retry</button></main> :
       !allowed && FEATURES.includes(current as Feature) ? <WorkspaceAccessRequest key={current} feature={current as Feature} onBack={() => navigate('home')} /> : !allowed ? <main className="workspace-state"><h1>Administrator access required</h1><button onClick={() => navigate('home')}>Return to your workspaces</button></main> :
       current === 'home' ? <main className="workspace-launcher">{chooser}</main> : <Suspense fallback={<main className="workspace-state" role="status">Opening workspace…</main>}>

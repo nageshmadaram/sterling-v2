@@ -146,6 +146,7 @@ async def check_control(user: UserContext = Depends(get_current_user)) -> dict:
         )
         messages = {
             "POLL_CONFLICT": "Another process is polling this bot token. Stop the duplicate poller; do not reset the bot token.",
+            "WEBHOOK_ACTIVE": "A webhook is handling updates for this bot, so Sterling long-polling cannot receive commands. Reconfigure the old webhook owner or explicitly migrate the bot to Sterling polling.",
             "POLL_STALLED": "Telegram polling has stalled. Check the backend and Telegram worker logs.",
             "RATE_LIMITED": "Telegram rate-limited this bot; polling will retry.",
             "NETWORK_ERROR": "The backend cannot reach Telegram; polling will retry.",

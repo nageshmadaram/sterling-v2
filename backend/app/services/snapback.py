@@ -2419,9 +2419,11 @@ def _snapshot_readonly(uid: str, cfg: SnapbackConfig, st: ScanState) -> dict:
         from app.services.snapback_live_positions import default_store
         # All open positions remain visible even when their setup aged out of
         # the scanner. Closed records are bounded; history is a separate view.
-        owned = default_store().list(uid)
-        positions = [p.as_dict() for p in owned if p.is_open]
-        positions.extend(p.as_dict() for p in [p for p in owned if not p.is_open][-100:])
+        # Read only what the board renders. Query all active positions without
+        # limit, then the newest 100 closed ones in SQLite; fetching every
+        # historical JSON row on each scan poll caused unbounded refresh work.
+        owned = default_store().board_positions(uid, recent_closed=100)
+        positions = [p.as_dict() for p in owned]
     except Exception as exc:  # noqa: BLE001 - unknown inventory must be explicit
         positions_error = f"Owned Snapback positions unavailable: {type(exc).__name__}"
         log.warning("%s", positions_error)

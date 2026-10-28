@@ -21,6 +21,7 @@ let status: Record<string, unknown> = {};
 
 vi.mock('../../../hooks/useKite', () => ({
   useKiteAccounts: () => ({data:{accounts:[]}}),
+  useActivateKiteAccount: () => ({mutate: vi.fn(), isPending:false, error:null}),
   useKiteStatus: () => ({ data: status }),
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: vi.fn(), isPending: false }),

@@ -47,6 +47,7 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   const [loaded,setLoaded] = useState(false);
 
   const appearance = useTheme();
+  const lightPlayerShell = appearance === 'light';
   const appearanceRef = useRef(appearance); appearanceRef.current=appearance;
   useEffect(()=>{ window.dispatchEvent(new CustomEvent('sterling-radio-command',{detail:{action:'appearance',value:appearance}})); },[appearance]);
   const documentAccess = useProtectedMediaDocument('radio', version);
@@ -117,9 +118,9 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
   },[]);
 
   return <section aria-label="Sterling Radio workspace" data-testid="sterling-radio-workspace"
-    style={{position:'relative',display:'flex',flex:1,minWidth:0,minHeight:0,overflow:'hidden',background:'#101923'}}>
-    {!loaded && !failed && <div role="status" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',color:'#fff',pointerEvents:'none'}}>Loading Radio…</div>}
-    {(failed || documentAccess.error) && <div role="alert" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',zIndex:1,background:'#101923',color:'#fff'}}>
+    style={{position:'relative',display:'flex',flex:1,minWidth:0,minHeight:0,overflow:'hidden',background:lightPlayerShell ? '#f7f9fc' : '#101923'}}>
+    {!loaded && !failed && <div role="status" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',color:lightPlayerShell ? '#151b26' : '#fff',pointerEvents:'none'}}>Loading Radio…</div>}
+    {(failed || documentAccess.error) && <div role="alert" style={{position:'absolute',inset:0,display:'grid',placeItems:'center',zIndex:1,background:lightPlayerShell ? '#f7f9fc' : '#101923',color:lightPlayerShell ? '#151b26' : '#fff'}}>
       <div><p>{documentAccess.error || 'Radio could not load. Check network access or retry.'}</p>
         <button type="button" onClick={() => {hydratedRef.current=false;readyRef.current=false;setLoaded(false);setFailed(false);setVersion(n=>n+1);}}>Retry Radio</button>
       </div>
@@ -132,6 +133,6 @@ export function RadioWorkspace({onState,onPlayerState}:{onState?:(state:{theme:'
       allow="autoplay; encrypted-media" loading="eager"
       onLoad={hydrate}
       onError={() => setFailed(true)}
-      style={{border:0,width:'100%',height:'100%',flex:1,minWidth:0,minHeight:0,background:'#101923'}} />}
+      style={{border:0,width:'100%',height:'100%',flex:1,minWidth:0,minHeight:0,background:lightPlayerShell ? '#f7f9fc' : '#101923'}} />}
   </section>;
 }

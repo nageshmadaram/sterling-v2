@@ -24,3 +24,54 @@ html[data-color-scheme=light] #app-workspace #main-scroll{background:#f7f9fc!imp
 html[data-color-scheme=light] #tv-mobile-home .tm-section-title h2{color:#151b26!important}
 html[data-color-scheme=light] #tv-mobile-mini,html[data-color-scheme=light] #tv-mobile-mini :is(strong,span,button,small){color:#fff!important}
 html[data-color-scheme=light] #tv-mobile-mini{background:#29463a!important}
+
+
+/* Embedded Space/Echo player sheets must follow Sterling's selected theme.
+   Keep native video and album artwork unmodified, but never force the
+   surrounding controls to dark surfaces when the user selected Light. */
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing){
+  background:#f4f7fa!important;
+  background-image:linear-gradient(165deg,#e2eee7 0%,#f8fafc 53%,#f1f4f8 100%)!important;
+  color:#152130!important;
+  color-scheme:light;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)::before{
+  background:transparent!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(h1,h2,h3,strong,p,small,span,button,label,svg,i) {
+  color:inherit;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-head,.rnp-main,.rnp-more,.tm-now-head,.tm-now-main,.tm-now-copy,.tm-now-controls,.tm-now-footer,.tm-now-more){
+  color:#152130!important;
+  border-color:#cad6df!important;
+}
+html[data-color-scheme="light"] body #mobile-player-sheet
+  :is(#sheet-title,#sheet-sub,.radio-np-controls button,.rnp-more button) {
+  color:#152130!important;
+}
+html[data-color-scheme="light"] body #tv-now-playing
+  :is(.tm-now-copy h2,.tm-now-copy p,.tm-now-head,.tm-now-footer,.tm-timeline-label,.tm-now-more){
+  color:#152130!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls button,.tm-now-controls>.tm-icon,.tm-now-head button){
+  color:#152130!important;
+  -webkit-tap-highlight-color:transparent;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) {
+  background:#1b3035!important;
+  color:#fff!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.radio-np-controls [data-radio-click="56"],.tm-big-play) svg {
+  color:#fff!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  :is(.tm-timeline-track,.rnp-live-track){
+  background:#a8b9c4!important;
+}
+html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
+  button:focus-visible { outline:2px solid #234c7f!important; outline-offset:2px; }

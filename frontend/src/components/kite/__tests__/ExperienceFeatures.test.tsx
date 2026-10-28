@@ -28,7 +28,8 @@ describe('Experience controls',()=>{
   wrap(<ProfileMenu/>);
   await screen.findByText('Operator');
   fireEvent.click(screen.getByRole('button',{name:'Sterling account profile'}));
-  expect(screen.getByRole('button',{name:'Add picture'})).toBeEnabled();
+  expect(screen.getByLabelText('Choose profile picture')).toBeEnabled();
+  expect(screen.getByText('Add picture')).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Remove picture'})).toBeDisabled();
   fireEvent.change(screen.getByLabelText('Choose profile picture'),{target:{files:[new File(['pixels'],'portrait.png',{type:'image/png'})]}});
   expect(await screen.findByRole('dialog',{name:'Crop profile picture'})).toBeInTheDocument();
@@ -46,7 +47,8 @@ describe('Experience controls',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Use picture'}));
   expect(await screen.findByRole('dialog',{name:'Sterling profile'})).toBeInTheDocument();
   expect(screen.getByRole('img',{name:'Profile picture preview'})).toHaveAttribute('src',encoded);
-  expect(screen.getByRole('button',{name:'Change picture'})).toBeEnabled();
+  expect(screen.getByLabelText('Choose profile picture')).toBeEnabled();
+  expect(screen.getByText('Change picture')).toBeInTheDocument();
   expect(patch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button',{name:'Save profile'}));
   await waitFor(()=>expect(patch).toHaveBeenCalledWith('/api/v1/auth/profile',{display_name:'Operator',photo:encoded}));

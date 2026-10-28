@@ -17,6 +17,7 @@ import { k, tint } from '../../../styles/kiteUI';
 import type { BoardView } from './useBoardView';
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { MODE_LABEL, TRADE_MODES, sessionDayKey, type TradeMode } from './boardTypes';
+import { ViewFiltersDisclosure } from './ViewFiltersDisclosure';
 
 /**
  * A local view filter.
@@ -294,6 +295,7 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
         />
       </label>}
 
+      <ViewFiltersDisclosure>
       {/* Columns first, as on SuperTrend's toolbar, so every strategy reads the same left to right. */}
       {columns && <ColumnPicker view={view} available={columns} columnLabels={columnLabels} />}
       {showModes && view.setModes && <ModeFilter modes={view.modes ?? []} onChange={view.setModes} />}
@@ -322,11 +324,23 @@ export function BoardFilters({ view, columns, columnLabels, children, hideSearch
         />
       )}
 
+      </ViewFiltersDisclosure>
       {children}
 
       {counts.shown !== counts.total && (
-        <span style={{ fontSize: 9, color: k.dim, whiteSpace: 'nowrap', marginLeft: 'auto' }}>
-          {counts.shown} of {counts.total}
+        <span className="board-filter-hidden-count" style={{
+          display:'inline-flex',alignItems:'center',gap:5,
+          fontSize: 10, color: k.dim, whiteSpace: 'nowrap', marginLeft: 'auto',
+        }}>
+          {counts.shown} of {counts.total} shown
+          <button type="button" className="sb-tool" title="Show all available saved signals; display filters only"
+            onClick={() => {
+              view.setQuery('');
+              view.setBestOnly(false);
+              view.setTodayOnly(false);
+              view.setShowEnded(true);
+              view.setModes?.([]);
+            }}>Show all</button>
         </span>
       )}
     </div>

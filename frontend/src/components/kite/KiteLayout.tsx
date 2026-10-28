@@ -277,6 +277,14 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
   const mobileStyle = useMobileExperience(s => s.style);
   const mobile = phone;
   const [mobilePane, setMobilePane] = useSavedSelection<WorkspacePaneId>('workspace.mobilePane', 'dashboard');
+  // Push signals target the signal workspace even if Home was saved last.
+  // This only chooses a view; broker admission and order controls are unchanged.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') === 'live' && params.get('notification') === 'signals') {
+      setMobilePane('signals');
+    }
+  }, [setMobilePane]);
   const previousMobileNav = useRef(activeNav);
   const detailPreviousPane = useRef<WorkspacePaneId | null>(null);
   const orderPreviousPane = useRef<WorkspacePaneId | null>(null);
@@ -847,7 +855,7 @@ export function KiteLayout({ activeNav, mainViewTitle = '', onNavClick, sidebar,
 
   return (
     <TodaySignalPriorityProvider>
-    <div className="sterling-workspace-shell" data-mobile={mobile} style={{ display: 'flex', flexDirection: 'row', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--k-bg)', fontFamily: k.fontFamily }}>
+    <div className="sterling-workspace-shell" data-mobile={mobile} data-mobile-pane={mobilePane} style={{ display: 'flex', flexDirection: 'row', height: '100%', minWidth: 0, minHeight: 0, overflow: 'hidden', background: 'var(--k-bg)', fontFamily: k.fontFamily }}>
       <style>{WORKSPACE_CSS}</style>
 
       {/* VS Code Activity Rail */}

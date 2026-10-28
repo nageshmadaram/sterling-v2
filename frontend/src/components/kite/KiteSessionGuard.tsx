@@ -1,8 +1,8 @@
 import {useModalLayer} from '../../hooks/useModalLayer';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  useKiteAccounts, useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
+  useKiteAccounts, useActivateKiteAccount, useKiteStatus, useKiteAuthBroadcast, useGenerateKiteSession, useOpenKiteLogin,
   useRefreshKiteSession, useKiteLogout,
 } from '../../hooks/useKite';
 import { notifyOrder } from '../../store/useKiteNotifications';
@@ -27,6 +27,7 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const loginRequested = useKiteStatusCardStore(state => state.loginRequested);
   const loginAccountId = useKiteStatusCardStore(state => state.loginAccountId);
   const ownedAccounts = useKiteAccounts();
+  const activateAccount = useActivateKiteAccount();
   const effectiveAccountId = loginAccountId || status?.account_id || ownedAccounts.data?.active_id || ownedAccounts.data?.accounts[0]?.id || undefined;
   const kiteLogin = useOpenKiteLogin(effectiveAccountId);
   const isOpen = useKiteStatusCardStore((state) => state.isOpen);
@@ -34,6 +35,24 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
   const closeCard = useKiteStatusCardStore((state) => state.closeCard);
 
   const [reqToken, setReqToken] = useState('');
+  const [savedAccountId, setSavedAccountId] = useState<string | null>(null);
+  const [verificationTimedOut, setVerificationTimedOut] = useState(false);
+  const onSessionSaved = useCallback((id: string) => {
+    setSavedAccountId(id);
+    setVerificationTimedOut(false);
+    void refetch();
+  }, [refetch]);
+  // An assisted login can finish without a callback-window broadcast.
+  // Recheck the authoritative active-account status for a bounded window.
+  useEffect(() => {
+    if (!savedAccountId || (status?.connected && status.account_id === savedAccountId)) return;
+    let checks = 0;
+    const timer = window.setInterval(() => {
+      if (++checks >= 6) { window.clearInterval(timer); setVerificationTimedOut(true); }
+      void refetch();
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [savedAccountId, status?.connected, status?.account_id, refetch]);
   const [mounted, setMounted] = useState(isOpen);
   const [leaving, setLeaving] = useState(false);
   const prevConnected = useRef<boolean | null>(null);
@@ -43,7 +62,8 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
 
   const hasAccount = !!effectiveAccountId;
   const unknown = !!status?.transient || !!statusError;
-  const connected = !!status?.connected && !unknown;
+  const connected = !!status?.connected && !unknown
+    && (!savedAccountId || status.account_id === savedAccountId);
   const checking = !status && isFetching;
   const checkMessage = statusError?.message || status?.message || 'Session verification is unavailable. Retry the check or open Kite Login.';
   const permissionDenied = unknown && /permission|not permitted|allowlist/i.test(checkMessage);
@@ -151,15 +171,37 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
 
   if (!mounted || typeof document === 'undefined') return null;
 
+  // The account list persists the successful login receipt across reloads,
+  // while /status verifies the one ACTIVE broker account. Display a stored
+  // token honestly without claiming the broker accepted it.
+  const selectedStoredAccount = ownedAccounts.data?.accounts.find(account =>
+    account.id === (savedAccountId || status?.account_id || ownedAccounts.data?.active_id));
+  const expiredStoredToken = !!selectedStoredAccount?.token_expires_at_ms
+    && selectedStoredAccount.token_expires_at_ms <= Date.now();
+  const rejectedToken = /\b(rejected|expired|not logged in|revoked|identity could not)\b/i
+    .test(status?.message || '');
+  const persistedButUnverified = !!selectedStoredAccount?.connected
+    && !expiredStoredToken && !rejectedToken && !connected;
+  const savedPending = (!!savedAccountId && !(connected && status?.account_id === savedAccountId))
+    || persistedButUnverified;
+  const selectedDifferentAccount = !!savedAccountId && savedPending
+    && !!status?.account_id && status.account_id !== savedAccountId;
   const cardTitle = connected
     ? 'Zerodha Kite Active'
+    : savedPending ? (verificationTimedOut || !savedAccountId
+      ? 'Kite session saved · unverified' : 'Kite session saved · verifying')
     : unknown
       ? permissionDenied ? 'Kite access denied' : 'Kite session check unavailable'
       : checking ? 'Checking Kite session…'
       : 'Zerodha Kite Offline';
 
   const cardDetail = connected
-    ? `Signed in as ${status?.user_name || 'Kite User'}${status?.kite_user_id ? ` (${status.kite_user_id})` : ''} · Live feed and order execution active.`
+    ? `Signed in as ${status?.user_name || 'Kite User'}${status?.kite_user_id ? ` (${status.kite_user_id})` : ''} · Broker session verified. Trading still requires independent safety checks.`
+    : savedPending ? (selectedDifferentAccount
+      ? 'The login was saved for a different broker account than the active one. Select the saved account in Broker accounts to make it active; this does not authorize new orders.'
+      : verificationTimedOut
+        ? 'The login was saved, but a usable session could not be verified. Check the active account and Kite connectivity; do not assume live access.'
+        : 'Broker token saved. Checking the active Kite session and account permissions; connected status is not yet verified.')
     : unknown
       ? permissionDenied
         ? 'Kite refused the session check. Check the API app permissions and registered outbound IP, then retry or reconnect.'
@@ -167,7 +209,10 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
       : checking ? 'Reaching Zerodha Kite endpoints to verify session status.'
       : status?.message || 'Session expired or disconnected. Reconnect below to resume live data and trading.';
 
-  const isLoginVisible = !connected || showRelogin || loginRequested;
+  // After a saved login, lead with verification and explicit recovery, not
+  // a second credential form that misleadingly says "Sign in" by default.
+  const isLoginVisible = (!connected && !savedPending) || showRelogin
+    || (loginRequested && !savedPending);
 
   return createPortal(
     <div className="kite-session-overlay" data-leaving={leaving ? 'true' : 'false'}
@@ -193,13 +238,28 @@ export function KiteSessionGuard({ onOpenAccountSettings }: { onOpenAccountSetti
         </header>
         <div className="kite-session-body">
           <div className="kite-session-summary" data-connected={connected}>
-            <span aria-label={connected ? 'Kite connected' : unknown ? 'Kite session unverified' : checking ? 'Kite session checking' : 'Kite offline'}>
-              {connected ? 'CONNECTED' : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
+            <span aria-label={connected ? 'Kite connected' : savedPending || unknown ? 'Kite session unverified' : checking ? 'Kite session checking' : 'Kite offline'}>
+              {connected ? 'CONNECTED' : savedPending ? (verificationTimedOut || !savedAccountId ? 'UNVERIFIED' : 'VERIFYING') : unknown ? 'UNVERIFIED' : checking ? 'CHECKING' : 'OFFLINE'}
             </span>
-            <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
+            <p>{connected ? `Signed in as ${status?.user_name || status?.kite_user_id || 'Kite user'}.` : savedPending ? cardDetail : unknown ? cardDetail : checking ? 'Checking your broker session…' : 'Sign in to connect your broker account.'}</p>
           </div>
-          {unknown && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Retry session check'}</button>}
-          {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={effectiveAccountId} autoStart={loginRequested} />}
+          {(unknown || savedPending) && <button type="button" disabled={isFetching} onClick={() => void refetch()}>{isFetching ? 'Checking session…' : 'Verify broker connection'}</button>}
+          {savedPending && !selectedDifferentAccount && !connected && !loginRequested &&
+            <button type="button" onClick={() => setShowRelogin(v => !v)}>
+              {showRelogin ? 'Hide broker re-login' : 'Re-login if verification fails'}
+            </button>}
+          {selectedDifferentAccount && savedAccountId && <div className="kite-session-account-actions">
+            <button type="button" disabled={activateAccount.isPending}
+              onClick={() => activateAccount.mutate(savedAccountId, {onSuccess: () => {
+                setVerificationTimedOut(false);
+                void refetch();
+              }})}>
+              {activateAccount.isPending ? 'Checking account-switch safety…' : 'Make saved broker account active'}
+            </button>
+            {activateAccount.error && <p role="alert">{activateAccount.error.message}</p>}
+            <small>Changing the active broker account requires Sterling's broker-exposure and pending-order safety checks. It does not enable live entries.</small>
+          </div>}
+          {isLoginVisible && <KiteAssistedLogin key={loginRequested ? `request-${loginAccountId || 'choose'}` : 'normal'} accountId={effectiveAccountId} autoStart={loginRequested} onSaved={onSessionSaved} />}
           {connected && <div className="kite-session-account-actions">
             {!loginRequested && <button type="button" onClick={() => { setShowRelogin(v => !v); logout.reset?.(); }}>{showRelogin ? 'Hide broker login' : 'Log in to another account'}</button>}
             <button type="button" disabled={logout.isPending} onClick={() => logout.mutate(undefined, { onSuccess: () => {

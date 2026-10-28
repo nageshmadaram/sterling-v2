@@ -3,7 +3,9 @@
 <head>
 <style>html:not([data-radio-ready]) body{visibility:hidden}</style>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- Isolated media iframe only: no pinch or double-tap page zoom on phones. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <script src="/media/mobile-no-zoom.js"></script>
   <meta name="theme-color" content="#000000" />
   <meta name="apple-mobile-web-app-capable" content="true" />
   <meta name="mobile-web-app-capable" content="true" />
@@ -2460,7 +2462,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         onFilter:(filters,fromHome)=>{rememberRadioPlace();if(fromHome)loadCategory('all',true);appConfig.catalogFilters=filters;saveAppConfig();refreshRadioDirectory();document.getElementById('sp-grid-heading')?.scrollIntoView({block:'start',behavior:'auto'});}
       });
       window.addEventListener('pagehide',event=>{if(!event.persisted)radioCatalog.pause();});
-      void radioCatalog.load();
+      // Prioritize the selected station's first audio request over the bulk
+      // remote directory refresh on low-powered mobile browsers.
+      window.setTimeout(() => {
+        if (radioBooted && radioCatalog) void radioCatalog.load();
+      }, 900);
     }
     function openRadioSources(){radioDirectoryUi?.openSources();}
     /* Spotify-style Search / Recents / Your Library, shared with TV (media/spotify-shell.js). */
@@ -2603,7 +2609,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       loadCategory('all', true);
       renderPersonalizedShelves();
       renderSidebarList();
-      initRadioDirectory();
+      // Station catalog source hydration is independent of the first sound.
+      // Schedule its expensive creation after the selected audio request, not
+      // on the critical user-tap/startup path.
       initSpotifyShell();
       initRadioExtras();
       document.documentElement.dataset.radioReady='true';
@@ -2623,6 +2631,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       if (appConfig.bootBehavior !== 'quiet') {
         attemptBootAutoplay(bootStation);
       }
+      window.setTimeout(() => {
+        if (radioBooted) initRadioDirectory();
+      }, 0);
 
       setInterval(() => {
         if (isPlaying && activeStream && activeStream.kind === 'radio') {
@@ -3435,7 +3446,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       const revision=++playbackRevision;
       const url = overrideUrl || streamObj.streamUrl;
 
-      if (!overrideUrl) pendingPlayRecord = streamObj;
+      if (!overrideUrl) { pendingPlayRecord = streamObj; backupCursor = 0; }
 
       clearTimeout(watchdogTimer);
       if (hlsInstance) {
@@ -3456,7 +3467,8 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
           document.getElementById('boot-resume-banner')?.classList.add('hidden');
         }).catch((err) => {
           if(playbackRevision!==revision||userPaused)return;
-          if (isBootAttempt && err.name === 'NotAllowedError') {
+          if (err.name === 'NotAllowedError') {
+            userPaused = true; // Browser autoplay policy is not a broken stream.
             const banner = document.getElementById('boot-resume-banner');
             document.getElementById('boot-resume-text').textContent = `Resume ${streamObj.title}`;
             banner?.classList.remove('hidden');
@@ -3473,9 +3485,14 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         // Live radio needs a smaller buffer on constrained mobile devices.
         const smallScreen=window.matchMedia?.('(max-width:767px)')?.matches===true;
         const bufferSec=smallScreen
-          ? (appConfig.qualityProfile==='hifi'?35:20)
-          : (appConfig.qualityProfile==='hifi'?90:appConfig.qualityProfile==='datasaver'?30:60);
-        hlsInstance = new Hls({ enableWorker: true, backBufferLength: bufferSec, maxBufferLength:bufferSec });
+          ? (appConfig.qualityProfile==='hifi'?14:8)
+          : (appConfig.qualityProfile==='hifi'?35:appConfig.qualityProfile==='datasaver'?12:20);
+        hlsInstance = new Hls({
+          enableWorker: true, backBufferLength: bufferSec,
+          maxBufferLength: bufferSec, startFragPrefetch: true,
+          liveSyncDurationCount: 2, liveMaxLatencyDurationCount: 5,
+          manifestLoadingTimeOut: 5000, levelLoadingTimeOut: 5000,
+        });
         hlsInstance.loadSource(url);
         hlsInstance.attachMedia(audio);
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -3490,10 +3507,10 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       }
 
       watchdogTimer = setTimeout(() => {
-        if (playbackRevision===revision && audio.paused && activeStream === streamObj && !userPaused && !pendingBootStation) {
+        if (playbackRevision===revision && (audio.paused || audio.readyState < 2) && activeStream === streamObj && !userPaused && !pendingBootStation) {
           switchBackupServer();
         }
-      }, 8500);
+      }, 6500);
 
       applyAcousticContourToAudio();
       updateAmbientColorFromId(streamObj.id);

@@ -1840,3 +1840,229 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
  .sterling-media-suggestions strong {font-size:16px;}
  .sterling-media-suggestions small {font-size:13px;}
 }
+
+
+/* 2026-10-28 — mobile trading viewport: preserve signal rows over chrome.
+   Scope every rule to mobile app mode; desktop/full-terminal layouts retain
+   their independently configurable workspace geometry. All colors are theme
+   variables so light/dark/high-contrast settings are not silently overridden. */
+@media (max-width:900px) {
+  body[data-mobile-style="app"] .today-signals-priority {
+    overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    max-height:28px; box-sizing:border-box; padding:5px 9px!important;
+    font-size:10px!important; line-height:17px!important;
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] {
+    padding:0 9px!important; max-height:min(44vh,260px)!important;
+    line-height:1.35!important; font-size:10.5px!important;
+    background:var(--k-bg);
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] > div {
+    display:none!important; /* still available inside expanded conditions */
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] > details > summary {
+    padding:7px 0; font-size:11px; font-weight:650; line-height:1.4;
+  }
+  body[data-mobile-style="app"] .strategy-mode-info[data-has-modes="true"] table {
+    min-width:580px; font-size:10.5px;
+  }
+  body[data-mobile-style="app"] .signals-workspace > [aria-label="How this strategy works"] {
+    display:none!important; /* detailed conditions remain in the strategy disclosure */
+  }
+  body[data-mobile-style="app"] .signals-workspace > .signal-engine-tabs {
+    min-height:38px!important;
+  }
+  body[data-mobile-style="app"] .signal-engine-tabs [role="tab"] {
+    min-height:38px!important; padding:5px 4px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .mobile-pane-tabs {
+    min-height:43px!important; padding:2px 5px calc(2px + env(safe-area-inset-bottom,0px))!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .mobile-pane-tabs button {
+    min-height:40px!important; height:40px!important;
+    gap:2px!important; font-size:10px!important; border-radius:7px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .mobile-pane-tabs svg {
+    width:17px!important; height:17px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .sterling-workspace-footer {
+    height:26px!important; min-height:26px!important;
+    padding:0 7px!important; overflow:hidden;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .sterling-workspace-footer button {
+    min-height:24px!important; height:24px!important;
+  }
+  body[data-mobile-style="app"] .sterling-workspace-shell[data-mobile-pane="signals"] .signal-engine-viewport {
+    flex:1 1 auto!important; min-height:0!important;
+  }
+  body[data-mobile-style="app"] .kite-connection-status {
+    display:flex; flex-shrink:0; align-items:center; justify-content:space-between;
+    width:100%; max-height:29px; min-height:29px;
+    padding:4px 12px!important; margin:0!important;
+    font-size:11px!important; line-height:1.25!important;
+    border-radius:0!important; border:0!important;
+    border-bottom:1px solid var(--k-border)!important;
+    color:var(--k-text); background:var(--k-surface-2);
+  }
+  .kite-session-overlay {
+    padding:calc(8px + env(safe-area-inset-top,0px))
+            calc(8px + env(safe-area-inset-right,0px))
+            calc(8px + env(safe-area-inset-bottom,0px))
+            calc(8px + env(safe-area-inset-left,0px))!important;
+    align-items:center; overflow:hidden;
+  }
+  .kite-session-panel {
+    width:min(100%,460px); max-width:100%;
+    max-height:min(calc(100dvh - 16px),calc(var(--mobile-viewport-height,100dvh) - 16px))!important;
+    min-height:0; overflow:hidden; border-radius:10px!important;
+  }
+  .kite-session-panel .kite-session-header {
+    gap:8px!important; padding:10px 12px!important;
+  }
+  .kite-session-panel .kite-session-header h2 {font-size:15px!important;}
+  .kite-session-panel .kite-session-header-actions {gap:8px;}
+  .kite-session-panel .kite-session-icon-btn,
+  .kite-session-panel .kite-session-close {
+    width:36px!important; height:36px!important; min-height:36px!important;
+  }
+  .kite-session-panel .kite-session-body {
+    overflow:auto; min-height:0; overscroll-behavior:contain;
+    padding:10px 12px!important; gap:9px!important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .kite-session-panel .assisted-login {padding:10px!important; gap:9px!important;}
+  .kite-session-panel .assisted-login>form input {
+    font-size:22px!important; min-height:46px!important;
+  }
+  .kite-session-panel :is(input,select,button) {
+    max-width:100%; box-sizing:border-box;
+  }
+  .kite-session-panel :is(input,select):not([type="checkbox"]) {font-size:16px!important;}
+}
+
+/* Signal view filters: desktop is unchanged; phone shows one accessible
+   disclosure instead of permanently spending a row on five display toggles.
+   Scan and execution controls stay outside this disclosure at all sizes. */
+.view-filter-toggle { display:none; }
+.view-filter-items { display:contents; }
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .view-filter-toggle {
+    display:inline-flex; align-items:center; flex-shrink:0;
+    min-height:32px; padding:4px 9px; margin:0;
+    background:var(--k-surface-2); border:1px solid var(--k-border);
+    border-radius:6px; color:var(--k-text); font-size:11px;
+    font-weight:650; font-family:inherit; cursor:pointer;
+  }
+  body[data-mobile-style="app"] .view-filter-toggle[aria-expanded="true"] {
+    border-color:var(--k-brand); color:var(--k-brand);
+  }
+  body[data-mobile-style="app"] .view-filter-items { display:none; }
+  body[data-mobile-style="app"] .view-filter-items.is-open { display:contents; }
+  body[data-mobile-style="app"] .strategy-inline-controls {
+    flex-wrap:wrap!important; align-items:center!important;
+    gap:5px!important; padding:4px 7px!important;
+    min-height:36px; box-sizing:border-box;
+  }
+  body[data-mobile-style="app"] .signal-engine-viewport .sb-strategy-layout {
+    min-height:0; max-height:100%; overflow:auto;
+    overscroll-behavior:contain;
+  }
+  body[data-mobile-style="app"] .strategy-mode-info > details > summary {
+    max-width:100%; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;
+  }
+  /* All account and position details use the same theme, including the
+     temporary assisted-login preview placeholder and focus treatments. */
+  body[data-mobile-style="app"] .kite-session-panel .assisted-progress,
+  body[data-mobile-style="app"] .kite-session-panel .account-recovery {
+    background:var(--k-bg); color:var(--k-text);
+    border-color:var(--k-border);
+  }
+  body[data-mobile-style="app"] .kite-session-panel .account-caption,
+  body[data-mobile-style="app"] .kite-session-panel .assisted-login label {
+    color:var(--k-dim);
+  }
+}
+
+/* Keep broker status readable on narrow screens and in accessibility text zoom. */
+.kite-session-header > div:nth-child(2) { flex:1 1 auto; min-width:0; }
+.kite-session-header h2,.kite-session-header > div:nth-child(2) p {
+  max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.kite-session-account-actions { align-items:center; min-width:0; }
+.kite-session-account-actions small {
+  display:block; width:100%; color:var(--k-dim); line-height:1.45;
+}
+.kite-session-summary { min-width:0; }
+.kite-session-summary p { flex:1 1 auto; min-width:0; overflow-wrap:anywhere; }
+.kite-session-panel .assisted-progress { min-width:0; }
+.kite-session-panel .assisted-progress [role="status"] {
+  overflow-wrap:anywhere; white-space:normal;
+}
+.kite-session-panel .assisted-login :is(button,select) { min-width:0; }
+@media(max-width:520px) {
+  .kite-session-panel .assisted-login > form { padding:9px!important; gap:8px!important; }
+  .kite-session-panel .assisted-progress > div:first-child {
+    align-items:center!important; justify-content:space-between; flex-wrap:wrap;
+  }
+  .kite-session-panel .kite-session-summary {
+    align-items:flex-start; gap:8px; line-height:1.4;
+  }
+  .kite-session-panel .kite-session-account-actions button {
+    flex:1 1 auto; min-height:38px;
+  }
+}
+
+
+/* Photo library/camera chooser: genuine native file input remains under the
+   user's finger; mobile browsers need a trusted tap rather than a synthetic
+   click on display:none. Crop remains a separate, keyboard-operable step. */
+.sterling-profile-photo-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}
+.sterling-profile-photo-pick{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-height:42px;min-width:118px;border:1px solid var(--k-border);
+  border-radius:7px;background:var(--k-surface-2);color:var(--k-text);
+  cursor:pointer;touch-action:manipulation;overflow:hidden;
+  font:inherit;font-size:13px;font-weight:600;
+}
+.sterling-profile-photo-pick span{pointer-events:none;padding:9px 12px;}
+.sterling-profile-photo-pick input[type=file]{
+  position:absolute!important;inset:0!important;width:100%!important;
+  height:100%!important;min-height:0!important;max-height:none!important;
+  margin:0!important;padding:0!important;opacity:0!important;
+  cursor:pointer!important;border:0!important;z-index:1;
+}
+.sterling-profile-photo-pick:focus-within{outline:2px solid var(--k-brand);outline-offset:3px}
+.sterling-profile-photo-pick:has(input:disabled){opacity:.55;cursor:not-allowed}
+.sterling-profile-modal{padding:clamp(8px,2.5vw,20px)!important;box-sizing:border-box;}
+.sterling-profile-modal>.profile-panel{
+  width:min(480px,100%)!important;max-width:100%;min-width:0;
+  max-height:calc(100dvh - 16px)!important;overflow-y:auto;
+  overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+  box-sizing:border-box;padding:clamp(12px,3vw,22px)!important;
+}
+.sterling-profile-modal .sterling-profile-photo-editor>div{min-width:0;flex:1 1 170px}
+.sterling-profile-modal .profile-panel :is(button,input,select){max-width:100%;box-sizing:border-box}
+.sterling-profile-modal .profile-panel :is(input:not([type=file]),select){font-size:16px!important}
+@media(max-width:900px){
+  body[data-mobile-style="app"] .today-signals-priority {
+    overflow:visible;white-space:normal;max-height:none;
+    min-height:27px;padding:3px 9px!important;
+    line-height:18px!important;font-size:11px!important;
+  }
+  body[data-mobile-style="app"] .today-signals-priority>strong {
+    display:block;max-width:100%;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+  body[data-mobile-style="app"] .today-signals-priority details {
+    margin:0;font-size:10px;max-width:100%;
+  }
+  body[data-mobile-style="app"] .today-signals-priority details:not([open]) {
+    max-height:18px;overflow:hidden;
+  }
+  body[data-mobile-style="app"] .today-signals-priority details > summary {
+    display:inline-flex;align-items:center;min-height:18px;
+    font-size:10px;color:var(--k-dim);cursor:pointer;
+  }
+  body[data-mobile-style="app"] .today-signals-priority:focus-within details,
+  body[data-mobile-style="app"] .today-signals-priority details[open] {height:auto;}
+}

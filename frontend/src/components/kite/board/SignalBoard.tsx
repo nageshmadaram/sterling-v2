@@ -1245,6 +1245,33 @@ export function SignalBoard({
   // rather than getBoundingClientRect because column widths are layout pixels
   // and a rect reports device pixels — the two diverge under a viewport scale.
   const boardRef = React.useRef<HTMLDivElement>(null);
+  const notificationOpenedRef = React.useRef('');
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') !== 'live' || params.get('notification') !== 'signals' || !onOpenDetail) return;
+    const strategy = params.get('strategy');
+    if (!['supertrend', 'snapback', 'gamma_move', 'ema_trend'].includes(strategy ?? '')) return;
+    const signalId = params.get('signal') || '';
+    const symbol = params.get('symbol') || '';
+    const at = Number(params.get('at') || 0);
+    const target = signals.find(item => {
+      if (item.engine !== strategy) return false;
+      if (signalId) return item.id === signalId || !!item.children?.some(child => child.id === signalId);
+      return !!symbol && item.underlying.toUpperCase() === symbol.toUpperCase()
+        && (at === 0 || item.atMs === at);
+    });
+    if (!target) return; // Delayed scan/history must not open an unrelated row.
+    const key = [strategy, signalId, symbol, at].join('|');
+    if (notificationOpenedRef.current === key) return;
+    notificationOpenedRef.current = key;
+    // The existing engine-specific detail action is read-only; it never buys.
+    onOpenDetail(target);
+    const clean = new URL(window.location.href);
+    for (const name of ['notification', 'strategy', 'signal', 'symbol', 'at', 'view'])
+      clean.searchParams.delete(name);
+    window.history.replaceState(window.history.state, '', clean.pathname + clean.search + clean.hash);
+  }, [signals, onOpenDetail]);
+
   const [boardWidth, setBoardWidth] = React.useState(0);
   React.useLayoutEffect(() => {
     const el = boardRef.current;

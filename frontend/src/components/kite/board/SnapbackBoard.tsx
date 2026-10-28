@@ -143,8 +143,11 @@ export function SnapbackBoard({ nowMs = Date.now(), onOpenDetail, onOpenChart }:
   const history = useSnapbackHistory(30, priority.olderReady && !shortHorizon && !replay);
 
   const adapted = React.useMemo(() => {
+    // Scan mode choices control which engines are requested, NOT what is
+    // visible on this board. A previous swing-only scan preference must not
+    // silently hide persisted intraday/scalp/overnight signals. Display-mode
+    // filtering is handled separately by the read-only BoardFilters state.
     const live = (data?.rows ?? []).filter((r) =>
-      selectedModes.includes(r.trading_mode ?? 'swing') &&
       (priority.olderReady ||
         (r.timestamp_ms != null && istDay(new Date(r.timestamp_ms)) === priority.day) ||
         // A swing signal is confirmed at yesterday's EOD but enters

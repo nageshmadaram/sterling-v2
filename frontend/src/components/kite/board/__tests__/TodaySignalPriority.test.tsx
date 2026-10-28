@@ -74,8 +74,9 @@ describe('cross-strategy today priority', () => {
   it('releases history only after four live snapshots complete', async () => {
     wrap(<Display />);
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
-    expect(screen.getByRole('status')).toHaveTextContent('Current-day API checks finished across four strategies');
+    expect(screen.getByRole('status')).toHaveTextContent('Today-first checks finished: 4/4 received');
     expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');
+    expect(screen.getByRole('status')).toHaveTextContent('Loading details');
     expect(screen.getByRole('status')).toHaveTextContent('A response does not prove that a fresh scan ran');
     expect(screen.getByRole('status')).toHaveTextContent(/IST \d{4}-\d{2}-\d{2}/);
   });
@@ -85,14 +86,15 @@ describe('cross-strategy today priority', () => {
     wrap(<Display />);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Snapback: scanning today'));
     expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
-    expect(screen.getByRole('status')).toHaveTextContent('Older history is queued');
+    expect(screen.getByRole('status')).toHaveTextContent('older history queued');
   });
 
-  it('keeps older history deferred and explains a failed primary feed', async () => {
+  it('releases older read-only history after all today's checks settle, while showing the failed strategy', async () => {
     source.gamma = { ...source.gamma, isError: true };
     wrap(<Display />);
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Gamma-Unwind: unavailable'));
-    expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
-    expect(screen.getByRole('status')).toHaveTextContent('must recover before older history loads');
+    await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
+    expect(screen.getByRole('status')).toHaveTextContent('1 unavailable');
+    expect(screen.getByRole('status')).toHaveTextContent('Gamma-Unwind: unavailable');
   });
 });

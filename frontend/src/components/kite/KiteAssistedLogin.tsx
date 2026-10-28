@@ -14,7 +14,7 @@ const steps = [
   ['done', 'Connected'],
 ];
 const terminal = (phase: string) => ['done', 'tested', 'failed', 'cancelled'].includes(phase);
-export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHeading = false }: { accountId?: string; autoStart?: boolean; hideSelectorHeading?: boolean }) {
+export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHeading = false, onSaved }: { accountId?: string; autoStart?: boolean; hideSelectorHeading?: boolean; onSaved?: (accountId: string) => void }) {
   const accounts = useKiteAccounts();
   const qc = useQueryClient();
   const [selected, setSelected] = useState(accountId ?? '');
@@ -27,6 +27,7 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
   const [showPreview, setShowPreview] = useState(false);
   const submittingCode = useRef(false);
   const autoStarted = useRef(false);
+  const lastSavedAttempt = useRef<string | null>(null);
   const [previewClock, setPreviewClock] = useState(Date.now());
   const running = !!attempt && !terminal(attempt.phase);
   useEffect(()=>{if(accountId&&!attempt&&!busy)setSelected(accountId);},[accountId]);
@@ -39,17 +40,28 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
         const next = await api.get<Attempt>(`${BASE}/${encodeURIComponent(attempt.id)}`);
         if (!active) return;
         setAttempt(next); setError('');
-        if (next.phase === 'done') {
-          qc.invalidateQueries({ queryKey: ['kite-status'] });
-          qc.invalidateQueries({ queryKey: ['kite-accounts'] });
-        } else if (!terminal(next.phase)) timer = setTimeout(poll, 1000);
+        if (!terminal(next.phase)) timer = setTimeout(poll, 1000);
       } catch (e) {
         if (active) { setError((e as Error).message); timer = setTimeout(poll, 3000); }
       }
     };
     timer = setTimeout(poll, 500);
     return () => { active = false; clearTimeout(timer); };
-  }, [attempt?.id, attempt?.phase === 'done', attempt?.phase === 'failed', attempt?.phase === 'cancelled', attempt?.phase === 'tested', qc]);
+  }, [attempt?.id, attempt?.phase === 'done', attempt?.phase === 'failed', attempt?.phase === 'cancelled', attempt?.phase === 'tested']);
+  // Completion may arrive in *any* response: the six-digit verify request,
+  // the initial login request, or the background poll. An effect restricted to
+  // nonterminal polling misses immediate 'done' replies and strands the
+  // broker-status card in OFFLINE despite a durable session receipt.
+  useEffect(() => {
+    if (attempt?.phase !== 'done' || !attempt.account_id) return;
+    if (lastSavedAttempt.current === attempt.id) return;
+    lastSavedAttempt.current = attempt.id;
+    void qc.invalidateQueries({ queryKey: ['kite-accounts'] });
+    void qc.invalidateQueries({ queryKey: ['kite-status'] });
+    void qc.invalidateQueries({ queryKey: ['kite-diagnostics-summary'] });
+    onSaved?.(attempt.account_id);
+  }, [attempt?.id, attempt?.phase, attempt?.account_id, qc, onSaved]);
+
   const previewActive = showPreview && !!attempt && ['submitting_password', 'awaiting_totp', 'verifying_totp'].includes(attempt.phase);
   useEffect(() => {
     setPreview(null); setPreviewError('');
@@ -101,7 +113,7 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
       {accounts.error && <p role="alert">{accounts.error.message}</p>}
     </>}
 
-    {!running && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+    {!running && attempt?.phase !== 'done' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       <button type="button" className="account-primary" aria-label="Login with saved credentials" disabled={!selected || busy} onClick={() => start()}>{busy ? 'Starting…' : 'Log in'}</button>
       <button type="button" className="account-secondary" aria-label="Test saved credentials" disabled={!selected || busy} onClick={() => start(true)}>Test credentials</button>
     </div>}
@@ -120,11 +132,11 @@ export function KiteAssistedLogin({ accountId, autoStart = false, hideSelectorHe
         {!terminal(attempt.phase) && <button type="button" aria-expanded={showPreview} onClick={() => setShowPreview(previous => !previous)} style={{ marginTop: 6, cursor: 'pointer' }}>{showPreview ? 'Hide live browser view' : 'Show live browser view'}</button>}
         {showPreview && <div style={{ fontSize: 11, marginTop: 4 }}>Kite page · read only · sensitive fields hidden</div>}
       </div>
-      {previewActive && <div style={{ padding: 8, background: '#f8fafc' }}>
+      {previewActive && <div style={{ padding: 8, background: 'var(--k-surface-2)', color: 'var(--k-text)' }}>
         {preview ? <>
           <img src={preview.image} alt="Live Kite login page with credential fields hidden" style={{ display: 'block', width: '100%', maxHeight: 380, objectFit: 'contain', background: '#fff', borderRadius: 6 }} />
-          <p style={{ color: '#475569', fontSize: 10, margin: '6px 0 0' }}><span className={previewClock - preview.captured_at_ms > 5000 ? 'preview-paused' : 'preview-heartbeat'}>{previewClock - preview.captured_at_ms > 5000 ? 'Update delayed' : 'Refreshing every second'}</span> · {new Date(preview.captured_at_ms).toLocaleTimeString()} · Password and OTP fields hidden</p>
-        </> : <p style={{ color: '#475569', fontSize: 11, margin: 8 }}>{previewError || 'Connecting to the Kite page preview…'}</p>}
+          <p style={{ color: 'var(--k-dim)', fontSize: 10, margin: '6px 0 0' }}><span className={previewClock - preview.captured_at_ms > 5000 ? 'preview-paused' : 'preview-heartbeat'}>{previewClock - preview.captured_at_ms > 5000 ? 'Update delayed' : 'Refreshing every second'}</span> · {new Date(preview.captured_at_ms).toLocaleTimeString()} · Password and OTP fields hidden</p>
+        </> : <p style={{ color: 'var(--k-dim)', fontSize: 11, margin: 8 }}>{previewError || 'Connecting to the Kite page preview…'}</p>}
       </div>}
       <details className="account-recovery"><summary>Activity</summary>
       <ol aria-label="Login steps" style={{ padding: '8px 12px', margin: 0, listStyle: 'none', display: 'grid', gap: 7 }}>

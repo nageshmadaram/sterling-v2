@@ -7,14 +7,14 @@ import os
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization
 from app.core.async_work import run_blocking
 from app.core.security import encrypt, decrypt
 from app.services import db
 
-DEFAULTS={'enabled':False,'signals':True,'pcr':True,'pcr_indices':['NIFTY','SENSEX'],'alerts':True,'quiet_start':'22:00','quiet_end':'08:00','quiet_enabled':False,'private_preview':True,'max_per_hour':12}
+DEFAULTS={'enabled':False,'signals':True,'pcr':True,'pcr_indices':['NIFTY','SENSEX'],'alerts':True,'quiet_start':'22:00','quiet_end':'08:00','quiet_enabled':False,'private_preview':False,'max_per_hour':12}
 
 def init(c):
     c.execute('CREATE TABLE IF NOT EXISTS push_vapid(id INTEGER PRIMARY KEY,key_enc TEXT NOT NULL)')
@@ -60,10 +60,35 @@ def quiet(cfg,now=None):
     start,end=cfg['quiet_start'],cfg['quiet_end']
     return start<=clock<end if start<end else clock>=start or clock<end
 
-async def send(uid,event_key,title,body,category,*,force=False):
-    return await run_blocking(_send,uid,event_key,title,body,category,force=force)
+def notification_url(category, *, strategy="", signal_id="", symbol="", at_ms=0):
+    """Only known, read-only workspace routes; never accept arbitrary URLs."""
+    if category not in {"signals", "pcr", "alerts"}:
+        return "/"
+    params = {"view": "live", "notification": category}
+    if category == "signals":
+        permitted = {"kite_supertrend": "supertrend", "supertrend": "supertrend",
+                     "snapback": "snapback", "gamma_move": "gamma_move",
+                     "ema_trend": "ema_trend"}
+        engine = permitted.get(str(strategy))
+        if engine:
+            params["strategy"] = engine
+        if signal_id and len(str(signal_id)) <= 180:
+            params["signal"] = str(signal_id)
+        if symbol and len(str(symbol)) <= 80:
+            params["symbol"] = str(symbol)
+        if str(at_ms).isdigit() and 0 < int(at_ms) < 10**14:
+            params["at"] = str(at_ms)
+    # The current workspace router serves Kite at /kite; / opens the chooser.
+    return "/kite?" + urlencode(params)
 
-def _send(uid,event_key,title,body,category,*,force=False):
+
+async def send(uid,event_key,title,body,category,*,force=False,
+               strategy="",signal_id="",symbol="",at_ms=0):
+    return await run_blocking(_send,uid,event_key,title,body,category,
+                              force=force,strategy=strategy,signal_id=signal_id,symbol=symbol,at_ms=at_ms)
+
+def _send(uid,event_key,title,body,category,*,force=False,
+          strategy="",signal_id="",symbol="",at_ms=0):
     from pywebpush import webpush,WebPushException
     from py_vapid import Vapid
     cfg=config(uid)
@@ -76,7 +101,13 @@ def _send(uid,event_key,title,body,category,*,force=False):
             if c.execute('SELECT 1 FROM push_deliveries WHERE device_id=? AND event_key=?',(row['id'],event_key)).fetchone():continue
             recent=c.execute('SELECT COUNT(*) FROM push_deliveries WHERE device_id=? AND delivered_ms>?',(row['id'],int(time.time()*1000)-3600000)).fetchone()[0]
             if recent>=(20 if force else cfg['max_per_hour']):continue
-        payload={'title':'Sterling update' if cfg['private_preview'] and not force else title,'body':'Open Sterling to view the update.' if cfg['private_preview'] and not force else body[:240],'tag':event_key,'url':'/?notification='+category+'&view=live'}
+        # The operator requested useful message content, rather than the
+        # previous generic lock-screen placeholder. Do not include tokens,
+        # account credentials or actionable broker URLs in this payload.
+        payload={'title':str(title)[:120], 'body':str(body)[:620],
+                 'tag':str(event_key)[:160],
+                 'url':notification_url(category,strategy=strategy,
+                                        signal_id=signal_id,symbol=symbol,at_ms=at_ms)}
         try:
             webpush(subscription_info=json.loads(decrypt(row['subscription_enc'])),data=json.dumps(payload),vapid_private_key=Vapid.from_pem(pem.encode()),vapid_claims={'sub':os.environ.get('STERLING_PUSH_SUBJECT','https://sterling.local')},ttl=300,timeout=8)
             with db._conn() as c:
@@ -123,7 +154,15 @@ async def tick():
         if cfg['signals'] and is_market_open():
             for collect in (signals._supertrend_alerts,signals._gamma_move_alerts,signals._snapback_alerts):
                 for event in await run_blocking(collect,uid):
-                    if signals._is_recent(event.timestamp_ms,max_age_ms=5*60000):await send(uid,event.dedupe_key,event.strategy_label+' · '+event.title,event.detail or event.direction,'signals')
+                    if signals._is_recent(event.timestamp_ms,max_age_ms=5*60000):
+                        summary = " · ".join(part for part in
+                                           (event.direction, event.option_symbol, event.detail)
+                                           if part)
+                        await send(uid,event.dedupe_key,
+                                   event.strategy_label+' · '+event.title,
+                                   summary or event.direction,'signals',
+                                   strategy=event.strategy,signal_id=event.signal_id,
+                                   symbol=event.title,at_ms=event.timestamp_ms)
         if cfg['pcr'] and is_market_open():
             payload=await pcr_session(UserContext(uid))
             if payload.get('source')=='live':

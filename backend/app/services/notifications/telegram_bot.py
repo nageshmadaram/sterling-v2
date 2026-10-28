@@ -241,6 +241,22 @@ async def _handle_update(update: dict) -> None:
         )
 
 
+async def _poll_failure_code(response: dict) -> str:
+    """Explain Telegram 409 without mutating ownership of the bot.
+
+    A previous deployment's webhook and a second getUpdates worker both
+    produce 409. The fixes differ: do not blindly delete an external webhook
+    or stop another worker, and never consume update backlog in diagnostics.
+    """
+    code = failure_code(response)
+    if code != "POLL_CONFLICT":
+        return code
+    probe = await _api("getWebhookInfo", {}, timeout=8)
+    if probe.get("ok") and str((probe.get("result") or {}).get("url") or ""):
+        return "WEBHOOK_ACTIVE"
+    return code
+
+
 def _backoff_delay(response: dict) -> float:
     retry_after = (response.get("parameters") or {}).get("retry_after")
     try:
@@ -307,8 +323,8 @@ async def poll_loop() -> None:
             if offset is None:
                 offset, backlog = await _skip_backlog()
                 if offset is None:
-                    _poll_status.update(state="error", error_code=failure_code(backlog))
-                    await asyncio.sleep(_backoff_delay(backlog))
+                    _poll_status.update(state="error", error_code=await _poll_failure_code(backlog))
+                    await asyncio.sleep(30 if backlog.get("status") == 409 else _backoff_delay(backlog))
                     continue
             response = await _api(
                 "getUpdates",
@@ -316,8 +332,8 @@ async def poll_loop() -> None:
                 timeout=40,
             )
             if not response.get("ok"):
-                _poll_status.update(state="error", error_code=failure_code(response))
-                await asyncio.sleep(_backoff_delay(response))
+                _poll_status.update(state="error", error_code=await _poll_failure_code(response))
+                await asyncio.sleep(30 if response.get("status") == 409 else _backoff_delay(response))
                 continue
             _poll_status.update(state="polling", error_code="", last_poll_at_ms=int(time.time() * 1000))
             for update in response.get("result", []):

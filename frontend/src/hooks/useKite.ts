@@ -455,8 +455,10 @@ export function useKiteAuthBroadcast() {
   const qc = useQueryClient();
   useEffect(() => {
     const onConnected = () => {
-      qc.setQueryData<KiteStatus>(['kite-status'], (prev) => prev ? { ...prev, connected: true } : prev);
-      qc.invalidateQueries({ queryKey: ['kite-status'] });
+      // A callback receipt is not a verified active broker session. Never
+      // optimistically set connected=true: it may refer to an inactive account
+      // or a token that is rejected on server-side validation.
+      void qc.invalidateQueries({ queryKey: ['kite-status'] });
       qc.invalidateQueries({ queryKey: ['kite-accounts'] });
       qc.invalidateQueries({ queryKey: ['kite-diagnostics-summary'] });
       authIdle();

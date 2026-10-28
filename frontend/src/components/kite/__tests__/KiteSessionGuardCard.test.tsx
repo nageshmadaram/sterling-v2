@@ -4,15 +4,18 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 let status: Record<string, unknown> = {};
+let ownedAccounts: Array<{ id: string; connected: boolean; token_expires_at_ms?: number }> = [];
 const openKiteLogin = vi.fn();
 const logoutKite = vi.fn();
 const retrySession = vi.fn();
 const resetLogin = vi.fn();
 const generateSession = vi.fn();
+const activateAccount = vi.fn();
 let loginPhase = 'idle';
 
 vi.mock('../../../hooks/useKite', () => ({
-  useKiteAccounts: () => ({data:{accounts:[]}}),
+  useKiteAccounts: () => ({data:{accounts:ownedAccounts,active_id:'a1'}}),
+  useActivateKiteAccount: () => ({mutate: activateAccount, isPending:false, error:null}),
   useKiteStatus: () => ({ data: status, isFetching: false, refetch: retrySession }),
   useKiteAuthBroadcast: () => {},
   useGenerateKiteSession: () => ({ mutate: generateSession, isPending: false }),
@@ -21,7 +24,7 @@ vi.mock('../../../hooks/useKite', () => ({
   useRefreshKiteSession: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
-vi.mock('../KiteAssistedLogin', () => ({ KiteAssistedLogin: () => <div>Assisted broker login</div> }));
+vi.mock('../KiteAssistedLogin', () => ({ KiteAssistedLogin: ({onSaved}: {onSaved?: (id: string) => void}) => <div>Assisted broker login<button type="button" onClick={() => onSaved?.('a1')}>Simulate saved session</button></div> }));
 
 import { KiteSessionGuard } from '../KiteSessionGuard';
 import { useKiteStatusCardStore } from '../../../store/useKiteStatusCardStore';
@@ -41,12 +44,50 @@ beforeEach(() => {
   retrySession.mockClear();
   resetLogin.mockClear();
   generateSession.mockClear();
+  activateAccount.mockClear();
   loginPhase = 'idle';
   useKiteStatusCardStore.setState({ isOpen: false });
   status = { connected: false, account_id: 'a1', user_name: 'TestUser' };
+  ownedAccounts = [];
 });
 
 describe('KiteSessionGuard floating card popover', () => {
+  it('does not show offline after the login receipt while session verification is pending', () => {
+    status = {connected:false, account_id:'a1', user_name:'TestUser'};
+    renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
+    fireEvent.click(screen.getByRole('button', {name:'Simulate saved session'}));
+    expect(screen.getByText('Kite session saved · verifying')).toBeInTheDocument();
+    expect(screen.getByText('VERIFYING')).toBeInTheDocument();
+    expect(screen.queryByText('Sign in to connect your broker account.')).toBeNull();
+    expect(screen.queryByText('Zerodha Kite Active')).toBeNull();
+    expect(retrySession).toHaveBeenCalled();
+  });
+  it('prioritizes verifying a persisted saved token over a second sign-in form', () => {
+    ownedAccounts = [{id:'a1', connected:true, token_expires_at_ms:Date.now() + 60000}];
+    status = {connected:false, account_id:'a1', message:'Kite validation in progress'};
+    renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
+    expect(screen.getByText('Kite session saved · unverified')).toBeInTheDocument();
+    expect(screen.queryByText('Zerodha Kite Offline')).toBeNull();
+    expect(screen.queryByText('Assisted broker login')).toBeNull();
+    expect(screen.getByRole('button', {name:'Verify broker connection'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', {name:'Re-login if verification fails'}));
+    expect(screen.getByText('Assisted broker login')).toBeInTheDocument();
+  });
+
+  it('offers a guarded explicit account switch after login to an inactive account', () => {
+    status = {connected:false, account_id:'a2', user_name:'Another account'};
+    renderGuard();
+    act(() => useKiteStatusCardStore.getState().openCard());
+    fireEvent.click(screen.getByRole('button', {name:'Simulate saved session'}));
+    expect(screen.getByText(/different broker account than the active one/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', {name:'Make saved broker account active'}));
+    expect(activateAccount).toHaveBeenCalledWith(
+      'a1', expect.objectContaining({onSuccess:expect.any(Function)}),
+    );
+  });
+
   it('offers broker logout from the connected footer card', () => {
     status = { connected: true, account_id: 'a1', user_name: 'TestUser' };
     renderGuard();

@@ -56,6 +56,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
   const [reloadKey, setReloadKey] = useState(0);
 
   const appearance = useTheme();
+  const lightPlayerShell = appearance === 'light';
   const appearanceRef = useRef(appearance); appearanceRef.current=appearance;
   useEffect(()=>{ window.dispatchEvent(new CustomEvent('sterling-tv-command',{detail:{action:'appearance',value:appearance}})); },[appearance]);
   const documentAccess = useProtectedMediaDocument('tv', reloadKey);
@@ -133,17 +134,17 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
       aria-label="Sterling TV workspace"
       data-testid="sterling-tv-workspace"
       style={{ position: 'relative', flex: 1, minWidth: 0, minHeight: 0,
-        display: 'flex', overflow: 'hidden', background: '#0f0f0f' }}
+        display: 'flex', overflow: 'hidden', background: lightPlayerShell ? '#f7f9fc' : '#0f0f0f' }}
     >
       {!loaded && !failed && (
         <div role="status" style={{ position: 'absolute', inset: 0, display: 'grid',
-          placeItems: 'center', color: '#ededed', fontSize: 13, pointerEvents:'none' }}>
+          placeItems: 'center', color: lightPlayerShell ? '#151b26' : '#ededed', fontSize: 13, pointerEvents:'none' }}>
           Loading TV…
         </div>
       )}
       {(failed || documentAccess.error) && (
         <div role="alert" style={{ position: 'absolute', inset: 0, display: 'grid',
-          placeItems: 'center', color: '#ededed', fontSize: 13 }}>
+          placeItems: 'center', color: lightPlayerShell ? '#151b26' : '#ededed', fontSize: 13 }}>
           <div style={{ textAlign: 'center', padding: 16 }}>
             <p>{documentAccess.error || 'TV did not initialize. Check the network or retry this player.'}</p>
             <button type="button" onClick={() => {
@@ -152,7 +153,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
               setFailed(false);
               setReloadKey(n => n + 1);
             }} style={{ cursor: 'pointer', marginTop: 12, padding: '8px 16px',
-              border: '1px solid #888', color: '#fff', background: '#222',
+              border: '1px solid #888', color: lightPlayerShell ? '#151b26' : '#fff', background: lightPlayerShell ? '#fff' : '#222',
               borderRadius: 6 }}>Retry TV</button>
           </div>
         </div>
@@ -171,7 +172,7 @@ export function TvWorkspace({onState,onPlayerState}:{onState?:(value:TvHeaderSta
         onLoad={onLoad}
         onError={() => setFailed(true)}
         style={{ display: 'block', border: 0, width: '100%', height: '100%',
-          flex: 1, minWidth: 0, minHeight: 0, background: '#0f0f0f' }}
+          flex: 1, minWidth: 0, minHeight: 0, background: lightPlayerShell ? '#f7f9fc' : '#0f0f0f' }}
       />}
     </section>
   );

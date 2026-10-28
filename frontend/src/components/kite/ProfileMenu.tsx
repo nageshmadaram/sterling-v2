@@ -12,7 +12,7 @@ type Profile={username:string;display_name:string;photo:string;role:string;user_
 export function useSterlingProfile(){return useQuery({queryKey:['sterling-profile'],queryFn:()=>api.get<Profile>('/api/v1/auth/profile'),staleTime:30000});}
 export function ProfileMenu({hiddenTrigger=false}:{hiddenTrigger?:boolean}={}){const q=useSterlingProfile();const qc=useQueryClient();const [open,setOpen]=useState(false),[name,setName]=useState(''),[photo,setPhoto]=useState(''),[username,setUsername]=useState(''),[current,setCurrent]=useState(''),[password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);const trigger=useRef<HTMLButtonElement>(null);const initialized=useRef(false);
  const panelRef=useRef<HTMLDivElement>(null);
- const photoInput=useRef<HTMLInputElement>(null);const [cropFile,setCropFile]=useState<File|null>(null);
+ const [cropFile,setCropFile]=useState<File|null>(null);
  useEffect(()=>{if(!open){initialized.current=false;setCropFile(null);return;}if(open&&q.data&&!initialized.current){initialized.current=true;setName(q.data.display_name);setPhoto(q.data.photo);setUsername(q.data.username);setCurrent('');setPassword('');setConfirm('');setMessage('');}},[open,q.data]);
  useEffect(()=>{const show=()=>setOpen(true);window.addEventListener('sterling-open-profile',show);return()=>window.removeEventListener('sterling-open-profile',show);},[]);
  const close=()=>{setCropFile(null);setOpen(false);setCurrent('');setPassword('');setConfirm('');if(trigger.current?.getBoundingClientRect().width)trigger.current.focus();else document.querySelector<HTMLElement>('.account-menu-trigger')?.focus();};
@@ -39,10 +39,12 @@ export function ProfileMenu({hiddenTrigger=false}:{hiddenTrigger?:boolean}={}){c
    <span role="img" aria-label="No profile picture" style={{width:72,height:72,borderRadius:'50%',background:'var(--k-surface-2)',display:'grid',placeItems:'center',fontWeight:700}}>{(name||username||'?').slice(0,2).toUpperCase()}</span>}
   <div style={{display:'grid',gap:7}}>
    <strong>Profile picture</strong>
-   <input ref={photoInput} type="file" hidden tabIndex={-1} aria-label="Choose profile picture" accept="image/png,image/jpeg,image/webp"
-    onChange={e=>{const selected=e.currentTarget.files?.[0];e.currentTarget.value='';void upload(selected);}}/>
-   <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
-    <button type="button" disabled={busy||!q.data} onClick={()=>photoInput.current?.click()}>{photo?'Change picture':'Add picture'}</button>
+   <div className="sterling-profile-photo-actions">
+    <label className="sterling-profile-photo-pick">
+     <input type="file" aria-label="Choose profile picture" accept="image/png,image/jpeg,image/webp"
+      disabled={busy||!q.data} onChange={e=>{const selected=e.currentTarget.files?.[0];e.currentTarget.value='';upload(selected);}}/>
+     <span>{photo?'Change picture':'Add picture'}</span>
+    </label>
     <button type="button" disabled={busy||!q.data||!photo} onClick={removePhoto}>Remove picture</button>
    </div>
    <small style={{color:'var(--k-dim)'}}>PNG, JPEG or WebP, up to 10 MB. Crop before saving.</small>

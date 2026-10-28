@@ -14,10 +14,12 @@ type Props = {
   onQuery: (query: string) => void;
   onEnter?: () => void;
   onFeatures?: () => void;
+  /** In the unified header, all display controls live in the hamburger. */
+  settingsInAccountMenu?: boolean;
 };
 
 /** Same compact, touch-accessible controls for video and audio workspaces. */
-export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEnter, onFeatures }: Props) {
+export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEnter, onFeatures, settingsInAccountMenu = false }: Props) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [activeSuggestion,setActiveSuggestion]=useState(-1);
   const suggestionId=useId();
@@ -123,10 +125,10 @@ export function MediaHeaderControls({ kind, theme, query, onTheme, onQuery, onEn
         {searchOpen ? <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
           : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>}
       </button>
-      <button type="button" ref={settingsToggle} className="sterling-media-icon-button" aria-label={kind === 'tv' ? 'TV display settings' : 'Radio display settings'} aria-haspopup="menu" aria-expanded={settingsOpen}
+      {!settingsInAccountMenu && <button type="button" ref={settingsToggle} className="sterling-media-icon-button" aria-label={kind === 'tv' ? 'TV display settings' : 'Radio display settings'} aria-haspopup="menu" aria-expanded={settingsOpen}
         onClick={() => { if (searchOpen && (query || draft)) commitQuery(''); else window.clearTimeout(queryTimer.current); setSearchOpen(false); setSettingsOpen(o => !o); }}>
         <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.75v2.1m0 14.3v2.1M4.4 4.4l1.5 1.5m12.2 12.2 1.5 1.5M2.75 12h2.1m14.3 0h2.1M4.4 19.6l1.5-1.5M18.1 5.9l1.5-1.5"/><circle cx="12" cy="12" r="4"/></svg>
-      </button>
+      </button>}
       {settingsOpen && <div ref={menu} className="sterling-media-settings-popover" onKeyDown={event => {
         if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
         event.preventDefault();

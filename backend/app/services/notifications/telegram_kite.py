@@ -240,6 +240,9 @@ class StrategyAlert:
     option_type: str = ""
     option_symbol: str = ""
     detail: str = ""
+    # Browser deep links need the server's signal identity, not a row guessed
+    # from a visible symbol; this remains read-only notification metadata.
+    signal_id: str = ""
 
 
 def _iso_ms(value: object) -> int:
@@ -274,6 +277,8 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
                 option_type=str(row.option_type or ""),
                 option_symbol=str(getattr(leg, "option_symbol", "") or ""),
                 detail=str(getattr(leg, "moneyness", "") or ""),
+                # SuperTrend board identity also includes a row index; use
+                # underlying + exact event timestamp for its deep link instead.
             )
         )
     return alerts
@@ -356,6 +361,7 @@ def _snapback_alerts(uid: str) -> list[StrategyAlert]:
                 option_type=opt,
                 option_symbol=symbol,
                 detail=" · ".join(detail_parts),
+                signal_id=signal_key,
             )
         )
     return alerts
@@ -430,6 +436,7 @@ def _gamma_move_alerts(uid: str) -> list[StrategyAlert]:
                 option_type=opt,
                 option_symbol=str(inst.tradingsymbol or ""),
                 detail=detail,
+                signal_id=str(signal.id),
             )
         )
 
