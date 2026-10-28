@@ -22,13 +22,13 @@ const readHidden = (engine: string) => {
   try { return localStorage.getItem(storageKey(engine)) === '1'; } catch { return false; }
 };
 
-export function StrategyGuide({ engine }: { engine: string }) {
+export function StrategyGuide({ engine, inDisclosure = false }: { engine: string; inDisclosure?: boolean }) {
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
   const what = WHAT[engine as EngineId];
   const practice = engine === 'ema_trend' || engine === 'adaptive_edge';
   const notice = <strong>Practice only — no real orders</strong>;
   if (!what) return null;
-  if (hidden[engine] || readHidden(engine)) return practice
+  if (!inDisclosure && (hidden[engine] || readHidden(engine))) return practice
     ? <div role="note" aria-label="Practice only" style={{ padding: '8px 12px', color: k.text, fontSize: 12 }}>{notice}</div>
     : null;
   const hide = () => {
@@ -49,10 +49,10 @@ export function StrategyGuide({ engine }: { engine: string }) {
           <strong style={{ color: k.text }}>3</strong> To let Sterling trade for you: Tools → Connect → Algo Trade → turn ALGO on for this strategy.
         </div>}
       </div>
-      <button type="button" onClick={hide} aria-label="Hide this guide" style={{
+      {!inDisclosure && <button type="button" onClick={hide} aria-label="Hide this guide" style={{
         flexShrink: 0, border: `1px solid ${k.border}`, borderRadius: 4, background: 'transparent', color: k.dim,
         fontSize: 10.5, padding: '3px 8px', cursor: 'pointer', fontFamily: 'inherit',
-      }}>Got it</button>
+      }}>Got it</button>}
     </div>
   );
 }
