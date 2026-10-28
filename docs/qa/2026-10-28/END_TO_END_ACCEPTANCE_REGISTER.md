@@ -163,3 +163,50 @@ no billing diagnosis should be asserted as fact.
    No promise of profits. Live-entry permission remains off pending acceptance.
 
 All missing items remain **BLOCKED/UNVERIFIED** until their real receipts exist.
+
+
+## 2026-10-28 GitHub Actions execution gate — attempt 2
+
+The exact synchronized GitHub revision
+`bf153f8f2b70f38520d65ab5c6c7425b305c2ffb` was inspected via
+the GitHub Actions workflow API and its failed workflows were explicitly
+rerun using the linked GitHub integration:
+
+| Workflow | Run ID | Attempt | Observed API result |
+|---|---:|---:|---|
+| CI | 40598169088 | 2 | completed / failure |
+| Snapback release gate | 40598169055 | 2 | completed / failure |
+| Regression Gate | 40598169031 | 2 | completed / failure |
+
+The CI job data for Frontend Type Check, Frontend Tests (Vitest),
+Backend Tests (Python 3.12 and 3.13), mobile-checks, Production Docker
+Smoke, Sterling Release Gate, Snapback release gate and the
+Zero-regression gate reported **no named runner** and **zero execution
+steps** in the GitHub API response. The rerun repeated that outcome.
+Workflow log download returned HTTP 404 `BlobNotFound`. The Playwright
+E2E / parity matrix jobs were skipped.
+
+**Interpretation: BLOCKED / TESTS NOT EXECUTED.** These failed workflow
+statuses are not evidence of failing test assertions, successful test
+execution or successful deployment. The underlying runner/workflow
+provisioning failure is not established by the available receipts.
+Do not change acceptance states to PASSED on this basis.
+
+Proof links:
+- https://github.com/nageshmadaram/sterling/actions/runs/40598169088
+- https://github.com/nageshmadaram/sterling/actions/runs/40598169055
+- https://github.com/nageshmadaram/sterling/actions/runs/40598169031
+
+**Related source hardening after the execution check:** The
+Space/Echo appearance settings portal now re-resolves after the outer
+menu opens; focused React regression test
+`frontend/src/pages/__tests__/MediaWorkspace.hamburger.test.tsx`
+was committed. TV and Radio iframe loading/error surfaces now follow
+the selected Light/Dark palette. These newer commits require their own
+executed test and deployment evidence; the older workflow attempt cannot
+certify them.
+
+**Certification action:** Mark CI runner readiness, full Vitest,
+type-check, Python 3.12/3.13, Docker, Playwright, Android visual/audio,
+mobile push delivery and Kite broker-binding as NOT VERIFIED until
+independently observed on the exact release commit. Live entry OFF.
