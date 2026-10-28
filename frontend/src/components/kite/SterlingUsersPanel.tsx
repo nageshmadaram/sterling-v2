@@ -162,7 +162,7 @@ export function SterlingUsersPanel({ standalone = false, initialCreate=false, on
   const save = useMutation({
     mutationFn: (v: Draft) => {
       const {id,username,password,role,active}=v;
-      const body={username:username.trim(),password,role,active,...(!id&&v.access?{features:v.access.features,configuration:v.access.configuration}:{})};
+      const body={username:username.trim(),password,role,active,...(!id&&v.access?{features:v.access.features,configuration:v.access.configuration,visibility:v.access.visibility}:{})};
       return id ? api.put<User>(`${BASE}/${encodeURIComponent(id)}`, body)
                 : api.post<User>(BASE, body);
     },
