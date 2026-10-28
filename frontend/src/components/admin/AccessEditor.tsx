@@ -19,7 +19,7 @@ function FeatureEditor({ userId }: { userId: string }) {
   useEffect(() => { if (query.data&&!dirty) setDraft(query.data); }, [query.data]);
   const save = useMutation({ mutationFn: () => api.put<FeaturePolicy>(`${BASE}/${encodeURIComponent(userId)}/features`,
     { features: draft?.features, visibility: draft?.visibility, expected_revision: draft?.revision }),
-    onSuccess: data => { setDraft(data); qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); } });
+    onSuccess: data => { setDraft(data); qc.setQueryData(key, data); void qc.invalidateQueries({ queryKey: ['admin-configuration', userId] }); void qc.invalidateQueries({ queryKey: ['admin-directory'] }); void qc.invalidateQueries({ queryKey: ['sterling-session-policy'] }); } });
   return <section><h3>Workspaces</h3><p>Access and visibility are independent. Hide a workspace to remove it from this user's chooser and block new access requests for it.</p>
     {query.isLoading && <p role="status">Loading grants…</p>}
     {query.isError && <p role="alert">{query.error.message}</p>}
