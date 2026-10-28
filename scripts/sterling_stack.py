@@ -604,13 +604,22 @@ class CommittedFrontend:
         return result
 
     def current(self):
+        """Identify the release actually served, even if metadata is stale.
+
+        The atomic published symlink is the only promotion authority. A prior
+        crash may have switched it but failed to update published.json; never
+        pretend the active build is missing, or bypass ancestry checks because
+        its manifest is stale. Only recognize complete immutable SHA releases
+        inside our own managed releases directory.
+        """
         try:
-            item=json.loads(self.manifest.read_text())
             path=self.pointer.resolve(strict=True)
-            if (path==self.releases/item['sha'] and
+            sha=path.name
+            if (re.fullmatch(r'[a-f0-9]{40,64}',sha) and
+                    path.parent==self.releases.resolve() and
                     (path/'index.html').is_file()):
-                return item['sha']
-        except (OSError,ValueError,KeyError,TypeError):
+                return sha
+        except (OSError,ValueError,RuntimeError):
             pass
         return ''
 

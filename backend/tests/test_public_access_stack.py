@@ -719,8 +719,8 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
  with socket.socket() as sock:
   sock.bind(('127.0.0.1',0))
   port=sock.getsockname()[1]
- first=tmp_path/'releases/a'
- second=tmp_path/'releases/b'
+ first=tmp_path/'releases'/('a'*40)
+ second=tmp_path/'releases'/('b'*40)
  first.mkdir(parents=True)
  second.mkdir(parents=True)
  (first/'index.html').write_text('<html><div id="root">COMMIT A</div></html>')
@@ -749,13 +749,22 @@ def test_gateway_serves_new_committed_release_without_restart(tmp_path):
   temp=tmp_path/'published.next'
   temp.symlink_to(second,target_is_directory=True)
   temp.replace(pointer)
-  manifest.write_text(json.dumps({'sha':'b'*40,'ref':'HEAD'}))
+  # Simulate the dangerous boundary: gateway already serves COMMIT B, while
+  # published.json still contains COMMIT A (or its update may have failed).
   with urllib.request.urlopen(origin+'/',timeout=2) as response:
    assert 'COMMIT B' in response.read().decode()
+  assert json.loads(manifest.read_text())['sha']=='a'*40
   with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
    health=json.load(response)
    assert health['ready'] is True
    assert health['release_commit']=='b'*40
+  # Missing/corrupt metadata must also not hide the actual served version.
+  manifest.write_text('{invalid')
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   assert json.load(response)['release_commit']=='b'*40
+  manifest.write_text(json.dumps({'sha':'b'*40,'ref':'HEAD'}))
+  with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=2) as response:
+   assert json.load(response)['release_commit']=='b'*40
   assert process.poll() is None
  finally:
   process.terminate()
@@ -1567,3 +1576,39 @@ def test_up_retains_old_presentation_manager_when_bootstrap_needs_low_disk(monke
  monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
  with pytest.raises(stack.ReleaseStorageBlocked):
   stack.main()
+
+
+def test_publisher_current_uses_served_release_when_manifest_is_stale(tmp_path,monkeypatch):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ old='a'*40
+ new='b'*40
+ for sha in (old,new):
+  release=publisher.releases/sha
+  release.mkdir(parents=True)
+  (release/'index.html').write_text('RELEASE '+sha)
+ publisher.pointer.symlink_to(publisher.releases/new,target_is_directory=True)
+ publisher.manifest.write_text(json.dumps({'sha':old,'ref':'origin/main'}))
+ assert publisher.current()==new
+ publisher.manifest.write_text('{not json')
+ assert publisher.current()==new
+ publisher.manifest.unlink()
+ assert publisher.current()==new
+
+
+def test_publisher_current_rejects_untrusted_or_incomplete_symlink_target(tmp_path,monkeypatch):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ outside=tmp_path/'outside'/('a'*40)
+ outside.mkdir(parents=True)
+ (outside/'index.html').write_text('NOT MANAGED')
+ publisher.pointer.symlink_to(outside,target_is_directory=True)
+ publisher.manifest.write_text(json.dumps({'sha':'a'*40,'ref':'origin/main'}))
+ assert publisher.current()==''
+ publisher.pointer.unlink()
+ incomplete=publisher.releases/('b'*40)
+ incomplete.mkdir(parents=True)
+ publisher.pointer.symlink_to(incomplete,target_is_directory=True)
+ assert publisher.current()==''
+ (incomplete/'index.html').write_text('MANAGED')
+ assert publisher.current()=='b'*40

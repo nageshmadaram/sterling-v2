@@ -76,3 +76,19 @@ frontend build still needs its own separate disk preflight.
 These guards apply only after they are installed on the real Sterling host.
 They are a minimum reserve rather than a bound on npm/pip's peak usage;
 disk reclamation and host deployment require separate operator evidence.
+
+
+## Served release integrity
+
+`/__sterling_web_health.release_commit` now identifies the SHA of the
+immutable `releases/<sha>` directory actually reached by the gateway's
+`published` symlink. This avoids showing the old commit during the small
+period between atomic symlink promotion and writing `published.json`, or
+after an interrupted manifest update. The Python publisher independently
+derives its current commit from the same complete managed release, so stale
+metadata does not incorrectly erase its ancestry baseline.
+
+For non-production gateways using a plain static `dist` directory, the
+health endpoint retains the manifest compatibility fallback. A reported SHA
+is evidence of the *local gateway's* active build, not proof of a live
+Cloudflare tunnel, device reload, successful test suite, or broker readiness.

@@ -17,6 +17,19 @@ if (!['127.0.0.1', 'localhost'].includes(backend.hostname) || backend.protocol !
 const releaseFile = process.env.STERLING_RELEASE_MANIFEST ||
   path.join(gatewayDir, '.runtime/stack/published.json');
 function committedRelease() {
+  // The gateway serves from the atomically swapped published symlink, not
+  // from published.json. During a promotion (or after a manifest-write error)
+  // these can briefly disagree. Report the release whose files are served.
+  try {
+    if (fs.lstatSync(root).isSymbolicLink()) {
+      const actual = fs.realpathSync(root);
+      const sha = path.basename(actual);
+      if (path.basename(path.dirname(actual)) === 'releases' &&
+          /^[a-f0-9]{40,64}$/.test(sha)) return sha;
+    }
+  } catch { return null; }
+  // Compatibility: development/test gateways may use a regular dist path.
+  // Their release manifest is informational, not publication authority.
   try {
     const value = JSON.parse(fs.readFileSync(releaseFile, 'utf8'));
     return /^[a-f0-9]{40,64}$/.test(value.sha) ? value.sha : null;
