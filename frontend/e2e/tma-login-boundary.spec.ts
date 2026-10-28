@@ -5,16 +5,16 @@ import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const html=execFileSync(path.join(root,'backend/.venv/bin/python'),['-c','from app.api.v1.endpoints.tma import _generate_tma_html; print(_generate_tma_html())'],{cwd:path.join(root,'backend'),encoding:'utf8',env:{...process.env,ENVIRONMENT:'development'}});
 
-test('tunnel denial preserves session and does not masquerade as bad login',async({page})=>{
+test('gateway transport failure preserves session and does not masquerade as bad login',async({page})=>{
  await page.route('**/*',route=>{
   const url=route.request().url();
   if(url==='http://sterling.test/tma')return route.fulfill({contentType:'text/html',body:html});
-  if(url.includes('/api/v1/'))return route.fulfill({status:403,contentType:'text/plain',body:'Monthly bandwidth exhausted. ERR_NGROK_725'});
+  if(url.includes('/api/v1/'))return route.fulfill({status:503,contentType:'text/plain',body:'Gateway temporarily unavailable'});
   return route.abort();
  });
  await page.addInitScript(()=>sessionStorage.setItem('sterling.auth.access','synthetic-access'));
  await page.goto('http://sterling.test/tma');
- await expect(page.locator('#sync-status')).toContainText('tunnel bandwidth limit');
+ await expect(page.locator('#sync-status')).toContainText('service is unavailable');
  await expect(page.locator('#sterling-login')).toBeHidden();
  await expect.poll(()=>page.evaluate(()=>sessionStorage.getItem('sterling.auth.access'))).toBe('synthetic-access');
 });
