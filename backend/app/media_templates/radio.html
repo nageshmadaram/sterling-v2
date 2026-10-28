@@ -3813,11 +3813,15 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         // Use an O(n) one-edit check; never sort the entire catalogue.
         if(limit===Infinity || compactQuery.length<4 || fallback.length>=limit)continue;
         const tokens=fields.hay.split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
-        if(terms.every(term=>term.length<4?
-            tokens.some(token=>token.includes(term)):
-            tokens.some(token=>token.includes(term)||radioOneEditApart(term,token)))) {
-          fallback.push(station);
-        }
+        const nearToken=term=>tokens.some((token,index)=>{
+          if(token.includes(term)||(term.length>=4&&radioOneEditApart(term,token)))return true;
+          // Multiword station names must tolerate both omitted spaces and
+          // a typo, e.g. "fmrainbo" for "FM Rainbow".
+          if(term.length<4)return false;
+          const pair=token+(tokens[index+1]||'');
+          return radioOneEditApart(term,pair);
+        });
+        if(terms.every(nearToken)) fallback.push(station);
       }
       return prefix.concat(other,fallback).slice(0,limit);
     }
