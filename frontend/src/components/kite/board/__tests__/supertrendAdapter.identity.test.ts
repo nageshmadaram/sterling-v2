@@ -26,3 +26,12 @@ describe('contract disclosure identity', () => {
     expect(childId({ ...row, spot: 1901, legs: [{ ...leg, premium_spot: 42 }] })).toBe(childId(row));
   });
 });
+
+it('keeps notification identity independent of row order and candle-close display time',()=>{
+  const [a]=supertrendToBoard([row]);
+  const b=supertrendToBoard([{...row,underlying:'OTHER'},row])[1];
+  expect(a.notificationId).toBe(b.notificationId);
+  expect(a.sourceTimestampMs).toBe(row.timestamp_ms);
+  expect(a.notificationId).toBe(`supertrend:${row.token}:${row.timestamp_ms}:derivatives:swing:60`);
+  expect(supertrendToBoard([{...row,horizon_mode:'scalping',signal_timeframe_minutes:5}])[0].notificationId).not.toBe(a.notificationId);
+});

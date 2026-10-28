@@ -277,8 +277,9 @@ def _supertrend_alerts(uid: str) -> list[StrategyAlert]:
                 option_type=str(row.option_type or ""),
                 option_symbol=str(getattr(leg, "option_symbol", "") or ""),
                 detail=str(getattr(leg, "moneyness", "") or ""),
-                # SuperTrend board identity also includes a row index; use
-                # underlying + exact event timestamp for its deep link instead.
+                # A stable source identity survives sorting/filtering and keeps
+                # modes apart even when their displayed candle-close times differ.
+                signal_id=f"supertrend:{row.token}:{row.timestamp_ms}:{getattr(row, 'source', None) or 'spot'}:{getattr(row, 'horizon_mode', None) or 'swing'}:{getattr(row, 'signal_timeframe_minutes', None) or 60}",
             )
         )
     return alerts

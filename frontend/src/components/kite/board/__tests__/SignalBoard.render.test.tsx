@@ -294,3 +294,14 @@ describe('signalPnl', () => {
     expect(signalPnl({ ...base, held: true, status: 'armed' })).toBeNull();
   });
 });
+
+it.each(['source timestamp','stable identity'])('opens the exact notification by %s despite a different displayed candle close',kind=>{
+  const target=sig({engine:'supertrend',underlying:'NIFTY BANK',atMs:NOW+300000,sourceTimestampMs:NOW,notificationId:'supertrend:123:'+NOW+':spot:scalping:5'});
+  const wrong=sig({...target,id:'other',notificationId:'supertrend:123:'+NOW+':spot:swing:60'});
+  const params=new URLSearchParams({view:'live',notification:'signals',strategy:'supertrend',symbol:'NIFTY BANK',at:String(NOW)});
+  if(kind==='stable identity')params.set('signal',target.notificationId!);
+  window.history.replaceState({},'', '/kite?'+params);
+  const open=vi.fn();
+  try{show(kind==='stable identity'?[wrong,target]:[target],{onOpenDetail:open});expect(open).toHaveBeenCalledWith(target);expect(open).toHaveBeenCalledTimes(1);}
+  finally{window.history.replaceState({},'','/');}
+});

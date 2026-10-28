@@ -198,6 +198,9 @@ export interface BoardSignal {
   emaTrend?: { signalId?: string; campaignId?: string; mode: import('../../../types/emaTrend').EmaTrendMode; configRevision: number; stateRevision?: number; campaignState?: string; pending?: boolean; flattenRequested?: boolean };
   historical?: boolean;
   id: string;
+  /** Stable source identity for browser notifications, independent of display time/order. */
+  notificationId?: string;
+  sourceTimestampMs?: number | null;
   engine: EngineId;
   /** True when this row is a position the account actually holds (or held). */
   held?: boolean;

@@ -1054,6 +1054,7 @@ def test_supertrend_alert_preserves_historical_dedupe_key(monkeypatch):
     assert len(alerts) == 1
     assert alerts[0].strategy == "kite_supertrend"
     assert alerts[0].dedupe_key == "987|654321"
+    assert alerts[0].signal_id == "supertrend:987:654321:spot:swing:60"
 
 
 @pytest.mark.asyncio

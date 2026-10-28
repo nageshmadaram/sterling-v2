@@ -1256,9 +1256,9 @@ export function SignalBoard({
     const at = Number(params.get('at') || 0);
     const target = signals.find(item => {
       if (item.engine !== strategy) return false;
-      if (signalId) return item.id === signalId || !!item.children?.some(child => child.id === signalId);
+      if (signalId) return item.id === signalId || item.notificationId === signalId || !!item.children?.some(child => child.id === signalId || child.notificationId === signalId);
       return !!symbol && item.underlying.toUpperCase() === symbol.toUpperCase()
-        && (at === 0 || item.atMs === at);
+        && (at === 0 || item.atMs === at || item.sourceTimestampMs === at);
     });
     if (!target) return; // Delayed scan/history must not open an unrelated row.
     const key = [strategy, signalId, symbol, at].join('|');

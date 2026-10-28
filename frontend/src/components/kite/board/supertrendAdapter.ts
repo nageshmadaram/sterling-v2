@@ -436,6 +436,8 @@ function supertrendSignalToBoard(
 
   return {
     id: `${engine}-${row.underlying}-${row.timestamp_ms}-${index}`,
+    notificationId: `supertrend:${row.token}:${row.timestamp_ms}:${row.source || 'spot'}:${row.horizon_mode || 'swing'}:${row.signal_timeframe_minutes || 60}`,
+    sourceTimestampMs: parseTimestampMs(row.timestamp_ms),
     engine,
     historical: row.is_replay === true,
     underlying: row.underlying,
