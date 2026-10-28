@@ -176,3 +176,31 @@ barrier until the scan settles. Added narrow polling and banner tests, but
 **no full Vitest, backend, device, or Kite tests have run on this new
 source commit**. GitHub Actions remains blocked before runner assignment
 (#285); deployment evidence remains blocked (#277).
+
+
+## Active Kite account switch must not reuse signal snapshots (28 October 2026)
+
+A further source audit found that `useActivateKiteAccount` previously
+invalidated only `kite-accounts` and `kite-status`. The four live strategy
+query caches — SuperTrend, Snapback, Gamma-Unwind and EMA Trend — could
+retain the previous account's response during the new account's refresh.
+The today-first release barrier was keyed only by view and IST date, so it
+could remain released for the previous account even while the new account's
+current-day data had not been obtained.
+
+The account-change mutations now reset broker-account-dependent React Query
+entries, including strategy snapshots/history and Kite positions/orders,
+before treating a new identity as current. The status cache is updated from
+the confirmed active Kite account, and `TodaySignalPriorityProvider` keys
+its historical-read release by **view + active Kite account + IST date**.
+Deleting an account, logout and an identity-changing new/renewed session
+also refresh broker-dependent caches. Simulation/live still have their
+existing independent query clients.
+
+The reset concerns **frontend GET response caches only**; it does not
+wipe any broker order, portfolio or persistence record or request a
+new market scan. Tests cover the cache predicate and reset, and the
+day/account gate transition, but they are **not verified as executed**
+under current GitHub CI runner allocation blocker #285. Owner/device
+deployment evidence also remains open under #277. Do not use cached
+UI rows as an execution authorization or claim broker readiness.

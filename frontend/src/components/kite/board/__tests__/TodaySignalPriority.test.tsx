@@ -10,6 +10,7 @@ const source = vi.hoisted(() => ({
   supertrend: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } },
   snapback: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } },
   gamma: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } },
+  accountId: 'kite-account-a',
   replay: null as number | null,
 }));
 vi.mock('../../../../hooks/useSterlingKiteEngine', () => ({
@@ -20,6 +21,9 @@ vi.mock('../../../../hooks/useSnapback', () => ({
 }));
 vi.mock('../../../../hooks/useGammaMove', () => ({
   useGammaMoveSnapshot: () => source.gamma,
+}));
+vi.mock('../../../../hooks/useKite', () => ({
+  useKiteStatus: () => ({ data: { account_id: source.accountId } }),
 }));
 vi.mock('../../../../hooks/useReplayStore', () => ({
   useSimNowMs: () => source.replay,
@@ -42,15 +46,18 @@ function wrap(children: React.ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
-  return render(<QueryClientProvider client={client}>
-    <TodaySignalPriorityProvider>{children}</TodaySignalPriorityProvider>
-  </QueryClientProvider>);
+  const shell = (content: React.ReactNode) => <QueryClientProvider client={client}>
+    <TodaySignalPriorityProvider>{content}</TodaySignalPriorityProvider>
+  </QueryClientProvider>;
+  const result = render(shell(children));
+  return { ...result, rerenderWith: (content: React.ReactNode) => result.rerender(shell(content)) };
 }
 
 beforeEach(() => {
   source.supertrend = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } };
   source.snapback = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scanning: false } };
   source.gamma = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } };
+  source.accountId = 'kite-account-a';
   source.replay = null;
 });
 
@@ -101,6 +108,23 @@ describe('cross-strategy today priority', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses');
     expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
     expect(screen.getByRole('status')).toHaveTextContent('older history queued');
+  });
+
+  it('restarts the today-first barrier when a different Kite account is selected', async () => {
+    const screenView = wrap(<Display />);
+    await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
+
+    // The account mutation resets cached strategy queries while the next
+    // account's current-day snapshots are still pending.
+    source.accountId = 'kite-account-b';
+    source.snapback = { ...source.snapback, isSuccess: false, dataUpdatedAt: 0 };
+    screenView.rerenderWith(<Display />);
+    expect(screen.getByTestId('gate')).toHaveTextContent('today-first');
+    expect(screen.getByRole('status')).toHaveTextContent('older history queued');
+
+    source.snapback = { ...source.snapback, isSuccess: true, dataUpdatedAt: Date.now() };
+    screenView.rerenderWith(<Display />);
+    await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
   });
 
   it("releases older read-only history after all today's checks settle, while showing the failed strategy", async () => {

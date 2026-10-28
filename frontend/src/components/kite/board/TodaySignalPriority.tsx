@@ -4,6 +4,7 @@ import { api } from '../../../utils/api';
 import { useView } from '../../../store/useViewStore';
 import { useSimNowMs } from '../../../hooks/useReplayStore';
 import { useEngineSignals } from '../../../hooks/useSterlingKiteEngine';
+import { useKiteStatus } from '../../../hooks/useKite';
 import { useSnapbackSnapshot } from '../../../hooks/useSnapback';
 import { useGammaMoveSnapshot } from '../../../hooks/useGammaMove';
 import type { EmaTrendSnapshot } from '../../../types/emaTrend';
@@ -74,6 +75,11 @@ function activeJob(data: unknown): boolean {
 export function TodaySignalPriorityProvider({ children }: { children: React.ReactNode }) {
   const replay = useSimNowMs() !== null;
   const view = useView();
+  // Live and simulation have separate caches, but one live view can contain
+  // multiple Kite accounts. Releasing history for account A must never be
+  // reused as proof the four current-day reads loaded for account B.
+  const { data: kiteStatus } = useKiteStatus();
+  const activeAccountId = kiteStatus?.account_id || 'no-active-account';
   const [day, setDay] = React.useState(() => istDay(new Date()));
   React.useEffect(() => {
     const id = window.setInterval(() => setDay(istDay(new Date())), 30_000);
@@ -107,7 +113,7 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
   // The workspace may switch between live and simulation views without
   // reloading the page. A complete live-account read cannot release historical
   // queries for another tenant's view on the same calendar day.
-  const scope = `${view}:${day}`;
+  const scope = `${view}:${activeAccountId}:${day}`;
   const [releasedScope, setReleasedScope] = React.useState('');
   // An unavailable strategy must not freeze ALL other boards' history
   // indefinitely. Its current-day read was attempted and failed; preserve
