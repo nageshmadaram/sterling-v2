@@ -4,7 +4,7 @@ import '@testing-library/jest-dom/vitest';
 import {MediaAccountSettings} from '../MediaAccountSettings';
 import {MediaHeaderControls} from '../MediaHeaderControls';
 
-afterEach(()=>cleanup());
+afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 
 describe('mobile media appearance moved to the hamburger',()=>{
   it.each(['tv','radio'] as const)('keeps search in the header and removes the sun for %s',kind=>{
@@ -15,8 +15,12 @@ describe('mobile media appearance moved to the hamburger',()=>{
   });
 
   it.each(['tv','radio'] as const)('preserves appearance and player actions for %s',kind=>{
+    // The account dialog must close before the next animation frame opens a player sheet.
+    // Advance that frame deterministically in the DOM test environment.
+    vi.stubGlobal('requestAnimationFrame',(callback:FrameRequestCallback)=>{callback(0);return 1;});
     const order:string[]=[];const closed=()=>order.push('closed');window.addEventListener('sterling-close-account-menu',closed);
-    const change=vi.fn(),features=vi.fn(()=>order.push('features')),command=vi.fn(()=>order.push('command'));
+    const change=vi.fn(),features=vi.fn(()=>order.push('features')),
+      command=vi.fn((_event:Event)=>order.push('command'));
     window.addEventListener(`sterling-${kind}-command`,command);
     try{
       render(<MediaAccountSettings kind={kind} theme="spotify" onTheme={change} onFeatures={features}/>);
@@ -26,7 +30,8 @@ describe('mobile media appearance moved to the hamburger',()=>{
       expect(change).toHaveBeenCalledWith('youtube');
       fireEvent.click(screen.getByRole('button',{name:kind==='tv'?'Default channel':'Default station'}));
       fireEvent.click(screen.getByRole('button',{name:kind==='tv'?'Channel sources':'Station sources'}));
-      expect(command.mock.calls.map(call=>call[0].detail)).toEqual([{action:'startup'},{action:'sources'}]);
+      expect(command.mock.calls.map(([event])=>(event as CustomEvent<{action:string}>).detail))
+        .toEqual([{action:'startup'},{action:'sources'}]);
       fireEvent.click(screen.getByRole('button',{name:'Player tools & preferences'}));
       expect(features).toHaveBeenCalledOnce();
       expect(order).toEqual(['closed','closed','command','closed','command','closed','features']);
