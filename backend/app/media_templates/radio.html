@@ -258,17 +258,6 @@
 <link rel="stylesheet" href="/radio/appearance.css">
 
 <style id="sterling-radio-mobile-recovery">
-/* Settings must consume touches; background channel cards stay inert. */
-#startup-modal:not(.hidden),#audio-dsp-modal:not(.hidden) {
-  z-index:10000!important;pointer-events:auto!important;touch-action:pan-y;
-  overflow-y:auto;overscroll-behavior:contain;
-}
-#startup-modal:not(.hidden)>div,#audio-dsp-modal:not(.hidden)>div {
-  max-height:calc(100dvh - 24px);overflow-y:auto;touch-action:pan-y;
-}
-html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
-  pointer-events:none!important;
-}
 @media(max-width:1023px) {
   #mobile-player-sheet {background:linear-gradient(170deg,rgba(var(--ambient-rgb,28,90,56),.85),#121212 62%)!important;}
   #mobile-player-sheet>div:nth-child(2){margin-top:0!important;margin-bottom:0!important;padding-top:12px!important;padding-bottom:12px!important;}
@@ -324,11 +313,11 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
   <!-- =========================================================================
        MODAL 1: STARTUP CHANNEL & BOOT SETTINGS
        ========================================================================= -->
-  <div id="startup-modal" role="dialog" aria-modal="true" aria-label="Radio startup settings" class="hidden fixed inset-0 z-[170] bg-black/80 flex items-center justify-center p-4">
-    <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
+  <dialog id="startup-modal" class="media-settings-dialog" aria-label="Radio startup settings">
+    <div class="media-sheet-content bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-[15px] text-white">Startup Playback</h3>
-        <button data-radio-click="3" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
+        <button data-radio-click="3" aria-label="Close startup settings" class="w-8 h-8 btn-circle bg-[#282828] text-[#b3b3b3] hover:text-white">
           <i class="fa-solid fa-xmark text-xs"></i>
         </button>
       </div>
@@ -371,13 +360,13 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <button data-radio-click="3" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- =========================================================================
        MODAL 2: AUDIO QUALITY & EQUALIZER
        ========================================================================= -->
-  <div id="audio-dsp-modal" class="hidden fixed inset-0 z-[170] bg-black/80 flex items-center justify-center p-4">
-    <div class="bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
+  <dialog id="audio-dsp-modal" class="media-settings-dialog" aria-label="Audio Quality & Equalizer">
+    <div class="media-sheet-content bg-[#181818] border border-[#2e2e2e] rounded-xl max-w-md w-full p-5 shadow-2xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-semibold text-[15px] text-white">Audio Quality & Equalizer</h3>
         <div class="flex items-center gap-2">
@@ -429,7 +418,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <button data-radio-click="9" class="px-4 py-2 rounded-full text-xs font-semibold bg-white text-black">Done</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- =========================================================================
        1. SPOTIFY REPLICA (DESKTOP 3-PANE + NATIVE SPOTIFY MOBILE APP)
@@ -1069,7 +1058,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <button data-radio-click="60" id="sheet-mute" class="w-11 h-11 btn-circle text-white text-xl" aria-label="Mute or unmute radio"><i class="fa-solid fa-volume-high"></i></button>
         <button data-radio-click="55" class="w-11 h-11 btn-circle text-white text-2xl" aria-label="Previous station"><i class="fa-solid fa-backward-step"></i></button>
         <button data-radio-click="56" class="w-16 h-16 btn-circle bg-white text-black text-2xl shadow-xl active:scale-95 transition" aria-label="Play or pause radio">
-          <i id="sheet-play" class="fa-solid fa-play ml-0.5"></i>
+          <span id="sheet-play" class="radio-play-glyph" aria-hidden="true"></span>
         </button>
         <button data-radio-click="57" class="w-11 h-11 btn-circle text-white text-2xl" aria-label="Next station"><i class="fa-solid fa-forward-step"></i></button>
         <button data-radio-click="29" class="w-11 h-11 btn-circle text-white text-xl" aria-label="Equalizer and audio settings" title="Equalizer"><i class="fa-solid fa-sliders"></i></button>
@@ -2161,7 +2150,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
     // --- Startup Modal ---
     function syncRadioModalState() {
-      const open = ['startup-modal','audio-dsp-modal'].some(id=>!document.getElementById(id).classList.contains('hidden'));
+      const open = ['startup-modal','audio-dsp-modal'].some(id=>document.getElementById(id).open);
       document.documentElement.classList.toggle('radio-modal-open',open);
     }
     function openStartupModal() {
@@ -2169,13 +2158,13 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       populateStartupSelectDropdown();
       syncStartupModalUI();
       closeDspModal(); // Keep only one foreground settings dialog.
-      document.getElementById('startup-modal').classList.remove('hidden');
+      if (!document.getElementById('startup-modal').open) document.getElementById('startup-modal').showModal();
       syncRadioModalState();
       document.querySelector('#startup-modal button')?.focus();
     }
 
     function closeStartupModal() {
-      document.getElementById('startup-modal').classList.add('hidden');
+      if (document.getElementById('startup-modal').open) document.getElementById('startup-modal').close();
       syncRadioModalState();
     }
 
@@ -2841,29 +2830,32 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       safeHaptic(10);
       syncDspModalUI();
       closeStartupModal(); // Keep only one foreground settings dialog.
-      document.getElementById('audio-dsp-modal').classList.remove('hidden');
+      if (!document.getElementById('audio-dsp-modal').open) document.getElementById('audio-dsp-modal').showModal();
       syncRadioModalState();
       document.querySelector('#audio-dsp-modal button')?.focus();
     }
 
     function closeDspModal() {
-      document.getElementById('audio-dsp-modal').classList.add('hidden');
+      if (document.getElementById('audio-dsp-modal').open) document.getElementById('audio-dsp-modal').close();
       syncRadioModalState();
     }
     // Register the actual scrollable sheets with TV's common swipe handler.
-    window.SterlingSheetSwipe?.register('#startup-modal:not(.hidden) > div', closeStartupModal);
-    window.SterlingSheetSwipe?.register('#audio-dsp-modal:not(.hidden) > div', closeDspModal);
+    window.SterlingSheetSwipe?.register('#startup-modal[open] > .media-sheet-content', closeStartupModal);
+    window.SterlingSheetSwipe?.register('#audio-dsp-modal[open] > .media-sheet-content', closeDspModal);
     for (const id of ['startup-modal', 'audio-dsp-modal']) {
-      document.getElementById(id).addEventListener('click', event => {
-        if (event.target !== event.currentTarget) return;
+      const dialog=document.getElementById(id);
+      dialog.addEventListener('close',syncRadioModalState);
+      dialog.addEventListener('cancel',event=>{event.preventDefault();dialog.close();});
+      dialog.addEventListener('click', event => {
+        if (event.target !== dialog) return;
         if (id === 'startup-modal') closeStartupModal(); else closeDspModal();
       });
     }
     document.addEventListener('keydown', event => {
       if (event.key !== 'Escape') return;
-      if (!document.getElementById('audio-dsp-modal').classList.contains('hidden')) {
+      if (document.getElementById('audio-dsp-modal').open) {
         event.stopPropagation(); closeDspModal();
-      } else if (!document.getElementById('startup-modal').classList.contains('hidden')) {
+      } else if (document.getElementById('startup-modal').open) {
         event.stopPropagation(); closeStartupModal();
       }
     }, true);
@@ -3742,7 +3734,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       document.getElementById('sp-mini-play').className = `${icon} text-base`;
       document.getElementById('ytm-bar-play').className = `${icon} text-sm`;
       document.getElementById('ytm-mini-play').className = `${icon} text-base`;
-      document.getElementById('sheet-play').className = icon;
+      const sheetIcon=document.getElementById('sheet-play');
+      sheetIcon.className='radio-play-glyph';
+      sheetIcon.innerHTML=paused?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>';
       document.getElementById('sp-np-eq').classList.toggle('paused', !isPlaying);
 
       const context=document.getElementById('sheet-context');if(context)context.textContent=activeStream.category==='telugu'?'Telugu radio':activeStream.category==='akashvani'?'Akashvani':activeStream.category==='tamil'?'Tamil radio':'Your stations';

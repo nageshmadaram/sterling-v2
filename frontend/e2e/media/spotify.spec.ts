@@ -90,15 +90,15 @@ test('Radio plays a controlled audio stream and preserves user pause',async({pag
   await frame.locator('#spotify-app .solid-sp-miniplayer').click();
   await frame.locator('html').evaluate(el=>el.setAttribute('data-color-scheme','light'));
   const sheetPlay=frame.locator('#sheet-play');
-  await expect(sheetPlay).toHaveClass(/fa-pause/);
+  await expect(sheetPlay.locator('svg path')).toHaveAttribute('d','M6 5h4v14H6zm8 0h4v14h-4z');
   await expect(sheetPlay.locator('..')).toHaveAttribute('aria-label','Pause radio');
   expect(await sheetPlay.evaluate(el=>getComputedStyle(el).color)).toBe('rgb(255, 255, 255)');
   await sheetPlay.locator('..').click();
-  await expect(sheetPlay).toHaveClass(/fa-play/);
+  await expect(sheetPlay.locator('svg path')).toHaveAttribute('d','M8 5v14l11-7z');
   await expect(sheetPlay.locator('..')).toHaveAttribute('aria-label','Play radio');
   await expect.poll(()=>frame.locator('#audio-engine').evaluate((el:HTMLAudioElement)=>el.paused)).toBe(true);
   await sheetPlay.locator('..').click();
-  await expect(sheetPlay).toHaveClass(/fa-pause/);
+  await expect(sheetPlay.locator('svg path')).toHaveAttribute('d','M6 5h4v14H6zm8 0h4v14h-4z');
   await page.clock.install();
   await frame.getByRole('button',{name:'Set sleep timer',exact:true}).first().click();
   await frame.getByRole('dialog',{name:'Wind down'}).getByRole('button',{name:'15 minutes',exact:true}).click();
@@ -598,4 +598,54 @@ for(const kind of ['radio','tv'] as const)test(`${kind} expanded artwork uses wi
     expect(geometry.artTitleGap).toBeLessThan(80);
     expect(geometry.titleControlsGap).toBeLessThan(130);
   }
+});
+
+
+async function dragSheet(page:Page,handle:any,dy:number){
+  const box=await handle.boundingBox();expect(box).not.toBeNull();
+  const x=box!.x+box!.width/2,y=box!.y+box!.height/2;
+  const cdp=await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
+  for(let n=1;n<=6;n++)await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x,y:y+dy*n/6}]});
+  await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  await cdp.detach();
+}
+for(const kind of ['radio','tv'] as const)test(`${kind} Wind down follows Light theme and touch drag expands then dismisses`,async({page})=>{
+  const frame=await openPlayer(page,kind);
+  if(kind==='radio')await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  else await frame.locator('.tm-quick button').first().click();
+  await frame.locator('html').evaluate(el=>el.setAttribute('data-color-scheme','light'));
+  await frame.getByRole('button',{name:'Set sleep timer',exact:true}).first().click();
+  const sheet=frame.getByRole('dialog',{name:'Wind down'});await expect(sheet).toBeVisible();
+  expect(await sheet.evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(248, 250, 252)');
+  const width=(await sheet.boundingBox())!.width;await page.waitForTimeout(300);expect((await sheet.boundingBox())!.width).toBeCloseTo(width,0);
+  await dragSheet(page,sheet.locator('.media-comfort-handle'),-90);
+  await expect(sheet).toHaveAttribute('data-sheet-expanded','true');
+  await dragSheet(page,sheet.locator('.media-comfort-handle'),125);await expect(sheet).toBeHidden();
+});
+
+test('Radio equalizer is a stable native sheet and swipes closed',async({page})=>{
+  const frame=await openPlayer(page,'radio');await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  await frame.locator('html').evaluate(el=>el.setAttribute('data-color-scheme','light'));
+  await frame.getByRole('button',{name:'Equalizer and audio settings',exact:true}).click();
+  const sheet=frame.getByRole('dialog',{name:'Audio Quality & Equalizer',exact:true});await expect(sheet).toBeVisible();
+  expect(await sheet.evaluate(el=>el.matches(':modal'))).toBe(true);
+  const width=(await sheet.boundingBox())!.width;await page.waitForTimeout(350);expect((await sheet.boundingBox())!.width).toBeCloseTo(width,0);
+  await sheet.locator('#eq-bass').fill('4');await expect(sheet.locator('#eq-bass')).toHaveValue('4');
+  await dragSheet(page,sheet.locator('.media-sheet-handle'),125);await expect(sheet).toBeHidden();
+  await expect(frame.locator('html')).not.toHaveClass(/radio-modal-open/);
+});
+
+for(const kind of ['radio','tv'] as const)test(`${kind} expanded recommendations require scrolling and glyph stays centered`,async({page})=>{
+  const frame=kind==='tv'?await seededTv(page):await openPlayer(page,'radio');
+  if(kind==='tv')await frame.getByRole('button',{name:'Play Channel 02',exact:true}).first().click();
+  else await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  const positions=await frame.locator('body').evaluate((_,kind)=>{
+    const first=document.querySelector(kind==='radio'?'.rnp-more':'.tm-now-more')!.getBoundingClientRect();
+    const play=document.querySelector(kind==='radio'?'#sheet-play':'.tm-big-play svg')!,button=play.closest('button')!;
+    const a=play.getBoundingClientRect(),b=button.getBoundingClientRect();
+    return {nextTop:first.top,height:innerHeight,dx:(a.left+a.width/2)-(b.left+b.width/2),dy:(a.top+a.height/2)-(b.top+b.height/2)};
+  },kind);
+  expect(positions.nextTop).toBeGreaterThanOrEqual(positions.height-1);
+  expect(Math.abs(positions.dx)).toBeLessThanOrEqual(1);expect(Math.abs(positions.dy)).toBeLessThanOrEqual(1);
 });

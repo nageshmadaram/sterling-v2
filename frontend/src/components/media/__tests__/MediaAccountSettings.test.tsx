@@ -15,7 +15,8 @@ describe('mobile media appearance moved to the hamburger',()=>{
   });
 
   it.each(['tv','radio'] as const)('preserves appearance and player actions for %s',kind=>{
-    const change=vi.fn(),features=vi.fn(),command=vi.fn();
+    const order:string[]=[];const closed=()=>order.push('closed');window.addEventListener('sterling-close-account-menu',closed);
+    const change=vi.fn(),features=vi.fn(()=>order.push('features')),command=vi.fn(()=>order.push('command'));
     window.addEventListener(`sterling-${kind}-command`,command);
     try{
       render(<MediaAccountSettings kind={kind} theme="spotify" onTheme={change} onFeatures={features}/>);
@@ -28,6 +29,7 @@ describe('mobile media appearance moved to the hamburger',()=>{
       expect(command.mock.calls.map(call=>call[0].detail)).toEqual([{action:'startup'},{action:'sources'}]);
       fireEvent.click(screen.getByRole('button',{name:'Player tools & preferences'}));
       expect(features).toHaveBeenCalledOnce();
-    }finally{window.removeEventListener(`sterling-${kind}-command`,command);}
+      expect(order).toEqual(['closed','closed','command','closed','command','closed','features']);
+    }finally{window.removeEventListener(`sterling-${kind}-command`,command);window.removeEventListener('sterling-close-account-menu',closed);}
   });
 });

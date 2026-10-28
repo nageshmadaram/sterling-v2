@@ -22,7 +22,6 @@
 !ch.url)
 !control.matches(
 !document.getElementById(
-!document.getElementById(id).classList.contains(
 !drawer.classList.contains(
 !eqPop.classList.contains(
 !eqPop.contains(e.target))
@@ -194,7 +193,6 @@
 #active-title+span
 #af2896
 #audio-dsp-modal
-#audio-dsp-modal:not(.hidden)
 #b3b3b3;
 #bc5900
 #c084fc
@@ -277,8 +275,6 @@
 #startup-channel-modal,:is(.theme-spotify,:is(.theme-youtube,.theme-netflix))
 #startup-channel-modal:not(.hidden)
 #startup-modal
-#startup-modal:not(.hidden)
-#startup-modal:not(.hidden),#audio-dsp-modal:not(.hidden)
 #sticky-chip-bar
 #sticky-chip-bar,
 #sticky-chip-bar,.theme-spotify.tm-browse-search
@@ -1157,8 +1153,6 @@ ${v}
 ))video.webkitSetPresentationMode(
 )){const
 )){control.tabIndex=0;control.setAttribute(
-)){event.preventDefault();closeDspModal();return;}
-)){event.preventDefault();closeStartupModal();return;}
 )){event.preventDefault();event.stopImmediatePropagation();openSourceManagerModal();}
 )){event.preventDefault();target.click();}
 )){if(currentTheme===
@@ -1193,11 +1187,11 @@ ${v}
 ).before(browse);
 ).before(shell);
 ).classList.add(
-).classList.contains(
 ).classList.remove(
 ).classList.toggle(
 ).className
 ).className=
+).close();
 ).find(ch=
 ).focus();
 ).focus();}
@@ -1233,6 +1227,9 @@ ${v}
 ).matches;
 ).muted;
 ).normalize(
+).open)document.getElementById(
+).open){event.preventDefault();closeDspModal();return;}
+).open){event.preventDefault();closeStartupModal();return;}
 ).pause();const
 ).paused));
 ).prepend(browse);
@@ -1247,6 +1244,7 @@ ${v}
 ).scrollTo({top:place.scroll,behavior:
 ).scrollTop};
 ).setAttribute(
+).showModal();
 ).slice(0,
 ).slice(0,100):fallback;
 ).slice(0,200);
@@ -1717,6 +1715,7 @@ ${v}
 ,spotify:
 ,storageKey:
 ,subtitle:
+,syncRadioModalState);
 ,tag(
 ,tamil:
 ,theme:appConfig.appMode
@@ -2029,6 +2028,7 @@ ${v}
 /button
 /canvas
 /defs
+/dialog
 /div
 /footer
 /g
@@ -2199,6 +2199,7 @@ ${v}
 0c0
 0h-1.5v-.5h-2v3h2V13H18v1c0
 0h320v320H0z
+0h4v14h-4z
 0h8v8h-8V3zM3
 0h8v8h-8v-8z
 0l-4
@@ -2590,7 +2591,6 @@ ${v}
 24;
 24px
 24px)!important;
-24px);overflow-y:auto;touch-action:pan-y;
 24px;}
 24x7
 25
@@ -2859,6 +2859,7 @@ ${v}
 5h3M18
 5h4M6
 5h4v14H6zM14
+5h4v14H6zm8
 5h4v14h-4z
 5px;
 5px;background:#000b;color:white;font-size:8px;font-weight:800;letter-spacing:1px;border-radius:3px;
@@ -3080,7 +3081,6 @@ ${v}
 :currentTheme===
 :focus-visible
 :hue%3===1?
-:is(#spotify-app,#ytmusic-app,#mobile-player-sheet)
 :is(.theme-spotify,:is(.theme-youtube,.theme-netflix))
 :is(.theme-youtube,.theme-netflix)
 :is(.theme-youtube,.theme-netflix).tm-catalog-view
@@ -5230,7 +5230,6 @@ aria-label
 aria-label=
 aria-labelledby=
 aria-modal
-aria-modal=
 aria-pressed
 aria-pressed=
 aria-valuemax
@@ -6147,7 +6146,6 @@ close-search
 close-sheet
 close:
 closeDspModal()
-closeDspModal());
 closeDspModal();
 closeMobileSheet()
 closeMobileSheet());
@@ -6174,7 +6172,6 @@ closeStartupChannelModal()
 closeStartupChannelModal());
 closeStartupChannelModal();
 closeStartupModal()
-closeStartupModal());
 closeStartupModal();
 closeSwPlayer()
 closeSwPlayer());
@@ -6236,7 +6233,6 @@ connected
 consistently.
 const
 constrained
-consume
 contain
 contain-intrinsic-size:
 contain:
@@ -6444,6 +6440,8 @@ devotional
 dhabi
 dial
 dialog
+dialog.addEventListener(
+dialog=document.getElementById(id);
 didHydrate)return;
 didHydrate=false;
 didHydrate=true;
@@ -6510,7 +6508,6 @@ displayTitle
 displaying
 distinct
 div
-div,#audio-dsp-modal:not(.hidden)
 div:first-child
 div:first-child{grid-column:2;grid-row:2;min-height:52px;padding:4px
 div:last-child
@@ -6560,6 +6557,7 @@ document.documentElement.style.setProperty(
 document.exitFullscreen();
 document.exitPictureInPicture();
 document.getElementById(
+document.getElementById(id).open);
 document.getElementById(id).value
 document.getElementById(id);
 document.getElementById(prefix
@@ -7566,7 +7564,6 @@ hsl(${hue},60%,17%)
 html
 html,
 html,body
-html.radio-modal-open
 html.tv-booting
 html:not([data-radio-ready])
 html;
@@ -7736,7 +7733,6 @@ icon
 icon.
 icon.className
 icon.innerHTML
-icon;
 icons
 icons.screen}
 id
@@ -7777,6 +7773,7 @@ if(!channel
 if(!collections){collections=document.createElement(
 if(!cover.startsWith(
 if(!data.results?.length)return;
+if(!document.getElementById(
 if(!e.shiftKey&&document.activeElement===last){first.focus();e.preventDefault();}
 if(!enabled)
 if(!episodeList.length)throw
@@ -8088,7 +8085,6 @@ indian_hub
 indicator=document.createElement(
 indie
 inert
-inert.
 infinite
 info
 information
@@ -8751,6 +8747,8 @@ me,
 meanwhile.
 media
 media-browse-grid
+media-settings-dialog
+media-sheet-content
 media-shelf-count
 media:
 mediaSession
@@ -9208,7 +9206,6 @@ overflow-x-auto
 overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none;
 overflow-x:auto;max-width:100%;scrollbar-width:none;
 overflow-y-auto
-overflow-y:auto;overscroll-behavior:contain;
 overflow:
 overlay
 overlay-sidebar
@@ -9531,7 +9528,6 @@ pogo
 pointer
 pointer-events-none
 pointer-events:
-pointer-events:none!important;
 pointer;
 pointercancel
 pointerdown
@@ -9792,6 +9788,7 @@ radio-np-controls
 radio-np-feature
 radio-np-head
 radio-np-timeline
+radio-play-glyph
 radio-playing-context
 radio-rows-holder
 radio-search-suggestions
@@ -10270,7 +10267,6 @@ rnpRow=(ch,attr)=
 rock
 roku
 role
-role=
 root.querySelectorAll?.(
 rotana
 rotate(0deg)
@@ -10696,6 +10692,9 @@ sheet:
 sheet=document.createElement(
 sheet=document.getElementById(
 sheetArt=document.getElementById(
+sheetIcon.className=
+sheetIcon.innerHTML=paused?
+sheetIcon=document.getElementById(
 sheetMute=document.getElementById(
 sheetNav=null;
 sheetReturnFocus=null;
@@ -11838,7 +11837,6 @@ touch;
 touchcancel
 touchend
 touches
-touches;
 touchmove
 touchstart
 track
@@ -12522,7 +12520,6 @@ z-[118]
 z-[120]
 z-[130]
 z-[165]
-z-[170]
 z-[180]
 z-[70]
 z-[75]
@@ -12530,7 +12527,6 @@ z-[80]
 z-[90]
 z-[95]
 z-index:
-z-index:10000!important;pointer-events:auto!important;touch-action:pan-y;
 z-index:128;
 z-index:60;
 zee
@@ -12590,6 +12586,7 @@ zoom.
 {drag={y:e.clientY,height:sheet.querySelector(
 {el.textContent=band.label;});
 {el.textContent=band.title;});
+{event.preventDefault();dialog.close();});
 {favorites=value;}],
 {flex-basis:min(59vw,224px);}
 {flex-wrap:wrap;gap:4px;}
@@ -12625,6 +12622,7 @@ zoom.
 {if(e.target===sheet)closeSheet();});
 {if(entries.some(entry=
 {if(event.key===
+{if(event.target===dialog)dialog.close();});
 {if(generation===playbackGeneration&&!tvUserPaused&&video.paused)video.play().catch(()=
 {if(ids?.length
 {if(node.nodeType===1){enhanceRadioControls(node);observeArtwork(node);}}))).observe(document.body,{childList:true,subtree:true});
@@ -12641,8 +12639,8 @@ zoom.
 {list:radioListView,cat:appConfig.activeCategory,filters:{...(appConfig.catalogFilters||{})},view:document.documentElement.dataset.radioView,shell:spotifyShell?.state().page||null,scroll:document.querySelector(
 {margin-left:0;}
 {max-width:100%;overflow-x:clip;}
-{min-height:0;}
 {min-height:40px;}
+{min-height:calc(100dvh
 {min-height:clamp(42px,7dvh,62px);}
 {min-width:36px;min-height:36px;display:inline-flex;align-items:center;justify-content:center;}
 {min-width:44px;min-height:44px;}

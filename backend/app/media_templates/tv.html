@@ -697,7 +697,7 @@
   .tm-now-copy h2 {font-size:clamp(17px,5vw,25px);white-space:normal;
     overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;
     -webkit-box-orient:vertical;overflow:hidden;}
-  .tm-now-main {min-height:0;}
+  .tm-now-main {min-height:calc(100dvh - 10px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));}
   .tm-now-controls {gap:clamp(4px,2vw,12px);margin:clamp(8px,2dvh,16px) 0;}
   .tm-now-controls>.tm-icon {width:clamp(30px,8vw,40px);flex:0 1 auto;}
   .tm-big-play {width:clamp(48px,9dvh,68px);

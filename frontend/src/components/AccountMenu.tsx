@@ -13,7 +13,7 @@ export function AccountMenu({children,mediaKind}:{children?:ReactNode;mediaKind?
   const [installNote,setInstallNote]=useState('');
   const [error,setError]=useState(''),[busy,setBusy]=useState(false);
   const close=()=>dialog.current?.close();
-  useEffect(()=>{window.addEventListener('sterling-home',close);return()=>window.removeEventListener('sterling-home',close);},[]);
+  useEffect(()=>{const events=['sterling-home','sterling-close-account-menu'];events.forEach(name=>window.addEventListener(name,close));return()=>events.forEach(name=>window.removeEventListener(name,close));},[]);
   const action=(name:string)=>{close();requestAnimationFrame(()=>window.dispatchEvent(new Event(name)));};
   async function logout(){setBusy(true);try{await api.post('/api/v1/auth/logout',{});clearAuthTokens();window.location.reload();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   return <><button className="account-menu-trigger" aria-label="Menu" aria-haspopup="dialog" onClick={()=>{
