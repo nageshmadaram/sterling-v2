@@ -63,6 +63,19 @@ describe('all strategy mobile overview rows', () => {
     }
   });
 
+  it('restores explanation inside the accordion even when old Got it was dismissed', () => {
+    localStorage.setItem('sterling.strategy-guide.hidden.supertrend', '1');
+    render(<StrategyIntro engine="supertrend" st={{horizon_mode:'swing'}} />);
+    fireEvent.click(screen.getByRole('button', {name:/SuperTrend/}));
+    expect(screen.getByText(/Buys a call when three trend lines turn up/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', {name:'Hide this guide'})).not.toBeInTheDocument();
+  });
+
+  it('does not invent the selected mode before settings are loaded', () => {
+    expect(strategyIntroSummary('supertrend')).toContain('saved settings loading');
+    expect(strategyIntroSummary('snapback')).toContain('saved settings loading');
+  });
+
   it('keeps full safety text and mode conditions after user expands', () => {
     render(<StrategyIntro engine="ema_trend" />);
     fireEvent.click(screen.getByRole('button', { name: /EMA Trend/ }));
