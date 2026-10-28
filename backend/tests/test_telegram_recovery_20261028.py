@@ -63,3 +63,83 @@ async def test_nonconflict_network_failure_never_probes_webhook(monkeypatch):
     monkeypatch.setattr(bot, "_api", api)
     assert await bot._poll_failure_code({"ok": False}) == "NETWORK_ERROR"
     api.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_sender_falls_back_to_plain_on_html_parse_rejection(
+        isolated_transport, monkeypatch):
+    import json
+
+    transport.TELEGRAM_TOKEN = "synthetic-test-token"
+    transport.TELEGRAM_CHAT_ID = "123456"
+    sent = []
+
+    class Response:
+        def __init__(self, code, data):
+            self.status_code = code
+            self._body = data
+            self.text = json.dumps(data)
+
+        def json(self):
+            return self._body
+
+    class Client:
+        def __init__(self, **kwargs):
+            assert kwargs["follow_redirects"] is False
+            assert kwargs["trust_env"] is False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, json):
+            assert "synthetic-test-token" in url
+            sent.append(dict(json))
+            if len(sent) == 1:
+                return Response(400, {"ok": False, "description": "Bad Request: can't parse entities"})
+            return Response(200, {"ok": True, "result": {"message_id": 10}})
+
+    monkeypatch.setattr(transport.httpx, "AsyncClient", Client)
+    assert await transport.send("<b>unclosed alert") is True
+    assert len(sent) == 2
+    assert sent[0]["parse_mode"] == "HTML"
+    assert "parse_mode" not in sent[1]
+    assert sent[1]["chat_id"] == "123456"
+    assert transport.TELEGRAM_REACHABLE is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_sender_does_not_retry_denied_chat(isolated_transport, monkeypatch):
+    import json
+
+    transport.TELEGRAM_TOKEN = "synthetic-test-token"
+    transport.TELEGRAM_CHAT_ID = "123456"
+    sent = []
+
+    class Response:
+        status_code = 403
+        text = '{"ok":false,"description":"Forbidden"}'
+
+        def json(self):
+            return json.loads(self.text)
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, *, json):
+            sent.append(json)
+            return Response()
+
+    monkeypatch.setattr(transport.httpx, "AsyncClient", Client)
+    assert await transport.send("<b>test</b>") is False
+    assert len(sent) == 1
+    assert transport.TELEGRAM_REACHABLE is False
