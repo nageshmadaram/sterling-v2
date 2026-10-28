@@ -3954,6 +3954,7 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
       const q = normalizeSearch(query);
       if (!q) return [];
       const terms = q.split(/\s+/).filter(Boolean);
+      const compactQuery = q.replace(/\s+/g,'');
 
       const scored = [];
       for (let i = 0; i < allChannels.length; i++) {
@@ -3973,7 +3974,8 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
             break;
           }
         }
-        if (!allTermsMatch) continue;
+        // Accept "starplus" and "star plus" as equivalent.
+        if (!allTermsMatch && !hay.replace(/\s+/g,'').includes(compactQuery)) continue;
 
         let score = 0;
         if (nameL === q) score += 200;
@@ -3993,6 +3995,32 @@ html.tv-booting body>*{opacity:0!important;}body>*{transition:opacity .12s ease-
         if(position<limit){scored.splice(position,0,{ch:c,score});if(scored.length>limit)scored.pop();}
       }
 
+      // Only run approximate matching when ordinary search found nothing.
+      // One-character edits catch common typos without swamping exact matches.
+      if(!scored.length && compactQuery.length>=4) {
+        const oneEdit=(a,b)=>{
+          if(Math.abs(a.length-b.length)>1)return false;
+          let i=0,j=0,edits=0;
+          while(i<a.length&&j<b.length){
+            if(a[i]===b[j]){i++;j++;continue;}
+            if(++edits>1)return false;
+            if(a.length>b.length)i++;else if(b.length>a.length)j++;
+            else{i++;j++;}
+          }
+          return edits+(i<a.length||j<b.length?1:0)<=1;
+        };
+        const maxFuzzy=Math.min(limit,60),used=new Set();
+        for(const ch of allChannels) {
+          if(scored.length>=maxFuzzy)break;
+          if(!isChannelVisible(ch)||used.has(ch.url))continue;
+          const tokens=normalizeSearch([ch.name,ch.group,ch.lang].join(' ')).split(/\s+/).filter(Boolean);
+          const candidate=terms.every(term => tokens.some(token =>
+            token.includes(term)||(term.length>=4&&oneEdit(term,token))));
+          if(!candidate)continue;
+          used.add(ch.url);
+          scored.push({ch,score:0});
+        }
+      }
       if(limit===Infinity)scored.sort((a, b) => b.score - a.score);
       return scored.map(s => s.ch);
     }
