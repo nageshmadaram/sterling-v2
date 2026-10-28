@@ -62,7 +62,7 @@ export function installAutoVersionRefresh() {
       borderRadius: '9px', background: 'var(--k-bg, #fff)',
       color: 'var(--k-text, #111)', boxShadow: '0 3px 14px #0003',
       font: '12px system-ui, sans-serif',
-    } as CSSStyleDeclaration);
+    });
     const text = document.createElement('span');
     text.textContent = 'Sterling update ready';
     const button = document.createElement('button');
