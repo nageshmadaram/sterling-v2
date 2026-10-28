@@ -30,3 +30,18 @@ An authorized on-host operator must:
 ## Evidence boundary
 
 GitHub code review is not host execution. The host's last supplied receipt was `manager_pid=3000050`, `mode=both`, `release_ref=refs/heads/dev`, with Cloudflare ready and ngrok quota-failed. There is **no** subsequent evidence showing the upgraded presentation manager was installed or the old ngrok process stopped. Maintain the host cutover and device acceptance checklists in issue #277 until receipts arrive.
+
+## Automatic frontend publishing and disk headroom
+
+Before extracting frontend source, building, or copying release assets, the
+frontend publisher verifies at least **2 GiB of free disk space** on the host
+filesystem containing `.runtime/stack`. A missing disk-usage reading or a
+lower free-space value aborts that UI update with
+`release_error=ReleaseStorageBlocked` and `release_stale=true`.
+
+The last successfully published frontend stays available; the trading backend,
+Kite process and existing local working files are not modified by this
+publisher guard. The guard is a lower bound, **not** an assurance that npm can
+never consume extra storage. Actual disk use and backup safety remain separate
+release acceptance checks. Do not disable the guard to force an update on a
+nearly full trading host.

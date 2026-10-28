@@ -546,6 +546,15 @@ def ensure_runtime(skip_build):
 
 
 
+class ReleaseStorageBlocked(RuntimeError):
+    """A frontend build must not compete with the live broker for disk space."""
+
+
+# Keep a reserve for the broker, logs, databases and protective-order state.
+# This is a minimum preflight reserve, not a guarantee about npm's peak usage.
+MIN_FRONTEND_RELEASE_FREE_BYTES = 2 * 1024 ** 3
+
+
 class CommittedFrontend:
     """Publish ONLY Git-owned frontend files, never a dirty working tree.
 
@@ -585,6 +594,15 @@ class CommittedFrontend:
         except (OSError,ValueError,KeyError,TypeError):
             pass
         return ''
+
+    def _require_release_headroom(self):
+        """Fail closed before modifying the isolated build staging directory."""
+        try:
+            free_bytes=shutil.disk_usage(STATE).free
+        except (OSError,ValueError) as error:
+            raise ReleaseStorageBlocked('Cannot verify disk headroom for frontend build') from error
+        if free_bytes < MIN_FRONTEND_RELEASE_FREE_BYTES:
+            raise ReleaseStorageBlocked('Insufficient disk headroom for frontend build')
 
     def _extract(self, sha):
         """Use git archive, not checkout: uncommitted files cannot enter build."""
@@ -648,6 +666,10 @@ class CommittedFrontend:
                 raise RuntimeError('Remote main is not a descendant of published release')
         existing=self.releases/sha
         if not (existing/'index.html').is_file():
+            # Disk exhaustion can corrupt broker persistence and logs. Refuse
+            # even an isolated UI build until operational headroom is available.
+            # Previous published assets and local edits remain untouched.
+            self._require_release_headroom()
             # Remove only a leftover unpublished staging directory from an
             # interrupted run. Published release directories are immutable.
             self._extract(sha)
@@ -656,6 +678,9 @@ class CommittedFrontend:
             # build; Vite intentionally has emptyOutDir=false for other flows.
             old_dist=self.frontend/'dist'
             if old_dist.exists():shutil.rmtree(old_dist)
+            # npm ci may have consumed the free reserve. Re-check before the
+            # CPU/disk-intensive build; old public assets remain available.
+            self._require_release_headroom()
             with (STATE/'release-build.log').open('a') as log:
                 subprocess.run(['npm','run','build'],
                                cwd=self.frontend,
@@ -665,6 +690,7 @@ class CommittedFrontend:
             built=self.frontend/'dist'
             if not (built/'index.html').is_file():
                 raise RuntimeError('Committed build did not produce index.html')
+            self._require_release_headroom()
             self.releases.mkdir(parents=True,exist_ok=True)
             staged=self.releases/(sha+'.tmp')
             if staged.exists():shutil.rmtree(staged)

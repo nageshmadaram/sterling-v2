@@ -658,6 +658,7 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
  state.mkdir()
  monkeypatch.setattr(stack,'STATE',state)
  publisher=stack.CommittedFrontend()
+ monkeypatch.setattr(publisher,'_require_release_headroom',lambda:None)
  if not allow_links:
   import errno
   def unsupported_link(*args,**kwargs):raise OSError(errno.EOPNOTSUPP,'hard links unavailable')
@@ -1332,3 +1333,86 @@ def test_status_distinguishes_loaded_publisher_from_activation_needed(monkeypatc
  state=stack.live_presentation_status(new,True)
  assert state['publisher_config_loaded'] is True
  assert state['publisher_activation_required'] is False
+
+def test_frontend_publication_blocks_before_touching_staging_when_disk_is_low(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend('main')
+ monkeypatch.setattr(publisher,'resolve_commit',lambda:'b'*40)
+ monkeypatch.setattr(publisher,'current',lambda:'')
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:SimpleNamespace(
+     free=stack.MIN_FRONTEND_RELEASE_FREE_BYTES-1))
+ def no_stage(*args,**kwargs):
+  raise AssertionError('Staging must not be modified on low disk space')
+ monkeypatch.setattr(publisher,'_extract',no_stage)
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  publisher.publish()
+ assert not publisher.frontend.exists()
+ assert not publisher.pointer.exists()
+ assert not publisher.manifest.exists()
+
+
+def test_frontend_publication_fails_closed_when_disk_probe_is_unavailable(monkeypatch,tmp_path):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend('main')
+ monkeypatch.setattr(publisher,'resolve_commit',lambda:'b'*40)
+ monkeypatch.setattr(publisher,'current',lambda:'')
+ def unavailable(*args):
+  raise OSError('disk metrics unavailable')
+ monkeypatch.setattr(stack.shutil,'disk_usage',unavailable)
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  publisher.publish()
+ assert not publisher.pointer.exists()
+
+
+def test_existing_published_release_remains_served_when_disk_is_low(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend('main')
+ release='b'*40
+ monkeypatch.setattr(publisher,'resolve_commit',lambda:release)
+ monkeypatch.setattr(publisher,'current',lambda:release)
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda _:SimpleNamespace(free=0))
+ assert publisher.publish()==(release,False)
+
+
+def test_frontend_release_requires_two_gibibytes_free_before_build(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ seen=[]
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:
+     (seen.append(path),SimpleNamespace(free=stack.MIN_FRONTEND_RELEASE_FREE_BYTES))[1])
+ publisher._require_release_headroom()
+ assert seen==[tmp_path]
+
+def test_frontend_dependency_disk_drop_keeps_prior_published_assets(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend('main')
+ old='a'*40
+ next_sha='b'*40
+ previous=publisher.releases/old
+ previous.mkdir(parents=True)
+ (previous/'index.html').write_text('LAST WORKING RELEASE')
+ publisher.pointer.symlink_to(previous,target_is_directory=True)
+ publisher.manifest.write_text(json.dumps({'sha':old,'ref':'main'}))
+ monkeypatch.setattr(publisher,'resolve_commit',lambda:next_sha)
+ free={'value':stack.MIN_FRONTEND_RELEASE_FREE_BYTES + 1024}
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:
+     SimpleNamespace(free=free['value']))
+ def extract(sha):
+  publisher.frontend.mkdir(parents=True)
+  (publisher.frontend/'package-lock.json').write_text('{}')
+ monkeypatch.setattr(publisher,'_extract',extract)
+ def install():
+  free['value']=stack.MIN_FRONTEND_RELEASE_FREE_BYTES-1
+ monkeypatch.setattr(publisher,'_dependencies',install)
+ def no_build(*args,**kwargs):
+  raise AssertionError('npm build must not run after disk reserve is exhausted')
+ monkeypatch.setattr(stack.subprocess,'run',no_build)
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  publisher.publish()
+ assert publisher.current()==old
+ assert (publisher.pointer/'index.html').read_text()=='LAST WORKING RELEASE'
+ assert not (publisher.releases/next_sha).exists()
