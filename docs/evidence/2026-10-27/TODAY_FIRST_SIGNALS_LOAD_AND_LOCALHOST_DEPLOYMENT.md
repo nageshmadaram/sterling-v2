@@ -204,3 +204,23 @@ day/account gate transition, but they are **not verified as executed**
 under current GitHub CI runner allocation blocker #285. Owner/device
 deployment evidence also remains open under #277. Do not use cached
 UI rows as an execution authorization or claim broker readiness.
+
+
+## Minute-bar event time must use completed candle, not candle open (28 October 2026)
+
+The Snapback engine supplies `timestamp_ms` as the source candle's
+**opening** timestamp. Intraday/scalp/ultra/overnight signals are only
+defined after that candle closes; the backend also provides
+`signal_close_ms` from `signal_close_timestamp_ms` in its engine metrics.
+The prior board used `signal_close_ms ?? timestamp_ms`, so a missing
+close (for example, a restored/legacy row) was labelled at the candle
+opening time even though no signal could yet have been generated.
+
+The board now accepts the minute-bar close only when both open and close
+are valid integer timestamps and `close > open`. Otherwise it shows
+**Close time unavailable** without an invented time. Original Swing
+signals continue to be explicitly marked **day close**, because their
+daily-candle logic is not an intraday entry method. This is presentation
+integrity, not a scan frequency change or permission to submit an order.
+New regression tests cover missing, zero, nonfinite, reversed and
+equal timestamps. Full CI/host execution still blocked (#285/#277).

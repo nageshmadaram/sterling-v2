@@ -36,6 +36,15 @@ const n = (v: number | null | undefined, dp = 2): string => fmtPx(v, dp);
 // Execution eligibility comes exclusively from the server's row decision.
 const isMinuteBarMode = (row: SnapbackRow) =>
   ['ultra_scalping', 'scalp', 'intraday', 'overnight'].includes(row.trading_mode ?? 'swing');
+
+/** The candle open is NEVER a valid entry-time substitute for its close. */
+export function validMinuteSignalCloseMs(row: SnapbackRow): boolean {
+  const close = row.signal_close_ms;
+  const open = row.timestamp_ms;
+  return typeof close === 'number' && Number.isSafeInteger(close) &&
+    close > 0 && typeof open === 'number' && Number.isSafeInteger(open) &&
+    open > 0 && close > open;
+}
 const metric = (row: SnapbackRow, key: string): number | null => {
   const value = row.metrics?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -392,14 +401,19 @@ export function snapbackRowToBoard(row: SnapbackRow): BoardSignal {
     // about the underlying: a put into strength is a short thesis.
     direction: row.direction === 'BEARISH' ? 'short' : 'long',
     status,
-    // `timestamp_ms` is the signal candle's OPEN. A minute-bar setup exists only
-    // once that candle has closed, so the time shown is the close, matching the
-    // daily lane where the stamp is the 15:30 close.
-    atMs: (isMinuteBarMode(row) ? row.signal_close_ms : null) ?? row.timestamp_ms ?? null,
-    // Swing reads DAILY candles: the signal is the day's close (15:30), not a time of day.
-    timeLabel: !isMinuteBarMode(row) && row.timestamp_ms
-      ? `${new Date(row.timestamp_ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })} · day close`
-      : undefined,
+    // `timestamp_ms` is the signal candle's OPEN. Minute-bar signals can
+    // only exist once their bar closes; never display the opening timestamp
+    // as the event time if a legacy/corrupt row lacks a valid close timestamp.
+    atMs: isMinuteBarMode(row)
+      ? (validMinuteSignalCloseMs(row) ? row.signal_close_ms! : null)
+      : row.timestamp_ms ?? null,
+    // Swing uses daily completed bars; it cannot promise intraday entries.
+    // A minute-bar row missing its close time must say so, not fabricate it.
+    timeLabel: isMinuteBarMode(row)
+      ? (validMinuteSignalCloseMs(row) ? undefined : 'Close time unavailable')
+      : row.timestamp_ms
+        ? `${new Date(row.timestamp_ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' })} · day close`
+        : 'Daily close time unavailable',
     // How old the quote behind `levels.ltp` is, computed by the server when it
     // served the row. Rows outlive their scan; an unlabelled old LTP reads as live.
     quoteAgeS: row.quote_age_s ?? null,

@@ -315,8 +315,20 @@ describe('snapback board adapter', () => {
 
     it('stamps the signal when its candle CLOSED, not when it opened', () => {
       expect(snapbackRowToBoard(scalp).atMs).toBe(1_788_928_260_000);
+      expect(snapbackRowToBoard(scalp).timeLabel).toBeUndefined();
       // The daily lane has no close stamp on the row and keeps its own time.
       expect(snapbackRowToBoard(base).atMs).toBe(base.timestamp_ms);
+      expect(snapbackRowToBoard(base).timeLabel).toContain('day close');
+    });
+
+    it('never invents a minute-bar signal time from a missing or impossible close', () => {
+      for (const invalid of [undefined, null, 0, NaN, Infinity, -1,
+        scalp.timestamp_ms, scalp.timestamp_ms! - 1]) {
+        const row = { ...scalp, signal_close_ms: invalid };
+        const board = snapbackRowToBoard(row);
+        expect(board.atMs).toBeNull();
+        expect(board.timeLabel).toBe('Close time unavailable');
+      }
     });
 
     it('leaves the TSL column empty until a trail exists', () => {
