@@ -641,7 +641,17 @@ class CommittedFrontend:
 
     def publish(self):
         sha=self.resolve_commit()
-        if self.current()==sha:return sha,False
+        previous_sha=self.current()
+        if previous_sha==sha:return sha,False
+        if self.ref=='origin/main' and previous_sha:
+            # Refuse a force-push rewind or unrelated tree. The operator must
+            # inspect and deliberately reset the deployment baseline.
+            ancestry=subprocess.run(['git','-C',str(ROOT),'merge-base',
+                                    '--is-ancestor',previous_sha,sha],
+                                   timeout=12,check=False,
+                                   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            if ancestry.returncode!=0:
+                raise RuntimeError('Remote main is not a descendant of published release')
         existing=self.releases/sha
         if not (existing/'index.html').is_file():
             # Remove only a leftover unpublished staging directory from an
@@ -760,9 +770,17 @@ class Stack:
         self.backend_owned=False;self.last_publish=0;self.failures=0;self.published=False
         self.last_public_signature=None;self.last_ngrok_retry=0;self.last_dev_retry=0
         self.ngrok_urls=queue.Queue();self.ngrok_binary=None
-        self.publisher=CommittedFrontend(os.environ.get('STERLING_PUBLISH_REF','main'))
+        # The public web app follows the reviewed remote main by default.
+        # Fetch touches only origin/main; it never merges into local branches,
+        # deletes uncommitted files or restarts a trading process.
+        self.publisher=CommittedFrontend(os.environ.get('STERLING_PUBLISH_REF') or 'origin/main')
+        fetch_setting=os.environ.get('STERLING_PUBLISH_FETCH')
+        self.auto_fetch=(self.publisher.ref=='origin/main' and
+                         (fetch_setting is None or fetch_setting.strip().lower()
+                          in {'1','true','on','yes'}))
         self.last_release_check=0;self.last_fetch=0
         self.status['release_ref']=self.publisher.ref
+        self.status['release_auto_fetch']=self.auto_fetch
         self.status['release_commit']=self.publisher.current()
         self.status['release_error']=''
         self.release_results=queue.Queue()
@@ -905,7 +923,10 @@ class Stack:
         """Background build: do not block protection and tunnel checks."""
         try:
             if fetch_remote:
-                subprocess.run(['git','-C',str(ROOT),'fetch','origin','main'],
+                # Explicitly advance the remote-tracking ref, not FETCH_HEAD
+                # alone. No '+' / --force: an upstream rewind is refused.
+                subprocess.run(['git','-C',str(ROOT),'fetch','--no-tags','origin',
+                                'refs/heads/main:refs/remotes/origin/main'],
                                timeout=45,check=True,
                                stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             revision,promoted=self.publisher.publish()
@@ -1009,9 +1030,7 @@ class Stack:
                     print(f'Committed build failed ({revision}); retaining last good frontend.',flush=True)
             if now>=self.last_release_check and not self.release_running:
                 self.last_release_check=now+15
-                should_fetch=(os.environ.get('STERLING_PUBLISH_FETCH')=='1'
-                              and self.publisher.ref=='origin/main'
-                              and now-self.last_fetch>=60)
+                should_fetch=(self.auto_fetch and now-self.last_fetch>=60)
                 if should_fetch:self.last_fetch=now
                 self.release_running=True
                 threading.Thread(target=self.refresh_committed_release,
