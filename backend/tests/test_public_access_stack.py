@@ -1219,3 +1219,60 @@ def test_old_manager_identity_mismatch_never_signals_process(monkeypatch,tmp_pat
  monkeypatch.setattr(stack.os,'kill',fail_kill)
  with pytest.raises(RuntimeError,match='identity mismatch'):
   stack._stop_old_managed_presentation(456789)
+
+def test_up_replaces_stale_dev_publisher_after_main_enrollment(monkeypatch,tmp_path):
+ """A healthy old gateway cannot silently defeat operator-enrolled UI updates."""
+ from types import SimpleNamespace
+ root=tmp_path/'repo'
+ (root/'backend').mkdir(parents=True)
+ (root/'backend'/'.env').write_text(
+   'STERLING_PUBLISH_REF=origin/main\nSTERLING_PUBLISH_FETCH=1\n')
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',tmp_path/'stack-state')
+ old={'manager_pid':81818,'manager_protocol':4,'mode':'quick',
+      'phase':'ready','web_port':5180,'dev_url':'http://127.0.0.1:5174',
+      'release_ref':'refs/heads/dev','release_auto_fetch':False}
+ monkeypatch.setattr(stack,'read_state',lambda:old)
+ monkeypatch.setattr(stack,'alive',lambda _:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda _:True)
+ stopped=[]
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',lambda pid:stopped.append(pid))
+ monkeypatch.setattr(stack,'wait_for_up_status',lambda *_args,**_kwargs:{})
+ launched=[]
+ def spawn(args,**kwargs):
+  launched.append(args)
+  return SimpleNamespace(pid=19191)
+ monkeypatch.setattr(stack.subprocess,'Popen',spawn)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ assert stopped==[81818]
+ assert len(launched)==1 and 'run' in launched[0]
+ assert 'origin/main'==os.environ['STERLING_PUBLISH_REF']
+ assert os.environ['STERLING_PUBLISH_FETCH']=='1'
+
+
+def test_up_reuses_healthy_supervisor_with_matching_enrolled_publisher(monkeypatch,tmp_path):
+ """A genuinely synchronized manager should not rotate its Cloudflare hostname."""
+ root=tmp_path/'repo'
+ (root/'backend').mkdir(parents=True)
+ (root/'backend'/'.env').write_text(
+   'STERLING_PUBLISH_REF=origin/main\nSTERLING_PUBLISH_FETCH=1\n')
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',tmp_path/'stack-state')
+ current={'manager_pid':92929,'manager_protocol':4,'mode':'quick',
+          'phase':'ready','web_port':5180,'dev_url':'http://127.0.0.1:5174',
+          'release_ref':'origin/main','release_auto_fetch':True,
+          'public_ready':{'cloudflare':True},
+          'urls':{'cloudflare':'https://working.trycloudflare.com'}}
+ monkeypatch.setattr(stack,'read_state',lambda:current)
+ monkeypatch.setattr(stack,'alive',lambda _:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda _:True)
+ monkeypatch.setattr(stack,'wait_for_up_status',lambda *_args,**_kwargs:current)
+ def no_restart(*_args,**_kwargs):
+  raise AssertionError('A matching supervisor must be reused')
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',no_restart)
+ monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
