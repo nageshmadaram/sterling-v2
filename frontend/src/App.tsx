@@ -2,6 +2,7 @@ import { useAppearance, applyAppearance } from './appearance/store';
 import { useLayoutEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PublishedReleaseWatcher } from './components/PublishedReleaseWatcher';
 import { useTheme } from './store/useStore';
 import { useViewportScale } from './hooks/useViewportScale';
 import { LoginGate } from './components/auth/LoginGate';
@@ -32,6 +33,7 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <ConfirmProvider>
           <ThemedApp />
+          <PublishedReleaseWatcher />
         </ConfirmProvider>
       </QueryClientProvider>
     </ErrorBoundary>
