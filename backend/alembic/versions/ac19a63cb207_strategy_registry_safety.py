@@ -89,7 +89,7 @@ def upgrade():
         """))
     else:
         op.execute(sa.text("""
-        CREATE FUNCTION sterling_guard_strategy_state() RETURNS TRIGGER AS $
+        CREATE FUNCTION sterling_guard_strategy_state() RETURNS TRIGGER AS $$
         BEGIN
             IF (OLD.is_locked AND NOT NEW.is_locked)
                OR (OLD.state = 'retired' AND NEW.state <> 'retired') THEN
@@ -97,7 +97,7 @@ def upgrade():
             END IF;
             RETURN NEW;
         END;
-        $ LANGUAGE plpgsql
+        $$ LANGUAGE plpgsql
         """))
         op.execute(sa.text("""
         CREATE TRIGGER trg_strategy_state_monotone BEFORE UPDATE ON platform_strategies
