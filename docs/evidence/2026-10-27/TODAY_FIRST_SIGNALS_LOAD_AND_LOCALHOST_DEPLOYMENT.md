@@ -278,3 +278,35 @@ changes are not evidence of passing runtime tests**; GitHub Actions
 still fails before runner allocation (#285). Actual event-loop latency,
 host rollout, phone reload and Kite safety receipts remain unverified
 (#277). No trading mode or risk admission setting was changed.
+
+
+## Gamma-Unwind today-only API read, historical index deferred (28 October 2026)
+
+Following the EMA/Gamma off-loop improvement, the first Gamma-Unwind
+`/config/gamma-move/snapshot` call was still reading the full 60-day
+history index and creating 30 historical replay-day placeholders while
+the four-strategy priority gate intentionally kept older history hidden.
+
+The endpoint now accepts `?today_only=true` on the live current-day
+request. Its response retains current Gamma E1/watch candidates, scan
+status, mode, positions, durable current-day archive and record;
+`history_days` is an empty list until a full snapshot is requested.
+No 60-day index or replay-day placeholders are assembled during the
+priority phase. Explicit historical `?day=YYYY-MM-DD` requests still
+include their full index even if `today_only=true` is also present.
+Simulation replay uses the existing unmodified snapshot path.
+
+Gamma-Unwind's provider, board and strategy sidebar now share a
+separate today-priority React Query cache key while history is gated.
+After all four current-day strategy requests settle, the board switches
+to the full query key and historical selector/index may load. New
+backend tests assert no day-index query during today-priority and
+unchanged full/historical behavior; the frontend priority test checks
+the lean-request flag.
+
+This is a read-only response-scheduling improvement. It does **not**
+change E1 generation, stored archives, watch contracts, broker orders,
+protection/exit reconciliation or historical replay. Tests still require
+an executing CI runner (#285) and the running Zenbook has not yet
+deployed this commit (#277). No performance SLA or profitability
+certification is claimed.

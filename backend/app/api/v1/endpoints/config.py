@@ -100,6 +100,7 @@ async def gamma_move_history(
 async def gamma_move_snapshot(
     user: UserContext = Depends(get_current_user),
     day: Optional[str] = None,
+    today_only: bool = False,
 ) -> dict:
     """Live board or one exact recorded trading-day view."""
     uid = getattr(user, "user_id", None) or getattr(user, "uid", None)
@@ -110,7 +111,7 @@ async def gamma_move_snapshot(
         return simulation_runner.get_gamma_snapshot()
     from app.services.gamma_move import snapshot
     try:
-        return await snapshot(uid, day=day)
+        return await snapshot(uid, day=day, today_only=today_only)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"invalid day: {exc}") from exc
     except Exception as exc:

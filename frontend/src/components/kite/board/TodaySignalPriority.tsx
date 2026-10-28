@@ -90,7 +90,7 @@ export function TodaySignalPriorityProvider({ children }: { children: React.Reac
   // needed merely because the user opens a different strategy tab.
   const supertrend = useEngineSignals(!replay);
   const snapback = useSnapbackSnapshot(true);
-  const gamma = useGammaMoveSnapshot(true, 3_000);
+  const gamma = useGammaMoveSnapshot(true, 3_000, undefined, true);
   const ema = useQuery<EmaTrendSnapshot>({
     queryKey: ['ema-trend', 'snapshot', view, 'current', 'swing', 200, 'today', day],
     queryFn: () => api.get<EmaTrendSnapshot>(

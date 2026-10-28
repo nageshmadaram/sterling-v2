@@ -280,6 +280,7 @@ export function GammaMoveBoard({ nowMs, onOpenDetail, onOpenChart }: {
     true,
     selectedDay ? 0 : 3000,
     replay ? undefined : selectedDay || undefined,
+    !priority.olderReady && !selectedDay,
   );
   const scan = useGammaMoveScan();
   const historicalLoad = useLoadGammaMoveHistoricalDay();

@@ -12,6 +12,7 @@ const source = vi.hoisted(() => ({
   gamma: { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } },
   accountId: 'kite-account-a',
   snapbackTodayOnlyCalls: [] as boolean[],
+  gammaTodayOnlyCalls: [] as boolean[],
   replay: null as number | null,
 }));
 vi.mock('../../../../hooks/useSterlingKiteEngine', () => ({
@@ -24,7 +25,10 @@ vi.mock('../../../../hooks/useSnapback', () => ({
   },
 }));
 vi.mock('../../../../hooks/useGammaMove', () => ({
-  useGammaMoveSnapshot: () => source.gamma,
+  useGammaMoveSnapshot: (_enabled?: boolean, _interval?: number, _day?: string, todayOnly = false) => {
+    source.gammaTodayOnlyCalls.push(todayOnly);
+    return source.gamma;
+  },
 }));
 vi.mock('../../../../hooks/useKite', () => ({
   useKiteStatus: () => ({ data: { account_id: source.accountId } }),
@@ -63,6 +67,7 @@ beforeEach(() => {
   source.gamma = { isError: false, isSuccess: true, dataUpdatedAt: Date.now(), data: { scan: { status: 'COMPLETED' } } };
   source.accountId = 'kite-account-a';
   source.snapbackTodayOnlyCalls = [];
+  source.gammaTodayOnlyCalls = [];
   source.replay = null;
 });
 
@@ -88,6 +93,7 @@ describe('cross-strategy today priority', () => {
     // The shared first-load Snapback request must explicitly select its
     // smaller today-only response, not eagerly load closed/historical rows.
     expect(source.snapbackTodayOnlyCalls).toContain(true);
+    expect(source.gammaTodayOnlyCalls).toContain(true);
     await waitFor(() => expect(screen.getByTestId('gate')).toHaveTextContent('older-unlocked'));
     expect(screen.getByRole('status')).toHaveTextContent('Today · 4/4 API responses · history ready');
     expect(screen.getByRole('status')).toHaveTextContent('EMA Trend: response received');

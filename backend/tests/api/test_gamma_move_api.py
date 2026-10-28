@@ -175,6 +175,47 @@ def test_gamma_snapshot_archive_reads_do_not_block_fastapi_loop(client, monkeypa
                for _, thread, owner in readers)
 
 
+def test_gamma_today_only_snapshot_defers_history_index_but_keeps_live_board(client, monkeypatch):
+    from app.services import gamma_move_history
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Today-first polling must not read the 60-day index")
+
+    monkeypatch.setattr(gamma_move_history, "list_days", forbidden)
+    result = client.get("/config/gamma-move/snapshot?today_only=true")
+    assert result.status_code == 200, result.text
+    view = result.json()
+    assert view["historical"] is False
+    assert view["history_days"] == []
+    assert isinstance(view["candidates"], list)
+    assert isinstance(view["positions"], list)
+    assert "record" in view and "mode" in view and "scan" in view
+    assert "latest_trading_day" in view
+
+
+def test_gamma_full_and_explicit_historical_snapshot_still_read_index(client, monkeypatch):
+    from app.services import gamma_move_history
+
+    original = gamma_move_history.list_days
+    calls = []
+    def counted(uid, *, limit):
+        calls.append((uid, limit))
+        return original(uid, limit=limit)
+
+    monkeypatch.setattr(gamma_move_history, "list_days", counted)
+    full = client.get("/config/gamma-move/snapshot")
+    assert full.status_code == 200, full.text
+    assert len(full.json()["history_days"]) >= 20
+
+    historical = client.get(
+        "/config/gamma-move/snapshot?day=2026-10-01&today_only=true"
+    )
+    assert historical.status_code == 200, historical.text
+    assert historical.json()["historical"] is True
+    assert historical.json()["history_days"]
+    assert calls == [("default", 60), ("default", 60)]
+
+
 def test_snapshot_names_the_reference_constraints(client):
     body = client.get("/config/gamma-move/snapshot").json()
     assert body["strategy"]["name"] == "Gamma Unwind V1"
