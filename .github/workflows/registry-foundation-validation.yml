@@ -1,0 +1,86 @@
+name: Registry Foundation Validation
+
+on:
+  push:
+    branches:
+      - upgrade/strategy-registry-safety-20261029
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  registry-sqlite:
+    name: Registry Safety / SQLite
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Python compile validation
+        run: python -m compileall -q backend/app/persistence backend/app/domain/strategy_registry.py backend/alembic/versions
+      - name: Isolated SQLite registry tests from actual Sterling checkout
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+        run: |
+          python -m pytest -q tests/test_platform_strategy_registry.py tests/test_platform_strategy_registry_safety.py --tb=short
+
+  registry-postgres:
+    name: Registry Safety / PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sterling_registry_ci
+          POSTGRES_USER: sterling_ci
+          POSTGRES_PASSWORD: synthetic_ci_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sterling_ci -d sterling_registry_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://sterling_ci:synthetic_ci_secret@localhost:5432/sterling_registry_ci
+      PGPASSWORD: synthetic_ci_secret
+      PGHOST: localhost
+      PGUSER: sterling_ci
+      STERLING_REGISTRY_DISPOSABLE_DB: "yes"
+      ENVIRONMENT: test
+      PAPER_TRADING: "true"
+      REAL_PUBLIC_DATA: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend and synchronous PostgreSQL driver
+        run: |
+          python -m pip install -r backend/requirements.lock.txt
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Run PostgreSQL migration and safety smoke
+        working-directory: backend
+        run: python scripts/validate_registry_postgres.py
+      - name: Backup and restore into disposable verification DB
+        run: |
+          pg_dump -Fc --no-owner -d sterling_registry_ci -f /tmp/sterling_registry_ci.dump
+          psql -d sterling_registry_ci -v ON_ERROR_STOP=1 -c 'CREATE DATABASE sterling_registry_restore_ci;'
+          pg_restore --no-owner --exit-on-error -d sterling_registry_restore_ci /tmp/sterling_registry_ci.dump
+          psql -d sterling_registry_restore_ci -At -c "SELECT count(*) FROM platform_strategy_audit" | grep -qx '3'
+          psql -d sterling_registry_restore_ci -At -c "SELECT count(*) FROM platform_strategy_versions" | grep -qx '1'
+      - name: Rehearse schema downgrade and re-upgrade on disposable source
+        working-directory: backend
+        run: |
+          python -m alembic downgrade 4d2c62ab8b01
+          python -m alembic upgrade head
