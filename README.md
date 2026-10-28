@@ -101,14 +101,23 @@ another Kite engine:
 | ngrok HTTPS public URL | Exactly the same 5180 committed build and backend |
 | Dev `http://127.0.0.1:5174` | Your local `frontend/` working directory, including uncommitted edits, with Vite hot reload |
 
-The stack checks the committed local `main` branch every 15 seconds. After a local **`git commit` on main**,
-the committed frontend tree is extracted into the private
-`.runtime/stack/committed-source` workspace; npm dependencies are isolated
-there, and the new production assets are compiled and published by swapping
-the `.runtime/stack/published` symlink atomically. No backend or tunnel
-restart is required; all three gateway URLs show the new UI upon refresh.
-Existing browser tabs are not forcibly reloaded mid-trade. Previous hashed
-assets are preserved to avoid breaking open tabs.
+**Automatic updates (after one-time host enrollment):** the supervisor
+defaults to the reviewed remote `origin/main` and fetches that remote-tracking
+ref approximately once per minute, without changing the local `main` or
+`dev` worktrees. When a newer fast-forward commit exists, the supervisor
+extracts only Git-committed frontend files into the private
+`.runtime/stack/committed-source` workspace, compiles them and atomically
+switches `.runtime/stack/published`. A failing build or unexpected remote
+rewind leaves the previous published release intact. The same local:5180,
+Cloudflare and ngrok addresses now serve the new frontend without restarting
+the long-lived gateway, tunnel or broker backend. Previous hashed assets
+remain available for open tabs.
+
+The app checks `/__sterling_web_health` roughly once per minute. An existing
+tab shows an unobtrusive **Sterling update ready** control and refreshes
+automatically when safely idle; edits, dialogs and playback are never forcibly
+interrupted. New navigations get the latest HTML with `Cache-Control: no-store`.
+A sleeping/offline phone receives the updated UI on reconnection.
 
 Uncommitted, untracked and modified files **never enter the public frontend
 build**, even if `frontend/dist` was generated from those files previously.
@@ -118,23 +127,37 @@ successful committed release in service; `./sterling.sh status` and
 `release_stale`. The failed build's logs are written to
 `.runtime/stack/release-build.log`.
 
-The default is the **local committed** ref:
-
-```dotenv
-STERLING_PUBLISH_REF=main
-```
-
-To follow **only reviewed commits already on the remote `main` branch**
-without checking out, merging, pushing or changing local work:
+The new default is equivalent to:
 
 ```dotenv
 STERLING_PUBLISH_REF=origin/main
 STERLING_PUBLISH_FETCH=1
 ```
 
-The remote option fetches `origin/main` about once per minute, and still
-publishes only after a successful frontend build. It does **not** automatically
-merge branches or copy unreviewed PRs into `main`.
+You can deliberately disable remote publication or pin to the local branch:
+
+```dotenv
+STERLING_PUBLISH_REF=main
+STERLING_PUBLISH_FETCH=0
+```
+
+**One-time bootstrap is still required on an older laptop installation.**
+The GitHub merge cannot edit a running process's environment or install a new
+launcher. Once the updated `scripts/sterling_stack.py` reaches the laptop
+and the existing presentation supervisor is restarted under its normal
+operator/service management, all *future* remote `main` merges publish
+automatically while Sterling is running. On an older already-installed
+supervisor, the same behavior can be enrolled through its existing
+`STERLING_PUBLISH_REF=origin/main` and
+`STERLING_PUBLISH_FETCH=1` environment options plus a supervisor restart.
+This is a **one-time healthy-operator/host action**, not something to ask a
+hospitalized user to execute. A quick Cloudflare tunnel may change hostname
+during this one-time restart; later atomic frontend updates do not rotate it.
+A named Cloudflare tunnel is needed for a guaranteed permanent external URL.
+
+This remote setting publishes reviewed `main` only; it does **not** merge
+feature branches, deploy backend Python changes, or confer live-trading
+certification. CI and device checks remain separate release evidence gates.
 
 **Trading safety boundary:** this automation updates only the static React
 frontend. The existing backend on port 8000, its Python code, Kite session,
