@@ -12,7 +12,7 @@ const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',hea
 const results=[],errors=[];
 try{
  for(const width of [393,1440])for(const kind of ['radio','tv']){
-  const context=await browser.newContext({viewport:{width,height:844},hasTouch:width<900});
+  const context=await browser.newContext({viewport:{width,height:844},hasTouch:width<900,reducedMotion:'reduce'});
   await context.addInitScript(token=>{if(window.top!==window)return;sessionStorage.setItem('sterling.auth.access',token);localStorage.setItem('sterling_theme','light');},session.sterling.token);
   const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',route=>{
@@ -44,6 +44,7 @@ try{
   await page.getByRole('button',{name:'Menu',exact:true}).click();await page.getByRole('button',{name:'Player tools & preferences',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'Account and navigation'})).not.toBeVisible();
   const tools=kind==='radio'?frame.getByRole('dialog',{name:'Radio extras'}):frame.locator(width<900?'#tv-mobile-sheet':'#overlay-sidebar');await expect(tools).toBeVisible({timeout:15000});
+  if(width<900){const panel=kind==='tv'?tools.locator('.tm-sheet-content'):tools;await expect(panel).toHaveCSS('background-color','rgb(248, 250, 252)');await expect(panel).toHaveCSS('color','rgb(21, 33, 48)');}
   await page.screenshot({path:path.join(output,`${kind}-tools-${width}-light.png`)});
   if(width>=1024){const input=page.getByRole('combobox',{name:kind==='radio'?'Search radio stations':'Search TV channels'});await expect(input).toBeVisible();const box=await input.boundingBox();expect(Math.abs(box.x+box.width/2-width/2)).toBeLessThan(80);}
   results.push({kind,width,account_menu_closed_before_player_settings:true,startup_editable:true,sources_editable:true,tools_foreground:true});await context.close();
