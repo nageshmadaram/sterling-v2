@@ -82,3 +82,34 @@ html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
 }
 html[data-color-scheme="light"] body :is(#mobile-player-sheet,#tv-now-playing)
   button:focus-visible { outline:2px solid #234c7f!important; outline-offset:2px; }
+
+/* Discovery shelves and category pills use the same light surfaces as Recents. */
+html[data-color-scheme="light"] body #spotify-app :is(.rh-row,.radio-collection-shelf,.radio-world-shelf)>header {
+  background:transparent!important;
+  color:#151b26!important;
+}
+html[data-color-scheme="light"] body :is(.rh-row h2,.rh-card strong,.radio-source-group h3) {
+  color:#151b26!important;
+}
+html[data-color-scheme="light"] body :is(.rh-all,.rh-card small) {
+  color:#526074!important;
+}
+html[data-color-scheme="light"] body :is(.rh-card:hover,.rh-card:focus-visible) {
+  background:#e5ebf2!important;
+}
+html[data-color-scheme="light"] body :is(.radio-desktop-chips,.radio-source-group>header) {
+  background:#f7f9fc!important;
+}
+html[data-color-scheme="light"] body :is([id^="sp-chip-"],[id^="sp-mchip-"],[id^="ytm-chip-"],.radio-sub-chips button,.radio-genre-chips button) {
+  min-height:44px;
+  border:1px solid #b8c4d2!important;
+  border-radius:999px;
+  background:#fff!important;
+  color:#243247!important;
+}
+html[data-color-scheme="light"] body :is([id^="sp-chip-"],[id^="sp-mchip-"],[id^="ytm-chip-"],.radio-sub-chips button,.radio-genre-chips button)[aria-pressed="true"] {
+  background:#151b26!important;
+  border-color:#151b26!important;
+  color:#fff!important;
+  font-weight:700;
+}

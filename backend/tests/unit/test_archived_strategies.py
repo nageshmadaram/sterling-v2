@@ -87,6 +87,7 @@ async def test_storage_failure_route_is_503(monkeypatch):
     assert exc.value.status_code == 503
 
 
+@pytest.mark.kite_features('alice')
 @pytest.mark.asyncio
 async def test_enabled_archive_still_cannot_originate_live_risk(monkeypatch):
     from app.services.execution_service import CanonicalExecutionService, ExecutionRequest

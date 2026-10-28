@@ -126,6 +126,7 @@ def test_kite_accounts_are_live_only():
 
 
 
+@pytest.mark.kite_features('default', 'killswitch-user', 'u-release', 'unknown-mode-user')
 @pytest.mark.asyncio
 async def test_kill_switch_blocks_real_entry_at_canonical_boundary(monkeypatch):
     """High #65: with the operator kill switch engaged, no strategy can send a real entry."""
@@ -248,6 +249,7 @@ async def test_legacy_router_does_not_trust_reduce_only_as_live_reduction_proof(
 
 
 
+@pytest.mark.kite_features('default', 'killswitch-user', 'u-release', 'unknown-mode-user')
 @pytest.mark.asyncio
 async def test_canonical_boundary_blocks_unknown_broker_mode(monkeypatch):
     """A client that does not state its broker mode is UNKNOWN, never assumed live or a double."""
@@ -330,6 +332,7 @@ async def test_telegram_webhook_requires_json_ok_ack(monkeypatch):
 
 
 
+@pytest.mark.kite_features('default', 'killswitch-user', 'u-release', 'unknown-mode-user')
 @pytest.mark.asyncio
 async def test_production_canonical_authority_rejects_retired_strategy_origination(monkeypatch):
     from app.services.execution_service import (
@@ -365,6 +368,8 @@ async def test_production_canonical_authority_rejects_retired_strategy_originati
 
 
 def _scope_request(strategy_id: str, uid: str = "u-scope"):
+    from tests.feature_grants import grant_kite
+    grant_kite(uid)
     from app.services.execution_service import ExposureEffect
 
     return ExecutionRequest(
@@ -385,6 +390,7 @@ def _scope_request(strategy_id: str, uid: str = "u-scope"):
     )
 
 
+@pytest.mark.kite_features('default', 'killswitch-user', 'u-release', 'unknown-mode-user')
 @pytest.mark.asyncio
 async def test_release_scope_reads_environment_loaded_from_settings(monkeypatch):
     """ENVIRONMENT=production only in backend/.env (pydantic settings) must still gate."""
@@ -398,6 +404,7 @@ async def test_release_scope_reads_environment_loaded_from_settings(monkeypatch)
     assert result.status == "REJECTED_OUTSIDE_RELEASE_SCOPE"
 
 
+@pytest.mark.kite_features('default', 'killswitch-user', 'u-release', 'unknown-mode-user')
 @pytest.mark.asyncio
 @pytest.mark.parametrize("strategy_id", ["opening_volume", "intraday", "navigator", "adaptive_edge"])
 async def test_release_scope_is_unconditional_for_a_live_client(monkeypatch, strategy_id):

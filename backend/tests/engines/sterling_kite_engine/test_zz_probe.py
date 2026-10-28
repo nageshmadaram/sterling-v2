@@ -55,6 +55,7 @@ def test_probe_derivatives_row_with_futures_vehicle():
     print("gtt:", client.gtt_calls)
 
 
+@pytest.mark.kite_features('default')
 def test_probe_short_futures_discount_basis():
     from tests.engines.sterling_kite_engine.test_directional_exec import _bear_row
     client = FakeClient(instruments=_fut_dump(),

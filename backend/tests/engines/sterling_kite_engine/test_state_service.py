@@ -228,6 +228,7 @@ async def test_reconcile_user_auto_open_clears_after_broker_flat():
     assert not state.is_auto_open("recon_live", "NIFTY24JUN24000CE")
 
 
+@pytest.mark.kite_features('config-fail', 'default', 'engine-off-maintenance', 'trail-nowiden', 'trail-short', 'trail-test')
 @pytest.mark.asyncio
 async def test_auto_exec_one_position_guard():
     from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
@@ -254,20 +255,21 @@ async def test_auto_exec_one_position_guard():
             # which would make this test pass for the wrong reason.
             return {k: {"last_price": 90.0} for k in keys}
 
+    from tests.supertrend_evidence import observed_callback
     cb = service._make_place_cb(C(), "g1")
 
     def _row(ts):
-        return EngineSignalRow(
+        return EngineSignalRow(is_active=True,
             underlying="RELIANCE", token=111, exchange="NFO", regime="BULL",
             alignment=AlignmentChip(fast=1, mid=1, slow=1), direction="long", option_type="CE",
-            legs=[OptionLeg(moneyness="ATM", option_type="CE", option_symbol="RELIANCE25JUN3000CE",
+            legs=[OptionLeg(is_active=True, moneyness="ATM", option_type="CE", option_symbol="RELIANCE25JUN3000CE",
                             strike=3000, expiry="2026-06-26", lot_size=250)],
             spot=3010.0, stop_loss=2950.0, score=85.0, timestamp_ms=ts)
 
     # two DISTINCT fresh signals on the same underlying (different bars) →
     # without the guard this would place twice; with it, only once.
-    await cb(_row(1000), None)
-    await cb(_row(2000), None)
+    await observed_callback("g1", cb, _row(1000), None)
+    await observed_callback("g1", cb, _row(2000), None)
     assert placed == [("RELIANCE25JUN3000CE", 250)]
     assert state.is_auto_open("g1", "RELIANCE")
 
@@ -281,7 +283,7 @@ async def test_auto_exec_one_position_guard():
     assert order_journal.pending_projection("g1") == []
 
     state.clear_auto_open("g1", "RELIANCE")
-    await cb(_row(3000), None)
+    await observed_callback("g1", cb, _row(3000), None)
     assert len(placed) == 1
     assert any(
         e.kind == "order_blocked" and "scale_in_blocked" in e.message

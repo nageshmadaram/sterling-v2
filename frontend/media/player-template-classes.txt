@@ -2410,6 +2410,7 @@ ${v}
 145
 148
 14V9h-1.5v3.5H9V14h5zm-4.5
+14h3M18
 14px;
 14px;font-size:14px;outline:none;
 14px;white-space:nowrap;
@@ -2431,6 +2432,7 @@ ${v}
 15a1.7
 15c3-1
 15h16.8M12
+15l3
 15l6-6
 15px
 15px;
@@ -2489,6 +2491,7 @@ ${v}
 19.
 19.73l-9-9L4.27
 190
+19h3L18
 19h4V5H6v14zm8-14v14h4V5h-4z
 19m
 1:
@@ -2501,6 +2504,7 @@ ${v}
 1fr;column-gap:16px;min-height:100dvh;}
 1fr;gap:8px;margin:0
 1h-3c-.55
+1l3
 1px
 1px,
 1px;
@@ -2622,6 +2626,7 @@ ${v}
 2:
 2;
 2;i++){const
+2M3
 2d
 2h14c1.1
 2px
@@ -2728,6 +2733,7 @@ ${v}
 4)m.push(s);};
 4,
 4-1
+4-4
 4-4c0-5.5-4-10-9-10z
 4-4zM10
 4-6
@@ -2847,6 +2853,7 @@ ${v}
 5h16v2H4z
 5h16v2H4zm0
 5h18l-7
+5h3M18
 5h4M6
 5h4v14H6zM14
 5h4v14h-4z
@@ -3930,7 +3937,6 @@ Lifestyle
 Liked
 List
 Listen
-Listening
 Lists
 Live
 Lo-Fi
@@ -4565,6 +4571,7 @@ Streams
 Strictly
 String(Math.floor(offsetSec
 String(e.target.result
+String(k
 String(name)
 String(name).replace(/\(.*?\)|\[.*?\]/g,
 String(offsetSec
@@ -4745,7 +4752,6 @@ Warangal
 Wash
 Watch
 Watched
-Watching
 Watermark
 WeakMap();
 WeakSet();
@@ -5861,6 +5867,7 @@ cartoon
 case
 cat
 cat)
+cat));
 cat-
 cat;
 cat===
@@ -6541,6 +6548,7 @@ document.exitPictureInPicture();
 document.getElementById(
 document.getElementById(id).value
 document.getElementById(id);
+document.getElementById(prefix
 document.querySelector(
 document.querySelectorAll(
 document.removeEventListener(t,go,true));
@@ -8576,6 +8584,7 @@ m.toUpperCase())}
 m14
 m19
 m200
+m3
 m3u-file
 m3uUrl:
 m3u_${parsed.length}
@@ -9767,7 +9776,6 @@ radio-mobile-art
 radio-modal-open
 radio-np-actions
 radio-np-controls
-radio-np-device
 radio-np-head
 radio-np-timeline
 radio-playing-context
@@ -9807,6 +9815,7 @@ radioExtras=null;
 radioExtras=window.SterlingMediaExtras.mount({kind:
 radioExtras?.open()
 radioExtras?.open(),
+radioExtras?.surprise());
 radioFilterTitle(){
 radioGridMarkup(items,offset,spotify){
 radioGridRendered=0,radioGridRows=[],radioGridView=
@@ -10659,6 +10668,7 @@ sheet-similar-list
 sheet-similar-row
 sheet-similar-title
 sheet-sub
+sheet-surprise
 sheet-title
 sheet-up-next
 sheet.
@@ -11322,6 +11332,7 @@ subscribed
 subtitle-settings-popover
 subtitle:
 sufficient
+suffix)?.setAttribute(
 suffix])
 suggest
 suggested-channel
@@ -11337,6 +11348,7 @@ surface.addEventListener(
 surface=document.getElementById(
 surfaces;
 surprise
+surprise:
 suspended
 suvarna
 svbc
@@ -12344,6 +12356,7 @@ window.setTimeout(()
 window.setTimeout(bootRadioApplication,
 window.tvExtras=window.SterlingMediaExtras?.mount({kind:
 window.tvExtras?.open(),
+window.tvExtras?.surprise();schedule();break;
 window.webkitAudioContext;
 with
 without

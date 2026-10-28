@@ -160,3 +160,29 @@ body.tm-search-active #dynamic-category-pills-row {display:none!important;}
   #global-header button[title="Search"]:hover {background:#2a2a2a;}
 }
 @media(max-width:639px) {.tv-head-sources {width:40px;padding:0;justify-content:center;}.tv-head-sources #active-sources-badge {display:none;}}
+
+/* A single clipped surface owns the video corners, including the native player. */
+#video-surface-card {
+  overflow:hidden;
+  isolation:isolate;
+  border:0!important;
+  background:#000;
+}
+#video-surface-card > :is(#video-player,#embed-fallback) {
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  margin:0;
+  border:0;
+  border-radius:inherit;
+  background:#000!important;
+}
+#video-surface-card > :is(#video-player,#embed-fallback):not(.hidden) {display:block;}
+@media(max-width:1023px) {
+  .tm-now-open :is(#watch-columns,#left-watch-column,#mobile-sticky-player-wrap) {
+    border:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+}

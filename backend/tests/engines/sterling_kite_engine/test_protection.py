@@ -19,6 +19,8 @@ OCO so stop and target can never both fire.
 """
 from __future__ import annotations
 
+from tests.supertrend_evidence import observed_callback
+
 from datetime import datetime, timezone
 
 import pytest
@@ -817,6 +819,7 @@ class TestManualOrdersAreProtected:
         yield client
         scanner._users.pop("m-user", None)
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_a_manual_buy_is_registered_and_armed_from_the_boards_plan(self, _wired):
         from app.services.kite_engine import service as ksvc
@@ -834,6 +837,7 @@ class TestManualOrdersAreProtected:
         assert _wired.gtts[0]["trigger_type"] == "two-leg"
         assert _wired.gtts[0]["trigger_values"] == [255.0, 540.0]
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_a_contract_not_on_the_board_is_reported_unprotected_not_blocked(self, _wired):
         from app.services.kite_engine import service as ksvc
@@ -846,6 +850,7 @@ class TestManualOrdersAreProtected:
         assert "no stop to arm" in res["protection"]
         assert _wired.gtts == []
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_a_leg_with_no_premium_stop_is_reported_unprotected(self, _wired, monkeypatch):
         from app.services.kite_engine import service as ksvc
@@ -861,6 +866,7 @@ class TestManualOrdersAreProtected:
         assert res["status"] == "ok" and res["protected"] is False
         assert "no premium stop" in res["protection"]
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_the_toggle_off_leaves_manual_orders_alone(self, _wired, monkeypatch):
         from app.services.kite_engine import service as ksvc
@@ -1593,14 +1599,14 @@ def _spot_row(underlying="RELIANCE", direction="long", *, current_reds=None, ts=
         AlignmentChip, EngineSignalRow, OptionLeg)
     opt = "CE" if direction == "long" else "PE"
     trend = 1 if direction == "long" else -1
-    return EngineSignalRow(
+    return EngineSignalRow(is_active=True,
         underlying=underlying, token=111, exchange="NFO",
         regime="BULL" if direction == "long" else "BEAR",
         # The ENTRY-bar chip: fully aligned WITH the trade. Counting these against a
         # position is the bug - for a bear signal all three are -1.
         alignment=AlignmentChip(fast=trend, mid=trend, slow=trend),
         direction=direction, option_type=opt,
-        legs=[OptionLeg(moneyness="ATM", option_type=opt,
+        legs=[OptionLeg(is_active=True, moneyness="ATM", option_type=opt,
                         option_symbol=f"{underlying}25JUN3000{opt}",
                         strike=3000, expiry="2026-06-26", lot_size=250)],
         spot=3010.0, stop_loss=2950.0 if direction == "long" else 3070.0,
@@ -1662,6 +1668,7 @@ class TestAutoExecNeverOpensAnUnprotectablePosition:
         kinds = [e.kind for e in state.activity("nx1")]
         assert "order_blocked" in kinds and "order_placed" not in kinds
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_the_guard_does_not_block_a_resolvable_entry(self):
         """The abort must be narrow: a quote that answers still trades."""
@@ -1671,7 +1678,7 @@ class TestAutoExecNeverOpensAnUnprotectablePosition:
         client = _QuotingClient(ltp=90.0)
 
         cb = service._make_place_cb(client, "nx2")
-        await cb(_spot_row(), None)
+        await observed_callback("nx2", cb, _spot_row(), None)
 
         assert len(client.placed) == 1
         sym, side, size, stop_loss = client.placed[0]
@@ -1679,6 +1686,7 @@ class TestAutoExecNeverOpensAnUnprotectablePosition:
         assert stop_loss is not None and stop_loss > 0, (
             "the resolved premium stop must reach the broker, not None")
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_the_log_reports_the_stop_installed_not_the_one_configured(self):
         from app.services.kite_engine import service, state
@@ -1687,7 +1695,7 @@ class TestAutoExecNeverOpensAnUnprotectablePosition:
         client = _QuotingClient(ltp=90.0)
 
         cb = service._make_place_cb(client, "nx3")
-        await cb(_spot_row(), None)
+        await observed_callback("nx3", cb, _spot_row(), None)
 
         placed = [e for e in state.activity("nx3") if e.kind == "order_placed"]
         assert placed, "the entry should have gone through"
@@ -1798,6 +1806,7 @@ class TestRedCountUsesTheSignalNotTheOptionSide:
 
         assert pos.get("rc5", "RELIANCE25JUN3000PE").current_red_count == 2
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_the_signal_direction_is_recorded_at_entry(self):
         """It cannot be inferred from the CE/PE suffix: a derivatives-source row runs the
@@ -1809,7 +1818,7 @@ class TestRedCountUsesTheSignalNotTheOptionSide:
         client = _QuotingClient(ltp=90.0)
 
         cb = service._make_place_cb(client, "rc6")
-        await cb(_spot_row(direction="short"), None)
+        await observed_callback("rc6", cb, _spot_row(direction="short"), None)
 
         held = pos.get("rc6", "RELIANCE25JUN3000PE")
         assert held is not None, "the bear entry should have been registered"
@@ -2543,6 +2552,7 @@ class TestTheRiskCapBlocksTheEntryNotJustTheSize:
         assert "broker inputs" in msg and "risk budget" in msg, (
             f"a refusal the user cannot act on is a dead end: {msg}")
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_allow_min_lot_over_risk_takes_the_smallest_lot(self):
         """The escape hatch is a deliberate choice, not the default — and it must
@@ -2553,11 +2563,12 @@ class TestTheRiskCapBlocksTheEntryNotJustTheSize:
         self._cfg("cap3", allow_min_lot_over_risk=True)
 
         client = _CapitalClient(ltp=90.0, capital=50_000.0)
-        await service._make_place_cb(client, "cap3")(_spot_row(), None)
+        await observed_callback("cap3", service._make_place_cb(client, "cap3"), _spot_row(), None)
 
         assert len(client.placed) == 1, "the opt-in did not reach the order path"
         assert client.placed[0][2] == 250, "should take exactly one lot"
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_a_comfortable_budget_still_trades(self):
         """The cap must not become a blanket halt."""
@@ -2567,7 +2578,7 @@ class TestTheRiskCapBlocksTheEntryNotJustTheSize:
         self._cfg("cap4", risk_pct=50.0)
 
         client = _CapitalClient(ltp=90.0, capital=50_000_000.0)
-        await service._make_place_cb(client, "cap4")(_spot_row(), None)
+        await observed_callback("cap4", service._make_place_cb(client, "cap4"), _spot_row(), None)
 
         assert len(client.placed) == 1
 
@@ -2638,6 +2649,7 @@ class TestTheTranslationIsFedTheUnderlyingNotThePremium:
         kinds = [e.kind for e in state.activity("dm1")]
         assert "order_blocked" in kinds and "order_placed" not in kinds
 
+    @pytest.mark.kite_features('cache-user', 'default', 'e1', 'exit-rejected-no-client', 'exit-rejected-race', 'exit-rejected-reprotect', 'f1', 'f2', 'f3', 'f4', 'g2', 'g3', 'g4', 'g5', 'm', 'm-user', 'm2', 'o4', 'q3', 'r9', 's1', 's2', 's3', 's4', 's5', 's6', 'x-user', 'z3')
     @pytest.mark.asyncio
     async def test_a_spot_row_still_translates_and_trades(self):
         """The guard must be narrow: a spot-source row's levels ARE underlying-domain,
@@ -2647,7 +2659,7 @@ class TestTheTranslationIsFedTheUnderlyingNotThePremium:
         pos.reset("dm2")
         client = _QuotingClient(ltp=90.0)
 
-        await service._make_place_cb(client, "dm2")(_spot_row(), None)
+        await observed_callback("dm2", service._make_place_cb(client, "dm2"), _spot_row(), None)
 
         assert len(client.placed) == 1
         _sym, _side, _size, stop_loss = client.placed[0]

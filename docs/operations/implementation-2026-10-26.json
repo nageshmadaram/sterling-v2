@@ -1,0 +1,460 @@
+{
+  "schema_version": 1,
+  "specification": "docs/operations/2026-10-26-implementation-specification.md",
+  "specification_sha256": "8b831f7f6c68c08a9c1d0710701bd97e0c49da73c529a79aeb55e7f35c348574",
+  "source_baseline_sha": "416bf6b4c9c5f98e1efbd3d9d683be5834fcedd0",
+  "initial_worktree_clean": true,
+  "historical_remote_sha_in_spec_is_current": false,
+  "policy": {
+    "new_live_entries_default": false,
+    "r1_does_not_imply_r2": true,
+    "r2_does_not_imply_r3": true,
+    "local_test_does_not_imply_ci": true,
+    "code_implemented_does_not_imply_verified": true
+  },
+  "acceptance_items": [
+    {
+      "id": "FR-01",
+      "requirement": "Broker sign-in and user binding",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/core/auth.py",
+        "backend/app/core/broker_account_binding.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_production_binding_execution_gate.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-02",
+      "requirement": "Data acquisition",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "kitelake/catalog.py",
+        "backend/app/core/research_coverage.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_research_coverage.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-03",
+      "requirement": "Signal computation",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/core/strategy_identity.py",
+        "backend/app/core/horizon.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_supertrend_parity_freeze.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-04",
+      "requirement": "Signal-to-plan",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/snapback_plan_store.py",
+        "backend/app/services/kite_engine/signal_board_runtime.py"
+      ],
+      "automated_checks": [
+        "backend/tests/engines/sterling_kite_engine/test_signal_board_runtime.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-05",
+      "requirement": "Pre-trade admission",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/execution_service.py",
+        "backend/app/services/release_entry_authority.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_release_entry_authority.py",
+        "backend/tests/unit/test_shared_risk.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-06",
+      "requirement": "Idempotency",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/kite_engine/order_journal.py",
+        "backend/app/core/trade_intent.py"
+      ],
+      "automated_checks": [
+        "backend/tests/engines/sterling_kite_engine/test_order_journal.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-07",
+      "requirement": "Broker execution",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/canonical_fill_reconciliation.py",
+        "backend/app/services/kite_engine/fill_ledger.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_execution_authority_hardening.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-08",
+      "requirement": "Protection",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/protection_health.py",
+        "backend/app/services/kite_engine/protective_stop.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_live_floor_and_envelope.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-09",
+      "requirement": "Exit management",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/kite_engine/monitor.py",
+        "backend/app/services/snapback_live_exits.py"
+      ],
+      "automated_checks": [
+        "backend/tests/e2e_live/test_trade_journal_e2e.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-10",
+      "requirement": "Risk and halts",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/core/live_minimum.py",
+        "backend/app/services/shared_risk.py",
+        "backend/app/services/live_safety.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_live_minimum.py",
+        "backend/tests/unit/test_shared_risk.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-11",
+      "requirement": "Audit ledger",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/core/acceptance_evidence.py",
+        "backend/app/core/evidence_events.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_acceptance_evidence.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-12",
+      "requirement": "Operator alerts",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/snapback_alert_outbox.py",
+        "backend/app/services/notifications/system_alerts.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_snapback_alert_delivery_audit.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-13",
+      "requirement": "Visibility",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/api/v1/endpoints/family_operations.py",
+        "frontend/src/components/kite/LiveOperationsPanel.tsx"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_implementation_operator_contract.py",
+        "frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-14",
+      "requirement": "Market-hours control",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/core/session_calendar.py",
+        "backend/app/services/kite_engine/expiry_calendar.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_live_minimum.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-15",
+      "requirement": "UI/mobile",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "frontend/src/components/kite/LiveOperationsPanel.tsx",
+        "frontend/src/appearance/preferences.ts"
+      ],
+      "automated_checks": [
+        "frontend/src/hooks/__tests__/mobileBackAndSelections.test.tsx",
+        "frontend/src/components/kite/__tests__/LiveOperationsPanel.test.tsx"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-16",
+      "requirement": "Emergency recovery",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/live_runtime.py",
+        "backend/app/core/runtime_lease.py",
+        "backend/app/services/execution_service.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_runtime_lease.py",
+        "backend/tests/e2e_live/test_admission_dry_run.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-17",
+      "requirement": "Multi-user continuity",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/auth/user_store.py",
+        "backend/app/core/backup_coverage.py",
+        "backend/app/services/account_binding_service.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_full_backup_contents.py",
+        "backend/tests/unit/test_acceptance_evidence.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "FR-18",
+      "requirement": "Economic truth",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false,
+      "source_targets": [
+        "backend/app/services/kite_engine/fill_ledger.py",
+        "backend/app/services/trade_journal_stats.py",
+        "backend/app/core/economic_acceptance.py"
+      ],
+      "automated_checks": [
+        "backend/tests/unit/test_lane_promotion_economics.py",
+        "backend/tests/unit/test_acceptance_evidence.py"
+      ],
+      "software_state": "SOURCE_PRESENT_ACCEPTANCE_UNVERIFIED"
+    },
+    {
+      "id": "G0",
+      "requirement": "Exact branch SHA, clean checkout, pinned deps, provenance | Engineering | Block deployment",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G1",
+      "requirement": "Actual jobs executed on current SHA (not runner_id=0), complete suite + build + smoke pass | Engineering | Block promotion",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G2",
+      "requirement": "Disk/RAM/performance and persistent storage meets SLO, durable backup tested | Operations | Block new entries",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G3",
+      "requirement": "Current approved outbound static IP, OAuth callback, correct account binding, fresh inventory | Account owner | Block new entries",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G4",
+      "requirement": "Master/safe/recovery switches, exposure/caps/locks, partial/unknown order tests, reliable stops | Engineering + risk owner | Block new entries",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G5",
+      "requirement": "All relevant failure drills, physical restore, cross-session startup with safe reconciliation | Operations | Block new entries",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G6",
+      "requirement": "End-to-end Telegram operator-device delivery and outage/retry observed | Operator | Block unattended automation",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G7",
+      "requirement": "Strategy/version independently approved with complete after-cost OOS/forward evidence | Research/risk reviewer | Leave lane disabled",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G8",
+      "requirement": "Independent responsible person can detect/fix/stop anomalies and reach broker account | Account owner + delegate | No unattended production",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "G9",
+      "requirement": "Separately authorized controlled order + stop + exit evidence; real loss limits | Account owner | Stop expansion; rollback/reconcile",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E00",
+      "requirement": "P0 | Freeze read-only snapshots, full operator inventory, disk, active SHAs, broker read-only state; copy encrypted backups without exposing secrets | `scripts/sterlingctl`, `.runtime`, `docs/operations` | Timestamped evidence of source, host, broker, storage; new entries OFF",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E01",
+      "requirement": "P0 | Diagnose 0-step jobs; resolve GitHub Actions account/runner eligibility using authorized account action; run local exact-commit fallback without reclassifying it as CI | `.github/workflows`, test runners | Actual tests run on current SHA; direct logs attached",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E02",
+      "requirement": "P0 | One supervisor/backend owner, recoverable server, no event loop sync I/O, bounded scans, stable gateway | `backend/app/core/async_work.py`, Gamma runner/scanner, stack scripts | Repeated moving-market load and restart drill meet measured SLO",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E03",
+      "requirement": "P0 | Static IPv4, permanent hostname, TLS, remote ingress, Kite callback/session, real account binding | `deploy/`, `docs/operations/BROKER_ACCOUNT_HANDOFF.md` | Independent broker console and network proof; no unapproved IP",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E04",
+      "requirement": "P0 | Cross-lane guard parity, admission double-check, caps, kill, protection, no alternate submit path, full lifecycle reconciliation | `backend/app/core/release_scope.py`, broker/execution and risk services | Order journal transitions and failure drills certified",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E05",
+      "requirement": "P0 | Full sealed deployment backup, lane manifests, encrypted off-host restore, account-owner access continuity | `docs/operations/`, backup scripts | Independent restore and operator drills pass",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E06",
+      "requirement": "P1 | Date-effective symbol masters, option history provenance, gaps, OI, no-lookahead, missing session and fees | data lake/backtest adapters | Quality report with 100% attribution for included events; incomplete data excluded",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E07",
+      "requirement": "P1/P2 | Frozen parity, no stop-loosen, mode-specific OOS, truthful states | SuperTrend engine and regression suites | Complete lifecycle tests; economic gate per mode",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E08",
+      "requirement": "P1/P2 | Hedge admission, real option data, backtest errors, restored read-only rows, risk states | Snapback scanner/planner/wiring | No data errors or naked hedge waiver; OOS gate",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E09",
+      "requirement": "P1/P2 | Restore watchlist after restart, bounded incremental scan, coverage, timeout, OOS | Gamma historical/scanner/runner | Fresh watchlists after restart, bounded latency; coverage and OOS gate",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E10",
+      "requirement": "P1/P2 | Per-plan toggles, metadata, modes/labels, execution path; EMA experimental by default | plan/EMA engine + frontend controls | Tests and authority; no broad unvalidated auto-enable",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E11",
+      "requirement": "P2 critical | Holdout registry, stress/fees model, confidence estimates, forward recorder, trade attribution | `research/`, `backend/app` analytics | Reproducible economic report; no lookahead or leakage",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E12",
+      "requirement": "P1 | Readiness, real P&L provenance, telemetry, error budgets, alert receipts | status, evidence, Telegram, frontend | Alerts reach device; full audit event trace",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E13",
+      "requirement": "P1 | Mobile overlay/home/prefs, signal display, accessible emergency halt, no stale/real confusion | `frontend/`, `mobile/` | Mobile/desktop acceptance matrix passes",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E14",
+      "requirement": "P3 | IPTV/Radio regressions on separate bounded workstream | `sterling-iptv/`, `sterling-radio/` | Core trading readiness unaffected",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    },
+    {
+      "id": "E15",
+      "requirement": "P0/P2 | Release freeze, strict certify, approved live limited session, monitor + rollback | `docs/operations/FINAL_RELEASE_RUNBOOK.md` | Actual receipts and explicit owner sign-off; no auto-scale",
+      "acceptance_status": "UNKNOWN",
+      "code_presence_is_acceptance": false
+    }
+  ],
+  "security_gate": {
+    "status": "BLOCKED",
+    "frontend_audit_known_vulnerabilities": 0,
+    "python_lock_audit_known_vulnerabilities": 0,
+    "mobile_audit_high_findings": 5,
+    "mobile_direct_advisories": [
+      "GHSA-86w9-cpqp-85rv",
+      "GHSA-mrhx-c7xc-m3w5"
+    ],
+    "mobile_breaking_downgrade_applied": false,
+    "live_promotion_authorized": false
+  },
+  "local_validation": {
+    "evidence_source": "LOCAL_TEST",
+    "status": "PASS",
+    "report": "docs/evidence/implementation-20261026/validation.md",
+    "structured_results": "docs/evidence/implementation-20261026/validation.json",
+    "backend_passed": 11951,
+    "backend_skipped": 30,
+    "frontend_passed": 2413,
+    "mobile_passed": 9,
+    "release_acceptance": "UNVERIFIED",
+    "worktree_clean": false
+  }
+}

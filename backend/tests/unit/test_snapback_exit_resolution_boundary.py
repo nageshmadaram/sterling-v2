@@ -346,6 +346,7 @@ def test_invalid_hedge_direction_never_books_signed_ledger(monkeypatch):
     halt.assert_called_once()
 
 
+@pytest.mark.kite_features('default', 'operator')
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["disk_full", "vanished", "owner_changed", "other_working_exit"])
 async def test_broker_ack_without_durable_owner_bound_order_id_halts_without_retry(
@@ -1016,12 +1017,14 @@ async def test_restart_cannot_finalise_a_fully_booked_but_unresolved_broker_orde
     finalise.assert_not_called()
 
 
+@pytest.mark.kite_features('default', 'operator')
 @pytest.mark.asyncio
 async def test_fully_projected_terminal_exit_can_recover_projection_ack(monkeypatch):
     p = pos()
     p.option_exit_qty = 75
     p.option_exit_value = 75 * 90.0
     p.option_exit_booked_ids = ["EXIT-1"]
+    p.option_exit_booked_quantities = {"EXIT-1": 75}
     obj = manager(receipt(qty=75, price=90), p)
     projection = Mock(return_value=True)
     monkeypatch.setattr(fills, "mark_projected", projection)

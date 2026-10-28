@@ -192,6 +192,7 @@ class _RecordingBroker:
         return {"order_id": "SHOULD-NOT-EXIST"}
 
 
+@pytest.mark.kite_features('default', 'u_race', 'u_refresh_race')
 @pytest.mark.asyncio
 async def test_safe_mode_engaged_after_admission_still_stops_the_order(_isolated_state):
     broker = _RecordingBroker(_isolated_state)
@@ -230,6 +231,7 @@ async def test_safe_mode_engaged_after_admission_still_stops_the_order(_isolated
     assert "SAFE_MODE" in result.error
 
 
+@pytest.mark.kite_features('default', 'u_race', 'u_refresh_race')
 @pytest.mark.asyncio
 @pytest.mark.parametrize('refresh_at', ['identity', 'transport'])
 async def test_supertrend_refresh_started_after_admission_stops_queued_order(_isolated_state, monkeypatch, refresh_at):

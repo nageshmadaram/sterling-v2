@@ -128,6 +128,13 @@ def pytest_runtest_call(item):
             reconciled_control_plane()
     except Exception:
         pass
+    # Explicit opt-in for legacy execution tests whose subject is another
+    # admission invariant. Seed real grants after their own DB fixtures select
+    # a temporary database; never patch the production policy/entry boundary.
+    licensed = item.get_closest_marker('kite_features')
+    if licensed:
+        from tests.feature_grants import grant_kite
+        grant_kite(*licensed.args)
     yield
 
 
@@ -419,3 +426,7 @@ def _isolated_gamma_history_cache(_gamma_history_test_root, request, monkeypatch
     import hashlib
     key = hashlib.sha256(request.node.nodeid.encode()).hexdigest()
     monkeypatch.setenv("STERLING_GAMMA_CACHE_DIR", str(_gamma_history_test_root / key))
+
+
+def pytest_configure(config):
+    config.addinivalue_line('markers', 'kite_features(*user_ids): persisted Kite grants for explicitly named synthetic fixture owners')

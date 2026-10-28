@@ -166,6 +166,7 @@ async def test_binding_gate_refuses_wrong_or_missing_running_deployment(monkeypa
     assert ok is False and "does not match" in reason
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_live_entry_refuses_unreadable_static_egress_as_explicit_result(monkeypatch):
     import app.services.continuity_doctor as continuity
@@ -193,6 +194,7 @@ async def test_live_entry_refuses_unreadable_static_egress_as_explicit_result(mo
     assert "RuntimeError" in result.error
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_production_live_entry_refuses_unverified_static_egress_before_binding(monkeypatch):
     import app.core.runtime_env as runtime_env
@@ -228,6 +230,7 @@ async def test_production_live_entry_refuses_unverified_static_egress_before_bin
     assert "outbound IP does not match" in result.error
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_production_live_entry_cannot_reach_later_gates_without_binding(monkeypatch):
     import app.core.runtime_env as runtime_env
@@ -259,6 +262,7 @@ async def test_production_live_entry_cannot_reach_later_gates_without_binding(mo
     assert "ACTIVE broker account binding" in result.error
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_live_entry_enforces_continuity_even_when_environment_is_development(monkeypatch):
     """A real broker transport is real money regardless of ENVIRONMENT."""

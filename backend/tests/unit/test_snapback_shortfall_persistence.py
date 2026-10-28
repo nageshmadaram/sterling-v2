@@ -189,7 +189,8 @@ def test_a_hedge_that_stays_missing_is_held_for_a_person_with_the_option_stopped
     assert _kill_switch_on()
 
 
-def test_an_unexplained_vanished_option_after_a_fired_stop_waits_for_the_shortfall_too(env):
+@pytest.mark.kite_features('default')
+def test_an_unidentified_fired_stop_cannot_be_retired_by_repeated_zero_inventory(env):
     _no_clock_wait(env, confirmations=2)
     pos = _open(env)
     gid = pos.gtt_id
@@ -197,10 +198,15 @@ def test_an_unexplained_vanished_option_after_a_fired_stop_waits_for_the_shortfa
     env.broker.net[OPT_NET] = 0
 
     first = _tick(env)
-    assert _get(env, pos).status == "EXITING" and _get(env, pos).option_exit_unknown_qty == 0
-    assert first["exits"][0]["outcome"] == "option_missing_unconfirmed"
+    held = _get(env, pos)
+    assert held.status == "RECONCILING" and held.option_exit_unknown_qty == 0
+    assert "broker_stop_child_identity_unknown" in held.flags
+    assert first["exits"][0]["outcome"] == "reconciling"
 
     _tick(env)
 
-    closed = _get(env, pos)
-    assert closed.status == "CLOSED" and closed.option_exit_unknown_qty == 75
+    # Broker-zero inventory cannot prove a latent child SELL has disappeared.
+    held = _get(env, pos)
+    assert held.status == "RECONCILING" and held.option_exit_unknown_qty == 0
+    assert held.gtt_id == gid
+    assert _kill_switch_on()

@@ -8,6 +8,8 @@ the unit-level golden test cannot reach.
 from __future__ import annotations
 
 import asyncio
+import time
+from tests.supertrend_evidence import observed_callback
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -33,6 +35,7 @@ from app.services.kite_engine.universe import UniverseItem
 from tests.engines.sterling_kite_engine.canonical_double import CanonicalBrokerDouble
 
 UID = "test-dir-exec"
+_SIGNAL_MS = int(time.time() * 1000)
 
 
 class FakeClient(CanonicalBrokerDouble):
@@ -113,13 +116,14 @@ class FakeClient(CanonicalBrokerDouble):
 def _bear_row(source="spot"):
     """A bear (PE-buying) signal — the case the P0 bug mis-handled."""
     return EngineSignalRow(
+        is_active=True,
         underlying="NIFTY 50", token=256265, exchange="NFO", regime="BEAR",
         alignment=AlignmentChip(fast=-1, mid=-1, slow=-1),
         direction="short", option_type="PE",
         legs=[OptionLeg(moneyness="ATM", option_type="PE", option_symbol="NIFTY2562625000PE",
                         strike=25000, expiry=_future_expiry(10), lot_size=75,
-                        premium_spot=120.0, premium_sl=90.0, token=111)],
-        spot=25000.0, stop_loss=25200.0, score=85.0, timestamp_ms=1_700_000_000_000,
+                        premium_spot=120.0, premium_sl=90.0, token=111, is_active=True)],
+        spot=25000.0, stop_loss=25200.0, score=85.0, timestamp_ms=_SIGNAL_MS,
         source=source, adx=30.0, atr_pct=60.0)
 
 
@@ -127,6 +131,7 @@ def _future_expiry(days: int = 10) -> str:
     return (date.today() + timedelta(days=days)).isoformat()
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 @pytest.mark.parametrize('mode,tf', [('ultra_scalping', 1), ('scalping', 5),
                                    ('intraday', 15), ('overnight', 60), ('swing', 60)])
 def test_each_mode_records_its_execution_policy_and_protects_the_position(monkeypatch, mode, tf):
@@ -248,12 +253,13 @@ def _spot_row_no_premium():
     data (premium_spot/premium_sl unset), so the auto-exec must delta-translate the
     underlying ST trail into a premium stop. This is the D1 case."""
     return EngineSignalRow(
+        is_active=True,
         underlying="NIFTY 50", token=256265, exchange="NFO", regime="BULL",
         alignment=AlignmentChip(fast=1, mid=1, slow=1),
         direction="long", option_type="CE",
-        legs=[OptionLeg(moneyness="ATM", option_type="CE", option_symbol="NIFTY26FUT25000CE",
+        legs=[OptionLeg(is_active=True, moneyness="ATM", option_type="CE", option_symbol="NIFTY26FUT25000CE",
                         strike=25000, expiry=_future_expiry(10), lot_size=75, token=222)],
-        spot=25000.0, stop_loss=24800.0, score=85.0, timestamp_ms=1_700_000_000_000,
+        spot=25000.0, stop_loss=24800.0, score=85.0, timestamp_ms=_SIGNAL_MS,
         source="spot", adx=30.0, atr_pct=60.0)
 
 
@@ -264,6 +270,7 @@ def _item():
 
 # ── P0 D1: spot-mode signals must get a delta-translated premium stop ─────────
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_spot_mode_otm_gets_delta_translated_premium_stop():
     """A spot-source leg carries no premium fields, so the callback fetches the leg
     LTP and derives a premium stop from the underlying ST trail. Before the fix,
@@ -296,10 +303,11 @@ def _run(cfg: EngineConfigModel, row, client, item=None):
     live_safety._IDEMPOTENCY_CACHE.clear()   # global cache — isolate tests
     state.set_config(UID, cfg)
     cb = service._make_place_cb(client, UID)
-    asyncio.run(cb(row, item or _item()))
+    asyncio.run(observed_callback(UID, cb, row, item or _item()))
     return positions.open_positions(UID)
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     prior=db._available; db.init(); order_journal.clear_for_tests(UID)
@@ -336,16 +344,17 @@ def test_live_entry_is_reserved_before_send_and_duplicate_signal_cannot_resend(m
                 raise TimeoutError('response lost')
         client=LostAck()
         cb=service._make_place_cb(client,UID)
-        asyncio.run(cb(_bear_row(),_item()))
+        asyncio.run(observed_callback(UID, cb, _bear_row(),_item()))
         intents=order_journal.unresolved(UID)
         assert client.calls == 1 and len(intents) == 1
         assert intents[0].state == 'UNKNOWN' and intents[0].tag == client.sent_tag
-        asyncio.run(cb(_bear_row(),_item()))
+        asyncio.run(observed_callback(UID, cb, _bear_row(),_item()))
         assert client.calls == 1
     finally:
         order_journal.clear_for_tests(UID); positions.reset(UID); db._available=prior
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch):
     """HTTP ACK is not a fill: protection follows broker-confirmed inventory."""
     from app.services.kite_engine import monitor
@@ -390,7 +399,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
         client = LiveAck(ltp_by_symbol={"NIFTY2562625000PE": 120.0})
         cb = service._make_place_cb(client, UID)
         row = _bear_row()
-        asyncio.run(cb(row, _item()))
+        asyncio.run(observed_callback(UID, cb, row, _item()))
 
         p = positions.get(UID, row.legs[0].option_symbol)
         assert p is not None, [event.message for event in state.activity(UID)]
@@ -441,6 +450,7 @@ def test_live_ack_projects_zero_qty_until_broker_fill_then_protects(monkeypatch)
 
 # ── P0 regression: a bear PE BUY must be a LONG-premium position ──────────────
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_default_bear_pe_is_long_premium_with_sell_stop():
     """directional_mode OFF: a bear PE signal registers direction='long' and its
     protective GTT is a SELL (the P0 fix). Previously it was tagged 'short',
@@ -472,6 +482,7 @@ def _pe_chain():
     return out
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_deep_itm_bear_pe_still_long_premium_sell_stop():
     """deep-ITM vehicle, bear signal: still a long-premium PE BUY with a SELL GTT,
     and it picks a DEEP ITM strike (well above spot for a put), not ATM."""
@@ -495,6 +506,7 @@ def test_deep_itm_bear_pe_still_long_premium_sell_stop():
 
 # ── futures: two-sided, signal direction carried, BUY-to-cover stop on shorts ──
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_futures_bear_is_short_with_buy_to_cover_stop():
     client = FakeClient(instruments=_fut_dump())
     cfg = EngineConfigModel(directional_mode=True, vehicle="futures",
@@ -512,6 +524,7 @@ def test_futures_bear_is_short_with_buy_to_cover_stop():
     assert client.gtt_calls and client.gtt_calls[0]["orders"][0]["transaction_type"] == K.TXN_BUY
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_futures_entry_and_stop_are_in_the_futures_price_domain():
     """A future does not trade at spot, and its stop cannot be an index level.
 
@@ -539,6 +552,7 @@ def test_futures_entry_and_stop_are_in_the_futures_price_domain():
     assert p.stop_premium - p.entry_premium == pytest.approx(200.0), "distance preserved"
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_futures_position_records_its_expiry_so_the_square_off_can_reach_it():
     """``pos_expiry`` was left blank for futures, so ``_square_off_expiring`` — which
     skips anything without an expiry — never squared one off. Stock futures settle
@@ -574,6 +588,7 @@ def test_futures_unresolved_contract_blocks_order():
 
 # ── futures opt-in: selecting futures while it's not enabled falls back to options
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_futures_not_enabled_falls_back_to_options():
     client = FakeClient(instruments=_fut_dump())
     cfg = EngineConfigModel(directional_mode=True, vehicle="futures",
@@ -586,6 +601,7 @@ def test_futures_not_enabled_falls_back_to_options():
 
 # ── retired Navigator is not a SuperTrend release dependency ─────────────────
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_retired_navigator_storage_failure_cannot_block_supertrend_entry():
     """Release SuperTrend must not read or depend on retired Navigator state."""
     from unittest.mock import patch
@@ -613,6 +629,7 @@ def test_adx_filter_blocks_weak_trend():
     assert not client.opt_placed
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_adx_filter_allows_strong_trend():
     client = FakeClient()
     cfg = EngineConfigModel(directional_mode=True, vehicle="otm_options", adx_min=20.0)
@@ -648,6 +665,7 @@ def test_correlation_penalty_downsizes_correlated_entry():
     assert state.correlation_penalty("nobody", "NIFTY 50", ["NIFTY BANK"]) == 1.0
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_monitor_mode_auto_subscribes_token(monkeypatch):
     """When stop_mode includes 'monitor', the position token is auto-subscribed."""
     subscribed = []
@@ -670,7 +688,7 @@ def test_monitor_mode_auto_subscribes_token(monkeypatch):
     live_safety._IDEMPOTENCY_CACHE.clear()
     state.set_config(UID, cfg)
     cb = service._make_place_cb(client, UID)
-    asyncio.run(cb(_bear_row(), _item()))
+    asyncio.run(observed_callback(UID, cb, _bear_row(), _item()))
     open_pos = positions.open_positions(UID)
     assert open_pos, "position should be registered"
     assert open_pos[0].token in subscribed, "position token should be subscribed to ticker"
@@ -690,10 +708,11 @@ def test_both_mode_blocks_second_entry_on_same_underlying():
         uid=UID, symbol="NIFTY-EXISTING", exchange="NFO", token=1, qty=75,
         status=positions.OPEN, underlying="NIFTY 50"))
     cb = service._make_place_cb(client, UID)
-    asyncio.run(cb(_bear_row(source="derivatives"), _item()))
+    asyncio.run(observed_callback(UID, cb, _bear_row(source="derivatives"), _item()))
     assert not client.opt_placed  # blocked by the cross guard
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_both_mode_allows_first_entry():
     client = FakeClient()
     assert len(_run(EngineConfigModel(scan_source="both"), _bear_row(source="spot"), client)) == 1
@@ -715,6 +734,7 @@ def test_session_gate_blocks_entry_near_close(monkeypatch):
     assert open_pos == [] and not client.opt_placed
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_session_gate_off_by_default(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(service.market_hours, "minutes_to_close", lambda *a, **k: 1.0)
@@ -771,10 +791,11 @@ def test_daily_loss_breaker_halts_entries():
     state.set_config(UID, EngineConfigModel(max_daily_loss_pct=2.0))  # 2% = ₹2000
     state.record_realized_pnl(UID, -2500)  # today's loss exceeds the budget
     cb = service._make_place_cb(client, UID)
-    asyncio.run(cb(_bear_row("spot"), _item()))
+    asyncio.run(observed_callback(UID, cb, _bear_row("spot"), _item()))
     assert not client.opt_placed
 
 
+@pytest.mark.kite_features('default', 'test-dir-exec', 'tx')
 def test_daily_loss_breaker_allows_within_budget():
     client = FakeClient()
     state.reset(UID)
@@ -783,7 +804,7 @@ def test_daily_loss_breaker_allows_within_budget():
     state.set_config(UID, EngineConfigModel(max_daily_loss_pct=5.0))  # 5% = ₹5000
     state.record_realized_pnl(UID, -1000)  # within budget
     cb = service._make_place_cb(client, UID)
-    asyncio.run(cb(_bear_row("spot"), _item()))
+    asyncio.run(observed_callback(UID, cb, _bear_row("spot"), _item()))
     assert client.opt_placed
 
 
@@ -792,7 +813,7 @@ def _run_keep_breaker(cfg, row, client, item=None):
     positions._positions.pop(UID, None)
     state.set_config(UID, cfg)
     cb = service._make_place_cb(client, UID)
-    asyncio.run(cb(row, item or _item()))
+    asyncio.run(observed_callback(UID, cb, row, item or _item()))
     return positions.open_positions(UID)
 
 
@@ -806,14 +827,15 @@ def _make_signal_row(underlying="NIFTY 50", stop_loss=24800.0, symbol="NIFTY2562
         option_type = "CE" if direction == "long" else "PE"
     align_val = 1 if direction == "long" else -1
     return EngineSignalRow(
+        is_active=True,
         underlying=underlying, token=256265, exchange="NFO",
         regime=regime, alignment=AlignmentChip(fast=align_val, mid=align_val, slow=align_val),
         direction=direction, option_type=option_type,
-        legs=[OptionLeg(moneyness="ATM", option_type=option_type,
+        legs=[OptionLeg(is_active=True, moneyness="ATM", option_type=option_type,
                         option_symbol=symbol, strike=25000, expiry=_future_expiry(10),
                         premium_spot=120.0, premium_sl=premium_sl, token=111)],
         spot=25000.0, stop_loss=stop_loss, score=85.0,
-        timestamp_ms=1_700_000_000_000)
+        timestamp_ms=_SIGNAL_MS)
 
 
 def test_new_trail_futures_long_tightens():
@@ -861,15 +883,15 @@ def test_new_trail_ignores_opposing_signal_direction():
         uid="tx", symbol="NIFTY26JUNFUT", exchange="NFO", token=1,
         qty=75, stop_premium=25200.0, direction="short", signal_direction="short",
         vehicle="futures", underlying="NIFTY 50", status=positions.OPEN)
-    bull_row = EngineSignalRow(
+    bull_row = EngineSignalRow(is_active=True,
         underlying="NIFTY 50", token=256265, exchange="NFO",
         regime="BULL", alignment=AlignmentChip(fast=1, mid=1, slow=1),
         direction="long", option_type="CE",
-        legs=[OptionLeg(moneyness="ATM", option_type="CE",
+        legs=[OptionLeg(is_active=True, moneyness="ATM", option_type="CE",
                         option_symbol="NIFTY2562625000CE", strike=25000, expiry=_future_expiry(10),
                         premium_spot=120.0, premium_sl=85.0, token=112)],
         spot=25000.0, stop_loss=24800.0, score=85.0,
-        timestamp_ms=1_700_000_000_000)
+        timestamp_ms=_SIGNAL_MS)
     assert service._new_trail_for_open(p, [bull_row]) is None
 
 
@@ -977,12 +999,12 @@ def test_new_trail_spot_otm_retranslates_when_symbol_differs():
         qty=75, stop_premium=420.0, initial_stop_premium=420.0, direction="long",
         vehicle="otm_options", underlying="NIFTY 50", status=positions.OPEN,
         entry_premium=520.0, entry_delta=0.5, entry_spot=25000.0)
-    row = EngineSignalRow(
+    row = EngineSignalRow(is_active=True,
         underlying="NIFTY 50", token=256265, exchange="NFO", regime="BULL",
         alignment=AlignmentChip(fast=1, mid=1, slow=1), direction="long", option_type="CE",
-        legs=[OptionLeg(moneyness="ATM", option_type="CE", option_symbol="NIFTY26JUN25100CE",
+        legs=[OptionLeg(is_active=True, moneyness="ATM", option_type="CE", option_symbol="NIFTY26JUN25100CE",
                         strike=25100, expiry=_future_expiry(10), lot_size=75)],  # no premium_sl
-        spot=25050.0, stop_loss=24900.0, score=85.0, timestamp_ms=1_700_000_000_000, source="spot")
+        spot=25050.0, stop_loss=24900.0, score=85.0, timestamp_ms=_SIGNAL_MS, source="spot")
     new_sl = service._new_trail_for_open(p, [row])
     assert new_sl == pytest.approx(520.0 + 0.5 * (24900.0 - 25000.0))  # 470.0
 

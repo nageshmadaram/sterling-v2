@@ -46,6 +46,7 @@ def _callback(state):
     })
 
 
+@pytest.mark.kite_features('default', 'mobile-user')
 def test_phone_can_finish_localhost_redirect_without_leaving_mini_app(broker_desk):
     http, acct, client, release = broker_desk
     login = http.post("/api/v1/tma/action", json={"action": "kite_login"})

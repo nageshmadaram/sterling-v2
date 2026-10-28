@@ -79,6 +79,8 @@ class _LiveBroker:
 def _entry(tag: str, *, quantity: int = 75, symbol: str = "NIFTY26OCT25000CE",
            price: float = 120.0, payload: dict | None = None):
     uid, account = f"u-{tag}", f"acct-{tag}"
+    from tests.feature_grants import grant_kite
+    grant_kite(uid)
     request = ExecutionRequest(
         uid=uid, account_id=account, strategy_id="sterling-kite",
         generation_id="g1", signal_id=f"sig-{tag}", exchange="NFO", symbol=symbol,
@@ -97,6 +99,7 @@ def _entry(tag: str, *, quantity: int = 75, symbol: str = "NIFTY26OCT25000CE",
 # --------------------------------------------------------------------------
 # The master floor and its kill switch
 # --------------------------------------------------------------------------
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_live_entry_is_sent_when_nothing_has_turned_the_floor_off(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -112,6 +115,7 @@ async def test_a_live_entry_is_sent_when_nothing_has_turned_the_floor_off(monkey
     assert len(broker.orders) == 1
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_the_kill_switch_refuses_a_live_entry_as_halted(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", False)
@@ -151,6 +155,7 @@ async def test_the_kill_switch_never_stops_an_exit(monkeypatch):
     assert broker.orders[0]["transaction_type"] == "SELL"
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_client_that_does_not_state_its_mode_is_refused_as_unknown(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -180,6 +185,7 @@ async def test_a_client_that_does_not_state_its_mode_is_refused_as_unknown(monke
 # --------------------------------------------------------------------------
 # The day-one exposure envelope
 # --------------------------------------------------------------------------
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_normal_one_lot_entry_fits_the_default_envelope(monkeypatch):
     """The shipped defaults are derived, not invented: they must not block ordinary trading."""
@@ -195,6 +201,7 @@ async def test_a_normal_one_lot_entry_fits_the_default_envelope(monkeypatch):
     assert len(broker.orders) == 1
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_an_entry_over_the_gross_exposure_limit_is_refused_before_it_is_journaled(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -215,6 +222,7 @@ async def test_an_entry_over_the_gross_exposure_limit_is_refused_before_it_is_jo
         assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 0
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_deployed_pct_below_100_tightens_the_derived_limit(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -232,6 +240,7 @@ async def test_a_deployed_pct_below_100_tightens_the_derived_limit(monkeypatch):
     assert broker.orders == []
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_lot_cap_refuses_a_bigger_entry(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -249,6 +258,7 @@ async def test_a_lot_cap_refuses_a_bigger_entry(monkeypatch):
     assert broker.orders == []
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_lot_cap_with_an_unknown_lot_size_fails_closed(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -276,6 +286,7 @@ class _LotSizedBroker(_LiveBroker):
         return {key: self._sizes[key] for key in symbols if key in self._sizes}
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_the_lot_cap_reads_the_lot_size_from_the_broker_instrument_dump(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -296,6 +307,7 @@ async def test_the_lot_cap_reads_the_lot_size_from_the_broker_instrument_dump(mo
     assert broker2.orders == []
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_an_unusable_limit_is_refused_not_widened_to_the_default(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -312,6 +324,7 @@ async def test_an_unusable_limit_is_refused_not_widened_to_the_default(monkeypat
     assert broker.orders == []
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_unreadable_inventory_fails_closed(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -332,6 +345,7 @@ async def test_unreadable_inventory_fails_closed(monkeypatch):
     assert broker.orders == []
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_spent_daily_loss_budget_refuses_a_new_entry(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -354,6 +368,7 @@ async def test_a_spent_daily_loss_budget_refuses_a_new_entry(monkeypatch):
     assert broker.orders == []
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_an_unreadable_daily_loss_fails_closed(monkeypatch):
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
@@ -467,6 +482,7 @@ class TestResolveEnvelope:
         assert envelope.gross_exposure_limit == 60_000.0
 
 
+@pytest.mark.kite_features('default')
 @pytest.mark.asyncio
 async def test_a_repeat_of_an_already_placed_signal_is_not_refused_by_the_envelope(monkeypatch):
     """An idempotent replay resolves to the existing intent in the journal; the

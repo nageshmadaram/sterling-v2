@@ -118,7 +118,7 @@ async def test_push_delivery_and_receipt_work_runs_outside_the_loop(monkeypatch)
         return 1
     monkeypatch.setattr(web_push,'_send',delivery)
     assert await web_push.send('operator','event','title','body','alerts',force=True)==1
-    assert calls==[(('operator','event','title','body','alerts'),{'force':True})]
+    assert calls==[(('operator','event','title','body','alerts'),{'force':True,'strategy':'','signal_id':'','symbol':'','at_ms':0})]
 
 
 @pytest.mark.asyncio
