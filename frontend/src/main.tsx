@@ -1,4 +1,5 @@
 import {installDiagnostics} from './lib/diagnostics';
+import {installAutoVersionRefresh} from './lib/autoVersionRefresh';
 installDiagnostics();
 import React from 'react';
 import { initializeAppInstall } from './store/useAppInstall';
@@ -26,6 +27,7 @@ const root = document.getElementById('root');
 if (!root) throw new Error('#root element not found');
 
 createRoot(root).render(<App />);
+installAutoVersionRefresh();
 
 // Dev-only visual feedback overlay (agentation): click UI elements, annotate, and copy
 // structured selector context to hand to the coding agent. Lazy dynamic import + the
