@@ -210,3 +210,61 @@ certify them.
 type-check, Python 3.12/3.13, Docker, Playwright, Android visual/audio,
 mobile push delivery and Kite broker-binding as NOT VERIFIED until
 independently observed on the exact release commit. Live entry OFF.
+
+
+## 2026-10-28 Telegram outage repair — source only
+
+**Reported failure:** Operator says Telegram control/notifications stopped.
+No authenticated runtime access, Telegram API account access or device receipt
+is available in the GitHub connector. Therefore **actual root cause on the
+running Sterling host is UNCONFIRMED**, and no message delivery is marked PASS.
+
+**Confirmed code defect:** `backend/app/core/runtime_env.py` explicitly
+accepted both `TELEGRAM_TOKEN` and `TELEGRAM_BOT_TOKEN` in deployment
+environment files, but the control transport only read
+`TELEGRAM_BOT_TOKEN`. A deployment using `TELEGRAM_TOKEN` could therefore
+start the bot with missing configuration. Fixed in
+`backend/app/services/notifications/telegram.py` (explicit
+`TELEGRAM_BOT_TOKEN` takes precedence; fallback to the old accepted spelling).
+
+**Delivery/poll reliability fixes:**
+- `backend/app/services/notifications/telegram_bot.py` now diagnoses HTTP
+  409 by a **read-only getWebhookInfo request**. A configured webhook means
+  `WEBHOOK_ACTIVE`; no webhook means a competing `POLL_CONFLICT`. On 409 it
+  pauses 30 seconds before retrying. No `deleteWebhook`, token reset,
+  webhook modification, or duplicate poller is initiated automatically.
+- `backend/app/services/notifications/telegram.py` retries one rejected
+  HTML-format alert as bounded plain text. HTTP 401/403 authorization/chat
+  failures are **not** retried. A message is not marked reachable unless
+  Telegram's JSON `ok` response acknowledges the send.
+- `backend/app/api/v1/endpoints/kite_telegram.py` reports a separate,
+  actionable webhook ownership diagnosis.
+- `frontend/src/components/kite/KiteTelegramPanel.tsx` distinguishes control
+  polling, target delivery, missing bot credentials, unreadable saved tokens
+  and unacknowledged lifecycle outbox items. The green reachability icon is
+  explicitly historical/test-based, not proof that a message reached a phone.
+
+**Regression cases added (NOT EXECUTED):**
+`backend/tests/test_telegram_recovery_20261028.py` contains:
+old-name token restore, explicit-name precedence, read-only 409 webhook
+classification, duplicate polling classification, no webhook probe for
+ordinary network errors, HTML rejection fallback, and no retry on HTTP 403.
+
+**Execution evidence still required on the exact deployed commit:**
+1. Backend worker/host identity and token/chat configuration flags (never
+   print a bot token); observe `/api/v1/kite/telegram/status` and
+   `/api/v1/kite/telegram/control/check` as the authorized operator.
+2. Telegram Bot API getMe/getChat/getWebhookInfo, actual worker getUpdates
+   successful poll heartbeat and no competing poller/webhook.
+3. Test message to each enabled target accepted by Telegram, with a message
+   ID; independently confirm visible device notification and correct chat.
+4. A real safe read-only command `/menu` received/responded to; do not
+   send live trade commands as a diagnostic.
+5. Trade lifecycle alert queued -> dispatched -> per-destination delivery
+   acknowledgment -> recipient device receipt. Confirm failed target remains
+   pending with bounded retry; never mark failed signals as delivered.
+6. Run all affected pytest tests, backend full suite and deployment smoke
+   with runner and logs tied to the exact SHA.
+
+**Release position:** Telegram delivery BLOCKED/UNVERIFIED until the
+above receipts exist; live trading and other broker safety gates stay OFF.
