@@ -461,7 +461,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       <!-- Right Controls: icon buttons, labels in tooltips -->
       <div class="radio-header-actions flex items-center gap-1.5">
-        <button type="button" id="radio-extras-btn" onclick="radioExtras?.open()" class="radio-head-icon" title="Settings: station sources, sleep timer, alarm and more" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
+        <button type="button" id="radio-extras-btn" data-radio-click="82" class="radio-head-icon" title="Settings: station sources, sleep timer, alarm and more" aria-label="Settings"><i class="fa-solid fa-gear"></i></button>
         <button data-radio-click="28" class="radio-head-icon" title="Startup station" aria-label="Startup station"><i class="fa-solid fa-thumbtack"></i></button>
         <button data-radio-click="29" class="radio-head-icon" title="Equalizer" aria-label="Equalizer"><i class="fa-solid fa-sliders"></i></button>
         <button data-radio-click="30" class="radio-head-icon" title="Switch player style" aria-label="Switch player style"><i class="fa-solid fa-palette"></i></button>
@@ -1035,7 +1035,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
         <i class="fa-solid fa-chevron-down text-lg"></i>
       </button>
       <span class="radio-playing-context"><small>PLAYING FROM</small><strong id="sheet-context">Your station</strong></span>
-      <button type="button" onclick="radioExtras?.open()" class="w-10 h-10 btn-circle text-white" title="Radio options" aria-label="Radio options">
+      <button type="button" data-radio-click="82" class="w-10 h-10 btn-circle text-white" title="Radio options" aria-label="Radio options">
         <i class="fa-solid fa-ellipsis text-lg"></i>
       </button>
     </div>
@@ -4364,6 +4364,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       "19": function(event) { updateCustomEq(); },
       "80": function(event) { loadCategory('all'); },
       "81": function(event) { closeSwPlayer(); },
+      "82": function(event) { initRadioExtras(); radioExtras?.open(); },
       "20": function(event) { loadCategory('shortwave'); },
       "21": function(event) { onSearchInput(this.value, 'sp-clear-desktop'); },
       "22": function(event) { clearAllSearches(); },
