@@ -36,7 +36,12 @@
   if(a.settings?.length){$('[data-mx-part="settings"]').hidden=false;$('.mx-settings').replaceChildren(...a.settings.map(([label,detail,run])=>{const b=el('button','mx-setting');b.type='button';b.append(el('span','',label),el('small','',detail));b.addEventListener('click',()=>{close();run();});return b;}));}
   let returnFocus=null;
   function open(section){returnFocus=document.activeElement;render();if(!dialog.open)dialog.showModal();dialog.scrollTop=0;if(section)$(`[data-mx-part="${section}"]`)?.scrollIntoView({block:'start'});}
-  function close(){dialog.close();returnFocus?.focus?.({preventScroll:true});}
+  function close(){if(dialog.open)dialog.close();}
+  // A swipe closes native dialogs directly. Restore focus in the single close
+  // event, but never steal focus from a settings dialog opened immediately after.
+  dialog.addEventListener('close',()=>{
+    if(!document.querySelector('dialog[open]'))returnFocus?.focus?.({preventScroll:true});
+  });
   dialog.addEventListener('cancel',e=>{e.preventDefault();close();});
   dialog.addEventListener('click',e=>{if(e.target===dialog)close();});
   dialog.addEventListener('keydown',e=>e.stopPropagation());
