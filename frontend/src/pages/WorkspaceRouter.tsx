@@ -38,11 +38,23 @@ export function WorkspaceRouter() {
     return () => { window.removeEventListener('popstate', pop); window.removeEventListener('sterling-navigate', change); window.removeEventListener('sterling-select-workspace', open); };
   }, [navigate]);
 
+  // Cycle only explicitly granted workspaces; never bypass a per-user grant.
+  const cycleWorkspace = useCallback(() => {
+    const enabled = FEATURES.filter(feature => session?.features[feature]);
+    if (!enabled.length) { setChooserOpen(true); return; }
+    const index = enabled.indexOf(current as Feature);
+    navigate(enabled[(index + 1) % enabled.length]);
+  }, [current, navigate, session]);
+
   const chooser = session && <WorkspaceChooser features={session.features} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
   const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current]);
   return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''}`}>
     {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
-      <span className="workspace-current">{current === 'administration' ? 'Administration' : current === 'home' ? '' : WORKSPACE_NAMES[current]}</span>
+      {(current==='tv'||current==='radio') ? <button type="button" className="workspace-current workspace-cycle"
+        onClick={cycleWorkspace} title="Switch to the next permitted workspace"
+        aria-label={`Switch workspace from ${WORKSPACE_NAMES[current]}`}>
+        {WORKSPACE_NAMES[current]} <span aria-hidden="true">⌄</span>
+      </button> : <span className="workspace-current">{current === 'administration' ? 'Administration' : current === 'home' ? '' : WORKSPACE_NAMES[current]}</span>}
       <div id="workspace-toolbar" className="workspace-personal" /><AccountMenu mediaKind={current==='tv'||current==='radio'?current:undefined}/></header>}
     {policy.isLoading ? <main className="workspace-state" role="status">Opening your workspace…</main> : !session ? <main className="workspace-state"><h1>Access could not be verified</h1><p role="alert">{policy.error?.message || 'Try the connection again.'}</p><button onClick={() => void policy.refetch()}>Retry</button></main> :
       !allowed && FEATURES.includes(current as Feature) ? <WorkspaceAccessRequest key={current} feature={current as Feature} onBack={() => navigate('home')} /> : !allowed ? <main className="workspace-state"><h1>Administrator access required</h1><button onClick={() => navigate('home')}>Return to your workspaces</button></main> :
