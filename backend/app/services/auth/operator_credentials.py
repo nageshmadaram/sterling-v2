@@ -6,7 +6,7 @@ from app.services.auth import user_store
 from app.core.passwords import hash_password
 
 
-def manage(actor_id: str, action: str, username: str, password: str, *, target_id: str | None = None, role: str | None = None, active: bool | None = None, features: dict | None = None, configuration: dict | None = None):
+def manage(actor_id: str, action: str, username: str, password: str, *, target_id: str | None = None, role: str | None = None, active: bool | None = None, features: dict | None = None, configuration: dict | None = None, visibility: dict | None = None):
     actor = user_store.get_by_id(actor_id)
     if not actor or not actor.is_active or actor.role != 'admin':
         raise PermissionError('Administrator access required')
@@ -40,11 +40,14 @@ def manage(actor_id: str, action: str, username: str, password: str, *, target_i
         candidate = user_store._User(id='USR-'+uuid.uuid4().hex[:10].upper(), username=username,
                                      password_hash=hash_password(password), role=chosen_role, is_active=chosen_active)
     from app.services.auth import account_policy, configuration_policy
-    if action != 'add' and (features is not None or configuration is not None):
+    if action != 'add' and (features is not None or configuration is not None or visibility is not None):
         raise ValueError('Use the access editor to change an existing user’s permissions.')
     if features is not None and (set(features) != set(account_policy.FEATURES)
             or any(type(v) is not bool for v in features.values())):
         raise ValueError('Provide explicit booleans for Kite, TV and Radio.')
+    if visibility is not None and (set(visibility) != set(account_policy.FEATURES)
+            or any(type(v) is not bool for v in visibility.values())):
+        raise ValueError('Provide explicit workspace visibility booleans.')
     if configuration is not None:
         if set(configuration) - set(configuration_policy.SECTIONS):
             raise ValueError('Unknown configuration section.')
@@ -89,6 +92,9 @@ def manage(actor_id: str, action: str, username: str, password: str, *, target_i
                 for feature in account_policy.FEATURES:
                     c.execute('INSERT INTO user_feature_grants VALUES(?,?,?,?,?)',
                               (candidate.id, feature, int((features or {}).get(feature, False)), actor_id, candidate.updated_at_ms))
+                for feature in account_policy.FEATURES:
+                    c.execute('INSERT INTO user_workspace_visibility(user_id,feature,visible) VALUES(?,?,?)',
+                              (candidate.id, feature, int((visibility or {}).get(feature, True))))
                 for section, policy in (configuration or {}).items():
                     c.execute('INSERT INTO user_configuration_sections VALUES(?,?,?)', (candidate.id, section, int(policy['visible'])))
                     for grant in policy['grants']:
@@ -97,7 +103,7 @@ def manage(actor_id: str, action: str, username: str, password: str, *, target_i
             from app.services.auth.account_policy import audit
             event_id = audit(c, actor_id, candidate.id, 'user.' + action,
                   {'username': target.username, 'role': target.role, 'active': target.is_active} if target else {},
-                  {'username': candidate.username, 'role': candidate.role, 'active': candidate.is_active, **({'features': features or dict.fromkeys(account_policy.FEATURES, False), 'configuration': configuration or {}} if action == 'add' else {})},
+                  {'username': candidate.username, 'role': candidate.role, 'active': candidate.is_active, **({'features': features or dict.fromkeys(account_policy.FEATURES, False), 'configuration': configuration or {}, 'visibility': visibility or dict.fromkeys(account_policy.FEATURES, True)} if action == 'add' else {})},
                   candidate.updated_at_ms)
             if policy_revision is not None:
                 c.execute('INSERT INTO auth_event_outbox(event_id,user_id,revision) VALUES(?,?,?)', (event_id,candidate.id,policy_revision))
