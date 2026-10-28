@@ -162,6 +162,7 @@ async def test_protection_claim_prevents_duplicate_gtt(env):
  runtime.update(UID,r['id'],protection_claim='other-process')
  await runtime.cycle(UID);assert env.gtt_sends==0
  assert store.open_positions(UID)[0].protection_pending
+@pytest.mark.kite_features('default', 'price-rules-test')
 @pytest.mark.asyncio
 async def test_real_canonical_entry_gate_preserves_fourth_strategy_scope(env):
  from app.services.execution_service import CanonicalExecutionService,ExecutionRequest
@@ -194,6 +195,7 @@ async def test_canonical_exit_uses_durable_inventory_and_live_reduction(env,monk
  await runtime.cycle(UID)
  p=store.load(UID)['rules'][r['id']]
  assert runtime.remaining(p)==50 and p['gtt_qty']==50 and fill_ledger.inventory('A',UID,SYMBOL).net_quantity==50
+@pytest.mark.kite_features('default', 'price-rules-test')
 @pytest.mark.asyncio
 async def test_canonical_entry_with_verified_release_prerequisites(env,monkeypatch):
  monkeypatch.setenv('STERLING_LIVE_MINIMUM_MAX_LOTS','2')  # this fixture deliberately requests two 50-unit lots
@@ -216,6 +218,7 @@ async def test_canonical_entry_with_verified_release_prerequisites(env,monkeypat
  await runtime.cycle(UID);p=store.load(UID)['rules'][r['id']]
  assert p['state']=='OPEN' and p['gtt_qty']==100 and env.sends==1
 
+@pytest.mark.kite_features('default', 'price-rules-test')
 @pytest.mark.asyncio
 @pytest.mark.parametrize('strategy_id',['price_rules','PRICE_RULES'])
 async def test_global_off_during_transport_wait_prevents_a_price_rule_send(env,monkeypatch,strategy_id):

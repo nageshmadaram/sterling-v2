@@ -56,6 +56,7 @@ def setup_db(tmp_path, monkeypatch):
     live_safety.reset_all_for_tests()
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_real_kite_client_protocol_arguments(monkeypatch):
     """Verify CanonicalExecutionService invokes KiteClient with exchange, product=NRML, allow_amo=False, trigger_price, and tag."""
@@ -124,6 +125,7 @@ async def test_real_kite_client_protocol_arguments(monkeypatch):
     assert placed_kwargs.get("tag").startswith("ke")
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_account_identity_mismatch_rejection():
     """Verify submit_order rejects when broker_client account identity does not match request account_id."""
@@ -167,6 +169,7 @@ async def test_account_identity_mismatch_rejection():
     assert "account identity" in res.error.lower()
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_unproven_risk_approval_rejection():
     """Verify submit_order rejects when risk_approved is False or risk_approval is missing for exposure increases."""
@@ -190,6 +193,7 @@ async def test_unproven_risk_approval_rejection():
     assert "missing risk approval" in res.error.lower()
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_exposure_effect_inventory_verification():
     """Verify declared CLOSE_POSITION on zero inventory is reclassified as INCREASE_EXPOSURE and blocked when HALTED."""
@@ -441,6 +445,7 @@ async def test_restart_after_halt_with_legacy_schema():
     assert ctrl3["operator_state"] == "HALTED"
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_typed_broker_outcome_unknown_on_generic_transport_exception():
     """Verify generic/unclassified exception during place_order transitions intent to UNKNOWN and sets RECOVERY_REQUIRED."""
@@ -486,6 +491,7 @@ async def test_typed_broker_outcome_unknown_on_generic_transport_exception():
     assert ctrl["recovery_state"] == "RECOVERY_REQUIRED"
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_unknown_submission_is_never_sent_twice():
     """Critical #61: an ACK-lost/transport-unknown entry is never blind-replayed."""
@@ -528,6 +534,7 @@ async def test_unknown_submission_is_never_sent_twice():
     assert unresolved[0].state == "UNKNOWN"
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_risk_approval_proof_validation():
     """Verify RiskApproval proof object is required and validated against request fields."""
@@ -589,6 +596,7 @@ async def test_risk_approval_proof_validation():
     assert "Risk approval proof mismatch" in res_bad.error
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_quantity_overshoot_reclassifies_to_increase_exposure():
     """Verify SELL 100 declared as CLOSE_POSITION on net LONG 10 is reclassified to INCREASE_EXPOSURE due to overshoot."""
@@ -892,6 +900,7 @@ async def test_slice_2_2_exit_projection_quantity_derives_from_fill_ledger():
     assert p_updated.qty == 60
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_slice_2_2_risk_approval_required_for_exposure_increase():
     """Item 5: submit_order requires request-bound RiskApproval proof for exposure increases."""
@@ -909,6 +918,7 @@ async def test_slice_2_2_risk_approval_required_for_exposure_increase():
     assert "missing risk approval" in res_no_proof.error.lower()
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_slice_2_2_capital_evidence_derived_from_risk_approval():
     """Item 6: Capital snapshot/required capital is taken from approved RiskApproval or authority."""
@@ -996,6 +1006,7 @@ async def test_slice_2_2_modify_order_blocked_during_halted_unless_risk_reducing
     assert res3.status == "HALTED"
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_slice_2_2_typed_kite_error_imports_from_errors_module():
     """Item 9: Typed Kite errors imported from app.services.exchanges.kite.errors transition intent to REJECTED."""
@@ -1046,6 +1057,7 @@ async def test_slice_2_2_recovery_recalculates_inventory_post_broker_reconcile()
 
 # ── Slice 2.2.1 Micro-Guardrail Tests ──
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_slice_2_2_1_risk_approval_signal_and_strategy_binding_and_expiry(monkeypatch):
     """Guardrail 1: RiskApproval must bind strategy_id and signal_id, and enforce 60s max age."""
@@ -1094,6 +1106,7 @@ async def test_slice_2_2_1_risk_approval_signal_and_strategy_binding_and_expiry(
     assert "expired" in res3.error.lower()
 
 
+@pytest.mark.kite_features('default', 'u1', 'u_221_1', 'u_221_2', 'u_221_4', 'u_221_5', 'u_c4', 'u_over', 'u_p1', 'u_p10', 'u_p2', 'u_p3', 'u_p4', 'u_p5', 'u_p6', 'u_p7', 'u_p8', 'u_p9', 'u_product', 'u_proof', 'u_prot1', 'u_risk1', 'u_spoof', 'u_stale', 'u_test1', 'u_tf1', 'u_unres')
 @pytest.mark.asyncio
 async def test_slice_2_2_1_capital_evidence_never_falls_back_to_request():
     """Guardrail 2: For exposure increases, never fall back to request.available_capital or request.capital_required."""

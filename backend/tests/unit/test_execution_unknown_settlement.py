@@ -105,6 +105,7 @@ def _all_intents():
     return out
 
 
+@pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
 @pytest.mark.parametrize("error", [
     httpx.ConnectError("name resolution failed"),
@@ -122,6 +123,7 @@ async def test_pre_write_transport_failure_is_a_definitive_rejection(error):
     assert db.get_execution_control(uid="u1", account_id="acc1")["recovery_state"] == "CLEAN"
 
 
+@pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
 async def test_a_read_timeout_stays_unknown_and_fences_the_account():
     req, approval = _entry()
@@ -133,6 +135,7 @@ async def test_a_read_timeout_stays_unknown_and_fences_the_account():
     assert db.get_execution_control(uid="u1", account_id="acc1")["recovery_state"] == "RECOVERY_REQUIRED"
 
 
+@pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
 async def test_a_cancelled_send_is_recorded_as_uncertain_not_left_submitting():
     req, approval = _entry()
@@ -163,6 +166,7 @@ async def test_a_refused_reduction_proof_leaves_a_reserved_row_not_a_submitting_
     assert broker.sent == 1
 
 
+@pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
 async def test_a_lost_journal_acknowledgement_fences_the_account(monkeypatch):
     req, approval = _entry()

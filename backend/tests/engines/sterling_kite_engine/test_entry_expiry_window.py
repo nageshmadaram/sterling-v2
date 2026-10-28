@@ -14,6 +14,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
+import time
+from tests.supertrend_evidence import observed_callback
 
 from app.services.kite_engine import positions as pos
 from app.services.kite_engine import service, state
@@ -58,12 +60,13 @@ def _row(*legs):
     from app.engines.sterling_kite_engine.schemas import AlignmentChip, EngineSignalRow, OptionLeg
 
     return EngineSignalRow(
+        is_active=True,
         underlying="NIFTY", token=111, exchange="NFO", regime="BULL",
         alignment=AlignmentChip(fast=1, mid=1, slow=1), direction="long", option_type="CE",
         legs=[OptionLeg(moneyness="ATM", option_type="CE", option_symbol=symbol, strike=25000,
-                        expiry=expiry, lot_size=75) for symbol, expiry in legs],
+                        expiry=expiry, lot_size=75, is_active=True) for symbol, expiry in legs],
         spot=25000.0, underlying_spot=25000.0, stop_loss=24950.0, score=85.0,
-        timestamp_ms=1000, source="spot")
+        timestamp_ms=int(time.time()*1000), source="spot")
 
 
 def _log():
@@ -80,12 +83,13 @@ def _fresh(**config):
     return _Client()
 
 
+@pytest.mark.kite_features('default', 'expiry-window')
 @pytest.mark.asyncio
 async def test_a_leg_inside_the_square_off_window_is_skipped_for_the_next_expiry():
     client = _fresh()
     row = _row(("NIFTYWEEKLY25000CE", _day(1)), ("NIFTYMONTHLY25000CE", _day(15)))
 
-    await service._make_place_cb(client, UID)(row, None)
+    await observed_callback(UID, service._make_place_cb(client, UID), row, None)
 
     assert client.placed == ["NIFTYMONTHLY25000CE"], (
         "the entry bought a contract that the T-1 expiry square-off sells at the next pass", _log())
@@ -96,28 +100,30 @@ async def test_every_leg_inside_the_window_refuses_and_says_why():
     client = _fresh()
     row = _row(("NIFTYWEEKLY25000CE", _day(1)), ("NIFTYTODAY25000CE", _day(0)))
 
-    await service._make_place_cb(client, UID)(row, None)
+    await observed_callback(UID, service._make_place_cb(client, UID), row, None)
 
     assert client.placed == [], _log()
     blocked = [e.message for e in state.activity(UID) if e.kind == "order_blocked"]
     assert blocked and "expiry square-off" in blocked[-1], blocked
 
 
+@pytest.mark.kite_features('default', 'expiry-window')
 @pytest.mark.asyncio
 async def test_with_the_square_off_disabled_the_nearest_expiry_is_still_traded():
     client = _fresh(expiry_square_off_days=0)
     row = _row(("NIFTYWEEKLY25000CE", _day(1)), ("NIFTYMONTHLY25000CE", _day(15)))
 
-    await service._make_place_cb(client, UID)(row, None)
+    await observed_callback(UID, service._make_place_cb(client, UID), row, None)
 
     assert client.placed == ["NIFTYWEEKLY25000CE"], _log()
 
 
+@pytest.mark.kite_features('default', 'expiry-window')
 @pytest.mark.asyncio
 async def test_a_leg_outside_the_window_is_unaffected():
     client = _fresh()
     row = _row(("NIFTYMONTHLY25000CE", _day(15)))
 
-    await service._make_place_cb(client, UID)(row, None)
+    await observed_callback(UID, service._make_place_cb(client, UID), row, None)
 
     assert client.placed == ["NIFTYMONTHLY25000CE"], _log()

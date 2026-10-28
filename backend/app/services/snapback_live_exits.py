@@ -1290,6 +1290,11 @@ class SnapbackExitManager:
 
     async def _submit_exit(self, client: Any, pos: LivePosition, *, leg: str, quantity: int) -> Optional[str]:
         """One canonical CLOSE_POSITION order. Returns its order id, or ``""``."""
+        from copy import deepcopy
+
+        # Capture the submitted owner/contract before yielding to transport.
+        # A mutable registry object must not change the ACK's origin in place.
+        pos = deepcopy(pos)
         from app.services.execution_service import ExecutionRequest, ExposureEffect
         from app.services.snapback_plan_producer import generation_id
 

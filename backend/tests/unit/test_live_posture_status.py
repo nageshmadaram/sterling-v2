@@ -21,6 +21,14 @@ from tests.live_posture_real import restore_real_gates
 @pytest.fixture(autouse=True)
 def _isolated(tmp_path, monkeypatch):
     restore_real_gates(monkeypatch)
+    from app.services import db
+    from app.services.auth import user_store
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path/'posture.db'))
+    assert db.init()
+    monkeypatch.setattr(user_store, '_users', {})
+    monkeypatch.setattr(user_store, '_loaded', True)
+    user_store._init_table()
+    user_store.add('operator', 'Synthetic-posture-passphrase-123', role='admin', user_id='default')
     monkeypatch.setenv("STERLING_STATE_ROOT", str(tmp_path))
     monkeypatch.delenv("STERLING_STATIC_EGRESS_IP", raising=False)
     monkeypatch.delenv("STERLING_DEPLOYMENT_ID", raising=False)
@@ -32,6 +40,7 @@ def _isolated(tmp_path, monkeypatch):
 
 
 class TestPostureFacts:
+    @pytest.mark.kite_features('default', 'owner')
     def test_a_fresh_machine_names_exactly_what_is_missing(self):
         posture = lp.posture_status(refresh=True)
 
@@ -91,6 +100,7 @@ class TestPostureFacts:
 
 
 class TestLiveStatus:
+    @pytest.mark.kite_features('default', 'owner')
     def test_the_live_status_carries_the_posture_and_a_clause_in_the_summary_line(self):
         status = lr.live_status()
 
@@ -144,6 +154,7 @@ class TestBootAlert:
         assert "Live posture is incomplete: secure keys" in sent[0]["detail"]
         assert "python scripts/sterling_live_setup.py" in sent[0]["detail"]
 
+    @pytest.mark.kite_features('default', 'owner')
     def test_a_not_yet_registered_address_is_listed_but_is_not_an_alarm(self):
         sent = self._announce(lr.live_status())
 

@@ -6,12 +6,19 @@ from main import create_app
 
 
 @pytest.fixture
-def client():
-    app = create_app()
-    from app.services.notifications.telegram_webapp_auth import tma_user
-    from app.core.auth import UserContext
-    app.dependency_overrides[tma_user] = lambda: UserContext(user_id='default', username='test', role='admin')
-    return TestClient(app)
+def client(tmp_path,monkeypatch):
+    from app.services import db
+    from app.services.auth import user_store,account_policy
+    from app.core import tokens
+    monkeypatch.setattr(db,'_DB_PATH',str(tmp_path/'tma.db'))
+    assert db.init()
+    monkeypatch.setattr(user_store,'_users',{})
+    monkeypatch.setattr(user_store,'_loaded',True)
+    user_store._init_table()
+    user=user_store.add('test','Synthetic-tma-passphrase-123',role='admin',user_id='default')
+    account_policy.set_features(user.id,user.id,dict.fromkeys(account_policy.FEATURES,True),0)
+    token=tokens._mint(user.id,user.username,user.role,user.token_version,'access',900)
+    return TestClient(create_app(),headers={'Authorization':'Bearer '+token})
 
 
 def test_tma_html_endpoint(client):
@@ -24,6 +31,7 @@ def test_tma_html_endpoint(client):
     assert "telegram-web-app.js" in res.text
 
 
+@pytest.mark.kite_features('default')
 def test_tma_data_endpoint(client):
     """Verify /tma/data returns consolidated system state JSON."""
     res = client.get("/tma/data")
@@ -41,6 +49,7 @@ def test_tma_data_endpoint(client):
     assert "strategies" in data
 
 
+@pytest.mark.kite_features('default')
 def test_tma_search_endpoint(client):
     """Verify /tma/search handles symbol queries."""
     res = client.get("/tma/search?q=NIFTY")
@@ -51,6 +60,7 @@ def test_tma_search_endpoint(client):
     assert len(data["html"]) > 0
 
 
+@pytest.mark.kite_features('default')
 def test_tma_action_toggle_algo(client):
     """Verify /tma/action toggles ALGO mode."""
     res = client.post("/tma/action", json={"action": "toggle_algo", "target": "TOGGLE"})

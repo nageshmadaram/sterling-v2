@@ -49,6 +49,7 @@ def _unprotected_position():
         red_count_ms=int(time.time() * 1000)))
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_post_refuses_to_arm_auto_execute_over_an_unguarded_book(client):
     _unprotected_position()
     body = EngineConfigModel(auto_execute=True).model_dump(mode="json")
@@ -62,6 +63,7 @@ def test_post_refuses_to_arm_auto_execute_over_an_unguarded_book(client):
     assert state.get_config(UID).auto_execute is False, "and it did not take effect"
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_patch_refuses_the_same_way(client):
     _unprotected_position()
 
@@ -72,6 +74,7 @@ def test_patch_refuses_the_same_way(client):
     assert state.get_config(UID).auto_execute is False
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_force_cannot_override_unprotected_exposure(client):
     """A legacy query flag cannot erase exposure/protection failures."""
     _unprotected_position()
@@ -83,6 +86,7 @@ def test_force_cannot_override_unprotected_exposure(client):
     assert state.get_config(UID).auto_execute is False
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_turning_auto_execute_off_is_never_gated(client):
     """The book is in exactly the state that blocks arming; standing down must always
     be allowed, or the gate would trap the user in the position it is warning about."""
@@ -95,6 +99,7 @@ def test_turning_auto_execute_off_is_never_gated(client):
     assert r.json()["auto_execute"] is False
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_an_unrelated_write_is_not_gated_while_auto_execute_stays_on(client):
     """The gate fires on the OFF→ON transition only. Re-asserting an already-on
     auto_execute while changing something else must not start failing."""
@@ -108,6 +113,7 @@ def test_an_unrelated_write_is_not_gated_while_auto_execute_stays_on(client):
     assert r.json()["auto_execute"] is True
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_a_clean_book_arms_without_complaint(client):
     r = client.patch(URL, headers=HEADERS, json={"auto_execute": True})
 
@@ -115,6 +121,7 @@ def test_a_clean_book_arms_without_complaint(client):
     assert r.json()["auto_execute"] is True
 
 
+@pytest.mark.kite_features('default', 'gate-http')
 def test_a_stuck_pending_entry_also_blocks(client):
     """We do not know whether it filled, so we do not know what we are carrying."""
     positions.register(positions.OpenPosition(

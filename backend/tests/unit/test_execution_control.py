@@ -172,6 +172,7 @@ def test_durable_kill_switch_wiring():
     assert ctrl["reason"] == "Emergency button pressed"
 
 
+@pytest.mark.kite_features('default', 'fresh', 'user1')
 @pytest.mark.asyncio
 async def test_canonical_execution_service_exposure_policy():
     """CanonicalExecutionService respects 2D control state and exposure effects."""

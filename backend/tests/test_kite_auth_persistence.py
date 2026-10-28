@@ -245,6 +245,8 @@ def _mock_adapter():
 
 @pytest.fixture()
 def client():
+    from tests.feature_grants import grant_broker_configuration
+    grant_broker_configuration("default", "alice", "bob")
     app = create_app()
     app.state.adapter = _mock_adapter()
     with TestClient(app) as c:
@@ -259,6 +261,7 @@ def _add(client, headers=None):
     return r.json()
 
 
+@pytest.mark.kite_features('alice', 'bob', 'default', 'u')
 def test_login_url_returns_a_state_and_the_redirect_to_register(client, monkeypatch):
     from app.services import public_access
     monkeypatch.setattr(public_access, "status", lambda: {})
@@ -270,6 +273,7 @@ def test_login_url_returns_a_state_and_the_redirect_to_register(client, monkeypa
     assert kite_session.parse_state(body["state"])[0] == "alice"
 
 
+@pytest.mark.kite_features('alice', 'bob', 'default', 'u')
 def test_callback_binds_the_session_to_the_state_not_the_url(client, monkeypatch):
     """The registered redirect URL is one static value shared by every tenant, so
     the callback must take the identity from the signature it cannot forge."""
@@ -291,6 +295,7 @@ def test_callback_binds_the_session_to_the_state_not_the_url(client, monkeypatch
     assert not any(a.connected for a in kite_accounts.list_accounts("bob"))
 
 
+@pytest.mark.kite_features('alice', 'bob', 'default', 'u')
 def test_callback_rejects_a_forged_state(client):
     _add(client, headers={"X-User-Id": "alice"})
     r = client.get("/api/v1/kite/callback?request_token=rt&status=success&state=deadbeef")
@@ -298,6 +303,7 @@ def test_callback_rejects_a_forged_state(client):
     assert "expired" in r.text.lower()
 
 
+@pytest.mark.kite_features('alice', 'bob', 'default', 'u')
 def test_callback_announces_the_session_to_the_app_tab(client, monkeypatch):
     """Without this the app waits up to 30s for its next status poll before the
     badge flips — which reads as "the login didn't work"."""
@@ -313,6 +319,7 @@ def test_callback_announces_the_session_to_the_app_tab(client, monkeypatch):
     assert "kite-connected" in r.text
 
 
+@pytest.mark.kite_features('alice', 'bob', 'default', 'u')
 def test_status_reports_the_validity_window(client, monkeypatch):
     acc = _add(client, headers={"X-User-Id": "alice"})
     kite_accounts.save_session("alice", acc["id"], access_token="AT", kite_user_id="AB1234")
@@ -375,6 +382,7 @@ def test_the_page_follows_the_viewers_theme():
     assert ':root[data-theme="dark"]' in body             # explicit dark beats a light OS
 
 
+@pytest.mark.kite_features('alice', 'bob', 'default', 'u')
 def test_a_successful_login_states_the_account_and_its_window(client, monkeypatch):
     acc = _add(client, headers={"X-User-Id": "alice"})
     state = client.get("/api/v1/kite/login-url",

@@ -476,3 +476,79 @@ test('standalone Radio keeps edited source URLs across a reload',async({page})=>
  await page.reload();await page.locator('nav.solid-sp-mob-nav [data-sps-create]').click();
  await expect(dialog.getByRole('button',{name:'Edit My direct station',exact:true})).toBeVisible();
 });
+
+
+test('Radio light discovery has transparent shelf headings and distinct selected pills',async({page})=>{
+  const frame=await openPlayer(page,'radio');
+  await expect.poll(()=>frame.locator('body').evaluate(()=>eval('radioCatalog.snapshot().complete'))).toBe(true);
+  await page.route('https://light-radio.fixture/stations',route=>route.fulfill({
+    contentType:'application/json',headers:{'access-control-allow-origin':'*'},
+    body:JSON.stringify(['Telangana','Delhi'].map((state,i)=>({
+      name:'Light fixture '+i,url:'https://fixture.test/'+i,language:'telugu',state,country:'India'
+    })))
+  }));
+  await frame.locator('body').evaluate(()=>eval(`
+    appConfig.catalogSources=[{id:'light-fixture',name:'Light fixtures',url:'https://light-radio.fixture/stations',kind:'json',category:'akashvani',group:'telugu-247',enabled:true}];
+    radioCatalog.reload(appConfig.catalogSources);
+  `));
+  await expect(frame.locator('#sp-mchip-all')).toHaveText('All 46');
+  await frame.locator('html').evaluate(el=>el.setAttribute('data-color-scheme','light'));
+  const all=frame.locator('#sp-mchip-all'),telugu=frame.locator('#sp-mchip-te');
+  await expect(all).toHaveAttribute('aria-pressed','true');
+  await expect(telugu).toHaveAttribute('aria-pressed','false');
+  await expect(all).toHaveCSS('background-color','rgb(21, 27, 38)');
+  await expect(telugu).toHaveCSS('background-color','rgb(255, 255, 255)');
+  await expect(telugu).toHaveCSS('border-top-color','rgb(184, 196, 210)');
+  for(const id of ['made','telugu','akashvani']){
+    const head=frame.locator(`.rh-row[data-row="${id}"] > header`);
+    await expect(head).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+    await expect(head.locator('h2')).toHaveCSS('color','rgb(21, 27, 38)');
+  }
+  await telugu.click();
+  await expect(telugu).toHaveAttribute('aria-pressed','true');
+  await expect(all).toHaveAttribute('aria-pressed','false');
+  await expect(telugu).toHaveCSS('background-color','rgb(21, 27, 38)');
+  await frame.locator('#sp-mchip-air').click();
+  const region=frame.locator('.radio-sub-chips button').filter({hasText:'South India'}).first();
+  await region.click();
+  await expect(region).toHaveAttribute('aria-pressed','true');
+  await expect(region).toHaveCSS('background-color','rgb(21, 27, 38)');
+  await expect(frame.locator('.radio-sub-chips button[aria-pressed="false"]').first()).toHaveCSS('background-color','rgb(255, 255, 255)');
+  await telugu.click();
+  await frame.locator('html').evaluate(el=>el.setAttribute('data-color-scheme','dark'));
+  await expect(telugu).toHaveCSS('background-color','rgb(30, 215, 96)');
+});
+
+test('TV expanded video shares its clipped corners and Surprise changes channel',async({page},testInfo)=>{
+  const frame=await seededTv(page);
+  await frame.getByRole('button',{name:'Play Channel 02',exact:true}).first().click();
+  await expect(frame.locator('#tv-now-playing')).toBeVisible();
+  const before=await frame.locator('#tm-now-title').innerText();
+  await frame.getByRole('button',{name:'Surprise channel',exact:true}).click();
+  await expect(frame.locator('#tm-now-title')).not.toHaveText(before);
+  await expect(frame.getByText('Watching on this device',{exact:true})).toHaveCount(0);
+  for(const width of [320,393,844]){
+    await page.setViewportSize({width,height:width===844?393:844});
+    for(const theme of ['light','dark']){
+      await frame.locator('html').evaluate((el,scheme)=>el.setAttribute('data-color-scheme',scheme),theme);
+      const geometry=await frame.locator('#video-surface-card').evaluate(el=>{
+        const video=el.querySelector('video')!,card=el.getBoundingClientRect(),picture=video.getBoundingClientRect();
+        return {gap:Math.max(Math.abs(card.x-picture.x),Math.abs(card.y-picture.y),Math.abs(card.width-picture.width),Math.abs(card.height-picture.height)),clip:getComputedStyle(el).overflow,border:getComputedStyle(el).borderTopWidth,radius:getComputedStyle(el).borderTopLeftRadius,videoRadius:getComputedStyle(video).borderTopLeftRadius};
+      });
+      expect(geometry.gap).toBeLessThanOrEqual(1);
+      expect(geometry.clip).toBe('hidden');expect(geometry.border).toBe('0px');
+      expect(geometry.videoRadius).toBe(geometry.radius);
+      await page.screenshot({path:testInfo.outputPath(`tv-corners-${width}-${theme}.png`)});
+    }
+  }
+});
+
+test('Radio expanded player replaces device copy with Surprise station',async({page})=>{
+  const frame=await openPlayer(page,'radio');
+  await frame.locator('#spotify-app .solid-sp-miniplayer').click();
+  await expect(frame.locator('#mobile-player-sheet')).toBeVisible();
+  await expect(frame.getByText('Listening on this device',{exact:true})).toHaveCount(0);
+  const before=await frame.locator('#sheet-title').innerText();
+  await frame.getByRole('button',{name:'Surprise station',exact:true}).click();
+  await expect(frame.locator('#sheet-title')).not.toHaveText(before);
+});

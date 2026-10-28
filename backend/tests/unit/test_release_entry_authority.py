@@ -127,6 +127,7 @@ def test_real_and_unlabelled_clients_fail_closed_when_evidence_is_absent(tmp_pat
     assert "RELEASE_NOT_AUTHORIZED" in authority.entry_refusal(None, SimpleNamespace(_is_paper=paper))
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_master_entry_halt_precedes_release_authority(monkeypatch):
     """The production default-off gate stays enforced, even before G0-G9."""
@@ -151,6 +152,7 @@ async def test_master_entry_halt_precedes_release_authority(monkeypatch):
     assert "STERLING_LIVE_EXECUTION" in result.error
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_canonical_entry_checks_release_authority_before_reserving_or_sending(monkeypatch):
     from app.services.execution_service import CanonicalExecutionService
@@ -179,6 +181,7 @@ async def test_canonical_entry_checks_release_authority_before_reserving_or_send
     assert result.intent_key == "" and "G7" in result.error
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_revocation_during_transport_wait_never_sends_or_becomes_unknown(tmp_path, monkeypatch):
     from app.services.execution_service import CanonicalExecutionService, ExecutionRequest, RiskApproval
@@ -187,6 +190,8 @@ async def test_revocation_during_transport_wait_never_sends_or_becomes_unknown(t
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "journal.db"))
     monkeypatch.setattr(db, "_available", False)
     assert db.init()
+    from tests.feature_grants import grant_kite
+    grant_kite("owner")
     # The transport-wait race must reach its in-memory broker double; otherwise
     # the default-off operator kill switch rightly ends the test too early.
     from app.core import lane_registry

@@ -74,9 +74,10 @@ def test_flatten_all_is_not_blocked_by_the_kill_switch(env):
     assert result["closed"] == 1 and _get(env, pos).exit_reason == "FLATTEN_KILL_SWITCH"
 
 
+@pytest.mark.kite_features('default')
 def test_a_hedge_that_will_not_close_is_reported_and_finished_by_the_next_flatten(env):
     pos = _open(env)
-    env.broker.hedge_mode = "reject"
+    env.broker.hedge_mode = "reject_order"
 
     first = _flatten(env)
 
@@ -94,9 +95,10 @@ def test_a_hedge_that_will_not_close_is_reported_and_finished_by_the_next_flatte
     assert env.broker.net.get(("NFO", "NRML", FUTURE_SYMBOL), 0) == 0
 
 
+@pytest.mark.kite_features('default')
 def test_an_option_sell_that_is_refused_restores_the_broker_stop(env):
     pos = _open(env)
-    env.broker.mode = "reject"
+    env.broker.mode = "reject_order"
 
     result = _flatten(env)
 

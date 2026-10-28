@@ -30,8 +30,16 @@ def live_manual(monkeypatch):
     plan = SimpleNamespace(live=True, protectable=True, exchange="NFO", lot_size=50,
         stop_premium=100, direction="long", signal_direction="long", underlying="NIFTY",
         token=0, entry_spot=25000, entry_delta=0.5, strike=25000, expiry="2026-09-10", target_premium=0)
-    row = SimpleNamespace(source="derivatives", timestamp_ms=123, direction="long",
-                          legs=[SimpleNamespace(option_symbol="OPT")])
+    import time
+    from app.engines.sterling_kite_engine.schemas import EngineSignalRow, AlignmentChip, OptionLeg
+    from tests.supertrend_evidence import publish
+    row = EngineSignalRow(underlying="NIFTY", token=1, exchange="NFO", regime="BULL",
+        alignment=AlignmentChip(fast=1,mid=1,slow=1), source="derivatives",
+        timestamp_ms=int(time.time()*1000), direction="long", option_type="CE",
+        stop_loss=24900, spot=25000, score=85, is_active=True,
+        legs=[OptionLeg(moneyness="ATM",option_symbol="OPT",option_type="CE",
+            strike=25000,expiry="2026-12-31",lot_size=50,is_active=True)])
+    publish("u", row)
     state.set_config("u", EngineConfigModel(risk_pct=2))
     monkeypatch.setattr(accounts, "client_is_current", lambda *a, **kw: True)
     monkeypatch.setattr(accounts, "get_active", lambda uid: SimpleNamespace(id="account"))
@@ -45,6 +53,7 @@ def live_manual(monkeypatch):
     return client, plan
 
 
+@pytest.mark.kite_features('default', 'u')
 @pytest.mark.asyncio
 async def test_manual_entry_has_journal_and_zero_confirmed_qty(live_manual):
     client, _ = live_manual
@@ -71,6 +80,7 @@ async def test_manual_signal_from_another_mode_cannot_execute(live_manual):
     client.place_order.assert_not_awaited()
 
 
+@pytest.mark.kite_features('default', 'u')
 @pytest.mark.asyncio
 async def test_manual_timeout_blocks_repeat_submission(live_manual):
     client, _ = live_manual

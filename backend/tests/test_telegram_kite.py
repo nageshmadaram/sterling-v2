@@ -12,7 +12,10 @@ from app.services.notifications import telegram_bot as tb
 
 
 @pytest.fixture(autouse=True)
-def isolate_connection_monitor(monkeypatch):
+def isolate_connection_monitor(monkeypatch,tmp_path):
+    from app.services import db
+    monkeypatch.setattr(db,"_DB_PATH",str(tmp_path/"telegram.db"))
+    assert db.init()
     # Connection transition behavior is covered separately; signal transport
     # tests should not leave unrelated lifecycle notifications in the shared DB.
     monkeypatch.setattr(tk, "check_connection_alert", lambda: None)
@@ -221,13 +224,14 @@ async def test_push_alerts_are_tenant_scoped_and_failed_delivery_retries(monkeyp
     assert ("u1", t1_dest, f"101|{signal_ms}") in tk._alerted
 
 
+@pytest.mark.kite_features('default', 'u1')
 def test_target_update_with_same_token_preserves_endpoint_identity(monkeypatch):
     from app.services import db
     from app.services.notifications import kite_telegram_store as kts
 
     values = {}
     monkeypatch.setattr(db, "get_config", lambda key, default="": values.get(key, default))
-    monkeypatch.setattr(db, "set_config", lambda key, value: values.__setitem__(key, value))
+    monkeypatch.setattr(db, "set_config_strict", lambda key, value: values.__setitem__(key, value))
 
     encrypt_calls = []
 
@@ -497,6 +501,7 @@ async def test_empty_scan_does_not_forget_successful_delivery(monkeypatch):
     assert ("u1", target_dest, f"101|{ts}") in tk._alerted
 
 
+@pytest.mark.kite_features('default', 'u1')
 def test_target_edit_normalizes_and_invalidates_reachability(monkeypatch):
     from app.services.notifications import kite_telegram_store as store
 
@@ -505,7 +510,7 @@ def test_target_edit_normalizes_and_invalidates_reachability(monkeypatch):
         store.db, "get_config", lambda key, default="": values.get(key, default)
     )
     monkeypatch.setattr(
-        store.db, "set_config", lambda key, value: values.__setitem__(key, value)
+        store.db, "set_config_strict", lambda key, value: values.__setitem__(key, value)
     )
     monkeypatch.setattr(store, "encrypt", lambda value: f"enc:{value}")
     monkeypatch.setattr(
@@ -530,6 +535,7 @@ def test_target_edit_normalizes_and_invalidates_reachability(monkeypatch):
     assert updated.reachable is False
 
 
+@pytest.mark.kite_features('default', 'u1')
 async def test_target_test_escapes_html_label(monkeypatch):
     from app.api.v1.endpoints import kite_telegram as endpoint
 
@@ -559,6 +565,10 @@ async def test_target_test_escapes_html_label(monkeypatch):
         return target
 
     monkeypatch.setattr(endpoint.store, "set_reachable", mark)
+    from app.services.auth import account_policy, configuration_policy
+    configuration_policy.replace_section('default', 'u1', 'telegram', visible=True,
+        grants=[{'action': 'test', 'resource_id': 't1', 'expires_at_ms': None}],
+        expected_revision=account_policy.read('u1').revision)
     out = await endpoint.test_target("t1", SimpleNamespace(user_id="u1"))
 
     assert out.reachable is True

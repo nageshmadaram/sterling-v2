@@ -164,6 +164,7 @@ def configured_signal():
     return cfg,signal
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_real_virtual_exchange_canonical_fill_ledger_and_quarter_exit(virtual):
     real,client=virtual
@@ -236,6 +237,7 @@ def test_disabled_scanning_never_hides_order_recovery_state():
     assert view["scan"]["status"]=="FAILED" and view["capabilities"]["live"] is False
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_disabled_scanner_and_auto_do_not_stop_owned_position_exit(virtual):
     from app.services.ema_trend import runner
@@ -253,6 +255,7 @@ async def test_disabled_scanner_and_auto_do_not_stop_owned_position_exit(virtual
     assert real.writes==[]
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_stop_reduces_confirmed_shares_while_unknown_buy_is_retained(virtual):
     from app.services.ema_trend import runner
@@ -280,6 +283,7 @@ async def test_stop_reduces_confirmed_shares_while_unknown_buy_is_retained(virtu
     assert real.writes==[]
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reason(virtual,monkeypatch):
     from app.services.ema_trend import runner
@@ -307,6 +311,7 @@ async def test_latched_flatten_closes_confirmed_shares_and_records_operator_reas
     assert closed.reason=="FLATTEN" and closed.flatten_requested
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_external_virtual_sale_blocks_attribution_oversell(virtual):
     _,client=virtual
@@ -563,6 +568,7 @@ def test_full_database_backup_restores_ema_documents_events_and_owner_isolation(
         repo.get("bob","campaign","restore-campaign")
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_known_rejected_reduction_escalates_to_closing_without_duplicate_order(virtual,monkeypatch):
     _,client=virtual
@@ -662,6 +668,7 @@ async def test_changed_rule_signal_cannot_open_new_paper_exposure(virtual,monkey
     assert len(await virtual[1].get_orders())==0
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_changed_rule_campaign_still_allows_owned_sell_reduction(virtual,monkeypatch):
     _,signal=configured_signal()
@@ -696,6 +703,7 @@ async def test_runner_persists_completed_or_failed_supervision_cycle(monkeypatch
         assert report["errors"][0]["reason"]=="MARKET_FEED_UNAVAILABLE"
 
 
+@pytest.mark.kite_features('alice', 'default')
 @pytest.mark.asyncio
 async def test_changed_rule_campaign_cannot_submit_a_reserved_add(virtual,monkeypatch):
     _,signal=configured_signal()

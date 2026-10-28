@@ -121,17 +121,19 @@ def _cycle_with(monkeypatch, *, enabled: bool, auto: bool):
 
     dispatcher._refresh_bound_reconciliation = refresh
     monkeypatch.setattr(snapback, "get_config",
-                        lambda uid=None: SimpleNamespace(enabled=enabled, auto_execute=auto))
+                        lambda uid=None: __import__("app.engines.snapback", fromlist=["SnapbackConfig"]).SnapbackConfig(enabled=enabled, auto_execute=auto))
     monkeypatch.setattr(module, "auto_execute", lambda uid, cfg=None: auto)
     monkeypatch.setattr(module, "origination_blockers", lambda *a, **k: ["session_closed"])
     asyncio.run(dispatcher.cycle(UID))
     return refreshed
 
 
+@pytest.mark.kite_features('default')
 def test_a_manual_arm_needs_it_so_it_runs_even_when_auto_is_off(monkeypatch):
     assert _cycle_with(monkeypatch, enabled=True, auto=False) == [(UID, ACCOUNT)]
 
 
+@pytest.mark.kite_features('default')
 def test_it_runs_when_auto_is_on(monkeypatch):
     assert _cycle_with(monkeypatch, enabled=True, auto=True) == [(UID, ACCOUNT)]
 

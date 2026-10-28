@@ -196,6 +196,7 @@ def test_only_proven_protective_hedge_is_exempt_even_on_corrupt_shared_state(
         store.entry_refusal(r, 999999)
 
 
+@pytest.mark.kite_features('default', 'owner')
 @pytest.mark.asyncio
 async def test_canonical_refuses_tightened_policy_at_final_send_without_uncertainty(
     store, monkeypatch

@@ -111,6 +111,7 @@ def test_live_reduction_requires_bound_and_raw_stop_mutations_refuse(monkeypatch
             guard_broker_write(operation)
 
 
+@pytest.mark.kite_features('default', 'u')
 @pytest.mark.asyncio
 @pytest.mark.parametrize("timestamp", [0, -1, "future", "stale"])
 async def test_invalid_risk_clock_sends_nothing(timestamp, monkeypatch):
@@ -186,10 +187,12 @@ async def test_snapback_projection_ack_failure_replays_without_counting_fill_twi
     assert manager._book_exit.call_args.kwargs["exchange_ts_ms"] == 1234
 
 
+@pytest.mark.kite_features('default', 'u')
 @pytest.mark.asyncio
 async def test_snapback_ledger_failure_keeps_exit_identity_and_projection_pending(monkeypatch):
     from app.services import canonical_fill_reconciliation as fills
-    p = NS(uid="u", account_id="a", option_exit_requested=40, option_entry_price=100)
+    p = NS(uid="u", account_id="a", option_exit_requested=40, option_entry_price=100,
+           option_exit_order_id="exit", option_qty=40, option_exit_qty=0, option_exit_booked_ids=[])
     resolution = NS(filled_quantity=40, average_price=90, exchange_ts_ms=1234)
     manager = snapback_live_exits.SnapbackExitManager(resolver=AsyncMock(return_value=resolution))
     monkeypatch.setattr(manager, "_book_exit", Mock(return_value=False))

@@ -17,7 +17,7 @@ from app.services.notifications import kite_telegram_store as store, telegram_bo
 def configs(monkeypatch):
     values = {}
     monkeypatch.setattr(store.db, 'get_config', lambda key, default='': values.get(key, default))
-    monkeypatch.setattr(store.db, 'set_config', lambda key, value: values.__setitem__(key, value))
+    monkeypatch.setattr(store.db, 'set_config_strict', lambda key, value: values.__setitem__(key, value))
     return values
 
 
@@ -30,6 +30,7 @@ def client():
         yield client
 
 
+@pytest.mark.kite_features('default', 'other')
 def test_unreadable_target_is_listed_and_can_be_repaired_or_removed(configs, client):
     configs['kite_tg_targets:default'] = json.dumps([{'id': 'broken', 'bot_token_enc': 'fernet:invalid', 'chat_id': '123', 'reachable': True}])
     response = client.get('/api/v1/kite/telegram')

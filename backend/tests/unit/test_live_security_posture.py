@@ -34,6 +34,7 @@ def isolated_live_store(tmp_path, monkeypatch):
     security._active_secret_hash = ""
     accounts.clear()
     user_store.clear()
+    user_store._init_table()
     yield
 
     accounts.clear()
@@ -94,7 +95,9 @@ def test_bootstrap_admin_is_never_seeded_with_a_weak_password(
     assert user_store.has_active_admin_credential() is False
 
 
-def test_admin_crud_rejects_weak_passwords(isolated_live_store):
+def test_admin_crud_rejects_weak_passwords(isolated_live_store, monkeypatch):
+    # This test creates its sole administrator explicitly, without bootstrap.
+    monkeypatch.delenv('STERLING_ADMIN_PASSWORD', raising=False)
     with pytest.raises(ValueError, match="administrator password"):
         user_store.add("operator", "admin", role="admin", user_id="operator")
 

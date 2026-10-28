@@ -76,7 +76,12 @@ def test_environment_variable_fallback(monkeypatch):
     assert active.password == "env_pass"
 
 
-def test_truedata_settings_and_status_endpoints():
+def test_truedata_settings_and_status_endpoints(tmp_path, monkeypatch):
+    from app.services import db
+    from tests.feature_grants import grant_kite
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'truedata-api.db'))
+    assert db.init()
+    grant_kite('default')
     from starlette.testclient import TestClient
     from main import app
 

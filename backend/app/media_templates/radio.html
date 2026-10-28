@@ -1076,7 +1076,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
       </div>
 
       <div class="radio-np-actions flex items-center justify-between">
-        <span class="radio-np-device">Listening on this device</span>
+        <button type="button" id="sheet-surprise" class="w-11 h-11 btn-circle text-white text-lg" aria-label="Surprise station" title="Surprise station"><i class="fa-solid fa-shuffle" aria-hidden="true"></i></button>
         <div class="flex items-center gap-3">
           <button type="button" data-radio-click="75" class="w-10 h-10 btn-circle text-white text-lg" aria-label="What is playing now" title="What is playing now"><i class="fa-solid fa-circle-info"></i></button>
           <button type="button" id="sheet-queue" class="w-10 h-10 btn-circle text-white text-lg" aria-label="Open the queue" title="Up next"><i class="fa-solid fa-bars-staggered"></i></button>
@@ -2502,6 +2502,7 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
     let radioExtras=null;
     function initRadioExtras(){
       if(radioExtras||!window.SterlingMediaExtras)return;
+      document.getElementById('sheet-surprise')?.addEventListener('click',()=>radioExtras?.surprise());
       radioExtras=window.SterlingMediaExtras.mount({kind:'radio',noun:'station',storageKey:'omnicast_v11_extras',
         storage:{get:key=>radioStorage.getItem(key),set:(key,value)=>radioStorage.setItem(key,value)},
         features:{sleep:true,alarm:true,stats:true},
@@ -3159,6 +3160,9 @@ html.radio-modal-open :is(#spotify-app,#ytmusic-app,#mobile-player-sheet) {
 
       const chipKeys = { all:'all', shortwave: 'sw', mediumwave: 'mw', longwave: 'lw', ham: 'ham', akashvani: 'air', telugu: 'te', 'music-mixes':'mix', tamil: 'ta', featured: 'feat', podcasts: 'pod' };
       Object.entries(chipKeys).forEach(([k, suffix]) => {
+        for (const prefix of ['sp-chip-', 'sp-mchip-', 'ytm-chip-']) {
+          document.getElementById(prefix + suffix)?.setAttribute('aria-pressed', String(k === cat));
+        }
         const spEl = document.getElementById(`sp-chip-${suffix}`);
         if (spEl) spEl.className = (k === cat)
           ? 'px-3.5 py-1.5 rounded-full text-xs font-semibold bg-white text-black transition'
