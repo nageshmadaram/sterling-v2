@@ -100,3 +100,17 @@ def test_hidden_request_has_no_pending_side_effect(accounts):
         access_requests.request_access("member", "kite")
     with db._conn() as c:
         assert c.execute("SELECT COUNT(*) FROM feature_access_requests WHERE user_id='member'").fetchone()[0] == 0
+
+
+def test_pending_request_cannot_be_approved_after_admin_hides_workspace(accounts):
+    prior = access_requests.request_access("member", "kite")
+    assert prior["status"] == "pending"
+    account_policy.set_features("default", "member",
+        {"kite": False, "tv": False, "radio": False}, 0,
+        visibility={"kite": False, "tv": True, "radio": True})
+    with pytest.raises(PermissionError, match="Show this workspace"):
+        access_requests.decide("default", prior["id"], "approved")
+    assert account_policy.read("member").features["kite"] is False
+    with db._conn() as c:
+        row = c.execute("SELECT status FROM feature_access_requests WHERE id=?", (prior["id"],)).fetchone()
+        assert row["status"] == "pending"
