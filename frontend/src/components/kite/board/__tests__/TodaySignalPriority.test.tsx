@@ -83,7 +83,6 @@ describe('cross-strategy today priority', () => {
 
   it('keeps the current-day API explanation collapsed until explicitly expanded', async () => {
     wrap(<Display />);
-    const details = await screen.findByRole('status');
     const summary = screen.getByLabelText('Expand current-day strategy loading details');
     expect(summary.tagName).toBe('SUMMARY');
     expect(summary.closest('details')).not.toHaveAttribute('open');
