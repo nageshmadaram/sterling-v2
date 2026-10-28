@@ -4,6 +4,7 @@ describe('Radio and TV search tolerance and settings routing',()=>{
     const pool=[{id:'rainbow-audit',title:'FM Rainbow Hyderabad',subtitle:'India · Telugu Urdu',category:'telugu'}];
     (w as any).__searchAuditPool=pool;
     expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"fmrainbow",8).length')).toBe(1);
+    expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"fmrainbo",8).length')).toBe(1);
     expect(w.eval('getRadioSearchMatches(window.__searchAuditPool,"rainbo",8).length')).toBe(1);
     expect(errors).toEqual([]);
   });
@@ -11,6 +12,22 @@ describe('Radio and TV search tolerance and settings routing',()=>{
     const {w,errors}=boot('tv');
     expect(w.eval('getRankedSearchMatches("redbull",8).length')).toBeGreaterThan(0);
     expect(w.eval('getRankedSearchMatches("red bulll",8).length')).toBeGreaterThan(0);
+    expect(w.eval('getRankedSearchMatches("redbullu",8).length')).toBeGreaterThan(0);
+    expect(errors).toEqual([]);
+  });
+  it('uses CSP-safe delegated Radio options for both header and expanded player',()=>{
+    const {w,errors}=boot('radio');
+    // Real radio control delegation is installed by the media template.
+    // Stubbing only the Extras open adapter isolates the click routing.
+    w.eval("radioExtras={open(){window.__radioOptionsOpened=(window.__radioOptionsOpened||0)+1}}");
+    const expanded=w.document.querySelector('#mobile-player-sheet [aria-label="Radio options"]') as HTMLButtonElement;
+    const header=w.document.getElementById('radio-extras-btn') as HTMLButtonElement;
+    expect(expanded).not.toBeNull();
+    expect(expanded.getAttribute('data-radio-click')).toBe('82');
+    expect(expanded.hasAttribute('onclick')).toBe(false);
+    expect(header.getAttribute('data-radio-click')).toBe('82');
+    expanded.click();header.click();
+    expect((w as any).__radioOptionsOpened).toBe(2);
     expect(errors).toEqual([]);
   });
   it('keeps radio startup and equalizer settings mutually exclusive',()=>{
