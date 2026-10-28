@@ -1,5 +1,5 @@
 """Remote publication, URL changes and real production proxy contracts."""
-import importlib.util,json,socket,subprocess,threading,time,urllib.error,urllib.request
+import importlib.util,json,os,socket,subprocess,threading,time,urllib.error,urllib.request
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 import pytest
