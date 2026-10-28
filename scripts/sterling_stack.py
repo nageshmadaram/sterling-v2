@@ -429,6 +429,22 @@ def _backend_http_ready():
         return False
 
 
+def desired_publisher_config():
+    """Return the presentation-only ref and fetch mode selected by the operator."""
+    release_ref=os.environ.get('STERLING_PUBLISH_REF') or 'origin/main'
+    setting=os.environ.get('STERLING_PUBLISH_FETCH')
+    auto_fetch=(release_ref=='origin/main' and
+                (setting is None or setting.strip().lower() in {'1','true','on','yes'}))
+    return release_ref,auto_fetch
+
+
+def publisher_config_loaded(state):
+    """Missing legacy fields are NOT proof of an enrolled remote publisher."""
+    release_ref,auto_fetch=desired_publisher_config()
+    return (state.get('release_ref')==release_ref and
+            state.get('release_auto_fetch') is auto_fetch)
+
+
 def live_presentation_status(state, running):
     """Never report remembered public verification as live after manager exit.
 
@@ -451,6 +467,8 @@ def live_presentation_status(state, running):
         'gateway_running':gateway,
         'backend_listening':backend_listening,
         'backend_ready':backend_ready,
+        'publisher_config_loaded':bool(running and publisher_config_loaded(state)),
+        'publisher_activation_required':bool(running and not publisher_config_loaded(state)),
         'public_ready':live_verified,
         'urls':{name:value for name,value in urls.items() if live_verified.get(name)},
         'mini_app_url':state.get('mini_app_url','') if live_verified.get('cloudflare') else '',
@@ -1131,17 +1149,9 @@ def main():
         # A verified old gateway can otherwise keep serving refs/heads/dev
         # forever after the operator enrolled origin/main in backend/.env.
         expected_mode='local' if args.provider=='local' else ('named' if args.hostname else 'quick')
-        release_ref=os.environ.get('STERLING_PUBLISH_REF') or 'origin/main'
-        fetch_setting=os.environ.get('STERLING_PUBLISH_FETCH')
-        release_auto_fetch=(release_ref=='origin/main' and
-                            (fetch_setting is None or
-                             fetch_setting.strip().lower() in {'1','true','on','yes'}))
-        # Some old manager protocols did not expose release status at all.
-        # Their mode/version checks still apply; known incompatible release
-        # settings must NEVER be treated as an idempotent match.
-        release_matches=(not state.get('release_ref') or
-                         (state.get('release_ref')==release_ref and
-                          state.get('release_auto_fetch') is release_auto_fetch))
+        # A missing release_ref/auto_fetch field is not an idempotent match.
+        # Earlier supervisors may have published a local dev branch.
+        release_matches=publisher_config_loaded(state)
         current=(state.get('manager_protocol',0)>=4 and
                  state.get('mode')==expected_mode and
                  state.get('dev_url')==f'http://127.0.0.1:{args.dev_port}' and

@@ -424,10 +424,13 @@ def test_exited_gateway_does_not_count_as_started(monkeypatch):
 
 
 def test_up_is_idempotent_with_healthy_current_manager(monkeypatch,tmp_path,capsys):
+ monkeypatch.setenv('STERLING_PUBLISH_REF','origin/main')
+ monkeypatch.setenv('STERLING_PUBLISH_FETCH','1')
  monkeypatch.setattr(stack,'STATE',tmp_path)
  existing={'manager_pid':80808,'manager_protocol':4,'mode':'quick',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,'phase':'ready',
   'local_url':'http://127.0.0.1:5180',
+  'release_ref':'origin/main','release_auto_fetch':True,
   'public_ready':{'cloudflare':True,'ngrok':True},
   'urls':{
     'cloudflare':'https://cloudflare.example.test',
@@ -476,9 +479,12 @@ def test_up_recovers_missing_adopted_backend_via_single_manager_restart(monkeypa
 
 
 def test_up_preserves_bound_backend_during_reconnect(monkeypatch,tmp_path):
+ monkeypatch.setenv('STERLING_PUBLISH_REF','origin/main')
+ monkeypatch.setenv('STERLING_PUBLISH_FETCH','1')
  monkeypatch.setattr(stack,'STATE',tmp_path)
  old={'manager_pid':909,'manager_protocol':4,'mode':'quick','phase':'reconnecting',
-      'web_port':5180,'dev_url':'http://127.0.0.1:5174'}
+      'web_port':5180,'dev_url':'http://127.0.0.1:5174',
+      'release_ref':'origin/main','release_auto_fetch':True}
  monkeypatch.setattr(stack,'read_state',lambda:old)
  monkeypatch.setattr(stack,'alive',lambda pid:True)
  monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
@@ -598,12 +604,15 @@ def test_start_web_refuses_unknown_listener_without_launching_second(monkeypatch
 
 
 def test_up_reuses_manager_while_initializing_no_duplicate_start(monkeypatch,tmp_path):
+ monkeypatch.setenv('STERLING_PUBLISH_REF','origin/main')
+ monkeypatch.setenv('STERLING_PUBLISH_FETCH','1')
  monkeypatch.setenv('STERLING_UP_WAIT_SECONDS','0')
  monkeypatch.setattr(stack,'STATE',tmp_path)
  monkeypatch.setattr(stack,'read_state',lambda:{
   'manager_pid':80808,'manager_protocol':4,'mode':'quick',
   'dev_url':'http://127.0.0.1:5174','web_port':5180,
-  'phase':'starting','local_url':'http://127.0.0.1:5180'})
+  'phase':'starting','local_url':'http://127.0.0.1:5180',
+   'release_ref':'origin/main','release_auto_fetch':True})
  monkeypatch.setattr(stack,'alive',lambda pid:True)
  monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:False)
  def no_restart(*a,**kwargs):
@@ -1276,3 +1285,50 @@ def test_up_reuses_healthy_supervisor_with_matching_enrolled_publisher(monkeypat
  monkeypatch.setattr(stack.subprocess,'Popen',no_restart)
  monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
  stack.main()
+
+def test_old_manager_missing_publisher_status_is_not_reused(monkeypatch,tmp_path):
+ """Legacy supervisor without release fields is not proof of enrollment."""
+ from types import SimpleNamespace
+ root=tmp_path/'repo'
+ (root/'backend').mkdir(parents=True)
+ (root/'backend'/'.env').write_text(
+   'STERLING_PUBLISH_REF=origin/main\nSTERLING_PUBLISH_FETCH=1\n')
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',tmp_path/'status')
+ old={'manager_pid':77111,'manager_protocol':4,'mode':'quick',
+      'phase':'ready','web_port':5180,'dev_url':'http://127.0.0.1:5174'}
+ monkeypatch.setattr(stack,'read_state',lambda:old)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ stopped=[]
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',lambda pid:stopped.append(pid))
+ monkeypatch.setattr(stack,'wait_for_up_status',lambda *args,**kwargs:{})
+ started=[]
+ def spawn(args,**kwargs):
+  started.append(args)
+  return SimpleNamespace(pid=88222)
+ monkeypatch.setattr(stack.subprocess,'Popen',spawn)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ stack.main()
+ assert stopped==[77111]
+ assert len(started)==1
+ assert stack.publisher_config_loaded(old) is False
+
+
+def test_status_distinguishes_loaded_publisher_from_activation_needed(monkeypatch):
+ monkeypatch.setenv('STERLING_PUBLISH_REF','origin/main')
+ monkeypatch.setenv('STERLING_PUBLISH_FETCH','1')
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack,'_backend_http_ready',lambda:True)
+ old={'manager_protocol':4,'release_ref':'refs/heads/dev','release_auto_fetch':False,
+      'public_ready':{'cloudflare':True}}
+ state=stack.live_presentation_status(old,True)
+ assert state['publisher_config_loaded'] is False
+ assert state['publisher_activation_required'] is True
+ assert stack.live_presentation_status({},False)['publisher_activation_required'] is False
+ new={**old,'release_ref':'origin/main','release_auto_fetch':True}
+ state=stack.live_presentation_status(new,True)
+ assert state['publisher_config_loaded'] is True
+ assert state['publisher_activation_required'] is False
