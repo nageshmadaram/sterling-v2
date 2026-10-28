@@ -122,3 +122,24 @@ def test_password_change_keeps_legacy_username(client):
  c,_=client;u=user_store.get_by_id('alice');u.username='existing@example.com';user_store._persist(u)
  result=c.post('/profile/security',json={'current_password':'Current secure passphrase!42','username':u.username,'new_password':'New secure passphrase!42'})
  assert result.status_code==200 and result.json()['profile']['username']=='existing@example.com'
+
+@pytest.mark.asyncio
+async def test_manual_push_test_has_a_separate_bounded_allowance(client,monkeypatch):
+ import time
+ import pywebpush
+ c,_=client
+ identifier=c.post('/push/subscribe',json={'subscription':subscription()}).json()['id']
+ sent=[]
+ monkeypatch.setattr(pywebpush,'webpush',lambda **kw:sent.append(kw))
+ now=int(time.time()*1000)
+ with db._conn() as conn:
+  for index in range(21):
+   conn.execute('INSERT INTO push_deliveries VALUES(?,?,?)',(identifier,'alert:'+str(index),now))
+ assert await web_push.send('alice','test:first','Sterling test notification','Phone delivery check','alerts',force=True)==1
+ assert len(sent)==1
+ assert await web_push.send('alice','test:first','T','B','alerts',force=True)==0
+ with db._conn() as conn:
+  for index in range(19):
+   conn.execute('INSERT INTO push_deliveries VALUES(?,?,?)',(identifier,'test:prior-'+str(index),now))
+ assert await web_push.send('alice','test:over-limit','T','B','alerts',force=True)==0
+ assert len(sent)==1
