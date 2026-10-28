@@ -145,3 +145,23 @@ html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
   button.bg-white {color:#fff!important;background:#233e50!important;}
 html[data-color-scheme="light"] :is(#startup-modal,#audio-dsp-modal)>div
   :is(input,select) {background:#fff!important;color:#172333!important;border:1px solid #b9c5d5!important;}
+
+/* Every appearance uses the host Light palette, including desktop player rails. */
+html[data-color-scheme=light] body{
+ --bg-outer:#f1f3f6;--bg-canvas:#fff;--surface:#f4f6f9;--elevated:#e7edf3;
+ --text-main:#151b26;--text-dim:#526074;--text-sub:#526074;--border:#ccd5df;
+}
+html[data-color-scheme=light] body :is(#player-stage,#watch-columns,#left-watch-column,#mobile-sticky-player-wrap){background:transparent!important;box-shadow:none!important;}
+html[data-color-scheme=light] body :is(#watch-up-next-rail,#yt-metadata-below,#spotify-app aside,#ytmusic-app aside){background:#f4f6f9!important;background-image:none!important;color:#151b26!important;}
+html[data-color-scheme=light] body :is(#watch-up-next-rail,#yt-metadata-below) :is(h1,h2,h3,h4,button,strong){color:#151b26!important;}
+html[data-color-scheme=light] body :is(#watch-up-next-rail,#yt-metadata-below) :is(p,small){color:#526074!important;}
+html[data-color-scheme=light] body dialog:is(.media-comfort,.media-settings-dialog,.radio-source-dialog,.mx-dialog){background:#f8fafc!important;background-image:none!important;color:#152130!important;border-color:#c9d4df!important;color-scheme:light;}
+html[data-color-scheme=light] body dialog:is(.media-comfort,.media-settings-dialog,.radio-source-dialog,.mx-dialog) :is(h2,h3,h4,strong,p,small,label,button,span,dt,dd){color:inherit;}
+html[data-color-scheme=light] body dialog :is(.media-timer-options button,.mx-setting,.mx-secondary,.mx-stat,.mx-keys dt){background:#e8eef4!important;border-color:#c9d4df!important;color:#152130!important;}
+html[data-color-scheme=light] body dialog :is(.media-sheet-handle,.media-comfort-handle){background:#81919f;}
+html[data-color-scheme=light] body dialog :is(.mx-note,.mx-empty,.media-comfort-note,.media-timer-status){color:#526074!important;}
+html[data-color-scheme=light] body :is([class*="text-white/"],[class*="text-[#b3"],[class*="text-[#a7"],[class*="text-[#aaa"]){color:#526074!important;}
+html[data-color-scheme=light] body [class*="text-[#1ed760]"]{color:#126139!important;}
+/* Playback controls remain legible over the unchanged native picture. */
+html[data-color-scheme=light] body #video-surface-card #custom-video-hud,
+html[data-color-scheme=light] body #video-surface-card #custom-video-hud :is(button,svg,span,div,i){color:#fff!important;}
