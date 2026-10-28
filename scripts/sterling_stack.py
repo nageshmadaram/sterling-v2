@@ -775,7 +775,7 @@ class Stack:
         protocol=env.get('STERLING_CLOUDFLARE_PROTOCOL','auto')
         if protocol not in {'auto','http2','quic'}:raise RuntimeError('Invalid Cloudflare transport protocol')
         if protocol!='auto':command+=['--protocol',protocol]
-        elif self.args.hostname:
+        if self.args.hostname:
             # Named tunnels keep the same hostname. Token is carried only in process environment.
             from_value=env.get('STERLING_CLOUDFLARE_TUNNEL_TOKEN','')
             if from_value:env['TUNNEL_TOKEN']=from_value
@@ -834,8 +834,6 @@ class Stack:
         self.published=True;self.last_publish=time.monotonic()
         print(f"App (local): {self.status['local_url']}\nCloudflare: {origin}\nTelegram desk: {origin}/tma",flush=True)
         return True
-
-    def refresh_committed_release(        return True
 
     def refresh_committed_release(self, fetch_remote: bool):
         """Background build: do not block protection and tunnel checks."""
