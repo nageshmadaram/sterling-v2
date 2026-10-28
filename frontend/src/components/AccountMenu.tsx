@@ -13,7 +13,10 @@ export function AccountMenu({children,mediaKind}:{children?:ReactNode;mediaKind?
   useEffect(()=>{window.addEventListener('sterling-home',close);return()=>window.removeEventListener('sterling-home',close);},[]);
   const action=(name:string)=>{close();requestAnimationFrame(()=>window.dispatchEvent(new Event(name)));};
   async function logout(){setBusy(true);try{await api.post('/api/v1/auth/logout',{});clearAuthTokens();window.location.reload();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
-  return <><button className="account-menu-trigger" aria-label="Menu" aria-haspopup="dialog" onClick={()=>dialog.current?.showModal()}>☰</button>
+  return <><button className="account-menu-trigger" aria-label="Menu" aria-haspopup="dialog" onClick={()=>{
+      dialog.current?.showModal();
+      if (mediaKind) window.dispatchEvent(new Event('sterling-media-menu-open'));
+    }}>☰</button>
     <dialog ref={dialog} className="account-menu" aria-label="Account and navigation" onClick={e=>{if(e.target===e.currentTarget)close();}}>
       <div className="account-menu-content"><header><button className="account-identity" onClick={()=>action('sterling-open-profile')}>
         {profile.data?.photo?<img alt="" src={profile.data.photo}/>:<span className="account-avatar">{(profile.data?.display_name||profile.data?.username||'S').slice(0,2).toUpperCase()}</span>}
