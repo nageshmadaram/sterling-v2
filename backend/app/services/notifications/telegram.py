@@ -69,6 +69,35 @@ async def send(text: str, parse_mode: str = "HTML",
         except Exception:  # noqa: BLE001
             body = {}
         ok = r.status_code == 200 and bool(body.get("ok"))
+        if not ok and r.status_code == 400:
+            # HTML formatting problems should not suppress lifecycle alerts.
+            # Retry once as bounded plain text; never retry authentication or
+            # chat-ownership failures and never claim success before Telegram
+            # acknowledges the second response.
+            reason = str(body.get("description") or "").lower()
+            if any(marker in reason for marker in (
+                "can't parse entities", "can't find end of the entity",
+                "unsupported start tag", "unexpected end tag",
+                "can't parse message text", "too long",
+            )):
+                from app.services.notifications.lifecycle_format import (
+                    TELEGRAM_MAX_CHARS, to_plain,
+                )
+                fallback = dict(payload)
+                fallback.pop("parse_mode", None)
+                fallback["text"] = to_plain(text)[: TELEGRAM_MAX_CHARS - 1]
+                async with httpx.AsyncClient(
+                    timeout=8, follow_redirects=False, trust_env=False,
+                ) as plain_client:
+                    r = await plain_client.post(
+                        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                        json=fallback,
+                    )
+                try:
+                    body = r.json()
+                except Exception:  # noqa: BLE001
+                    body = {}
+                ok = r.status_code == 200 and bool(body.get("ok"))
         TELEGRAM_REACHABLE = ok
         if not ok:
             log.warning(
