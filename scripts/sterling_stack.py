@@ -651,6 +651,27 @@ class CommittedFrontend:
                            timeout=600,check=True)
         self.lock_stamp.write_text(digest)
 
+    def _replace_incomplete_unpublished_release(self, sha):
+        """Reclaim only an incomplete release, never the active frontend.
+
+        An interrupted/older publisher may have left an incomplete SHA-named
+        destination. os.rename cannot replace that non-empty directory. Never
+        remove a symlink, a complete immutable release, or a destination still
+        referenced by the public gateway.
+        """
+        destination=self.releases/sha
+        if destination.is_symlink():
+            raise RuntimeError('Unsafe frontend release destination is a symlink')
+        if not destination.exists():
+            return
+        if (not destination.is_dir() or
+                (destination/'index.html').is_file()):
+            raise RuntimeError('Existing frontend release cannot be overwritten')
+        if (self.pointer.resolve()==destination.resolve() or
+                destination.parent.resolve()!=self.releases.resolve()):
+            raise RuntimeError('Incomplete frontend release is active or untrusted')
+        shutil.rmtree(destination)
+
     def publish(self):
         sha=self.resolve_commit()
         previous_sha=self.current()
@@ -708,6 +729,10 @@ class CommittedFrontend:
                         # instead of allocating another copy on every release.
                         try:os.link(item,new_assets/item.name)
                         except OSError:shutil.copy2(item,new_assets/item.name)
+            # A legacy or interrupted attempt can leave a non-empty, invalid
+            # destination. Only reclaim it once the replacement is fully staged.
+            # Never delete the directory the gateway is currently serving.
+            self._replace_incomplete_unpublished_release(sha)
             staged.rename(existing)
         tmp=STATE/'published.next'
         tmp.unlink(missing_ok=True)

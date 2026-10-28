@@ -45,3 +45,15 @@ publisher guard. The guard is a lower bound, **not** an assurance that npm can
 never consume extra storage. Actual disk use and backup safety remain separate
 release acceptance checks. Do not disable the guard to force an update on a
 nearly full trading host.
+
+
+## Interrupted frontend-release recovery
+
+The gateway serves an immutable SHA-named frontend release via an atomic
+`published` symlink. A legacy/interrupted build may have left a nonempty,
+incomplete SHA-named directory. After a replacement build is fully staged,
+the publisher may reclaim **only** that unreferenced incomplete destination
+before promoting the new release. It refuses to remove the active target,
+a symlink destination, or any complete immutable release. The previous
+published frontend remains available until the replacement is ready.
+This recovery is distinct from, and does not certify, a real-device rollout.

@@ -696,9 +696,15 @@ def test_committed_publish_is_atomic_and_failed_build_keeps_last_success(tmp_pat
   publisher.publish()
  assert publisher.current()=='a'*40
  assert (publisher.pointer/'index.html').read_text()=='BUILD '+('a'*40)
+ # Simulate an older/crashed publisher leaving an incomplete SHA directory.
+ # The retry may replace only this unreferenced, invalid directory.
+ incomplete=publisher.releases/('b'*40)
+ incomplete.mkdir(parents=True)
+ (incomplete/'orphan.txt').write_text('PARTIAL')
  fail[0]=False
  sha,changed=publisher.publish()
  assert changed and sha=='b'*40
+ assert not (incomplete/'orphan.txt').exists()
  assert publisher.current()=='b'*40
  carried=publisher.pointer/'assets'/f"{'a'*40}.js"
  original=publisher.releases/('a'*40)/'assets'/f"{'a'*40}.js"
@@ -1416,3 +1422,36 @@ def test_frontend_dependency_disk_drop_keeps_prior_published_assets(monkeypatch,
  assert publisher.current()==old
  assert (publisher.pointer/'index.html').read_text()=='LAST WORKING RELEASE'
  assert not (publisher.releases/next_sha).exists()
+
+def test_release_destination_never_deletes_current_published_directory(tmp_path,monkeypatch):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ sha='a'*40
+ destination=publisher.releases/sha
+ destination.mkdir(parents=True)
+ (destination/'partial.txt').write_text('KEEP')
+ publisher.pointer.symlink_to(destination,target_is_directory=True)
+ with pytest.raises(RuntimeError,match='active or untrusted'):
+  publisher._replace_incomplete_unpublished_release(sha)
+ assert (destination/'partial.txt').read_text()=='KEEP'
+ assert publisher.pointer.resolve()==destination.resolve()
+
+
+def test_release_destination_rejects_symlink_and_complete_immutable_release(tmp_path,monkeypatch):
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ publisher=stack.CommittedFrontend()
+ destination=publisher.releases/('b'*40)
+ destination.parent.mkdir(parents=True)
+ other=tmp_path/'external'
+ other.mkdir()
+ (other/'do-not-delete.txt').write_text('SAFE')
+ destination.symlink_to(other,target_is_directory=True)
+ with pytest.raises(RuntimeError,match='symlink'):
+  publisher._replace_incomplete_unpublished_release('b'*40)
+ assert (other/'do-not-delete.txt').read_text()=='SAFE'
+ destination.unlink()
+ destination.mkdir()
+ (destination/'index.html').write_text('GOOD RELEASE')
+ with pytest.raises(RuntimeError,match='cannot be overwritten'):
+  publisher._replace_incomplete_unpublished_release('b'*40)
+ assert (destination/'index.html').read_text()=='GOOD RELEASE'
