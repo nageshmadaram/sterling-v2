@@ -531,21 +531,6 @@ def cloudflared():
     return str(binary)
 
 
-def ensure_runtime(skip_build):
-    python=ROOT/'backend/.venv/bin/python'
-    if not python.exists():
-        subprocess.run([sys.executable,'-m','venv',str(ROOT/'backend/.venv')],check=True)
-        subprocess.run([str(python),'-m','pip','install','-r',str(ROOT/'backend/requirements.txt')],check=True,stdout=subprocess.DEVNULL)
-    if not shutil.which('node') or not shutil.which('npm'):raise RuntimeError('Node.js and npm are required')
-    if not (ROOT/'frontend/node_modules').exists():
-        subprocess.run(['npm','ci'],cwd=ROOT/'frontend',check=True,stdout=subprocess.DEVNULL)
-    # Never compile the public app from ROOT/frontend: local edits and
-    # untracked source are strictly for Vite dev on 5174.
-    # CommittedFrontend publishes the isolated build from Git archive.
-    return python
-
-
-
 class ReleaseStorageBlocked(RuntimeError):
     """A frontend build must not compete with the live broker for disk space."""
 
@@ -553,6 +538,40 @@ class ReleaseStorageBlocked(RuntimeError):
 # Keep a reserve for the broker, logs, databases and protective-order state.
 # This is a minimum preflight reserve, not a guarantee about npm's peak usage.
 MIN_FRONTEND_RELEASE_FREE_BYTES = 2 * 1024 ** 3
+
+
+def require_release_headroom():
+    """Reject storage-consuming bootstrap, Git fetches and frontend builds.
+
+    The check is needed before npm/pip/bootstrap, not only after the publisher
+    is constructed. On an already-running trading host, conserving headroom
+    takes precedence over updating the presentation layer.
+    """
+    try:
+        free_bytes=shutil.disk_usage(STATE).free
+    except (OSError,ValueError) as error:
+        raise ReleaseStorageBlocked('Cannot verify disk headroom for UI update') from error
+    if free_bytes < MIN_FRONTEND_RELEASE_FREE_BYTES:
+        raise ReleaseStorageBlocked('Insufficient disk headroom for UI update')
+
+
+def ensure_runtime(skip_build):
+    python=ROOT/'backend/.venv/bin/python'
+    if not python.exists():
+        # Installation is potentially large. Do not exhaust the broker's
+        # database/log reserve before the normal publisher check can run.
+        require_release_headroom()
+        subprocess.run([sys.executable,'-m','venv',str(ROOT/'backend/.venv')],check=True)
+        require_release_headroom()
+        subprocess.run([str(python),'-m','pip','install','-r',str(ROOT/'backend/requirements.txt')],check=True,stdout=subprocess.DEVNULL)
+    if not shutil.which('node') or not shutil.which('npm'):raise RuntimeError('Node.js and npm are required')
+    if not (ROOT/'frontend/node_modules').exists():
+        require_release_headroom()
+        subprocess.run(['npm','ci'],cwd=ROOT/'frontend',check=True,stdout=subprocess.DEVNULL)
+    # Never compile the public app from ROOT/frontend: local edits and
+    # untracked source are strictly for Vite dev on 5174.
+    # CommittedFrontend publishes the isolated build from Git archive.
+    return python
 
 
 class CommittedFrontend:
@@ -597,12 +616,7 @@ class CommittedFrontend:
 
     def _require_release_headroom(self):
         """Fail closed before modifying the isolated build staging directory."""
-        try:
-            free_bytes=shutil.disk_usage(STATE).free
-        except (OSError,ValueError) as error:
-            raise ReleaseStorageBlocked('Cannot verify disk headroom for frontend build') from error
-        if free_bytes < MIN_FRONTEND_RELEASE_FREE_BYTES:
-            raise ReleaseStorageBlocked('Insufficient disk headroom for frontend build')
+        require_release_headroom()
 
     def _extract(self, sha):
         """Use git archive, not checkout: uncommitted files cannot enter build."""
@@ -918,6 +932,8 @@ class Stack:
         """Background build: do not block protection and tunnel checks."""
         try:
             if fetch_remote:
+                # Fetching remote history also writes to the same host disk.
+                require_release_headroom()
                 # Explicitly advance the remote-tracking ref, not FETCH_HEAD
                 # alone. No '+' / --force: an upstream rewind is refused.
                 subprocess.run(['git','-C',str(ROOT),'fetch','--no-tags','origin',
@@ -1226,6 +1242,13 @@ def main():
             if backend_missing:
                 print('Backend API not listening on 8000; recovering presentation '
                       'manager without stopping an existing trading backend.')
+        # If a replacement requires a disk-consuming bootstrap, preflight
+        # BEFORE stopping the old UI/tunnel. A nearly-full trading host should
+        # retain its currently running presentation manager, not lose it to
+        # an npm/pip installer that can never finish safely.
+        if (not (ROOT/'backend/.venv/bin/python').exists() or
+                not (ROOT/'frontend/node_modules').is_dir()):
+            require_release_headroom()
         # An old-version or unhealthy manager is stopped *gracefully*.
         # The manager's shutdown leaves the broker process alone. There
         # can never be a second concurrent 8000 trading engine.

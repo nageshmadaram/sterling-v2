@@ -1455,3 +1455,115 @@ def test_release_destination_rejects_symlink_and_complete_immutable_release(tmp_
  with pytest.raises(RuntimeError,match='cannot be overwritten'):
   publisher._replace_incomplete_unpublished_release('b'*40)
  assert (destination/'index.html').read_text()=='GOOD RELEASE'
+
+def test_runtime_bootstrap_refuses_low_disk_before_making_virtualenv(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ root=tmp_path/'repo'
+ root.mkdir()
+ state=tmp_path/'stack'
+ state.mkdir()
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',state)
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:SimpleNamespace(
+     free=stack.MIN_FRONTEND_RELEASE_FREE_BYTES-1))
+ def forbid(*args,**kwargs):
+  raise AssertionError('No venv or pip operations permitted on low disk')
+ monkeypatch.setattr(stack.subprocess,'run',forbid)
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  stack.ensure_runtime(False)
+ assert not (root/'backend/.venv').exists()
+
+
+def test_runtime_bootstrap_refuses_low_disk_before_npm_ci(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ root=tmp_path/'repo'
+ state=tmp_path/'stack'
+ (root/'backend/.venv/bin').mkdir(parents=True)
+ (root/'backend/.venv/bin/python').write_text('')
+ (root/'frontend').mkdir()
+ state.mkdir()
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',state)
+ monkeypatch.setattr(stack.shutil,'which',lambda name:'/usr/bin/'+name)
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:SimpleNamespace(
+     free=stack.MIN_FRONTEND_RELEASE_FREE_BYTES-1))
+ def forbid(*args,**kwargs):
+  raise AssertionError('npm ci must not run on low disk')
+ monkeypatch.setattr(stack.subprocess,'run',forbid)
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  stack.ensure_runtime(False)
+ assert not (root/'frontend/node_modules').exists()
+
+
+def test_existing_runtime_needs_no_install_before_publisher_headroom_check(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ root=tmp_path/'repo'
+ (root/'backend/.venv/bin').mkdir(parents=True)
+ python=root/'backend/.venv/bin/python'
+ python.write_text('')
+ (root/'frontend/node_modules').mkdir(parents=True)
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack.shutil,'which',lambda name:'/usr/bin/'+name)
+ def forbid(*args,**kwargs):
+  raise AssertionError('Ready dependencies should not be reinstalled')
+ monkeypatch.setattr(stack.shutil,'disk_usage',forbid)
+ monkeypatch.setattr(stack.subprocess,'run',forbid)
+ assert stack.ensure_runtime(False)==python
+
+
+def test_remote_main_fetch_refuses_low_disk_and_retains_release(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ monkeypatch.setattr(stack,'STATE',tmp_path)
+ args=SimpleNamespace(provider='cloudflare',hostname='',port=5180,dev=False,dev_port=5174)
+ manager=stack.Stack(args)
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:SimpleNamespace(
+     free=stack.MIN_FRONTEND_RELEASE_FREE_BYTES-1))
+ def forbid(*args,**kwargs):
+  raise AssertionError('Git fetch must not consume final disk reserve')
+ monkeypatch.setattr(stack.subprocess,'run',forbid)
+ monkeypatch.setattr(manager.publisher,'publish',forbid)
+ manager.refresh_committed_release(True)
+ assert manager.release_results.get_nowait()==('failed','ReleaseStorageBlocked',False)
+ assert manager.backend_owned is False
+ assert manager.children=={}
+
+
+def test_disk_probe_failure_blocks_runtime_bootstrap(monkeypatch,tmp_path):
+ root=tmp_path/'repo'
+ root.mkdir()
+ state=tmp_path/'stack'
+ state.mkdir()
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',state)
+ def no_disk(*args,**kwargs):
+  raise OSError('private storage information')
+ monkeypatch.setattr(stack.shutil,'disk_usage',no_disk)
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  stack.ensure_runtime(False)
+ assert not (root/'backend/.venv').exists()
+
+
+def test_up_retains_old_presentation_manager_when_bootstrap_needs_low_disk(monkeypatch,tmp_path):
+ from types import SimpleNamespace
+ root=tmp_path/'repo'
+ root.mkdir()
+ monkeypatch.setattr(stack,'ROOT',root)
+ monkeypatch.setattr(stack,'STATE',tmp_path/'status')
+ monkeypatch.setenv('STERLING_PUBLISH_REF','origin/main')
+ monkeypatch.setenv('STERLING_PUBLISH_FETCH','1')
+ old={'manager_pid':554433,'manager_protocol':4,'mode':'quick','phase':'ready',
+      'web_port':5180,'dev_url':'http://127.0.0.1:5174',
+      'release_ref':'refs/heads/dev','release_auto_fetch':False}
+ monkeypatch.setattr(stack,'read_state',lambda:old)
+ monkeypatch.setattr(stack,'alive',lambda pid:True)
+ monkeypatch.setattr(stack,'_managed_web_owns_port',lambda state:True)
+ monkeypatch.setattr(stack,'_backend_listener_present',lambda:True)
+ monkeypatch.setattr(stack.shutil,'disk_usage',lambda path:SimpleNamespace(
+     free=stack.MIN_FRONTEND_RELEASE_FREE_BYTES-1))
+ def forbidden(*args,**kwargs):
+  raise AssertionError('The running presentation manager must stay online')
+ monkeypatch.setattr(stack,'_stop_old_managed_presentation',forbidden)
+ monkeypatch.setattr(stack.subprocess,'Popen',forbidden)
+ monkeypatch.setattr(stack.sys,'argv',['sterling_stack.py','up'])
+ with pytest.raises(stack.ReleaseStorageBlocked):
+  stack.main()

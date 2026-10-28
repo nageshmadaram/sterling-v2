@@ -57,3 +57,22 @@ before promoting the new release. It refuses to remove the active target,
 a symlink destination, or any complete immutable release. The previous
 published frontend remains available until the replacement is ready.
 This recovery is distinct from, and does not certify, a real-device rollout.
+
+
+## Bootstrap and Git fetch preflight
+
+The same 2 GiB minimum reserve now also guards disk-consuming preparation
+before the release publisher starts: creating an absent Python environment,
+installing dependencies via pip/npm, and fetching `origin/main`. If the
+operating system cannot report available disk, the operation fails closed.
+
+If `./sterling.sh up` must replace an existing presentation manager and its
+new startup would first need dependency installation, the launcher checks disk
+space **before signaling the current manager**. At low headroom it leaves the
+existing frontend/tunnel running and does not modify Kite. Already-installed
+dependencies are reusable without an unnecessary bootstrap, but a new
+frontend build still needs its own separate disk preflight.
+
+These guards apply only after they are installed on the real Sterling host.
+They are a minimum reserve rather than a bound on npm/pip's peak usage;
+disk reclamation and host deployment require separate operator evidence.
