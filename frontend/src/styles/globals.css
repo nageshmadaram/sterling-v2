@@ -2066,3 +2066,127 @@ body[data-mobile-style="app"] :is(.sterling-tv-mode,.sterling-radio-mode) .sterl
   body[data-mobile-style="app"] .today-signals-priority:focus-within details,
   body[data-mobile-style="app"] .today-signals-priority details[open] {height:auto;}
 }
+
+
+/* === Single-line strategy overview — all engines, phone only ===
+ * SuperTrend, Gamma-Unwind, Snapback, EMA Trend, Price Rules and any
+ * future strategy share this one disclosure. Keep desktop information
+ * visible without changing scan settings or execution safety. */
+.strategy-mobile-overview { min-width:0;flex-shrink:0; }
+.strategy-mobile-overview-trigger { display:none; }
+.strategy-mobile-overview-content { display:block;min-width:0; }
+.strategy-mobile-overview-fallback {
+  color:var(--k-dim);font-size:11px;line-height:1.5;
+  margin:0;padding:8px 12px;border-bottom:1px solid var(--k-border);
+}
+.today-signals-priority {
+  box-sizing:border-box;display:block;min-height:0;flex-shrink:0;
+  padding:0 12px;background:var(--k-surface);color:var(--k-text);
+  border-bottom:1px solid var(--k-border);
+  font-size:11px;line-height:1.4;
+}
+.today-priority-details {margin:0;min-width:0;max-width:100%;}
+.today-priority-details > summary {
+  display:flex;align-items:center;gap:8px;list-style:none;
+  box-sizing:border-box;min-width:0;min-height:28px;padding:5px 0;
+  cursor:pointer;font:inherit;overflow:hidden;
+}
+.today-priority-details > summary::-webkit-details-marker {display:none;}
+.today-priority-summary-text {
+  display:block;flex:1 1 auto;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;font-weight:650;
+}
+.today-priority-chevron { flex:0 0 auto;font-size:12px;color:var(--k-dim); }
+.today-priority-details[open] .today-priority-chevron { transform:rotate(180deg); }
+.today-priority-expanded {
+  overflow-wrap:anywhere;padding:4px 0 9px;
+  max-height:min(45dvh,340px);overflow-y:auto;overscroll-behavior:contain;
+}
+.today-priority-expanded p { margin:0 0 6px;color:var(--k-dim);font-size:11px; }
+.today-priority-expanded p[role="alert"] {color:var(--k-red-strong,var(--k-red));}
+@media(max-width:900px) {
+  body[data-mobile-style="app"] .strategy-mobile-overview {
+    width:100%;max-width:100%;box-sizing:border-box;
+    background:var(--k-bg);border-bottom:1px solid var(--k-border);
+    padding:0;overflow:hidden;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview-trigger {
+    display:flex;align-items:center;gap:8px;width:100%;max-width:100%;
+    box-sizing:border-box;min-height:34px;height:34px;padding:6px 12px;
+    font:inherit;font-size:11px;font-weight:650;letter-spacing:0;
+    color:var(--k-text);background:var(--k-bg);border:0;
+    text-align:left;cursor:pointer;touch-action:manipulation;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview-title {
+    display:block;min-width:0;flex:1 1 auto;
+    text-overflow:ellipsis;overflow:hidden;white-space:nowrap;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview-chevron {
+    flex:0 0 auto;color:var(--k-dim);font-size:14px;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview-trigger:focus-visible {
+    outline:2px solid var(--k-brand);outline-offset:-2px;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview-content {
+    display:none;min-height:0;max-height:min(55dvh,440px);
+    overflow-y:auto;overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview.is-expanded .strategy-mobile-overview-content {
+    display:block;
+  }
+  /* Existing generic strategy rules must not hide details once the operator
+     has explicitly expanded the summary. */
+  body[data-mobile-style="app"] .strategy-mobile-overview.is-expanded
+    .strategy-mode-info[data-has-modes="true"] > div {
+    display:block!important;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview.is-expanded .strategy-mode-info {
+    max-height:none!important;overflow:visible!important;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview.is-expanded .strategy-mode-info > details {
+    max-width:100%;min-width:0;
+  }
+  body[data-mobile-style="app"] .strategy-mobile-overview.is-expanded .strategy-mode-info table {
+    min-width:580px;
+  }
+  body[data-mobile-style="app"] .today-signals-priority {
+    padding:0 9px!important;min-height:28px;
+    max-height:none!important;white-space:normal!important;
+    overflow:visible!important;
+  }
+  body[data-mobile-style="app"] .today-priority-details:not([open]) {
+    display:block!important;max-height:28px!important;
+  }
+  body[data-mobile-style="app"] .today-priority-details > summary {
+    display:flex!important;min-height:28px;max-height:28px;
+    padding:4px 0;font-size:10.5px;
+  }
+  body[data-mobile-style="app"] .today-priority-expanded {
+    white-space:normal;overflow-x:hidden;
+  }
+  /* Compact scrollable toolbar rather than wrapping six chips into rows.
+     Actions remain keyboard/touch reachable via horizontal scrolling. */
+  body[data-mobile-style="app"] .signal-mobile-controls.strategy-inline-controls {
+    flex-wrap:nowrap!important;align-items:center!important;
+    min-height:37px;max-height:54px;
+    overflow-x:auto!important;overflow-y:hidden!important;
+    overscroll-behavior-x:contain;scrollbar-width:thin;
+    -webkit-overflow-scrolling:touch;
+    padding:3px 8px!important;gap:6px!important;
+  }
+  body[data-mobile-style="app"] .strategy-inline-controls > div:not(.view-filter-items) {
+    flex-wrap:nowrap!important;white-space:nowrap;
+    gap:6px!important;padding:0!important;
+  }
+  body[data-mobile-style="app"] .strategy-inline-controls .sb-tool {
+    flex-shrink:0;min-height:29px;
+  }
+  body[data-mobile-style="app"] .strategy-inline-controls :is(label,span) {
+    flex-shrink:0;
+  }
+  body[data-mobile-style="app"] .strategy-inline-controls [role="status"] {
+    max-width:155px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;
+  }
+}
