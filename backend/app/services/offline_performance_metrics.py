@@ -89,6 +89,7 @@ def summarize(trades: list[HypotheticalTrade] | tuple[HypotheticalTrade, ...],
     contributions_symbol = defaultdict(lambda: Decimal(0))
     risk_multiples = []
     returns_per_trade = []
+    assumed_entry_notionals = []
     for i, t in enumerate(trades):
         equity += t.net_pnl_inr
         peak = max(peak, equity)
@@ -108,6 +109,7 @@ def summarize(trades: list[HypotheticalTrade] | tuple[HypotheticalTrade, ...],
         if t.risk_amount_inr is not None:
             risk_multiples.append(t.net_pnl_inr / t.risk_amount_inr)
         entry_notional = t.entry_price * t.units
+        assumed_entry_notionals.append(entry_notional)
         returns_per_trade.append(t.net_pnl_inr / entry_notional)
         window = values[max(0, i - rolling_window + 1):i + 1]
         series.append({
@@ -145,6 +147,11 @@ def summarize(trades: list[HypotheticalTrade] | tuple[HypotheticalTrade, ...],
         "mean_return_per_trade_pct": (_mean(returns_per_trade) * 100) if trades else None,
         "average_r_multiple": mean_r,
         "average_trade_duration_seconds": duration_s,
+        # These are hypothetical *single-trade entry notionals*, not
+        # authenticated portfolio/account exposure.
+        "mean_assumed_entry_notional_inr": _mean(assumed_entry_notionals),
+        "peak_assumed_entry_notional_inr": max(assumed_entry_notionals) if assumed_entry_notionals else None,
+        "observed_live_exposure_inr": None,
         "return_per_risk_unit": mean_r,
         "sharpe_active_utc_days": _annualized_ratio(daily_returns),
         "sortino_active_utc_days": _annualized_ratio(daily_returns, downside=True),

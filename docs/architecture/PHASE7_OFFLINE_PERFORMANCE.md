@@ -72,6 +72,9 @@ hypothetical pair.
   assumption, not broker inventory.
 - Return per trade is net P&L / assumed entry notional. Average R =
   net P&L / explicitly supplied risk amount; null if none supplied.
+  Mean and peak *assumed single-trade entry notionals* are provided for
+  comparative sizing, but `observed_live_exposure_inr=null`: these values
+  are **NOT actual open position or portfolio exposure**.
 - Daily/session buckets are **UTC days**, not a certified NSE/BSE session
   calendar; monthly buckets use YYYY-MM.
 - Sharpe = mean / sample standard deviation × √252 on **active UTC-day**

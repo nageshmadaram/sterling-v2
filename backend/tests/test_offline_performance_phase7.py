@@ -145,6 +145,9 @@ def test_net_profit_factor_expectancy_contribution_drawdown_and_returns(lab,serv
     assert result["sharpe_active_utc_days"] is not None
     assert result["sortino_active_utc_days"] is not None
     assert result["mean_return_per_trade_pct"] is not None
+    assert result["mean_assumed_entry_notional_inr"]=="1000"
+    assert result["peak_assumed_entry_notional_inr"]=="1000"
+    assert result["observed_live_exposure_inr"] is None
     assert result["average_r_multiple"]=="-0.6"
     assert result["execution_authorized"] is False
     by_regime=service.comparison(access_token="admin",strategy_id=lab.strategy,
