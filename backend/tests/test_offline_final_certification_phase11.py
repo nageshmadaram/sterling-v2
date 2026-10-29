@@ -150,29 +150,67 @@ def test_phase11_isolated_api_runtime_never_mounts_broker_or_execution_routes(la
 
 
 def test_phase11_http_write_surface_is_only_alert_metadata_and_mfa(lab):
+    """Check real HTTP methods plus every included router's decorators.
+
+    Recent FastAPI may represent includes as _IncludedRouter objects rather
+    than flattening child routes into app.routes; do not undercount methods.
+    """
+    import ast
+    from pathlib import Path
+
     app = create_app()
-    auth_writes = {
+    client = TestClient(app)
+    root = f"/api/v1/offline-validation/strategies/{lab.strategy}"
+    headers = {"Authorization": "Bearer operator"}
+
+    # Executable behavior: child alert routes are installed and restricted.
+    assert client.post(root + "/alerts/unknown/acknowledge",
+                       headers=headers, json={"reason": "Synthetic metadata review"}).status_code == 403
+    assert client.post(root + "/alerts/unknown/resolve",
+                       headers=headers, json={"reason": "Operator resolution denied"}).status_code == 403
+    assert client.post(root + "/status", headers=headers, json={}).status_code == 405
+    assert client.post("/api/v1/kite/orders", headers=headers, json={}).status_code == 404
+    assert client.post("/api/v1/offline-validation/send-order",
+                       headers=headers, json={}).status_code == 404
+
+    # Flat top-level routes may omit included routers; audit every included
+    # router's source, rather than assuming app.routes is a flattened list.
+    standalone_posts = {
+        route.path for route in app.routes
+        if hasattr(route, "path") and getattr(route, "methods", None)
+        and set(route.methods) & {"POST", "PUT", "PATCH", "DELETE"}
+    }
+    assert standalone_posts == {
         "/api/v1/auth/login", "/api/v1/auth/refresh", "/api/v1/auth/logout",
         "/api/v1/offline-security/mfa/verify",
     }
-    metadata_writes = {
-        "/api/v1/offline-validation/strategies/{strategy_id}/alerts/{alert_id}/acknowledge",
-        "/api/v1/offline-validation/strategies/{strategy_id}/alerts/{alert_id}/resolve",
+
+    backend = Path(__file__).resolve().parents[1]
+    router_sources = {
+        "offline_validation_journal.py": set(),
+        "offline_performance.py": set(),
+        "offline_observability.py": set(),
+        "offline_alerts.py": {
+            ("post", "/strategies/{strategy_id}/alerts/{alert_id}/acknowledge"),
+            ("post", "/strategies/{strategy_id}/alerts/{alert_id}/resolve"),
+        },
     }
-    writes = {
-        route.path for route in app.routes
-        if getattr(route, "methods", None)
-        and set(route.methods) & {"POST", "PUT", "PATCH", "DELETE"}
-    }
-    assert writes == auth_writes | metadata_writes, {
-        "actual_writes": sorted(writes),
-        "all_routes": sorted(
-            (r.path, sorted(getattr(r, "methods", ()) or ()))
-            for r in app.routes
-        ),
-    }
-    for route in app.routes:
-        if route.path.startswith("/api/v1/offline-validation/"):
-            assert set(route.methods) <= {"GET", "POST"}
-            if "POST" in route.methods:
-                assert route.path in metadata_writes
+    for filename, expected_writes in router_sources.items():
+        tree = ast.parse((backend / "app/api/v1/endpoints" / filename).read_text())
+        observed_writes = set()
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for decorator in fn.decorator_list:
+                if not isinstance(decorator, ast.Call):
+                    continue
+                action = decorator.func
+                if not (isinstance(action, ast.Attribute)
+                        and isinstance(action.value, ast.Name)
+                        and action.value.id == "router"):
+                    continue
+                assert action.attr in {"get", "post"}, (filename, action.attr)
+                if action.attr != "get":
+                    assert len(decorator.args) >= 1 and isinstance(decorator.args[0], ast.Constant)
+                    observed_writes.add((action.attr, decorator.args[0].value))
+        assert observed_writes == expected_writes, (filename, observed_writes)
