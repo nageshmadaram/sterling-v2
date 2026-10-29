@@ -27,8 +27,11 @@ Kite/order router. It does **not** claim legacy main.py is production hardened.
   Sterling auth handlers; the broad auth router and its other routes are
   **not** mounted. `remember` (30-day refresh) is absent. Access TTL is
   5 minutes and ordinary refresh TTL is 1 hour in the isolated profile.
-  Backend controls and existing refresh token revocation apply; a separate
-  per-device, durable refresh-token rotation store is **not** certified.
+  In addition, refresh from a prior legacy `remember` (30-day) token,
+  or any token with a signed TTL longer than one hour, is explicitly
+  rejected before the existing refresh handler runs. Backend controls and
+  existing refresh token revocation apply; a separate per-device,
+  durable refresh-token rotation store is **not** certified.
 - Existing rate limiter protects the MFA proof endpoint in addition to the
   primary login path. It remains process-local rather than a validated
   distributed MFA lockout; production multi-instance rollout is **blocked**.
@@ -98,10 +101,16 @@ certification is claimed.
   templates. The runtime MFA file must be owned/readable by UID 10001,
   mode 0400/0600. Secrets may be present in process environment while
   running; use a hardened host secret manager before production.
-- Auth storage is a separate offline-only volume; it is not automatically
-  the signed-in legacy account store. An authenticated offline operator
-  bootstrap or a verified identity migration must precede first login.
-  On a fresh empty volume, **do not claim operational sign-in works**.
+- Auth storage is a separate offline-only volume (`/app/data`); the
+  process explicitly opens `STERLING_DB_PATH=/app/data/offline_auth.db`,
+  initializes its own login-store schema, and refuses startup unless
+  `user_store.has_active_admin_credential()` confirms a credential.
+  It is **not** the signed-in legacy account store. An independent secure
+  admin password bootstrap or a verified identity migration must precede
+  first login. On a fresh volume without that bootstrap, startup refuses
+  instead of granting anonymous access. The auth DB includes historical
+  SQLite schema objects but the isolated HTTP router exposes no broker
+  actions. The volume must be owned by UID 10001.
 
 ## Read-only monitoring and health evidence
 
@@ -148,7 +157,12 @@ broker, strategy profitability or execution permission.
    upgrade, INSERT failure rollback, pg_dump/pg_restore, denial of
    privileged UPDATE/DELETE/TRUNCATE/DDL/row locks, and disposable
    downgrade/re-upgrade. This is **not** a real production restore.
-6. No CI/deploy job may push to `main`, publish a production artifact,
+6. The PostgreSQL gate also assumes the restricted NOLOGIN role and
+   reads the already validated synthetic analytics, alert ledger, and
+   appends/replays one immutable offline health snapshot using the actual
+   runtime grants. Literal denial SQL inputs live in an isolated CI
+   fixture; no static broker-access policy exclusions were added.
+7. No CI/deploy job may push to `main`, publish a production artifact,
    invoke Docker Compose `up`, run a broker identity check or place
    an order. The configuration validation only parses Compose.
 

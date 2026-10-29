@@ -15,6 +15,7 @@ services:
       STERLING_OFFLINE_REQUIRE_MFA: "true"
       STERLING_OFFLINE_NO_BROKER: "true"
       PAPER_TRADING: "true"
+      STERLING_DB_PATH: /app/data/offline_auth.db
       REAL_PUBLIC_DATA: "false"
       STERLING_ACCESS_TTL_S: "300"
       STERLING_REFRESH_TTL_S: "3600"

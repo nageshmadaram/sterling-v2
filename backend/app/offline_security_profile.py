@@ -24,6 +24,15 @@ def _token(header:str|None)->str:
 def create_app()->FastAPI:
     @asynccontextmanager
     async def lifespan(app:FastAPI):
+        if os.environ.get("STERLING_DB_PATH")!="/app/data/offline_auth.db":
+            raise RuntimeError("dedicated offline account database path required")
+        from app.services import db as identity_db
+        from app.services.auth import user_store
+        if not identity_db.init():
+            raise RuntimeError("dedicated offline operator identity store unavailable")
+        user_store.bootstrap()
+        if not user_store.has_active_admin_credential():
+            raise RuntimeError("verified admin bootstrap credential required")
         offline_security.validate_profile_config()
         from app.core.offline_database_privileges import assert_runtime_privileges
         assert_runtime_privileges()

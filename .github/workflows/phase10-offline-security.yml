@@ -340,7 +340,7 @@ jobs:
       - name: Confirm restored offline health/alert ledger and denied mutation grants
         run: |
           psql -d sterling_alert_restore_ci -At -c "SELECT has_table_privilege('sterling_offline_runtime','platform_offline_alert_events','UPDATE')" | grep -qx 'f'
-          psql -d sterling_alert_restore_ci -At -c "SELECT count(*) FROM platform_offline_health_events" | grep -qx '0'
+          psql -d sterling_alert_restore_ci -At -c "SELECT count(*) FROM platform_offline_health_events" | grep -qx '1'
       - name: Rehearse destructive downgrade only in disposable CI DB
         working-directory: backend
         run: |
