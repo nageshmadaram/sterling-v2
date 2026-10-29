@@ -61,6 +61,7 @@ const AstroPane = lazy(() => import('./AstroPane').then(m => ({ default: m.Astro
 const PcrPane = lazy(() => import('./PcrPane').then(m => ({ default: m.PcrPane })));
 const JournalTab = lazy(() => import('../journal/JournalTab').then(m => ({ default: m.JournalTab })));
 const LiveOperationsPanel = lazy(() => import('./LiveOperationsPanel').then(m => ({ default: m.LiveOperationsPanel })));
+const OfflineEvidencePanel = lazy(() => import('./offlineEvidence/OfflineEvidencePanel').then(m => ({ default: m.OfflineEvidencePanel })));
 
 const PriceRulesPanel = lazy(() => import('./PriceRulesPanel').then(m => ({ default: m.PriceRulesPanel })));
 
@@ -73,13 +74,14 @@ const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: 'data', label: 'Data' },
   // The one screen a non-technical operator is expected to read and act on.
   { id: 'operations', label: 'Operations' },
+  { id: 'offline-evidence', label: 'Offline Evidence' },
   { id: 'price-rules', label: 'Price Rules' },
 ];
 
 function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange: (t: MoreTab) => void }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div className="more-tabs" style={{ display: 'flex', borderBottom: `1px solid ${k.border}`, background: k.bg, flexShrink: 0 }}>
+      <div className="more-tabs" style={{ display: 'flex', borderBottom: `1px solid ${k.border}`, background: k.bg, flexShrink: 0, overflowX: 'auto', maxWidth: '100%' }}>
         {MORE_TABS.map((t) => {
           const active = activeTab === t.id;
           return (
@@ -92,7 +94,7 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
                 fontSize: 13, fontWeight: active ? 600 : 400,
                 color: active ? 'var(--k-brand)' : 'var(--k-ink-4)',
                 borderBottom: active ? '2px solid var(--k-brand)' : '2px solid transparent',
-                marginBottom: -1, transition: 'color 0.15s',
+                marginBottom: -1, transition: 'color 0.15s', whiteSpace: 'nowrap', flexShrink: 0,
               }}
             >
               {t.label}
@@ -109,6 +111,7 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
           {activeTab === 'backtest' && <BacktestPane />}
           {activeTab === 'data' && <MarketDataPane />}
           {activeTab === 'operations' && <LiveOperationsPanel />}
+          {activeTab === 'offline-evidence' && <OfflineEvidencePanel />}
           {activeTab === 'price-rules' && <PriceRulesPanel />}
         </Suspense>
       </div>
