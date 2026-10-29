@@ -4,8 +4,8 @@
 **Disposition:** Targeted isolated offline security/readiness validation **PASS**;
 **actual production deployment, live trading, and final release certification BLOCKED**.
 **Draft PR #12:** https://github.com/nageshmadaram/sterling-v2/pull/12
-**Validated implementation code head:** `631b18b16282c8049efd20c52b7f5b7ba7ff1934`
-**Successful 3-job workflow:** https://github.com/nageshmadaram/sterling-v2/actions/runs/40818346052
+**Validated implementation code head:** `f9c00e02844909a6c1a53468d092d9b8de1918ab`
+**Successful 3-job workflow (security follow-up):** https://github.com/nageshmadaram/sterling-v2/actions/runs/40819425534
 
 ## Observed, real CI results
 
@@ -29,6 +29,7 @@
 | Phase 2B broker audit | **0 newly unreviewed, 272 inherited classified findings** |
 | Disposable PostgreSQL16 additive health migration and Phase 9 immutable records | PASS |
 | Role grants prevent direct registry/ledger UPDATE, DELETE, TRUNCATE, row-lock, DDL and trigger disable | PASS |
+| Runtime cannot create shadow tables, TEMP tables, schemas or bypass RLS; database name guard refuses wrong target | PASS in disposable PG16 |
 | Runtime-role functional offline analytics/alerts SELECT and health INSERT + hash-backed replay | PASS |
 | PostgreSQL16 forced alert insert rollback, isolated pg_dump/pg_restore, row counts | PASS |
 | Disposable-only Alembic downgrade/re-upgrade | PASS |
@@ -63,6 +64,19 @@ Warnings are not release waivers.
   patterns. PostgreSQL role-denial probes plus **functional restricted
   operator reader and health event append** passed. Standalone Compose
   configuration parsed successfully; nothing was deployed.
+
+- [run 40819214807](https://github.com/nageshmadaram/sterling-v2/actions/runs/40819214807):
+  **FAILED** while extending the SQL privilege guard due to malformed
+  dollar-quoted SQL from an intermediate edit. No safety validation was
+  claimed for that commit. The SQL was reconstructed with explicit
+  dollar-quote delimiters and the gate was rerun.
+- [run 40819425534](https://github.com/nageshmadaram/sterling-v2/actions/runs/40819425534):
+  **ALL 3 jobs SUCCESS** on code head `f9c00e0284`. PostgreSQL16
+  now denies database CREATE, TEMP and BYPASSRLS; negative probes
+  reject shadow-table/schema creation and privileged writes. A
+  guard check proved the grant script refuses a non-offline database.
+  Disposable backup/restore and downgrade/re-upgrade passed.
+  No deployment, release or production database was touched.
 
 ## Delivered, limited-scope artifacts
 
@@ -109,7 +123,10 @@ Warnings are not release waivers.
    CI uses synthetic JWTs and a fixture TOTP secret. A real operator
    account store, MFA enrollment/rotation/recovery, device login,
    multi-instance lockout/session revocation and independent IdP proof
-   remain outstanding. The separate profile refuses startup without
+   remain outstanding. The inherited account-store creation path accepts
+   `admin`/`user`, not a production-certified `operator` enrollment
+   flow; existing operator tests use synthetic signed identities.
+   Operational provisioning for the operator role remains BLOCKED. The separate profile refuses startup without
    an active strong admin credential and its required secret file.
 3. **TLS and edge controls are not deployed.** The frontend is bound to
    loopback, not exposed publicly; a verified TLS terminator, HSTS,
@@ -122,7 +139,10 @@ Warnings are not release waivers.
    forge an append event. Independent security-definer writers,
    privileged DB hardening, WORM/external notarization, per-actor
    identity and superuser/DDL protection are NOT certified; privileged
-   DB owners can still bypass triggers.
+   DB owners can still bypass triggers. Runtime database TEMP/CREATE
+   privileges are now explicitly denied, but inherited grants outside
+   the audited set and physical DB/host isolation still require
+   independent acceptance.
 5. **Health is explicitly incomplete.** Broker connectivity is
    `not_connected`; market-data health, worker health, actual broker
    exposure and external alert delivery have no authoritative proofs.
