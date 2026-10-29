@@ -259,3 +259,47 @@ jobs:
           path: /tmp/sterling-v2-final-source-quality-no-go.json
           if-no-files-found: error
           retention-days: 30
+  
+  increment7-final-branch-integrity:
+    name: Final source-locked branch diff and independent NO-GO review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile source-lock validator and negative tests
+        run: python -m py_compile scripts/verify_increment7_branch_freeze.py scripts/tests/test_next_upgrade_increment7_branch_freeze.py
+      - name: Run immutable historical source and false-authority negative tests
+        run: python -m unittest scripts.tests.test_next_upgrade_increment7_branch_freeze -v
+      - name: Check exact five-file patch, pinned main and source blobs
+        run: python -m scripts.verify_increment7_branch_freeze --output /tmp/sterling-v2-increment7-source-lock-no-go.json
+      - name: Assert NO-GO and complete branch snapshot checks
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/sterling-v2-increment7-source-lock-no-go.json').read_text())
+          assert x['validation']=='PASS' and x['locked_sources']==26
+          assert x['branch_hygiene']==x['main_unchanged']=='PASS'
+          assert x['accepted_controls']==0 and x['blocked_controls']==12
+          assert x['human_appointments']==x['independent_signoffs']==x['real_operational_receipts']==0
+          assert x['offline_validation']=='PASS'
+          assert x['production_certification']=='NOT ACHIEVED'
+          assert x['production_deployment']=='NO-GO'
+          assert x['live_trading']==x['broker_order_routing']=='NOT AUTHORIZED'
+          assert x['release_freeze']=='ACTIVE'
+          print('Final branch frozen for evidence review only; 12/12 controls remain BLOCKED.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment7-pinned-source-no-go
+          path: /tmp/sterling-v2-increment7-source-lock-no-go.json
+          if-no-files-found: error
+          retention-days: 30
