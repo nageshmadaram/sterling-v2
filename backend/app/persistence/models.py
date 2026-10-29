@@ -66,3 +66,6 @@ from app.persistence.strategy_registry_audit import PlatformStrategyAuditRow  # 
 
 # Phase 4 independent, append-only offline authorization evidence.
 from app.persistence.execution_validation_models import PlatformGateEventRow  # noqa: F401
+
+# Phase 5: audit-only execution scheduler and backlog (append-only, offline).
+from app.persistence.offline_scheduler_models import PlatformOrchestrationEventRow  # noqa: F401
