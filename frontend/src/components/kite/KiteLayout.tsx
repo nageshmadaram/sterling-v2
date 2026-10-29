@@ -45,7 +45,7 @@ import { useMobileExperience } from '../../store/useMobileExperience';
 import { SimFullscreenTag } from '../sim/SimFullscreenTag';
 
 export type NavItem = 'dashboard' | 'astro' | 'pcr' | 'orders' | 'holdings' | 'positions' | 'journal' | 'more' | 'data' | 'backtest' | 'connect' | 'help';
-export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations' | 'price-rules';
+export type MoreTab = 'bids' | 'funds' | 'mf' | 'alerts' | 'backtest' | 'data' | 'operations' | 'offline-evidence' | 'price-rules';
 
 interface KiteLayoutProps {
   activeNav: NavItem;
