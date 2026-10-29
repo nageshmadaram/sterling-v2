@@ -1,0 +1,295 @@
+name: Phase 9 Durable Offline Alert and Notification Certification
+
+on:
+  push:
+    branches:
+      - upgrade/offline-durable-alerts-20261029
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-orchestration:
+    name: Phase 9 / Durable Alerts and Prior Safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Sterling locked backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compile new offline-only scheduler and migration
+        run: |
+          python -m compileall -q backend/app/domain/offline_scheduler.py \
+            backend/app/persistence/offline_scheduler_service.py \
+            backend/app/persistence/offline_scheduler_models.py \
+            backend/alembic/versions/c75f92d1a341_offline_orchestration.py \
+            backend/app/persistence/offline_decision_journal_models.py \
+            backend/app/persistence/offline_decision_journal_service.py \
+            backend/app/persistence/offline_reconciliation.py \
+            backend/app/api/v1/endpoints/offline_validation_journal.py \
+            backend/alembic/versions/d86e31a4f290_decision_journal.py \
+            backend/app/domain/offline_performance.py \
+            backend/app/services/offline_performance_metrics.py \
+            backend/app/persistence/offline_performance_models.py \
+            backend/app/persistence/offline_performance_service.py \
+            backend/app/api/v1/endpoints/offline_performance.py \
+            backend/alembic/versions/e97c602ab458_offline_performance.py \
+            backend/app/api/v1/endpoints/offline_observability.py \
+            backend/app/persistence/offline_alert_models.py \
+            backend/app/persistence/offline_alert_service.py \
+            backend/app/api/v1/endpoints/offline_alerts.py \
+            backend/alembic/versions/f08d719bac64_offline_alerts.py
+      - name: Test Phase 9 alerts plus earlier offline and broker safety
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_offline_alerts_phase9.py \
+            tests/test_offline_observability_phase8.py \
+            tests/test_offline_performance_phase7.py \
+            tests/test_offline_decision_journal_phase6.py \
+            tests/test_offline_scheduler_phase5.py \
+            tests/test_execution_validation_gate.py \
+            tests/test_market_data_reliability.py \
+            tests/test_market_data_history_reliability.py \
+            tests/test_broker_normalized_read.py \
+            tests/test_broker_read_contract_edges.py \
+            tests/test_broker_kite_provider_boundary.py \
+            tests/test_broker_access_policy.py \
+            tests/test_broker_registry.py \
+            tests/test_registry_signed_auth_contract.py \
+            tests/test_platform_strategy_registry.py \
+            tests/test_platform_strategy_registry_safety.py
+      - name: Phase 6 GET-only interface, no execution calls
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          paths=[
+              "backend/app/persistence/offline_decision_journal_service.py",
+              "backend/app/persistence/offline_reconciliation.py",
+              "backend/app/api/v1/endpoints/offline_validation_journal.py",
+          ]
+          forbidden={"place_order","cancel_order","submit_order","modify_order",
+                     "market_reduce_close","place_gtt","delete_gtt","modify_gtt"}
+          for p in paths:
+              tree=ast.parse(Path(p).read_text())
+              names={n.name for n in ast.walk(tree) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
+              assert not (names & forbidden),(p,names & forbidden)
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.ImportFrom):
+                      assert not (node.module or "").startswith("app.services.exchanges.kite"),p
+          from pathlib import Path
+          api=ast.parse(Path(paths[-1]).read_text())
+          calls=[n for n in ast.walk(api) if isinstance(n,ast.Call)
+                 and isinstance(n.func,ast.Attribute) and n.func.attr in ("get","post","put","patch","delete")
+                 and isinstance(n.func.value,ast.Name) and n.func.value.id=="router"]
+          assert len(calls)==2 and all(n.func.attr=="get" for n in calls)
+          print("PASS: Phase 6 has only authenticated GET evidence routes, no broker writes")
+          PY
+      - name: Phase 7 is strictly offline GET-only, no broker routing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          paths=[
+              "backend/app/domain/offline_performance.py",
+              "backend/app/services/offline_performance_metrics.py",
+              "backend/app/persistence/offline_performance_service.py",
+              "backend/app/api/v1/endpoints/offline_performance.py",
+          ]
+          forbidden_methods={"place_order","cancel_order","submit_order","modify_order",
+                             "market_reduce_close","place_gtt","delete_gtt","modify_gtt",
+                             "execute_order","send_order"}
+          blocked_modules=("kiteconnect","app.services.exchanges.kite",
+                           "app.services.execution","requests","httpx")
+          for path in paths:
+              tree=ast.parse(Path(path).read_text())
+              funcs={x.name for x in ast.walk(tree) if isinstance(x,(ast.FunctionDef,ast.AsyncFunctionDef))}
+              assert not (funcs & forbidden_methods),(path,funcs & forbidden_methods)
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.ImportFrom):
+                      assert not any((node.module or "").startswith(p) for p in blocked_modules),(path,node.module)
+                  if isinstance(node,ast.Import):
+                      assert not any(x.name.startswith(p) for x in node.names for p in blocked_modules),path
+          api=ast.parse(Path(paths[-1]).read_text())
+          decorators=[node for fn in ast.walk(api) if isinstance(fn,(ast.FunctionDef,ast.AsyncFunctionDef))
+                      for node in fn.decorator_list if isinstance(node,ast.Call)
+                      and isinstance(node.func,ast.Attribute)
+                      and isinstance(node.func.value,ast.Name)
+                      and node.func.value.id=="router"]
+          assert len(decorators)==8 and all(n.func.attr=="get" for n in decorators)
+          assert "execution_authorized" in Path(paths[-1]).read_text()
+          print("PASS: Phase 7 offline analytics expose eight GET-only routes, no broker writes")
+          PY
+      - name: Phase 9 alert-to-execution guard
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          sources=[
+            "backend/app/persistence/offline_alert_service.py",
+            "backend/app/api/v1/endpoints/offline_alerts.py",
+          ]
+          forbidden=("kiteconnect","app.services.exchanges.kite",
+                     "app.services.execution","requests","httpx","subprocess")
+          for path in sources:
+            tree=ast.parse(Path(path).read_text())
+            for node in ast.walk(tree):
+              if isinstance(node,ast.ImportFrom):
+                assert not any((node.module or "").startswith(s) for s in forbidden),(path,node.module)
+              if isinstance(node,ast.Import):
+                assert not any(i.name.startswith(s) for i in node.names for s in forbidden),path
+          route=ast.parse(Path(sources[1]).read_text())
+          decorators=[(n.func.attr,n.args[0].value) for f in ast.walk(route)
+            if isinstance(f,(ast.FunctionDef,ast.AsyncFunctionDef))
+            for n in f.decorator_list if isinstance(n,ast.Call)
+            and isinstance(n.func,ast.Attribute) and isinstance(n.func.value,ast.Name)
+            and n.func.value.id=="router" and n.args and isinstance(n.args[0],ast.Constant)]
+          assert len(decorators)==3,decorators
+          assert all(verb=="get" or (verb=="post" and endpoint.endswith(("/acknowledge","/resolve")))
+                     for verb,endpoint in decorators),decorators
+          panel=Path("frontend/src/components/kite/offlineEvidence/OfflineAlertInbox.tsx").read_text()
+          assert "api.post<" in panel and "/acknowledge" in panel
+          assert all(forbidden not in panel for forbidden in ("placeOrder(","submitOrder(","cancelOrder(","api.put(","api.delete(","api.patch("))
+          print("PASS: only informational acknowledgement/resolution POST; zero broker/order imports")
+          PY
+      - name: No newly introduced unreviewed direct broker access
+        run: python backend/scripts/audit_broker_access.py
+      - name: Forbid route, network, timer and broker write authority
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          paths = [Path('backend/app/domain/offline_scheduler.py'),
+                   Path('backend/app/persistence/offline_scheduler_service.py')]
+          forbidden_methods = {'place_order','cancel_order','modify_order',
+                               'submit_order','send_order','market_reduce_close',
+                               'place_gtt','modify_gtt','delete_gtt','APIRouter',
+                               'create_task','call_later','schedule_interval'}
+          for p in paths:
+              tree = ast.parse(p.read_text())
+              functions = {n.name for n in ast.walk(tree)
+                           if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
+              assert not (functions & forbidden_methods), (p,functions & forbidden_methods)
+              blocked_imports=('fastapi','httpx','requests','kiteconnect',
+                               'app.services.exchanges.kite','app.services.execution.order_router')
+              for n in ast.walk(tree):
+                  if isinstance(n,ast.ImportFrom):
+                      assert not any((n.module or '').startswith(prefix)
+                                     for prefix in blocked_imports), (p,n.module)
+                  if isinstance(n,ast.Import):
+                      assert not any(a.name.startswith(prefix) for a in n.names
+                                     for prefix in blocked_imports), p
+          print('PASS: scheduler has no broker, HTTP routes, external network or worker')
+          PY
+
+  frontend-evidence:
+    name: Phase 9 / Alert Inbox and Existing UI Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install pinned frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Phase 8 targeted React smoke tests
+        working-directory: frontend
+        run: npx vitest run src/components/kite/offlineEvidence/__tests__/OfflineEvidencePanel.test.tsx src/components/kite/offlineEvidence/__tests__/OfflineAlertInbox.test.tsx --reporter=verbose
+      - name: Typecheck existing Sterling frontend including Phase 8
+        working-directory: frontend
+        run: npx tsc --noEmit --pretty false
+      - name: Check no HTTP mutations or broker authority in Phase 8 UI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src = Path("frontend/src/components/kite/offlineEvidence/OfflineEvidencePanel.tsx").read_text()
+          contracts = Path("frontend/src/components/kite/offlineEvidence/contracts.ts").read_text()
+          api = Path("backend/app/api/v1/endpoints/offline_observability.py").read_text()
+          for forbidden in ("api.post(", "api.put(", "api.delete(", "api.patch(", "placeOrder(",
+                            "submitOrder(", "sendOrder(", "liveExecutionEnabled = true", "WebSocket("):
+              assert forbidden not in src, forbidden
+          assert "api.get<" in src or "api.get<T>" in src
+          assert "execution_authorized" in contracts
+          assert api.count("@router.get(") == 2
+          assert not any(f"@router.{method}(" in api for method in ("post","put","delete","patch"))
+          assert "OfflineEvidencePanel" in Path("frontend/src/components/kite/KiteTab.tsx").read_text()
+          print("PASS: Phase 8 frontend GET-only and isolated from broker/order authority")
+          PY
+      - name: Frontend production compilation (diagnostic; no release)
+        working-directory: frontend
+        run: npm run build
+
+  postgres-orchestration:
+    name: Phase 9 / PostgreSQL16 Alert Audit and Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sterling_alert_ci
+          POSTGRES_USER: sterling_ci
+          POSTGRES_PASSWORD: synthetic_ci_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sterling_ci -d sterling_alert_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://sterling_ci:synthetic_ci_secret@localhost:5432/sterling_alert_ci
+      STERLING_ALERT_DISPOSABLE_DB: 'yes'
+      ENVIRONMENT: test
+      PAPER_TRADING: 'true'
+      REAL_PUBLIC_DATA: 'false'
+      PGHOST: localhost
+      PGUSER: sterling_ci
+      PGPASSWORD: synthetic_ci_secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies and PostgreSQL driver
+        run: |
+          python -m pip install -r backend/requirements.lock.txt
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Migrate and validate durable queue ledger
+        working-directory: backend
+        run: PYTHONPATH=. python scripts/validate_offline_alerts_postgres.py
+      - name: Dump/restore isolated DB using matching PostgreSQL16 clients
+        run: |
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_dump -h localhost -U "$PGUSER" -Fc --no-owner -d sterling_alert_ci -f /tmp/sterling_alert_ci.dump
+          psql -d sterling_alert_ci -v ON_ERROR_STOP=1 -c 'CREATE DATABASE sterling_alert_restore_ci;'
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_restore -h localhost -U "$PGUSER" --no-owner --exit-on-error \
+            -d sterling_alert_restore_ci /tmp/sterling_alert_ci.dump
+          psql -d sterling_alert_restore_ci -At \
+            -c "SELECT count(*) FROM platform_offline_alert_events" | grep -qx '4'
+      - name: Rehearse destructive downgrade only in disposable CI DB
+        working-directory: backend
+        run: |
+          python -m alembic downgrade e97c602ab458
+          python -m alembic upgrade head
