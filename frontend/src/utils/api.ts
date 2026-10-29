@@ -98,7 +98,12 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
 
     if (operatorStillValid !== true) {
       const refreshed = await refreshSterlingAccess();
-      if (refreshed) resp = await send();
+      if (refreshed) {
+        // Offline MFA is cryptographically bound to the previous access JWT.
+        // Never carry its proof into a refreshed session.
+        clearOfflineMfaProof();
+        resp = await send();
+      }
       else refreshDeferred = Boolean(getRefreshToken());
       // Still unauthorised after a refresh attempt. Tell the app only when the
       // session is genuinely over. If /auth/me could not be reached, preserve

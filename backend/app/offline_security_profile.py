@@ -55,7 +55,19 @@ def create_app()->FastAPI:
     auth=auth_endpoints
     # Strict allowlist of existing signed-token auth handlers, NOT entire auth router.
     app.add_api_route("/api/v1/auth/login",auth.login,methods=["POST"],response_model=auth.TokenResponse)
-    app.add_api_route("/api/v1/auth/refresh",auth.refresh,methods=["POST"],response_model=auth.TokenResponse)
+    @app.post("/api/v1/auth/refresh",response_model=auth.TokenResponse)
+    async def offline_refresh(request:Request,body:auth.RefreshRequest):
+        from app.core import tokens
+        try:
+            claims=tokens.decode(body.refresh_token,expected_typ="refresh")
+        except tokens.TokenError as exc:
+            raise HTTPException(status_code=401,detail="Invalid offline refresh session") from exc
+        # A refresh token minted by legacy /remember could be valid for 30
+        # days. Reject it here even if the signature itself is correct.
+        if (claims.get("remembered") is True or
+            int(claims["exp"])-int(claims["iat"])>3600):
+            raise HTTPException(status_code=401,detail="Long-lived refresh is not allowed")
+        return await auth.refresh(request,body)
     app.add_api_route("/api/v1/auth/logout",auth.logout,methods=["POST"])
     app.add_api_route("/api/v1/auth/me",auth.me,methods=["GET"],response_model=auth.MeResponse)
 
@@ -77,7 +89,7 @@ def create_app()->FastAPI:
                 "scope":"offline_observability_admin_only",
                 "execution_authorized":False}
 
-    # Mount exactly seven evidence route groups, no dynamic imports from main.py.
+    # Mount only offline evidence routers, never the legacy trading router.
     from app.api.v1.endpoints.offline_validation_journal import router as journal
     from app.api.v1.endpoints.offline_performance import router as analytics
     from app.api.v1.endpoints.offline_observability import router as status

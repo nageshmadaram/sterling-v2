@@ -87,6 +87,16 @@ def test_secure_gateway_isolated_routes_role_and_mfa(secret_file,lab):
         headers={"Authorization":"Bearer operator"}).json()["broker"]["status"]=="not_connected"
 
 
+def test_offline_refresh_rejects_legacy_remembered_token(secret_file,lab):
+    from app.core import tokens
+    remembered=tokens.mint_refresh("owner","offline_admin","admin",1,remembered=True)
+    response=TestClient(create_app()).post(
+        "/api/v1/auth/refresh",json={"refresh_token":remembered})
+    assert response.status_code==401
+    assert "Long-lived" in response.json()["detail"]
+    assert not any("/auth/remember" in getattr(route,"path","") for route in create_app().routes)
+
+
 def test_viewer_and_simulation_identity_denied(secret_file,lab,monkeypatch):
     original=registry._identity
     def actor(token):
