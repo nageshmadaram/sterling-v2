@@ -9,6 +9,8 @@
     "INSERT INTO platform_strategy_audit (id) VALUES ('forged')",
     "INSERT INTO platform_decision_journal (id) VALUES ('forged')",
     "ALTER TABLE platform_offline_alert_events DISABLE TRIGGER ALL",
-    "SELECT id FROM platform_strategies FOR UPDATE"
+    "SELECT id FROM platform_strategies FOR UPDATE",
+    "CREATE TEMP TABLE sterling_offline_shadow (id TEXT)",
+    "CREATE SCHEMA sterling_offline_shadow"
   ]
 }
