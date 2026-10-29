@@ -1,0 +1,210 @@
+name: Phase 11 Final Offline Certification (PRODUCTION NO-GO)
+
+on:
+  push:
+    branches:
+      - upgrade/offline-final-certification-20261029
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase11-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-integrated:
+    name: Phase 11 / Combined Offline Persistence and Broker-Safety Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      PAPER_TRADING: 'true'
+      REAL_PUBLIC_DATA: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned backend test dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Python compilation — offline integration, security, migration
+        run: |
+          python -m compileall -q backend/app/core/offline_security.py \
+            backend/app/offline_security_profile.py \
+            backend/app/persistence/offline_health_service.py \
+            backend/scripts/validate_phase11_no_go.py \
+            backend/tests/test_offline_final_certification_phase11.py
+      - name: Phase 1–11 combined offline test suite (synthetic, no service keys)
+        working-directory: backend
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_offline_final_certification_phase11.py \
+            tests/test_offline_security_phase10.py \
+            tests/test_offline_health_phase10.py \
+            tests/test_offline_alerts_phase9.py \
+            tests/test_offline_observability_phase8.py \
+            tests/test_offline_performance_phase7.py \
+            tests/test_offline_decision_journal_phase6.py \
+            tests/test_offline_scheduler_phase5.py \
+            tests/test_execution_validation_gate.py \
+            tests/test_market_data_reliability.py \
+            tests/test_market_data_history_reliability.py \
+            tests/test_broker_normalized_read.py \
+            tests/test_broker_read_contract_edges.py \
+            tests/test_broker_kite_provider_boundary.py \
+            tests/test_broker_access_policy.py \
+            tests/test_broker_registry.py \
+            tests/test_registry_signed_auth_contract.py \
+            tests/test_platform_strategy_registry.py \
+            tests/test_platform_strategy_registry_safety.py
+      - name: Assert no newly unreviewed direct broker access
+        run: python backend/scripts/audit_broker_access.py
+
+  offline-ui-config:
+    name: Phase 11 / Evidence UI, Auth MFA and Deployment Config
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install pinned frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Operator evidence, alert and MFA smoke tests
+        working-directory: frontend
+        run: npx vitest run src/components/kite/offlineEvidence/__tests__/OfflineEvidencePanel.test.tsx src/components/kite/offlineEvidence/__tests__/OfflineAlertInbox.test.tsx --reporter=verbose
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npx tsc --noEmit --pretty false
+      - name: Diagnostic frontend production build — NO DEPLOY
+        working-directory: frontend
+        run: npm run build
+      - name: Parse offline Compose with synthetic environment — NEVER UP
+        run: |
+          mkdir -p /tmp/sterling-phase11-config
+          printf 'DATABASE_URL=postgresql+psycopg://synthetic:synthetic@db/offline\n' > /tmp/sterling-phase11-config/runtime.env
+          printf '{"synthetic":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}\n' > /tmp/sterling-phase11-config/offline-mfa.json
+          chmod 0600 /tmp/sterling-phase11-config/*
+          STERLING_OFFLINE_ENV_FILE=/tmp/sterling-phase11-config/runtime.env \
+          STERLING_OFFLINE_SECRET_DIR=/tmp/sterling-phase11-config \
+          docker compose -f deploy/offline-only/compose.yml config --quiet
+          echo 'PASS: static Compose parse only; zero containers started'
+
+  offline-postgres:
+    name: Phase 11 / PostgreSQL16 Audit, Privilege Denial, Restore and Migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sterling_alert_ci
+          POSTGRES_USER: sterling_ci
+          POSTGRES_PASSWORD: synthetic_ci_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sterling_ci -d sterling_alert_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://sterling_ci:synthetic_ci_secret@localhost:5432/sterling_alert_ci
+      STERLING_ALERT_DISPOSABLE_DB: 'yes'
+      ENVIRONMENT: test
+      PAPER_TRADING: 'true'
+      REAL_PUBLIC_DATA: 'false'
+      PGHOST: localhost
+      PGUSER: sterling_ci
+      PGPASSWORD: synthetic_ci_secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked dependencies and PostgreSQL client
+        run: |
+          python -m pip install -r backend/requirements.lock.txt
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Disposable versioned migrations, alert chain and source rollback
+        working-directory: backend
+        run: PYTHONPATH=. python scripts/validate_offline_alerts_postgres.py
+      - name: Reject privilege script against default non-offline database
+        run: |
+          if psql -d postgres -v ON_ERROR_STOP=1 -f deploy/offline-only/privileges.sql > /tmp/phase11-denial.log 2>&1; then
+            echo 'FAIL: grant script accepted the wrong database'
+            exit 1
+          fi
+          grep -q 'Phase 10 privilege setup refused: non-isolated database' /tmp/phase11-denial.log
+      - name: Apply isolated grants and prove direct-write and temp-shadow denial
+        run: |
+          psql -d sterling_alert_ci -v ON_ERROR_STOP=1 -f deploy/offline-only/privileges.sql
+          cd backend
+          PYTHONPATH=. python scripts/validate_offline_security_pg_role.py
+      - name: Backup/restore isolated database using PostgreSQL16 clients
+        run: |
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_dump -h localhost -U "$PGUSER" -Fc --no-owner -d sterling_alert_ci -f /tmp/sterling_phase11_ci.dump
+          sha256sum /tmp/sterling_phase11_ci.dump > /tmp/sterling_phase11_ci.dump.sha256
+          sha256sum -c /tmp/sterling_phase11_ci.dump.sha256
+          psql -d sterling_alert_ci -v ON_ERROR_STOP=1 -c 'CREATE DATABASE sterling_phase11_restore_ci;'
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_restore -h localhost -U "$PGUSER" --no-owner --exit-on-error \
+            -d sterling_phase11_restore_ci /tmp/sterling_phase11_ci.dump
+          psql -d sterling_phase11_restore_ci -At \
+            -c 'SELECT count(*) FROM platform_offline_alert_events' | grep -qx '4'
+          psql -d sterling_phase11_restore_ci -At \
+            -c 'SELECT count(*) FROM platform_offline_health_events' | grep -qx '1'
+          psql -d sterling_phase11_restore_ci -At \
+            -c "SELECT has_table_privilege('sterling_offline_runtime','platform_offline_alert_events','UPDATE')" | grep -qx 'f'
+      - name: Downgrade/re-upgrade only disposable CI database
+        working-directory: backend
+        run: |
+          python -m alembic downgrade e97c602ab458
+          python -m alembic upgrade head
+
+  final-no-go-attestation:
+    name: Phase 11 / Freeze, Evidence and Production NO-GO
+    runs-on: ubuntu-latest
+    needs: [offline-integrated, offline-ui-config, offline-postgres]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fail-closed safety gate — never an approval to release
+        run: |
+          python backend/scripts/validate_phase11_no_go.py --output /tmp/sterling-phase11-final-no-go.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          result=json.loads(Path('/tmp/sterling-phase11-final-no-go.json').read_text())
+          assert result['production_deployment']=='NO_GO'
+          assert result['production_ready'] is False
+          assert result['broker_writes_enabled'] is False
+          assert result['execution_authorized'] is False
+          assert result['live_trading_authorized'] is False
+          assert result['merge_authorized'] is False
+          assert len(result['remaining_blockers'])>=10
+          print('PASS: constrained OFFLINE evidence gate; production release and live trading still BLOCKED')
+          PY
+      - name: Upload sanitized NO-GO evidence (not an executable artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-phase11-no-go-evidence
+          path: /tmp/sterling-phase11-final-no-go.json
+          if-no-files-found: error
+          retention-days: 30
