@@ -5,6 +5,8 @@ credentials, new execution authority, deployment or production database.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -33,7 +35,8 @@ def test_phase11_single_synthetic_chain_registry_to_health_and_operator(lab):
     assert all(len(row["audit_ref"]) == 64 for row in decisions)
 
     recon = OfflineReconciler(sessions).inspect(
-        access_token="operator", strategy_id=lab.strategy
+        access_token="operator", strategy_id=lab.strategy,
+        at=datetime.now(timezone.utc),
     )
     assert recon["status"] == "verified_offline"
     assert len(recon["items"]) == 2
