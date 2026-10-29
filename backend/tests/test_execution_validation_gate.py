@@ -262,3 +262,24 @@ def test_locked_strategy_is_audited_rejection(world):
     assert response.decision == Decision.REJECT
     assert "STRATEGY_LOCKED_OR_RETIRED" in response.codes
     assert not response.execution_authorized
+
+
+def test_system_wide_kill_switch_blocks_every_offline_strategy_and_exposes_pending_alert(world):
+    _, _, gate, key, version, run=world
+    setup_approved(gate,key)
+    gate.transition(access_token="admin",strategy_id=None,
+                    new_state=GateState.EMERGENCY_STOP,
+                    approval_mode=ApprovalMode.BLOCKED,reason="system-wide synthetic safety drill")
+    result=gate.dry_run(access_token="admin",inputs=input_for(key,version,run),
+                        reason="system kill drill")
+    assert result.decision == Decision.EMERGENCY_STOP
+    assert not result.execution_authorized
+    outbox=gate.pending_alerts(access_token="admin",strategy_id=None)
+    assert len(outbox) == 1 and outbox[0]["alert_delivery"] == "pending"
+    assert outbox[0]["execution_authorized"] is False
+    with pytest.raises(PermissionError):
+        gate.pending_alerts(access_token="operator",strategy_id=None)
+    strategy_alerts=gate.pending_alerts(access_token="operator",strategy_id=key)
+    assert len(strategy_alerts) == 1
+    with pytest.raises(PermissionError):
+        gate.pending_alerts(access_token="foreign",strategy_id=key)

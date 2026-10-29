@@ -154,6 +154,26 @@ class OfflineExecutionGate:
                                "alert_delivery": "pending" if new_state is GateState.EMERGENCY_STOP else "not_required",
                            })
 
+    def pending_alerts(self, *, access_token: str,
+                       strategy_id: str | None = None) -> tuple[dict, ...]:
+        """Authenticated, read-only outbox view; no alert is sent or acknowledged."""
+        actor = registry._identity(access_token)
+        if strategy_id is None and actor.role != "admin":
+            raise PermissionError("system alert view requires verified admin")
+        with session_scope(self._sessions) as db:
+            if strategy_id:
+                registry._strategy(db, actor, strategy_id)
+            rows = _read(db, strategy_id)
+            return tuple({
+                "event_id": row.id, "strategy_id": row.strategy_id,
+                "run_id": row.run_id, "at_ms": row.occurred_at_ms,
+                "alert_delivery": "pending", "alert_required": True,
+                "execution_authorized": False,
+            } for row in rows
+                if row.kind == "state_transition"
+                and json.loads(row.payload_json).get("alert_required") is True
+                and json.loads(row.payload_json).get("alert_delivery") == "pending")
+
     def approve_offline_signal(self, *, access_token: str, inputs: GateInput,
                                reason: str) -> str:
         actor, reason = registry._identity(access_token), _reason(reason)
