@@ -72,3 +72,6 @@ from app.persistence.offline_scheduler_models import PlatformOrchestrationEventR
 
 # Phase 6 offline journal: shared Phase 5 SQL transaction, no broker authority.
 from app.persistence.offline_decision_journal_models import PlatformDecisionJournalRow  # noqa: F401
+
+# Phase 7 opt-in hypothetical evidence only, never a broker trade record.
+from app.persistence.offline_performance_models import PlatformHypotheticalTradeRow  # noqa: F401

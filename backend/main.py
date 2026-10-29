@@ -739,6 +739,9 @@ def create_app() -> FastAPI:
     # Phase 6: strict signed-auth GET-only offline decision evidence.
     from app.api.v1.endpoints.offline_validation_journal import router as offline_journal_router
     app.include_router(offline_journal_router, prefix="/api/v1")
+    # Phase 7: GET-only, synthetic/hypothetical analytics with strict JWT.
+    from app.api.v1.endpoints.offline_performance import router as offline_performance_router
+    app.include_router(offline_performance_router, prefix="/api/v1")
     # <<< trade-journal
 
     # Telegram Mini App (TMA) frontend & endpoints
