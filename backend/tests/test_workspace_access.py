@@ -486,3 +486,31 @@ def test_next_upgrade_stale_broker_assignment_fails_before_broker_probe(workspac
         'user_id':'member', 'expected_user_id':'default', 'expected_updated_at_ms':account.updated_at_ms+1})
     assert response.status_code == 409
     assert accounts.get('default', account.id).user_id == 'default'
+
+
+def test_next_upgrade_admin_credential_requires_real_bearer_and_current_session_version(workspace, monkeypatch):
+    """A production-mode synthetic HTTP request cannot use a missing/member/revoked admin JWT."""
+    from app.core import tokens
+    from app.services.auth import user_store
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    monkeypatch.setattr(accounts, '_accounts', {})
+    account = accounts.add('member', KiteAccountCreate(
+        label='Synthetic', api_key='test-key', api_secret='test-secret'))
+    monkeypatch.setattr(accounts, '_accounts', {account.id: account})
+    app = FastAPI()
+    app.include_router(admin_connections.router, prefix='/api/v1')
+    client = TestClient(app, raise_server_exceptions=False)
+    path = f'/api/v1/admin/brokers/{account.id}/login-credentials'
+    body = {'username': 'AA001', 'password': 'test-only-credential',
+            'expected_user_id': 'member', 'expected_updated_at_ms': account.updated_at_ms}
+    admin_user = user_store.get_by_id('default')
+    member_user = user_store.get_by_id('member')
+    admin_token = tokens.mint_access('default', admin_user.username, 'admin', admin_user.token_version)
+    member_token = tokens.mint_access('member', member_user.username, 'user', member_user.token_version)
+    assert client.put(path, json=body).status_code == 401
+    assert client.put(path, json=body, headers={'Authorization': f'Bearer {member_token}'}).status_code == 403
+    user_store.bump_token_version('default')
+    assert client.put(path, json=body, headers={'Authorization': f'Bearer {admin_token}'}).status_code == 401
+    assert db.get_config_strict(f'kite_login_credentials:member:{account.id}', '') == ''
