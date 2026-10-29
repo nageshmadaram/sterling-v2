@@ -65,6 +65,14 @@ jobs:
       - name: Run workspace/account/modal unit regressions (mocked APIs)
         working-directory: frontend
         run: npx vitest run src/pages/__tests__/WorkspaceRouter.test.tsx --coverage=false
+      - name: Type-check frontend source and tests
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Build frontend in isolated CI checkout (not deployed)
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: http://127.0.0.1:8000
+        run: npm run build
 
   backend-governance-regressions:
     name: Disposable DB governance regressions (NO BROKER I/O)
