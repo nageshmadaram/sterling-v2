@@ -1,0 +1,172 @@
+{
+  "schema": "sterling.v2.increment7.frozen_source_lock.v1",
+  "record_kind": "REPOSITORY_SOURCE_INTEGRITY_REFERENCE_NOT_PRODUCTION_RECEIPT",
+  "repository": "nageshmadaram/sterling-v2",
+  "branch": "upgrade/evidence-traceability-20261029",
+  "baseline_commit": "5c21c9d4be5cb4bcef269e53043fb57a3aac07ab",
+  "main_snapshot_sha": "27e39e954ee67dbd5ec1d68ab9d15ff15de7dd7f",
+  "base_tree_sha": "d0c4194b318cbd3a0a80dc3b267dacc6e3f3f146",
+  "source_identity": "GIT_BLOB_SHA1_COMPUTED_ON_FILE_BYTES",
+  "runtime_hash_kind": "SHA256_COMPUTED_FROM_CURRENT_FILE_BYTES_IN_READ_ONLY_CI",
+  "source_entries": [
+    {
+      "path": "docs/implementation/2026-10-29-next-upgrade-spec.md",
+      "git_blob_sha1": "3591f4d15d0d0f5bc6b7c8c79309cad48ad0c0b4",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-evidence-upgrade-slice.md",
+      "git_blob_sha1": "37399e7b9c25246998b772b8c2cbe5cfc41d6ce2",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-next-upgrade-closeout.md",
+      "git_blob_sha1": "f973bd04b07c155fad3b76d4940f98138695e57f",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-product-hardening-governance-increment-2.md",
+      "git_blob_sha1": "127b9146c8f8b902f6e61b07f0a956304c25aa27",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-browser-session-governance-increment-3.md",
+      "git_blob_sha1": "0bbef9d32d4e66338e60920807c268d3ba28f4c6",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-owner-mfa-device-governance-increment-4.md",
+      "git_blob_sha1": "a69d1a8427ca7fc5b30760f607193abd6585972f",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-final-evidence-governance-closeout-increment-5.md",
+      "git_blob_sha1": "9fbe8292786ddc490fc595563bcf867cc606afc1",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-28-account-navigation.md",
+      "git_blob_sha1": "f8edecbf107a1a835d4f82c3cd2bd8278f54c5c3",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-28-product-ui-audit.md",
+      "git_blob_sha1": "66b2e0104e707809af7b8616ed905146da027c5a",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-27-workspace-flow.md",
+      "git_blob_sha1": "eaff3fcd3778382c2c4619070c99bea740189efa",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-27-configuration-access.md",
+      "git_blob_sha1": "a4949b32c2861386ae872d0ded32e6e69d6edbe6",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-27-management-redesign.md",
+      "git_blob_sha1": "ea975a6b95967458f899d6d5ce3252fa57598843",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/control-evidence-map.json",
+      "git_blob_sha1": "f5096110b61502da79ba84e44ac35a331b89986f",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/exceptions.json",
+      "git_blob_sha1": "fc4ab60ad98af83e0b58f98e7bdf2e0ed32aa6b2",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-4-owner-confirmation.json",
+      "git_blob_sha1": "cfb0a4cb2445d04dcfcc73fd268597d9e2fbb8da",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-4-session-contract.json",
+      "git_blob_sha1": "62a7766e45b1e77a6ceba230e2ecfd8c762a3daf",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-4-physical-device-matrix.json",
+      "git_blob_sha1": "11229d47c8ad840183a07163b3c9990a1e9e4012",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-5-owner-reviewer-separation.json",
+      "git_blob_sha1": "27c1e6cc7b8adcab7d3ce04cd0961e6cefff7465",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-5-final-review-packet.json",
+      "git_blob_sha1": "01a671e93d9caa08a685a295af85cebd02213d88",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-5-closeout.json",
+      "git_blob_sha1": "6bff354d53eafe52b8b352aaf99116c1f19ee31b",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "scripts/verify_increment5_governance.py",
+      "git_blob_sha1": "4ebec7912da404d8fdd419daf1df65d3c7b6499f",
+      "classification": "SOURCE_VALIDATOR"
+    },
+    {
+      "path": "scripts/tests/test_next_upgrade_increment5_governance.py",
+      "git_blob_sha1": "421da41a553bd279129a87cedf844dd3001d6411",
+      "classification": "SOURCE_VALIDATION_TEST"
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-6-final-frozen-governance-manifest.json",
+      "git_blob_sha1": "fcef53b82737af19bf0ab5f24345fd555abd019a",
+      "classification": "SOURCE_ONLY_EVIDENCE"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-final-policy-closeout-increment-6.md",
+      "git_blob_sha1": "dfbdd2d3307b91de7e2224724684c8818f468949",
+      "classification": "IMPLEMENTATION_SOURCE"
+    },
+    {
+      "path": "scripts/verify_increment6_closeout.py",
+      "git_blob_sha1": "423ed9c6c3c7af0f2bf635ed3e04d1c0766ecb14",
+      "classification": "SOURCE_VALIDATOR"
+    },
+    {
+      "path": "scripts/tests/test_next_upgrade_increment6_closeout.py",
+      "git_blob_sha1": "e8784787eb2ae6760658048143e8d4eadc629e28",
+      "classification": "SOURCE_VALIDATION_TEST"
+    }
+  ],
+  "allowlisted_changes_since_baseline": [
+    ".github/workflows/next-upgrade-evidence.yml",
+    "docs/evidence/2026-10-29-next-upgrade/increment-7-source-integrity-lock.json",
+    "docs/implementation/2026-10-29-final-frozen-branch-review-increment-7.md",
+    "scripts/verify_increment7_branch_freeze.py",
+    "scripts/tests/test_next_upgrade_increment7_branch_freeze.py"
+  ],
+  "governance": {
+    "controls_accepted": 0,
+    "controls_blocked": 12,
+    "confirmed_human_owners": 0,
+    "independent_signoffs": 0,
+    "real_environment_receipts": 0,
+    "release_freeze": "ACTIVE",
+    "h01_offline_tooling": "PASS",
+    "h01_production_evidence": "BLOCKED"
+  },
+  "decisions": {
+    "OFFLINE VALIDATION": "PASS",
+    "PRODUCTION DEPLOYMENT": "NO-GO",
+    "LIVE TRADING": "NOT AUTHORIZED",
+    "BROKER ORDER ROUTING": "NOT AUTHORIZED",
+    "production_certification": "NOT ACHIEVED",
+    "release_freeze": "ACTIVE",
+    "main_merge": "NOT AUTHORIZED"
+  },
+  "review_scope": "IMMUTABLE_BASELINE_SOURCE_COMPARISON_AND_NONOPERATIONAL_REVIEW_ONLY",
+  "boundary": "Git source identity and SHA-256 only measure repository file integrity; they do not certify real devices, real host, operational evidence or human acceptance.",
+  "final_sentence": "Production certification remains not achieved. Release freeze remains active."
+}
