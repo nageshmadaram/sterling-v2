@@ -40,7 +40,8 @@ describe('Phase 9 audit-only alert inbox',()=>{
   it('renders priority, provenance, delivery failure, replay and escalation',async()=>{
     get.mockResolvedValue(envelope);
     show();
-    const panel=await screen.findByTestId('offline-durable-alerts');
+    await screen.findByText('Synthetic emergency stop in validation');
+    const panel=screen.getByTestId('offline-durable-alerts');
     expect(panel).toHaveTextContent('Synthetic emergency stop in validation');
     expect(panel).toHaveTextContent('critical');
     expect(panel).toHaveTextContent('Escalated');

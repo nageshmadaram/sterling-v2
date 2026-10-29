@@ -62,6 +62,30 @@ def test_priority_info_critical_and_dedupe(lab,svc,source):
     assert len(svc.list(access_token="admin",strategy_id=lab.strategy))==3
 
 
+def test_verified_run_lineage_cannot_be_spoofed(lab,svc,source):
+    with pytest.raises(PermissionError):
+        created(svc,lab,source,run_id="not-the-source-run")
+    with pytest.raises(PermissionError):
+        created(svc,lab,source,decision_id="not-a-journal-decision")
+    assert svc.list(access_token="admin",strategy_id=lab.strategy)==()
+
+
+def test_verified_emergency_stop_source_ingestion_deduplicates(lab,svc):
+    from app.domain.execution_validation import GateState,ApprovalMode
+    lab.gate.transition(access_token="admin",strategy_id=lab.strategy,
+                        new_state=GateState.EMERGENCY_STOP,
+                        approval_mode=ApprovalMode.BLOCKED,
+                        reason="synthetic offline stop evidence")
+    assert svc.ingest_verified_offline(access_token="admin",strategy_id=lab.strategy)==1
+    assert svc.ingest_verified_offline(access_token="admin",strategy_id=lab.strategy)==0
+    inbox=svc.list(access_token="admin",strategy_id=lab.strategy)
+    assert len(inbox)==1
+    assert inbox[0]["category"]=="emergency_stop"
+    assert inbox[0]["priority"]=="critical"
+    assert inbox[0]["source_type"]=="gate"
+    assert inbox[0]["execution_authorized"] is False
+
+
 def test_missing_unverified_source_fails_closed(lab,svc):
     with pytest.raises(PermissionError):
         created(svc,lab,"unknown-event")

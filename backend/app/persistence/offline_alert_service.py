@@ -124,19 +124,19 @@ def _source(db,strategy_id,source_type,source_ref,access_token):
     if source_type=="decision":
         for row in read_for_operator(db,access_token=access_token,strategy_id=strategy_id,limit=None):
             if row["journal_event_id"]==source_ref:
-                return row["audit_ref"]
+                return row["audit_ref"],row["run_id"],row["journal_event_id"]
     elif source_type=="queue":
         for row in read_queue(db,strategy_id):
             if row.id==source_ref:
-                return row.content_sha256
+                return row.content_sha256,row.run_id,None
     elif source_type=="gate":
         for row in read_gate(db,strategy_id):
             if row.id==source_ref:
-                return row.content_sha256
+                return row.content_sha256,row.run_id,None
     elif source_type=="hypothetical_trade":
         for row in read_synthetic(db,strategy_id):
             if row.id==source_ref:
-                return row.content_sha256
+                return row.content_sha256,row.entry_run_id,None
     raise PermissionError("source alert event absent from verified offline evidence")
 
 
@@ -257,13 +257,17 @@ class OfflineAlertService:
             previous=_project(rows)
             if aid in previous:
                 return {"alert_id":aid,"duplicate_suppressed":True}
-            source_sha=_source(db,strategy_id,source_type,source_ref,access_token)
+            source_sha,source_run,source_decision=_source(
+                db,strategy_id,source_type,source_ref,access_token)
+            if (run_id is not None and run_id!=source_run or
+                decision_id is not None and decision_id!=source_decision):
+                raise PermissionError("unverified alert run or decision linkage")
             priority=(Priority.CRITICAL if category in CRITICAL
                       else Priority.WARNING if category in WARNING else Priority.INFO)
             payload={"priority":priority.value,"category":category.value,
                      "source_system":source_system.strip(),"source_type":source_type,
                      "source_ref":source_ref,"source_sha256":source_sha,
-                     "run_id":run_id,"decision_id":decision_id,
+                     "run_id":source_run,"decision_id":source_decision,
                      "message":message.strip(),"expires_at_ms":expires_at_ms}
             _append(db,rows,actor=actor,alert_id=aid,strategy_id=strategy_id,
                     kind="created",reason=reason,payload=payload)
@@ -279,8 +283,10 @@ class OfflineAlertService:
             # Fail closed if source provenance changes, even when alert ledger
             # itself has not been modified.
             for item in records.values():
-                sha=_source(db,strategy_id,item["source_type"],item["source_ref"],access_token)
-                if sha!=item["source_sha256"]:
+                sha,linked_run,linked_decision=_source(
+                    db,strategy_id,item["source_type"],item["source_ref"],access_token)
+                if (sha!=item["source_sha256"] or
+                    linked_run!=item["run_id"] or linked_decision!=item["decision_id"]):
                     raise PermissionError("alert source immutable fingerprint mismatch")
             replay=sorted(records.values(),key=lambda r:(-r["created_at_ms"],r["alert_id"]))
             if unresolved_only: replay=[r for r in replay if r["state"] in ("active","acknowledged")]
@@ -318,11 +324,64 @@ class OfflineAlertService:
             rows=_events(db,strategy_id)
             for alert_id,item in _project(rows).items():
                 if item["state"] in ("active","acknowledged") and item["expires_at_ms"] is not None and at_ms>=item["expires_at_ms"]:
+                    for channel,delivery in item["delivery"].items():
+                        if delivery["state"] in ("pending","failed"):
+                            _append(db,rows,actor=actor,alert_id=alert_id,strategy_id=strategy_id,
+                                    kind="delivery_expired",reason="offline delivery retention expiry",
+                                    payload={"channel":channel})
                     _append(db,rows,actor=actor,alert_id=alert_id,strategy_id=strategy_id,
                             kind="expired",reason="offline alert retention expiry",
                             payload={})
                     changed+=1
         return changed
+
+    def ingest_verified_offline(self,*,access_token:str,strategy_id:str,max_sources:int=200):
+        """Explicit bounded read+project of Phase 4-7 offline source alerts.
+
+        This function has no HTTP endpoint, timer, background worker,
+        external network, order action or independent trading permission.
+        On replay, deterministic source IDs suppress duplicate alerts.
+        """
+        if not 1<=max_sources<=500:
+            raise ValueError("bounded offline alert ingestion required")
+        actor=registry._identity(access_token)
+        if actor.role!="admin":
+            raise PermissionError("offline source ingestion requires admin")
+        with session_scope(self.sessions) as db:
+            registry._strategy(db,actor,strategy_id)
+            gate=read_gate(db,strategy_id)
+            queue=read_queue(db,strategy_id)
+            # Verify immutable chains before accepting any source.
+            read_for_operator(db,access_token=access_token,strategy_id=strategy_id,limit=None)
+            selected=[]
+            for row in gate:
+                if row.kind=="state_transition":
+                    content=json.loads(row.payload_json)
+                    if content.get("state")=="emergency_stop":
+                        selected.append((Category.EMERGENCY_STOP,"gate",row.id,
+                                         "offline_gate","Offline validation emergency stop"))
+            kinds={"emergency_stop":Category.EMERGENCY_STOP,
+                   "validation_failure":Category.APPROVAL_REJECTION,
+                   "stale_item":Category.INVALID_QUEUE_ITEM,
+                   "queue_growth":Category.SCHEDULING_FAILURE,
+                   "paused":Category.INFORMATIONAL_UPDATE}
+            for row in queue:
+                if row.kind=="operator_alert":
+                    payload=json.loads(row.payload_json)
+                    category=kinds.get(payload.get("kind"),Category.SCHEDULING_FAILURE)
+                    selected.append((category,"queue",row.id,
+                                     "offline_scheduler","Offline queue: "+str(payload.get("code","alert"))[:128]))
+            selected=selected[-max_sources:]
+        # No SQL transaction is held while invoking ingestion operations;
+        # each source is independently deduplicated and audited on commit.
+        registered=0
+        for category,typ,ref,system,message in selected:
+            result=self.create(access_token=access_token,strategy_id=strategy_id,
+                category=category,source_type=typ,source_ref=ref,
+                source_system=system,message=message,
+                reason="audited offline source ingestion")
+            if not result["duplicate_suppressed"]: registered+=1
+        return registered
 
     def escalate_due(self,*,access_token:str,strategy_id:str,at_ms:int,
                      critical_after_ms:int=300_000,warning_after_ms:int=900_000):
