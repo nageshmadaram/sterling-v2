@@ -52,7 +52,7 @@ def strategy_catalog(token:str=Depends(_signed_token)):
 @router.get("/strategies/{strategy_id}/status")
 def offline_strategy_status(strategy_id:str,token:str=Depends(_signed_token)):
     def read(db,actor):
-        strategy=registry._strategy(db,actor,strategy_id)
+        strategy=registry._strategy_readonly(db,actor,strategy_id)
         # No historical 'success' or simulation decision implies broker
         # permission; both independent Phase 4 gate streams are verified.
         global_state,global_mode=gate_state(read_gate(db,None))

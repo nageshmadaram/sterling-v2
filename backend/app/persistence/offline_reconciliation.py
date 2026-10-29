@@ -55,7 +55,7 @@ class OfflineReconciler:
             raise ValueError("bounded reconciliation limit required")
         actor=registry._identity(access_token)
         with session_scope(self._sessions) as db:
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             try:
                 source=_read(db,strategy_id)
                 schedules,items,_=_projection(source)

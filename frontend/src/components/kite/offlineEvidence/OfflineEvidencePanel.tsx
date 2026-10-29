@@ -10,6 +10,7 @@ import {
   type DecisionEnvelope, type Reconciliation, type Breakdown,
 } from './contracts';
 import { OfflineAlertInbox } from './OfflineAlertInbox';
+import { setOfflineMfaProof } from '../../../utils/offlineMfa';
 import './OfflineEvidencePanel.css';
 
 const AGE_LIMIT_MS = 90_000;
@@ -112,6 +113,28 @@ function Contribution({ title, groups }: { title: string; groups: Breakdown['gro
 export function OfflineEvidencePanel() {
   const client = useQueryClient();
   const [selected, setSelected] = useState('');
+  const [mfaCode,setMfaCode] = useState('');
+  const [mfaState,setMfaState] = useState<'none'|'verified'|'denied'>('none');
+  const [mfaWorking,setMfaWorking] = useState(false);
+  const submitMfa = async () => {
+    if (!/^\d{6}$/.test(mfaCode)) { setMfaState('denied'); return; }
+    setMfaWorking(true);
+    try {
+      const response = await api.post<{ proof: string; execution_authorized: false;
+        scope: 'offline_observability_admin_only'; expires_in_seconds: number }>(
+        '/api/v1/offline-security/mfa/verify', { otp: mfaCode });
+      if (response.execution_authorized !== false ||
+          response.scope !== 'offline_observability_admin_only' ||
+          response.expires_in_seconds > 300 || !response.proof) throw new Error('unsafe MFA response');
+      setOfflineMfaProof(response.proof);
+      setMfaState('verified');
+      void client.invalidateQueries({ queryKey: ['offline-evidence'] });
+      void client.invalidateQueries({ queryKey: ['offline-alert-ledger'] });
+    } catch {
+      setOfflineMfaProof(null);
+      setMfaState('denied');
+    } finally { setMfaCode(''); setMfaWorking(false); }
+  };
   const [section, setSection] = useState<'overview' | 'decisions' | 'queue'>('overview');
   const catalog = useQuery({ queryKey: ['offline-evidence', 'catalog'], queryFn: () => request<Catalogue>('/strategies'),
     retry: false, refetchInterval: POLL_MS });
@@ -152,6 +175,19 @@ export function OfflineEvidencePanel() {
       </div>
     </header>
     <div className="oe-disclaimer" role="note"><strong>Not proof of profitability.</strong> All P&amp;L values are operator-supplied hypothetical scenarios—not broker fills or account exposure. A passed risk gate is not authorization to trade.</div>
+    <details className="oe-disclaimer" data-testid="offline-admin-mfa">
+      <summary>Administrator second-factor verification (offline evidence only)</summary>
+      <div className="oe-toolbar">
+        <label htmlFor="oe-mfa-code">6-digit authenticator code</label>
+        <input id="oe-mfa-code" type="password" inputMode="numeric" autoComplete="one-time-code"
+          maxLength={6} value={mfaCode} onChange={e => setMfaCode(e.target.value.replace(/\D/g,'').slice(0,6))} />
+        <button type="button" className="oe-button" disabled={mfaWorking || mfaCode.length!==6}
+          onClick={() => { void submitMfa(); }}>Verify MFA</button>
+        {mfaState==='verified' && <span role="status">Second factor verified for this short-lived access session.</span>}
+        {mfaState==='denied' && <span role="alert">MFA denied or expired. No privileged evidence access granted.</span>}
+      </div>
+      <p className="oe-muted">Proof exists only in this browser tab's memory and is bound to the current signed access token. A new login/refresh requires new verification.</p>
+    </details>
     <div className="oe-toolbar">
       <label htmlFor="oe-strategy">Strategy</label>
       <select id="oe-strategy" value={selected} onChange={e => { setSelected(e.target.value); setSection('overview'); }} disabled={!strategies.length || catalog.isError}>

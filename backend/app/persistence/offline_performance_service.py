@@ -192,7 +192,7 @@ class OfflinePerformanceService:
                date_from:str|None=None,date_to:str|None=None):
         actor=registry._identity(access_token)
         with session_scope(self._sessions) as db:
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_read(db,strategy_id)
             all_journal=read_for_operator(db,access_token=access_token,
                                           strategy_id=strategy_id,limit=None)

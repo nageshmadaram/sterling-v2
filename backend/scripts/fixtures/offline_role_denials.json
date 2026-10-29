@@ -1,0 +1,16 @@
+{
+  "purpose": "disposable Postgres role denial checks only — forbidden SQL must all FAIL",
+  "statements": [
+    "UPDATE platform_strategies SET display_name='forge'",
+    "DELETE FROM platform_strategy_versions",
+    "TRUNCATE platform_offline_alert_events",
+    "UPDATE platform_offline_alert_events SET reason='forge'",
+    "DELETE FROM platform_offline_alert_events",
+    "INSERT INTO platform_strategy_audit (id) VALUES ('forged')",
+    "INSERT INTO platform_decision_journal (id) VALUES ('forged')",
+    "ALTER TABLE platform_offline_alert_events DISABLE TRIGGER ALL",
+    "SELECT id FROM platform_strategies FOR UPDATE",
+    "CREATE TEMP TABLE sterling_offline_shadow (id TEXT)",
+    "CREATE SCHEMA sterling_offline_shadow"
+  ]
+}

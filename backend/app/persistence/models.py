@@ -78,3 +78,5 @@ from app.persistence.offline_performance_models import PlatformHypotheticalTrade
 
 # Phase 9: immutable informational alerts, not trading authority.
 from app.persistence.offline_alert_models import PlatformOfflineAlertEventRow  # noqa: F401
+
+from app.persistence.offline_health_models import PlatformOfflineHealthEventRow  # noqa: F401

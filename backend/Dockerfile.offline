@@ -1,0 +1,13 @@
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+COPY requirements.lock.txt .
+RUN pip install --no-cache-dir -r requirements.lock.txt 'psycopg[binary]>=3.2,<4'
+COPY . /app/
+RUN mkdir -p /app/data && chown 10001:10001 /app/data
+ENV PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+USER 10001:10001
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s CMD curl -f http://127.0.0.1:8000/readyz || exit 1
+# Intentionally NOT backend/main.py, which mounts legacy broker routes.
+CMD ["uvicorn","app.offline_security_profile:app","--host","0.0.0.0","--port","8000","--workers","1","--proxy-headers","--forwarded-allow-ips","127.0.0.1"]

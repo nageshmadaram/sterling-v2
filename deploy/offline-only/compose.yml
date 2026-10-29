@@ -1,0 +1,55 @@
+# Validation-only. Requires externally provisioned offline DB owner,
+# least-privilege runtime login, TLS edge, and 0400 MFA secret file.
+# No production command is issued by this manifest or by CI.
+name: sterling-offline-evidence
+services:
+  offline_backend:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile.offline
+    env_file:
+      - ${STERLING_OFFLINE_ENV_FILE:?Explicitly provision secured external env file}
+    environment:
+      ENVIRONMENT: "production"
+      STERLING_OFFLINE_ONLY: "true"
+      STERLING_OFFLINE_REQUIRE_MFA: "true"
+      STERLING_OFFLINE_NO_BROKER: "true"
+      PAPER_TRADING: "true"
+      STERLING_DB_PATH: /app/data/offline_auth.db
+      REAL_PUBLIC_DATA: "false"
+      STERLING_ACCESS_TTL_S: "300"
+      STERLING_REFRESH_TTL_S: "3600"
+      STERLING_OFFLINE_MFA_FILE: /run/secrets/offline-mfa.json
+    volumes:
+      - ${STERLING_OFFLINE_SECRET_DIR:?Provide private secret directory}/offline-mfa.json:/run/secrets/offline-mfa.json:ro
+      - offline_auth:/app/data
+    networks: [offline_internal]
+    read_only: true
+    tmpfs: ["/tmp:mode=0700"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+    restart: "no"
+
+  offline_frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    ports:
+      - "127.0.0.1:8088:80"
+    volumes:
+      - ../../frontend/nginx.offline.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [offline_backend]
+    networks: [offline_internal]
+    read_only: true
+    tmpfs: ["/var/cache/nginx","/var/run","/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["NET_RAW"]
+    restart: "no"
+
+networks:
+  offline_internal:
+    internal: true
+volumes:
+  offline_auth:

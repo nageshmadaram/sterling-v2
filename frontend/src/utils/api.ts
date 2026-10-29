@@ -1,4 +1,5 @@
 import { filterKitePayload } from './kiteExchanges';
+import { currentOfflineMfaProof, clearOfflineMfaProof } from './offlineMfa';
 import { API_BASE_URL, AUTH_REQUEST_TIMEOUT_MS, bearerHeaders, getRefreshToken, refreshSterlingAccess } from './auth';
 import { notifyAuthExpired, notifyWriteSettled } from './liveSync';
 import { VIEW_HEADER, getView } from '../store/useViewStore';
@@ -63,6 +64,12 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
   const send = async () => {
     const headers = bearerHeaders(options?.headers);
     if (scoped) headers.set(VIEW_HEADER, 'simulation');
+    // Phase 10 proof is in-memory, scoped only to offline evidence endpoints.
+    // Never attach it to broker/order/auth/other application requests.
+    if (path.startsWith('/api/v1/offline-validation/')) {
+      const proof = currentOfflineMfaProof();
+      if (proof) headers.set('X-Sterling-Offline-MFA', proof);
+    }
     // A suspended mobile request can otherwise keep a query fetching forever.
     // Bound reads only; an order timeout must not imply the broker rejected it.
     const controller = !options?.signal && (!options?.method || options.method.toUpperCase() === 'GET') ? new AbortController() : null;
@@ -91,7 +98,12 @@ async function perform<T>(path: string, options?: RequestInit): Promise<T> {
 
     if (operatorStillValid !== true) {
       const refreshed = await refreshSterlingAccess();
-      if (refreshed) resp = await send();
+      if (refreshed) {
+        // Offline MFA is cryptographically bound to the previous access JWT.
+        // Never carry its proof into a refreshed session.
+        clearOfflineMfaProof();
+        resp = await send();
+      }
       else refreshDeferred = Boolean(getRefreshToken());
       // Still unauthorised after a refresh attempt. Tell the app only when the
       // session is genuinely over. If /auth/me could not be reached, preserve
