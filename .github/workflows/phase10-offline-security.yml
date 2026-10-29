@@ -317,6 +317,14 @@ jobs:
       - name: Migrate and validate durable queue ledger
         working-directory: backend
         run: PYTHONPATH=. python scripts/validate_offline_alerts_postgres.py
+      - name: Prove privilege script refuses non-offline database
+        run: |
+          if psql -d postgres -v ON_ERROR_STOP=1 -f deploy/offline-only/privileges.sql >/tmp/sterling-offline-sql-guard.log 2>&1; then
+            echo "FAIL: privilege setup accepted the default postgres database"
+            exit 1
+          fi
+          grep -q "Phase 10 privilege setup refused: non-isolated database" /tmp/sterling-offline-sql-guard.log
+          echo "PASS: privilege setup rejected the non-offline target with no committed changes"
       - name: Apply isolated runtime database role and verify privilege denials
         run: |
           psql -d sterling_alert_ci -v ON_ERROR_STOP=1 -f deploy/offline-only/privileges.sql
