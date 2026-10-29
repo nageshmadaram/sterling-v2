@@ -514,3 +514,81 @@ def test_next_upgrade_admin_credential_requires_real_bearer_and_current_session_
     user_store.bump_token_version('default')
     assert client.put(path, json=body, headers={'Authorization': f'Bearer {admin_token}'}).status_code == 401
     assert db.get_config_strict(f'kite_login_credentials:member:{account.id}', '') == ''
+
+
+def test_increment3_real_admin_bearer_credential_write_is_redacted_and_owner_scoped(workspace, monkeypatch):
+    """Positive actual auth dependency; synthetic encrypted write in disposable SQLite only."""
+    from app.core import tokens
+    from app.services.auth import user_store
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    monkeypatch.setattr(accounts, '_accounts', {})
+    account = accounts.add('member', KiteAccountCreate(label='Synthetic', api_key='test-key', api_secret='test-secret'))
+    monkeypatch.setattr(accounts, '_accounts', {account.id: account})
+    app = FastAPI()
+    app.include_router(admin_connections.router, prefix='/api/v1')
+    with TestClient(app) as client:
+        admin = user_store.get_by_id('default')
+        access = tokens.mint_access(admin.id, admin.username, 'admin', admin.token_version)
+        headers = {'Authorization': 'Bearer ' + access}
+        path = f'/api/v1/admin/brokers/{account.id}/login-credentials'
+        body = {'username': 'AA001', 'password': 'synthetic-disposable-password',
+                'expected_user_id': 'member', 'expected_updated_at_ms': account.updated_at_ms}
+        read = client.get(path, headers=headers)
+        assert read.status_code == 200 and read.headers['cache-control'] == 'no-store, private'
+        assert read.json()['password_saved'] is False
+        response = client.put(path, json=body, headers=headers)
+        assert response.status_code == 200, response.text
+        assert response.json()['username'] == 'AA001'
+        assert 'synthetic-disposable-password' not in response.text
+        assert 'synthetic-disposable-password' not in str(response.headers)
+        with db._conn() as c:
+            key = f'kite_login_credentials:member:{account.id}'
+            stored = c.execute('SELECT value FROM system_config WHERE key=?',(key,)).fetchone()[0]
+            assert stored.startswith('fernet:') and 'synthetic-disposable-password' not in stored
+            assert c.execute("SELECT COUNT(*) FROM auth_audit_events WHERE action='broker.login_credentials_updated'").fetchone()[0] == 1
+            audit_text = '\\n'.join(str(dict(row)) for row in c.execute(
+                "SELECT * FROM auth_audit_events WHERE action='broker.login_credentials_updated'"))
+            assert 'synthetic-disposable-password' not in audit_text
+        member = user_store.get_by_id('member')
+        member_access = tokens.mint_access(member.id, member.username, 'user', member.token_version)
+        assert client.put(path, json=body, headers={'Authorization': 'Bearer ' + member_access}).status_code == 403
+        refresh = tokens.mint_refresh(admin.id, admin.username, 'admin', admin.token_version)
+        assert client.put(path, json=body, headers={'Authorization': 'Bearer ' + refresh}).status_code == 401
+
+
+def test_increment3_real_auth_refresh_logout_revoke_and_expiry(workspace, monkeypatch):
+    """Production-mode test transport only: no production host/network or external secrets."""
+    import jwt
+    import time
+    from app.core import security, tokens
+    from app.api.v1.endpoints import auth
+    from app.services.auth import user_store
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    app = FastAPI()
+    app.include_router(auth.router, prefix='/api/v1')
+    with TestClient(app) as client:
+        admin = user_store.get_by_id('default')
+        access = tokens.mint_access(admin.id, admin.username, 'admin', admin.token_version)
+        refresh = tokens.mint_refresh(admin.id, admin.username, 'admin', admin.token_version)
+        headers = {'Authorization': 'Bearer ' + access}
+        success = client.get('/api/v1/auth/me', headers=headers)
+        assert success.status_code == 200 and success.json()['administrator'] is True
+        assert success.headers['cache-control'] == 'no-store, private'
+        assert client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + refresh}).status_code == 401
+        assert client.post('/api/v1/auth/refresh', json={'refresh_token': access}).status_code == 401
+        claims = tokens.decode(access, expected_typ='access')
+        claims['exp'] = int(time.time()) - 60
+        expired = jwt.encode(claims, security.get_jwt_key(), algorithm='HS256')
+        assert client.get('/api/v1/auth/me', headers={'Authorization': 'Bearer ' + expired}).status_code == 401
+        renewed = client.post('/api/v1/auth/refresh', json={'refresh_token': refresh})
+        assert renewed.status_code == 200
+        rotated_access = renewed.json()['access_token']
+        rotated_refresh = renewed.json()['refresh_token']
+        assert tokens.decode(rotated_access, expected_typ='access')['sub'] == 'default'
+        assert client.post('/api/v1/auth/logout', headers=headers).status_code == 200
+        assert client.get('/api/v1/auth/me', headers=headers).status_code == 401
+        assert client.get('/api/v1/auth/me', headers={'Authorization':'Bearer ' + rotated_access}).status_code == 401
+        assert client.post('/api/v1/auth/refresh', json={'refresh_token':refresh}).status_code == 401
+        assert client.post('/api/v1/auth/refresh', json={'refresh_token':rotated_refresh}).status_code == 401

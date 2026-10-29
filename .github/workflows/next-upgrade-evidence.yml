@@ -98,3 +98,36 @@ jobs:
           REAL_PUBLIC_DATA: "false"
           LOG_LEVEL: WARNING
         run: python -m pytest tests/test_account_policy.py tests/test_configuration_policy.py tests/test_workspace_access.py tests/test_kite_login_credentials.py -q --tb=short
+
+  browser-responsive-readonly:
+    name: Local Chromium responsive QA (mocked API, NO operational I/O)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies and local Chromium
+        working-directory: frontend
+        run: |
+          npm ci --silent
+          npx playwright install --with-deps chromium
+      - name: Browser QA with synthetic read-only transport
+        working-directory: frontend
+        env:
+          CI: "true"
+          VITE_API_BASE_URL: ""
+        run: npx playwright test -c playwright.next-upgrade.config.ts
+      - name: Preserve synthetic browser evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment3-synthetic-chromium
+          path: frontend/test-results/increment-3/
+          if-no-files-found: warn
+          retention-days: 14
