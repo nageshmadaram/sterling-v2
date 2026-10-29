@@ -407,10 +407,10 @@ def test_gate_paused_at_materialization_stays_paused_and_requires_requeue(lab):
     item=enter(lab,schedule(lab))
     assert item.backlog is BacklogState.PAUSED
     assert item.run_state is RunState.PAUSED
-    with pytest.raises(PermissionError):
-        lab.service.requeue(access_token="admin",strategy_id=lab.strategy,
-                            item_id=item.identity.item_id,inputs=input_for(item),
-                            reason="still paused")
+    assert lab.service.requeue(access_token="admin",strategy_id=lab.strategy,
+                                item_id=item.identity.item_id,inputs=input_for(item),
+                                reason="still paused") is False
+    assert count(lab, "requeue_denied") == 1
 
 
 def test_queue_growth_produces_pending_only_alert_event(lab):
