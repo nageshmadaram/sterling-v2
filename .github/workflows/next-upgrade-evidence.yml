@@ -131,3 +131,46 @@ jobs:
           path: frontend/test-results/increment-3/
           if-no-files-found: warn
           retention-days: 14
+
+  increment4-governance-contract:
+    name: Increment 4 owner, MFA, device and NO-GO package (source-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile source-only governance checker and mutation tests
+        run: python -m py_compile scripts/verify_increment4_governance.py scripts/tests/test_next_upgrade_increment4_governance.py
+      - name: Fail-closed owner, MFA and device mutation tests
+        run: python -m unittest scripts.tests.test_next_upgrade_increment4_governance -v
+      - name: Write sanitized blocked-control review receipt
+        run: python scripts/verify_increment4_governance.py --output /tmp/sterling-increment4-no-go.json
+      - name: Reassert no operational authority
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/sterling-increment4-no-go.json').read_text())
+          assert x['validation']=='PASS'
+          assert x['controls_accepted']==0 and x['controls_blocked']==12
+          assert x['owners_confirmed']==0 and x['physical_device_sessions']==0
+          assert not x['mfa_accepted'] and x['independent_signatures']==0
+          assert x['production_certification']=='NOT_ACHIEVED'
+          assert x['production_deployment']=='NO_GO'
+          assert x['live_trading']=='NOT_AUTHORIZED'
+          assert x['broker_order_routing']=='NOT_AUTHORIZED'
+          assert x['release_freeze']=='ACTIVE'
+          print('Increment 4 source-package gate: NO-GO, 12/12 blocked.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment4-source-only-no-go
+          path: /tmp/sterling-increment4-no-go.json
+          if-no-files-found: error
+          retention-days: 30
