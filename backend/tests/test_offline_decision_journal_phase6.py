@@ -66,6 +66,8 @@ def test_journal_links_risk_approval_quality_and_completed_lineage(lab):
     completed=lab.service.complete_preview(access_token="admin",
                                            strategy_id=lab.strategy,item_id=item.identity.item_id,
                                            reason="offline complete")
+    # Regression: completed Phase 5 item MUST remain projectable/readable.
+    assert lab.service.queue(access_token="admin",strategy_id=lab.strategy)[0].run_state.value=="completed"
     entries=journal(lab)
     assert len(entries)==event_count(lab)==journal_count(lab)
     gate=[e for e in entries if e["decision_type"]=="gate_binding"]

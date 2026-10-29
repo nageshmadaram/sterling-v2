@@ -94,7 +94,11 @@ def require_pair(old_backlog: BacklogState, new_backlog: BacklogState,
         raise PermissionError("no-op backlog transitions are not accepted")
     if new_run not in RUN_TRANSITIONS[old_run]:
         raise PermissionError("invalid offline orchestration transition")
-    if new_backlog is BacklogState.APPROVED and new_run is not RunState.APPROVED:
+    # An already-approved offline preview may finish without changing its
+    # backlog approval label; it cannot become approved without the risk gate.
+    if new_backlog is BacklogState.APPROVED and new_run not in (
+        RunState.APPROVED, RunState.COMPLETED, RunState.FAILED
+    ):
         raise PermissionError("approval cannot skip risk state")
     if new_run is RunState.APPROVED and new_backlog is not BacklogState.APPROVED:
         raise PermissionError("approval requires backlog approval")
