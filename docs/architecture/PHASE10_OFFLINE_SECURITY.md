@@ -49,11 +49,20 @@ Kite/order router. It does **not** claim legacy main.py is production hardened.
 
 Run `deploy/offline-only/privileges.sql` **only** on a freshly migrated,
 isolated offline PostgreSQL database as its *separate migration owner*.
+The script first refuses any database whose name does not match
+`sterling_offline_*` or the disposable `sterling_alert_ci` CI database.
+**Name matching alone does not prove isolation**; the operator must
+independently attest host, cluster, DB identity and ownership.
 The script creates a `NOLOGIN` role
 `sterling_offline_runtime` (no superuser, DDL, role creation or database
 creation), revokes public schema creation and grants only SELECT on
 Phase 1–10 versioned offline ledgers, plus **INSERT** into the isolated
 Phase 9 alert/Phase 10 health event tables for append-only receipts.
+Database-level `CREATE` and `TEMPORARY` are revoked from PUBLIC
+and the offline role, because temp-table/search-path shadowing can spoof
+unqualified SQL queries. Startup also rejects database `CREATE`,
+`TEMPORARY`, `BYPASSRLS` and inherited forbidden grants. Isolated CI
+probes both temporary relation and schema creation denials.
 There are **no UPDATE/DELETE/TRUNCATE/TRIGGER** permissions on these
 tables, and no write privileges on strategy registry, gate, scheduler,
 decision or hypothetical trade tables.
