@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from test_offline_scheduler_phase5 import lab, schedule, input_for, approved, policy
+from tests.test_offline_scheduler_phase5 import lab, schedule, input_for, approved, policy
 
 from app.domain.offline_scheduler import BacklogState, ScheduleKind
 from app.persistence.offline_decision_journal_service import OperatorDecisionJournal
