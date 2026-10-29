@@ -10,7 +10,7 @@ BEGIN
   IF current_database() !~ '^sterling_(alert_ci|offline_[a-z0-9_]+)$' THEN
     RAISE EXCEPTION 'Phase 10 privilege setup refused: non-isolated database';
   END IF;
-END
+END;
 $phase10_guard$;
 
 DO $phase10_role$
@@ -18,7 +18,7 @@ BEGIN
   IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sterling_offline_runtime') THEN
     CREATE ROLE sterling_offline_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
   END IF;
-END
+END;
 $phase10_role$;
 
 -- PostgreSQL grants TEMPORARY on databases to PUBLIC by default.
@@ -27,7 +27,7 @@ DO $phase10_database_grants$
 BEGIN
   EXECUTE format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC',current_database());
   EXECUTE format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM sterling_offline_runtime',current_database());
-END
+END;
 $phase10_database_grants$;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
