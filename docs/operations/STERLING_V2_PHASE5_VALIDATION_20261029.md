@@ -3,8 +3,8 @@
 **Date:** 2026-10-29.  
 **Decision:** targeted validation PASS; **production/live activation BLOCKED**.  
 **Draft PR:** https://github.com/nageshmadaram/sterling-v2/pull/7  
-**Validated implementation SHA:** `055a12b6685e4b64eb3eae2ce8507f21fedf3b10`  
-**CI evidence:** https://github.com/nageshmadaram/sterling-v2/actions/runs/40800423379
+**Validated implementation SHA:** `9019efaa4bb2af61e2dca3017b0e36efd744a511`  
+**CI evidence:** https://github.com/nageshmadaram/sterling-v2/actions/runs/40800842846
 
 ## Real repository results
 
@@ -12,6 +12,7 @@
 |---|---|
 | Manual, delayed, session, recurring schedules | PASS |
 | Explicit pause/resume and per-item operator pause | PASS |
+| Irreversible schedule cancellation, terminal failed preview | PASS |
 | Deterministic UTC due-time ordering, priority, pagination, deduplication | PASS |
 | Stale-before-evaluation skip and stale requeue refusal | PASS |
 | Pending, queued, evaluated, approved, rejected, paused, skipped, cancelled, emergency-stopped backlog states | PASS, tested transitions |
@@ -22,7 +23,7 @@
 | Immutable lineage: strategy, version, run, risk-policy digest, batch, event chain | PASS |
 | Queue growth, stale, paused, rejected, emergency events | PASS, pending-only receipts |
 | SQLite append-only UPDATE/DELETE triggers and audit-insert rollback | PASS |
-| Combined Phase 1–5 safety regressions | **101 passed, 7 warnings** |
+| Combined Phase 1–5 safety regressions | **103 passed, 7 warnings** |
 | Phase 2B source access audit | **0 new unreviewed**; 272 pre-existing detections |
 | Static ban on new broker / HTTP / external-network / worker paths | PASS |
 | PostgreSQL 16 additive migration, immutable trigger and forced audit rollback | PASS |
@@ -37,12 +38,13 @@ The seven warnings are inherited Python string-escape SyntaxWarnings in the Phas
 
 - Initial [run 40799884338](https://github.com/nageshmadaram/sterling-v2/actions/runs/40799884338): 97/97 targeted tests and both jobs PASS.
 - After adding stale-before-evaluation and explicit queued-item pause coverage, [run 40800245521](https://github.com/nageshmadaram/sterling-v2/actions/runs/40800245521) reported 100 PASS / 1 FAIL. The test incorrectly expected an exception for a paused-gate requeue; the actual fail-closed policy returns `False` and appends `requeue_denied` to the ledger. No runtime safety check was weakened.
-- Final [run 40800423379](https://github.com/nageshmadaram/sterling-v2/actions/runs/40800423379): 101 PASS, 0 FAIL, 7 inherited warnings; source access guard 0 newly unreviewed; disposable PostgreSQL validation/restore PASS.
+- Follow-up [run 40800423379](https://github.com/nageshmadaram/sterling-v2/actions/runs/40800423379): 101 PASS after asserting the paused requeue's recorded denial, plus PostgreSQL PASS.
+- Third [run 40800842846](https://github.com/nageshmadaram/sterling-v2/actions/runs/40800842846): 103 PASS, 0 FAIL, 7 inherited warnings; source access guard 0 newly unreviewed; disposable PostgreSQL validation/restore PASS.
 
 ### Implemented files and authority separation
 
 - `backend/app/domain/offline_scheduler.py`: frozen, non-authoritative scheduling/backlog/lineage contracts and explicit transition map.
-- `backend/app/persistence/offline_scheduler_service.py`: operator-invoked (no background worker) schedule creation, bounded due materialization, queue projection, risk-bound evaluation, safe requeue, per-item pause, immutable preview completion and authenticated pending alert records. The only risk evaluation call delegates to the pre-existing Phase 4 **offline** `OfflineExecutionGate.dry_run()`.
+- `backend/app/persistence/offline_scheduler_service.py`: operator-invoked (no background worker) schedule creation, irreversible cancellation, bounded due materialization, queue projection, risk-bound evaluation, safe requeue, per-item pause, immutable preview completion/terminal failure and authenticated pending alert records. The only risk evaluation call delegates to the pre-existing Phase 4 **offline** `OfflineExecutionGate.dry_run()`.
 - `backend/app/persistence/offline_scheduler_models.py` and additive Alembic `c75f92d1a341`: an independent hash-chained, append-only event table. Existing Sterling order routers, broker SDK calls, strategy logic, and live execution tables were not altered.
 - `backend/tests/test_offline_scheduler_phase5.py`: disposable SQLite policy, audit, lineage, timing, stop, identity and rollback tests.
 - `backend/scripts/validate_orchestration_postgres.py`: refuses non-disposable PostgreSQL targets.
