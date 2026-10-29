@@ -8,6 +8,7 @@ type Session = { user_id: string; username: string; role: string; administrator:
 async function isolate(page: Page, policy: Session) {
   const seen: string[] = [];
   const blocked: string[] = [];
+  const externalBlocked: string[] = [];
   let session = policy;
   // No third-party transport (Vite's localhost assets still load).
   await page.route('**/*', async route => {
@@ -15,7 +16,7 @@ async function isolate(page: Page, policy: Session) {
     if (url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '5194') {
       await route.continue(); return;
     }
-    blocked.push(route.request().url());
+    externalBlocked.push(route.request().url());
     await route.abort();
   });
   await page.route('**/api/v1/**', async route => {
@@ -42,7 +43,7 @@ async function isolate(page: Page, policy: Session) {
     }
     await route.fulfill({ status: 404, json: { detail: 'Read-only fixture: endpoint not used' } });
   });
-  return { seen, blocked, update(next: Session) { session = next; } };
+  return { seen, blocked, externalBlocked, update(next: Session) { session = next; } };
 }
 
 const base: Session = {
@@ -94,13 +95,17 @@ for (const width of [390, 1440]) {
     const fixture = await isolate(page, enabled);
     await page.goto('/radio');
     await expect(page.getByRole('main', { name: 'Echo workspace' })).toBeVisible();
+    const observedReads = fixture.seen.filter(x => x === 'GET /api/v1/auth/me').length;
     fixture.update({ ...enabled, visibility: { ...enabled.visibility, radio: false }, policy_revision: 2 });
     // React Query subscribes to visibility/focus; this provokes the next policy read.
     await page.evaluate(() => {
       window.dispatchEvent(new Event('focus'));
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    await expect(page.getByRole('heading', { name: 'Workspace unavailable' })).toBeVisible();
+    await expect.poll(() => fixture.seen.filter(x => x === 'GET /api/v1/auth/me').length,
+      { timeout: 20000 }).toBeGreaterThan(observedReads);
+    await expect(page.getByRole('heading', { name: 'Workspace unavailable' }),
+      'After the periodic authoritative policy read, the mounted media page must be evicted').toBeVisible({ timeout: 20000 });
     await expect(page.getByRole('main', { name: 'Echo workspace' })).toHaveCount(0);
     await expect(page.locator('iframe')).toHaveCount(0);
     expect(fixture.blocked).toEqual([]);
