@@ -69,3 +69,6 @@ from app.persistence.execution_validation_models import PlatformGateEventRow  # 
 
 # Phase 5: audit-only execution scheduler and backlog (append-only, offline).
 from app.persistence.offline_scheduler_models import PlatformOrchestrationEventRow  # noqa: F401
+
+# Phase 6 offline journal: shared Phase 5 SQL transaction, no broker authority.
+from app.persistence.offline_decision_journal_models import PlatformDecisionJournalRow  # noqa: F401

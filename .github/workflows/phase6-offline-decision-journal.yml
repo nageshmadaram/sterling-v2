@@ -1,0 +1,171 @@
+name: Phase 6 Offline Decision Journal Certification
+
+on:
+  push:
+    branches:
+      - upgrade/offline-execution-journal-20261029
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-orchestration:
+    name: Phase 6 / Atomic Journal and Earlier Safety Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Sterling locked backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compile new offline-only scheduler and migration
+        run: |
+          python -m compileall -q backend/app/domain/offline_scheduler.py \
+            backend/app/persistence/offline_scheduler_service.py \
+            backend/app/persistence/offline_scheduler_models.py \
+            backend/alembic/versions/c75f92d1a341_offline_orchestration.py \
+            backend/app/persistence/offline_decision_journal_models.py \
+            backend/app/persistence/offline_decision_journal_service.py \
+            backend/app/persistence/offline_reconciliation.py \
+            backend/app/api/v1/endpoints/offline_validation_journal.py \
+            backend/alembic/versions/d86e31a4f290_decision_journal.py
+      - name: Test Phase 6, earlier scheduler, gate, registry, broker and market data safety
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_offline_decision_journal_phase6.py \
+            tests/test_offline_scheduler_phase5.py \
+            tests/test_execution_validation_gate.py \
+            tests/test_market_data_reliability.py \
+            tests/test_market_data_history_reliability.py \
+            tests/test_broker_normalized_read.py \
+            tests/test_broker_read_contract_edges.py \
+            tests/test_broker_kite_provider_boundary.py \
+            tests/test_broker_access_policy.py \
+            tests/test_broker_registry.py \
+            tests/test_registry_signed_auth_contract.py \
+            tests/test_platform_strategy_registry.py \
+            tests/test_platform_strategy_registry_safety.py
+      - name: Phase 6 GET-only interface, no execution calls
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          paths=[
+              "backend/app/persistence/offline_decision_journal_service.py",
+              "backend/app/persistence/offline_reconciliation.py",
+              "backend/app/api/v1/endpoints/offline_validation_journal.py",
+          ]
+          forbidden={"place_order","cancel_order","submit_order","modify_order",
+                     "market_reduce_close","place_gtt","delete_gtt","modify_gtt"}
+          for p in paths:
+              tree=ast.parse(Path(p).read_text())
+              names={n.name for n in ast.walk(tree) if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
+              assert not (names & forbidden),(p,names & forbidden)
+              for node in ast.walk(tree):
+                  if isinstance(node,ast.ImportFrom):
+                      assert not (node.module or "").startswith("app.services.exchanges.kite"),p
+          from pathlib import Path
+          api=ast.parse(Path(paths[-1]).read_text())
+          calls=[n for n in ast.walk(api) if isinstance(n,ast.Call)
+                 and isinstance(n.func,ast.Attribute) and n.func.attr in ("get","post","put","patch","delete")
+                 and isinstance(n.func.value,ast.Name) and n.func.value.id=="router"]
+          assert len(calls)==2 and all(n.func.attr=="get" for n in calls)
+          print("PASS: Phase 6 has only authenticated GET evidence routes, no broker writes")
+          PY
+      - name: No newly introduced unreviewed direct broker access
+        run: python backend/scripts/audit_broker_access.py
+      - name: Forbid route, network, timer and broker write authority
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          paths = [Path('backend/app/domain/offline_scheduler.py'),
+                   Path('backend/app/persistence/offline_scheduler_service.py')]
+          forbidden_methods = {'place_order','cancel_order','modify_order',
+                               'submit_order','send_order','market_reduce_close',
+                               'place_gtt','modify_gtt','delete_gtt','APIRouter',
+                               'create_task','call_later','schedule_interval'}
+          for p in paths:
+              tree = ast.parse(p.read_text())
+              functions = {n.name for n in ast.walk(tree)
+                           if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
+              assert not (functions & forbidden_methods), (p,functions & forbidden_methods)
+              blocked_imports=('fastapi','httpx','requests','kiteconnect',
+                               'app.services.exchanges.kite','app.services.execution.order_router')
+              for n in ast.walk(tree):
+                  if isinstance(n,ast.ImportFrom):
+                      assert not any((n.module or '').startswith(prefix)
+                                     for prefix in blocked_imports), (p,n.module)
+                  if isinstance(n,ast.Import):
+                      assert not any(a.name.startswith(prefix) for a in n.names
+                                     for prefix in blocked_imports), p
+          print('PASS: scheduler has no broker, HTTP routes, external network or worker')
+          PY
+
+  postgres-orchestration:
+    name: Phase 6 / PostgreSQL16 Atomic Ledger and Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sterling_journal_ci
+          POSTGRES_USER: sterling_ci
+          POSTGRES_PASSWORD: synthetic_ci_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sterling_ci -d sterling_journal_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://sterling_ci:synthetic_ci_secret@localhost:5432/sterling_journal_ci
+      STERLING_JOURNAL_DISPOSABLE_DB: 'yes'
+      ENVIRONMENT: test
+      PAPER_TRADING: 'true'
+      REAL_PUBLIC_DATA: 'false'
+      PGHOST: localhost
+      PGUSER: sterling_ci
+      PGPASSWORD: synthetic_ci_secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies and PostgreSQL driver
+        run: |
+          python -m pip install -r backend/requirements.lock.txt
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Migrate and validate durable queue ledger
+        working-directory: backend
+        run: PYTHONPATH=. python scripts/validate_decision_journal_postgres.py
+      - name: Dump/restore isolated DB using matching PostgreSQL16 clients
+        run: |
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_dump -h localhost -U "$PGUSER" -Fc --no-owner -d sterling_journal_ci -f /tmp/sterling_journal_ci.dump
+          psql -d sterling_journal_ci -v ON_ERROR_STOP=1 -c 'CREATE DATABASE sterling_journal_restore_ci;'
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_restore -h localhost -U "$PGUSER" --no-owner --exit-on-error \
+            -d sterling_journal_restore_ci /tmp/sterling_journal_ci.dump
+          psql -d sterling_journal_restore_ci -At \
+            -c "SELECT count(*) FROM platform_orchestration_events" | grep -qx '3'
+      - name: Rehearse destructive downgrade only in disposable CI DB
+        working-directory: backend
+        run: |
+          python -m alembic downgrade c75f92d1a341
+          python -m alembic upgrade head

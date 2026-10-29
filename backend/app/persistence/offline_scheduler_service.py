@@ -91,6 +91,10 @@ def _append(db: Session, rows: list[PlatformOrchestrationEventRow], *,
     db.add(row)
     db.flush()
     rows.append(row)
+    # Phase 6: exact same SQL transaction as the queue-state mutation.
+    # If the journal insert fails, session_scope rolls back both records.
+    from app.persistence.offline_decision_journal_service import append_for_orchestration
+    append_for_orchestration(db, row, rows)
     return event_id
 
 
