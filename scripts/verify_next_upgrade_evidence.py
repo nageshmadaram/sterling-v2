@@ -56,7 +56,7 @@ def validate_bundle(manifest: object, mapping: object, exceptions: object, root:
         errors.append("authoritative spec reference changed")
     if is_file_under(root, SPEC):
         data = (root / SPEC).read_bytes()
-        blob = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + b"\\0" + data).hexdigest()
+        blob = hashlib.sha1(b"blob " + str(len(data)).encode("ascii") + bytes((0,)) + data).hexdigest()
         if blob != SPEC_BLOB:
             errors.append("source spec content drift from pinned git blob")
     else:
