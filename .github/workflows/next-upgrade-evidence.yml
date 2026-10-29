@@ -325,7 +325,7 @@ jobs:
       - name: Reject fabricated authority and unauthorized branch edits
         run: python -m unittest scripts.tests.test_next_upgrade_increment8_closeout -v
       - name: Validate source-only evidence, branch and frozen main snapshot
-        run: python -m scripts.verify_increment8_closeout --output /tmp/sterling-v2-increment8-no-go.json
+        run: env -u GITHUB_SHA python -m scripts.verify_increment8_closeout --output /tmp/sterling-v2-increment8-no-go.json
       - name: Refuse production acceptance regardless of passing tests
         run: |
           python - <<'PY'
