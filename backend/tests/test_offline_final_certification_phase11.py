@@ -137,8 +137,16 @@ def test_phase11_isolated_api_runtime_never_mounts_broker_or_execution_routes(la
     assert state["worker"]["status"] == "disabled"
     assert client.post("/api/v1/offline-validation/monitor",
                        headers={"Authorization": "Bearer operator"}).status_code == 405
-    assert client.get("/api/v1/offline-validation/strategies",
-                      headers={"Authorization": "Bearer outside"}).status_code == 403
+    # Catalogue is owner-scoped: a valid foreign operator receives no rows,
+    # not a 403. Concrete strategy access remains denied by the owner gate.
+    foreign = client.get("/api/v1/offline-validation/strategies",
+                         headers={"Authorization": "Bearer outside"})
+    assert foreign.status_code == 200
+    assert foreign.json()["strategies"] == []
+    assert client.get(
+        f"/api/v1/offline-validation/strategies/{lab.strategy}/status",
+        headers={"Authorization": "Bearer outside"}
+    ).status_code == 403
 
 
 def test_phase11_http_write_surface_is_only_alert_metadata_and_mfa(lab):
@@ -156,7 +164,13 @@ def test_phase11_http_write_surface_is_only_alert_metadata_and_mfa(lab):
         if getattr(route, "methods", None)
         and set(route.methods) & {"POST", "PUT", "PATCH", "DELETE"}
     }
-    assert writes == auth_writes | metadata_writes
+    assert writes == auth_writes | metadata_writes, {
+        "actual_writes": sorted(writes),
+        "all_routes": sorted(
+            (r.path, sorted(getattr(r, "methods", ()) or ()))
+            for r in app.routes
+        ),
+    }
     for route in app.routes:
         if route.path.startswith("/api/v1/offline-validation/"):
             assert set(route.methods) <= {"GET", "POST"}
