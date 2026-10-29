@@ -352,7 +352,7 @@ jobs:
           if-no-files-found: error
   
   increment9-final-review-freeze:
-    name: Increment 9 source-only governance NO-GO and immutable branch check
+    name: Historical Increment 9 frozen review replay (pinned source-only)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -360,6 +360,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 831e735cb9fb1c4a21974b050db2a5c04604593e
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -370,7 +371,7 @@ jobs:
       - name: Reject acceptance, tamper and unauthorized branch change mutations
         run: python -m unittest scripts.tests.test_next_upgrade_increment9_review_freeze -v
       - name: Validate frozen source and exact branch-only diff
-        run: python -m scripts.verify_increment9_review_freeze --output /tmp/sterling-increment9-no-go.json
+        run: env -u GITHUB_SHA python -m scripts.verify_increment9_review_freeze --output /tmp/sterling-increment9-no-go.json
       - name: Assert no GO or operational authority
         run: |
           python - <<'PY'
@@ -396,3 +397,46 @@ jobs:
           path: /tmp/sterling-increment9-no-go.json
           retention-days: 30
           if-no-files-found: error
+  
+  increment10-source-review-index:
+    name: Increment 10 final evidence-only branch closeout and NO-GO index
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile read-only review index tests
+        run: python -m py_compile scripts/verify_increment10_review_index.py scripts/tests/test_next_upgrade_increment10_review_index.py
+      - name: Run source-only false-approval and branch-hygiene mutation regressions
+        run: python -m unittest scripts.tests.test_next_upgrade_increment10_review_index -v
+      - name: Verify exact source-only diff, frozen main and historical evidence
+        run: python -m scripts.verify_increment10_review_index --output /tmp/sterling-increment10-no-go.json
+      - name: Fail closed on any acceptance or execution authority
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/sterling-increment10-no-go.json').read_text())
+          assert x['validation']=='PASS'
+          assert x['prior_historical_sources']==26 and x['increment8_pinned_files']==4 and x['increment9_pinned_files']==4
+          assert x['branch_hygiene']==x['main_frozen']=='PASS'
+          assert x['accepted']==0 and x['blocked']==12
+          assert x['human_appointments']==x['independent_receipts']==x['independent_signoffs']==0
+          assert x['production_certification']=='NOT ACHIEVED' and x['release_freeze']=='ACTIVE'
+          assert x['offline_validation']=='PASS' and x['production_deployment']=='NO-GO'
+          assert x['live_trading']==x['broker_order_routing']=='NOT AUTHORIZED'
+          print('Final source-only integrity PASS. No production certification, authority, merge or deploy.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment10-final-review-no-go
+          path: /tmp/sterling-increment10-no-go.json
+          if-no-files-found: error
+          retention-days: 30
