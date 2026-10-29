@@ -1,0 +1,100 @@
+{
+  "schema": "sterling.v2.next_upgrade.hardening_evidence.v1",
+  "date": "2026-10-29",
+  "repository": "nageshmadaram/sterling-v2",
+  "source_spec": "docs/implementation/2026-10-29-next-upgrade-spec.md",
+  "source_traceability_commit": "74a6ef2434f8d65ba7874d7c8cdbb44f85cc2c58",
+  "scope": "SOURCE_AND_SYNTHETIC_TESTS_ONLY",
+  "release_freeze_active": true,
+  "reproduction": {
+    "commit": "8f7c453a024525b608b6cdbee7eeef17622adebb",
+    "workflow_run_id": 40887581789,
+    "workflow_url": "https://github.com/nageshmadaram/sterling-v2/actions/runs/40887581789",
+    "frontend_tests": {
+      "passed": 17,
+      "failed": 4,
+      "total": 21
+    },
+    "observed": {
+      "product_defects": [
+        "hidden-but-granted direct TV route mounted",
+        "hidden-but-granted TV remained mounted after policy visibility revision",
+        "workspace selector did not explicitly restore focus"
+      ],
+      "test_assertion_defect": "closed account dialog was queried by accessible role instead of DOM presence"
+    }
+  },
+  "fixes": {
+    "code_commit": "9ba474d7a53b51b319bd3e8ce67c0a11b4fdef69",
+    "paths": [
+      "frontend/src/pages/WorkspaceRouter.tsx",
+      "frontend/src/components/WorkspaceChooser.tsx"
+    ],
+    "test_path": "frontend/src/pages/__tests__/WorkspaceRouter.test.tsx",
+    "effect": "Workspace UI mounts only granted-and-visible feature; focus returns to attached prior trigger on close"
+  },
+  "final_validation": {
+    "commit": "31496a6e1ec575964e74725b11a8496c743f407e",
+    "workflow_run_id": 40888338963,
+    "workflow_url": "https://github.com/nageshmadaram/sterling-v2/actions/runs/40888338963",
+    "conclusion": "success",
+    "frontend": {
+      "framework": "vitest",
+      "passed": 21,
+      "failed": 0,
+      "isolated_policy_mocks": true,
+      "typescript_check": "PASS",
+      "build": "PASS",
+      "build_published": false
+    },
+    "backend": {
+      "framework": "pytest",
+      "passed": 62,
+      "failed": 0,
+      "warnings": 5,
+      "disposable_database": true,
+      "broker_network_requests": false,
+      "live_execution_env": false
+    },
+    "source_evidence": {
+      "structural_negative_tests": 12,
+      "passed": 12,
+      "scope": "source_only"
+    }
+  },
+  "new_backend_cases": [
+    "shared revision and fail-closed account/configuration separation",
+    "credential-preserving broker assignment audit rollback",
+    "admin credential owner/revision binding and audit rollback",
+    "stale broker assignment refused before synthetic exposure probe",
+    "real bearer identity negative checks for missing, member and revoked admin JWT on synthetic HTTP endpoint"
+  ],
+  "controls": {
+    "H01": "BLOCKED",
+    "T02": "BLOCKED",
+    "S03": "BLOCKED",
+    "I04": "BLOCKED",
+    "D05": "BLOCKED",
+    "R06": "BLOCKED",
+    "B07": "BLOCKED",
+    "M08": "BLOCKED",
+    "A09": "BLOCKED",
+    "L10": "BLOCKED",
+    "F11": "BLOCKED",
+    "G12": "BLOCKED"
+  },
+  "accepted_controls": 0,
+  "blocked_controls": 12,
+  "independent_release_signoff": "NOT_PROVIDED",
+  "production_certification": "NOT_ACHIEVED",
+  "production_deployment": "NO_GO",
+  "live_trading": "NOT_AUTHORIZED",
+  "broker_order_routing": "NOT_AUTHORIZED",
+  "main_merge": "NOT_AUTHORIZED",
+  "remaining_validation": [
+    "real-device mobile/desktop visual, back-navigation and accessibility verification",
+    "authorized representative session lifecycle and positive-path MFA/step-up verification",
+    "read-only independent production-control evidence from approved host and external providers",
+    "named human control owner assignments and independent sign-off"
+  ]
+}

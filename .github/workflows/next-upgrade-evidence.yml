@@ -18,9 +18,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile offline validator
-        run: python -m py_compile scripts/verify_next_upgrade_evidence.py scripts/tests/test_next_upgrade_evidence.py
+        run: python -m py_compile scripts/verify_next_upgrade_evidence.py scripts/tests/test_next_upgrade_evidence.py scripts/tests/test_next_upgrade_hardening_evidence.py
       - name: Run source-only negative tests
-        run: python -m unittest discover -s scripts/tests -p 'test_next_upgrade_evidence.py' -v
+        run: python -m unittest discover -s scripts/tests -p 'test_next_upgrade_*.py' -v
       - name: Emit sanitized NO-GO artifact
         run: python scripts/verify_next_upgrade_evidence.py --output /tmp/next-upgrade-no-go.json
       - name: Assert report contains no acceptance
