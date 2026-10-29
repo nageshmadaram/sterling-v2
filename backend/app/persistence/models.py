@@ -75,3 +75,6 @@ from app.persistence.offline_decision_journal_models import PlatformDecisionJour
 
 # Phase 7 opt-in hypothetical evidence only, never a broker trade record.
 from app.persistence.offline_performance_models import PlatformHypotheticalTradeRow  # noqa: F401
+
+# Phase 9: immutable informational alerts, not trading authority.
+from app.persistence.offline_alert_models import PlatformOfflineAlertEventRow  # noqa: F401

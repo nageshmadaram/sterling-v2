@@ -745,6 +745,9 @@ def create_app() -> FastAPI:
     # Phase 8 operator observability: GET-only registry/gate summaries.
     from app.api.v1.endpoints.offline_observability import router as offline_observability_router
     app.include_router(offline_observability_router, prefix="/api/v1")
+    # Phase 9: signed GET evidence, metadata-only acknowledgement/resolution.
+    from app.api.v1.endpoints.offline_alerts import router as offline_alerts_router
+    app.include_router(offline_alerts_router, prefix="/api/v1")
     # <<< trade-journal
 
     # Telegram Mini App (TMA) frontend & endpoints

@@ -9,6 +9,7 @@ import {
   type Catalogue, type OfflineStatus, type OfflineSummary,
   type DecisionEnvelope, type Reconciliation, type Breakdown,
 } from './contracts';
+import { OfflineAlertInbox } from './OfflineAlertInbox';
 import './OfflineEvidencePanel.css';
 
 const AGE_LIMIT_MS = 90_000;
@@ -273,6 +274,7 @@ function OfflineContent({ summary, status, decisions, reconciliation, versions, 
         <td title={q.journal_reference || ''} className="oe-hash">{shortHash(q.journal_reference)}</td>
       </tr>)}</tbody></table></div>}
     </Panel></>}
+    <OfflineAlertInbox strategyId={status.registry.id} />
     <Panel title="Operator alerts & evidence warnings" testid="offline-alerts">
       {alerts.length === 0 ? <p className="oe-muted">No informational alerts in this read. This does not certify live safety.</p> :
       <ul className="oe-alerts">{alerts.map(a => <li key={a.id}>
