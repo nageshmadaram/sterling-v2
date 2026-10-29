@@ -26,7 +26,11 @@ calling Phase 4 or being considered eligible for approval. A standalone
 `pause_item()` records an operator pause of queued validation work; reopening
 it requires a **fresh, approved Phase 4 dry-run** through `requeue()`.
 When the Phase 4 strategy or system gate is paused, newly due work is recorded
-as paused rather than queued.
+as paused rather than queued. `cancel_schedule()` permanently closes future
+occurrences and cannot be undone by a pause/resume action. An offline preview
+that has already passed the gate may be marked terminally failed via
+`fail_preview()`, preserving its original decision receipt and emitting a
+pending validation-failure alert; it cannot be requeued.
 
 ## Backlog vs run state
 

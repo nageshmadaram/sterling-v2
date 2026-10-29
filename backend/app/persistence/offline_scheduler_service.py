@@ -267,6 +267,8 @@ class OfflineScheduler:
             registry._strategy(db, actor, strategy_id)
             rows = _read(db, strategy_id)
             schedules, _, flags = _projection(rows)
+            if any(r.kind == "schedule_cancelled" and r.schedule_id == schedule_id for r in rows):
+                raise PermissionError("cancelled offline schedule is permanently closed")
             if schedule_id not in schedules or flags.get(schedule_id, False) == paused:
                 raise PermissionError("schedule not found or already in requested state")
             if not paused and _stop_state(_gate_status(db, strategy_id)):
@@ -274,6 +276,25 @@ class OfflineScheduler:
             return _append(db, rows, actor=actor, schedule=schedules[schedule_id][0],
                            item_id=None, kind="schedule_paused", reason=reason,
                            payload={"paused": paused, "offline_only": True})
+
+    def cancel_schedule(self, *, access_token: str, strategy_id: str,
+                        schedule_id: str, reason: str) -> str:
+        """Cancel future dry-run occurrences; cannot reopen the schedule."""
+        actor, reason = registry._identity(access_token), registry._reason(reason)
+        with session_scope(self._sessions) as db:
+            _lock(db)
+            registry._strategy(db, actor, strategy_id)
+            rows = _read(db, strategy_id)
+            schedules, _, _ = _projection(rows)
+            if schedule_id not in schedules or any(
+                r.kind == "schedule_cancelled" and r.schedule_id == schedule_id
+                for r in rows
+            ):
+                raise PermissionError("schedule missing or already cancelled")
+            return _append(db, rows, actor=actor, schedule=schedules[schedule_id][0],
+                           item_id=None, kind="schedule_cancelled", reason=reason,
+                           payload={"code": "OPERATOR_CANCELLED",
+                                    "dry_run": True, "execution_authorized": False})
 
     def materialize_due(self, *, access_token: str, strategy_id: str,
                         clock: datetime, reason: str, limit: int = 50,
@@ -606,6 +627,32 @@ class OfflineScheduler:
                             payload={"backlog": "approved", "run_state": "completed",
                                      "dry_run": True, "execution_authorized": False})
             return item.model_copy(update={"run_state": RunState.COMPLETED, "queue_event_id": event})
+
+    def fail_preview(self, *, access_token: str, strategy_id: str,
+                     item_id: str, reason: str) -> QueueView:
+        """Terminal validation failure after offline approval; never retries."""
+        actor, reason = registry._identity(access_token), registry._reason(reason)
+        with session_scope(self._sessions) as db:
+            _lock(db)
+            registry._strategy(db, actor, strategy_id)
+            rows = _read(db, strategy_id)
+            schedules, items, _ = _projection(rows)
+            item = items.get(item_id)
+            if item is None or item.backlog is not BacklogState.APPROVED or item.run_state is not RunState.APPROVED:
+                raise PermissionError("failed preview requires prior audited offline approval")
+            spec = schedules[item.identity.schedule_id][0]
+            event_id = _append(db, rows, actor=actor, schedule=spec, item_id=item_id,
+                               kind="run_transition", reason=reason,
+                               payload={"backlog": "cancelled", "run_state": "failed",
+                                        "code": "OFFLINE_VALIDATION_FAILED",
+                                        "dry_run": True, "execution_authorized": False})
+            self._alert(db, rows, actor=actor, spec=spec, item_id=item_id,
+                        kind="validation_failure", code="OFFLINE_VALIDATION_FAILED",
+                        reason=reason)
+            return item.model_copy(update={
+                "backlog": BacklogState.CANCELLED, "run_state": RunState.FAILED,
+                "queue_event_id": event_id,
+            })
 
     def cancel(self, *, access_token: str, strategy_id: str,
                item_id: str, reason: str) -> str:

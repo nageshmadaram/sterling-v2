@@ -424,3 +424,48 @@ def test_queue_growth_produces_pending_only_alert_event(lab):
     assert len(alerts)==1 and alerts[0].kind=="queue_growth"
     assert alerts[0].delivery=="pending"
     assert alerts[0].execution_authorized is False
+
+
+def test_schedule_cancel_prevents_resume_and_future_occurrences(lab):
+    at = datetime.now(UTC) + timedelta(minutes=10)
+    spec = schedule(lab, kind=ScheduleKind.RECURRING, at=at,
+                    every=60, count=3)
+    lab.service.schedule(access_token="admin", spec=spec,
+                         risk_policy=policy(), reason="schedule then cancel")
+    lab.service.cancel_schedule(access_token="admin", strategy_id=lab.strategy,
+                                schedule_id=spec.schedule_id, reason="operator cancel")
+    assert lab.service.materialize_due(access_token="admin",strategy_id=lab.strategy,
+             clock=at+timedelta(minutes=2),reason="no cancelled runs") == ()
+    with pytest.raises(PermissionError):
+        lab.service.set_pause(access_token="admin",strategy_id=lab.strategy,
+                              schedule_id=spec.schedule_id,paused=False,
+                              reason="cannot resurrect cancelled schedule")
+    with pytest.raises(PermissionError):
+        lab.service.cancel_schedule(access_token="admin",strategy_id=lab.strategy,
+                                    schedule_id=spec.schedule_id,reason="duplicate cancel")
+    assert count(lab, "schedule_cancelled")==1
+
+
+def test_failed_preview_is_terminal_and_audited(lab):
+    approved(lab)
+    item=enter(lab,schedule(lab))
+    outcome=lab.service.evaluate(access_token="admin",strategy_id=lab.strategy,
+                                  item_id=item.identity.item_id,inputs=input_for(item),
+                                  reason="offline gate approved")
+    assert outcome.backlog is BacklogState.APPROVED
+    failed=lab.service.fail_preview(access_token="admin",strategy_id=lab.strategy,
+                                    item_id=item.identity.item_id,
+                                    reason="synthetic validation failure")
+    assert failed.backlog is BacklogState.CANCELLED
+    assert failed.run_state is RunState.FAILED
+    assert failed.execution_authorized is False
+    assert any(x.reason_code=="OFFLINE_VALIDATION_FAILED" for x in
+               lab.service.alerts(access_token="admin",strategy_id=lab.strategy))
+    with pytest.raises(PermissionError):
+        lab.service.requeue(access_token="admin",strategy_id=lab.strategy,
+                            item_id=item.identity.item_id,inputs=input_for(item),
+                            reason="terminal failed cannot requeue")
+    with pytest.raises(PermissionError):
+        lab.service.fail_preview(access_token="admin",strategy_id=lab.strategy,
+                                 item_id=item.identity.item_id,
+                                 reason="cannot duplicate terminal failure")
