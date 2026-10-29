@@ -205,7 +205,7 @@ jobs:
             pg_restore -h localhost -U "$PGUSER" --no-owner --exit-on-error \
             -d sterling_analytics_restore_ci /tmp/sterling_analytics_ci.dump
           psql -d sterling_analytics_restore_ci -At \
-            -c "SELECT count(*) FROM platform_orchestration_events" | grep -qx '1'
+            -c "SELECT count(*) FROM platform_hypothetical_trade_events" | grep -qx '1'
       - name: Rehearse destructive downgrade only in disposable CI DB
         working-directory: backend
         run: |
