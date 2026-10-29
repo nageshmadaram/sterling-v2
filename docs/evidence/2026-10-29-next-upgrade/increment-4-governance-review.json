@@ -1,0 +1,176 @@
+{
+  "schema": "sterling.v2.increment4.governance_review_pack.v1",
+  "record_kind": "PREPARED_NO_GO_REVIEW_INTAKE",
+  "branch": "upgrade/evidence-traceability-20261029",
+  "increment3_head": "70217e544c69989fd5a4f22ed9a14d838c47d39d",
+  "increment4_test_commit": "aee78ea919540c33b3b51b44b20a01a7f85568e4",
+  "release_candidate_mutation": "NONE",
+  "main_frozen_sha": "27e39e954ee67dbd5ec1d68ab9d15ff15de7dd7f",
+  "sources": {
+    "spec": "docs/implementation/2026-10-29-next-upgrade-spec.md",
+    "prior_closeout": "docs/implementation/2026-10-29-browser-session-governance-increment-3.md",
+    "prior_validation": "docs/evidence/2026-10-29-next-upgrade/increment-3-validation-result.json",
+    "existing_control_map": "docs/evidence/2026-10-29-next-upgrade/control-evidence-map.json",
+    "human_owner_intake": "docs/evidence/2026-10-29-next-upgrade/increment-4-owner-confirmation.json",
+    "session_contract": "docs/evidence/2026-10-29-next-upgrade/increment-4-session-contract.json",
+    "physical_device_matrix": "docs/evidence/2026-10-29-next-upgrade/increment-4-physical-device-matrix.json"
+  },
+  "control_register": [
+    {
+      "id": "H01",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "T02",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "S03",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "I04",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "D05",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "R06",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "B07",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "M08",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "A09",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "L10",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "F11",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    },
+    {
+      "id": "G12",
+      "status": "BLOCKED",
+      "named_owner_confirmed": false,
+      "independent_receipts": 0,
+      "independent_reviewer_confirmed": false,
+      "acceptance": "NOT_PROVIDED"
+    }
+  ],
+  "totals": {
+    "accepted": 0,
+    "blocked": 12,
+    "confirmed_human_owners": 0,
+    "independent_receipts": 0,
+    "independent_signatures": 0
+  },
+  "open_blocker_ids": [
+    "OWNERS-12",
+    "MFA-DEVICE",
+    "PHYSICAL-DEVICE",
+    "HOST-TLS-VAULT-DB-RECOVERY",
+    "PROVIDER-MONITORING",
+    "INDEPENDENT-GOVERNANCE"
+  ],
+  "review_steps": [
+    {
+      "step": 1,
+      "action": "Nominate human control owners and independently reviewed collect/review sign-off matrix",
+      "status": "BLOCKED"
+    },
+    {
+      "step": 2,
+      "action": "Approve nonproduction MFA/device-session design contract and testing scope",
+      "status": "BLOCKED"
+    },
+    {
+      "step": 3,
+      "action": "Collect redacted approved host/provider/DB and independent physical-device evidence",
+      "status": "BLOCKED"
+    },
+    {
+      "step": 4,
+      "action": "Verify independent SHA-256 digests, exception dispositions and reviewer separation",
+      "status": "BLOCKED"
+    },
+    {
+      "step": 5,
+      "action": "Independent human governance decision; preserve NO-GO unless every control separately accepted",
+      "status": "NOT_PROVIDED"
+    }
+  ],
+  "strict_decision": {
+    "offline_validation": "PASS",
+    "production_deployment": "NO-GO",
+    "live_trading": "NOT AUTHORIZED",
+    "broker_order_routing": "NOT AUTHORIZED",
+    "production_certification": "NOT ACHIEVED",
+    "release_freeze": "ACTIVE",
+    "independent_signoff": "NOT PROVIDED",
+    "merge_to_main": "NOT AUTHORIZED"
+  },
+  "actions": {
+    "deployment": false,
+    "broker_connection": false,
+    "broker_order_routing": false,
+    "live_trading": false,
+    "main_merge": false,
+    "human_approval": false
+  }
+}

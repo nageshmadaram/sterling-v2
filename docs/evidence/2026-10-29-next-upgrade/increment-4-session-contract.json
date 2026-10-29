@@ -1,0 +1,87 @@
+{
+  "schema": "sterling.v2.increment4.session_contract_review.v1",
+  "record_kind": "SOURCE_INSPECTION_AND_TEST_GAP_NOT_MFA_ACCEPTANCE",
+  "source_refs": [
+    "backend/app/core/auth.py",
+    "backend/app/core/tokens.py",
+    "backend/app/api/v1/endpoints/auth.py",
+    "backend/app/api/v1/endpoints/admin_connections.py",
+    "backend/app/services/auth/login_activity.py",
+    "backend/tests/test_workspace_access.py"
+  ],
+  "branch": "upgrade/evidence-traceability-20261029",
+  "observed_contract": {
+    "bearer_access_required_in_production": true,
+    "jwt_algorithm": "HS256",
+    "issuer": "sterling",
+    "enforced_claims": [
+      "exp",
+      "iat",
+      "sub",
+      "typ",
+      "ver"
+    ],
+    "token_types": [
+      "access",
+      "refresh"
+    ],
+    "access_ttl_seconds_default": 600,
+    "refresh_ttl_seconds_default": 86400,
+    "remembered_refresh_ttl_seconds": 2592000,
+    "revocation_mechanism": "user_store.bump_token_version() on logout; token ver compared to persisted user",
+    "admin_authority_source": "Persisted user context / designated admin policy; client-supplied role/MFA headers not authoritative",
+    "device_activity": "login_activity records browser/device provenance but is not proof of device cryptographic binding",
+    "credential_write_guard": "Admin role + owner/revision CAS + encrypted synthetic vault write + audit transaction; no step-up proof observed"
+  },
+  "requirements": [
+    {
+      "id": "MFA-ENROLL",
+      "description": "Approved authenticator enrollment, recovery flow, replay denial and independent security review",
+      "current": "NOT_IMPLEMENTED_IN_INSPECTED_AUTH_CONTRACT",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "MFA-STEPUP",
+      "description": "Server-validated fresh MFA assertion with action/subject/resource bound nonce, TTL and audit before sensitive credentials operation",
+      "current": "NO_SERVER_SIDE_STEP_UP_GATE_OBSERVED",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DEVICE-ID",
+      "description": "Server-issued opaque per-device session identifier, explicit consent, expiry, device inventory and revoke one/all semantics",
+      "current": "NOT_PROVEN_BY_JWT_OR_LOGIN_ACTIVITY",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "DEVICE-REVOKE",
+      "description": "Per-device refresh invalidation + revocation propagation/reuse-detection tests on disposable fixtures",
+      "current": "GLOBAL_TOKEN_VERSION_ONLY_CONFIRMED",
+      "status": "BLOCKED"
+    },
+    {
+      "id": "SESSION-AUDIT",
+      "description": "Step-up challenge/use/expiry/device revocation deny-path event receipts, redacted and independently verified",
+      "current": "NO_INDEPENDENT_RECEIPTS",
+      "status": "BLOCKED"
+    }
+  ],
+  "synthetic_evidence": {
+    "source_run": 40894631972,
+    "baseline_backend_tests": 64,
+    "increment4_new_tests": 2,
+    "increment4_result": "PENDING_CI",
+    "never_real_authority": true
+  },
+  "status": "CONTRACT_REVIEWED_GAPS_OPEN",
+  "mfa_production_acceptance": "BLOCKED",
+  "device_session_production_acceptance": "BLOCKED",
+  "mfa_implemented": false,
+  "step_up_implemented": false,
+  "device_attestation_verified": false,
+  "disallowed_interpretation": "Remember-this-device extends refresh TTL but does not establish cryptographically device-bound MFA, step-up or independent operator acceptance",
+  "authorization_boundary": {
+    "production_deployment": "NO_GO",
+    "live_trading": "NOT_AUTHORIZED",
+    "broker_order_routing": "NOT_AUTHORIZED"
+  }
+}

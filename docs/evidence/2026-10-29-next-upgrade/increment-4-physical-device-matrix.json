@@ -1,0 +1,137 @@
+{
+  "schema": "sterling.v2.increment4.physical_device_matrix.v1",
+  "record_kind": "ACCEPTANCE_CRITERIA_NOT_EXECUTED",
+  "source_run": {
+    "id": 40894631972,
+    "url": "https://github.com/nageshmadaram/sterling-v2/actions/runs/40894631972",
+    "browser_tests_passed": 6,
+    "execution": "HEADLESS_CHROMIUM_LOCAL_VITE_MOCKED_API",
+    "viewport_widths": [
+      390,
+      1440
+    ]
+  },
+  "simulated_browser_verified": true,
+  "actual_physical_device_sessions": 0,
+  "physical_acceptance": "NOT_ACHIEVED",
+  "synthetic_proven": [
+    "Direct hidden route refused at 390/1440 in headless Chromium",
+    "Browser Back, native dialog focus/Escape return",
+    "Media unmount after mock policy refresh",
+    "Admin mount removed when mock role revoked",
+    "Frontend unit 21/21 and isolated build passing"
+  ],
+  "not_proven": [
+    "Touch drivers, physical device OS/browser combinations and actual network behavior",
+    "Real browser storage/biometric-backed device-bound session",
+    "Independent MFA/step-up in real operator session",
+    "Live media quality, assistive tech or hardware-specific safe-area rendering",
+    "Signed real-device tester receipts"
+  ],
+  "cases": [
+    {
+      "id": "ANDROID-CHROME",
+      "environment": "Physical Android Chrome (current supported OS)",
+      "checks": "Touch/back gestures, 360/390/412px viewports, keyboard, screen reader, policy revocation, session suspend/resume and network loss",
+      "status": "BLOCKED",
+      "named_test_operator": null,
+      "approved_nonproduction_device": null,
+      "session_capture": null,
+      "artifact_reference": null,
+      "signed_test_result": null,
+      "requirements": [
+        "Written device test scope and consenting operator",
+        "Synthetic test identity and no broker connection",
+        "Redacted screenshots in restricted approved store",
+        "Independent QA/security review"
+      ]
+    },
+    {
+      "id": "IOS-SAFARI",
+      "environment": "Physical iOS Safari",
+      "checks": "Safe areas, reduced-motion, voice-over, native dialog focus, browser back/swipe, media iframe and page reload",
+      "status": "BLOCKED",
+      "named_test_operator": null,
+      "approved_nonproduction_device": null,
+      "session_capture": null,
+      "artifact_reference": null,
+      "signed_test_result": null,
+      "requirements": [
+        "Written device test scope and consenting operator",
+        "Synthetic test identity and no broker connection",
+        "Redacted screenshots in restricted approved store",
+        "Independent QA/security review"
+      ]
+    },
+    {
+      "id": "DESKTOP-CHROME",
+      "environment": "Actual desktop Chrome with keyboard",
+      "checks": "Native modal focus trap/return/Escape, navigation history, hidden route admission, direct URL and zoom/high contrast",
+      "status": "BLOCKED",
+      "named_test_operator": null,
+      "approved_nonproduction_device": null,
+      "session_capture": null,
+      "artifact_reference": null,
+      "signed_test_result": null,
+      "requirements": [
+        "Written device test scope and consenting operator",
+        "Synthetic test identity and no broker connection",
+        "Redacted screenshots in restricted approved store",
+        "Independent QA/security review"
+      ]
+    },
+    {
+      "id": "ACCESSIBILITY",
+      "environment": "Independent mobile/desktop assistive tech",
+      "checks": "VoiceOver/TalkBack semantics, focus order, minimum touch target, WCAG user journey",
+      "status": "BLOCKED",
+      "named_test_operator": null,
+      "approved_nonproduction_device": null,
+      "session_capture": null,
+      "artifact_reference": null,
+      "signed_test_result": null,
+      "requirements": [
+        "Written device test scope and consenting operator",
+        "Synthetic test identity and no broker connection",
+        "Redacted screenshots in restricted approved store",
+        "Independent QA/security review"
+      ]
+    },
+    {
+      "id": "SESSION-REVOCATION",
+      "environment": "Approved nonproduction real-device session test",
+      "checks": "Expired/revoked token invalidation across open tabs/devices; no broker credentials or production accounts",
+      "status": "BLOCKED",
+      "named_test_operator": null,
+      "approved_nonproduction_device": null,
+      "session_capture": null,
+      "artifact_reference": null,
+      "signed_test_result": null,
+      "requirements": [
+        "Written device test scope and consenting operator",
+        "Synthetic test identity and no broker connection",
+        "Redacted screenshots in restricted approved store",
+        "Independent QA/security review"
+      ]
+    },
+    {
+      "id": "RESILIENCE",
+      "environment": "Offline/online and multitask/recovery",
+      "checks": "No stale privileged UI after failure, no duplicated writes or sensitive local state leak",
+      "status": "BLOCKED",
+      "named_test_operator": null,
+      "approved_nonproduction_device": null,
+      "session_capture": null,
+      "artifact_reference": null,
+      "signed_test_result": null,
+      "requirements": [
+        "Written device test scope and consenting operator",
+        "Synthetic test identity and no broker connection",
+        "Redacted screenshots in restricted approved store",
+        "Independent QA/security review"
+      ]
+    }
+  ],
+  "f11_control": "BLOCKED",
+  "real_device_acceptance_claim": false
+}
