@@ -82,6 +82,28 @@ class FinalGovernancePacketTests(unittest.TestCase):
     def test_traceable_source_required(self):
         self.deny(lambda x:x["packet"]["source_documents"].__setitem__(0,"docs/does-not-exist.md"))
 
+    def test_final_closeout_references_only_actual_ci_and_no_go(self):
+        import json
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[2] / "docs/evidence/2026-10-29-next-upgrade/increment-5-closeout.json"
+        receipt = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(receipt["record_kind"],"SOURCE_ONLY_REVIEW_PACKAGE_PREPARED_PRODUCTION_NO_GO")
+        self.assertEqual(receipt["reviewed_code_commit"],"9281affb00c29914c2312a1670b7f4deac6f8763")
+        self.assertEqual(receipt["validated_ci"]["run_id"],40898876371)
+        self.assertEqual(receipt["validated_ci"]["conclusion"],"success")
+        self.assertEqual(len(receipt["validated_ci"]["job_results"]),6)
+        self.assertEqual([j["tests_passed"] for j in receipt["validated_ci"]["job_results"]],
+                         [55,21,15,66,21,6])
+        self.assertEqual(receipt["control_state"]["accepted"],0)
+        self.assertEqual(receipt["control_state"]["blocked"],12)
+        self.assertEqual(receipt["control_state"]["independent_signatures"],0)
+        self.assertTrue(all(not value for value in receipt["operational_events"].values()))
+        self.assertEqual(receipt["decisions"]["PRODUCTION DEPLOYMENT"],"NO-GO")
+        self.assertEqual(receipt["decisions"]["LIVE TRADING"],"NOT AUTHORIZED")
+        self.assertEqual(receipt["decisions"]["BROKER ORDER ROUTING"],"NOT AUTHORIZED")
+        self.assertEqual(receipt["final_sentence"],
+                         "Production certification remains not achieved. Release freeze remains active.")
+
 
 if __name__ == "__main__":
     unittest.main()
