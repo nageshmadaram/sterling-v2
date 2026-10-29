@@ -1,0 +1,205 @@
+{
+  "schema": "sterling.v2.production_readiness.v1",
+  "date": "2026-10-29",
+  "track": "independent_real_world_production_certification",
+  "record_kind": "INITIAL_BLOCKED_INTAKE_ONLY",
+  "repository": "nageshmadaram/sterling-v2",
+  "main_sha_at_open": "939e611ecec4ba7663b6df846b66ec984bfca932",
+  "offline_candidate_sha": "ce702ab1622e53f6233e1bf9a235ef87fc297a8f",
+  "offline_ci_url": "https://github.com/nageshmadaram/sterling-v2/actions/runs/40821249672",
+  "offline_evidence_is_production_evidence": false,
+  "real_host_verified": false,
+  "real_operator_provisioning_verified": false,
+  "real_broker_session_verified": false,
+  "real_market_accepted": false,
+  "production_certs_verified": false,
+  "live_trading_authorized": false,
+  "broker_order_routing_authorized": false,
+  "production_deployment_authorized": false,
+  "main_merge_authorized": false,
+  "production_decision": "NO_GO",
+  "live_decision": "NOT_AUTHORIZED",
+  "reviewer_signoff": "NOT_PROVIDED",
+  "controls": [
+    {
+      "id": "H01",
+      "name": "Host, OS, container and network isolation",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Independent host inventory and signed OS/runtime configuration",
+        "Ingress, egress, namespace and privilege-denial observations on approved isolated host"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "T02",
+      "name": "TLS, certificates and public-edge security",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Observed TLS chain and lifecycle/renewal test on the approved endpoint",
+        "Validated trusted proxy, headers and public-edge routing"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "S03",
+      "name": "Secrets vault and credential rotation",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Approved vault inventory showing separation of app/runtime secrets",
+        "Independent rotation, expiry, access-denial and audit receipts with secrets redacted"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "I04",
+      "name": "Operator enrollment, RBAC, MFA and revocation",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Real named identities with approved enrollment and MFA recovery records",
+        "Role, tenant, session revocation and multi-instance deny-path observations, with no execution permissions"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "D05",
+      "name": "Production-like database isolation and durable audit",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Signed DB/cluster identity, owners, roles, grants and inherited-grant evidence",
+        "Write-denial probes on approved nonproduction isolated cluster and independent audit tamper test"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "R06",
+      "name": "Independent backup, restore, rollback and recovery",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Timestamped encrypted backup digest and independent restore environment",
+        "Verified audit-chain continuity, rollback drill and operator acceptance receipt"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "B07",
+      "name": "Broker account and session read-only acceptance",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Broker-approved identity, outbound IP and callback acceptance with secrets redacted",
+        "Observed account/session/exposure READ-ONLY receipts, no order API calls or privileges"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "M08",
+      "name": "Market-provider read-only quality and failover",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Authorized feed identity and timestamped freshness/sequence measurements",
+        "Observed stale-data, disconnect/reconnect and recovery handling with provider trust evidence"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "A09",
+      "name": "Monitoring, alert delivery and operator acknowledgment",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Real infrastructure metrics and alert rule receipts",
+        "Actual external destination delivery and human acknowledgement receipts with controlled failure drill"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "L10",
+      "name": "Legacy broker-access and execution-authority closure",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Disposition of 272 inherited classified findings with code owner sign-off",
+        "Independent access/route inventory and negative proof that no unauthorized broker writes are reachable"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "F11",
+      "name": "Full application, device, resilience and vulnerability review",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Real-device and representative end-to-end auth/UX/perf test matrix",
+        "Security scan, dependency/vulnerability decisions and resilience/load proof on approved environment"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    },
+    {
+      "id": "G12",
+      "name": "Independent governance and operational sign-off",
+      "status": "BLOCKED",
+      "evidence_required": [
+        "Immutable evidence bundle with owner, time, environment and reviewer for each control",
+        "Separate security, operations and release approver signatures plus a fresh explicit go/no-go decision"
+      ],
+      "independent_evidence": [],
+      "observed_environment": null,
+      "observed_at": null,
+      "observer": null,
+      "reviewer": null,
+      "decision_reason": "No independent real-world production-like acceptance evidence supplied."
+    }
+  ]
+}
