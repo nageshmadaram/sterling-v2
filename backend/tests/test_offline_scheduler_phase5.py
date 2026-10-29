@@ -353,3 +353,74 @@ def test_owner_isolation_and_queue_controls(lab):
     with pytest.raises(PermissionError):
         lab.service.cancel(access_token="admin",strategy_id=lab.strategy,
                            item_id=item.identity.item_id,reason="cannot cancel again")
+
+
+def test_stale_after_queue_before_risk_is_skipped_without_phase4_allow(lab):
+    now=datetime.now(UTC)
+    spec=schedule(lab,kind=ScheduleKind.DELAYED,
+                  at=now-timedelta(minutes=10),age=60)
+    lab.service.schedule(access_token="admin",spec=spec,risk_policy=policy(),
+                         reason="historical due")
+    first=lab.service.materialize_due(access_token="admin",
+             strategy_id=lab.strategy,clock=spec.start_at_utc+timedelta(seconds=1),
+             reason="synthetic earlier queue creation")
+    assert first[0].backlog is BacklogState.QUEUED
+    evaluated=lab.service.evaluate(access_token="admin",strategy_id=lab.strategy,
+                                    item_id=first[0].identity.item_id,
+                                    inputs=input_for(first[0]),reason="late evaluation")
+    assert evaluated.backlog is BacklogState.SKIPPED
+    assert evaluated.run_state is RunState.PAUSED
+    assert evaluated.execution_authorized is False
+    assert count(lab,"gate_binding")==0
+    assert any(x.kind=="stale_item" for x in
+               lab.service.alerts(access_token="admin",strategy_id=lab.strategy))
+    assert not lab.service.requeue(access_token="admin",strategy_id=lab.strategy,
+                                  item_id=first[0].identity.item_id,
+                                  inputs=input_for(first[0]),reason="stale requeue denied")
+    assert count(lab,"requeue_denied")==1
+
+
+def test_operator_pause_item_requires_fresh_audited_requeue(lab):
+    approved(lab)
+    item=enter(lab,schedule(lab))
+    paused=lab.service.pause_item(access_token="operator",strategy_id=lab.strategy,
+                                  item_id=item.identity.item_id,reason="operator pause")
+    assert paused.backlog is BacklogState.PAUSED
+    assert paused.run_state is RunState.PAUSED
+    assert any(x.reason_code=="OPERATOR_PAUSED" for x in
+               lab.service.alerts(access_token="admin",strategy_id=lab.strategy))
+    with pytest.raises(PermissionError):
+        lab.service.evaluate(access_token="admin",strategy_id=lab.strategy,
+                             item_id=item.identity.item_id,inputs=input_for(item),
+                             reason="cannot skip requeue")
+    assert lab.service.requeue(access_token="admin",strategy_id=lab.strategy,
+                               item_id=item.identity.item_id,inputs=input_for(item),
+                               reason="risk verified resume")
+    assert lab.service.queue(access_token="admin",strategy_id=lab.strategy)[0].backlog is BacklogState.QUEUED
+
+
+def test_gate_paused_at_materialization_stays_paused_and_requires_requeue(lab):
+    approved(lab)
+    lab.gate.transition(access_token="admin",strategy_id=lab.strategy,
+                        new_state=GateState.PAUSED,approval_mode=ApprovalMode.BLOCKED,
+                        reason="offline pause")
+    item=enter(lab,schedule(lab))
+    assert item.backlog is BacklogState.PAUSED
+    assert item.run_state is RunState.PAUSED
+    with pytest.raises(PermissionError):
+        lab.service.requeue(access_token="admin",strategy_id=lab.strategy,
+                            item_id=item.identity.item_id,inputs=input_for(item),
+                            reason="still paused")
+
+
+def test_queue_growth_produces_pending_only_alert_event(lab):
+    spec=schedule(lab)
+    lab.service.schedule(access_token="admin",spec=spec,risk_policy=policy(),
+                         reason="queue growth test")
+    items=lab.service.materialize_due(access_token="admin",strategy_id=lab.strategy,
+                          clock=datetime.now(UTC),reason="due",backlog_warn_at=1)
+    assert len(items)==1 and items[0].backlog is BacklogState.QUEUED
+    alerts=lab.service.alerts(access_token="admin",strategy_id=lab.strategy)
+    assert len(alerts)==1 and alerts[0].kind=="queue_growth"
+    assert alerts[0].delivery=="pending"
+    assert alerts[0].execution_authorized is False

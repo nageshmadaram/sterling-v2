@@ -70,7 +70,7 @@ RUN_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
 
 BACKLOG_TRANSITIONS: dict[BacklogState, frozenset[BacklogState]] = {
     BacklogState.PENDING: frozenset({BacklogState.QUEUED, BacklogState.SKIPPED, BacklogState.CANCELLED, BacklogState.PAUSED, BacklogState.EMERGENCY_STOPPED}),
-    BacklogState.QUEUED: frozenset({BacklogState.EVALUATED, BacklogState.PAUSED, BacklogState.CANCELLED, BacklogState.EMERGENCY_STOPPED}),
+    BacklogState.QUEUED: frozenset({BacklogState.EVALUATED, BacklogState.PAUSED, BacklogState.SKIPPED, BacklogState.CANCELLED, BacklogState.EMERGENCY_STOPPED}),
     BacklogState.EVALUATED: frozenset({BacklogState.APPROVED, BacklogState.REJECTED, BacklogState.PAUSED, BacklogState.EMERGENCY_STOPPED}),
     BacklogState.APPROVED: frozenset({BacklogState.CANCELLED, BacklogState.EMERGENCY_STOPPED}),
     BacklogState.REJECTED: frozenset({BacklogState.QUEUED, BacklogState.CANCELLED}),

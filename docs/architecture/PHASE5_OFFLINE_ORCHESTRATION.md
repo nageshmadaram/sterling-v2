@@ -20,7 +20,13 @@ All timestamps are timezone-aware UTC. Due entries are sorted by
 to 100 items per operator call. Each occurrence has a deterministic UUIDv5
 derived from `schedule_id + occurrence`, so retries and repeated polls do not
 duplicate a queued item. Expired/session-closed items are explicitly marked
-`skipped`, never silently executed.
+`skipped`, never silently executed. A queued item that becomes stale before
+risk evaluation is marked `skipped` with an append-only alert instead of
+calling Phase 4 or being considered eligible for approval. A standalone
+`pause_item()` records an operator pause of queued validation work; reopening
+it requires a **fresh, approved Phase 4 dry-run** through `requeue()`.
+When the Phase 4 strategy or system gate is paused, newly due work is recorded
+as paused rather than queued.
 
 ## Backlog vs run state
 

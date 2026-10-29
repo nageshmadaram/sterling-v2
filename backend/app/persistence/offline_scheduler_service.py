@@ -312,6 +312,8 @@ class OfflineScheduler:
                     backlog, run_state, code = ("emergency_stopped", "emergency_stopped", "SYSTEM_OR_STRATEGY_STOP")
                 elif _blocked_strategy(strategy):
                     backlog, run_state, code = ("skipped", "paused", "STRATEGY_DISABLED")
+                elif GateState.PAUSED in states:
+                    backlog, run_state, code = ("paused", "paused", "GATE_PAUSED")
                 elif (now - due).total_seconds() > spec.max_queue_age_seconds or (
                         spec.kind is ScheduleKind.SESSION and now >= spec.end_at_utc):
                     backlog, run_state, code = ("skipped", "paused", "STALE_QUEUE_OCCURRENCE")
@@ -417,8 +419,9 @@ class OfflineScheduler:
             raise PermissionError("risk input does not match immutable schedule/run lineage")
         if signal.mode.value != "simulation":
             raise PermissionError("offline scheduler accepts simulation previews only")
-        if (datetime.now(timezone.utc) - inputs.at_utc).total_seconds() > 300:
-            raise PermissionError("stale risk-evaluation evidence")
+        age = (datetime.now(timezone.utc) - inputs.at_utc).total_seconds()
+        if age > 300 or age < -2:
+            raise PermissionError("stale or future-dated risk-evaluation evidence")
 
     def evaluate(self, *, access_token: str, strategy_id: str,
                  item_id: str, inputs: GateInput, reason: str) -> QueueView:
@@ -426,12 +429,27 @@ class OfflineScheduler:
         # First verify the immutable lineage and item state. Then ask Phase 4
         # to persist a REAL dry-run decision; never accept client-provided allow.
         with session_scope(self._sessions) as db:
+            _lock(db)
             registry._strategy(db, actor, strategy_id)
-            specs, items, _ = _projection(_read(db, strategy_id))
+            rows = _read(db, strategy_id)
+            specs, items, _ = _projection(rows)
             item = items.get(item_id)
             if item is None or item.backlog is not BacklogState.QUEUED:
                 raise PermissionError("offline item not queued")
             self._validate_input(item, inputs)
+            spec = specs[item.identity.schedule_id][0]
+            if (datetime.now(timezone.utc) - item.identity.due_at_utc).total_seconds() > spec.max_queue_age_seconds:
+                event = _append(db, rows, actor=actor, schedule=spec, item_id=item_id,
+                                kind="queue_transition", reason=reason,
+                                payload={"backlog": "skipped", "run_state": "paused",
+                                         "code": "STALE_BEFORE_EVALUATION",
+                                         "dry_run": True, "execution_authorized": False})
+                self._alert(db, rows, actor=actor, spec=spec,
+                            item_id=item_id, kind="stale_item",
+                            code="STALE_BEFORE_EVALUATION", reason=reason)
+                return item.model_copy(update={"backlog": BacklogState.SKIPPED,
+                                               "run_state": RunState.PAUSED,
+                                               "queue_event_id": event})
         result = self._gate.dry_run(access_token=access_token, inputs=inputs,
                                     reason="phase5 evaluation: " + reason)
         with session_scope(self._sessions) as db:
@@ -499,7 +517,7 @@ class OfflineScheduler:
             self._validate_input(item, inputs)
             if _blocked_strategy(strategy) or _stop_state(_gate_status(db, strategy_id)):
                 raise PermissionError("disabled, retired or emergency-stopped requeue")
-            if (datetime.now(timezone.utc) - item.identity.due_at_utc).total_seconds() > 86400:
+            if (datetime.now(timezone.utc) - item.identity.due_at_utc).total_seconds() > schedules[item.identity.schedule_id][0].max_queue_age_seconds:
                 _append(db, rows, actor=actor, schedule=schedules[item.identity.schedule_id][0],
                         item_id=item_id, kind="requeue_denied", reason=reason,
                         payload={"code": "REQUEUE_STALE", "execution_authorized": False})
@@ -546,6 +564,30 @@ class OfflineScheduler:
                         "dry_run": True, "execution_authorized": False,
                     })
             return True
+
+    def pause_item(self, *, access_token: str, strategy_id: str,
+                   item_id: str, reason: str) -> QueueView:
+        """Defensive offline pause; only approved Phase 4 requeue may resume."""
+        actor, reason = registry._identity(access_token), registry._reason(reason)
+        with session_scope(self._sessions) as db:
+            _lock(db)
+            registry._strategy(db, actor, strategy_id)
+            rows = _read(db, strategy_id)
+            schedules, items, _ = _projection(rows)
+            item = items.get(item_id)
+            if item is None or item.backlog is not BacklogState.QUEUED:
+                raise PermissionError("only queued validation previews may pause")
+            spec = schedules[item.identity.schedule_id][0]
+            event = _append(db, rows, actor=actor, schedule=spec, item_id=item_id,
+                            kind="queue_transition", reason=reason,
+                            payload={"backlog": "paused", "run_state": "paused",
+                                     "code": "OPERATOR_PAUSED", "dry_run": True,
+                                     "execution_authorized": False})
+            self._alert(db, rows, actor=actor, spec=spec, item_id=item_id,
+                        kind="paused", code="OPERATOR_PAUSED", reason=reason)
+            return item.model_copy(update={"backlog": BacklogState.PAUSED,
+                                           "run_state": RunState.PAUSED,
+                                           "queue_event_id": event})
 
     def complete_preview(self, *, access_token: str, strategy_id: str,
                          item_id: str, reason: str) -> QueueView:
