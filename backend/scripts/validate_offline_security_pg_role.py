@@ -36,12 +36,14 @@ def main():
                 permissions=conn.execute(text("""
                     SELECT
                       has_schema_privilege(current_user,'public','CREATE'),
+                      has_database_privilege(current_user,current_database(),'CREATE'),
+                      has_database_privilege(current_user,current_database(),'TEMP'),
                       has_table_privilege(current_user,'platform_offline_alert_events','UPDATE'),
                       has_table_privilege(current_user,'platform_strategy_versions','INSERT'),
                       has_table_privilege(current_user,'platform_offline_alert_events','INSERT')
                 """)).one()
-                assert permissions==(False,False,False,True)
-                print("PASS: PostgreSQL16 role grants; no registry/ledger mutation, schema DDL, row locks or trigger disable")
+                assert permissions==(False,False,False,False,False,True)
+                print("PASS: PostgreSQL16 role grants; no registry/ledger mutation, schema/DB DDL, temp-table shadowing, row locks or trigger disable")
             finally:
                 conn.rollback()  # SET ROLE was transaction-local
         # Functional smoke: the actual restricted role must still support
