@@ -1,0 +1,530 @@
+{
+  "schema": "sterling.v2.final_frozen_governance.v1",
+  "record_kind": "FINAL_SOURCE_ONLY_REVIEW_MANIFEST_NO_CERTIFICATION",
+  "repository": "nageshmadaram/sterling-v2",
+  "engineering_branch": "upgrade/evidence-traceability-20261029",
+  "source_baseline_commit": "3291c5fff9d1f7fc2fdb608ac25de135ae43a979",
+  "main_snapshot_sha": "27e39e954ee67dbd5ec1d68ab9d15ff15de7dd7f",
+  "release_freeze": "ACTIVE",
+  "human_appointments_verified": false,
+  "operational_authority_granted": false,
+  "sources": [
+    {
+      "path": "docs/implementation/2026-10-29-next-upgrade-spec.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-29-evidence-upgrade-slice.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-29-next-upgrade-closeout.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-29-product-hardening-governance-increment-2.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-29-browser-session-governance-increment-3.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-29-owner-mfa-device-governance-increment-4.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-29-final-evidence-governance-closeout-increment-5.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-28-account-navigation.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-28-product-ui-audit.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-27-workspace-flow.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-27-configuration-access.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/implementation/2026-10-27-management-redesign.md",
+      "kind": "HISTORICAL_IMPLEMENTATION",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/control-evidence-map.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/exceptions.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-4-owner-confirmation.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-4-session-contract.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-4-physical-device-matrix.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-5-owner-reviewer-separation.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-5-final-review-packet.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-5-closeout.json",
+      "kind": "SOURCE_ONLY_EVIDENCE",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "scripts/verify_increment5_governance.py",
+      "kind": "SOURCE_ONLY_VALIDATOR_OR_TEST",
+      "independent_production_receipt": false
+    },
+    {
+      "path": "scripts/tests/test_next_upgrade_increment5_governance.py",
+      "kind": "SOURCE_ONLY_VALIDATOR_OR_TEST",
+      "independent_production_receipt": false
+    }
+  ],
+  "per_control": [
+    {
+      "id": "H01",
+      "status": "BLOCKED",
+      "proposed_team": "Platform / Infrastructure Security",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Independent host inventory and signed OS/runtime configuration",
+        "Ingress, egress, namespace and privilege-denial observations on approved isolated host"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Independent host inventory and signed OS/runtime configuration",
+        "Independent redacted receipt: Ingress, egress, namespace and privilege-denial observations on approved isolated host",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02"
+      ]
+    },
+    {
+      "id": "T02",
+      "status": "BLOCKED",
+      "proposed_team": "Edge / Network Security",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Observed TLS chain and lifecycle/renewal test on approved endpoint",
+        "Validated trusted proxy, headers and public-edge routing"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Observed TLS chain and lifecycle/renewal test on approved endpoint",
+        "Independent redacted receipt: Validated trusted proxy, headers and public-edge routing",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02"
+      ]
+    },
+    {
+      "id": "S03",
+      "status": "BLOCKED",
+      "proposed_team": "Secrets and Identity Security",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Approved redacted vault inventory and secret segregation",
+        "Independent rotation, expiry, access-denial and audit receipts"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Approved redacted vault inventory and secret segregation",
+        "Independent redacted receipt: Independent rotation, expiry, access-denial and audit receipts",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02"
+      ]
+    },
+    {
+      "id": "I04",
+      "status": "BLOCKED",
+      "proposed_team": "Identity and Access Management",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Named identity and approved enrollment/MFA recovery record",
+        "Revocation and cross-instance deny-path evidence without execution permissions"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Named identity and approved enrollment/MFA recovery record",
+        "Independent redacted receipt: Revocation and cross-instance deny-path evidence without execution permissions",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02",
+        "E-05"
+      ]
+    },
+    {
+      "id": "D05",
+      "status": "BLOCKED",
+      "proposed_team": "Database Engineering / Security",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Signed cluster identity, roles, grants and inherited-grant audit",
+        "Isolated nonproduction write-denial and audit tamper evidence"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Signed cluster identity, roles, grants and inherited-grant audit",
+        "Independent redacted receipt: Isolated nonproduction write-denial and audit tamper evidence",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02"
+      ]
+    },
+    {
+      "id": "R06",
+      "status": "BLOCKED",
+      "proposed_team": "Database Recovery / SRE",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Encrypted backup digest and isolated restore proof",
+        "Audit-chain continuity, rollback drill and operator receipt"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Encrypted backup digest and isolated restore proof",
+        "Independent redacted receipt: Audit-chain continuity, rollback drill and operator receipt",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02"
+      ]
+    },
+    {
+      "id": "B07",
+      "status": "BLOCKED",
+      "proposed_team": "Broker Integration / Compliance",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Broker-approved identity, outbound IP and callback acceptance",
+        "Read-only account/session/exposure receipts with no order calls"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Broker-approved identity, outbound IP and callback acceptance",
+        "Independent redacted receipt: Read-only account/session/exposure receipts with no order calls",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-03"
+      ]
+    },
+    {
+      "id": "M08",
+      "status": "BLOCKED",
+      "proposed_team": "Market Data Engineering / Provider Operations",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Authorized feed identity, freshness and sequence observations",
+        "Staleness, disconnect, failover and recovery proof"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Authorized feed identity, freshness and sequence observations",
+        "Independent redacted receipt: Staleness, disconnect, failover and recovery proof",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-03"
+      ]
+    },
+    {
+      "id": "A09",
+      "status": "BLOCKED",
+      "proposed_team": "Monitoring and Incident Operations",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Real infrastructure metrics and alert rules",
+        "Independent external delivery and human acknowledgment receipts"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Real infrastructure metrics and alert rules",
+        "Independent redacted receipt: Independent external delivery and human acknowledgment receipts",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-03"
+      ]
+    },
+    {
+      "id": "L10",
+      "status": "BLOCKED",
+      "proposed_team": "Application Architecture / Security",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Disposition and signed review of inherited access findings",
+        "Negative authorization-path inventory and no unauthorized broker-write reachability"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Disposition and signed review of inherited access findings",
+        "Independent redacted receipt: Negative authorization-path inventory and no unauthorized broker-write reachability",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-04"
+      ]
+    },
+    {
+      "id": "F11",
+      "status": "BLOCKED",
+      "proposed_team": "QA / Product Security",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Real-device cross-surface auth, layout and performance results",
+        "Security review, dependency decision and resilience/load evidence"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Real-device cross-surface auth, layout and performance results",
+        "Independent redacted receipt: Security review, dependency decision and resilience/load evidence",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-02",
+        "E-05"
+      ]
+    },
+    {
+      "id": "G12",
+      "status": "BLOCKED",
+      "proposed_team": "Independent Release Governance",
+      "team_confirmed": false,
+      "named_owner_confirmed": false,
+      "collector_confirmed": false,
+      "reviewer_confirmed": false,
+      "independent_receipt_count": 0,
+      "approval": "NOT PROVIDED",
+      "required_evidence": [
+        "Immutable evidence bundle with owners, environment and reviewers",
+        "Separate security, operations and release signatures and new go/no-go review"
+      ],
+      "missing_conditions": [
+        "Verified named accountable human and team appointment",
+        "Approved named collector, isolated scope and independent reviewer appointment",
+        "Independent redacted receipt: Immutable evidence bundle with owners, environment and reviewers",
+        "Independent redacted receipt: Separate security, operations and release signatures and new go/no-go review",
+        "Signed independent technical review with immutable receipt digest and exception disposition",
+        "G12 independent governance sign-off after prior controls are accepted"
+      ],
+      "exception_refs": [
+        "E-01",
+        "E-04"
+      ]
+    }
+  ],
+  "signoff_stages": [
+    {
+      "stage": "SECURITY",
+      "status": "NOT PROVIDED",
+      "named_approver": null,
+      "approval_receipt": null
+    },
+    {
+      "stage": "OPERATIONS",
+      "status": "NOT PROVIDED",
+      "named_approver": null,
+      "approval_receipt": null
+    },
+    {
+      "stage": "RELEASE_GOVERNANCE",
+      "status": "NOT PROVIDED",
+      "named_approver": null,
+      "approval_receipt": null
+    }
+  ],
+  "provenance": {
+    "previous_independent_ci_run": 40899422041,
+    "previous_independent_ci_url": "https://github.com/nageshmadaram/sterling-v2/actions/runs/40899422041",
+    "previous_ci_status": "success",
+    "previous_source_only_checks": 56,
+    "previous_increment5_focused_checks": 22,
+    "backend_disposable_tests": 66,
+    "frontend_mocked_tests": 21,
+    "headless_chromium_mocked_api_tests": 6,
+    "physical_device_sessions": 0,
+    "actual_real_environment_receipts": 0,
+    "independent_human_signatures": 0,
+    "notes": "All counts are from prior recorded synthetic/source-only CI; SHA-256 of repository files is only content integrity, never independent production evidence."
+  },
+  "content_quality_policy": {
+    "accepted_schema": "sterling.v2.final_frozen_governance.v1",
+    "missing_fields_fail_closed": true,
+    "paths_local_read_only": true,
+    "source_file_digest_kind": "SHA256_OF_REPOSITORY_SOURCE_BYTES_NOT_PRODUCTION_RECEIPT",
+    "redacted_artifact_only": true,
+    "raw_credentials_allowed": false,
+    "reviewer_independence_required": true,
+    "human_appointment_only_from_approved_external_source": true,
+    "production_decision_derived_from_test_result": false
+  },
+  "review_scope": {
+    "kind": "PREPARED_FOR_HUMAN_REVIEW_ONLY",
+    "control_accepted_count": 0,
+    "control_blocked_count": 12,
+    "h01_tooling_validation": "PASS",
+    "h01_production_evidence": "BLOCKED",
+    "independent_signoff": "NOT PROVIDED",
+    "certification": "NOT ACHIEVED",
+    "missing_external_inputs": [
+      "Named human control owners, collectors and independent reviewers for H01–G12",
+      "Approved independent signed receipts for host, TLS, secrets, identity, database, backup and recovery",
+      "Written broker/market-data provider approval and isolated read-only observations",
+      "External alert delivery, negative broker reachability and independent legacy-access review",
+      "Physical mobile assistive-technology and security/resilience evidence",
+      "Independently approved MFA/device-session contracts and G12 security, operations and release signatures"
+    ]
+  },
+  "decisions": {
+    "OFFLINE VALIDATION": "PASS",
+    "PRODUCTION DEPLOYMENT": "NO-GO",
+    "LIVE TRADING": "NOT AUTHORIZED",
+    "BROKER ORDER ROUTING": "NOT AUTHORIZED",
+    "production_certification": "NOT ACHIEVED",
+    "release_freeze": "ACTIVE",
+    "merge_to_main": "NOT AUTHORIZED"
+  },
+  "operational_events": {
+    "production_deployment": false,
+    "main_merge": false,
+    "broker_connection": false,
+    "live_execution": false,
+    "independent_signoff": false
+  },
+  "closing_statement": "Production certification remains not achieved. Release freeze remains active."
+}
