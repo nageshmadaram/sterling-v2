@@ -17,7 +17,7 @@ from app.persistence.offline_decision_journal_service import read_for_operator
 from app.persistence.offline_scheduler_service import _read, _projection, _append, OfflineScheduler
 
 FINAL = frozenset({
-    "rejected","cancelled","expired","failed","completed","emergency_stopped"
+    "rejected","cancelled","expired","skipped","failed","completed","emergency_stopped"
 })
 
 
