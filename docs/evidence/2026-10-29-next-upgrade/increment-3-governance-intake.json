@@ -1,0 +1,441 @@
+{
+  "schema": "sterling.v2.increment3.governance_intake.v1",
+  "record_kind": "EVIDENCE_PREPARATION_NOT_PRODUCTION_ACCEPTANCE",
+  "repository": "nageshmadaram/sterling-v2",
+  "source_spec": "docs/implementation/2026-10-29-next-upgrade-spec.md",
+  "implementation_branch": "upgrade/evidence-traceability-20261029",
+  "previous_validated_sha": "3022a71d0525831180ea6e3e35d686fdb4864225",
+  "certification_registry_reference": {
+    "branch": "cert/production-readiness-evidence-20261029",
+    "path": "certification/production_evidence_register.json",
+    "snapshot_sha": "e35eb40b76df5796e335312e4866a00c0a977db8",
+    "mutation": "NONE"
+  },
+  "team_assignments_are_verified": false,
+  "named_owners_assigned": 0,
+  "independent_human_signatures": 0,
+  "actual_production_receipts": 0,
+  "controls": [
+    {
+      "control_id": "H01",
+      "control_name": "Host, OS, container and network isolation",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Infrastructure / Security / Platform / Network",
+      "proposed_team": "Platform / Infrastructure Security",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Security and Operations reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review signed host/container/network inventory from approved nonproduction boundary. Compare read-only ingress/egress, UID and namespace-denial observations to the frozen candidate. No host session opened.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Independent host inventory and signed OS/runtime configuration",
+        "Ingress, egress, namespace and privilege-denial observations on approved isolated host"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "T02",
+      "control_name": "TLS, certificates and public-edge security",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Network / Security",
+      "proposed_team": "Edge / Network Security",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Application Security reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review redacted certificate-chain and proxy-header inspection records for an authorized isolated endpoint. Do not scan, probe, or modify any external/production edge.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Observed TLS chain and lifecycle/renewal test on approved endpoint",
+        "Validated trusted proxy, headers and public-edge routing"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "S03",
+      "control_name": "Secrets vault and credential rotation",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Security / Secrets Management",
+      "proposed_team": "Secrets and Identity Security",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Secrets Security reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review only redacted vault inventory, access-policy metadata, and prior authorized rotation-denial receipts. Never retrieve, rotate, copy or print credentials.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Approved redacted vault inventory and secret segregation",
+        "Independent rotation, expiry, access-denial and audit receipts"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "I04",
+      "control_name": "Operator enrollment, RBAC, MFA and revocation",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Identity / Security",
+      "proposed_team": "Identity and Access Management",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Identity Security reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Inspect policy revisions, role matrix and synthetic revoked-session checks. Request separate human enrollment, MFA recovery and device-revocation receipts; no live user/session changes.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Named identity and approved enrollment/MFA recovery record",
+        "Revocation and cross-instance deny-path evidence without execution permissions"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "D05",
+      "control_name": "Database isolation and durable audit",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Database / Security",
+      "proposed_team": "Database Engineering / Security",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Database Security reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review signed DB ownership, grants and audit-chain inventories, plus disposable SQLite/PostgreSQL CI results. No production SQL session or mutation.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Signed cluster identity, roles, grants and inherited-grant audit",
+        "Isolated nonproduction write-denial and audit tamper evidence"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "R06",
+      "control_name": "Backup, restore, rollback and recovery",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Database / Operations",
+      "proposed_team": "Database Recovery / SRE",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Operations and Database reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review timestamped encrypted-backup digests and independently approved isolated restore and rollback receipts. Do not initiate a backup, restore or rollback on any authoritative host.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Encrypted backup digest and isolated restore proof",
+        "Audit-chain continuity, rollback drill and operator receipt"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "B07",
+      "control_name": "Broker account and session read-only acceptance",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Broker Integration / Compliance",
+      "proposed_team": "Broker Integration / Compliance",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Provider Risk and Security reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review broker-provider approval letter and signed prior read-only account/session acceptance receipts if supplied. No login, callback registration, account query, token renewal or order API call.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Broker-approved identity, outbound IP and callback acceptance",
+        "Read-only account/session/exposure receipts with no order calls"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "M08",
+      "control_name": "Market-provider read-only quality and failover",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Market Data / Operations",
+      "proposed_team": "Market Data Engineering / Provider Operations",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Market Data Assurance reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review provider authorization and supplied freshness, sequence, failover and recovery observation logs. No provider connection or live-feed subscription.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Authorized feed identity, freshness and sequence observations",
+        "Staleness, disconnect, failover and recovery proof"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "A09",
+      "control_name": "Monitoring, alert delivery and acknowledgement",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Operations / Monitoring",
+      "proposed_team": "Monitoring and Incident Operations",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Security Operations reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review approved alert-rule definitions, signed independent delivery receipts and human acknowledgment records. No external notification sent.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Real infrastructure metrics and alert rules",
+        "Independent external delivery and human acknowledgment receipts"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "L10",
+      "control_name": "Legacy broker-access and execution-authority closure",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Engineering / Security",
+      "proposed_team": "Application Architecture / Security",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent Code and Execution Safety reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review static broker-access inventory, finding dispositions and code-owner receipts against frozen SHA. No routing, connection, execution-path activation or transaction.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Disposition and signed review of inherited access findings",
+        "Negative authorization-path inventory and no unauthorized broker-write reachability"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "F11",
+      "control_name": "Full app, device, resilience and vulnerability review",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "QA / Security / Operations",
+      "proposed_team": "QA / Product Security",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Independent QA and Security reviewer",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Review synthetic CI and real Chromium browser evidence separately; request independent device, vulnerability and resilience receipts. Do not classify mocked browser tests as real-device or production acceptance.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Real-device cross-surface auth, layout and performance results",
+        "Security review, dependency decision and resilience/load evidence"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    },
+    {
+      "control_id": "G12",
+      "control_name": "Independent governance and release sign-off",
+      "status": "BLOCKED",
+      "accountable_role_from_baseline": "Independent Governance / Release",
+      "proposed_team": "Independent Release Governance",
+      "team_assignment": "UNCONFIRMED",
+      "named_human_owner": null,
+      "named_evidence_collector": null,
+      "independent_review_role": "Separate Security, Operations and Release approvers",
+      "named_independent_reviewer": null,
+      "signoff": "NOT_PROVIDED",
+      "scope": "READ_ONLY_PROCEDURE_DRAFT_NOT_EXECUTED",
+      "read_only_procedure": "Cross-check immutable evidence manifest, reviewer independence, exception dispositions and separate signed decisions. No approval or GO may be generated by automation.",
+      "prerequisites": [
+        "Written scope authorization from responsible human",
+        "Immutable candidate/build identity",
+        "Approved isolated environment if needed",
+        "Redacted immutable storage with SHA-256 receipt"
+      ],
+      "expected_independent_evidence": [
+        "Immutable evidence bundle with owners, environment and reviewers",
+        "Separate security, operations and release signatures and new go/no-go review"
+      ],
+      "received_independent_receipts": [],
+      "observation_environment": null,
+      "observed_at_utc": null,
+      "next_decision": "BLOCKED_UNTIL_HUMAN_OWNER_EVIDENCE_AND_INDEPENDENT_REVIEW"
+    }
+  ],
+  "governance_review_checklist": [
+    {
+      "id": "C01",
+      "item": "Freeze candidate and route evidence to separated non-production reviewer",
+      "state": "PREPARED_NOT_APPROVED"
+    },
+    {
+      "id": "C02",
+      "item": "Human owner and evidence collector appointed for every control",
+      "state": "BLOCKED"
+    },
+    {
+      "id": "C03",
+      "item": "Independent real-world environment, failure/denial and recovery receipt references provided",
+      "state": "BLOCKED"
+    },
+    {
+      "id": "C04",
+      "item": "Separate named reviewer validates each evidence digest and exceptions",
+      "state": "BLOCKED"
+    },
+    {
+      "id": "C05",
+      "item": "Security, database, operations and provider approval independently signed",
+      "state": "BLOCKED"
+    },
+    {
+      "id": "C06",
+      "item": "Separate independent release-governance decision made",
+      "state": "BLOCKED"
+    }
+  ],
+  "receipt_contract": {
+    "required_fields": [
+      "control_id",
+      "candidate_sha_or_image_digest",
+      "approved_environment_id",
+      "human_observer_name",
+      "observer_role",
+      "observed_at_utc",
+      "procedure_id",
+      "sanitized_reference",
+      "sha256",
+      "negative_path_observation",
+      "independent_reviewer_name",
+      "reviewer_signature_reference",
+      "review_verdict"
+    ],
+    "forbidden_content": [
+      "tokens",
+      "passwords",
+      "API keys",
+      "TOTP seeds",
+      "raw operator IP/device identifiers",
+      "broker account secrets",
+      "raw customer identifiers"
+    ],
+    "storage_policy": "Restricted reviewed store with opaque references; no sensitive material in GitHub",
+    "current_receipt_count": 0,
+    "receipt_approval_out_of_scope": true
+  },
+  "safety": {
+    "freeze_active": true,
+    "offline_validation": "PASS",
+    "production_certification": "NOT_ACHIEVED",
+    "deployment": "NO_GO",
+    "live_trading": "NOT_AUTHORIZED",
+    "broker_order_routing": "NOT_AUTHORIZED",
+    "merge_to_main": "NOT_AUTHORIZED",
+    "real_host_access_performed": false,
+    "broker_connection_performed": false,
+    "production_operations_performed": false
+  }
+}
