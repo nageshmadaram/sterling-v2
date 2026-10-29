@@ -56,10 +56,12 @@ def create_app()->FastAPI:
     # Strict allowlist of existing signed-token auth handlers, NOT entire auth router.
     app.add_api_route("/api/v1/auth/login",auth.login,methods=["POST"],response_model=auth.TokenResponse)
     @app.post("/api/v1/auth/refresh",response_model=auth.TokenResponse)
-    async def offline_refresh(request:Request,body:auth.RefreshRequest):
+    async def offline_refresh(request:Request,body:dict):
         from app.core import tokens
+        if not isinstance(body,dict) or set(body)!={"refresh_token"} or not isinstance(body.get("refresh_token"),str):
+            raise HTTPException(status_code=422,detail="Valid refresh token body required")
         try:
-            claims=tokens.decode(body.refresh_token,expected_typ="refresh")
+            claims=tokens.decode(body["refresh_token"],expected_typ="refresh")
         except tokens.TokenError as exc:
             raise HTTPException(status_code=401,detail="Invalid offline refresh session") from exc
         # A refresh token minted by legacy /remember could be valid for 30
@@ -67,7 +69,7 @@ def create_app()->FastAPI:
         if (claims.get("remembered") is True or
             int(claims["exp"])-int(claims["iat"])>3600):
             raise HTTPException(status_code=401,detail="Long-lived refresh is not allowed")
-        return await auth.refresh(request,body)
+        return await auth.refresh(request,auth.RefreshRequest.model_validate(body))
     app.add_api_route("/api/v1/auth/logout",auth.logout,methods=["POST"])
     app.add_api_route("/api/v1/auth/me",auth.me,methods=["GET"],response_model=auth.MeResponse)
 
