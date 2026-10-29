@@ -9,6 +9,15 @@ BEGIN
     CREATE ROLE sterling_offline_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
   END IF;
 END $$;
+-- PostgreSQL grants TEMPORARY on databases to PUBLIC by default.
+-- A temporary relation can shadow an unqualified public audit table name,
+-- so the offline runtime MUST NOT have database TEMP or CREATE privileges.
+-- Execute against only the caller's explicitly selected isolated database.
+DO $
+BEGIN
+  EXECUTE format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC',current_database());
+  EXECUTE format('REVOKE CREATE, TEMPORARY ON DATABASE %I FROM sterling_offline_runtime',current_database());
+END $;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM sterling_offline_runtime;
 GRANT USAGE ON SCHEMA public TO sterling_offline_runtime;
