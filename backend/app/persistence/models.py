@@ -62,3 +62,7 @@ from app.persistence.strategy_registry_models import (  # noqa: F401
 )
 
 from app.persistence.strategy_registry_audit import PlatformStrategyAuditRow  # noqa: F401
+
+
+# Phase 4 independent, append-only offline authorization evidence.
+from app.persistence.execution_validation_models import PlatformGateEventRow  # noqa: F401
