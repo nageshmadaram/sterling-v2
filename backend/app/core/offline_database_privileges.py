@@ -14,6 +14,9 @@ def assert_runtime_privileges(engine=None):
                 (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) AS superuser,
                 (SELECT rolcreaterole FROM pg_roles WHERE rolname=current_user) AS create_role,
                 (SELECT rolcreatedb FROM pg_roles WHERE rolname=current_user) AS create_db,
+                (SELECT rolbypassrls FROM pg_roles WHERE rolname=current_user) AS bypass_rls,
+                has_database_privilege(current_user,current_database(),'CREATE') AS database_create,
+                has_database_privilege(current_user,current_database(),'TEMP') AS database_temporary,
                 has_schema_privilege(current_user,'public','CREATE') AS schema_create,
                 has_table_privilege(current_user,'platform_strategies','UPDATE') AS registry_update,
                 has_table_privilege(current_user,'platform_strategy_versions','INSERT') AS version_insert,
@@ -25,7 +28,8 @@ def assert_runtime_privileges(engine=None):
                 has_table_privilege(current_user,'platform_offline_alert_events','INSERT') AS alert_insert,
                 has_table_privilege(current_user,'platform_offline_alert_events','SELECT') AS alert_read
             """)).mappings().one()
-            bad=("superuser","create_role","create_db","schema_create",
+            bad=("superuser","create_role","create_db","bypass_rls",
+                 "database_create","database_temporary","schema_create",
                  "registry_update","version_insert","journal_insert",
                  "alert_update","alert_delete","health_update")
             if any(checks[key] for key in bad):
