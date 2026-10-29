@@ -167,7 +167,7 @@ it('closes the account menu before opening the workspace selector', async () => 
   expect(screen.getByRole('dialog', { name: 'Account and navigation' })).toHaveAttribute('open');
   fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
   await waitFor(() => expect(screen.getByRole('dialog', { name: 'Choose your workspace' })).toHaveAttribute('open'));
-  expect(screen.getByRole('dialog', { name: 'Account and navigation' })).not.toHaveAttribute('open');
+  expect(document.querySelector('dialog.account-menu')).not.toHaveAttribute('open');
 });
 
 it('restores focus to the workspace selector trigger when its dialog closes', async () => {

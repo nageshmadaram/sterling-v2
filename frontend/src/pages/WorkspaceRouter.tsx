@@ -49,7 +49,7 @@ export function WorkspaceRouter() {
   useEffect(()=>{window.addEventListener('sterling-cycle-workspace',cycleWorkspace);return()=>window.removeEventListener('sterling-cycle-workspace',cycleWorkspace);},[cycleWorkspace]);
 
   const chooser = session && <WorkspaceChooser features={session.features} visibility={session.visibility} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
-  const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current]);
+  const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current] && session.visibility?.[current] !== false);
   return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''}`}>
     {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
       {(current==='tv'||current==='radio') ? <button type="button" className="workspace-current workspace-cycle"

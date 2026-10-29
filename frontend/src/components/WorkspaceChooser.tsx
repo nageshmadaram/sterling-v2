@@ -23,7 +23,18 @@ export function WorkspaceChooser({ features, visibility, administrator, onSelect
 }
 export function WorkspaceDialog({ open, onClose, children }: { open: boolean; onClose: () => void; children: React.ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  useEffect(() => { if (open && !dialog.current?.open) dialog.current?.showModal(); else if (!open && dialog.current?.open) dialog.current.close(); }, [open]);
+  const focusOrigin = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open && !dialog.current?.open) {
+      focusOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      dialog.current?.showModal();
+    } else if (!open) {
+      if (dialog.current?.open) dialog.current.close();
+      const target = focusOrigin.current;
+      focusOrigin.current = null;
+      if (target?.isConnected) target.focus();
+    }
+  }, [open]);
   if (typeof document === 'undefined') return null;
   return createPortal(<dialog className="workspace-dialog" ref={dialog} aria-label="Choose your workspace" onCancel={onClose} onClose={onClose}
     onClick={event => { if (event.target === event.currentTarget) { const bounds = event.currentTarget.getBoundingClientRect(); if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose(); } }}>
