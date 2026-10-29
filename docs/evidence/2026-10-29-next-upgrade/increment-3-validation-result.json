@@ -1,0 +1,83 @@
+{
+  "schema": "sterling.v2.increment3.synthetic_validation.v1",
+  "record_kind": "RUN_ATTESTATION_SOURCE_AND_SIMULATED_ONLY",
+  "repository": "nageshmadaram/sterling-v2",
+  "branch": "upgrade/evidence-traceability-20261029",
+  "increment2_commit": "3022a71d0525831180ea6e3e35d686fdb4864225",
+  "tested_commit": "8386da02c53992ee01905604175c4ab045fc5e0c",
+  "passing_run": {
+    "id": 40893974347,
+    "url": "https://github.com/nageshmadaram/sterling-v2/actions/runs/40893974347",
+    "conclusion": "success",
+    "chromium": {
+      "passed": 6,
+      "failed": 0,
+      "viewport_widths": [
+        390,
+        1440
+      ],
+      "api_mocked": true,
+      "real_chromium": true,
+      "physical_device": false
+    },
+    "frontend": {
+      "unit_passed": 21,
+      "tsc": "PASS",
+      "isolated_build": "PASS",
+      "published": false
+    },
+    "backend": {
+      "pytest_passed": 64,
+      "pytest_failed": 0,
+      "warnings": 5,
+      "disposable_db": true,
+      "broker_connected": false
+    },
+    "source_evidence_tests": {
+      "passed": 18,
+      "failed": 0
+    }
+  },
+  "earlier_failure_runs": [
+    {
+      "id": 40892694235,
+      "reason": "Browser fixtures misclassified deliberately blocked external assets; legacy administration profile fixture missing"
+    },
+    {
+      "id": 40893572749,
+      "reason": "Legacy admin UI fixture obsolete; denied preference PATCH counted as unexpected backend mutation"
+    }
+  ],
+  "browser_artifact": {
+    "id": 12906296331,
+    "name": "sterling-v2-increment3-synthetic-chromium"
+  },
+  "no_go_artifact": {
+    "id": 12905542936,
+    "name": "next-upgrade-evidence-source-only-no-go"
+  },
+  "product_runtime_files_edited_in_increment3": [],
+  "human_named_control_owners": 0,
+  "independent_real_environment_receipts": 0,
+  "independent_reviewer_signatures": 0,
+  "controls": {
+    "accepted": 0,
+    "blocked": 12,
+    "h01_production": "BLOCKED"
+  },
+  "decisions": {
+    "offline_validation": "PASS",
+    "production_deployment": "NO_GO",
+    "live_trading": "NOT_AUTHORIZED",
+    "broker_order_routing": "NOT_AUTHORIZED",
+    "production_certification": "NOT_ACHIEVED",
+    "release_freeze": "ACTIVE",
+    "main_merge": "NOT_AUTHORIZED"
+  },
+  "limitations": [
+    "Chromium viewport emulation is not physical-device evidence",
+    "All browser API responses are synthetic; no provider/production host contacted",
+    "MFA step-up contract is not implemented/independently tested",
+    "No named human owner, independent receipt or governance signature supplied"
+  ]
+}

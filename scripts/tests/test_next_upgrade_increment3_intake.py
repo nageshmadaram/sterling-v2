@@ -60,6 +60,26 @@ class IncrementThreeGovernanceTests(unittest.TestCase):
         self.assertFalse(s["production_operations_performed"])
         self.assertTrue(all(row["state"] != "APPROVED" for row in d["governance_review_checklist"]))
 
+    def test_increment3_validation_receipt_is_source_only_and_blocked(self):
+        receipt = json.loads((EVIDENCE / "increment-3-validation-result.json").read_text())
+        self.assertEqual(receipt["record_kind"], "RUN_ATTESTATION_SOURCE_AND_SIMULATED_ONLY")
+        self.assertEqual(receipt["passing_run"]["conclusion"], "success")
+        self.assertEqual(receipt["passing_run"]["chromium"]["passed"], 6)
+        self.assertTrue(receipt["passing_run"]["chromium"]["api_mocked"])
+        self.assertFalse(receipt["passing_run"]["chromium"]["physical_device"])
+        self.assertEqual(receipt["passing_run"]["backend"]["pytest_passed"], 64)
+        self.assertFalse(receipt["passing_run"]["frontend"]["published"])
+        self.assertEqual(receipt["product_runtime_files_edited_in_increment3"], [])
+        self.assertEqual(receipt["controls"], {"accepted": 0, "blocked": 12, "h01_production": "BLOCKED"})
+        self.assertEqual(receipt["human_named_control_owners"], 0)
+        self.assertEqual(receipt["independent_real_environment_receipts"], 0)
+        self.assertEqual(receipt["independent_reviewer_signatures"], 0)
+        d = receipt["decisions"]
+        self.assertEqual((d["offline_validation"],d["production_deployment"],d["live_trading"],d["broker_order_routing"]),
+            ("PASS","NO_GO","NOT_AUTHORIZED","NOT_AUTHORIZED"))
+        self.assertEqual((d["production_certification"],d["release_freeze"],d["main_merge"]),
+            ("NOT_ACHIEVED","ACTIVE","NOT_AUTHORIZED"))
+
 
 if __name__ == "__main__":
     unittest.main()
