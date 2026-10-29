@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from certification.observe_host_h01 import SAFE_REF
+# Keep CLI self-contained when executed as python3 certification/verify_h01_observation.py.\nSAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{3,95}$")
 
 MAX_FILE_BYTES = 32768
 HEX_ID = re.compile(r"^[A-Za-z0-9._+~-]{1,128}$")
