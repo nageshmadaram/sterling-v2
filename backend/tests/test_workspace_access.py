@@ -592,3 +592,63 @@ def test_increment3_real_auth_refresh_logout_revoke_and_expiry(workspace, monkey
         assert client.get('/api/v1/auth/me', headers={'Authorization':'Bearer ' + rotated_access}).status_code == 401
         assert client.post('/api/v1/auth/refresh', json={'refresh_token':refresh}).status_code == 401
         assert client.post('/api/v1/auth/refresh', json={'refresh_token':rotated_refresh}).status_code == 401
+
+
+def test_increment4_member_cannot_elevate_to_admin_with_jwt_role_or_mfa_headers(workspace, monkeypatch):
+    """Synthetic HTTP requests: resolve the role from the DB, never from JWT claims or client step-up flags."""
+    from app.core import tokens
+    from app.services.auth import user_store
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    app = FastAPI()
+    app.include_router(admin_connections.router, prefix='/api/v1')
+    member = user_store.get_by_id('member')
+    claimed_admin = tokens.mint_access(member.id, member.username, 'admin', member.token_version)
+    route = '/api/v1/admin/brokers'
+    with TestClient(app) as client:
+        assert client.get(route).status_code == 401
+        response = client.get(route, headers={
+            'Authorization': 'Bearer ' + claimed_admin,
+            'X-Sterling-MFA-Verified': 'true',
+            'X-Sterling-Step-Up': 'passed',
+            'X-User-Id': 'default',
+        })
+        assert response.status_code == 403
+        assert client.get(route, headers={'Authorization': 'Bearer malformed'}).status_code == 401
+        admin = user_store.get_by_id('default')
+        real_admin = tokens.mint_access(admin.id, admin.username, 'admin', admin.token_version)
+        valid = client.get(route, headers={'Authorization': 'Bearer ' + real_admin})
+        assert valid.status_code == 200
+        user_store.bump_token_version('default')
+        assert client.get(route, headers={
+            'Authorization': 'Bearer ' + real_admin, 'X-Sterling-MFA-Verified': 'true',
+        }).status_code == 401
+
+
+def test_increment4_expired_refresh_and_remembered_token_do_not_prove_device_mfa(workspace, monkeypatch):
+    """Synthetic remember/refresh contract: finite tokens, expiry denial, no inferred device attestation."""
+    import jwt
+    from app.core import security, tokens
+    from app.api.v1.endpoints import auth
+    from app.services.auth import user_store
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    app = FastAPI()
+    app.include_router(auth.router, prefix='/api/v1')
+    admin = user_store.get_by_id('default')
+    access = tokens.mint_access(admin.id, admin.username, admin.role, admin.token_version)
+    refresh = tokens.mint_refresh(admin.id, admin.username, admin.role, admin.token_version)
+    with TestClient(app) as client:
+        remembered = client.post('/api/v1/auth/remember',
+                                 headers={'Authorization': 'Bearer ' + access})
+        assert remembered.status_code == 200
+        claims = tokens.decode(remembered.json()['refresh_token'], expected_typ='refresh')
+        assert claims.get('remembered') is True
+        assert int(claims['exp']) > int(claims['iat'])
+        assert int(claims['exp']) - int(claims['iat']) <= 30 * 24 * 60 * 60
+        # A remembered refresh token is not a per-device attestation or MFA-bound session.
+        assert not any(key in claims for key in ('amr', 'acr', 'device_id', 'mfa_verified_at', 'step_up_at'))
+        expired_claims = tokens.decode(refresh, expected_typ='refresh')
+        expired_claims['exp'] = 1
+        expired = jwt.encode(expired_claims, security.get_jwt_key(), algorithm='HS256')
+        assert client.post('/api/v1/auth/refresh', json={'refresh_token': expired}).status_code == 401
+        assert client.post('/api/v1/auth/refresh',
+                           json={'refresh_token': remembered.json()['access_token']}).status_code == 401
