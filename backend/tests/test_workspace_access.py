@@ -383,3 +383,106 @@ def test_admin_broker_login_is_masked_owner_bound_and_audited(workspace,monkeypa
         assert raw.startswith('fernet:') and 'Synthetic-broker-password' not in raw
         audit=c.execute("SELECT after_json FROM auth_audit_events WHERE action='broker.login_credentials_updated'").fetchone()[0]
         assert 'Synthetic-broker-password' not in audit
+
+
+def test_next_upgrade_feature_and_configuration_revisions_are_joint_and_fail_closed(workspace):
+    """Disposable DB: independent configuration permission must never imply a Kite grant."""
+    from app.services.auth import configuration_policy
+    _, member = workspace
+    assert account_policy.read('member').revision == 0
+    first = configuration_policy.replace_section(
+        'default', 'member', 'brokers', visible=True,
+        grants=[{'action': 'update', 'resource_id': 'own', 'expires_at_ms': None}],
+        expected_revision=0,
+    )
+    assert first['revision'] == account_policy.read('member').revision == 1
+    configuration_policy.require('member', 'brokers', 'update')
+    with pytest.raises(PermissionError):
+        account_policy.require_feature('member', 'kite')
+    assert route_policy('/api/v1/kite/private', 'GET') == 'kite'
+    assert route_policy('/api/v1/admin/directory', 'GET') == 'administration'
+    account_policy.set_features('default', 'member',
+        {'kite': False, 'tv': True, 'radio': False}, 1)
+    assert configuration_policy.read('member')['revision'] == account_policy.read('member').revision == 2
+    with pytest.raises(account_policy.PolicyConflict):
+        configuration_policy.replace_section('default', 'member', 'brokers',
+            visible=False, grants=[], expected_revision=1)
+    configuration_policy.replace_section('default', 'member', 'brokers',
+        visible=False, grants=[], expected_revision=2)
+    with pytest.raises(PermissionError):
+        configuration_policy.require('member', 'brokers', 'update')
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM auth_event_outbox').fetchone()[0] == 3
+        assert conn.execute('SELECT COUNT(*) FROM auth_audit_events').fetchone()[0] == 3
+
+
+def test_next_upgrade_assignment_audit_rollback_preserves_credential_ownership(workspace, monkeypatch):
+    """Synthetic account/DB only: a failed assignment audit must not transfer a vault entry."""
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    monkeypatch.setattr(accounts, '_accounts', {})
+    account = accounts.add('default', KiteAccountCreate(label='Synthetic', api_key='test-key', api_secret='test-secret'))
+    old_key = f'kite_login_credentials:default:{account.id}'
+    target_key = f'kite_login_credentials:member:{account.id}'
+    db.set_config_strict(old_key, 'fernet:synthetic-ciphertext')
+    with db._conn() as conn:
+        conn.execute("CREATE TRIGGER deny_next_upgrade_assignment_audit BEFORE INSERT ON auth_audit_events BEGIN SELECT RAISE(ABORT,'synthetic'); END")
+    with pytest.raises(RuntimeError):
+        accounts.reassign(account.id, actor_id='default', source_user_id='default',
+            target_user_id='member', expected_updated_at_ms=account.updated_at_ms)
+    assert accounts.get('default', account.id).user_id == 'default'
+    assert accounts.get('member', account.id) is None
+    assert db.get_config_strict(old_key, '') == 'fernet:synthetic-ciphertext'
+    assert db.get_config_strict(target_key, '') == ''
+    with db._conn() as conn:
+        assert conn.execute('SELECT user_id FROM kite_accounts WHERE id=?',(account.id,)).fetchone()[0] == 'default'
+
+
+def test_next_upgrade_admin_credential_write_checks_revision_and_audit_atomically(workspace, monkeypatch):
+    """Synthetic-admin HTTP contract: stale owner and failed audit cannot save a password."""
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    admin, member = workspace
+    monkeypatch.setattr(accounts, '_accounts', {})
+    account = accounts.add('member', KiteAccountCreate(label='Synthetic', api_key='test-key', api_secret='test-secret'))
+    monkeypatch.setattr(accounts, '_accounts', {account.id: account})
+    app = FastAPI()
+    app.include_router(admin_connections.router, prefix='/api/v1')
+    app.dependency_overrides[get_current_user] = lambda: member
+    client = TestClient(app, raise_server_exceptions=False)
+    path = f'/api/v1/admin/brokers/{account.id}/login-credentials'
+    body = {'username': 'AA001', 'password': 'test-only-credential',
+            'expected_user_id': 'member', 'expected_updated_at_ms': account.updated_at_ms}
+    assert client.put(path, json=body).status_code == 403
+    app.dependency_overrides[get_current_user] = lambda: admin
+    assert client.put(path, json={**body,'expected_user_id':'default'}).status_code == 409
+    assert client.put(path, json={**body,'expected_updated_at_ms':account.updated_at_ms + 1}).status_code == 409
+    key = f'kite_login_credentials:member:{account.id}'
+    assert db.get_config_strict(key, '') == ''
+    with db._conn() as conn:
+        conn.execute("CREATE TRIGGER deny_next_upgrade_credential_audit BEFORE INSERT ON auth_audit_events BEGIN SELECT RAISE(ABORT,'synthetic'); END")
+    error = client.put(path, json=body)
+    assert error.status_code >= 400
+    assert 'test-only-credential' not in error.text
+    assert db.get_config_strict(key, '') == ''
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM auth_audit_events WHERE action='broker.login_credentials_updated'").fetchone()[0] == 0
+
+
+def test_next_upgrade_stale_broker_assignment_fails_before_broker_probe(workspace, monkeypatch):
+    """No external provider I/O: stale CAS must abort prior to detachment checks."""
+    from app.services.exchanges.kite import accounts
+    from app.services.exchanges.kite.models import KiteAccountCreate
+    from app.api.v1.endpoints import kite
+    monkeypatch.setattr(accounts, '_accounts', {})
+    account = accounts.add('default', KiteAccountCreate(label='Synthetic', api_key='test-key', api_secret='test-secret'))
+    async def forbidden_probe(*args, **kwargs):
+        raise AssertionError('stale request reached broker exposure probe')
+    monkeypatch.setattr(kite, '_require_account_detachable', forbidden_probe)
+    app = FastAPI()
+    app.include_router(admin_connections.router, prefix='/api/v1')
+    app.dependency_overrides[get_current_user] = lambda: workspace[0]
+    response = TestClient(app).post(f'/api/v1/admin/brokers/{account.id}/assignment', json={
+        'user_id':'member', 'expected_user_id':'default', 'expected_updated_at_ms':account.updated_at_ms+1})
+    assert response.status_code == 409
+    assert accounts.get('default', account.id).user_id == 'default'
