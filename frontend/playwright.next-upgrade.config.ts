@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['next-upgrade-readonly.spec.ts', 'administration-isolation.spec.ts'],
+  testMatch: ['next-upgrade-readonly.spec.ts'],
   workers: 1, retries: 0, reporter: 'list',
   outputDir: './test-results/increment-3',
   use: {

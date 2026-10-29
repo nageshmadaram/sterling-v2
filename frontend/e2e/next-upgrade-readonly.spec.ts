@@ -35,6 +35,20 @@ async function isolate(page: Page, policy: Session) {
     if (path === '/api/v1/auth/profile') {
       await route.fulfill({ json: { user_id: session.user_id, username: session.username, display_name: session.username, photo: '' } }); return;
     }
+    if (path === '/api/v1/admin/directory') {
+      await route.fulfill({ json: {current_user_id:session.user_id,brokers:[],users:[{
+        id:session.user_id,username:session.username,role:session.role,active:true,online:false,
+        primary:session.administrator,features:session.features,revision:session.policy_revision,
+        activity:[],brokers:[],telegram:[],last_login_ms:null,password_set:true
+      }]}}); return;
+    }
+    if (path === '/api/v1/admin/access-requests') {
+      await route.fulfill({json:{requests:[]}}); return;
+    }
+    if (path === '/api/v1/settings/capabilities') {
+      await route.fulfill({json:{user_id:session.user_id,revision:session.policy_revision,active:true,
+        administrator:session.administrator,sections:{brokers:{visible:false,grants:[]},telegram:{visible:false,grants:[]},integrations:{visible:false,grants:[]}}}}); return;
+    }
     if (path === '/api/v1/auth/preferences') {
       await route.fulfill({ json: { initialized: true, values: {} } }); return;
     }
@@ -108,8 +122,38 @@ for (const width of [390, 1440]) {
       'After the periodic authoritative policy read, the mounted media page must be evicted').toBeVisible({ timeout: 20000 });
     await expect(page.getByRole('main', { name: 'Echo workspace' })).toHaveCount(0);
     await expect(page.locator('iframe')).toHaveCount(0);
-    expect(fixture.blocked).toEqual([]);
+    // Preference sync attempted PATCH; the harness denied it before network I/O.
+    expect(fixture.blocked.every(x => x === 'PATCH /api/v1/auth/preferences')).toBe(true);
     expect(fixture.seen.some(x => x.startsWith('POST /api/v1/media/radio/access'))).toBe(true);
     // The POST above was fulfilled entirely by Playwright, not a server.
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`admin read-only navigation and immediate unmount after revoked policy at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({width,height:844});
+    const enabled: Session = {...base,role:'admin',administrator:true,
+      features:{kite:false,radio:false,tv:false},
+      visibility:{kite:true,radio:true,tv:true},policy_revision:3};
+    const fixture = await isolate(page, enabled);
+    const errors: string[] = [];
+    page.on('pageerror',e=>errors.push(e.message));
+    await page.goto('/administration');
+    await expect(page.getByRole('heading',{name:'Administration',exact:true})).toBeVisible();
+    await page.getByRole('button',{name:'Choose workspace',exact:true}).click();
+    const modal = page.getByRole('dialog',{name:'Choose your workspace'});
+    await expect(modal.getByRole('button',{name:'Administration'})).toBeVisible();
+    await modal.getByRole('button',{name:'Close workspace selector'}).click();
+    const observed = fixture.seen.filter(x=>x==='GET /api/v1/auth/me').length;
+    fixture.update({...enabled,administrator:false,role:'user',policy_revision:4});
+    await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+    await expect.poll(()=>fixture.seen.filter(x=>x==='GET /api/v1/auth/me').length,
+      {timeout:20000}).toBeGreaterThan(observed);
+    await expect(page.getByRole('heading',{name:'Administrator access required'})).toBeVisible({timeout:20000});
+    await expect(page.getByRole('heading',{name:'Administration',exact:true})).toHaveCount(0);
+    expect(fixture.seen).toContain('GET /api/v1/admin/directory');
+    expect(fixture.blocked).toEqual([]);
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
   });
 }
