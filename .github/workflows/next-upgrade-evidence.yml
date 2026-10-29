@@ -235,7 +235,7 @@ jobs:
       - name: Validate human-review-only source package and mutation rejection
         run: python -m unittest scripts.tests.test_next_upgrade_increment6_closeout -v
       - name: Generate sanitized local-source SHA-256 integrity inventory (NOT real evidence)
-        run: python scripts/verify_increment6_closeout.py --output /tmp/sterling-v2-final-source-quality-no-go.json
+        run: python -m scripts.verify_increment6_closeout --output /tmp/sterling-v2-final-source-quality-no-go.json
       - name: Reassert release freeze and zero accepted controls
         run: |
           python - <<'PY'
