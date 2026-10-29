@@ -216,3 +216,46 @@ jobs:
           path: /tmp/sterling-v2-final-packet-no-go.json
           if-no-files-found: error
           retention-days: 30
+  
+  increment6-final-policy-quality:
+    name: Final governance schema, source fingerprint and NO-GO quality (source-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile final policy-quality guard and mutation tests
+        run: python -m py_compile scripts/verify_increment6_closeout.py scripts/tests/test_next_upgrade_increment6_closeout.py
+      - name: Validate human-review-only source package and mutation rejection
+        run: python -m unittest scripts.tests.test_next_upgrade_increment6_closeout -v
+      - name: Generate sanitized local-source SHA-256 integrity inventory (NOT real evidence)
+        run: python scripts/verify_increment6_closeout.py --output /tmp/sterling-v2-final-source-quality-no-go.json
+      - name: Reassert release freeze and zero accepted controls
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/sterling-v2-final-source-quality-no-go.json').read_text())
+          assert x['validation']=='PASS'
+          assert x['classification']=='SOURCE_ONLY_REVIEW_NOT_PRODUCTION_EVIDENCE'
+          assert x['controls_accepted']==0 and x['controls_blocked']==12
+          assert x['human_owners_confirmed']==x['independent_signatures']==x['real_environment_receipts']==0
+          assert x['source_files_verified']==22
+          assert x['production_certification']=='NOT ACHIEVED'
+          assert x['production_deployment']=='NO-GO'
+          assert x['live_trading']==x['broker_order_routing']=='NOT AUTHORIZED'
+          assert x['release_freeze']=='ACTIVE'
+          print('Source fingerprint and schema validated; no production authority.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-final-governance-source-quality-no-go
+          path: /tmp/sterling-v2-final-source-quality-no-go.json
+          if-no-files-found: error
+          retention-days: 30
