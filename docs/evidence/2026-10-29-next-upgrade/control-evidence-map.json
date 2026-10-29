@@ -1,0 +1,204 @@
+{
+  "schema": "sterling.v2.next_upgrade.control_map.v1",
+  "record_kind": "REQUIREMENTS_NOT_ACCEPTANCE",
+  "register_snapshot": {
+    "branch": "cert/production-readiness-evidence-20261029",
+    "observed_commit": "e35eb40b76df5796e335312e4866a00c0a977db8",
+    "path": "certification/production_evidence_register.json",
+    "mode": "REFERENCE_ONLY_NOT_COPIED_OR_AMENDED"
+  },
+  "controls": [
+    {
+      "id": "H01",
+      "name": "Host, OS, container and network isolation",
+      "status": "BLOCKED",
+      "accountable_role": "Infrastructure / Security / Platform / Network",
+      "named_owner": null,
+      "evidence_required": [
+        "Independent host inventory and signed OS/runtime configuration",
+        "Ingress, egress, namespace and privilege-denial observations on approved isolated host"
+      ],
+      "verification_method": "Approved host identity and negative isolation checks",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "T02",
+      "name": "TLS, certificates and public-edge security",
+      "status": "BLOCKED",
+      "accountable_role": "Network / Security",
+      "named_owner": null,
+      "evidence_required": [
+        "Observed TLS chain and lifecycle/renewal test on approved endpoint",
+        "Validated trusted proxy, headers and public-edge routing"
+      ],
+      "verification_method": "Authorized read-only TLS and header review",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "S03",
+      "name": "Secrets vault and credential rotation",
+      "status": "BLOCKED",
+      "accountable_role": "Security / Secrets Management",
+      "named_owner": null,
+      "evidence_required": [
+        "Approved redacted vault inventory and secret segregation",
+        "Independent rotation, expiry, access-denial and audit receipts"
+      ],
+      "verification_method": "Redacted read-only vault audit and approved nonproduction rotation drill",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "I04",
+      "name": "Operator enrollment, RBAC, MFA and revocation",
+      "status": "BLOCKED",
+      "accountable_role": "Identity / Security",
+      "named_owner": null,
+      "evidence_required": [
+        "Named identity and approved enrollment/MFA recovery record",
+        "Revocation and cross-instance deny-path evidence without execution permissions"
+      ],
+      "verification_method": "Authorized negative access test and independent review",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "D05",
+      "name": "Database isolation and durable audit",
+      "status": "BLOCKED",
+      "accountable_role": "Database / Security",
+      "named_owner": null,
+      "evidence_required": [
+        "Signed cluster identity, roles, grants and inherited-grant audit",
+        "Isolated nonproduction write-denial and audit tamper evidence"
+      ],
+      "verification_method": "Independent disposable test DB denial/tamper review",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "R06",
+      "name": "Backup, restore, rollback and recovery",
+      "status": "BLOCKED",
+      "accountable_role": "Database / Operations",
+      "named_owner": null,
+      "evidence_required": [
+        "Encrypted backup digest and isolated restore proof",
+        "Audit-chain continuity, rollback drill and operator receipt"
+      ],
+      "verification_method": "Independent isolated restore and verified recovery report",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "B07",
+      "name": "Broker account and session read-only acceptance",
+      "status": "BLOCKED",
+      "accountable_role": "Broker Integration / Compliance",
+      "named_owner": null,
+      "evidence_required": [
+        "Broker-approved identity, outbound IP and callback acceptance",
+        "Read-only account/session/exposure receipts with no order calls"
+      ],
+      "verification_method": "Separately authorized provider read-only observation",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "M08",
+      "name": "Market-provider read-only quality and failover",
+      "status": "BLOCKED",
+      "accountable_role": "Market Data / Operations",
+      "named_owner": null,
+      "evidence_required": [
+        "Authorized feed identity, freshness and sequence observations",
+        "Staleness, disconnect, failover and recovery proof"
+      ],
+      "verification_method": "Authorized provider read-only reliability drill",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "A09",
+      "name": "Monitoring, alert delivery and acknowledgement",
+      "status": "BLOCKED",
+      "accountable_role": "Operations / Monitoring",
+      "named_owner": null,
+      "evidence_required": [
+        "Real infrastructure metrics and alert rules",
+        "Independent external delivery and human acknowledgment receipts"
+      ],
+      "verification_method": "Controlled failure notification and receipt verification",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "L10",
+      "name": "Legacy broker-access and execution-authority closure",
+      "status": "BLOCKED",
+      "accountable_role": "Engineering / Security",
+      "named_owner": null,
+      "evidence_required": [
+        "Disposition and signed review of inherited access findings",
+        "Negative authorization-path inventory and no unauthorized broker-write reachability"
+      ],
+      "verification_method": "Static inventory plus independent negative runtime access test",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "F11",
+      "name": "Full app, device, resilience and vulnerability review",
+      "status": "BLOCKED",
+      "accountable_role": "QA / Security / Operations",
+      "named_owner": null,
+      "evidence_required": [
+        "Real-device cross-surface auth, layout and performance results",
+        "Security review, dependency decision and resilience/load evidence"
+      ],
+      "verification_method": "Approved isolated browser, device and scanner test matrix",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    },
+    {
+      "id": "G12",
+      "name": "Independent governance and release sign-off",
+      "status": "BLOCKED",
+      "accountable_role": "Independent Governance / Release",
+      "named_owner": null,
+      "evidence_required": [
+        "Immutable evidence bundle with owners, environment and reviewers",
+        "Separate security, operations and release signatures and new go/no-go review"
+      ],
+      "verification_method": "Independent human approval after all other controls",
+      "received_independent_evidence": [],
+      "independent_reviewer": null,
+      "review_decision": "NOT_PROVIDED",
+      "next_action": "Obtain a named accountable human owner, approved environment and independent redacted evidence; keep BLOCKED until independent acceptance."
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "schema": "sterling.v2.next_upgrade.release_package.v1",
+  "record_kind": "SOURCE_TRACEABILITY_AND_EVIDENCE_PREPARATION_ONLY",
+  "repository": "nageshmadaram/sterling-v2",
+  "source_spec": "docs/implementation/2026-10-29-next-upgrade-spec.md",
+  "source_spec_git_blob": "3591f4d15d0d0f5bc6b7c8c79309cad48ad0c0b4",
+  "main_observed_sha": "27e39e954ee67dbd5ec1d68ab9d15ff15de7dd7f",
+  "historical_certification_main_sha": "939e611ecec4ba7663b6df846b66ec984bfca932",
+  "offline_candidate_sha": "ce702ab1622e53f6233e1bf9a235ef87fc297a8f",
+  "certification_register_source": {
+    "branch": "cert/production-readiness-evidence-20261029",
+    "observed_commit": "e35eb40b76df5796e335312e4866a00c0a977db8",
+    "path": "certification/production_evidence_register.json",
+    "mode": "REFERENCE_ONLY_NOT_COPIED_OR_AMENDED"
+  },
+  "freeze_active": true,
+  "no_production_or_broker_actions": true,
+  "offline_evidence_is_production_evidence": false,
+  "decisions": {
+    "production_certification": "NOT_ACHIEVED",
+    "production_deployment": "NO_GO",
+    "live_trading": "NOT_AUTHORIZED",
+    "broker_order_routing": "NOT_AUTHORIZED",
+    "main_merge": "NOT_AUTHORIZED",
+    "independent_signoff": "NOT_PROVIDED"
+  },
+  "features": [
+    {
+      "id": "ACCT",
+      "title": "Shared account menu and navigation",
+      "source_files": [
+        "frontend/src/components/AccountMenu.tsx",
+        "frontend/src/pages/WorkspaceRouter.tsx"
+      ],
+      "prior_evidence": [
+        "docs/implementation/2026-10-28-account-navigation.md"
+      ],
+      "control_ids": [
+        "I04",
+        "F11"
+      ],
+      "implementation_state": "DOCUMENTED_IN_BASELINE",
+      "slice_validation": "SOURCE_PATHS_ONLY",
+      "runtime_reverified_this_slice": false,
+      "production_accepted": false
+    },
+    {
+      "id": "WORKSPACE",
+      "title": "Workspace policy and route admission",
+      "source_files": [
+        "frontend/src/pages/WorkspaceRouter.tsx",
+        "backend/app/core/feature_access.py"
+      ],
+      "prior_evidence": [
+        "docs/implementation/2026-10-27-workspace-flow.md"
+      ],
+      "control_ids": [
+        "I04",
+        "L10",
+        "F11"
+      ],
+      "implementation_state": "DOCUMENTED_IN_BASELINE",
+      "slice_validation": "SOURCE_PATHS_ONLY",
+      "runtime_reverified_this_slice": false,
+      "production_accepted": false
+    },
+    {
+      "id": "ADMIN",
+      "title": "Administration and broker ownership UI",
+      "source_files": [
+        "frontend/src/pages/Administration.tsx",
+        "frontend/src/components/admin/CentralConnections.tsx"
+      ],
+      "prior_evidence": [
+        "docs/implementation/2026-10-27-management-redesign.md",
+        "docs/implementation/2026-10-28-account-navigation.md"
+      ],
+      "control_ids": [
+        "I04",
+        "B07",
+        "L10"
+      ],
+      "implementation_state": "DOCUMENTED_IN_BASELINE",
+      "slice_validation": "SOURCE_PATHS_ONLY",
+      "runtime_reverified_this_slice": false,
+      "production_accepted": false
+    },
+    {
+      "id": "CONFIG",
+      "title": "Configuration access and credential masking",
+      "source_files": [
+        "backend/app/core/configuration_access.py",
+        "frontend/src/components/admin/AccessEditor.tsx"
+      ],
+      "prior_evidence": [
+        "docs/implementation/2026-10-27-configuration-access.md"
+      ],
+      "control_ids": [
+        "S03",
+        "I04"
+      ],
+      "implementation_state": "DOCUMENTED_IN_BASELINE",
+      "slice_validation": "SOURCE_PATHS_ONLY",
+      "runtime_reverified_this_slice": false,
+      "production_accepted": false
+    },
+    {
+      "id": "UI",
+      "title": "Responsive shell and rendered UI audit",
+      "source_files": [
+        "frontend/src/pages/SimpleTerminal.tsx",
+        "frontend/src/components/WorkspaceChooser.tsx"
+      ],
+      "prior_evidence": [
+        "docs/implementation/2026-10-28-product-ui-audit.md",
+        "docs/evidence/2026-10-28/ui-verification-summary.json"
+      ],
+      "control_ids": [
+        "F11"
+      ],
+      "implementation_state": "DOCUMENTED_IN_BASELINE",
+      "slice_validation": "SOURCE_PATHS_ONLY",
+      "runtime_reverified_this_slice": false,
+      "production_accepted": false
+    }
+  ],
+  "expected_artifacts": [
+    "docs/evidence/2026-10-29-next-upgrade/release-package.json",
+    "docs/evidence/2026-10-29-next-upgrade/control-evidence-map.json",
+    "docs/evidence/2026-10-29-next-upgrade/exceptions.json",
+    "docs/implementation/2026-10-29-evidence-upgrade-slice.md",
+    "scripts/verify_next_upgrade_evidence.py",
+    "scripts/tests/test_next_upgrade_evidence.py",
+    ".github/workflows/next-upgrade-evidence.yml"
+  ]
+}

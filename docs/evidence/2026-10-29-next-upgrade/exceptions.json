@@ -1,0 +1,76 @@
+{
+  "schema": "sterling.v2.next_upgrade.exceptions.v1",
+  "exceptions": [
+    {
+      "id": "E-01",
+      "title": "Named human control owners not assigned",
+      "controls": [
+        "H01",
+        "T02",
+        "S03",
+        "I04",
+        "D05",
+        "R06",
+        "B07",
+        "M08",
+        "A09",
+        "L10",
+        "F11",
+        "G12"
+      ],
+      "severity": "BLOCKER",
+      "status": "OPEN",
+      "mitigation": "Record human accountable owner per control before independent evidence intake; do not substitute an AI or role label."
+    },
+    {
+      "id": "E-02",
+      "title": "No independent production-like environment observations",
+      "controls": [
+        "H01",
+        "T02",
+        "S03",
+        "I04",
+        "D05",
+        "R06",
+        "F11"
+      ],
+      "severity": "BLOCKER",
+      "status": "OPEN",
+      "mitigation": "Require authorized isolation and redacted signed receipts; only safe read-only preparation in this slice."
+    },
+    {
+      "id": "E-03",
+      "title": "External provider and monitoring acceptance not evidenced",
+      "controls": [
+        "B07",
+        "M08",
+        "A09"
+      ],
+      "severity": "BLOCKER",
+      "status": "OPEN",
+      "mitigation": "No broker connection or provider test until separately authorized; collect controlled independent evidence later."
+    },
+    {
+      "id": "E-04",
+      "title": "Legacy exposure inventory and governance review incomplete",
+      "controls": [
+        "L10",
+        "G12"
+      ],
+      "severity": "BLOCKER",
+      "status": "OPEN",
+      "mitigation": "Obtain independent inventory disposition and human approval; leave decisions NO-GO."
+    },
+    {
+      "id": "E-05",
+      "title": "Runtime product and device regression not rerun in this slice",
+      "controls": [
+        "I04",
+        "F11"
+      ],
+      "severity": "BLOCKER",
+      "status": "OPEN",
+      "mitigation": "Run isolated account, workspace, modal, mobile and backend policy tests; distinguish historical runs from newly observed results."
+    }
+  ]
+}

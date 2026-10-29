@@ -1,0 +1,47 @@
+name: Next Upgrade Evidence (Source-Only NO-GO)
+on:
+  push:
+    branches:
+      - upgrade/evidence-traceability-20261029
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-source-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile offline validator
+        run: python -m py_compile scripts/verify_next_upgrade_evidence.py scripts/tests/test_next_upgrade_evidence.py
+      - name: Run source-only negative tests
+        run: python -m unittest discover -s scripts/tests -p 'test_next_upgrade_evidence.py' -v
+      - name: Emit sanitized NO-GO artifact
+        run: python scripts/verify_next_upgrade_evidence.py --output /tmp/next-upgrade-no-go.json
+      - name: Assert report contains no acceptance
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/next-upgrade-no-go.json').read_text())
+          assert x['validation']=='PASS'
+          assert x['accepted_controls']==0 and x['blocked_controls']==12
+          assert x['production_certification']=='NOT_ACHIEVED'
+          assert x['production_deployment']=='NO_GO'
+          assert x['live_trading']=='NOT_AUTHORIZED'
+          assert x['broker_order_routing']=='NOT_AUTHORIZED'
+          assert x['product_runtime_reverified'] is False
+          assert x['real_environment_evidence_verified'] is False
+          print('Source package verified; 12 controls blocked; no authority granted.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: next-upgrade-evidence-source-only-no-go
+          path: /tmp/next-upgrade-no-go.json
+          if-no-files-found: error
+          retention-days: 30
