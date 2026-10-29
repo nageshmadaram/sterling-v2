@@ -1,0 +1,129 @@
+name: Phase 4 Offline Execution Authorization Validation
+
+on:
+  push:
+    branches:
+      - upgrade/execution-validation-gate-20261029
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase4-sqlite-contract:
+    name: Phase 4 / Offline Gate + Safety Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install locked Sterling backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compile gate, migration and contracts
+        run: |
+          python -m compileall -q backend/app/domain/execution_validation.py \
+            backend/app/persistence/execution_validation_service.py \
+            backend/app/persistence/execution_validation_models.py \
+            backend/alembic/versions/b64f3c27e190_execution_validation_events.py
+      - name: Test offline decisions, authorization, rollback and previous safety gates
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_execution_validation_gate.py \
+            tests/test_market_data_reliability.py \
+            tests/test_market_data_history_reliability.py \
+            tests/test_broker_normalized_read.py \
+            tests/test_broker_read_contract_edges.py \
+            tests/test_broker_kite_provider_boundary.py \
+            tests/test_broker_access_policy.py \
+            tests/test_broker_registry.py \
+            tests/test_registry_signed_auth_contract.py \
+            tests/test_platform_strategy_registry.py \
+            tests/test_platform_strategy_registry_safety.py
+      - name: No new unreviewed broker direct access
+        run: python backend/scripts/audit_broker_access.py
+      - name: Reject broker calls and route registration in gate modules
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import ast
+          files = [Path('backend/app/domain/execution_validation.py'),
+                   Path('backend/app/persistence/execution_validation_service.py')]
+          forbidden = {'place_order','cancel_order','modify_order','submit_order','market_reduce_close',
+                       'place_gtt','modify_gtt','delete_gtt','APIRouter'}
+          for f in files:
+              tree = ast.parse(f.read_text())
+              methods = {n.name for n in ast.walk(tree)
+                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+              assert not (methods & forbidden), (f, methods & forbidden)
+              assert not any(isinstance(n, ast.ImportFrom) and n.module and
+                             (n.module.startswith('app.services.exchanges.kite') or
+                              n.module.startswith('fastapi'))
+                             for n in ast.walk(tree)), f
+          print('PASS: gate does not import broker transport or expose HTTP routes')
+          PY
+
+  phase4-postgres:
+    name: Phase 4 / PostgreSQL Migration and Restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: sterling_gate_ci
+          POSTGRES_USER: sterling_ci
+          POSTGRES_PASSWORD: synthetic_ci_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sterling_ci -d sterling_gate_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://sterling_ci:synthetic_ci_secret@localhost:5432/sterling_gate_ci
+      STERLING_GATE_DISPOSABLE_DB: 'yes'
+      ENVIRONMENT: test
+      PAPER_TRADING: 'true'
+      REAL_PUBLIC_DATA: 'false'
+      PGHOST: localhost
+      PGUSER: sterling_ci
+      PGPASSWORD: synthetic_ci_secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies + PostgreSQL driver
+        run: |
+          python -m pip install -r backend/requirements.lock.txt
+          python -m pip install 'psycopg[binary]>=3.2,<4'
+      - name: Execute PostgreSQL migration and immutable audit smoke
+        working-directory: backend
+        run: PYTHONPATH=. python scripts/validate_gate_postgres.py
+      - name: Backup and restore disposable database with matching PG16 client
+        run: |
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_dump -h localhost -U "$PGUSER" -Fc --no-owner -d sterling_gate_ci -f /tmp/sterling_gate_ci.dump
+          psql -d sterling_gate_ci -v ON_ERROR_STOP=1 -c 'CREATE DATABASE sterling_gate_restore_ci;'
+          docker run --rm --network host --user "$(id -u):$(id -g)" -v /tmp:/tmp \
+            -e PGPASSWORD="$PGPASSWORD" postgres:16 \
+            pg_restore -h localhost -U "$PGUSER" --no-owner --exit-on-error \
+            -d sterling_gate_restore_ci /tmp/sterling_gate_ci.dump
+          psql -d sterling_gate_restore_ci -At -c "SELECT count(*) FROM platform_gate_events" | grep -qx '2'
+      - name: Disposable downgrade and re-upgrade only
+        working-directory: backend
+        run: |
+          python -m alembic downgrade ac19a63cb207
+          python -m alembic upgrade head
