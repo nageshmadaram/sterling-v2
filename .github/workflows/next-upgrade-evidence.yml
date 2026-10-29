@@ -174,3 +174,45 @@ jobs:
           path: /tmp/sterling-increment4-no-go.json
           if-no-files-found: error
           retention-days: 30
+
+  increment5-final-source-review:
+    name: Increment 5 final 12-control NO-GO governance review (source-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile final nonoperational source validator and negative tests
+        run: python -m py_compile scripts/verify_increment5_governance.py scripts/tests/test_next_upgrade_increment5_governance.py
+      - name: Execute 12-control final packet mutation guards
+        run: python -m unittest scripts.tests.test_next_upgrade_increment5_governance -v
+      - name: Emit NO-GO review receipt without credentials or human claims
+        run: python scripts/verify_increment5_governance.py --output /tmp/sterling-v2-final-packet-no-go.json
+      - name: Refuse control acceptance and operational approval
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          r=json.loads(Path('/tmp/sterling-v2-final-packet-no-go.json').read_text())
+          assert r['validation']=='PASS'
+          assert r['controls_accepted']==0 and r['controls_blocked']==12
+          assert r['human_owners_confirmed']==r['independent_signatures']==r['independent_receipts_received']==0
+          assert r['production_certification']=='NOT ACHIEVED'
+          assert r['production_deployment']=='NO-GO'
+          assert r['live_trading']==r['broker_order_routing']=='NOT AUTHORIZED'
+          assert r['release_freeze']=='ACTIVE'
+          assert not r['external_host_or_provider_access_performed']
+          print('Final source-only review package verified: 0/12 accepted, 12/12 blocked.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment5-final-source-no-go
+          path: /tmp/sterling-v2-final-packet-no-go.json
+          if-no-files-found: error
+          retention-days: 30
