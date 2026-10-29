@@ -261,7 +261,7 @@ jobs:
           retention-days: 30
   
   increment7-final-branch-integrity:
-    name: Final source-locked branch diff and independent NO-GO review
+    name: Historical Increment 7 source lock replay (pinned NO-GO checkout)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -269,6 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: 8eb416e525b1e5b4b9378d3607fb9e99ce441bcc
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -303,3 +304,48 @@ jobs:
           path: /tmp/sterling-v2-increment7-source-lock-no-go.json
           if-no-files-found: error
           retention-days: 30
+  
+  increment8-final-review-readonly:
+    name: Increment 8 frozen evidence, clean branch, and NO-GO (no operational I/O)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile final engineering evidence validator and mutation tests
+        run: python -m py_compile scripts/verify_increment8_closeout.py scripts/tests/test_next_upgrade_increment8_closeout.py
+      - name: Reject fabricated authority and unauthorized branch edits
+        run: python -m unittest scripts.tests.test_next_upgrade_increment8_closeout -v
+      - name: Validate source-only evidence, branch and frozen main snapshot
+        run: python -m scripts.verify_increment8_closeout --output /tmp/sterling-v2-increment8-no-go.json
+      - name: Refuse production acceptance regardless of passing tests
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/sterling-v2-increment8-no-go.json').read_text())
+          assert x['validation']=='PASS'
+          assert x['locked_historical_sources']==26 and x['checked_controls']==12
+          assert x['branch_hygiene']=='PASS' and x['main_snapshot']=='UNCHANGED'
+          assert x['accepted_controls']==0 and x['blocked_controls']==12
+          assert x['human_owners_confirmed']==x['real_production_receipts']==x['independent_signoffs']==0
+          assert x['offline_validation']=='PASS'
+          assert x['production_deployment']=='NO-GO'
+          assert x['live_trading']==x['broker_order_routing']=='NOT AUTHORIZED'
+          assert x['production_certification']=='NOT ACHIEVED'
+          assert x['release_freeze']=='ACTIVE'
+          print('Increment 8 final NO-GO source review passed; no production authority.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment8-final-nonoperational-no-go
+          path: /tmp/sterling-v2-increment8-no-go.json
+          retention-days: 30
+          if-no-files-found: error
