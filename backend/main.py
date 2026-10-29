@@ -736,6 +736,9 @@ def create_app() -> FastAPI:
     # >>> trade-journal: read-only per-trade detail for live and simulated trades (/api/v1/journal/*)
     from app.api.v1.endpoints.journal import router as journal_router
     app.include_router(journal_router, prefix="/api/v1")
+    # Phase 6: strict signed-auth GET-only offline decision evidence.
+    from app.api.v1.endpoints.offline_validation_journal import router as offline_journal_router
+    app.include_router(offline_journal_router, prefix="/api/v1")
     # <<< trade-journal
 
     # Telegram Mini App (TMA) frontend & endpoints
