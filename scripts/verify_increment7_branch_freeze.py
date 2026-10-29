@@ -103,8 +103,9 @@ def verify(data: dict, *, changed_paths: list[str] | None = None,
             and lock["runtime_hash_kind"] == "SHA256_COMPUTED_FROM_CURRENT_FILE_BYTES_IN_READ_ONLY_CI"
             and lock["review_scope"] == "IMMUTABLE_BASELINE_SOURCE_COMPARISON_AND_NONOPERATIONAL_REVIEW_ONLY",
             "source hashes misrepresented as operational proof")
-    require("do not certify" not in lock["boundary"].lower()
-            or "production" in lock["boundary"].lower(), "unexpected boundary text")
+    require(lock["boundary"] ==
+            "Git source identity and SHA-256 only measure repository file integrity; they do not certify real devices, real host, operational evidence or human acceptance.",
+            "source integrity must not imply operational or human acceptance")
     require("do not certify" not in lock["final_sentence"].lower()
             and lock["final_sentence"] == CLOSING, "closing boundary changed")
     require(lock["decisions"] == DECISIONS, "decision boundary altered")
