@@ -19,6 +19,11 @@ export type OfflineStatus = {
     live_execution_enabled: false; scope: 'offline_validation_only' };
   strategy_health: { score: null; status: string; reason: string };
   versions: { id: string; label: string; sha256: string }[];
+  schedules: { id: string; kind: 'manual' | 'session' | 'recurring' | 'delayed';
+    start_at_utc: string; end_at_utc: string | null; max_occurrences: number;
+    cadence_seconds: number | null; priority: number;
+    state: 'configured' | 'paused' | 'cancelled';
+    materialized_occurrences: number; execution_authorized: false }[];
 };
 export type OfflineSummary = {
   execution_authorized: false;
@@ -71,6 +76,8 @@ export function evidenceIsReadOnly(catalogue: Catalogue | undefined,
       status.read_only !== true || status.execution_authorized !== false ||
       status.offline_gate?.live_execution_enabled !== false ||
       status.offline_gate?.scope !== 'offline_validation_only' ||
+      !Array.isArray(status.schedules) ||
+      status.schedules.some(item => item.execution_authorized !== false) ||
       summary.execution_authorized !== false ||
       summary.metric_status !== 'hypothetical_not_verified_live_profitability' ||
       summary.observed_live_exposure_inr !== null ||

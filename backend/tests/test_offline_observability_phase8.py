@@ -1,7 +1,7 @@
 """Phase 8 owner-scoped GET-only strategy catalogue / audit-verified gate status."""
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from tests.test_offline_scheduler_phase5 import lab
+from tests.test_offline_scheduler_phase5 import lab, schedule, policy
 
 from app.api.v1.endpoints.offline_observability import router
 from app.persistence import strategy_registry_service as registry
@@ -31,6 +31,12 @@ def test_offline_strategy_status_verified_gate_states_no_health_score(lab):
     app.include_router(router,prefix="/api/v1")
     client=TestClient(app)
     base=f"/api/v1/offline-validation/strategies/{lab.strategy}/status"
+    offline_spec=schedule(lab)
+    lab.service.schedule(access_token="admin",spec=offline_spec,risk_policy=policy(),
+                         reason="offline read-only schedule fixture")
+    lab.service.set_pause(access_token="admin",strategy_id=lab.strategy,
+                          schedule_id=offline_spec.schedule_id,
+                          paused=True,reason="offline operator pause")
     unauthorized=client.get(base,headers={"Authorization":"Bearer outside"})
     assert unauthorized.status_code==403
     response=client.get(base,headers={"Authorization":"Bearer admin"})
@@ -43,6 +49,10 @@ def test_offline_strategy_status_verified_gate_states_no_health_score(lab):
     assert data["offline_gate"]["scope"]=="offline_validation_only"
     assert data["strategy_health"]["score"] is None
     assert data["execution_authorized"] is False
+    assert len(data["schedules"])==1
+    assert data["schedules"][0]["kind"]=="manual"
+    assert data["schedules"][0]["state"]=="paused"
+    assert data["schedules"][0]["execution_authorized"] is False
     assert len(data["versions"])==1
     assert data["versions"][0]["id"]==lab.version
 

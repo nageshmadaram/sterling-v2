@@ -249,7 +249,19 @@ function OfflineContent({ summary, status, decisions, reconciliation, versions, 
           </details>
         </li>)}</ol>}
     </Panel>}
-    {section === 'queue' && <Panel title="Offline backlog and reconciliation" testid="offline-queue">
+    {section === 'queue' && <>
+      <Panel title="Audited offline schedules" testid="offline-schedules">
+        <p className="oe-muted">Manually invoked validation schedules only. There is no background order runner.</p>
+        {status.schedules.length === 0 ? <p className="oe-muted">No offline schedules configured.</p> :
+        <div className="oe-scroll"><table className="oe-table"><thead><tr>
+          <th>Schedule</th><th>Type</th><th>State</th><th>Planned occurrences</th><th>Queued records</th>
+        </tr></thead><tbody>{status.schedules.map(item => <tr key={item.id}>
+          <td className="oe-hash" title={item.id}>{shortHash(item.id)}</td>
+          <td>{item.kind}</td><td>{item.state}</td>
+          <td>{item.max_occurrences}</td><td>{item.materialized_occurrences}</td>
+        </tr>)}</tbody></table></div>}
+      </Panel>
+      <Panel title="Offline backlog and reconciliation" testid="offline-queue">
       <p className="oe-muted">Source: immutable Phase 5 queue and Phase 6 decision journal. No scheduling, requeue or execution controls.</p>
       <div>Audit status: <StatusChip text={reconciliation.status} tone={reconciliation.status === 'degraded' ? 'warning' : 'neutral'} /></div>
       {reconciliation.items.length === 0 ? <p className="oe-muted">No offline queue records.</p> :
@@ -260,7 +272,7 @@ function OfflineContent({ summary, status, decisions, reconciliation, versions, 
         <td>{q.issues.length ? q.issues.join(', ') : 'None recorded'}</td>
         <td title={q.journal_reference || ''} className="oe-hash">{shortHash(q.journal_reference)}</td>
       </tr>)}</tbody></table></div>}
-    </Panel>}
+    </Panel></>}
     <Panel title="Operator alerts & evidence warnings" testid="offline-alerts">
       {alerts.length === 0 ? <p className="oe-muted">No informational alerts in this read. This does not certify live safety.</p> :
       <ul className="oe-alerts">{alerts.map(a => <li key={a.id}>

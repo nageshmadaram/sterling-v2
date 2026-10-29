@@ -25,7 +25,10 @@ const status: OfflineStatus = { read_only: true, execution_authorized: false,
     strategy_state: 'approved', strategy_approval_mode: 'manual',
     live_execution_enabled: false, scope: 'offline_validation_only' },
   strategy_health: { score: null, status: 'not_independently_attested', reason: 'not proven' },
-  versions: [{ id: 'version-1', label: 'v1', sha256: 'a'.repeat(64) }] };
+  versions: [{ id: 'version-1', label: 'v1', sha256: 'a'.repeat(64) }],
+  schedules: [{ id: 'schedule123456789', kind: 'recurring', start_at_utc: '2026-10-29T09:00:00+00:00',
+    end_at_utc: null, max_occurrences: 4, cadence_seconds: 60, priority: 5,
+    state: 'paused', materialized_occurrences: 2, execution_authorized: false }] };
 const summary: OfflineSummary = {
   execution_authorized: false, metric_status: 'hypothetical_not_verified_live_profitability',
   trade_count: 2, net_pnl_inr: '390', win_rate_pct: '50', profit_factor: '2.5',
@@ -125,6 +128,9 @@ describe('Phase 8 offline-only operator evidence dashboard', () => {
     answers(); show();
     await screen.findByTestId('offline-kpis');
     fireEvent.click(screen.getByRole('tab', { name: 'Queue & scheduling' }));
+    expect(screen.getByTestId('offline-schedules')).toHaveTextContent('recurring');
+    expect(screen.getByTestId('offline-schedules')).toHaveTextContent('paused');
+    expect(screen.getByTestId('offline-schedules')).toHaveTextContent('4');
     expect(screen.getByTestId('offline-queue')).toHaveTextContent('BATCH1');
     expect(screen.getByTestId('offline-queue')).toHaveTextContent('completed');
     expect(screen.getByTestId('offline-alerts')).toHaveTextContent('INSUFFICIENT SYNTHETIC SAMPLE');

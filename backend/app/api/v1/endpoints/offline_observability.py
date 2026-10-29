@@ -15,6 +15,7 @@ from app.persistence.session import make_session_factory, session_scope
 from app.persistence.strategy_registry_models import PlatformStrategyRow, PlatformStrategyVersionRow
 from app.persistence import strategy_registry_service as registry
 from app.persistence.execution_validation_service import _read as read_gate, _state as gate_state
+from app.persistence.offline_scheduler_service import _read as read_schedule_events, _projection as schedules_projection
 
 router=APIRouter(prefix="/offline-validation",tags=["offline-validation-read-only"])
 
@@ -56,6 +57,21 @@ def offline_strategy_status(strategy_id:str,token:str=Depends(_signed_token)):
         # permission; both independent Phase 4 gate streams are verified.
         global_state,global_mode=gate_state(read_gate(db,None))
         strategy_state,strategy_mode=gate_state(read_gate(db,strategy_id))
+        schedule_events=read_schedule_events(db,strategy_id)
+        schedules,items,paused_flags=schedules_projection(schedule_events)
+        cancelled={row.schedule_id for row in schedule_events if row.kind=="schedule_cancelled"}
+        schedule_views=[{
+            "id":spec.schedule_id,"kind":spec.kind.value,
+            "start_at_utc":spec.start_at_utc.isoformat(),
+            "end_at_utc":spec.end_at_utc.isoformat() if spec.end_at_utc else None,
+            "max_occurrences":spec.max_occurrences,"cadence_seconds":spec.cadence_seconds,
+            "priority":spec.priority,
+            "state":"cancelled" if spec.schedule_id in cancelled else
+                    "paused" if paused_flags.get(spec.schedule_id,False) else "configured",
+            "materialized_occurrences":sum(
+                1 for item in items.values() if item.identity.schedule_id==spec.schedule_id),
+            "execution_authorized":False,
+        } for spec,_,_,_ in schedules.values()]
         versions=list(db.scalars(select(PlatformStrategyVersionRow)
             .where(PlatformStrategyVersionRow.strategy_id==strategy_id)
             .order_by(PlatformStrategyVersionRow.created_at_ms.desc()).limit(100)))
@@ -74,5 +90,6 @@ def offline_strategy_status(strategy_id:str,token:str=Depends(_signed_token)):
                  "status":"not_independently_attested",
                  "reason":"No authenticated live strategy-health score in this offline slice"},
             "versions":[{"id":v.id,"label":v.version,"sha256":v.content_sha256}
-                        for v in versions]}
+                        for v in versions],
+            "schedules":schedule_views}
     return _read_view(read,token)

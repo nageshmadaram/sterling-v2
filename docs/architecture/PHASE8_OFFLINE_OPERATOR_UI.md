@@ -34,7 +34,11 @@ metadata views:
   versioned strategy selection (bounded to 200, no other owner disclosed)
 - `GET /api/v1/offline-validation/strategies/{id}/status` — immutable
   version IDs/fingerprints, registry state, **verified Phase 4 offline
-  global/strategy gate status and approval policy**.
+  global/strategy gate status and approval policy**. It also projects
+  append-only Phase 5 schedule definitions and operator pause/cancel
+  receipts (configured/paused/cancelled, bounded occurrences and
+  materialized queue-record count). This is observation, not a timer
+  or worker.
 
 The status API explicitly returns a NULL strategy-health score because
 independently authenticated live health evidence is not available.
