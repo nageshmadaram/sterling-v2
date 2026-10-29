@@ -60,6 +60,24 @@ class IncrementFourEvidenceTests(unittest.TestCase):
     def test_reject_independent_signoff_fiction(self):
         self.reject(lambda x: x["governance"]["strict_decision"].update(independent_signoff="PROVIDED"))
 
+    def test_increment4_closeout_records_only_verified_run_and_no_go(self):
+        import json
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[2] / "docs/evidence/2026-10-29-next-upgrade/increment-4-closeout.json"
+        record = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(record["record_kind"], "REVIEW_READY_NO_GO_NOT_ACCEPTED")
+        self.assertEqual(record["validation"]["conclusion"], "success")
+        self.assertEqual(record["validation"]["backend_disposable_tests"]["passed"], 66)
+        self.assertEqual(record["validation"]["chromium_isolated_tests"]["passed"], 6)
+        self.assertFalse(record["validation"]["chromium_isolated_tests"]["physical_device"])
+        self.assertEqual(record["validation"]["source_negative_and_structural_tests"], 33)
+        self.assertEqual(record["control_state"], {"accepted":0,"blocked":12,
+            "confirmed_named_owners":0,"confirmed_teams":0,"independent_signoffs":0,"real_operational_receipts":0})
+        self.assertEqual(record["decision"], {"offline_validation":"PASS","production_deployment":"NO-GO",
+            "live_trading":"NOT AUTHORIZED","broker_order_routing":"NOT AUTHORIZED",
+            "production_certification":"NOT ACHIEVED","release_freeze":"ACTIVE"})
+        self.assertTrue(all(count == 0 for count in record["operation_occurrences"].values()))
+
 
 if __name__ == "__main__":
     unittest.main()
