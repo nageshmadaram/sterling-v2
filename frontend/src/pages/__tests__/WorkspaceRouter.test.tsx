@@ -126,3 +126,67 @@ it('cycles Echo and Space only through permitted destinations while retaining th
   await screen.findByText('radio runtime mounted');
   expect(window.location.pathname).toBe('/radio');
 });
+
+it('does not mount a direct hidden-but-granted TV route', async () => {
+  window.history.replaceState({}, '', '/tv');
+  show({ ...base, features: { kite: false, tv: true, radio: false },
+    visibility: { kite: true, tv: false, radio: true }, policy_revision: 2 });
+  expect(await screen.findByRole('heading', { name: 'Workspace unavailable' })).toBeInTheDocument();
+  expect(screen.queryByText('tv runtime mounted')).toBeNull();
+});
+
+it('unmounts an already-open TV workspace when visibility becomes hidden but the grant remains', async () => {
+  const enabled = { ...base, features: { kite: false, tv: true, radio: false },
+    visibility: { kite: true, tv: true, radio: true }, policy_revision: 1 };
+  const client = show(enabled);
+  fireEvent.click(await screen.findByRole('button', { name: 'Open Space' }));
+  await screen.findByText('tv runtime mounted');
+  act(() => client.setQueryData(['sterling-session-policy'], {
+    ...enabled, visibility: { kite: true, tv: false, radio: true }, policy_revision: 2,
+  }));
+  expect(await screen.findByRole('heading', { name: 'Workspace unavailable' })).toBeInTheDocument();
+  expect(screen.queryByText('tv runtime mounted')).toBeNull();
+  expect(api.post).not.toHaveBeenCalled();
+});
+
+it('denies stale administration navigation after the administrator flag is revoked', async () => {
+  const administrator = { ...base, administrator: true, role: 'admin', policy_revision: 1 };
+  const client = show(administrator);
+  await screen.findByText('Central administration mounted');
+  act(() => client.setQueryData(['sterling-session-policy'], { ...base, policy_revision: 2 }));
+  expect(await screen.findByRole('heading', { name: 'Choose your workspace' })).toBeInTheDocument();
+  act(() => window.dispatchEvent(new CustomEvent('sterling-navigate', { detail: 'administration' })));
+  expect(await screen.findByRole('heading', { name: 'Administrator access required' })).toBeInTheDocument();
+  expect(screen.queryByText('Central administration mounted')).toBeNull();
+});
+
+it('closes the account menu before opening the workspace selector', async () => {
+  show({ ...base, features: { kite: false, tv: true, radio: false } });
+  await screen.findByRole('heading', { name: 'Choose your workspace' });
+  fireEvent.click(screen.getByRole('button', { name: 'Menu' }));
+  expect(screen.getByRole('dialog', { name: 'Account and navigation' })).toHaveAttribute('open');
+  fireEvent.click(screen.getByRole('button', { name: 'Switch workspace' }));
+  await waitFor(() => expect(screen.getByRole('dialog', { name: 'Choose your workspace' })).toHaveAttribute('open'));
+  expect(screen.getByRole('dialog', { name: 'Account and navigation' })).not.toHaveAttribute('open');
+});
+
+it('restores focus to the workspace selector trigger when its dialog closes', async () => {
+  const showNative = HTMLDialogElement.prototype.showModal;
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+    (this.querySelector('button') as HTMLElement | null)?.focus();
+  };
+  try {
+    show({ ...base, features: { kite: false, tv: true, radio: false } });
+    await screen.findByRole('heading', { name: 'Choose your workspace' });
+    const trigger = screen.getByRole('button', { name: 'Choose workspace' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    expect(await screen.findByRole('dialog', { name: 'Choose your workspace' })).toHaveAttribute('open');
+    fireEvent.click(screen.getByRole('button', { name: 'Close workspace selector' }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Choose your workspace' })).toBeNull());
+    expect(document.activeElement).toBe(trigger);
+  } finally {
+    HTMLDialogElement.prototype.showModal = showNative;
+  }
+});
