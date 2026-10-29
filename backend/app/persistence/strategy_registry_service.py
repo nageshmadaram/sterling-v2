@@ -83,6 +83,18 @@ def _strategy(db: Session, actor, strategy_id: str) -> PlatformStrategyRow:
     return row
 
 
+def _strategy_readonly(db: Session, actor, strategy_id: str) -> PlatformStrategyRow:
+    """Bounded owner-scoped SELECT, no PostgreSQL UPDATE row lock.
+
+    Mutations retain _strategy() and its existing locking path unchanged.
+    """
+    row=db.scalar(select(PlatformStrategyRow).where(PlatformStrategyRow.id==strategy_id))
+    if row is None: raise LookupError("strategy not found")
+    if row.owner_id!=actor.user_id:
+        raise PermissionError("strategy evidence belongs to another owner")
+    return row
+
+
 def _version(db: Session, version_id: str) -> PlatformStrategyVersionRow:
     row = db.get(PlatformStrategyVersionRow, version_id)
     if row is None:

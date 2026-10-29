@@ -202,7 +202,7 @@ def read_for_operator(db: Session, *, access_token: str,
     if limit is not None and not 1 <= limit <= 500:
         raise ValueError("operator journal page limit exceeded")
     actor=registry._identity(access_token)
-    registry._strategy(db,actor,strategy_id)
+    registry._strategy_readonly(db,actor,strategy_id)
     # Verify original source chain as well as mirrored journal chain.
     from app.persistence.offline_scheduler_service import _read as _read_source
     source=_read_source(db,strategy_id)

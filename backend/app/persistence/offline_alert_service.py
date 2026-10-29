@@ -252,7 +252,7 @@ class OfflineAlertService:
                      "source_type":source_type,"source_ref":source_ref})
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             previous=_project(rows)
             if aid in previous:
@@ -278,7 +278,7 @@ class OfflineAlertService:
         if not 1<=limit<=500: raise ValueError("bounded replay limit required")
         actor=registry._identity(access_token)
         with session_scope(self.sessions) as db:
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             records=_project(_events(db,strategy_id))
             # Fail closed if source provenance changes, even when alert ledger
             # itself has not been modified.
@@ -301,7 +301,7 @@ class OfflineAlertService:
             raise PermissionError("resolution requires verified administrator")
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             item=_project(rows).get(alert_id)
             if item is None: raise LookupError("alert not found")
@@ -320,7 +320,7 @@ class OfflineAlertService:
         changed=0
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             for alert_id,item in _project(rows).items():
                 if item["state"] in ("active","acknowledged") and item["expires_at_ms"] is not None and at_ms>=item["expires_at_ms"]:
@@ -348,7 +348,7 @@ class OfflineAlertService:
         if actor.role!="admin":
             raise PermissionError("offline source ingestion requires admin")
         with session_scope(self.sessions) as db:
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             gate=read_gate(db,strategy_id)
             queue=read_queue(db,strategy_id)
             # Verify immutable chains before accepting any source.
@@ -393,7 +393,7 @@ class OfflineAlertService:
         count=0
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             for aid,item in _project(rows).items():
                 if item["state"] not in ("active","acknowledged") or item.get("escalated"):
@@ -420,7 +420,7 @@ class OfflineAlertService:
             raise PermissionError("unverified external transport not allowed")
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             item=_project(rows).get(alert_id)
             if not item or item["state"] in ("resolved","expired"):
@@ -454,7 +454,7 @@ class OfflineAlertService:
                      "error_type":type(exc).__name__}
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             current=_project(rows).get(alert_id)
             if not current or current["state"] in ("resolved","expired"):
@@ -473,7 +473,7 @@ class OfflineAlertService:
         if actor.role!="admin": raise PermissionError("delivery confirmation requires admin")
         with session_scope(self.sessions) as db:
             _lock(db)
-            registry._strategy(db,actor,strategy_id)
+            registry._strategy_readonly(db,actor,strategy_id)
             rows=_events(db,strategy_id)
             item=_project(rows).get(alert_id)
             if not item or item["state"] in ("resolved","expired"):

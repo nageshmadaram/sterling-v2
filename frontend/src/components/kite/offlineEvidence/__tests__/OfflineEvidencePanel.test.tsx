@@ -217,6 +217,24 @@ describe('Phase 8 offline-only operator evidence dashboard', () => {
     }
   });
 
+  it('admin MFA proof is requested only through the offline security endpoint', async () => {
+    answers(); post.mockResolvedValue({proof:'signed-synthetic-proof',
+      expires_in_seconds:300,execution_authorized:false,
+      scope:'offline_observability_admin_only'});
+    show();
+    const disclosure=screen.getByText(/Administrator second-factor verification/);
+    fireEvent.click(disclosure);
+    fireEvent.change(screen.getByLabelText('6-digit authenticator code'),
+                     {target:{value:'123456'}});
+    fireEvent.click(screen.getByRole('button',{name:'Verify MFA'}));
+    await waitFor(()=>expect(post).toHaveBeenCalledTimes(1));
+    expect(post.mock.calls[0]).toEqual(['/api/v1/offline-security/mfa/verify',{otp:'123456'}]);
+    expect(await screen.findByText(/Second factor verified for this short-lived/)).toBeInTheDocument();
+    expect(screen.getByLabelText('6-digit authenticator code')).toHaveValue('');
+    expect(del).not.toHaveBeenCalled();
+    expect(put).not.toHaveBeenCalled();
+  });
+
   it('fails closed on unavailable strategy catalogue', async () => {
     answers({ '/api/v1/offline-validation/strategies': new Error('session denied') });
     show();
