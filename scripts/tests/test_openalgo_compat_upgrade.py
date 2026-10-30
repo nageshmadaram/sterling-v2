@@ -13,15 +13,28 @@ import pytest
 from upgrade import sterling_openalgo as migration
 
 
-def synthetic_db(tmp_path: Path, *, missing: str = "") -> Path:
+def synthetic_db(
+    tmp_path: Path, *, missing: str = "",
+    altered_column: tuple[str, str, str] | None = None,
+) -> Path:
     path = tmp_path / "operator-src" / "sterling.db"
     path.parent.mkdir(parents=True)
     with sqlite3.connect(path) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
         for table in sorted(migration.REQUIRED - {missing}):
-            conn.execute(
-                f'CREATE TABLE "{table}" (id INTEGER PRIMARY KEY, value TEXT NOT NULL)'
-            )
+            definitions = []
+            for name, declared_type in migration.REQUIRED_COLUMNS[table].items():
+                if altered_column and (table, name) == altered_column[:2]:
+                    if altered_column[2] == "MISSING":
+                        continue
+                    declared_type = altered_column[2]
+                definitions.append(
+                    f'"{name}" {declared_type}' + (" PRIMARY KEY" if name == "id" else "")
+                )
+            if "id" not in migration.REQUIRED_COLUMNS[table]:
+                definitions.append('"id" INTEGER PRIMARY KEY')
+            definitions.append('"value" TEXT NOT NULL')
+            conn.execute(f'CREATE TABLE "{table}" (' + ", ".join(definitions) + ")")
             # Synthetic sensitive content must not appear in the inventory JSON.
             conn.execute(
                 f'INSERT INTO "{table}" (id,value) VALUES (1, ?)',
@@ -193,3 +206,22 @@ def test_copy_has_no_wal_sidecar_and_can_be_reopened_independently(tmp_path):
     with sqlite3.connect(dest) as c:
         assert c.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
         assert c.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 2
+
+
+@pytest.mark.parametrize("altered", [
+    ("kite_order_intents", "quantity", "TEXT"),
+    ("kite_order_intents", "projection_pending", "MISSING"),
+    ("kite_inventory", "net_quantity", "TEXT"),
+    ("execution_control", "revision", "MISSING"),
+    ("kite_accounts", "access_token_enc", "MISSING"),
+])
+def test_incompatible_critical_columns_prevent_copy_and_are_reported(tmp_path, altered):
+    source = synthetic_db(tmp_path, altered_column=altered)
+    report = migration.inventory(source)
+    assert report["status"] == "BLOCKED_INCOMPLETE_SCHEMA"
+    assert altered[1] in report["column_mismatches"][altered[0]]
+    target = tmp_path / "isolated" / "refused.db"
+    target.parent.mkdir()
+    with pytest.raises(ValueError, match="incomplete or incompatible"):
+        migration.migrate_copy(source, target)
+    assert not target.exists()
