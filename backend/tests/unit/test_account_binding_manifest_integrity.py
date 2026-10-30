@@ -89,7 +89,6 @@ def test_manifest_filename_identity_mismatch_is_not_silently_accepted(tmp_path):
         ("shadow", False),
         ("live-minimum", False),
         ("live_minimum_extra", False),
-        ("", False),
     ],
 )
 def test_live_authority_requires_an_exact_recognized_scope(
@@ -108,3 +107,10 @@ def test_live_authority_requires_an_exact_recognized_scope(
     assert candidate.live_ready is expected
     assert replace(candidate, static_egress_profile="").live_ready is False
     assert replace(candidate, status=BindingStatus.VERIFIED).live_ready is False
+
+
+def test_binding_rejects_blank_scope_during_construction(tmp_path):
+    store = AccountBindingStore(tmp_path / "bindings")
+    binding = _binding(store)
+    with pytest.raises(BindingError, match="account_scope is required"):
+        replace(binding, account_scope="")
