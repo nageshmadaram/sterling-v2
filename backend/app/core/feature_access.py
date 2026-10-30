@@ -23,6 +23,11 @@ def route_policy(path: str, method: str) -> str:
         return 'public'  # credential-free supervisor probes must survive policy rollout
     if path in ('/tma', '/api/v1/tma', '/tma/operator'):
         return 'public'
+    # This POST is strictly a read-only journal lookup, so viewers with a
+    # granted Kite workspace may inspect it. Every other unknown POST remains
+    # a trading mutation under the default-deny role rule.
+    if path == '/api/v1/compat/openalgo/orderstatus' and method == 'POST':
+        return 'kite_read_only'
     if path.startswith(('/tma/', '/api/v1/tma/')):
         return 'telegram'
     if path.startswith('/api/v1/admin/'):
