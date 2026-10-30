@@ -44,9 +44,8 @@ def verify_snapshot(source: Path, destination: Path) -> dict:
             origin.execute("PRAGMA query_only=ON")
             with sqlite3.connect(destination, timeout=10) as restored:
                 origin.backup(restored)
-                assert restored.execute("PRAGMA quick_check").fetchone()[0] == "ok", (
-                    "Restored copy failed integrity check"
-                )
+                if restored.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                    raise RuntimeError("Restored copy failed integrity check")
                 source_tables = _tables(origin)
                 restored_tables = _tables(restored)
                 if source_tables != restored_tables:
