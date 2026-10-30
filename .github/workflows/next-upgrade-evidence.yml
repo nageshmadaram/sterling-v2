@@ -399,7 +399,7 @@ jobs:
           if-no-files-found: error
   
   increment10-source-review-index:
-    name: Increment 10 final evidence-only branch closeout and NO-GO index
+    name: Historical Increment 10 review index replay (pinned checkout)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -407,6 +407,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: e99dd71b99916c61fdf5eaed23c76bfefe5d7c3e
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -417,7 +418,7 @@ jobs:
       - name: Run source-only false-approval and branch-hygiene mutation regressions
         run: python -m unittest scripts.tests.test_next_upgrade_increment10_review_index -v
       - name: Verify exact source-only diff, frozen main and historical evidence
-        run: python -m scripts.verify_increment10_review_index --output /tmp/sterling-increment10-no-go.json
+        run: env -u GITHUB_SHA python -m scripts.verify_increment10_review_index --output /tmp/sterling-increment10-no-go.json
       - name: Fail closed on any acceptance or execution authority
         run: |
           python - <<'PY'
@@ -440,3 +441,46 @@ jobs:
           path: /tmp/sterling-increment10-no-go.json
           if-no-files-found: error
           retention-days: 30
+  
+  increment11-final-governance-handoff:
+    name: Final frozen branch NO-GO governance handoff (source-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile final handoff validator and regression tests
+        run: python -m py_compile scripts/verify_increment11_handoff.py scripts/tests/test_next_upgrade_increment11_handoff.py
+      - name: Reject fake acceptance, integrity tampering and unauthorized runtime diffs
+        run: python -m unittest scripts.tests.test_next_upgrade_increment11_handoff -v
+      - name: Verify final read-only evidence and exact branch diff
+        run: python -m scripts.verify_increment11_handoff --output /tmp/sterling-v2-increment11-source-no-go.json
+      - name: Assert governance freeze and no production authority
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          x=json.loads(Path('/tmp/sterling-v2-increment11-source-no-go.json').read_text())
+          assert x['validation']=='PASS'
+          assert x['historic_increment10_sources_verified']==4
+          assert x['branch_hygiene']=='PASS' and x['main_snapshot']=='UNCHANGED'
+          assert x['accepted']==0 and x['blocked']==12
+          assert x['confirmed_human_owners']==x['signed_receipts']==x['independent_signoffs']==0
+          assert x['offline_validation']=='PASS' and x['production_deployment']=='NO-GO'
+          assert x['live_trading']==x['broker_order_routing']=='NOT AUTHORIZED'
+          assert x['production_certification']=='NOT ACHIEVED' and x['release_freeze']=='ACTIVE'
+          print('Increment 11 closeout source-only PASS; no human signoff, production deploy or broker authority.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-increment11-final-review-no-go
+          path: /tmp/sterling-v2-increment11-source-no-go.json
+          retention-days: 30
+          if-no-files-found: error
