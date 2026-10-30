@@ -480,3 +480,59 @@ def test_broker_activation_and_session_test_are_configuration_mutations(workspac
         assert route_policy(path, "POST") == "configuration"
     assert route_policy("/api/v1/kite/orders", "POST") == "kite"
     assert route_policy("/api/v1/kite/orders", "GET") == "kite"
+
+
+def test_openalgo_style_orderstatus_is_jwt_scoped_read_only_and_viewer_compatible(workspace):
+    """Compatibility POST must not grant raw OpenAlgo API-key/broker write authority."""
+    from app.core import tokens
+    from app.api.v1.endpoints.openalgo_compat import router
+    from app.services.kite_engine import order_journal
+
+    user_store.add("viewer", "Synthetic-password-123", role="viewer", user_id="viewer")
+    user_store.add("other", "Synthetic-password-123", role="operator", user_id="other")
+    account_policy.set_features(
+        "default", "viewer", {"kite": True, "tv": False, "radio": False},
+        account_policy.read("viewer").revision,
+    )
+    account_policy.set_features(
+        "default", "other", {"kite": True, "tv": False, "radio": False},
+        account_policy.read("other").revision,
+    )
+    entry = order_journal.reserve(
+        uid="viewer", account_id="viewer-account", strategy_id="synthetic",
+        generation_id="synthetic-g1", signal_id="synthetic-entry",
+        exchange="NFO", symbol="SYNTHETIC-OPT", side="BUY", quantity=10,
+        payload={"product": "MIS"},
+    )
+    assert order_journal.claim_submission(entry.intent_key)
+    order_journal.transition(entry.intent_key, "SUBMITTED", order_id="BROKER-ORDER-1")
+
+    app = FastAPI(dependencies=[Depends(enforce_feature_access)])
+    app.include_router(router, prefix="/api/v1")
+    body = {"account_id": "viewer-account", "orderid": "BROKER-ORDER-1"}
+    viewer_headers = {
+        "Authorization": "Bearer " + tokens.mint_access("viewer", "viewer", "viewer", 1),
+    }
+    other_headers = {
+        "Authorization": "Bearer " + tokens.mint_access("other", "other", "operator", 1),
+    }
+    with TestClient(app) as client:
+        assert route_policy("/api/v1/compat/openalgo/orderstatus", "POST") == "kite_read_only"
+        assert client.post("/api/v1/compat/openalgo/orderstatus", json=body).status_code == 401
+        allowed = client.post("/api/v1/compat/openalgo/orderstatus",
+                              json=body, headers=viewer_headers)
+        assert allowed.status_code == 200, allowed.text
+        assert allowed.json()["data"]["order_status"] == "pending_confirmation"
+        assert allowed.json()["data"]["orderid"] == "BROKER-ORDER-1"
+        assert client.post("/api/v1/compat/openalgo/orderstatus",
+                           json=body, headers=other_headers).status_code == 404
+        # OpenAlgo's API key is deliberately NOT a substitute for Sterling JWT.
+        assert client.post("/api/v1/compat/openalgo/orderstatus",
+                           json={**body, "apikey": "bogus"}, headers=viewer_headers).status_code == 422
+        # An acknowledged order that turns UNKNOWN is not a confirmed fill.
+        order_journal.transition(entry.intent_key, "UNKNOWN")
+        uncertain = client.post("/api/v1/compat/openalgo/orderstatus",
+                                json=body, headers=viewer_headers)
+        assert uncertain.status_code == 409
+        assert uncertain.json()["code"] == "ORDER_OUTCOME_UNRESOLVED"
+        assert "data" not in uncertain.json()
