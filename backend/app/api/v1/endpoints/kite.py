@@ -423,6 +423,9 @@ async def delete_account(
 
 @router.post("/accounts/{account_id}/activate")
 async def activate_account(account_id: str, user: UserContext = Depends(get_current_user)) -> KiteAccountResponse:
+    # Switching active broker identity is a broker-configuration mutation,
+    # not a side effect of permission to view the Kite workspace.
+    require_configuration(user, 'brokers', 'update', account_id)
     from app.services.execution_identity_lock import account_lock
     async with account_lock(user.user_id):
         target = kite_accounts.get(user.user_id, account_id)
@@ -435,6 +438,7 @@ async def activate_account(account_id: str, user: UserContext = Depends(get_curr
                 user.user_id, current, "Kite active-account switch"
             )
 
+        require_configuration(user, 'brokers', 'update', account_id)
         a = kite_accounts.set_active(user.user_id, account_id)
         if not a:
             raise HTTPException(404, "Kite account not found")
@@ -444,6 +448,9 @@ async def activate_account(account_id: str, user: UserContext = Depends(get_curr
 
 @router.post("/accounts/{account_id}/test")
 async def test_account(account_id: str, user: UserContext = Depends(get_current_user)) -> dict:
+    # This broker operation makes an authenticated network connection.
+    # Explicitly require scoped broker access; workspace visibility is insufficient.
+    require_configuration(user, 'brokers', 'update', account_id)
     a = kite_accounts.get(user.user_id, account_id)
     if not a:
         raise HTTPException(404, "Kite account not found")
