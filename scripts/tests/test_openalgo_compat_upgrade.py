@@ -248,3 +248,18 @@ def test_same_row_count_corruption_in_staged_migration_is_detected(tmp_path, mon
     assert not dest.exists()
     assert not list(dest.parent.iterdir())
     assert source.read_bytes() == before
+
+
+def test_live_named_or_configured_source_is_refused_even_with_new_destination(tmp_path, monkeypatch):
+    source = synthetic_db(tmp_path)
+    dest = tmp_path / "isolated" / "copy.db"
+    dest.parent.mkdir()
+    monkeypatch.setenv("STERLING_DB_PATH", str(source))
+    with pytest.raises(PermissionError, match="offline source snapshot"):
+        migration.migrate_copy(source, dest)
+    monkeypatch.delenv("STERLING_DB_PATH")
+    named_live = source.with_name("sterling_paper.db")
+    source.rename(named_live)
+    with pytest.raises(PermissionError, match="offline source snapshot"):
+        migration.migrate_copy(named_live, dest)
+    assert not dest.exists()
