@@ -167,6 +167,7 @@ async def _broker_long_quantity(
 
 async def _sell_and_verify(
     client, uid: str, signal_id: str, symbol: str, exchange: str, quantity: int,
+    *, reference_price: float = 0.0,
 ):
     """Emergency flatten via canonical, durable inventory and send authority."""
     if quantity <= 0:
@@ -190,7 +191,7 @@ async def _sell_and_verify(
     resolution = await resolve_canonical_reduction(
         uid=uid, intent_key=str(outcome.intent_key or ""),
         client=client, order_id=oid, expected_quantity=int(quantity),
-        reference_price=0.0, timeout_s=5.0,
+        reference_price=float(reference_price), timeout_s=5.0,
     )
     # The emergency exit was not yet projected into a durable strategy-close
     # record; its canonical journal projection_pending flag MUST remain set.
@@ -847,7 +848,10 @@ async def execute_opening_scan(
                 )
                 closed, note = False, "entry remainder unresolved; no compensating SELL sent"
             else:
-                closed, note = await _sell_and_verify(client, uid, signal_key, symbol, exchange, filled)
+                closed, note = await _sell_and_verify(
+                    client, uid, signal_key, symbol, exchange, filled,
+                    reference_price=float(fill_price or quote["ask"]),
+                )
                 if not closed:
                     live_safety.set_kill_switch(
                         True, f"unprotected Opening Leader position {symbol}: {note}"
