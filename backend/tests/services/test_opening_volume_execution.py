@@ -104,38 +104,32 @@ async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch):
             raise AssertionError("SELL must not be sent without broker inventory proof")
 
     closed, note = await execution._sell_and_verify(
-        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
     )
 
     assert closed is False
-    assert "broker quantity 0" in note
+    assert "Canonical inventory" in note
 
 
 @pytest.mark.asyncio
-async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
+async def test_live_emergency_close_carries_reduce_authority(monkeypatch, tmp_path):
     from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
+    from app.services import db, live_safety
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "opening-reduce.sqlite"))
+    assert db.init()
+    live_safety.reset_all_for_tests()
+    db.set_inventory("acct-opening", "synthetic-owner", "RELIANCE26SEP3000CE", 250, exchange="NFO")
 
     class Client:
-        _is_paper = False
+        _is_paper = True  # offline broker double; no production transport
         _account_id = "acct-opening"
 
-        async def get_positions_raw(self):
-            return {
-                "net": [
-                    {
-                        "tradingsymbol": "RELIANCE26SEP3000CE",
-                        "exchange": "NFO",
-                        "product": "NRML",
-                        "quantity": 250,
-                    }
-                ]
-            }
-
-        async def place_order_option(self, _symbol, side, quantity, **_kwargs):
-            assert side == "sell"
-            assert quantity == 250
-            assert _kwargs["exchange"] == "NFO"
-            assert _kwargs["product"] == "NRML"
+        async def place_order(self, symbol, side, size, **kwargs):
+            assert symbol == "RELIANCE26SEP3000CE"
+            assert side == "SELL"
+            assert size == 250
+            assert kwargs["exchange"] == "NFO"
+            assert kwargs["product"] == "NRML"
             assert current_intent() == INTENT_REDUCE
             return {"order_id": "EXIT-1"}
 
@@ -146,7 +140,7 @@ async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
     )
 
     closed, note = await execution._sell_and_verify(
-        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
     )
 
     assert closed is True
@@ -171,10 +165,10 @@ async def test_live_emergency_close_does_not_cross_product_buckets():
             raise AssertionError("NRML SELL must not be authorized by MIS inventory")
 
     closed, note = await execution._sell_and_verify(
-        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
     )
     assert closed is False
-    assert "broker quantity 0" in note
+    assert "Canonical inventory" in note
 
 
 @pytest.mark.asyncio
