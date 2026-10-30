@@ -58,8 +58,10 @@ async def enforce_feature_access(connection: HTTPConnection):
         # A feature grant allows a viewer to inspect the workspace, not mutate
         # trading state. Unknown or imported roles fail closed on API writes.
         if request.method not in ('GET', 'HEAD', 'OPTIONS'):
-            if principal.view or principal.owner_uid:
-                raise HTTPException(403, 'Simulation identity cannot mutate the live Kite workspace.')
+            # get_current_user() already scopes an owner's Simulation request
+            # to the virtual tenant and enforces SIM_VIEW_DENY_RULES for every
+            # live broker/global mutation. Do not prohibit all simulation writes
+            # here: that would disable the owner's isolated paper trading book.
             if not account_policy.may_mutate(current.role):
                 raise HTTPException(403, 'Read-only viewer cannot mutate Kite state.')
     elif policy == 'configuration' and request.url.path.startswith('/api/v1/kite/accounts'):
