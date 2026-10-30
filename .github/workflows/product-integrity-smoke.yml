@@ -37,6 +37,8 @@ jobs:
           python -m pytest -q --tb=short \
             tests/test_role_based_write_access.py \
             tests/test_agents.py \
+            tests/test_order_router.py \
+            tests/test_release_safety_62_65.py \
             tests/test_account_policy.py \
             tests/test_workspace_access.py \
             tests/unit/test_canonical_execution_convergence.py \
