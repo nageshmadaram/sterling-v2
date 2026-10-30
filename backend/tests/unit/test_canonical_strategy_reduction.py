@@ -238,3 +238,49 @@ async def test_pre_disarm_inventory_refuses_missing_and_wrong_signed_side(isolat
     assert reduction_inventory_refusal(**args)
     assert reduction_inventory_refusal(**{**args, "side": "BUY"}) is None
     assert reduction_inventory_refusal(**{**args, "exchange": "BFO"})
+
+
+@pytest.mark.asyncio
+async def test_canonical_exit_broker_fill_observed_before_strategy_projection_ack(isolated):
+    """An ACK is not a fill; a resolved paper fill becomes a durable journal event."""
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
+    client = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    ack = await submit_reduction(**args(client))
+    assert ack.status == "ACKNOWLEDGED"
+    assert order_journal.get(ack.intent_key).state == "SUBMITTED"
+    result = await resolve_canonical_reduction(
+        uid="synthetic-user", intent_key=ack.intent_key, client=client,
+        order_id=ack.order_id, expected_quantity=10, reference_price=80.0,
+    )
+    assert result.settled and result.filled_quantity == 10
+    assert result.intent_key == ack.intent_key and result.projection_version > 0
+    before = order_journal.get(ack.intent_key)
+    assert before.state == "FILLED" and before.projection_pending
+    assert before.filled_quantity == 10
+    # A crash before the local position write leaves projection_pending=1.
+    assert any(row.intent_key == ack.intent_key
+               for row in order_journal.pending_projection("synthetic-user", "acct-1"))
+    assert mark_reduction_projected(result)
+    assert not order_journal.get(ack.intent_key).projection_pending
+
+
+@pytest.mark.asyncio
+async def test_canonical_exit_order_identity_mismatch_cannot_project_a_fill(isolated):
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
+    client = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    ack = await submit_reduction(**args(client))
+    result = await resolve_canonical_reduction(
+        uid="synthetic-user", intent_key=ack.intent_key, client=client,
+        order_id="OTHER-UNRELATED-BROKER-ID", expected_quantity=10,
+        reference_price=80.0,
+    )
+    assert not result.settled
+    assert "identity_mismatch" in result.reason
+    assert not mark_reduction_projected(result)
+    assert order_journal.get(ack.intent_key).state == "SUBMITTED"
