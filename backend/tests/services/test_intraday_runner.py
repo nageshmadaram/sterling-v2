@@ -155,6 +155,8 @@ def live(tmp_path, monkeypatch):
                                intent_key="synthetic-intraday-canonical-exit")
 
     monkeypatch.setattr(reductions, "submit_reduction", simulated_canonical_exit)
+    monkeypatch.setattr(reductions, "reduction_inventory_refusal",
+                        lambda **_kw: None)  # real admission tested against SQLite elsewhere
     yield client
     live_safety.reset_all_for_tests()
     store.reset()
