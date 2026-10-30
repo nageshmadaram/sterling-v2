@@ -32,6 +32,10 @@ unreviewed OpenAlgo schema is imported.
 | UI | Sterling desktop + Expo mobile | Stable API contracts | Read-only order-status compatibility response isolated | Browser/mobile/real-device journeys and API fallback parity |
 | Deployment | Sterling scripts and runtime env | Config-based startup | No deployment scripts or env values mutated | TLS/host/secrets, monitoring and operator approval |
 
+The reproducible static route delta command is `python -m upgrade.api_inventory`.
+It parses FastAPI decorators without importing the application or loading broker
+credentials. A declared route is **not** runtime/UI acceptance evidence.
+
 ## Explicit API route delta
 
 | OpenAlgo documented route | Existing Sterling route/pattern | Status |
