@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { api } from '../services/api';
 import { assertKiteWriteAllowed } from '../services/workspacePolicy';
+import { requireOrderAcknowledgement } from '../services/orderOutcome';
 import { theme } from '../styles/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -56,8 +57,9 @@ export default function OrderModal({ visible, onClose, symbol }: OrderModalProps
         product,
         variety: 'regular'
       };
-      await api.post('/api/v1/kite/orders', payload);
-      Alert.alert('Success', `Kite ${side} order placed successfully.`);
+      const outcome = await api.post<unknown>('/api/v1/kite/orders', payload);
+      const brokerOrderId = requireOrderAcknowledgement(outcome);
+      Alert.alert('Order acknowledged', `Order ${brokerOrderId} was accepted. Check Orders for fill status.`);
       onClose();
     } catch (e: any) {
       Alert.alert('Order Failed', e.message || 'Unknown error occurred.');
