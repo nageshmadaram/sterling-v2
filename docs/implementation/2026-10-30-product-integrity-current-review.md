@@ -18,7 +18,7 @@ Independent acceptance: **NOT PROVIDED**.
 
 | Area | Source result | Proof still required |
 | --- | --- | --- |
-| Canonical order sends | BrokerAgent and OrderRouter's noncanonical sends retired. All five formerly grandfathered SELL paths (Adaptive Edge 1, Gamma 1, Intraday 2, Opening Volume 1) now invoke `canonical_strategy_reduction.submit_reduction` instead of `client.place_order*`. AST grandfathered allowance is **zero**. | Latest-SHA AST/strategy suite PASS, real inventory migration and restart test |
+| Canonical order sends | Five former direct strategy SELL calls and the previously undetected **SuperTrend monitor indirect broker-method alias** are now routed through canonical execution; AST direct-order allowance is **zero**, and the guard now detects broker-method rebindings. Generic Kite HTTP `c._place` remains explicitly **paper-only**, not canonical; no live fallback is permitted. | Latest-SHA AST/strategy suite PASS, actual legacy inventory recovery, and removal of remaining paper-only execution exceptions |
 | Reduction authority | New common bridge requires exact account, known boolean broker mode, valid immutable signal, non-reconciled inventory refusal, exact exchange/symbol and sufficient durable quantity. It never fabricates an inventory row or creates a new exposure when a reduction cannot be proved. `CanonicalExecutionService` still owns broker send, bound capability, fresh broker inventory (two checks), journal and UNKNOWN fence. | Broker product-bucket, quantity and concurrent-gateway evidence; operational handling of legacy positions with no canonical inventory |
 | Legacy recovery safety | Adaptive Edge and Intraday persist the pending exit before send, and do not re-arm/retry on ambiguous transport outcomes. Gamma uses the deterministic canonical order tag for lost-ACK broker-book recovery. Emergency Opening Volume SELL refuses unverified inventory and halts for protection failure. | Strategy-specific projection of broker fill/trade IDs back into canonical journal, crash gap coverage and operator no-double-SELL acceptance |
 | Order outcome | Kite POST returns HTTP 409 for PENDING/UNKNOWN idempotency markers; mobile requires a non-sentinel broker order ID and never calls an ACK a fill. | Route regression and real device/browser errors |
@@ -29,11 +29,12 @@ Independent acceptance: **NOT PROVIDED**.
 
 ## P0 acceptance blockers — DUE, unscheduled
 
-1. **Canonical fill/position projection**: prove for each of the five migrated
-   exits that broker trade-ID and cumulative fill evidence reaches the canonical
-   journal, updates the correct strategy registry exactly once, and survives
-   restart. Current order submission is journaled; full strategy projection is
-   **NOT CERTIFIED**.
+1. **Canonical fill/position projection**: new canonical reduction fill
+   observation and versioned `mark_reduction_projected` hooks cover Adaptive Edge,
+   Intraday and Gamma exits; SuperTrend's journal consumer retains pending
+   evidence if its fill ledger booking fails; Opening Volume keeps the emergency
+   close projection pending. **Source implemented, latest-SHA tests and full
+   broker-trade-ID, partial-fill, and crash/restart projection NOT CERTIFIED**.
 2. **Legacy inventory migration**: reconcile old per-strategy positions with
    canonical inventory from authoritative broker data and immutable account,
    exchange, product and quantity. Never blindly insert canonical inventory
@@ -137,3 +138,58 @@ CI matrix before approval, not only this focused selection.
   authority under this review workstream.
 
 **Final decision: REVIEW IN PROGRESS; PRODUCTION NO-GO.**
+
+
+## Later implementation checkpoint — indirect exit bypass and projection integrity
+
+**Implementation changes committed after the original five-call migration:**
+
+- SuperTrend `kite_engine/monitor.py` had an indirect bypass:
+  `place = client.place_order_future / place_order_option` followed by
+  `await place(...)`. The prior AST guard only recognized direct attribute
+  calls, so it missed this. The exit now creates a deterministic canonical
+  `ke...` journal tag and uses `submit_reduction`, including short-cover
+  BUY reduction for a verified negative holding. An AST regression rejects
+  rebinding order methods to local aliases.
+- `reduction_inventory_refusal` now verifies canonical inventory **before**
+  disarming an existing GTT. This applies to SuperTrend, Gamma, Adaptive Edge,
+  full Intraday exit, and Intraday scale-out. Unreconciled migrated holdings
+  retain protection and refuse the automatic exit. This does NOT solve
+  operator recovery for pre-existing unprotected positions.
+- Canonical `resolve_canonical_reduction` attaches confirmed cumulative
+  broker evidence to its exact order-intent journal. Adaptive/Intraday/Gamma
+  record the projection version only after saving their strategy position
+  and accounting state. Opening Volume leaves projection pending because
+  its emergency close has no equivalent durable strategy-close update.
+- The shared `execution_lifecycle` consumer no longer marks another
+  strategy's canonical EXIT projected by assumption. SuperTrend likewise
+  leaves projection pending when signed ledger booking fails or there is
+  no attributable position.
+- Gamma's canonical UNKNOWN order cannot be disproved by one empty
+  broker-book read; it remains fenced for operator reconciliation rather
+  than automatically re-arming an uncertain SELL stop.
+- Auth now respects Sterling's original virtual Simulation contract:
+  the designated owner may mutate its **isolated simulated book**, while
+  live broker/global operator actions are refused. Regression coverage
+  explicitly exercises both.
+- The generic Kite HTTP raw order sender remains isolated to verified
+  **paper** mode, with a second explicit guard immediately before `_place`.
+  It is still a noncanonical paper order path and remains due for
+  integration with canonical simulation journaling. This exception is not
+  authority for a live order.
+- Focused CI now includes the SuperTrend GTT pre-disarm and projection
+  negative cases, cross-strategy journal ownership and Expo's multi-platform
+  export check.
+
+**Latest-head status remains UNVERIFIED until GitHub Actions completes.
+** Source changes and test additions are not a PASS claim. Full real-device
+navigation, PostgreSQL point-in-time restore, independent brokerage
+reconciliation and release acceptance remain open or externally blocked.
+
+**Operational rollback:** preserve SQLite WAL and every canonical intent,
+outbox, exact broker tag, per-strategy position file and signed-fill ledger.
+Never clear `projection_pending` or recovery flags as a cleanup shortcut.
+Do not revert to a prior unsafe direct SELL sender in response to blocked
+legacy inventory; require approved broker-account reconciliation and
+review of the original pending order before any renewed action.
+
