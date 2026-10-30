@@ -86,3 +86,25 @@ private temporary SQLite file.
 
 See `docs/implementation/2026-10-30-openalgo-compatibility-matrix.md` and
 `docs/implementation/2026-10-30-product-integrity-current-review.md`.
+
+
+## Disposable PostgreSQL drill (CI only)
+
+`.github/workflows/postgres-migration-drill.yml` provisions a synthetic
+PostgreSQL 16 service. It runs the pinned `asyncpg` Alembic migration twice,
+proves rollback of a synthetic write, dumps the ORM database with `pg_dump`,
+restores a **second disposable database** with `pg_restore`, and checks the
+same durable synthetic record, ORM tables and Alembic revision in both.
+Review the **exact SHA** workflow result; no result is claimed in advance.
+No operator DB, broker credential, order, trade or live-control state is used.
+
+The Alembic guard refuses the operational Sterling SQLite database and
+refuses PostgreSQL unless its name starts `sterling_test_` or
+`sterling_disposable_`, `STERLING_ALEMBIC_DISPOSABLE=1`, the pinned
+`postgresql+asyncpg://` scheme, and an effective nonproduction runtime.
+These checks are safety preconditions, **not** independent approval to point
+Alembic at an externally hosted database.
+
+The ORM migration remains only `positions`, `mirrored_records` and
+`equity_snapshots`. Full Sterling journal, inventory, broker, auth, strategy
+and risk table migration **has not been implemented or run on PostgreSQL**.
