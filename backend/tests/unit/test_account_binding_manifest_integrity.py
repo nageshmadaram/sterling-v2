@@ -73,3 +73,38 @@ def test_manifest_filename_identity_mismatch_is_not_silently_accepted(tmp_path):
         store.all()
     with pytest.raises(BindingError, match="identity does not match"):
         store.active()
+
+
+@pytest.mark.parametrize(
+    ("scope", "expected"),
+    [
+        ("live", True),
+        ("live_minimum", True),
+        (" LIVE ", True),
+        ("LiVe_MiNiMuM", True),
+        ("not_live", False),
+        ("live_disabled", False),
+        ("olive", False),
+        ("read_only", False),
+        ("shadow", False),
+        ("live-minimum", False),
+        ("live_minimum_extra", False),
+        ("", False),
+    ],
+)
+def test_live_authority_requires_an_exact_recognized_scope(
+    tmp_path, scope, expected
+):
+    # This is an isolated metadata property test, not real broker verification.
+    store = AccountBindingStore(tmp_path / "bindings")
+    binding = _binding(store)
+    candidate = replace(
+        binding,
+        status=BindingStatus.ACTIVE,
+        activated_at="2026-10-30T00:00:00+00:00",
+        account_scope=scope,
+        static_egress_profile="named-static-egress",
+    )
+    assert candidate.live_ready is expected
+    assert replace(candidate, static_egress_profile="").live_ready is False
+    assert replace(candidate, status=BindingStatus.VERIFIED).live_ready is False
