@@ -47,6 +47,7 @@ jobs:
             tests/unit/test_execution_unknown_settlement.py \
             tests/unit/test_canonical_strategy_reduction.py \
             tests/unit/test_openalgo_compat.py \
+            tests/unit/test_alembic_disposable_guard.py \
             tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_supertrend_exit_keeps_resting_stop_when_canonical_inventory_is_missing \
             tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_foreign_canonical_sell_fill_remains_pending_until_strategy_persists_it \
             tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_supertrend_exit_failed_signed_ledger_keeps_pending_projection \
