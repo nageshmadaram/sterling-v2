@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+from decimal import Decimal, InvalidOperation
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -74,17 +76,29 @@ def _normalize_status(value: Any) -> str:
 
 
 def _safe_int(value: Any) -> int:
+    """Accept only exact, finite, nonnegative integral broker quantities.
+
+    Truncating 1.9 to 1, or accepting a huge float rounded to an integer,
+    fabricates fill evidence. An invalid value must never increase fills.
+    """
+    if value is None or isinstance(value, bool):
+        return 0
     try:
-        return max(0, int(float(value or 0)))
-    except (TypeError, ValueError):
+        quantity = Decimal(str(value).strip())
+        if (not quantity.is_finite() or quantity < 0
+                or quantity != quantity.to_integral_value()):
+            return 0
+        return int(quantity)
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
         return 0
 
 
 def _safe_float(value: Any) -> float:
+    """Reject NaN and infinity; neither is a valid broker execution price."""
     try:
         out = float(value or 0.0)
-        return out if out >= 0 else 0.0
-    except (TypeError, ValueError):
+        return out if math.isfinite(out) and out >= 0 else 0.0
+    except (TypeError, ValueError, OverflowError):
         return 0.0
 
 
@@ -299,10 +313,14 @@ async def resolve_entry_fill(
 
     while True:
         status, filled, average, raw = await _broker_snapshot(client, oid)
-        if status == "COMPLETE" and filled == 0 and average > 0:
-            # Kite COMPLETE is terminal full execution even when a reduced
-            # response/fixture omits cumulative filled_quantity.
-            filled = expected
+        if status == "COMPLETE" and filled == 0:
+            # COMPLETE plus an average price cannot prove a quantity. Never
+            # infer a full fill from a field that contains no quantity evidence.
+            _halt_uncertain_live(client, f"entry COMPLETE missing fill quantity for {oid}")
+            return _resolution(
+                _find_intent(uid, client, oid), oid,
+                status="UNKNOWN", reason="complete_filled_quantity_unverified",
+            )
         last_status, last_raw = status, raw
         if status in _TERMINAL | _PENDING:
             try:
@@ -347,8 +365,12 @@ async def resolve_entry_fill(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, raw = await _broker_snapshot(client, oid)
-            if status == "COMPLETE" and filled == 0 and average > 0:
-                filled = expected
+            if status == "COMPLETE" and filled == 0:
+                _halt_uncertain_live(client, f"post-cancel COMPLETE missing fill quantity for {oid}")
+                return _resolution(
+                    _find_intent(uid, client, oid), oid,
+                    status="UNKNOWN", reason="complete_filled_quantity_unverified",
+                )
             if status in _TERMINAL | _PENDING:
                 try:
                     latest, observed = _observe(
@@ -482,10 +504,8 @@ async def resolve_acknowledged_order(
     average = 0.0
     while True:
         status, filled, average, _raw = await _broker_snapshot(client, oid)
-        if status == "COMPLETE" and filled == 0 and average > 0:
-            filled = expected
         if status in _TERMINAL:
-            if status == "COMPLETE" and 0 < filled < expected:
+            if status == "COMPLETE" and filled != expected:
                 return BrokerOrderResolution(
                     oid,
                     status,
@@ -520,10 +540,8 @@ async def resolve_acknowledged_order(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, _raw = await _broker_snapshot(client, oid)
-            if status == "COMPLETE" and filled == 0 and average > 0:
-                filled = expected
             if status in _TERMINAL:
-                if status == "COMPLETE" and 0 < filled < expected:
+                if status == "COMPLETE" and filled != expected:
                     return BrokerOrderResolution(
                         oid,
                         status,
