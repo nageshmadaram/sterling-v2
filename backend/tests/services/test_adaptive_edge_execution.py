@@ -599,10 +599,15 @@ def test_exit_cancels_the_broker_stop_before_selling(monkeypatch):
     assert order == ["cancel", "sell"]
 
 
-def test_a_failed_exit_re_arms_the_protection_it_cancelled(monkeypatch):
-    """Leaving it down turns a failed exit into an unprotected position."""
+def test_a_definitive_exit_refusal_re_arms_the_protection_it_cancelled(monkeypatch):
+    """Only a pre-wire refusal can safely restore the cancelled SELL stop."""
     pos = _open_position()
-    client = FakeClient(raise_on_place=True)
+    client = FakeClient()
+
+    async def refused(*_args, **_kwargs):
+        raise PermissionError("local guard refused before broker send")
+
+    client.place_order = refused
     replaced: list[str] = []
     monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     monkeypatch.setattr(runner, "_place_protection",
@@ -613,6 +618,49 @@ def test_a_failed_exit_re_arms_the_protection_it_cancelled(monkeypatch):
     assert ok is False
     assert replaced == ["re-armed"]
     assert pos.exiting is False
+
+
+def test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm(monkeypatch):
+    """A lost broker reply may have created a SELL: do not create another one."""
+    pos = _open_position()
+    client = FakeClient(raise_on_place=True)  # unclassified post-send failure
+    replaced: list[str] = []
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
+    monkeypatch.setattr(runner, "_place_protection",
+                        lambda u, c, p, k: (replaced.append("re-armed"), _async(1))[1])
+    first = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+    assert first is False
+    assert replaced == []
+    assert pos.exiting is True
+    assert positions.get("u1", "SYM").exiting is True
+    assert len([call for call in client.calls if call[0] == "place:sell"]) == 1
+    again = asyncio.run(runner._exit_position(
+        "u1", client, positions.get("u1", "SYM"), AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+    assert again is False
+    assert len([call for call in client.calls if call[0] == "place:sell"]) == 1
+
+
+def test_missing_exit_order_id_is_uncertain_and_does_not_rearm(monkeypatch):
+    pos = _open_position()
+    client = FakeClient(order_id="")
+    replaced: list[str] = []
+    monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
+    monkeypatch.setattr(runner, "_place_protection",
+                        lambda u, c, p, k: (replaced.append("re-armed"), _async(1))[1])
+    ok = asyncio.run(runner._exit_position(
+        "u1", client, pos, AdaptiveEdgeConfig().validate(),
+        price=80.0, reason="stop",
+    ))
+    assert not ok
+    assert pos.exiting is True
+    assert positions.get("u1", "SYM").exiting
+    assert replaced == []
+
 
 
 def test_a_second_exit_caller_is_refused_while_one_is_in_flight(monkeypatch):
