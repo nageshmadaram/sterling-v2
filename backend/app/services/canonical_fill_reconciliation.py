@@ -131,19 +131,37 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
         except Exception:
             trades = []
         if isinstance(trades, list) and trades:
-            qty = 0
-            value = 0.0
+            # A broker API may repeat a trade row on replay or return rows from
+            # another order. Summing unidentifiable/duplicate rows can create
+            # fictitious executed quantity. Use unique, attributable trade IDs
+            # only; otherwise rely on the order's cumulative history evidence.
+            identified: dict[str, tuple[int, float]] = {}
+            ambiguous = False
             for trade in trades:
                 if not isinstance(trade, dict):
-                    continue
+                    ambiguous = True
+                    break
+                reported_order = str(trade.get("order_id") or "").strip()
+                if reported_order and reported_order != str(order_id):
+                    ambiguous = True
+                    break
+                trade_id = str(trade.get("trade_id") or "").strip()
                 q = _safe_int(trade.get("quantity"))
                 px = _safe_float(trade.get("average_price", trade.get("price")))
-                if q > 0 and px > 0:
-                    qty += q
-                    value += q * px
-            if qty > filled:
-                filled = qty
-                average = value / qty if value > 0 else average
+                if not trade_id or q <= 0 or px <= 0:
+                    ambiguous = True
+                    break
+                entry = (q, px)
+                if trade_id in identified and identified[trade_id] != entry:
+                    ambiguous = True
+                    break
+                identified[trade_id] = entry
+            if not ambiguous and identified:
+                qty = sum(q for q, _ in identified.values())
+                value = sum(q * px for q, px in identified.values())
+                if qty > filled and math.isfinite(value):
+                    filled = qty
+                    average = value / qty if value > 0 else average
 
     return status, filled, average, latest
 
