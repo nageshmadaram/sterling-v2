@@ -367,3 +367,67 @@ async def test_valid_complete_postback_with_exact_fill_quantity_can_settle_exit(
     )
     assert result.settled and result.terminal
     assert result.filled_quantity == 10 and result.average_price == 80.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, quantity, price, reason", [
+    ("OPEN", "11", "80.0", "broker_overfill"),
+    ("CANCELLED", "11", "80.0", "broker_overfill"),
+    ("OPEN", "10", "0", "filled_price_unverified"),
+    ("OPEN", "10", "NaN", "filled_price_unverified"),
+    ("UNRECOGNIZED", "10", "80.0", "broker_status_unverified"),
+])
+async def test_full_or_overfilled_broker_evidence_never_false_settles(
+    status, quantity, price, reason,
+):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticPostback:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": status,
+                     "filled_quantity": quantity, "average_price": price}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    result = await resolve_acknowledged_order(
+        client=SyntheticPostback(), order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80.0,
+        timeout_s=0, cancel_unfilled=False,
+    )
+    assert not result.settled
+    assert result.reason == reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, filled, expected_settled", [
+    ("OPEN", 10, True),
+    ("CANCELLED", 5, True),
+    ("CANCELLED", 0, True),
+])
+async def test_valid_broker_full_and_terminal_partial_evidence_preserved(
+    status, filled, expected_settled,
+):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticPostback:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            return [{"status": status, "filled_quantity": filled,
+                     "average_price": 80.0 if filled else 0}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    result = await resolve_acknowledged_order(
+        client=SyntheticPostback(), order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80.0,
+        timeout_s=0, cancel_unfilled=False,
+    )
+    assert result.settled is expected_settled
+    assert result.filled_quantity == filled
