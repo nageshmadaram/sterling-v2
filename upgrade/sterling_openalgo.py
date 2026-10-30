@@ -205,7 +205,7 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
             original_objects = original.execute(
                 "SELECT type,name,tbl_name,sql FROM sqlite_master "
                 "WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE 'sqlite_autoindex_%' "
-                "ORDER BY type,name"
+                "AND name<>? ORDER BY type,name", (LEDGER,)
             ).fetchall()
             if remaining != original_objects:
                 raise ValueError("Migration unexpectedly altered operational schema")
