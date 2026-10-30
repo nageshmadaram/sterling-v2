@@ -292,3 +292,41 @@ contracts and independent release evidence. **NO-GO remains unchanged.**
 no deploy or merge; PR #15 remains draft. The new PostgreSQL workflow
 must complete on the exact commit before its isolated ORM drill can
 be called passed. Production 0/12 accepted, 12/12 blocked; **NO-GO**.
+
+
+## 31 October 2026 — recovery and broker evidence validation increment
+
+**Source-only implementation, pending exact-head CI acceptance.**
+
+- The independent `scripts/verify_sqlite_recovery.py` snapshot verifier now
+  compares all operational table contents with private, ordered SHA-256 digests,
+  full `sqlite_master` definitions, row counts, `user_version`,
+  `application_id`, SQLite integrity and foreign-key checks. A verified
+  private (0600), standalone DELETE-journal snapshot is published atomically
+  and without overwrite; a staging failure deletes only the unpublished copy.
+  No data hashes, row values, broker tokens or private paths are returned.
+- Offline recovery tests cover **same-row-count tampering**, source immutability,
+  durable WAL records, BLOB and WITHOUT ROWID tables, symlink rejection,
+  atomic create collision, file permissions and cleanup. These are
+  committed test cases, **not observed green test results**.
+- Canonical broker fill parsing refuses nonintegral quantities and nonfinite
+  prices. A COMPLETE order without exact filled quantity cannot be assumed
+  filled from its average price. Overfills, unsupported broker statuses and
+  filled orders missing a positive confirmed execution price cannot settle.
+- Multiple broker trade rows are aggregated only with a unique trade ID and
+  compatible order identity. Duplicate IDs do not double-count, and missing,
+  conflicting, cross-order or otherwise invalid trade rows cannot raise the
+  independently reported cumulative fill. Order-history-only evidence
+  remains possible, so cross-source agreement and broker-trade-ID durability
+  are **not certified** by this increment.
+- These safeguards do **not** implement full operational SQLite-to-PostgreSQL
+  migration, restart-safe reconciliation of every legacy strategy position,
+  or native mobile acceptance. No real broker, production DB or deployment
+  was touched; no source branch merge is approved.
+- The new dedicated SQLite tests are already in the focused offline CI
+  workflow along with canonical strategy reduction tests. Completion on the
+  exact resulting HEAD, not older SHA successes, remains mandatory.
+
+**Acceptance unchanged:** PR #15 draft/unmerged; main unchanged; 0/12 external
+production controls independently accepted; production deployment **NO-GO**;
+live execution and broker routing **NOT AUTHORIZED**.
