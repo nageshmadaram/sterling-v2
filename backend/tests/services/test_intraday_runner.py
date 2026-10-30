@@ -130,6 +130,31 @@ def live(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "is_paper", lambda uid: False)
     monkeypatch.setattr(runner, "_safety", lambda uid, key: (True, ""))
     monkeypatch.setattr(runner, "_replay_owns_the_board", lambda _uid: False)
+    # Isolate runner state-machine tests from the canonical journal's own
+    # acceptance tests. Only this synthetic broker double receives an order.
+    from app.services import canonical_strategy_reduction as reductions
+    from app.services.execution_service import ExecutionResult
+    from app.services.kite_engine.protective_stop import is_definitive_refusal
+
+    async def simulated_canonical_exit(**kw):
+        try:
+            result = await client.place_order(
+                f'{kw["exchange"]}:{kw["symbol"]}', "sell", float(kw["quantity"]),
+                order_type=kw["order_type"], limit_price=kw["limit_price"],
+                product=kw["product"], tag="SYNTHETIC-CANONICAL-EXIT",
+            )
+        except Exception as exc:
+            return ExecutionResult(
+                False, "REJECTED" if is_definitive_refusal(exc) else "UNKNOWN",
+                error=str(exc),
+            )
+        order_id = str((result or {}).get("order_id") or "")
+        if not order_id:
+            return ExecutionResult(False, "UNKNOWN", error="synthetic broker ACK missing order ID")
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id=order_id,
+                               intent_key="synthetic-intraday-canonical-exit")
+
+    monkeypatch.setattr(reductions, "submit_reduction", simulated_canonical_exit)
     yield client
     live_safety.reset_all_for_tests()
     store.reset()
