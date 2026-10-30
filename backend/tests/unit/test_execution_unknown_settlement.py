@@ -166,6 +166,37 @@ async def test_a_refused_reduction_proof_leaves_a_reserved_row_not_a_submitting_
     assert broker.sent == 1
 
 
+@pytest.mark.asyncio
+async def test_broker_reduction_inventory_disappearing_between_proofs_never_sends():
+    """Pre-reservation inventory is not sufficient to authorize a final SELL."""
+    db.set_inventory(account_id="acc1", uid="u1", symbol="SBIN", net_quantity=10, exchange="NSE")
+
+    class BrokerThatLosesInventory(Broker):
+        def __init__(self):
+            super().__init__(rows=[{
+                "tradingsymbol": "SBIN", "exchange": "NSE",
+                "product": "NRML", "quantity": 10,
+            }])
+            self.reads = 0
+
+        async def get_positions_raw(self):
+            self.reads += 1
+            if self.reads == 1:
+                return await super().get_positions_raw()
+            return {"net": [], "day": []}
+
+    broker = BrokerThatLosesInventory()
+    req = _exit(signal="inventory-flipped-before-send")
+    result = await CanonicalExecutionService().submit_order(req, broker_client=broker)
+    assert result.success is False
+    assert result.status == "REJECTED"
+    assert "reduction proof changed" in result.error
+    assert broker.reads == 2
+    assert broker.sent == 0
+    assert _intent(req).state == "REJECTED"
+    assert db.get_execution_control(uid="u1", account_id="acc1")["recovery_state"] == "CLEAN"
+
+
 @pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
 async def test_a_lost_journal_acknowledgement_fences_the_account(monkeypatch):
