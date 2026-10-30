@@ -4,6 +4,7 @@ import {
   TouchableWithoutFeedback, Keyboard, ActivityIndicator, Alert 
 } from 'react-native';
 import { api } from '../services/api';
+import { assertKiteWriteAllowed } from '../services/workspacePolicy';
 import { theme } from '../styles/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,6 +43,9 @@ export default function OrderModal({ visible, onClose, symbol }: OrderModalProps
     setLoading(true);
 
     try {
+      // Re-read the server's live policy immediately before an order mutation;
+      // the parent screen's last render may predate revocation.
+      await assertKiteWriteAllowed();
       const payload = {
         tradingsymbol: symbol.split(':').pop() || symbol,
         exchange: symbol.includes(':') ? symbol.split(':')[0] : 'NSE',
