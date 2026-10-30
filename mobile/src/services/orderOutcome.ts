@@ -14,7 +14,7 @@ export function requireOrderAcknowledgement(outcome: unknown): string {
     throw new Error('Order was not confirmed. Check Orders and its rejection details before retrying.');
   }
   const id = item.order_id;
-  if (typeof id !== 'string' || !id.trim()) {
+  if (typeof id !== 'string' || !id.trim() || ['PENDING', 'UNKNOWN'].includes(id.trim().toUpperCase())) {
     throw new Error('Order acknowledgement has no broker ID. Check Orders before retrying.');
   }
   return id.trim();
