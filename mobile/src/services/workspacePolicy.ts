@@ -29,3 +29,10 @@ export async function assertKiteWriteAllowed(): Promise<void> {
     throw new Error('This is a read-only or unavailable Kite workspace.');
   }
 }
+
+export async function assertGlobalRiskControlAllowed(): Promise<void> {
+  const policy = await currentWorkspacePolicy();
+  if (!canManageGlobalRisk(policy)) {
+    throw new Error('Only the designated administrator can change global trading safeguards.');
+  }
+}
