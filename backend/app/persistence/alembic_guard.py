@@ -7,6 +7,7 @@ independent operator must still review the target and its backups.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from sqlalchemy.engine import make_url
 
@@ -23,6 +24,16 @@ def validated_alembic_url(url: str) -> tuple[str, bool]:
     if backend == "sqlite":
         if driver not in {"pysqlite"}:
             raise ValueError("Unsupported SQLite Alembic driver")
+        if parsed.database and parsed.database != ":memory:":
+            from app.services import db
+            target = Path(parsed.database).resolve()
+            live_operational = Path(db._DB_PATH).resolve()
+            if (target == live_operational
+                    or target.name.lower() == "sterling_paper.db"):
+                raise PermissionError(
+                    "Alembic may not alter the operational Sterling SQLite database; "
+                    "use a dedicated, isolated ORM or test database"
+                )
         return url, False
     if driver not in {"asyncpg"}:
         # The lockfile provides asyncpg, not a synchronous psycopg driver.
