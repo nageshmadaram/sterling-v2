@@ -36,6 +36,10 @@ def validated_alembic_url(url: str) -> tuple[str, bool]:
             "sterling_test_*/sterling_disposable_* DB and "
             "STERLING_ALEMBIC_DISPOSABLE=1; production migration prohibited"
         )
-    if os.environ.get("ENVIRONMENT", "").strip().lower() == "production":
+    # Runtime environment is sourced by pydantic-settings as well as process
+    # variables. Checking only os.environ would silently bypass production
+    # posture loaded from backend/.env.
+    from app.core.runtime_env import is_production
+    if is_production():
         raise PermissionError("Alembic PostgreSQL review migrations forbidden in production")
     return url, True
