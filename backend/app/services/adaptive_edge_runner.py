@@ -1480,6 +1480,7 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         order_type="limit_order", limit_price=float(limit),
         kind="exit", reason=str(reason),
     )
+    position.exit_intent_key = str(outcome.intent_key or "")
     if not outcome.success:
         if outcome.status in ("REJECTED", "HALTED"):
             # Canonical authority proved no submission; safe to restore stop.
