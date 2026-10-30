@@ -214,6 +214,18 @@ class TestLiveMode:
         adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_legacy_live_cannot_claim_existing_canonical_id_as_accepted_duplicate(self):
+        adapter = _make_adapter(is_paper=False)
+        router = OrderRouter(RouterMode.LIVE, adapter, _make_deps(), _resolve)
+        live_safety.record_idempotency("canonical-key", "EXISTING-CANONICAL-ORDER")
+        result = await router.submit(_basic_req(client_order_id="canonical-key"))
+        assert not result.accepted
+        assert result.code == "noncanonical_live_order_disabled"
+        assert result.order_id is None
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_live_without_greeks_authority_fails_closed(self) -> None:
         adapter = _make_adapter()
         deps = RouterDeps(
