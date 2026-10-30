@@ -83,7 +83,9 @@ async def test_durable_ack_and_restart_dedup_never_resend(isolated):
     saved = order_journal.get(first.intent_key)
     assert saved.order_id == first.order_id
     assert saved.side == "SELL" and saved.quantity == 10
-    replay = await submit_reduction(**args(client, generation_id="gen-2"))
+    replay = await submit_reduction(**args(
+        client, generation_id="gen-2", reason="EOD sweep discovered same exit",
+    ))
     assert replay.success and replay.order_id == first.order_id
     assert len(client.calls) == 1
     assert client.calls[0][1] == "SELL"
