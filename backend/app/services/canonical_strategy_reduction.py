@@ -19,11 +19,43 @@ from app.services.execution_service import (
 )
 
 
+def reduction_inventory_refusal(
+    *, client: Any, uid: str, exchange: str, symbol: str,
+    quantity: int, side: str = "SELL",
+) -> str | None:
+    """Side-effect-free admission check, safe before canceling a resting GTT.
+
+    Cannot replace the two fresh broker position proofs at submit time. It
+    prevents removing protection when canonical inventory is not ready.
+    """
+    if type(getattr(client, "_is_paper", None)) is not bool:
+        return "Broker mode unknown"
+    account_id = str(getattr(client, "_account_id", "") or "").strip()
+    if not account_id:
+        return "Authenticated broker account unavailable"
+    if type(quantity) is not int or quantity <= 0 or side not in ("SELL", "BUY"):
+        return "Invalid reduction quantity or closing side"
+    try:
+        holding = db.get_inventory_strict(account_id, uid, symbol)
+        if not holding or holding.get("reconciliation_required"):
+            return "Canonical inventory missing or requires reconciliation"
+        if str(holding.get("exchange") or "").strip().upper() != exchange.upper():
+            return "Canonical inventory exchange mismatch"
+        net = int(holding.get("net_quantity") or 0)
+        if not ((side == "SELL" and net >= quantity)
+                or (side == "BUY" and net <= -quantity)):
+            return "Canonical inventory insufficient for exact closing side"
+    except Exception:
+        return "Canonical inventory unavailable or invalid"
+    return None
+
+
 async def submit_reduction(
     *, client: Any, uid: str, strategy_id: str, generation_id: str,
     signal_id: str, exchange: str, symbol: str, quantity: int,
     product: str, order_type: str = "market_order", limit_price: float = 0.0,
     kind: str = "exit", reason: str = "", close: bool = True,
+    side: str = "SELL",
 ) -> ExecutionResult:
     """Reserve/send a SELL only through authenticated, canonical reduction.
 
@@ -44,30 +76,15 @@ async def submit_reduction(
         uid, strategy_id, generation_id, signal_id, exchange, symbol, product, kind
     )):
         return ExecutionResult(False, "REJECTED", error="Missing immutable reduction identity")
-    if type(getattr(client, "_is_paper", None)) is not bool:
-        return ExecutionResult(False, "REJECTED", error="Broker mode unknown")
+    if side not in ("SELL", "BUY"):
+        return ExecutionResult(False, "REJECTED", error="Unknown reduction closing side")
     account_id = str(getattr(client, "_account_id", "") or "").strip()
-    if not account_id:
-        return ExecutionResult(False, "REJECTED", error="Authenticated broker account unavailable")
-
-    try:
-        holding = db.get_inventory_strict(account_id, uid, symbol)
-    except Exception:
-        return ExecutionResult(False, "REJECTED", error="Canonical inventory unavailable")
-    try:
-        sufficient = bool(
-            holding
-            and str(holding.get("exchange") or "").upper() == exchange.upper()
-            and not bool(holding.get("reconciliation_required"))
-            and int(holding.get("net_quantity") or 0) >= qty
-        )
-    except (TypeError, ValueError, OverflowError):
-        sufficient = False
-    if not sufficient:
-        return ExecutionResult(
-            False, "REJECTED",
-            error="Canonical inventory is missing, stale, unreconciled or insufficient; reconcile before reduction",
-        )
+    inventory_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=exchange, symbol=symbol,
+        quantity=qty, side=side,
+    )
+    if inventory_refusal:
+        return ExecutionResult(False, "REJECTED", error=inventory_refusal)
 
     request = ExecutionRequest(
         uid=uid,
@@ -77,7 +94,7 @@ async def submit_reduction(
         signal_id=f"{signal_id}:reduce:{kind}",
         exchange=exchange.upper(),
         symbol=symbol,
-        side="SELL",
+        side=side,
         quantity=qty,
         exposure_effect=(
             ExposureEffect.CLOSE_POSITION if close else ExposureEffect.REDUCE_EXPOSURE
