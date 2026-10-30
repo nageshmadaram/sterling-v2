@@ -104,3 +104,58 @@ async def test_unknown_broker_mode_and_bad_quantity_block_pre_journal(isolated):
     assert not (await submit_reduction(**args(client))).success
     assert not (await submit_reduction(**args(client, quantity=1.5))).success
     assert not client.calls
+
+
+@pytest.mark.asyncio
+async def test_restarted_sqlite_canonical_reduction_never_sends_an_acked_exit_twice(
+    isolated, tmp_path, monkeypatch,
+):
+    """Real SQLite backup/reopen with a fresh broker double and unchanged signal."""
+    import sqlite3
+    from pathlib import Path
+
+    original_path = Path(db._DB_PATH)
+    broker = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    first = await submit_reduction(**args(broker))
+    assert first.success and len(broker.calls) == 1
+
+    restored_path = tmp_path / "restarted.sqlite"
+    with sqlite3.connect(original_path) as src:
+        with sqlite3.connect(restored_path) as dest:
+            src.backup(dest)
+            assert dest.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+
+    monkeypatch.setattr(db, "_DB_PATH", str(restored_path))
+    assert db.init()
+    assert order_journal.get(first.intent_key).order_id == first.order_id
+    after_restart_broker = PaperBroker()
+    replay = await submit_reduction(**args(after_restart_broker, generation_id="new-config"))
+    assert replay.success and replay.order_id == first.order_id
+    assert not after_restart_broker.calls
+
+
+@pytest.mark.asyncio
+async def test_restarted_unknown_exit_stays_unclaimable_and_requires_broker_truth(
+    isolated, tmp_path, monkeypatch,
+):
+    """A socket timeout's UNKNOWN survives an isolated database restart."""
+    import sqlite3
+    from pathlib import Path
+    import httpx
+
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    before = await submit_reduction(**args(PaperBroker(error=httpx.ReadTimeout("no ACK"))))
+    assert before.status == "UNKNOWN"
+    original_path = Path(db._DB_PATH)
+    restored = tmp_path / "unknown-restored.sqlite"
+    with sqlite3.connect(original_path) as src:
+        with sqlite3.connect(restored) as dest:
+            src.backup(dest)
+    monkeypatch.setattr(db, "_DB_PATH", str(restored))
+    assert db.init()
+    broker = PaperBroker()
+    replay = await submit_reduction(**args(broker))
+    assert not replay.success
+    assert order_journal.get(before.intent_key).state == "UNKNOWN"
+    assert broker.calls == []
