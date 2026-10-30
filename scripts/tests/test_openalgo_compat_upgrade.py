@@ -225,3 +225,26 @@ def test_incompatible_critical_columns_prevent_copy_and_are_reported(tmp_path, a
     with pytest.raises(ValueError, match="incomplete or incompatible"):
         migration.migrate_copy(source, target)
     assert not target.exists()
+
+
+def test_same_row_count_corruption_in_staged_migration_is_detected(tmp_path, monkeypatch):
+    """Copy may have identical row counts yet altered broker/risk content."""
+    source = synthetic_db(tmp_path)
+    dest = tmp_path / "isolated" / "no-corrupt-copy.db"
+    dest.parent.mkdir()
+    before = source.read_bytes()
+    real_ledger = migration._ledger_status
+
+    def corrupt_after_ledger(conn, original_schema_hash):
+        status = real_ledger(conn, original_schema_hash)
+        conn.execute(
+            "UPDATE positions SET synthetic_payload='tampered in staging' WHERE id='2'"
+        )
+        return status
+
+    monkeypatch.setattr(migration, "_ledger_status", corrupt_after_ledger)
+    with pytest.raises(ValueError, match="operational table content"):
+        migration.migrate_copy(source, dest)
+    assert not dest.exists()
+    assert not list(dest.parent.iterdir())
+    assert source.read_bytes() == before
