@@ -48,6 +48,9 @@ jobs:
             tests/services/test_adaptive_edge_execution.py::test_a_definitive_exit_refusal_re_arms_the_protection_it_cancelled \
             tests/services/test_adaptive_edge_execution.py::test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm \
             tests/services/test_adaptive_edge_execution.py::test_missing_exit_order_id_is_uncertain_and_does_not_rearm \
+            tests/services/test_intraday_runner.py::TestTicks::test_a_definitively_refused_exit_restores_available_protection \
+            tests/services/test_intraday_runner.py::TestTicks::test_ambiguous_exit_reply_keeps_durable_claim_and_refuses_second_sell \
+            tests/services/test_intraday_runner.py::TestScaleOut::test_ambiguous_scale_out_latches_unknown_instead_of_rearming \
             tests/unit/simulation/test_r1_snapback_alerts.py \
             tests/unit/test_account_binding_manifest_integrity.py \
             tests/services/test_canonical_entry_input_integrity.py \
