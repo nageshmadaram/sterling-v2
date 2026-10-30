@@ -1316,6 +1316,7 @@ async def _ensure_protection_synced(
 
 def _clear_exit_identity(position: AdaptiveEdgePosition) -> None:
     position.exit_order_id = ""
+    position.exit_intent_key = ""
     position.exit_requested_qty = 0
     position.exit_requested_price = 0.0
     position.exit_pending_reason = ""
