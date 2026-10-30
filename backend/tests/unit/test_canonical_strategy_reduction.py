@@ -431,3 +431,58 @@ async def test_valid_broker_full_and_terminal_partial_evidence_preserved(
     )
     assert result.settled is expected_settled
     assert result.filled_quantity == filled
+
+
+@pytest.mark.asyncio
+async def test_trade_aggregation_counts_duplicate_broker_trade_id_once():
+    from app.services.canonical_fill_reconciliation import _broker_snapshot
+
+    class DuplicateTradePostback:
+        async def get_order_history(self, order_id):
+            return [{"status": "OPEN", "filled_quantity": 1,
+                     "average_price": 80.0}]
+
+        async def get_order_trades(self, order_id):
+            return [
+                {"trade_id": "T1", "order_id": order_id, "quantity": 2, "price": 80.0},
+                {"trade_id": "T1", "order_id": order_id, "quantity": 2, "price": 80.0},
+                {"trade_id": "T2", "order_id": order_id, "quantity": 3, "price": 90.0},
+            ]
+
+    status, quantity, average, _ = await _broker_snapshot(
+        DuplicateTradePostback(), "SYNTHETIC-ORDER",
+    )
+    assert status == "OPEN"
+    assert quantity == 5  # two unique trades, not 7
+    assert average == 86.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_trades", [
+    [{"trade_id": "T1", "order_id": "OTHER", "quantity": 10, "price": 80}],
+    [{"order_id": "SYNTHETIC-ORDER", "quantity": 10, "price": 80}],
+    [{"trade_id": "T1", "quantity": 10, "price": float("inf")}],
+    [
+        {"trade_id": "T1", "quantity": 3, "price": 80},
+        {"trade_id": "T1", "quantity": 4, "price": 80},
+    ],
+])
+async def test_unattributable_or_conflicting_broker_trades_never_raise_fill_count(
+    invalid_trades,
+):
+    from app.services.canonical_fill_reconciliation import _broker_snapshot
+
+    class UntrustedTradePostback:
+        async def get_order_history(self, order_id):
+            return [{"status": "OPEN", "filled_quantity": 2,
+                     "average_price": 80.0}]
+
+        async def get_order_trades(self, order_id):
+            return invalid_trades
+
+    status, filled, average, _ = await _broker_snapshot(
+        UntrustedTradePostback(), "SYNTHETIC-ORDER",
+    )
+    assert status == "OPEN"
+    assert filled == 2  # Preserve only independently reported order evidence.
+    assert average == 80.0
