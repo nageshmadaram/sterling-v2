@@ -636,6 +636,9 @@ def test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm(monk
     assert replaced == []
     assert pos.exiting is True
     assert positions.get("u1", "SYM").exiting is True
+    assert pos.exit_requested_qty == 50
+    assert pos.exit_pending_reason == "stop"
+    assert pos.exit_requested_price > 0
     assert len([call for call in client.calls if call[0] == "place:sell"]) == 1
     again = asyncio.run(runner._exit_position(
         "u1", client, positions.get("u1", "SYM"), AdaptiveEdgeConfig().validate(),
