@@ -440,3 +440,73 @@ def test_exit_paths_are_not_covered_by_this_rule():
 def test_allowlist_entries_still_exist(allowed: str):
     """An allowlist entry pointing at a deleted file silently widens the rule."""
     assert (APP / allowed).exists(), f"allowlisted file {allowed} no longer exists"
+
+
+def test_grandfathered_engine_order_calls_are_only_bounded_sell_reductions():
+    """Fence the remaining protective exits while canonicalization is pending.
+
+    The raw adapter calls are not accepted as new-entry paths. Every legacy
+    engine call must have a literal SELL side *inside* a canonical reduction
+    capability. A newly introduced or changed call fails the source audit.
+    This is not a substitute for a durable exit-intent migration.
+    """
+    expected = {
+        'services/adaptive_edge_runner.py': 1,
+        'services/gamma_move_runner.py': 1,
+        'services/intraday_runner.py': 2,
+        'services/opening_volume_execution.py': 1,
+    }
+    for rel, count in expected.items():
+        source = (APP / rel).read_text(encoding='utf-8')
+        tree = ast.parse(source)
+        guarded_calls = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.With, ast.AsyncWith)):
+                continue
+            capability = any(
+                isinstance(ctx.context_expr, ast.Call)
+                and isinstance(ctx.context_expr.func, ast.Name)
+                and ctx.context_expr.func.id == 'canonical_broker_capability'
+                for ctx in node.items
+            )
+            if not capability:
+                continue
+            for child in ast.walk(node):
+                if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
+                    continue
+                if child.func.attr not in ENTRY_METHODS:
+                    continue
+                assert len(child.args) >= 2, f'{rel}: broker exit requires literal SELL side'
+                side = child.args[1]
+                assert isinstance(side, ast.Constant) and side.value == 'sell', (
+                    f'{rel}: legacy broker exit could change side; migrate it to canonical'
+                )
+                guarded_calls.append(child)
+        assert len(guarded_calls) == count, (
+            f'{rel}: expected {count} guarded reduction calls; found {len(guarded_calls)}'
+        )
+        assert len(_direct_entry_calls(APP / rel)) == count, (
+            f'{rel}: unguarded broker call introduced outside reduction capability'
+        )
+        assert 'INTENT_REDUCE' in source and 'ReduceBound.closing(' in source
+
+
+@pytest.mark.asyncio
+async def test_legacy_broker_facade_refuses_real_and_unknown_transports():
+    """Neither a supplied reduce_only flag nor missing transport mode grants access."""
+    from unittest.mock import AsyncMock
+    from app.agents.broker_agent import BrokerAgent
+
+    for mode in (False, None):
+        class Adapter:
+            _is_paper = mode
+            place_order = AsyncMock(return_value={'id': 'should-not-exist'})
+            cancel_order = AsyncMock(return_value={})
+
+        agent = BrokerAgent(Adapter())
+        with pytest.raises(RuntimeError, match='cannot perform live or mode-unknown'):
+            await agent.place_order(symbol='NIFTY', side='buy', reduce_only=True)
+        agent.adapter.place_order.assert_not_awaited()
+        with pytest.raises(RuntimeError, match='cannot cancel live or mode-unknown'):
+            await agent.cancel_order('synthetic-order', 1)
+        agent.adapter.cancel_order.assert_not_awaited()
