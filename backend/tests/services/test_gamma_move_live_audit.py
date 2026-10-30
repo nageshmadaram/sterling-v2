@@ -201,6 +201,18 @@ async def test_concurrent_exit_triggers_send_one_sell(monkeypatch):
     monkeypatch.setattr(runner, "_cancel_protection", release)
     monkeypatch.setattr(runner, "_settle_known_exit", settle)
     monkeypatch.setattr(runner.positions_store, "put", lambda _u, p: p)
+    from app.services import canonical_strategy_reduction as reductions
+    from app.services.execution_service import ExecutionResult
+
+    async def offline_canonical_exit(**kwargs):
+        c = kwargs["client"]
+        await asyncio.sleep(0)
+        c.sells.append({"symbol": kwargs["symbol"], "side": "SELL",
+                        "qty": kwargs["quantity"], "canonical": True})
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id="EXIT-1",
+                               intent_key="offline-canonical-1")
+
+    monkeypatch.setattr(reductions, "submit_reduction", offline_canonical_exit)
 
     results = await asyncio.gather(
         runner._execute_exit("u1", pos, market_ltp=89.0, reason="SL", grade_price=90.0),
