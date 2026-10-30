@@ -1467,17 +1467,40 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         order_id = str((result or {}).get("order_id")
                        or ((result or {}).get("data") or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
-        _restore_open_after_failed_exit(position, "REJECTED")
+        from app.services.kite_engine.protective_stop import is_definitive_refusal
+
+        if is_definitive_refusal(exc):
+            # The broker did not create the SELL; only now is re-arming safe.
+            _restore_open_after_failed_exit(position, "REJECTED")
+            put(uid, position)
+            await _place_protection(uid, client, position, cfg)
+            log.warning("adaptive_edge: exit definitively refused for %s: %s", position.symbol, exc)
+            return False
+
+        # A read timeout, 5xx or unclassified error can mean the SELL exists.
+        # Keep EXIT_INTENT/exiting durably latched. Re-arming a GTT or allowing
+        # another exit would create a naked-short risk when the SELL later fills.
         put(uid, position)
-        await _place_protection(uid, client, position, cfg)
-        log.error("adaptive_edge: exit rejected for %s: %s", position.symbol, exc)
+        if getattr(client, "_is_paper", None) is False:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True, f"Adaptive Edge exit submission uncertain for {position.symbol}; "
+                "investigate broker orders before recovery",
+            )
+        log.error("adaptive_edge: exit outcome UNKNOWN for %s (no resend): %s", position.symbol, exc)
         return False
 
     if not order_id:
-        _restore_open_after_failed_exit(position, "REJECTED")
+        # An HTTP success without an order ID is also UNKNOWN, not a rejected
+        # order. Never clear the durable latch or recreate a protective SELL.
         put(uid, position)
-        await _place_protection(uid, client, position, cfg)
-        log.error("adaptive_edge: exit for %s returned no order id", position.symbol)
+        if getattr(client, "_is_paper", None) is False:
+            from app.services import live_safety
+            live_safety.set_kill_switch(
+                True, f"Adaptive Edge exit returned no order id for {position.symbol}; "
+                "broker reconciliation required",
+            )
+        log.error("adaptive_edge: exit for %s returned no order id (UNKNOWN)", position.symbol)
         return False
 
     position.exit_order_id = order_id
