@@ -126,3 +126,23 @@ it('cycles Echo and Space only through permitted destinations while retaining th
   await screen.findByText('radio runtime mounted');
   expect(window.location.pathname).toBe('/radio');
 });
+
+
+it('renders explicit viewer read-only notice while allowing authorized Kite reads', async () => {
+  window.history.replaceState({}, '', '/kite');
+  show({ ...base, role: 'viewer', features: { kite: true, tv: false, radio: false } });
+  await screen.findByText('Kite runtime mounted');
+  expect(screen.getByRole('status')).toHaveTextContent('Read-only Kite workspace');
+  expect(screen.queryByText('Central administration mounted')).toBeNull();
+});
+
+it('never mounts a feature for a viewer after its grant is revoked', async () => {
+  window.history.replaceState({}, '', '/kite');
+  const policy = { ...base, role: 'viewer', features: { kite: true, tv: false, radio: false } };
+  const client = show(policy);
+  await screen.findByText('Kite runtime mounted');
+  act(() => client.setQueryData(['sterling-session-policy'], { ...policy, features: base.features }));
+  await screen.findByRole('heading', { name: 'Kite is not enabled for your account' });
+  expect(screen.queryByText('Kite runtime mounted')).toBeNull();
+  expect(screen.queryByText(/Read-only Kite workspace/)).toBeNull();
+});
