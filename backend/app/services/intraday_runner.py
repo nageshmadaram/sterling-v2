@@ -840,6 +840,7 @@ async def _contract_meta(client, symbol: str) -> Optional[dict]:
 
 def _clear_pending_reduction(pos: IntradayPosition) -> None:
     pos.exit_order_id = ""
+    pos.exit_intent_key = ""
     pos.exit_requested_qty = 0
     pos.exit_requested_price = 0.0
     pos.exit_pending_kind = ""
@@ -857,11 +858,13 @@ async def _settle_pending_reduction(
     if not pos.exit_order_id or pos.exit_requested_qty <= 0:
         return False, "no_pending_reduction"
 
-    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
 
     requested = int(pos.exit_requested_qty)
-    resolution = await resolve_acknowledged_order(
-        client=client,
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=pos.exit_intent_key, client=client,
         order_id=pos.exit_order_id,
         expected_quantity=requested,
         reference_price=float(pos.exit_requested_price or pos.effective_entry),
@@ -894,10 +897,11 @@ async def _settle_pending_reduction(
         _clear_pending_reduction(pos)
         store.put(uid, pos)
         await _place_protection(uid, client, pos, cfg)
+        mark_reduction_projected(resolution)
         note(
             uid,
             "warning",
-            f"{pos.contract.tradingsymbol}: reduction {status.lower()} with no fill; "
+            f"{pos.contract.tradingsymbol}: reduction {status.lower() with no fill; "
             "position remains open and protection was restored",
         )
         return False, status
@@ -949,6 +953,7 @@ async def _settle_pending_reduction(
             await _place_protection(uid, client, pos, cfg)
         rec = store.load_record(uid).roll(_today())
         store.save_record(uid, rec.add_realised(realised))
+        mark_reduction_projected(resolution)
         note(
             uid,
             "scale",
@@ -977,6 +982,7 @@ async def _settle_pending_reduction(
                 outcome_pnl=banked + pnl,
             ),
         )
+        mark_reduction_projected(resolution)
         note(
             uid,
             "exit",
@@ -992,6 +998,7 @@ async def _settle_pending_reduction(
     await _place_protection(uid, client, pos, cfg)
     rec = store.load_record(uid).roll(_today())
     store.save_record(uid, rec.add_realised(realised))
+    mark_reduction_projected(resolution)
     note(
         uid,
         "warning",
@@ -1078,6 +1085,7 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
         product="MIS", order_type="limit_order", limit_price=float(price),
         kind="exit", reason=str(reason), close=True,
     )
+    pos.exit_intent_key = str(outcome.intent_key or "")
     if not outcome.success:
         if outcome.status in ("REJECTED", "HALTED"):
             _clear_pending_reduction(pos)
@@ -1166,6 +1174,7 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         product="MIS", order_type="limit_order", limit_price=float(price),
         kind="scale", reason="target1", close=False,
     )
+    pos.exit_intent_key = str(outcome.intent_key or "")
     if not outcome.success:
         if outcome.status in ("REJECTED", "HALTED"):
             _clear_pending_reduction(pos)
