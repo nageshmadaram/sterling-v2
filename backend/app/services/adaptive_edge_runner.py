@@ -1455,58 +1455,34 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
     position.exit_requested_price = float(limit)
     position.exit_pending_reason = str(reason)
     put(uid, position)
-    try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound,
-            canonical_broker_capability,
-        )
-        with canonical_broker_capability(
-            f"adaptive-edge-exit:{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{position.symbol}:{position.signal_id}",
-            intent=INTENT_REDUCE,
-            bound=ReduceBound.closing(exchange=position.exchange, symbol=position.symbol, side="SELL", quantity=position.quantity),
-        ):
-            result = await client.place_order(
-                f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
-                order_type="limit_order", limit_price=float(limit),
-                product="MIS", tag="adaptive_edge-exit")
-        order_id = str((result or {}).get("order_id")
-                       or ((result or {}).get("data") or {}).get("order_id") or "")
-    except Exception as exc:                                       # noqa: BLE001
-        from app.services.kite_engine.protective_stop import is_definitive_refusal
-
-        if is_definitive_refusal(exc):
-            # The broker did not create the SELL; only now is re-arming safe.
+    from app.services.canonical_strategy_reduction import submit_reduction
+    outcome = await submit_reduction(
+        client=client, uid=uid, strategy_id=STRATEGY_ID,
+        generation_id="adaptive-exit-v1",
+        signal_id=str(position.signal_id or position.order_id),
+        exchange=position.exchange, symbol=position.symbol,
+        quantity=int(position.quantity), product="MIS",
+        order_type="limit_order", limit_price=float(limit),
+        kind="exit", reason=str(reason),
+    )
+    if not outcome.success:
+        if outcome.status in ("REJECTED", "HALTED"):
+            # Canonical authority proved no submission; safe to restore stop.
             _restore_open_after_failed_exit(position, "REJECTED")
             put(uid, position)
             await _place_protection(uid, client, position, cfg)
-            log.warning("adaptive_edge: exit definitively refused for %s: %s", position.symbol, exc)
+            log.warning("adaptive_edge: canonical exit refused for %s: %s", position.symbol, outcome.error)
             return False
-
-        # A read timeout, 5xx or unclassified error can mean the SELL exists.
-        # Keep EXIT_INTENT/exiting durably latched. Re-arming a GTT or allowing
-        # another exit would create a naked-short risk when the SELL later fills.
+        # UNKNOWN/SUBMITTING, including lost ACK: no second SELL or stop rearm.
         put(uid, position)
         if getattr(client, "_is_paper", None) is False:
             from app.services import live_safety
-            live_safety.set_kill_switch(
-                True, f"Adaptive Edge exit submission uncertain for {position.symbol}; "
-                "investigate broker orders before recovery",
-            )
-        log.error("adaptive_edge: exit outcome UNKNOWN for %s (no resend): %s", position.symbol, exc)
+            live_safety.set_kill_switch(True, f"Adaptive Edge canonical SELL unresolved for {position.symbol}; reconcile broker")
+        log.error("adaptive_edge: canonical exit unconfirmed for %s: %s", position.symbol, outcome.error)
         return False
-
+    order_id = str(outcome.order_id or "")
     if not order_id:
-        # An HTTP success without an order ID is also UNKNOWN, not a rejected
-        # order. Never clear the durable latch or recreate a protective SELL.
         put(uid, position)
-        if getattr(client, "_is_paper", None) is False:
-            from app.services import live_safety
-            live_safety.set_kill_switch(
-                True, f"Adaptive Edge exit returned no order id for {position.symbol}; "
-                "broker reconciliation required",
-            )
-        log.error("adaptive_edge: exit for %s returned no order id (UNKNOWN)", position.symbol)
         return False
 
     position.exit_order_id = order_id
