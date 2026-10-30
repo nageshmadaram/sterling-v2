@@ -383,3 +383,39 @@ def test_admin_broker_login_is_masked_owner_bound_and_audited(workspace,monkeypa
         assert raw.startswith('fernet:') and 'Synthetic-broker-password' not in raw
         audit=c.execute("SELECT after_json FROM auth_audit_events WHERE action='broker.login_credentials_updated'").fetchone()[0]
         assert 'Synthetic-broker-password' not in audit
+
+
+def test_broker_activate_and_connect_require_delegated_configuration_not_just_kite(workspace, monkeypatch):
+    """An operator's Kite read grant is not permission to switch or probe an account."""
+    from app.api.v1.endpoints import kite
+    from app.services.auth import configuration_policy
+    _, member = workspace
+    account_policy.set_features(
+        'default', 'member', {'kite': True, 'tv': False, 'radio': False}, 0,
+    )
+    app = FastAPI()
+    app.include_router(kite.router, prefix='/api/v1/kite')
+    app.dependency_overrides[get_current_user] = lambda: member
+    client = TestClient(app)
+
+    def never_reach_broker(*_args, **_kwargs):
+        pytest.fail('Unprivileged request reached broker account store')
+
+    monkeypatch.setattr(kite.kite_accounts, 'get', never_reach_broker)
+    for endpoint in ('/api/v1/kite/accounts/synthetic/activate',
+                     '/api/v1/kite/accounts/synthetic/test'):
+        response = client.post(endpoint)
+        assert response.status_code == 403, response.text
+
+    # The same grants permit a checked-through capability, which then reaches
+    # resource lookup. A missing account remains 404 and never creates one.
+    monkeypatch.setattr(kite.kite_accounts, 'get', lambda *_args, **_kwargs: None)
+    configuration_policy.replace_section(
+        'default', 'member', 'brokers', visible=True,
+        grants=[{'action': 'update', 'resource_id': 'own', 'expires_at_ms': None}],
+        expected_revision=1,
+    )
+    for endpoint in ('/api/v1/kite/accounts/synthetic/activate',
+                     '/api/v1/kite/accounts/synthetic/test'):
+        response = client.post(endpoint)
+        assert response.status_code == 404, response.text
