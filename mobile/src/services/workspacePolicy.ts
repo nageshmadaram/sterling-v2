@@ -36,3 +36,27 @@ export async function assertGlobalRiskControlAllowed(): Promise<void> {
     throw new Error('Only the designated administrator can change global trading safeguards.');
   }
 }
+
+/** Operator can engage a halt; lifting a global halt is admin-only. */
+export async function assertKillSwitchChangeAllowed(nextEnabled: boolean): Promise<void> {
+  if (nextEnabled) return assertKiteWriteAllowed();
+  return assertGlobalRiskControlAllowed();
+}
+
+/** Mirror the backend's direction-aware loss policy; server is authoritative. */
+export function loosensDailyLoss(
+  current: { enabled: boolean; hard_halt_inr: number },
+  next: { enabled: boolean; hard_halt_inr: number },
+): boolean {
+  if (!next.enabled) return !!current.enabled;
+  if (!current.enabled) return false;
+  return next.hard_halt_inr < current.hard_halt_inr;
+}
+
+export async function assertDailyLossChangeAllowed(
+  current: { enabled: boolean; hard_halt_inr: number },
+  next: { enabled: boolean; hard_halt_inr: number },
+): Promise<void> {
+  if (loosensDailyLoss(current, next)) return assertGlobalRiskControlAllowed();
+  return assertKiteWriteAllowed();
+}
