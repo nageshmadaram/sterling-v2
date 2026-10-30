@@ -167,3 +167,29 @@ def test_cli_defaults_dry_run_and_never_creates_copy(tmp_path):
     assert out["mode"] == "READ_ONLY_INVENTORY"
     assert out["dry_run"] and not target.exists()
     assert "synthetic-secret" not in result.stdout
+
+
+def test_existing_version_ledger_rejects_schema_drift(tmp_path):
+    source = synthetic_db(tmp_path)
+    copy = tmp_path / "isolated" / "first.db"
+    next_copy = tmp_path / "isolated-next" / "second.db"
+    copy.parent.mkdir()
+    next_copy.parent.mkdir()
+    migration.migrate_copy(source, copy)
+    with sqlite3.connect(copy) as c:
+        c.execute("CREATE TABLE unexpected_new_table(value INTEGER)")
+    with pytest.raises(ValueError, match="fingerprint"):
+        migration.migrate_copy(copy, next_copy)
+    assert not next_copy.exists()
+
+
+def test_copy_has_no_wal_sidecar_and_can_be_reopened_independently(tmp_path):
+    source = synthetic_db(tmp_path)
+    dest = tmp_path / "isolated" / "portable.db"
+    dest.parent.mkdir()
+    migration.migrate_copy(source, dest)
+    assert not (dest.parent / "portable.db-wal").exists()
+    assert not (dest.parent / "portable.db-shm").exists()
+    with sqlite3.connect(dest) as c:
+        assert c.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert c.execute("SELECT COUNT(*) FROM positions").fetchone()[0] == 2
