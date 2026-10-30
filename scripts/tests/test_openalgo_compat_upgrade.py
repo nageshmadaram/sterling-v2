@@ -33,16 +33,16 @@ def synthetic_db(
                 )
             if "id" not in migration.REQUIRED_COLUMNS[table]:
                 definitions.append('"id" INTEGER PRIMARY KEY')
-            definitions.append('"value" TEXT NOT NULL')
+            definitions.append('"synthetic_payload" TEXT NOT NULL')
             conn.execute(f'CREATE TABLE "{table}" (' + ", ".join(definitions) + ")")
             # Synthetic sensitive content must not appear in the inventory JSON.
             conn.execute(
-                f'INSERT INTO "{table}" (id,value) VALUES (1, ?)',
+                f'INSERT INTO "{table}" (id,synthetic_payload) VALUES (1, ?)',
                 ("synthetic-secret-should-not-appear",),
             )
         conn.execute("PRAGMA user_version=7")
         conn.execute(
-            'INSERT INTO "positions"(id,value) VALUES(2,?)',
+            'INSERT INTO "positions"(id,synthetic_payload) VALUES(2,?)',
             ("WAL-committed-last-row",),
         ) if missing != "positions" else None
     return path
@@ -82,7 +82,7 @@ def test_atomic_copy_preserves_every_original_table_and_wal_row(tmp_path):
         ).fetchone()
         assert row[0] == migration.VERSION and row[1] == "copy_only"
         assert row[2] == migration.inventory(source)["schema_sha256"]
-        assert conn.execute("SELECT value FROM positions WHERE id=2").fetchone()[0] == "WAL-committed-last-row"
+        assert conn.execute("SELECT synthetic_payload FROM positions WHERE id=2").fetchone()[0] == "WAL-committed-last-row"
     assert not list(target.parent.glob(".sterling-compat-*"))
 
 
