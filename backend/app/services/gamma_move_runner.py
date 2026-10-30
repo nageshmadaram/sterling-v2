@@ -1846,6 +1846,13 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
     held_before = int(pos.quantity)
+    # Refuse before cancelling the resting GTT if canonical recovery identity
+    # cannot be formed. Otherwise a legacy blank-account/signal row could lose
+    # protection while the deterministic journal-key constructor raises.
+    if not str(getattr(client, "_account_id", "") or "").strip():
+        return False, "broker_account_identity_unverified"
+    if not str(pos.signal_id or "").strip():
+        return False, "exit_signal_identity_unverified"
     # ``forced`` (an operator flatten) is passed only when set: it does not wait out the
     # grace window for a fired stop's resting child.
     released = (await _cancel_protection(uid, client, pos, forced=True) if forced
