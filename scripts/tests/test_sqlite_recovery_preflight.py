@@ -128,14 +128,14 @@ def test_read_only_backup_verifies_blob_and_without_rowid_content(tmp_path):
         conn.execute("CREATE TABLE binary_state (id TEXT PRIMARY KEY, raw BLOB) WITHOUT ROWID")
         conn.execute(
             "INSERT INTO binary_state(id,raw) VALUES (?,?)",
-            ("proof", sqlite3.Binary(b"\\x00\\xfe\\xffbinary")),
+            ("proof", sqlite3.Binary(b"\x00\xfe\xffbinary")),
         )
     target = tmp_path / "verified" / "blob.db"
     report = verify_snapshot(source, target)
     assert report["content_verified"] is True
     assert report["tables_checked"] == 2
     with sqlite3.connect(target) as conn:
-        assert conn.execute("SELECT raw FROM binary_state WHERE id='proof'").fetchone()[0] == b"\\x00\\xfe\\xffbinary"
+        assert conn.execute("SELECT raw FROM binary_state WHERE id='proof'").fetchone()[0] == b"\x00\xfe\xffbinary"
 
 
 def test_symlink_source_is_refused_without_a_published_copy(tmp_path):
