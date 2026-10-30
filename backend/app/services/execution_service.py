@@ -1030,6 +1030,20 @@ class CanonicalExecutionService:
                 if not allowed:
                     raise PermissionError(f"Safety engaged before send: {reason}")
 
+            # Broker inventory may change after the first pre-reservation
+            # proof (a manual trade or an independent worker can close it).
+            # Recheck the exact SELL/BUY bucket at the last asynchronous
+            # boundary before invoking the transport; never transform a
+            # stale reduction into an exposure-increasing order.
+            if not is_exposure_increasing:
+                still_reducing, reduce_reason = await self.verify_broker_reduction(
+                    broker_client, request,
+                )
+                if not still_reducing:
+                    raise BrokerRejected(
+                        "Fresh reduction proof changed before broker send: " + reduce_reason
+                    )
+
             with canonical_broker_capability(
                 request.signal_id or request.strategy_id or "canonical",
                 intent=broker_intent,
