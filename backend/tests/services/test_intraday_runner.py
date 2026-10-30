@@ -152,7 +152,7 @@ def live(tmp_path, monkeypatch):
         if not order_id:
             return ExecutionResult(False, "UNKNOWN", error="synthetic broker ACK missing order ID")
         return ExecutionResult(True, "ACKNOWLEDGED", order_id=order_id,
-                               intent_key="synthetic-intraday-canonical-exit")
+                               intent_key="")  # orchestration double; real journal tested separately
 
     monkeypatch.setattr(reductions, "submit_reduction", simulated_canonical_exit)
     monkeypatch.setattr(reductions, "reduction_inventory_refusal",
