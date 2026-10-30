@@ -78,3 +78,16 @@ def test_alembic_upgrade_is_idempotent_on_isolated_sqlite_schema(tmp_path, monke
             "SELECT payload FROM mirrored_records WHERE store='synthetic' AND key='frozen'"
         ).fetchone()[0] == '{"safe":true}'
     # Do not downgrade: the existing baseline downgrade drops all three tables.
+
+
+def test_alembic_never_migrates_active_operator_sqlite_store(tmp_path, monkeypatch):
+    from app.services import db
+    operator_db = tmp_path / "renamed-private-operational.db"
+    monkeypatch.setattr(db, "_DB_PATH", str(operator_db))
+    with pytest.raises(PermissionError, match="operational"):
+        validated_alembic_url(f"sqlite:///{operator_db}")
+    with pytest.raises(PermissionError, match="operational"):
+        validated_alembic_url(f"sqlite:///{tmp_path / 'sterling_paper.db'}")
+    # A separate, explicitly disposable mirror remains usable for offline CI.
+    url = f"sqlite:///{tmp_path / 'dedicated-orm-test.db'}"
+    assert validated_alembic_url(url) == (url, False)
