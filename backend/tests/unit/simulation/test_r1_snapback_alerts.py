@@ -88,6 +88,12 @@ def test_the_same_signal_alerts_both_tenants_without_swallowing_either(tmp_path,
 
 
 def test_a_virtual_position_entry_and_exit_alerts_are_queued_for_the_sim_tenant(env, sent):
+    # The simulation tenant inherits its owner's *persisted* Kite grant.
+    # The shared harness grants only its randomized live fixture user. Grant
+    # the actual simulation owner in the disposable test DB; never patch the
+    # production feature gate to permit missing access.
+    from tests.feature_grants import grant_kite
+    grant_kite(OWNER)
     env.uid = SIM_UID
     env.broker._account_id = "SIM-TEST"
     env.rows = [swing_row(signal_id=_signal_id())]
