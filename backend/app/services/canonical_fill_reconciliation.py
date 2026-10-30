@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.services.kite_engine import order_journal
@@ -425,6 +425,8 @@ class BrokerOrderResolution:
     terminal: bool
     settled: bool
     reason: str = ""
+    intent_key: str = ""
+    projection_version: int = 0
 
     @property
     def has_fill(self) -> bool:
@@ -561,6 +563,67 @@ async def resolve_acknowledged_order(
         settled=False,
         reason="broker_order_unresolved_after_bounded_reconciliation",
     )
+
+async def resolve_canonical_reduction(
+    *, uid: str, intent_key: str = "", client: Any,
+    order_id: str, expected_quantity: int, reference_price: float,
+    timeout_s: float = 5.0, cancel_unfilled: bool = True,
+) -> BrokerOrderResolution:
+    """Settle an acknowledged reduction, durably observe its cumulative fill.
+
+    A strategy must call mark_reduction_projected only AFTER committing the
+    corresponding strategy position update; otherwise a process crash could
+    erase the only durable evidence that still requires projection.
+    Historical legacy exits have no canonical intent; they retain their old
+    broker-book settlement behavior, but cannot be called certified journaled.
+    """
+    result = await resolve_acknowledged_order(
+        client=client, order_id=order_id, expected_quantity=expected_quantity,
+        reference_price=reference_price, timeout_s=timeout_s,
+        cancel_unfilled=cancel_unfilled,
+    )
+    if not result.settled or not intent_key:
+        return result
+    try:
+        intent = order_journal.get(intent_key)
+        account_id = str(getattr(client, "_account_id", "") or "").strip()
+        if (intent is None or intent.uid != uid or intent.account_id != account_id
+                or intent.order_id != str(order_id).strip()
+                or intent.side not in {"SELL", "BUY"}
+                or int(intent.quantity) != int(expected_quantity)):
+            raise ValueError("canonical_reduction_order_identity_mismatch")
+        if result.status not in _TERMINAL | _PENDING:
+            raise ValueError("unrecognized_canonical_exit_broker_status")
+        observed = order_journal.observe_order(
+            intent_key,
+            status=result.status,
+            order_id=result.order_id,
+            filled_quantity=result.filled_quantity,
+            average_price=result.average_price,
+            raw={"source": "strategy_exit_broker_resolution"},
+        )
+        if observed.intent.reconciliation_required:
+            raise ValueError("canonical_reduction_journal_requires_reconciliation")
+        return replace(
+            result, intent_key=intent_key,
+            projection_version=int(observed.intent.projection_version or 0),
+        )
+    except Exception as exc:
+        log.error("Could not prove canonical reduction %s projection: %s", intent_key, exc)
+        return replace(
+            result, settled=False,
+            reason=f"canonical_reduction_journal_unresolved:{type(exc).__name__}:{exc}",
+        )
+
+
+def mark_reduction_projected(resolution: BrokerOrderResolution) -> bool:
+    """Clear the exact observed version after the strategy registry is durable."""
+    if not resolution.intent_key or resolution.projection_version <= 0:
+        return False
+    return order_journal.mark_projected(
+        resolution.intent_key, resolution.projection_version,
+    )
+
 
 def mark_projected(resolution: FillResolution) -> bool:
     """Acknowledge the exact journal version after strategy persistence."""
