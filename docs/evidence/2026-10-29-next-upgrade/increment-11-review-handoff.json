@@ -1,0 +1,183 @@
+{
+  "schema": "sterling.v2.final_governance_handoff.v1",
+  "kind": "READ_ONLY_UNMERGED_EVIDENCE_HANDOFF",
+  "repository": "nageshmadaram/sterling-v2",
+  "branch": "upgrade/evidence-traceability-20261029",
+  "increment10_validated_commit": "e99dd71b99916c61fdf5eaed23c76bfefe5d7c3e",
+  "increment10_validated_tree": "81e178491d8d21b14bd34a40227ff74aa5a34e48",
+  "main_reference_snapshot": "27e39e954ee67dbd5ec1d68ab9d15ff15de7dd7f",
+  "ci_reference": {
+    "run_id": 40921149866,
+    "commit": "e99dd71b99916c61fdf5eaed23c76bfefe5d7c3e",
+    "result": "SUCCESS",
+    "jobs": 11,
+    "source_tests": 164,
+    "increment10_focused": 20,
+    "backend_disposable": 66,
+    "frontend_mocked": 21,
+    "chromium_mocked": 6,
+    "physical_device_sessions": 0
+  },
+  "historical_replay": "PIN_INCREMENT10_CHECKOUT_TO_VALIDATED_COMMIT",
+  "pinned_sources": [
+    {
+      "path": "docs/evidence/2026-10-29-next-upgrade/increment-10-final-readonly-review-index.json",
+      "git_blob_sha1": "eb573faa7bce260e5f7909fbe8c9cf7ccca83f1e",
+      "kind": "FROZEN_REPOSITORY_SOURCE_NOT_PRODUCTION_RECEIPT"
+    },
+    {
+      "path": "docs/implementation/2026-10-29-final-review-index-increment-10.md",
+      "git_blob_sha1": "a4b894196883156239297ee60083b8837be5b588",
+      "kind": "FROZEN_REPOSITORY_SOURCE_NOT_PRODUCTION_RECEIPT"
+    },
+    {
+      "path": "scripts/verify_increment10_review_index.py",
+      "git_blob_sha1": "427ec7a4bc3bb8ac325ea166c3196cbd4b3d3a63",
+      "kind": "FROZEN_REPOSITORY_SOURCE_NOT_PRODUCTION_RECEIPT"
+    },
+    {
+      "path": "scripts/tests/test_next_upgrade_increment10_review_index.py",
+      "git_blob_sha1": "44152da9b6a352f16f8c1edaf13c6b4b443983e6",
+      "kind": "FROZEN_REPOSITORY_SOURCE_NOT_PRODUCTION_RECEIPT"
+    }
+  ],
+  "allowed_increment11_paths": [
+    ".github/workflows/next-upgrade-evidence.yml",
+    "docs/evidence/2026-10-29-next-upgrade/increment-11-review-handoff.json",
+    "docs/implementation/2026-10-30-final-governance-handoff-increment-11.md",
+    "scripts/verify_increment11_handoff.py",
+    "scripts/tests/test_next_upgrade_increment11_handoff.py"
+  ],
+  "provenance_level": "GIT_BLOB_IDENTITIES_SHA256_AND_SYNTHETIC_CI_ONLY",
+  "previous_control_manifest": "docs/evidence/2026-10-29-next-upgrade/increment-6-final-frozen-governance-manifest.json",
+  "previous_review_index": "docs/evidence/2026-10-29-next-upgrade/increment-10-final-readonly-review-index.json",
+  "production_controls": [
+    {
+      "id": "H01",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "T02",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "S03",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "I04",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "D05",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "R06",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "B07",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "M08",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "A09",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "L10",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "F11",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    },
+    {
+      "id": "G12",
+      "status": "BLOCKED",
+      "owner_confirmed": false,
+      "reviewer_confirmed": false,
+      "receipts_accepted": 0
+    }
+  ],
+  "counts": {
+    "accepted": 0,
+    "blocked": 12,
+    "independent_real_environment_receipts": 0,
+    "confirmed_human_appointments": 0,
+    "independent_signatures": 0
+  },
+  "human_review": {
+    "approved_owner_list": "NOT PROVIDED",
+    "reviewer_separation": "NOT CONFIRMED",
+    "security_signoff": "NOT PROVIDED",
+    "operations_signoff": "NOT PROVIDED",
+    "release_signoff": "NOT PROVIDED",
+    "h01_source_tooling": "PASS",
+    "h01_production_evidence": "BLOCKED"
+  },
+  "future_work": [
+    "Independent confirmation of named human control owners, collectors and reviewers",
+    "Separately approved isolated scope for real environment and mobile device evidence",
+    "Independently collected, redacted host, database, provider, identity, monitoring and negative-path receipts",
+    "Independent disposition of exceptions and security, operations and G12 signoff",
+    "Separate release decision by authorized humans; this packet cannot authorize any production action"
+  ],
+  "operations": {
+    "main_merge": false,
+    "production_deploy": false,
+    "broker_connection": false,
+    "broker_routing": false,
+    "live_trading": false,
+    "release_approval": false
+  },
+  "decisions": {
+    "OFFLINE VALIDATION": "PASS",
+    "PRODUCTION DEPLOYMENT": "NO-GO",
+    "LIVE TRADING": "NOT AUTHORIZED",
+    "BROKER ORDER ROUTING": "NOT AUTHORIZED",
+    "production_certification": "NOT ACHIEVED",
+    "release_freeze": "ACTIVE",
+    "independent_release_signoff": "NOT PROVIDED",
+    "main_merge": "NOT AUTHORIZED"
+  },
+  "limitation": "File integrity and synthetic CI evidence cannot prove operational safety, real-host acceptance, human sign-off or production authorization.",
+  "final_statement": "Production certification remains not achieved. Release freeze remains active."
+}
