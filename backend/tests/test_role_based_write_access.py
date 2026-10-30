@@ -87,3 +87,23 @@ def test_unknown_role_rejected_by_api_contract_and_store(identities):
         UserEdit(username='observer', role='superuser')
     with pytest.raises(ValueError, match='Invalid role'):
         user_store.add('arbitrary', 'Synthetic-password-123', role='superuser')
+
+
+def test_viewer_cannot_use_delegated_broker_configuration_write(identities):
+    from app.services.auth import configuration_policy
+    grants = [{'action': 'update', 'resource_id': 'own', 'expires_at_ms': None}]
+    configuration_policy.replace_section(
+        'default', 'viewer', 'brokers', visible=True,
+        grants=grants, expected_revision=1
+    )
+    assert configuration_policy.read('viewer')['sections']['brokers']['visible'] is True
+    with pytest.raises(PermissionError, match='Viewer/unknown'):
+        configuration_policy.require('viewer', 'brokers', action='update', resource_id='own')
+
+    configuration_policy.replace_section(
+        'default', 'operator', 'brokers', visible=True,
+        grants=grants, expected_revision=1
+    )
+    assert configuration_policy.require(
+        'operator', 'brokers', action='update', resource_id='own'
+    )['active'] is True
