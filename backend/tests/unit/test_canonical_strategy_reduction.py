@@ -284,3 +284,86 @@ async def test_canonical_exit_order_identity_mismatch_cannot_project_a_fill(isol
     assert "identity_mismatch" in result.reason
     assert not mark_reduction_projected(result)
     assert order_journal.get(ack.intent_key).state == "SUBMITTED"
+
+# Broker evidence must be authoritative, exact and finite. These tests use a
+# synthetic postback client: no network, broker session or live order is created.
+@pytest.mark.parametrize("value", [
+    "1.5", -2, "-0.5", float("nan"), float("inf"), "-Infinity",
+    True, "not-a-number", None,
+])
+def test_broker_numeric_parser_refuses_nonintegral_or_nonfinite_quantity(value):
+    from app.services.canonical_fill_reconciliation import _safe_int
+    assert _safe_int(value) == 0
+
+
+@pytest.mark.parametrize("value, expected", [
+    (10, 10), ("10", 10), ("10.0", 10), (0, 0),
+])
+def test_broker_numeric_parser_preserves_exact_nonnegative_quantity(value, expected):
+    from app.services.canonical_fill_reconciliation import _safe_int
+    assert _safe_int(value) == expected
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), "-Infinity", -1, "NaN"])
+def test_broker_numeric_parser_refuses_bad_fill_prices(value):
+    from app.services.canonical_fill_reconciliation import _safe_float
+    assert _safe_float(value) == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quantity, average, reason", [
+    (None, "80.0", "complete_filled_quantity_unverified"),
+    ("1.5", "80.0", "complete_filled_quantity_unverified"),
+    ("10", "NaN", "filled_price_unverified"),
+    ("10", "Infinity", "filled_price_unverified"),
+    ("9", "80.0", "complete_quantity_mismatch"),
+    ("11", "80.0", "complete_quantity_mismatch"),
+])
+async def test_complete_postback_invalid_evidence_never_settles_exit(
+    quantity, average, reason,
+):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticPostback:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            assert order_id == "SYNTHETIC-ORDER"
+            return [{"status": "COMPLETE", "filled_quantity": quantity,
+                     "average_price": average}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    resolved = await resolve_acknowledged_order(
+        client=SyntheticPostback(), order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80.0, timeout_s=0,
+        cancel_unfilled=False,
+    )
+    assert not resolved.settled
+    assert resolved.reason == reason
+
+
+@pytest.mark.asyncio
+async def test_valid_complete_postback_with_exact_fill_quantity_can_settle_exit():
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticPostback:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            return [{"status": "COMPLETE", "filled_quantity": "10",
+                     "average_price": "80.0"}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    result = await resolve_acknowledged_order(
+        client=SyntheticPostback(), order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80.0, timeout_s=0,
+        cancel_unfilled=False,
+    )
+    assert result.settled and result.terminal
+    assert result.filled_quantity == 10 and result.average_price == 80.0
