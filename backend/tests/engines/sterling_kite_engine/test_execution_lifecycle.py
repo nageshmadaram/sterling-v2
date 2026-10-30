@@ -373,3 +373,30 @@ def test_paper_protection_failure_does_not_engage_real_money_global_halt(monkeyp
     life._halt_new_entries_after_protection_failure(paper, held, "simulated refusal")
 
     halt.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_supertrend_exit_keeps_resting_stop_when_canonical_inventory_is_missing(monkeypatch):
+    """A migrated exit may never cancel protection then discover no journal inventory."""
+    from app.services import db
+
+    position = positions.OpenPosition(
+        uid="synthetic-u", symbol="SYNTHETICOPT", exchange="NFO",
+        qty=50, status=positions.OPEN, direction="long",
+        account_id="synthetic-acct", gtt_id=41, product="NRML",
+    )
+    client = Client()
+    client._is_paper = True
+    client._account_id = "synthetic-acct"
+    client.cancel_gtt = AsyncMock()
+    client.place_order_option = AsyncMock()
+    monkeypatch.setattr(db, "get_inventory_strict", lambda *_a, **_k: None)
+    monitor._exiting.discard(("synthetic-u", "SYNTHETICOPT"))
+
+    attempted = await monitor._exit_position(
+        client, "synthetic-u", position, 80.0, reason="synthetic-stop",
+    )
+    assert attempted is False
+    assert position.gtt_id == 41
+    assert not position.exit_order_id
+    client.cancel_gtt.assert_not_awaited()
+    client.place_order_option.assert_not_awaited()
