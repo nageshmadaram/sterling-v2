@@ -1315,6 +1315,22 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
             state.log(uid, "order_failed", f"{p.symbol}: fresh matching broker exposure unavailable; protection retained")
             return False
 
+    # Before touching a broker GTT, prove canonical inventory admission.
+    # An older position absent from the canonical ledger must retain its
+    # resting protection and be explicitly reconciled, not lose the stop
+    # only to have the canonical sender refuse the exit.
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    reduction_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=p.exchange, symbol=p.symbol,
+        quantity=int(p.qty), side=exit_side.upper(),
+    )
+    if reduction_refusal:
+        _exiting.discard(key)
+        state.log(uid, "order_failed",
+                  f"{p.symbol}: canonical exit blocked before GTT disarm: "
+                  f"{reduction_refusal}; broker inventory reconciliation required")
+        return False
+
     # An unknown protection outcome with no trigger id: find and remove whatever may
     # be resting before selling (a known id is cancelled by the block below).
     if is_live and p.protection_pending and not int(p.gtt_id or 0):
@@ -1541,8 +1557,23 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         _exiting.discard(key)
         state.log(uid, "order_failed", f"{p.symbol}: account execution identity changed during exit preparation")
         return False
-    from uuid import uuid4
-    p.exit_tag = "kx" + uuid4().hex[:18]  # Kite permits at most 20 alphanumeric chars
+    from app.services.kite_engine import order_journal
+    from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEGY_ID
+    from app.services.canonical_strategy_reduction import submit_reduction
+    # An exit must be identifiable by the SAME immutable key the canonical
+    # journal reserves. A random legacy kx tag would make a lost REST ACK
+    # impossible to attribute to the durable canonical order.
+    exit_signal = (
+        f"position:{int(p.opened_ms)}:"
+        f"{str(p.order_id or p.guard_key or p.symbol)}"
+    )
+    canonical_intent_key = order_journal.make_key(
+        uid=uid, account_id=str(getattr(client, "_account_id", "") or ""),
+        strategy_id=KITE_STRATEGY_ID, generation_id="supertrend-exit-v1",
+        signal_id=f"{exit_signal}:reduce:monitor",
+        exchange=p.exchange, symbol=p.symbol, side=exit_side.upper(),
+    )
+    p.exit_tag = "ke" + canonical_intent_key[:18]
     p.exit_requested_ms = int(time.time() * 1000)
     p.exit_requested_qty = int(p.qty)
     p.exit_order_id = "submitting"
@@ -1565,28 +1596,23 @@ async def _exit_position(client, uid: str, p: pos.OpenPosition, ltp: float,
         state.log(uid, "order_failed", f"{p.symbol}: exit intent persistence failed; no order sent")
         return False
     try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE,
-            ReduceBound,
-            canonical_broker_capability,
+        outcome = await submit_reduction(
+            client=client, uid=uid, strategy_id=KITE_STRATEGY_ID,
+            generation_id="supertrend-exit-v1", signal_id=exit_signal,
+            exchange=p.exchange, symbol=p.symbol, quantity=submitted_qty,
+            product=product, order_type="market_order", kind="monitor",
+            side=exit_side.upper(), reason=str(p.exit_reason or reason or ""),
         )
-        place = client.place_order_future if is_futures else client.place_order_option
-        with canonical_broker_capability(
-            f"exit-send:{p.account_id or 'paper'}:{p.symbol}:{submitted_tag}",
-            intent=INTENT_REDUCE,
-            # The transport refuses anything but the closing side of this contract,
-            # for no more than the quantity this exit claimed.
-            bound=ReduceBound.closing(
-                exchange=p.exchange, symbol=p.symbol, side=exit_side, quantity=submitted_qty),
-        ):
-            result = await place(
-                p.symbol,
-                exit_side,
-                submitted_qty,
-                exchange=p.exchange,
-                product=product,
-                tag=submitted_tag,
+        if not outcome.success:
+            # Explicit definitive pre-send refusals may safely trigger the
+            # existing stop re-arming branch. Ambiguous submissions must keep
+            # the durable exit claim and broker-book reconciliation identity.
+            if outcome.status in ("REJECTED", "HALTED"):
+                raise PermissionError(outcome.error or "Canonical exit refused")
+            raise RuntimeError(
+                "Canonical exit unresolved: " + (outcome.error or outcome.status)
             )
+        result = {"order_id": outcome.order_id}
     except Exception as exc:  # noqa: BLE001
         current = pos.get(uid, p.symbol)
         if current is not None and current.status in (pos.OPEN, pos.PENDING):
