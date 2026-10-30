@@ -258,6 +258,17 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
     exclusively to prove rollback/cleanup in offline unit tests.
     """
     src = _source(Path(source))
+    # Reading a live database into a new file can export broker/session
+    # credentials and a non-quiescent risk state. Require a separately created
+    # and reviewed offline source snapshot; do not silently use the active
+    # operator database just because the destination is disposable.
+    configured = (os.environ.get("STERLING_DB_PATH") or "").strip()
+    if (src.name.lower() == "sterling_paper.db"
+            or (configured and src == Path(configured).resolve())):
+        raise PermissionError(
+            "Copy-only migration requires an offline source snapshot, "
+            "not the active Sterling operational database"
+        )
     dest = Path(destination).absolute()
     if dest.exists() or dest.is_symlink() or dest.resolve() == src:
         raise ValueError("Destination must be a new isolated file; no overwrite")
