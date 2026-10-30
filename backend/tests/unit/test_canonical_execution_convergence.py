@@ -51,7 +51,6 @@ SKIPPED_PREFIXES = ("tests/", "study/")
 #: extra one in a file that already has some, fails the test. When an engine is
 #: converted, delete its line — leaving a stale entry quietly re-permits a call.
 KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
-    ("agents/broker_agent.py", "place_order"): 1,
     ("services/adaptive_edge_runner.py", "place_order"): 1,
     ("services/execution/order_router.py", "place_order"): 1,
     ("services/execution/order_router.py", "place_order_option"): 1,
@@ -67,7 +66,6 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     # Noncanonical/unpromoted entry paths are converted to the permanent
     # paper-only floor one at a time. Remaining entries still on
     # entry_transport_allowed require canonical migration before live promotion.
-    "agents/broker_agent.py": ("place_order", "noncanonical_broker_write_allowed"),
     "services/execution/order_router.py": (
         "_submit_live",
         "noncanonical_broker_write_allowed",
@@ -504,7 +502,7 @@ async def test_legacy_broker_facade_refuses_real_and_unknown_transports():
             cancel_order = AsyncMock(return_value={})
 
         agent = BrokerAgent(Adapter())
-        with pytest.raises(RuntimeError, match='cannot perform live or mode-unknown'):
+        with pytest.raises(RuntimeError, match='CanonicalExecutionService'):
             await agent.place_order(symbol='NIFTY', side='buy', reduce_only=True)
         agent.adapter.place_order.assert_not_awaited()
         with pytest.raises(RuntimeError, match='cannot cancel live or mode-unknown'):
