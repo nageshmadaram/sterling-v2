@@ -381,3 +381,46 @@ lost. No live execution or broker-routing permission granted.
 
 **Release and external acceptance:** 0/12 controls accepted, 12/12
 blocked; independent sign-off NOT PROVIDED; production NO-GO.
+
+
+### P0 continuation: legacy direct SELL UNKNOWN safety (review-only)
+
+Two of the five grandfathered engine call sites have *not* been
+canonicalized, but their dangerous timeout handling has been corrected:
+
+- **Adaptive Edge (one direct SELL):** before the call, persist the
+  exact requested size, price and reason alongside the `EXIT_INTENT`
+  claim. Re-arm the cancelled GTT only after a *definitive* local/broker
+  refusal. A timeout, unknown exception or successful response lacking an
+  order ID leaves `exiting=True` persisted, prevents a second SELL,
+  and engages the global halt for live broker clients.
+- **Intraday (two direct SELLs):** full exits and partial scale-outs
+  follow the same rule. Both persist requested quantity, limit price,
+  type and reason before submission. Ambiguous replies preserve the
+  pending-exit claim and never recreate a protective SELL; only a
+  provably definitive refusal clears the claim and can re-arm the stop.
+  Live ambiguous replies engage the halt. Test fixtures reset their
+  isolated halt state between cases.
+
+Focused test commands:
+
+```sh
+cd backend
+pytest -q tests/services/test_adaptive_edge_execution.py \
+  tests/services/test_intraday_runner.py \
+  tests/unit/test_execution_unknown_settlement.py
+```
+
+**Critical remaining gap:** The affected legacy exits still do not
+have full canonical order-intent journaling or deterministic automatic
+order-book lookup after a lost ACK. An UNKNOWN exit may require
+operator-led broker reconciliation before any re-arm or resumed
+trading. Treat that as a **blocked recovery state**, not a completed
+exit. The remaining Gamma-Unwind, Opening-Volume emergency close and
+the other legacy SELL sites still require careful canonical
+conversion. Five direct SELL calls remain in the AST baseline.
+These changes do **not** establish live-trading readiness.
+
+**Validation:** Latest-commit GitHub Actions, full end-to-end,
+browser/mobile and PostgreSQL recovery still require completed
+positive evidence; no assumption of PASS is made.
