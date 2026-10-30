@@ -60,3 +60,12 @@ jobs:
         run: |
           npx tsc --noEmit
           npx vitest run src/pages/__tests__/WorkspaceRouter.test.tsx --coverage=false
+      - name: Install mobile Expo dependency lock
+        working-directory: mobile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate mobile policy, TypeScript and Expo compatibility
+        working-directory: mobile
+        run: |
+          npm run ts:check
+          npm test
+          npx expo install --check
