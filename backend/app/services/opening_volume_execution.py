@@ -186,8 +186,19 @@ async def _sell_and_verify(
     oid = str(outcome.order_id or "")
     if not oid:
         return False, "emergency close unacknowledged; broker reconciliation required"
-    filled, _, status = await _resolve_fill(client, oid, 5.0)
-    return (filled >= quantity, f"closed {filled}/{quantity} ({status}); intent={outcome.intent_key}")
+    from app.services.canonical_fill_reconciliation import resolve_canonical_reduction
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=str(outcome.intent_key or ""),
+        client=client, order_id=oid, expected_quantity=int(quantity),
+        reference_price=0.0, timeout_s=5.0,
+    )
+    # The emergency exit was not yet projected into a durable strategy-close
+    # record; its canonical journal projection_pending flag MUST remain set.
+    # A broker ACK or an unverified status cannot be described as "closed".
+    closed = bool(resolution.settled and resolution.filled_quantity >= quantity
+                  and resolution.average_price > 0)
+    return (closed, f"closed {resolution.filled_quantity}/{quantity} ({resolution.status}); intent={outcome.intent_key}"
+            if closed else f"emergency exit unresolved: {resolution.reason or resolution.status}; intent={outcome.intent_key}")
 
 
 def _quote_age(value: Any):
