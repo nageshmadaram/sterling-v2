@@ -11,8 +11,8 @@ The rule has three parts:
   * production code may not call a broker order-placing method directly;
   * the exception is the canonical execution service itself, which is where the
     single permitted send lives;
-  * exits, cancels and protective orders are NOT covered — refusing to close a
-    position is how a safety mechanism becomes the thing that loses the money.
+  * ordinary BUY and SELL order sends are covered. Broker-side GTT protection,
+    cancellation and amendments have separate narrowly-scoped safety tests.
 """
 from __future__ import annotations
 
@@ -40,16 +40,10 @@ ALLOWED_FILES = {
 #: Paths that are not production order flow.
 SKIPPED_PREFIXES = ("tests/", "study/")
 
-#: The direct calls that existed when this rule was written, counted per file and
-#: method. None of these engines is family-visible — `FAMILY_VISIBLE_STRATEGIES`
-#: is `{"snapback"}` — and in Family Mode `guard_broker_write` refuses every one
-#: of them at the transport, so they cannot reach a family account today. They
-#: are recorded rather than converted because converting six engines at once, in
-#: one release, is how a safety refactor becomes the outage.
-#:
-#: The contract is that this baseline only ever shrinks. A new direct call, or an
-#: extra one in a file that already has some, fails the test. When an engine is
-#: converted, delete its line — leaving a stale entry quietly re-permits a call.
+#: There are no grandfathered direct broker-order send calls. Any newly
+#: introduced strategy place_order/place_order_option/place_order_future is a
+#: regression, including a protective SELL. GTT protection and cancellation
+#: remain separate capabilities and are not ordinary order sends.
 KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {}  # no grandfathered direct order sends
 
 
