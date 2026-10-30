@@ -1846,6 +1846,14 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
     held_before = int(pos.quantity)
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    canonical_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=pos.instrument.exchange,
+        symbol=pos.instrument.tradingsymbol, quantity=int(pos.quantity), side="SELL",
+    )
+    if canonical_refusal:
+        session.note("error", f"canonical exit cannot disarm protection: {canonical_refusal}")
+        return False, "canonical_inventory_unverified"
     # Refuse before cancelling the resting GTT if canonical recovery identity
     # cannot be formed. Otherwise a legacy blank-account/signal row could lose
     # protection while the deterministic journal-key constructor raises.
