@@ -1403,6 +1403,7 @@ async def _settle_exit_order(
         _clear_exit_identity(position)
         put(uid, position)
         await _place_protection(uid, client, position, cfg)
+        mark_reduction_projected(resolution)
         return False, "partial_exit"
 
     _clear_exit_identity(position)
