@@ -339,3 +339,45 @@ production order routing is permitted.
 **Production certification:** NOT ACHIEVED. Protected SELL migration
 remains pending for all five remaining direct calls. No release, deployment,
 broker session, or live-order routing is authorized.
+
+
+### P0 continuation: broker ACK correctness and last-boundary reduction proof
+
+**Committed in source; latest CI verification pending.**
+
+- `POST /api/v1/kite/orders` now returns HTTP **409**
+  `submission_unknown` if the idempotency cache holds the marker
+  `PENDING` or `UNKNOWN`. Such values are not broker order identifiers.
+  The handler never calls the broker on these duplicate requests, and
+  clients must inspect/reconcile orders rather than retry. Two parametrized
+  router tests exercise the persisted-marker response with a paper
+  transport; both assert no additional broker I/O.
+- `CanonicalExecutionService._submit_order` repeats the fresh,
+  account/product/symbol/side/quantity broker-position reduction proof
+  after the journal's submission claim, at the last async boundary before
+  the transport send. A contradictory fresh position book is a definitive
+  local refusal: it transitions the intent to `REJECTED`, sends no order
+  and does not manufacture a recovery-required broker uncertainty.
+  The regression test simulates inventory disappearing between the first
+  and second proof. This is defense against manual or concurrent
+  exposure changes, not a replacement for broker-side reduce-only
+  semantics or cross-process controls.
+
+Focused test commands:
+
+```sh
+cd backend
+python -m pytest tests/test_kite_router.py::test_order_idempotency_marker_never_masquerades_as_broker_ack -q
+python -m pytest tests/unit/test_execution_unknown_settlement.py -q
+```
+
+**Unresolved P0:** Five protected SELL direct sends still require
+engine-specific durable canonical journal conversion and reconciliation.
+Do not replace those emergency exit calls with untested generic
+`submit_order`: the canonical inventory ledger and engine-specific
+position stores must agree, GTT cancellations and UNKNOWN outcomes
+must survive process death, and emergency protection must not be
+lost. No live execution or broker-routing permission granted.
+
+**Release and external acceptance:** 0/12 controls accepted, 12/12
+blocked; independent sign-off NOT PROVIDED; production NO-GO.
