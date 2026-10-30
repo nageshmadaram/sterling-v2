@@ -52,6 +52,24 @@ def allow_everything(monkeypatch):
     monkeypatch.setattr(runner, "_is_market_open", lambda cfg: True)
     monkeypatch.setattr(runner, "evidence_permits_arming",
                         lambda uid: (True, "granted for this test"))
+    # Strategy orchestration tests simulate the canonical boundary, not the
+    # removed raw broker sender. The real canonical journal is tested separately.
+    from app.services import canonical_strategy_reduction as reductions
+    from app.services.execution_service import ExecutionResult
+
+    async def canonical_exit(**kw):
+        c = kw["client"]
+        c.calls.append(("canonical:sell", kw["symbol"]))
+        if getattr(c, "_synthetic_reject", False):
+            return ExecutionResult(False, "REJECTED", error="definitive local refusal")
+        if c._raise:
+            return ExecutionResult(False, "UNKNOWN", error="broker reply lost")
+        if not c._order_id:
+            return ExecutionResult(False, "UNKNOWN", error="missing order id")
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id=c._order_id,
+                               intent_key="synthetic-offline-intent")
+
+    monkeypatch.setattr(reductions, "submit_reduction", canonical_exit)
 
 
 class FakeClient:
@@ -585,13 +603,14 @@ def test_exit_cancels_the_broker_stop_before_selling(monkeypatch):
         return True
 
     monkeypatch.setattr(runner, "_cancel_protection", cancel)
-    original = client.place_order
+    from app.services import canonical_strategy_reduction as reductions
+    original = reductions.submit_reduction
 
-    async def place(*a, **k):
+    async def canonical(**kwargs):
         order.append("sell")
-        return await original(*a, **k)
+        return await original(**kwargs)
 
-    client.place_order = place
+    monkeypatch.setattr(reductions, "submit_reduction", canonical)
     ok = asyncio.run(runner._exit_position("u1", client, pos,
                                            AdaptiveEdgeConfig().validate(),
                                            price=80.0, reason="stop"))
@@ -604,10 +623,7 @@ def test_a_definitive_exit_refusal_re_arms_the_protection_it_cancelled(monkeypat
     pos = _open_position()
     client = FakeClient()
 
-    async def refused(*_args, **_kwargs):
-        raise PermissionError("local guard refused before broker send")
-
-    client.place_order = refused
+    client._synthetic_reject = True  # canonical pre-send refusal, no broker ACK
     replaced: list[str] = []
     monkeypatch.setattr(runner, "_cancel_protection", lambda u, c, p: _async(True))
     monkeypatch.setattr(runner, "_place_protection",
@@ -639,13 +655,13 @@ def test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm(monk
     assert pos.exit_requested_qty == 50
     assert pos.exit_pending_reason == "stop"
     assert pos.exit_requested_price > 0
-    assert len([call for call in client.calls if call[0] == "place:sell"]) == 1
+    assert len([call for call in client.calls if call[0] == "canonical:sell"]) == 1
     again = asyncio.run(runner._exit_position(
         "u1", client, positions.get("u1", "SYM"), AdaptiveEdgeConfig().validate(),
         price=80.0, reason="stop",
     ))
     assert again is False
-    assert len([call for call in client.calls if call[0] == "place:sell"]) == 1
+    assert len([call for call in client.calls if call[0] == "canonical:sell"]) == 1
 
 
 def test_missing_exit_order_id_is_uncertain_and_does_not_rearm(monkeypatch):
@@ -701,7 +717,7 @@ def test_live_exit_refuses_when_broker_holds_less_than_local_quantity(monkeypatc
     assert ok is False
     assert positions.get("u1", "SYM").is_open
     assert positions.get("u1", "SYM").gtt_id == 99
-    assert not any(kind == "place:sell" for kind, _ in client.calls)
+    assert not any(kind == "canonical:sell" for kind, _ in client.calls)
 
 
 def test_active_gtt_blocks_adaptive_edge_second_sell(monkeypatch):
@@ -726,7 +742,7 @@ def test_active_gtt_blocks_adaptive_edge_second_sell(monkeypatch):
 
     assert ok is False
     assert positions.get("u1", "SYM").gtt_id == 99
-    assert not any(kind == "place:sell" for kind, _ in client.calls)
+    assert not any(kind == "canonical:sell" for kind, _ in client.calls)
 
 
 def test_proven_absent_gtt_allows_adaptive_edge_exit(monkeypatch):
@@ -751,7 +767,7 @@ def test_proven_absent_gtt_allows_adaptive_edge_exit(monkeypatch):
 
     assert ok is True
     assert positions.get("u1", "SYM").is_open is False
-    assert any(kind == "place:sell" for kind, _ in client.calls)
+    assert any(kind == "canonical:sell" for kind, _ in client.calls)
 
 
 # -------------------------------------------------------------- tick loop
