@@ -173,6 +173,11 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
         os.close(fd)
         with _read_only(src) as original, sqlite3.connect(stage, timeout=30) as clone:
             original.backup(clone)
+            # A WAL source can leave a WAL-mode output. Convert the isolated
+            # staging copy to a self-contained DELETE-journal DB before
+            # publication; never touch the source's WAL or live transaction.
+            if clone.execute("PRAGMA journal_mode=DELETE").fetchone()[0] != "delete":
+                raise ValueError("Could not create self-contained SQLite migration copy")
             _check(clone)
             original_schema = _schema(original)["schema_sha256"]
             pre_schema = _schema(clone)["schema_sha256"]
