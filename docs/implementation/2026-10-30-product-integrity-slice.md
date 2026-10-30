@@ -18,7 +18,7 @@ changes deployment runtime configuration. Review and verify before integration.
    values of positive infinity, did not reject NaN/Infinity entry prices before
    constructing an execution request, and coerced fractional sizes via `int`.
 3. `backend/app/core/broker_account_binding.py` inferred live-ready permission from any scope containing `live`, including `not_live` and `live_disabled`. It now requires exactly `live` or `live_minimum` (case-insensitive after trimming); unknown historical scopes remain readable but NOT live-ready.
-4. `backend/tests/unit/test_canonical_execution_convergence.py` declares seven
+4. `backend/tests/unit/test_canonical_execution_convergence.py` declares five
    grandfathered direct entry calls in seven (file,method) entries. This is a
    static legacy-allowance baseline, **not proof the canonical migration is
    complete**. The existing noncanonical entry floor must remain enforced.
@@ -140,13 +140,13 @@ solved** by this patch and still require transactional/locking treatment.
 
 ### Grandfathered direct-order call audit
 
-The static legacy baseline now counts seven method calls in six
+The static legacy baseline now counts five method calls in four
 (file,method) entries; this is **NOT** complete canonical execution convergence.
 
 | Location | Calls | Classification | Current boundary |
 | --- | ---: | --- | --- |
 | BrokerAgent | 0 | Typed canonical facade | Legacy unbound order submissions refused; CanonicalExecutionService handles requests |
-| Legacy OrderRouter | 2 | Paper-only generic entry facade | Live/unknown transport refused |
+| Legacy OrderRouter | 0 | Typed canonical handoff | Generic LIVE payload refuses all broker sends, even on paper doubles |
 | Adaptive Edge | 1 | SELL exit | Inventory + `INTENT_REDUCE` and bound capability |
 | Gamma Unwind | 1 | SELL exit | Precommitted exit identity + bound reduction |
 | Intraday | 2 | SELL exit/scale-out | Broker inventory + bound reduction |
@@ -192,7 +192,7 @@ preserve durable order journals and account-binding history.
 
 | Priority | Item | Status | Due |
 | --- | --- | --- | --- |
-| P0 | Canonicalize all five remaining direct SELL reductions plus two legacy OrderRouter sends with durable order intents and timeout/restart reconciliation | PENDING | Unscheduled |
+| P0 | Canonicalize the five remaining direct SELL reductions with durable order intents and timeout/restart reconciliation | PENDING | Unscheduled |
 | P0 | Complete full backend/frontend policy parity for all admin/operator/viewer mutation surfaces and browser controls | PARTIAL | Unscheduled |
 | P0 | Execute and reconcile complete order lifecycle across restart with no duplicate broker sends | EXISTING TESTS, END-TO-END PASS NOT ESTABLISHED | Unscheduled |
 | P1 | Full SQLite migration + rollback and Postgres restore drills on disposable real schema | PARTIAL (SQLite snapshot test only) | Unscheduled |
@@ -260,7 +260,7 @@ Success on an earlier SHA is not transferable to newer commits.
 activation/connection grants, mobile role-aware order and global-risk controls,
 Expo dependency/lockfile generation. **Validation of the latest SHA:** pending
 independent CI results. **Still due (unscheduled):** five direct protected SELL
-reductions and two paper-only OrderRouter calls, cross-engine UNKNOWN/restart
+reductions, cross-engine UNKNOWN/restart
 reconciliation, all database migration downgrade/restore drills, mobile real
 device and desktop browser acceptance. **External blockers:** host TLS/secrets,
 broker market acceptance, independent monitoring and release approval. Nothing
@@ -288,3 +288,32 @@ Its focused CI result must be reviewed against the final SHA before claiming
 PASS. Production PostgreSQL and live-host backup/restore, complete broker
 reconciliation, protection reacquisition and independent acceptance remain
 unscheduled and blocked.
+
+### OrderRouter generic LIVE path retired from direct broker I/O
+
+`OrderRouter.submit(OrderRouterRequest)` now rejects unbound `LIVE`
+requests after preflight safety checks: they contain no authenticated
+account/generation/ownership fields and cannot authorize even a paper
+adapter order. `OrderRouter.submit_canonical(request=ExecutionRequest,
+risk_approval=RiskApproval)` hands typed requests to the existing
+`CanonicalExecutionService`, which owns risk validation and journaling.
+The former `adapter.place_order` and `adapter.place_order_option`
+calls were removed. Explicit PAPER/SHADOW positions remain supported
+through their existing simulation hooks. Safety and router tests were
+updated to expect default-deny rather than a fake adapter fill. The
+static baseline is now **five remaining direct SELL reductions**.
+
+### Mobile safety policy direction parity
+
+The earlier mobile global-risk UI was stricter than its backend:
+the backend allows operators to engage a halt or tighten a loss limit,
+but requires the designated administrator to lift a halt, disable or
+loosen limits. The mobile actions now use fresh server identity grants
+and current loss thresholds before each mutation, with negative INR
+loss threshold comparison matching the backend. A lift request includes
+a reason; it never sets `acknowledge_investigation`, so unresolved
+broker conditions remain a blocker. The backend remains authoritative.
+
+**Latest source status:** Implementation committed in review branch;
+full latest-SHA CI outcomes pending. No automatic release/merge or
+production order routing is permitted.
