@@ -123,6 +123,43 @@ def _counts(conn: sqlite3.Connection) -> dict[str, int]:
     }
 
 
+def _content_fingerprints(conn: sqlite3.Connection, tables: set[str]) -> dict[str, str]:
+    """Private ordered content digests: prove equal data, not just equal counts.
+
+    Never return these digests in user-facing inventory, logs or API responses:
+    low-entropy private values may be susceptible to offline guessing.
+    ORDER BY all columns supports tables without rowids or primary keys.
+    """
+    digests: dict[str, str] = {}
+    for table in sorted(tables):
+        if table == LEDGER:
+            continue
+        quoted = '"' + table.replace('"', '""') + '"'
+        columns = [
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({quoted})")
+        ]
+        if not columns:
+            raise ValueError(f"Table schema unavailable: {table}")
+        ordering = ", ".join(
+            '"' + name.replace('"', '""') + '"'
+            for name in columns
+        )
+        digest = hashlib.sha256()
+        cursor = conn.execute(
+            f"SELECT * FROM {quoted} ORDER BY {ordering}"
+        )
+        while True:
+            batch = cursor.fetchmany(256)
+            if not batch:
+                break
+            for row in batch:
+                encoded = repr(tuple(row)).encode("utf-8", errors="backslashreplace")
+                digest.update(len(encoded).to_bytes(8, "big"))
+                digest.update(encoded)
+        digests[table] = digest.hexdigest()
+    return digests
+
+
 def _check(conn: sqlite3.Connection) -> None:
     if conn.execute("PRAGMA quick_check").fetchone() != ("ok",):
         raise ValueError("SQLite integrity check failed; do not migrate")
@@ -252,6 +289,12 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
             before = _counts(clone)
             if original_schema != pre_schema or before != _counts(original):
                 raise ValueError("Snapshot drift or incomplete SQLite backup")
+            # Stronger than counts: a partial/incorrect backup can retain the
+            # same number of rows while changing private order, risk or secret
+            # values. The digests are compared only in-process, never exposed.
+            before_content = _content_fingerprints(original, set(before))
+            if before_content != _content_fingerprints(clone, set(before)):
+                raise ValueError("SQLite snapshot content differs from source")
             clone.execute("BEGIN IMMEDIATE")
             try:
                 status = _ledger_status(clone, pre_schema)
@@ -269,6 +312,8 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
                 raise ValueError("Migration changed original table row counts")
             if LEDGER not in after or after[LEDGER] != 1:
                 raise ValueError("Migration ledger missing or not idempotent")
+            if before_content != _content_fingerprints(clone, set(before)):
+                raise ValueError("Migration changed operational table content")
             # Exact original sqlite_master entries must survive, not just counts.
             remaining = clone.execute(
                 "SELECT type,name,tbl_name,sql FROM sqlite_master "
