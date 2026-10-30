@@ -57,7 +57,7 @@ async def enforce_feature_access(connection: HTTPConnection):
         current = require_feature(principal)
         # A feature grant allows a viewer to inspect the workspace, not mutate
         # trading state. Unknown or imported roles fail closed on API writes.
-        if request.method not in ('GET', 'HEAD', 'OPTIONS') and current.role not in ('admin', 'operator', 'user'):
+        if request.method not in ('GET', 'HEAD', 'OPTIONS') and not account_policy.may_mutate(current.role):
             raise HTTPException(403, 'Read-only viewer cannot mutate Kite state.')
     elif policy == 'administration':
         from app.core.configuration_access import require_configuration
