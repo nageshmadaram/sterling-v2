@@ -358,7 +358,7 @@ class OrderRouter:
         return self._reject(
             req, "noncanonical_live_order_disabled",
             "Legacy OrderRouterRequest has no account/generation authority; "
-            "use submit_canonical() with a validated ExecutionRequest",
+            "use CanonicalExecutionService via submit_canonical() with a validated ExecutionRequest",
             now_ms,
         )
 
