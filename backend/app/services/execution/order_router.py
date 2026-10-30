@@ -183,6 +183,15 @@ class OrderRouter:
             sym, req.direction, req.instrument_type, req.size,
             int(now_ms // 60_000),       # minute bucket
         )
+        # A legacy LIVE payload has no canonical execution identity. Do not
+        # return an "accepted duplicate" from an idempotency key belonging to
+        # another sender: the legacy request itself was never authorized.
+        if self.mode == RouterMode.LIVE and live_safety.check_idempotency(idem_key):
+            return self._reject(
+                req, "noncanonical_live_order_disabled",
+                "Legacy LIVE request cannot claim existing broker order identity; "
+                "submit a typed CanonicalExecutionService request", now_ms,
+            )
         decision = live_safety.assert_safe_to_trade(
             positions=self.deps.list_open_positions(),
             idempotency_key=idem_key,
