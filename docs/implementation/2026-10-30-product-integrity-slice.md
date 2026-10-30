@@ -266,3 +266,25 @@ device and desktop browser acceptance. **External blockers:** host TLS/secrets,
 broker market acceptance, independent monitoring and release approval. Nothing
 here grants live execution. **Production control acceptance: 0/12; blocked
 12/12. Deployment: NO-GO. Live broker routing: NOT AUTHORIZED.**
+
+### Offline journal restore drill (new test)
+
+`backend/tests/unit/test_canonical_journal_snapshot_restore.py` uses the
+application's actual `db.init()` schema, canonical `order_journal.reserve`,
+`claim_submission`, `acknowledge`, `observe_order`, and
+`mark_projected` primitives. The test invokes the isolated SQLite backup
+verification CLI in another Python process, reopens the resulting copy, and
+checks that a completed fill, pending position projection, immutable signal
+identity, and UNKNOWN post-timeout state survive restoration. Replayed signal
+reservations must not regain submission claim authority. This adds a
+persistent offline integration check, **not** real broker-truth settlement.
+
+Validation:
+```sh
+cd backend
+python -m pytest tests/unit/test_canonical_journal_snapshot_restore.py -q
+```
+Its focused CI result must be reviewed against the final SHA before claiming
+PASS. Production PostgreSQL and live-host backup/restore, complete broker
+reconciliation, protection reacquisition and independent acceptance remain
+unscheduled and blocked.
