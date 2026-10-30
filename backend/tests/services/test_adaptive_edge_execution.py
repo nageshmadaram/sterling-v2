@@ -67,7 +67,7 @@ def allow_everything(monkeypatch):
         if not c._order_id:
             return ExecutionResult(False, "UNKNOWN", error="missing order id")
         return ExecutionResult(True, "ACKNOWLEDGED", order_id=c._order_id,
-                               intent_key="synthetic-offline-intent")
+                               intent_key="")  # fake strategy transport, no canonical journal
 
     monkeypatch.setattr(reductions, "submit_reduction", canonical_exit)
     monkeypatch.setattr(reductions, "reduction_inventory_refusal",
