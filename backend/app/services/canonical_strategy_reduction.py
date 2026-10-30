@@ -84,8 +84,12 @@ async def submit_reduction(
         ),
         order_type=order_type,
         price=px,
+        # The engine persists the initiating reason beside the exit claim.
+        # Do not put a later/changed UI reason in the immutable journal payload:
+        # the same signal must never be re-sent just because an EOD sweep and
+        # stop-monitor reported different reasons on replay.
         payload={"product": product.upper(), "intent_type": "EXIT",
-                 "reduction_kind": kind, "reason": reason},
+                 "reduction_kind": kind},
     )
     try:
         result = await CanonicalExecutionService().submit_order(
