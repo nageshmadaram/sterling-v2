@@ -159,3 +159,38 @@ async def test_restarted_unknown_exit_stays_unclaimable_and_requires_broker_trut
     assert not replay.success
     assert order_journal.get(before.intent_key).state == "UNKNOWN"
     assert broker.calls == []
+
+
+@pytest.mark.asyncio
+async def test_synthetic_live_transport_requires_exact_fresh_broker_product_bucket(isolated):
+    """No network: _is_paper=False deliberately exercises real reduction gates."""
+    class OfflineLiveLikeBroker(PaperBroker):
+        _is_paper = False
+
+        def __init__(self, product, quantity):
+            super().__init__()
+            self.product = product
+            self.quantity = quantity
+
+        async def get_positions_raw(self):
+            return {"net": [{
+                "tradingsymbol": "SYNTHETIC26NOV25000CE",
+                "exchange": "NFO",
+                "product": self.product,
+                "quantity": self.quantity,
+            }], "day": []}
+
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    wrong_bucket = OfflineLiveLikeBroker("NRML", 10)
+    denied = await submit_reduction(**args(wrong_bucket))
+    assert not denied.success and denied.status == "REJECTED"
+    assert "Broker has no" in denied.error
+    assert wrong_bucket.calls == []
+
+    # A previously refused RESERVED journal intent may be claimed only after
+    # the exact broker bucket has been reverified. It may not be invented.
+    exact = OfflineLiveLikeBroker("MIS", 10)
+    accepted = await submit_reduction(**args(exact))
+    assert accepted.success and accepted.order_id == "OFFLINE-ORDER-1"
+    assert len(exact.calls) == 1
+    assert exact.calls[0][3]["product"] == "MIS"
