@@ -15,6 +15,7 @@ Exercises every dispatch path (paper, shadow, live) and every reject code:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock
 
