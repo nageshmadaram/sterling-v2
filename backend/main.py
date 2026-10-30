@@ -662,6 +662,10 @@ def create_app() -> FastAPI:
     # Zerodha Kite (Indian markets) — multi-tenant manual console
     from app.api.v1.endpoints.kite import router as kite_router
     app.include_router(kite_router, prefix="/api/v1")
+    # JWT-protected read-only migration surface; does not accept OpenAlgo
+    # API keys, query a live broker or submit orders.
+    from app.api.v1.endpoints.openalgo_compat import router as openalgo_compat_router
+    app.include_router(openalgo_compat_router, prefix="/api/v1")
 
     # TrueData market data provider endpoints
     from app.api.v1.endpoints.truedata import router as truedata_router
