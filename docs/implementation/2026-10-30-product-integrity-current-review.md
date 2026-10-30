@@ -219,3 +219,49 @@ The five previously grandfathered calls plus the discovered SuperTrend
 indirect alias are source-migrated; isolated PAPER HTTP order handling still
 requires later canonical integration. Existing live holdings without
 authoritatively reconciled journal inventory require operator attention.
+
+
+## OpenAlgo-pattern compatibility migration increment (30 Oct 2026)
+
+The requested Sterling/OpenAlgo upgrade plan is implemented **only for its
+safe first slice**. Full adoption and production certification are not done.
+
+| Phase | Completed in source | Pending / blocked |
+| --- | --- | --- |
+| 0 — freeze/inventory | Explicit offline `upgrade/sterling_openalgo.py` read-only schema and table/count scan, source never written | Operator-controlled snapshot/secret custody and full state inventory not performed |
+| 1 — compatibility | `2026-10-30-openalgo-compatibility-matrix.md` plus AST-only `upgrade/api_inventory.py` showing actual route deltas | Exact OpenAlgo physical model and all service/strategy/UI contract parity |
+| 2 — migration | Disposable SQLite backup; WAL converted to independent file; required table AND typed column checks; transactionally inserted version ledger with baseline SHA; re-run idempotence, collision refusal, atomic 0600 publish, failure cleanup | ORM/operational DB unification, PostgreSQL migration/restore, real-data approval, destructive downgrade prohibition |
+| 3 — session | Original Sterling session/account/role code preserved, no broker mutation | Expiry, reconnect, session leakage proof on controlled test credentials |
+| 4 — API | JWT, account-scoped **read-only** `POST /api/v1/compat/openalgo/orderstatus`, canonical fill/UNKNOWN status adapter; viewer read contract tested | OpenAlgo-native apikey authorization not accepted; placeorder/cancelorder/orderbook wrappers not enabled |
+| 5 — strategy/execution | Prior canonical execution constraints preserved | Real replay/fill projection and broker/session certification |
+| 6 — UI | No UI change required for copy-only source tooling | Desktop/mobile browser journeys, state hydration, Expo device acceptance NOT WORKED |
+| 7 — validation | Added schema migration, corruption, WAL/restore, interrupted write, source-only route inventory and HTTP policy regressions to focused CI | **Latest-head CI results pending**, full integration/realistic independent restore not established |
+| External | Nothing represented as accepted | Host/TLS/monitoring/broker/independent approval: **0/12 accepted, 12/12 blocked** |
+
+**Version semantics:** `sterling_upgrade_ledger` is a marker on an
+**isolated cloned SQLite file**, not a claim that the production DB or Alembic
+was migrated. The preflight checks selected critical field names and SQLite
+types but it is not complete semantic table equivalence. It refuses
+missing/malformed operational contracts, does not copy database row values
+into reports, and never rewrites user credentials, broker orders, journal
+states, strategy risk rules or active environment variables.
+
+**Operational rule:** all snapshots contain private account/session data even
+when inventories redact values. Use restricted disk/storage and delete copies
+through the approved process. `python -m upgrade.sterling_openalgo --source
+/path/to/disposable.db` is read-only by default. `--apply-to-copy` needs a
+new destination in another existing directory. Rollback is to discard that
+copy, **never** downgrade or overwrite the source. No broker/live execution.
+
+**Code / tests / commands:** see `upgrade/README.md`,
+`scripts/tests/test_openalgo_compat_upgrade.py`,
+`scripts/tests/test_openalgo_route_inventory.py`,
+`backend/tests/unit/test_openalgo_compat.py`, and
+`backend/tests/test_workspace_access.py`. Complete the repository's focused
+and full CI checks against the immutable PR head before treating this as
+validated; historical PASS runs and queued checks do not establish a PASS.
+
+**Next due, unscheduled:** full typed table/foreign-key/index compatibility,
+actual disposable PostgreSQL up/down/restore and corruption drills, all
+session and UI parity tests, reviewed broker adapters, complete API auth/error
+contracts and independent release evidence. **NO-GO remains unchanged.**
