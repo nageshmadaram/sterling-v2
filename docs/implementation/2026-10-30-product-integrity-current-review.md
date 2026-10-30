@@ -265,3 +265,30 @@ validated; historical PASS runs and queued checks do not establish a PASS.
 actual disposable PostgreSQL up/down/restore and corruption drills, all
 session and UI parity tests, reviewed broker adapters, complete API auth/error
 contracts and independent release evidence. **NO-GO remains unchanged.**
+
+
+## Continued migration checkpoint — disposable PostgreSQL + content integrity
+
+- Copy-only SQLite backup now compares **ordered SHA-256 content fingerprints
+  of all operational tables**, not merely table names/row counts. A test
+  modifies a staged row without changing the count; the copy is refused,
+  removed and the source remains unchanged.
+- Alembic supports the pinned `postgresql+asyncpg` connection through the
+  SQLAlchemy asynchronous migration engine, but allows PostgreSQL only for an
+  explicitly marked, nonproduction `sterling_test_*` /
+  `sterling_disposable_*` DB. A matching production environment refuses.
+- Alembic now refuses the active raw Sterling SQLite DB, including a renamed
+  operator-path alias; only isolated ORM/staging databases are eligible.
+- Focused CI includes disposable SQLite Alembic repeatability and URL safety
+  tests; a separate PostgreSQL 16 service workflow exercises repeated
+  upgrade, synthetic transaction rollback, pg_dump and second-DB pg_restore.
+  **These are committed test definitions, not an observed CI PASS**.
+- Full operational schema migration from raw SQLite to PostgreSQL remains
+  **P0 pending**, including journal, signed fills, account/sessions,
+  execution controls and strategy registry reconciliation. The existing
+  destructive ORM baseline downgrade is still disallowed as rollback.
+
+**Current boundary:** no operator database altered, no broker accessed,
+no deploy or merge; PR #15 remains draft. The new PostgreSQL workflow
+must complete on the exact commit before its isolated ORM drill can
+be called passed. Production 0/12 accepted, 12/12 blocked; **NO-GO**.
