@@ -139,18 +139,20 @@ async def test_live_emergency_close_carries_reduce_authority(monkeypatch, openin
             assert current_intent() == INTENT_REDUCE
             return {"order_id": "EXIT-1"}
 
-    monkeypatch.setattr(
-        execution,
-        "_resolve_fill",
-        lambda *_args, **_kwargs: _async_value((250, 50.0, "COMPLETE")),
-    )
+    # Paper broker fills at an explicit synthetic reference price; a live
+    # broker must instead supply its own actual fill price.
+    from app.services.kite_engine import order_journal
 
     closed, note = await execution._sell_and_verify(
-        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250,
+        reference_price=50.0,
     )
 
     assert closed is True
     assert "closed 250/250" in note
+    intent = order_journal.find(uid="synthetic-owner", account_id="acct-opening", order_id="EXIT-1")
+    assert intent and intent.state == "FILLED"
+    assert intent.projection_pending  # not yet projected into durable strategy closure
 
 
 @pytest.mark.asyncio
