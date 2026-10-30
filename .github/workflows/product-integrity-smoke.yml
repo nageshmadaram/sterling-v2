@@ -44,6 +44,7 @@ jobs:
             tests/test_workspace_access.py \
             tests/unit/test_canonical_execution_convergence.py \
             tests/unit/test_canonical_journal_snapshot_restore.py \
+            tests/unit/test_execution_unknown_settlement.py \
             tests/unit/simulation/test_r1_snapback_alerts.py \
             tests/unit/test_account_binding_manifest_integrity.py \
             tests/services/test_canonical_entry_input_integrity.py \
