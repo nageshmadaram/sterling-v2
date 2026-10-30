@@ -112,8 +112,8 @@ def live(tmp_path, monkeypatch):
     monkeypatch.setenv("STERLING_DB_PATH", str(tmp_path / "t.db"))
     from app.services import db, live_safety
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "t.db"), raising=False)
-    live_safety.reset_all_for_tests()
     db.init()
+    live_safety.reset_all_for_tests()
     store.reset()
     svc._state.clear()
     runner._notes.clear()
