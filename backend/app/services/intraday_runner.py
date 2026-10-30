@@ -1058,38 +1058,29 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
     pos.exit_pending_kind = "exit"
     pos.exit_pending_reason = str(reason)
     store.put(uid, pos)  # durable requested SELL before transport
-    try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound,
-            canonical_broker_capability,
-        )
-        with canonical_broker_capability(
-            f"intraday-exit:{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{pos.contract.tradingsymbol}:{pos.signal_id}",
-            intent=INTENT_REDUCE,
-            bound=ReduceBound.closing(exchange=pos.contract.exchange, symbol=pos.contract.tradingsymbol, side="SELL", quantity=pos.quantity),
-        ):
-            res = await client.place_order(
-                f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
-                float(pos.quantity), order_type="limit_order", limit_price=float(price),
-                product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
-        oid = str((res or {}).get("order_id") or "")
-    except Exception as exc:                                       # noqa: BLE001
-        from app.services.kite_engine.protective_stop import is_definitive_refusal
-        if is_definitive_refusal(exc):
+    from app.services.canonical_strategy_reduction import submit_reduction
+    outcome = await submit_reduction(
+        client=client, uid=uid, strategy_id=STRATEGY_ID,
+        generation_id="intraday-exit-v1",
+        signal_id=pos.signal_id, exchange=pos.contract.exchange,
+        symbol=pos.contract.tradingsymbol, quantity=int(pos.quantity),
+        product="MIS", order_type="limit_order", limit_price=float(price),
+        kind="exit", reason=str(reason), close=True,
+    )
+    if not outcome.success:
+        if outcome.status in ("REJECTED", "HALTED"):
             _clear_pending_reduction(pos)
             store.put(uid, pos)
             await _place_protection(uid, client, pos, cfg)
-            note(uid, "error", f"exit definitively refused for {pos.contract.tradingsymbol}: {exc}")
+            note(uid, "error", f"canonical exit refused for {pos.contract.tradingsymbol}: {outcome.error}")
             return False
-        _fence_uncertain_reduction(uid, client, pos, str(exc))
+        _fence_uncertain_reduction(uid, client, pos, outcome.error or outcome.status)
         return False
+    oid = str(outcome.order_id or "")
     if not oid:
-        _fence_uncertain_reduction(uid, client, pos, "missing order_id")
+        _fence_uncertain_reduction(uid, client, pos, "canonical order ID missing")
         return False
 
-    # Persist the acknowledged SELL before waiting for fill evidence. A restart
-    # can now reconcile this exact order instead of submitting a second exit.
     pos.exit_order_id = oid
     pos.exit_requested_qty = int(pos.quantity)
     pos.exit_requested_price = float(price)
@@ -1145,34 +1136,27 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
     pos.exit_pending_kind = "scale"
     pos.exit_pending_reason = "target1"
     store.put(uid, pos)  # durable requested scale-out before transport
-    try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound,
-            canonical_broker_capability,
-        )
-        with canonical_broker_capability(
-            f"intraday-scale:{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{pos.contract.tradingsymbol}:{pos.signal_id}",
-            intent=INTENT_REDUCE,
-            bound=ReduceBound.closing(exchange=pos.contract.exchange, symbol=pos.contract.tradingsymbol, side="SELL", quantity=qty),
-        ):
-            res = await client.place_order(
-                f"{pos.contract.exchange}:{pos.contract.tradingsymbol}", "sell",
-                float(qty), order_type="limit_order", limit_price=float(price),
-                product="MIS", tag=f"{STRATEGY_ID[:12]}-scale")
-        oid = str((res or {}).get("order_id") or "")
-    except Exception as exc:                                       # noqa: BLE001
-        from app.services.kite_engine.protective_stop import is_definitive_refusal
-        if is_definitive_refusal(exc):
+    from app.services.canonical_strategy_reduction import submit_reduction
+    outcome = await submit_reduction(
+        client=client, uid=uid, strategy_id=STRATEGY_ID,
+        generation_id="intraday-exit-v1",
+        signal_id=pos.signal_id, exchange=pos.contract.exchange,
+        symbol=pos.contract.tradingsymbol, quantity=int(qty),
+        product="MIS", order_type="limit_order", limit_price=float(price),
+        kind="scale", reason="target1", close=False,
+    )
+    if not outcome.success:
+        if outcome.status in ("REJECTED", "HALTED"):
             _clear_pending_reduction(pos)
             store.put(uid, pos)
             await _place_protection(uid, client, pos, cfg)
-            note(uid, "error", f"scale-out definitively refused for {pos.contract.tradingsymbol}: {exc}")
+            note(uid, "error", f"canonical scale refused for {pos.contract.tradingsymbol}: {outcome.error}")
             return False
-        _fence_uncertain_reduction(uid, client, pos, str(exc))
+        _fence_uncertain_reduction(uid, client, pos, outcome.error or outcome.status)
         return False
+    oid = str(outcome.order_id or "")
     if not oid:
-        _fence_uncertain_reduction(uid, client, pos, "scale-out missing order_id")
+        _fence_uncertain_reduction(uid, client, pos, "canonical order ID missing")
         return False
 
     pos.exit_order_id = oid
