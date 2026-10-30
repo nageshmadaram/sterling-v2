@@ -1350,8 +1350,8 @@ async def _settle_exit_order(
     if not position.exit_order_id or requested <= 0:
         return False, "no_pending_exit"
 
-    resolution = await resolve_acknowledged_order(
-        client=client,
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=position.exit_intent_key, client=client,
         order_id=position.exit_order_id,
         expected_quantity=requested,
         reference_price=float(position.exit_requested_price or position.entry_price),
