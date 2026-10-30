@@ -1549,6 +1549,10 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
                     c, user.user_id, body.tradingsymbol)
             except Exception as exc:  # noqa: BLE001
                 log.warning("kite manual-exit disarm failed for %s: %s", body.tradingsymbol, exc)
+        # This legacy generic payload supports simulation-only order types.
+        # Reassert the broker transport mode immediately at the raw boundary:
+        # canonical live orders never fall through to this paper-only sender.
+        _require_paper_for_noncanonical_write(c, "generic paper-only order")
         res = await c._place(
             variety=body.variety, exchange=body.exchange, tradingsymbol=body.tradingsymbol,
             transaction_type=body.transaction_type, quantity=body.quantity, product=body.product,
