@@ -1342,7 +1342,9 @@ async def _settle_exit_order(
     timeout_s: float = 5.0,
 ) -> tuple[bool, str]:
     """Project only broker-confirmed SELL quantity into Adaptive Edge state."""
-    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
 
     requested = int(position.exit_requested_qty or 0)
     if not position.exit_order_id or requested <= 0:
