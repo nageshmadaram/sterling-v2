@@ -419,3 +419,52 @@ def test_broker_activate_and_connect_require_delegated_configuration_not_just_ki
                      '/api/v1/kite/accounts/synthetic/test'):
         response = client.post(endpoint)
         assert response.status_code == 404, response.text
+
+
+def test_role_kite_mutation_matrix_and_simulation_isolation(workspace):
+    """Real JWT and global route enforcement for admin/operator/legacy/viewer."""
+    from app.core import tokens
+
+    user_store.add("operator", "Synthetic-password-123", role="operator", user_id="operator")
+    user_store.add("viewer", "Synthetic-password-123", role="viewer", user_id="viewer")
+    for uid in ("default", "member", "operator", "viewer"):
+        account_policy.set_features(
+            "default", uid, {"kite": True, "tv": False, "radio": False},
+            account_policy.read(uid).revision,
+        )
+
+    app = FastAPI(dependencies=[Depends(enforce_feature_access)])
+
+    @app.post("/api/v1/kite/orders")
+    async def synthetic_write():
+        return {"reached": True}
+
+    @app.get("/api/v1/kite/orders")
+    async def synthetic_read():
+        return {"reached": True}
+
+    with TestClient(app) as client:
+        for uid, role in (
+            ("default", "admin"), ("member", "user"),
+            ("operator", "operator"), ("viewer", "viewer"),
+        ):
+            headers = {"Authorization": "Bearer " + tokens.mint_access(uid, uid, role, 1)}
+            assert client.get("/api/v1/kite/orders", headers=headers).status_code == 200
+            written = client.post("/api/v1/kite/orders", headers=headers)
+            assert written.status_code == (403 if role == "viewer" else 200), written.text
+            if role != "viewer":
+                # No virtual simulation identity may mutate a live account,
+                # even if its owner has an explicit Kite write grant.
+                sim_headers = {**headers, "X-Sterling-View": "simulation"}
+                assert client.post("/api/v1/kite/orders", headers=sim_headers).status_code == 403
+
+
+def test_broker_activation_and_session_test_are_configuration_mutations(workspace):
+    for path in (
+        "/api/v1/kite/accounts/tenant/activate",
+        "/api/v1/kite/accounts/tenant/test",
+        "/api/v1/kite/accounts/tenant/credentials/reveal",
+    ):
+        assert route_policy(path, "POST") == "configuration"
+    assert route_policy("/api/v1/kite/orders", "POST") == "kite"
+    assert route_policy("/api/v1/kite/orders", "GET") == "kite"
