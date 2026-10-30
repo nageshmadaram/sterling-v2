@@ -67,7 +67,7 @@ jobs:
             tests/services/test_canonical_entry_input_integrity.py \
             tests/unit/test_broker_binding_verification.py
       - name: Test isolated SQLite backup and restore
-        run: PYTHONPATH=. python -m pytest -q scripts/tests/test_sqlite_recovery_preflight.py scripts/tests/test_alembic_rollback_preflight.py scripts/tests/test_openalgo_compat_upgrade.py --tb=short
+        run: PYTHONPATH=. python -m pytest -q scripts/tests/test_sqlite_recovery_preflight.py scripts/tests/test_alembic_rollback_preflight.py scripts/tests/test_openalgo_compat_upgrade.py scripts/tests/test_openalgo_route_inventory.py --tb=short
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
