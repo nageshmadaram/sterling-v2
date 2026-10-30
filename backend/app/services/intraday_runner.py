@@ -1001,6 +1001,20 @@ async def _settle_pending_reduction(
     return False, "partial_exit"
 
 
+def _fence_uncertain_reduction(uid: str, client, pos: IntradayPosition, reason: str) -> None:
+    """Persist ambiguous SELL state; neither rearm stop nor issue second SELL."""
+    store.put(uid, pos)
+    if getattr(client, "_is_paper", None) is False:
+        from app.services import live_safety
+        live_safety.set_kill_switch(
+            True,
+            f"Intraday SELL uncertain for {pos.contract.tradingsymbol}: {reason}; "
+            "broker reconciliation required",
+        )
+    note(uid, "warning", f"{pos.contract.tradingsymbol}: SELL UNKNOWN ({reason}); "
+         "no second SELL or replacement stop pending reconciliation")
+
+
 async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
                          premium: float, cfg: IntradayConfig) -> bool:
     """Sell one position. The claim is taken BEFORE anything is sent.
@@ -1039,6 +1053,11 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
 
     tick = pos.contract.tick_size
     price = align_to_tick(max(0.05, float(premium or pos.stop)), tick, side="sell")
+    pos.exit_requested_qty = int(pos.quantity)
+    pos.exit_requested_price = float(price)
+    pos.exit_pending_kind = "exit"
+    pos.exit_pending_reason = str(reason)
+    store.put(uid, pos)  # durable requested SELL before transport
     try:
         from app.services.snapback_family_mode import (
             INTENT_REDUCE, ReduceBound,
@@ -1056,16 +1075,17 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
                 product="MIS", tag=f"{STRATEGY_ID[:14]}-exit")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
-        pos.exiting = False
-        store.put(uid, pos)
-        # The stop went away to make room for this order. Put it back.
-        await _place_protection(uid, client, pos, cfg)
-        note(uid, "error", f"exit rejected for {pos.contract.tradingsymbol}: {exc}")
+        from app.services.kite_engine.protective_stop import is_definitive_refusal
+        if is_definitive_refusal(exc):
+            _clear_pending_reduction(pos)
+            store.put(uid, pos)
+            await _place_protection(uid, client, pos, cfg)
+            note(uid, "error", f"exit definitively refused for {pos.contract.tradingsymbol}: {exc}")
+            return False
+        _fence_uncertain_reduction(uid, client, pos, str(exc))
         return False
     if not oid:
-        pos.exiting = False
-        store.put(uid, pos)
-        await _place_protection(uid, client, pos, cfg)
+        _fence_uncertain_reduction(uid, client, pos, "missing order_id")
         return False
 
     # Persist the acknowledged SELL before waiting for fill evidence. A restart
@@ -1120,6 +1140,11 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         pos.exiting = False
         store.put(uid, pos)
         return False
+    pos.exit_requested_qty = int(qty)
+    pos.exit_requested_price = float(price)
+    pos.exit_pending_kind = "scale"
+    pos.exit_pending_reason = "target1"
+    store.put(uid, pos)  # durable requested scale-out before transport
     try:
         from app.services.snapback_family_mode import (
             INTENT_REDUCE, ReduceBound,
@@ -1137,15 +1162,17 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
                 product="MIS", tag=f"{STRATEGY_ID[:12]}-scale")
         oid = str((res or {}).get("order_id") or "")
     except Exception as exc:                                       # noqa: BLE001
-        pos.exiting = False
-        store.put(uid, pos)
-        await _place_protection(uid, client, pos, cfg)
-        note(uid, "error", f"scale-out rejected for {pos.contract.tradingsymbol}: {exc}")
+        from app.services.kite_engine.protective_stop import is_definitive_refusal
+        if is_definitive_refusal(exc):
+            _clear_pending_reduction(pos)
+            store.put(uid, pos)
+            await _place_protection(uid, client, pos, cfg)
+            note(uid, "error", f"scale-out definitively refused for {pos.contract.tradingsymbol}: {exc}")
+            return False
+        _fence_uncertain_reduction(uid, client, pos, str(exc))
         return False
     if not oid:
-        pos.exiting = False
-        store.put(uid, pos)
-        await _place_protection(uid, client, pos, cfg)
+        _fence_uncertain_reduction(uid, client, pos, "scale-out missing order_id")
         return False
 
     pos.exit_order_id = oid
