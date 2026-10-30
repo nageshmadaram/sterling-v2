@@ -44,7 +44,7 @@ async def submit_reduction(
         uid, strategy_id, generation_id, signal_id, exchange, symbol, product, kind
     )):
         return ExecutionResult(False, "REJECTED", error="Missing immutable reduction identity")
-    if getattr(client, "_is_paper", None) not in (True, False):
+    if type(getattr(client, "_is_paper", None)) is not bool:
         return ExecutionResult(False, "REJECTED", error="Broker mode unknown")
     account_id = str(getattr(client, "_account_id", "") or "").strip()
     if not account_id:
@@ -54,9 +54,16 @@ async def submit_reduction(
         holding = db.get_inventory_strict(account_id, uid, symbol)
     except Exception:
         return ExecutionResult(False, "REJECTED", error="Canonical inventory unavailable")
-    if (not holding or str(holding.get("exchange") or "").upper() != exchange.upper()
-            or bool(holding.get("reconciliation_required"))
-            or int(holding.get("net_quantity") or 0) < qty):
+    try:
+        sufficient = bool(
+            holding
+            and str(holding.get("exchange") or "").upper() == exchange.upper()
+            and not bool(holding.get("reconciliation_required"))
+            and int(holding.get("net_quantity") or 0) >= qty
+        )
+    except (TypeError, ValueError, OverflowError):
+        sufficient = False
+    if not sufficient:
         return ExecutionResult(
             False, "REJECTED",
             error="Canonical inventory is missing, stale, unreconciled or insufficient; reconcile before reduction",
