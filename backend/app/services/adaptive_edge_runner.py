@@ -1443,6 +1443,18 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
             )
         return False
 
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    canonical_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=position.exchange,
+        symbol=position.symbol, quantity=int(position.quantity), side="SELL",
+    )
+    if canonical_refusal:
+        _restore_open_after_failed_exit(position, "REJECTED")
+        put(uid, position)
+        log.warning("adaptive_edge: keeping broker protection for %s: %s",
+                    position.symbol, canonical_refusal)
+        return False
+
     if not await _cancel_protection(uid, client, position):
         _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
