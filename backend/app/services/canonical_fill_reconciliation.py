@@ -513,7 +513,15 @@ async def resolve_acknowledged_order(
                     average,
                     True,
                     False,
-                    reason="complete_quantity_mismatch",
+                    reason=(
+                        "complete_filled_quantity_unverified" if filled == 0
+                        else "complete_quantity_mismatch"
+                    ),
+                )
+            if filled > 0 and average <= 0:
+                return BrokerOrderResolution(
+                    oid, status, filled, average, True, False,
+                    reason="filled_price_unverified",
                 )
             return BrokerOrderResolution(
                 oid,
@@ -549,7 +557,15 @@ async def resolve_acknowledged_order(
                         average,
                         True,
                         False,
-                        reason="complete_quantity_mismatch",
+                        reason=(
+                            "complete_filled_quantity_unverified" if filled == 0
+                            else "complete_quantity_mismatch"
+                        ),
+                    )
+                if filled > 0 and average <= 0:
+                    return BrokerOrderResolution(
+                        oid, status, filled, average, True, False,
+                        reason="filled_price_unverified",
                     )
                 return BrokerOrderResolution(
                     oid,
