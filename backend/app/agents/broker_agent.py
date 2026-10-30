@@ -16,20 +16,30 @@ class BrokerAgent:
         self.adapter = adapter
         self.bus = bus
 
-    async def place_order(self, **kwargs) -> dict:
-        from app.core.lane_registry import noncanonical_broker_write_allowed
+    async def place_order(self, *, request=None, risk_approval=None, **legacy_kwargs):
+        """Canonical order submission only; old unbound adapter arguments fail closed.
 
-        # BrokerAgent is a legacy facade, not the canonical execution authority.
-        # Do not trust a caller-provided reduce_only flag: Kite's generic order
-        # path cannot enforce that claim against current broker inventory.
-        if not noncanonical_broker_write_allowed(self.adapter):
+        The old paper-only dispatch accepted arbitrary symbol/size/side fields
+        and bypassed the durable execution journal. This facade has no authority
+        to infer account identity, signal generation or risk approval from them.
+        """
+        from app.services.execution_service import (
+            CanonicalExecutionService,
+            ExecutionRequest,
+            RiskApproval,
+        )
+
+        if (legacy_kwargs or not isinstance(request, ExecutionRequest)
+                or (risk_approval is not None and not isinstance(risk_approval, RiskApproval))):
             raise RuntimeError(
-                "BrokerAgent cannot perform live or mode-unknown broker writes; "
-                "route orders through CanonicalExecutionService"
+                "BrokerAgent requires a typed ExecutionRequest and optional RiskApproval; "
+                "route submissions through CanonicalExecutionService"
             )
-        result = await self.adapter.place_order(**kwargs)
-        if self.bus is not None:
-            await self.bus.publish(OrderAccepted(order_id=str((result or {}).get("id", ""))))
+        result = await CanonicalExecutionService().submit_order(
+            request, broker_client=self.adapter, risk_approval=risk_approval
+        )
+        if result.success and self.bus is not None:
+            await self.bus.publish(OrderAccepted(order_id=str(result.order_id)))
         return result
 
     async def cancel_order(self, order_id: str, product_id: int) -> dict:
