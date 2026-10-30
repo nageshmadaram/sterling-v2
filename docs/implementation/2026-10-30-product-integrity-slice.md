@@ -17,16 +17,17 @@ changes deployment runtime configuration. Review and verify before integration.
 2. `backend/app/services/canonical_strategy_entry.py` accepted broker capital
    values of positive infinity, did not reject NaN/Infinity entry prices before
    constructing an execution request, and coerced fractional sizes via `int`.
-3. `backend/tests/unit/test_canonical_execution_convergence.py` declares eight
+3. `backend/app/core/broker_account_binding.py` inferred live-ready permission from any scope containing `live`, including `not_live` and `live_disabled`. It now requires exactly `live` or `live_minimum` (case-insensitive after trimming); unknown historical scopes remain readable but NOT live-ready.
+4. `backend/tests/unit/test_canonical_execution_convergence.py` declares eight
    grandfathered direct entry calls in seven (file,method) entries. This is a
    static legacy-allowance baseline, **not proof the canonical migration is
    complete**. The existing noncanonical entry floor must remain enforced.
-4. `backend/app/services/auth/user_store.py` and
+5. `backend/app/services/auth/user_store.py` and
    `backend/app/services/auth/operator_credentials.py` still use the
    `admin|user` role vocabulary. Complete independent `operator|viewer` policy,
    MFA lifecycle and principal/session migration are not established by these
    source files.
-5. The independent production acceptance register associated with draft PR #14
+6. The independent production acceptance register associated with draft PR #14
    recorded **0/12 controls accepted and 12/12 blocked**. Offline CI and
    source tests do not replace host, device, database recovery, broker, market
    or independent approval evidence.
@@ -37,8 +38,12 @@ changes deployment runtime configuration. Review and verify before integration.
 | --- | --- | --- |
 | Binding persistence | Stage a private 0600 file beside the destination, fsync it, publish via same-filesystem `os.replace`, fsync containing directory, remove staging after error | `backend/tests/unit/test_account_binding_manifest_integrity.py` |
 | Binding identity | Reject unsafe filenames and mismatched filename/manifest IDs instead of loading an identity into the wrong account | Same test module |
+| Binding permission scope | Refuse substring-spoofed `live` account scopes; only exact `live`/`live_minimum` are potentially live-ready, with all other gates still required | Same test module |
 | Entry validation | Require integer quantity, finite positive capital price, finite required capital | `backend/tests/services/test_canonical_entry_input_integrity.py` |
 | Broker capital | Reject non-finite broker-reported and paper-balance amounts | Same test module |
+| Frontend CI | Generate local media CSS and icon assets before direct Vitest command | `.github/workflows/ci.yml`; PR check results |
+| WebSocket acceptance | In isolated CI environment, explicitly grant the synthetic admin Kite permission via audited policy API, then authenticate WebSocket at handshake and frame | `backend/study/check_frontend_stream.py`; CI E2E job |
+| Browser CI | Use Python 3 in CI when developer-only backend venv is absent | `frontend/e2e/tma-login-boundary.spec.ts`; CI E2E job |
 
 No broker API is called by the new negative-path tests; the positive-path
 test uses a synthetic mocked canonical service.
@@ -53,6 +58,8 @@ test uses a synthetic mocked canonical service.
 | All backend/frontend/E2E | PR CI `.github/workflows/ci.yml` including Python 3.12/3.13, frontend build/Vitest, browser matrix | NOT YET VERIFIED |
 | Real broker and production | Independent external receipts, authority and sign-off | BLOCKED; NOT REQUESTED |
 
+Prior PR #15 CI revisions showed frontend Vitest succeeding after media generation, frontend typechecking succeeding, and a separate mobile Expo dependency version failure. The current revision must be checked independently. See [issue #16](https://github.com/nageshmadaram/sterling-v2/issues/16) for the mobile mismatch.
+
 After a CI run, replace **NOT YET EXECUTED** only with a linked job result. A
 green isolated test does not certify a whole application or any real broker path.
 
@@ -64,6 +71,7 @@ green isolated test does not certify a whole application or any real broker path
 | P0 | Comprehensive route/auth test matrix (including negative authorization and direct HTTP calls) | PENDING | Unscheduled |
 | P0 | Integrate principal roles, broker assignment, workspace grants, revocation, token/session invalidation and migration | PENDING | Unscheduled |
 | P1 | Independent database upgrade/recovery/downgrade drill in a production-like environment | EXTERNALLY BLOCKED | After approved environment |
+| P1 | Resolve mobile Expo dependency/lockfile version alignment and pass Expo export checks (issue #16) | PENDING — CI FAIL | Unscheduled |
 | P1 | Verify all frontend journeys on desktop/mobile and real device/error recovery | NOT WORKED in this slice | Unscheduled |
 | P1 | Inventory all endpoints, provider/lake paths and migration scripts against running services | NOT WORKED in this slice | Unscheduled |
 | P1 | Full local compose integration and synthetic end-to-end audit run with persisted state | NOT WORKED in this slice | Unscheduled |
