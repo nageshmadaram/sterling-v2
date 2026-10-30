@@ -748,3 +748,91 @@ def test_new_gamma_lifecycle_events_render_in_the_shared_vocabulary():
         assert event in text.upper()
     closed = fmt.canonicalize_detail("POSITION CLOSED", "Qty 10 · Exit ₹89.50 · SL · P&L ₹-105.00")
     assert closed == "Exit ₹89.50 · P&L -₹105.00 · Qty 10 · Reason SL"
+
+
+@pytest.mark.asyncio
+async def test_gamma_lost_canonical_exit_ack_rebinds_only_exact_broker_book_order(
+    monkeypatch, tmp_path,
+):
+    """True canonical intent + unique tag + complete broker identity permit ACK recovery."""
+    from unittest.mock import AsyncMock
+    from app.services import db
+    from app.services.kite_engine import order_journal
+
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "gamma-unknown.sqlite"))
+    assert db.init()
+    pos = _position()
+    intent = order_journal.reserve(
+        uid="u1", account_id="acct-live", strategy_id=runner.STRATEGY_ID,
+        generation_id=runner.CONTRACT_VERSION,
+        signal_id=f"{pos.signal_id}:reduce:exit",
+        exchange=pos.instrument.exchange, symbol=pos.instrument.tradingsymbol,
+        side="SELL", quantity=10, payload={"product": runner._product(pos),
+                                           "intent_type": "EXIT"},
+    )
+    assert order_journal.claim_submission(intent.intent_key)
+    order_journal.submission_uncertain(intent.intent_key, "simulated lost HTTP ACK")
+    pos.exit_tag = intent.tag
+    pos.exit_order_id = runner.EXIT_SUBMITTING
+    pos.exiting = True
+    pos.exit_requested_qty = 10
+    pos.exit_submitted_ms = runner._now_ms() - 5_000
+    monkeypatch.setattr(runner.positions_store, "put", lambda _uid, p: p)
+    monkeypatch.setattr(runner, "session_for",
+                        lambda *_a, **_k: SimpleNamespace(note=lambda *_a: None))
+    row = {
+        "order_id": "SYNTHETIC-GAMMA-SELL", "tag": intent.tag,
+        "tradingsymbol": pos.instrument.tradingsymbol,
+        "exchange": pos.instrument.exchange, "product": runner._product(pos),
+        "transaction_type": "SELL", "quantity": 10,
+    }
+    client = SimpleNamespace(
+        _account_id="acct-live", _is_paper=False, get_orders=AsyncMock(return_value=[row]),
+    )
+    oid, reason = await runner._resolve_submitted_exit("u1", client, pos)
+    assert (oid, reason) == ("SYNTHETIC-GAMMA-SELL", "found")
+    assert pos.exit_order_id == oid
+    saved = order_journal.get(intent.intent_key)
+    assert saved.order_id == oid and saved.state == "SUBMITTED"
+
+
+@pytest.mark.asyncio
+async def test_gamma_empty_broker_book_never_clears_canonical_unknown_or_rearms_stop(
+    monkeypatch, tmp_path,
+):
+    from unittest.mock import AsyncMock
+    from app.services import db
+    from app.services.kite_engine import order_journal
+
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "gamma-absent.sqlite"))
+    assert db.init()
+    pos = _position()
+    intent = order_journal.reserve(
+        uid="u1", account_id="acct-live", strategy_id=runner.STRATEGY_ID,
+        generation_id=runner.CONTRACT_VERSION,
+        signal_id=f"{pos.signal_id}:reduce:exit",
+        exchange=pos.instrument.exchange, symbol=pos.instrument.tradingsymbol,
+        side="SELL", quantity=10, payload={"product": runner._product(pos),
+                                           "intent_type": "EXIT"},
+    )
+    assert order_journal.claim_submission(intent.intent_key)
+    order_journal.submission_uncertain(intent.intent_key, "broker timeout")
+    pos.exit_tag = intent.tag
+    pos.exit_order_id = runner.EXIT_SUBMITTING
+    pos.exiting = True
+    pos.exit_requested_qty = 10
+    pos.exit_submitted_ms = runner._now_ms() - 120_000
+    restored_stop = []
+    monkeypatch.setattr(runner, "_ensure_protection",
+                        lambda *_a, **_k: restored_stop.append(True))
+    monkeypatch.setattr(runner, "_halt_unresolved_exit",
+                        lambda *_a, **_k: None)
+    client = SimpleNamespace(
+        _account_id="acct-live", _is_paper=False,
+        get_orders=AsyncMock(return_value=[]),
+    )
+    oid, reason = await runner._resolve_submitted_exit("u1", client, pos)
+    assert not oid and reason == "canonical_exit_book_absent_requires_reconciliation"
+    assert pos.exiting and pos.exit_order_id == runner.EXIT_SUBMITTING
+    assert not restored_stop
+    assert order_journal.get(intent.intent_key).state == "UNKNOWN"
