@@ -95,13 +95,10 @@ async def submit_reduction(
         result = await CanonicalExecutionService().submit_order(
             request, broker_client=client,
         )
-    except BaseException as exc:
-        # Cancellation must propagate after the executor marks any in-flight
-        # broker send uncertain. Other unknown failures must never trigger a
-        # legacy engine's stop re-arm or second SELL.
-        import asyncio
-        if isinstance(exc, asyncio.CancelledError):
-            raise
+    except Exception as exc:
+        # The canonical executor already marks cancellation in flight UNKNOWN
+        # and CancelledError propagates. Other unclassified exceptions must
+        # never prompt the engine to send a second SELL or re-arm protection.
         return ExecutionResult(False, "UNKNOWN", error=f"Canonical exit failed; reconciliation required: {exc}")
     if result.success and not result.order_id:
         return ExecutionResult(
