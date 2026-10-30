@@ -8,6 +8,7 @@ table parity, a PostgreSQL migration, or authorization to trade.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 import hashlib
 import json
 import os
@@ -53,12 +54,16 @@ def _read_only(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def _schema(conn: sqlite3.Connection) -> dict:
-    objects = conn.execute(
+def _schema(conn: sqlite3.Connection, *, exclude_ledger: bool = False) -> dict:
+    query = (
         "SELECT type, name, tbl_name, sql FROM sqlite_master "
-        "WHERE type IN ('table','index','view','trigger') AND name NOT LIKE 'sqlite_%' "
-        "ORDER BY type, name"
-    ).fetchall()
+        "WHERE type IN ('table','index','view','trigger') AND name NOT LIKE 'sqlite_%'"
+    )
+    params = ()
+    if exclude_ledger:
+        query += " AND name<>?"
+        params = (LEDGER,)
+    objects = conn.execute(query + " ORDER BY type, name", params).fetchall()
     return {
         "schema_sha256": hashlib.sha256(
             json.dumps(objects, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -91,7 +96,7 @@ def _check(conn: sqlite3.Connection) -> None:
 def inventory(path: Path) -> dict:
     """Only schema metadata and row COUNTS. Never export values or secrets."""
     source = _source(Path(path))
-    with _read_only(source) as conn:
+    with closing(_read_only(source)) as conn:
         _check(conn)
         schema = _schema(conn)
         counts = _counts(conn)
@@ -142,8 +147,9 @@ def _ledger_status(conn: sqlite3.Connection, baseline_hash: str) -> str:
     ).fetchall()
     if len(rows) != 1 or rows[0][0] != VERSION or rows[0][1] != "copy_only":
         raise ValueError("Unknown or conflicting migration ledger version")
-    if not isinstance(rows[0][2], str) or len(rows[0][2]) != 64:
-        raise ValueError("Corrupt migration schema fingerprint")
+    if (not isinstance(rows[0][2], str) or len(rows[0][2]) != 64
+            or rows[0][2] != _schema(conn, exclude_ledger=True)["schema_sha256"]):
+        raise ValueError("Existing version ledger fingerprint does not match preserved operational schema")
     return "ALREADY_APPLIED_ON_COPY"
 
 
@@ -171,7 +177,7 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
         stage = Path(raw)
         os.fchmod(fd, 0o600)
         os.close(fd)
-        with _read_only(src) as original, sqlite3.connect(stage, timeout=30) as clone:
+        with closing(_read_only(src)) as original, closing(sqlite3.connect(stage, timeout=30)) as clone:
             original.backup(clone)
             # A WAL source can leave a WAL-mode output. Convert the isolated
             # staging copy to a self-contained DELETE-journal DB before
