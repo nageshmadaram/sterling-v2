@@ -57,7 +57,7 @@ async def enforce_feature_access(connection: HTTPConnection):
         return  # WebSocket identity and each send/subscription have their own durable checks.
     request = connection
     policy = route_policy(request.url.path, request.method)
-    if policy == 'kite':
+    if policy in ('kite', 'kite_read_only'):
         principal = await get_current_user(request)
         current = require_feature(principal)
         # A feature grant allows a viewer to inspect the workspace, not mutate
