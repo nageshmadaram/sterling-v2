@@ -1,5 +1,13 @@
 # Sterling V2 product integrity: implementation slice (2026-10-30)
 
+> **Historical implementation log, not the current acceptance register.**
+> The intermediate counts of eight, seven and five direct broker-order
+> calls and the then-pending migration notes below describe earlier commits.
+> The current authoritative status is
+> [2026-10-30-product-integrity-current-review.md](2026-10-30-product-integrity-current-review.md).
+> The latest source baseline is **zero grandfathered direct order sends**,
+> but runtime acceptance and canonical fill projection remain **unverified**.
+
 ## Purpose and release boundary
 
 This is a **source-only, reviewable product-integrity increment**, not an end-to-end
