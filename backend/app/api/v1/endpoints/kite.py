@@ -1487,6 +1487,18 @@ async def place_order(body: PlaceOrderRequest, user: UserContext = Depends(get_c
     )
     prior = live_safety.check_idempotency(idem_key)
     if prior:
+        # A reserved/unknown submission is not a broker order ID. Returning it
+        # as HTTP 200 led mobile/desktop clients to display an accepted order
+        # even when settlement was still uncertain. Never replay an ambiguous
+        # request or silently elevate an idempotency marker to broker truth.
+        if str(prior).upper() in {"PENDING", "UNKNOWN"}:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "submission_unknown",
+                    "reason": "Prior submission outcome is not confirmed; inspect Orders and reconcile before retrying",
+                },
+            )
         return {"order_id": prior, "deduplicated": True}
 
     # ── F&O option orders get the engine's position protection ─────────────────
