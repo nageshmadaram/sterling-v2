@@ -35,6 +35,43 @@ REQUIRED = frozenset({
     "kite_accounts", "kite_order_intents", "kite_fill_ledger",
     "kite_inventory", "execution_control", "positions", "system_config",
 })
+# Exact SQLite column declarations inspected in Sterling db.py. Additional
+# columns are allowed; missing/wrong-affinity critical fields are blockers.
+# This is NOT an assertion of OpenAlgo physical schema equivalence.
+REQUIRED_COLUMNS = {
+    "positions": {
+        "id": "TEXT", "status": "TEXT", "data": "TEXT",
+        "entry_ts": "INTEGER", "updated_ts": "INTEGER",
+    },
+    "kite_accounts": {
+        "id": "TEXT", "user_id": "TEXT", "is_paper": "INTEGER",
+        "is_active": "INTEGER", "access_token_enc": "TEXT",
+    },
+    "kite_order_intents": {
+        "intent_key": "TEXT", "uid": "TEXT", "account_id": "TEXT",
+        "strategy_id": "TEXT", "signal_id": "TEXT", "side": "TEXT",
+        "quantity": "INTEGER", "tag": "TEXT", "state": "TEXT",
+        "projection_pending": "INTEGER", "projection_version": "INTEGER",
+    },
+    "kite_fill_ledger": {
+        "account_id": "TEXT", "order_id": "TEXT", "trade_id": "TEXT",
+        "side": "TEXT", "quantity": "INTEGER", "price": "REAL",
+    },
+    "kite_inventory": {
+        "account_id": "TEXT", "uid": "TEXT", "symbol": "TEXT",
+        "net_quantity": "INTEGER", "reconciliation_required": "INTEGER",
+    },
+    "execution_control": {
+        "scope": "TEXT", "uid": "TEXT", "account_id": "TEXT",
+        "operator_state": "TEXT", "recovery_state": "TEXT",
+        "revision": "INTEGER", "initialized": "INTEGER",
+    },
+    "system_config": {"key": "TEXT", "value": "TEXT"},
+    "users": {
+        "id": "TEXT", "username": "TEXT", "password_hash": "TEXT",
+        "role": "TEXT", "token_version": "INTEGER",
+    },
+}
 LEDGER_COLUMNS = ("version", "phase", "source_schema_sha256")
 
 
@@ -93,6 +130,27 @@ def _check(conn: sqlite3.Connection) -> None:
         raise ValueError("Foreign key constraint violation; do not migrate")
 
 
+def _column_gaps(conn: sqlite3.Connection, tables: set[str]) -> dict:
+    gaps = {}
+    for table, expected in REQUIRED_COLUMNS.items():
+        if table not in tables:
+            continue
+        actual = {
+            str(row[1]): str(row[2]).strip().upper()
+            for row in conn.execute(
+                'PRAGMA table_info("' + table.replace('"', '""') + '")'
+            )
+        }
+        mismatches = {
+            name: {"expected": kind, "actual": actual.get(name, "MISSING")}
+            for name, kind in expected.items()
+            if actual.get(name) != kind
+        }
+        if mismatches:
+            gaps[table] = mismatches
+    return gaps
+
+
 def inventory(path: Path) -> dict:
     """Only schema metadata and row COUNTS. Never export values or secrets."""
     source = _source(Path(path))
@@ -102,6 +160,7 @@ def inventory(path: Path) -> dict:
         counts = _counts(conn)
         tables = set(counts)
         missing = sorted(REQUIRED - tables)
+        column_gaps = _column_gaps(conn, tables)
         domains = {
             name: {
                 "present": [t for t in expected if t in tables],
@@ -110,12 +169,14 @@ def inventory(path: Path) -> dict:
             for name, expected in DOMAINS.items()
         }
         return {
-            "status": "BLOCKED_INCOMPLETE_SCHEMA" if missing else "READY_FOR_COPY_ONLY",
+            "status": ("BLOCKED_INCOMPLETE_SCHEMA"
+                       if missing or column_gaps else "READY_FOR_COPY_ONLY"),
             "mode": "READ_ONLY_INVENTORY",
             "schema_sha256": schema["schema_sha256"],
             "table_counts": counts,
             "domain_mapping": domains,
             "missing_required": missing,
+            "column_mismatches": column_gaps,
             "sqlite_user_version": int(conn.execute("PRAGMA user_version").fetchone()[0]),
             "broker_connection": "NOT_ATTEMPTED",
             "live_trading": "NOT_AUTHORIZED",
@@ -167,8 +228,9 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
         raise ValueError("Destination must be in a different directory from source")
     if not dest.parent.is_dir():
         raise ValueError("Destination parent must exist; will not create directories")
-    if inventory(src)["missing_required"]:
-        raise ValueError("Source schema incomplete; migration copy refused")
+    scan = inventory(src)
+    if scan["missing_required"] or scan["column_mismatches"]:
+        raise ValueError("Source schema incomplete or incompatible; migration copy refused")
     stage = None
     published = False
     try:
