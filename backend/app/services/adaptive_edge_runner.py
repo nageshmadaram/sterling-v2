@@ -1449,6 +1449,12 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
         return False
 
     limit = exit_order_price(price, position.tick_size)
+    # Persist the exact requested reduction before the broker call. A lost
+    # acknowledgement is an unresolved EXIT_INTENT, not permission to retry.
+    position.exit_requested_qty = int(position.quantity)
+    position.exit_requested_price = float(limit)
+    position.exit_pending_reason = str(reason)
+    put(uid, position)
     try:
         from app.services.snapback_family_mode import (
             INTENT_REDUCE, ReduceBound,
