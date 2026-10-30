@@ -1865,7 +1865,18 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     # The SELL's identity is durable BEFORE it leaves: a unique tag and a
     # "submitting" id. A cancelled task, a lost reply or a crash then leaves
     # something reconcile can find in the order book instead of a stranded exit.
-    tag = _new_exit_tag()
+    from app.services.kite_engine import order_journal
+    from app.services.canonical_strategy_reduction import submit_reduction
+    # The canonical journal's deterministic tag must match the persisted
+    # in-flight identity so recovery can bind an ACK lost mid-transport.
+    canonical_key = order_journal.make_key(
+        uid=uid, account_id=str(getattr(client, "_account_id", "") or ""),
+        strategy_id=STRATEGY_ID, generation_id=CONTRACT_VERSION,
+        signal_id=f"{pos.signal_id}:reduce:exit",
+        exchange=pos.instrument.exchange,
+        symbol=pos.instrument.tradingsymbol, side="SELL",
+    )
+    tag = "ke" + canonical_key[:18]
     pos.exiting = True
     pos.exit_pending_reason = str(reason)
     # This value is only a grading/reference fallback; live P&L uses broker fill.
@@ -1885,62 +1896,36 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     _journal.gm_exit_submitted(uid, pos, str(reason))
 
     try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound, canonical_broker_capability,
+        outcome = await submit_reduction(
+            client=client, uid=uid, strategy_id=STRATEGY_ID,
+            generation_id=CONTRACT_VERSION, signal_id=pos.signal_id,
+            exchange=pos.instrument.exchange,
+            symbol=pos.instrument.tradingsymbol, quantity=int(pos.quantity),
+            product=_product(pos), order_type="market_order",
+            kind="exit", reason=str(reason),
         )
-        with canonical_broker_capability(
-            f"gamma-unwind-exit:"
-            f"{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
-            intent=INTENT_REDUCE,
-            # One contract, the closing side, never more than the position: the
-            # transport refuses an exit that would open or flip exposure.
-            bound=ReduceBound.closing(
-                exchange=pos.instrument.exchange,
-                symbol=pos.instrument.tradingsymbol,
-                side="SELL", quantity=int(pos.quantity),
-            ),
-        ):
-            res = await client.place_order(
-                f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}",
-                "sell",
-                float(pos.quantity),
-                order_type="market_order",
-                product=_product(pos),
-                tag=tag,
-                allow_amo=False,
-            )
-        oid = str((res or {}).get("order_id") or "")
     except asyncio.CancelledError:
-        # The SELL may or may not have reached the broker. The durable
-        # 'submitting' identity above is exactly what reconcile resolves; rolling
-        # it back here would re-arm a stop over a SELL that may be live.
+        # The canonical service marks an in-flight send UNKNOWN; the durable
+        # strategy identity stays latched for order-book reconciliation.
         raise
-    except Exception as exc:
-        from app.services.kite_engine.protective_stop import is_definitive_refusal
-        if is_definitive_refusal(exc):
-            # Nothing was created at the broker: release the exit, restore the stop.
+
+    if not outcome.success:
+        if outcome.status == "REJECTED":
+            # The canonical sender rejected before a broker placement.
             _clear_exit_fields(pos)
             positions_store.put(uid, pos)
             await _ensure_protection(uid, client, pos)
-            session.note(
-                "error",
-                f"exit rejected for {pos.instrument.tradingsymbol}: {exc}",
-            )
+            session.note("error", f"canonical exit refused for {pos.instrument.tradingsymbol}: {outcome.error}")
             return False, "submit_failed"
         session.note(
             "error",
-            f"exit for {pos.instrument.tradingsymbol} not acknowledged ({exc}); "
-            "resolving against the order book, no resend",
+            f"canonical exit {outcome.status} for {pos.instrument.tradingsymbol}: "
+            f"{outcome.error}; reconcile journal and broker orders, no resend",
         )
         return await _settle_known_exit(uid, client, pos)
 
+    oid = str(outcome.order_id or "")
     if not oid:
-        session.note(
-            "error",
-            f"exit for {pos.instrument.tradingsymbol} returned no order id; "
-            "resolving against the order book, no resend",
-        )
         return await _settle_known_exit(uid, client, pos)
 
     pos.exit_order_id = oid
