@@ -282,12 +282,28 @@ def test_unknown_exit_recovery_requires_immutable_full_order_identity():
     assert 'str(order.get("exchange") or "").strip().upper()' in service_source
 
 
-def test_canonical_monitor_exit_send_carries_reduce_authority():
-    """Family Mode must never block the canonical exit at the transport boundary."""
+def test_supertrend_monitor_exit_uses_canonical_journal_instead_of_an_indirect_send():
     source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
-    assert "exit-send:" in source
-    assert "intent=INTENT_REDUCE" in source
-    assert "result = await place(" in source
+    assert "reduction_inventory_refusal(" in source
+    assert "submit_reduction(" in source
+    assert "canonical_intent_key = order_journal.make_key(" in source
+    assert 'p.exit_tag = "ke" + canonical_intent_key[:18]' in source
+    assert "result = await place(" not in source
+    assert "place = client.place_order_" not in source
+
+
+def test_no_broker_order_method_is_rebound_to_bypass_direct_call_audit():
+    """Catch a former SuperTrend bypass: place=client.place_order_option; await place(...)."""
+    found = []
+    for path in _production_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                value = node.value
+                if isinstance(value, ast.Attribute) and value.attr in ENTRY_METHODS:
+                    found.append(f"{_relative(path)}:{node.lineno}:{value.attr}")
+    assert not found, "Indirect broker order methods bypass canonical journal: " + ", ".join(found)
+
 
 
 def test_legacy_order_router_auxiliary_mutations_are_paper_only():
@@ -422,53 +438,20 @@ def test_allowlist_entries_still_exist(allowed: str):
     assert (APP / allowed).exists(), f"allowlisted file {allowed} no longer exists"
 
 
-def test_grandfathered_engine_order_calls_are_only_bounded_sell_reductions():
-    """Fence the remaining protective exits while canonicalization is pending.
-
-    The raw adapter calls are not accepted as new-entry paths. Every legacy
-    engine call must have a literal SELL side *inside* a canonical reduction
-    capability. A newly introduced or changed call fails the source audit.
-    This is not a substitute for a durable exit-intent migration.
-    """
+def test_all_five_former_legacy_sell_paths_have_canonical_journal_handoffs():
+    """No grandfathered SELL bypasses, including the original five reductions."""
     expected = {
-        'services/adaptive_edge_runner.py': 1,
-        'services/gamma_move_runner.py': 1,
-        'services/intraday_runner.py': 2,
-        'services/opening_volume_execution.py': 1,
+        "services/adaptive_edge_runner.py": 1,
+        "services/gamma_move_runner.py": 1,
+        "services/intraday_runner.py": 2,
+        "services/opening_volume_execution.py": 1,
     }
     for rel, count in expected.items():
-        source = (APP / rel).read_text(encoding='utf-8')
-        tree = ast.parse(source)
-        guarded_calls = []
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.With, ast.AsyncWith)):
-                continue
-            capability = any(
-                isinstance(ctx.context_expr, ast.Call)
-                and isinstance(ctx.context_expr.func, ast.Name)
-                and ctx.context_expr.func.id == 'canonical_broker_capability'
-                for ctx in node.items
-            )
-            if not capability:
-                continue
-            for child in ast.walk(node):
-                if not isinstance(child, ast.Call) or not isinstance(child.func, ast.Attribute):
-                    continue
-                if child.func.attr not in ENTRY_METHODS:
-                    continue
-                assert len(child.args) >= 2, f'{rel}: broker exit requires literal SELL side'
-                side = child.args[1]
-                assert isinstance(side, ast.Constant) and side.value == 'sell', (
-                    f'{rel}: legacy broker exit could change side; migrate it to canonical'
-                )
-                guarded_calls.append(child)
-        assert len(guarded_calls) == count, (
-            f'{rel}: expected {count} guarded reduction calls; found {len(guarded_calls)}'
-        )
-        assert len(_direct_entry_calls(APP / rel)) == count, (
-            f'{rel}: unguarded broker call introduced outside reduction capability'
-        )
-        assert 'INTENT_REDUCE' in source and 'ReduceBound.closing(' in source
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert source.count("submit_reduction(") == count, f"{rel}: missing canonical reductions"
+        assert not _direct_entry_calls(APP / rel), f"{rel}: direct broker write returned"
+    assert not _direct_entry_calls(APP / "services/kite_engine/monitor.py")
+
 
 
 @pytest.mark.asyncio
