@@ -5,6 +5,7 @@ vi.mock('../src/services/api', () => ({ api: requests }));
 
 import {
   assertKiteWriteAllowed,
+  assertGlobalRiskControlAllowed,
   canManageGlobalRisk,
   canWriteKite,
 } from '../src/services/workspacePolicy';
@@ -43,4 +44,15 @@ it('re-checks latest server grant before each prospective order', async () => {
 it('fails closed on unavailable identity policy', async () => {
   requests.get.mockRejectedValue(new Error('Access could not be verified'));
   await expect(assertKiteWriteAllowed()).rejects.toThrow('Access could not be verified');
+});
+
+it('never sends a global risk mutation without a fresh designated-admin policy', async () => {
+  requests.get.mockResolvedValueOnce({
+    role: 'viewer', administrator: false, features: enabled,
+  }).mockResolvedValueOnce({
+    role: 'admin', administrator: true, features: enabled,
+  });
+  await expect(assertGlobalRiskControlAllowed()).rejects.toThrow('designated administrator');
+  await expect(assertGlobalRiskControlAllowed()).resolves.toBeUndefined();
+  expect(requests.get).toHaveBeenCalledTimes(2);
 });
