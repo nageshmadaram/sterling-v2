@@ -51,6 +51,7 @@ export function WorkspaceRouter() {
   const chooser = session && <WorkspaceChooser features={session.features} visibility={session.visibility} administrator={session.administrator} onSelect={navigate} onAdmin={() => navigate('administration')} />;
   const allowed = current === 'home' || (current === 'administration' ? session?.administrator : session?.features[current]);
   return <div className={`workspace-shell ${current === 'kite' ? 'is-kite' : ''}`}>
+    {current === 'kite' && allowed && session?.role === 'viewer' && <div className="workspace-viewer-notice" role="status">Read-only Kite workspace: order and configuration changes are unavailable.</div>}
     {(current !== 'kite' || !allowed) && <header className="workspace-header"><button type="button" className="workspace-wordmark" aria-label="Choose workspace" onClick={() => setChooserOpen(true)}><SterlingLogo size={26} /><span>STERLING</span></button>
       {(current==='tv'||current==='radio') ? <button type="button" className="workspace-current workspace-cycle"
         onClick={cycleWorkspace} title="Switch to the next permitted workspace"
