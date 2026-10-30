@@ -106,3 +106,37 @@ Expo native and broker-provider proofs remain required.
 
 **Certification boundary: OFFLINE REVIEW ONLY; PRODUCTION NO-GO; LIVE
 TRADING AND BROKER ORDER ROUTING NOT AUTHORIZED.**
+
+
+## Follow-on migration hardening: data parity and disposable PostgreSQL drill
+
+The copy-only SQLite upgrade now compares per-table **content fingerprints**,
+not only schema definitions and row counts. Digests are used internally and
+are not emitted in the public inventory; staged data corruption with an
+unchanged row count causes cleanup and refuses publish. Snapshot comparison
+still does not prove the entire host, secrets custody, or PostgreSQL readiness.
+
+The Alembic migration environment now uses the already pinned **asyncpg**
+driver through SQLAlchemy's asynchronous engine. It refuses PostgreSQL
+targets unless all of these hold:
+
+- Database name begins `sterling_test_` or `sterling_disposable_`
+- `STERLING_ALEMBIC_DISPOSABLE=1` is explicitly present
+- Effective Sterling runtime environment is **not** production
+- PostgreSQL driver is `asyncpg`; unsupported / unpinned drivers fail closed
+
+These gates make misuse harder but are not proof of the target's actual
+disposability, nor are they external release approvals.
+
+Added `.github/workflows/postgres-migration-drill.yml`: a
+**disposable PostgreSQL 16** service job that performs a repeated Alembic
+upgrade, inserts synthetic ORM data, rolls back a synthetic transaction,
+takes a custom-format database dump and restores into a distinct test DB,
+then verifies Alembic revision, retained data and absent rolled-back data.
+It does **not** operate on Sterling's raw operational SQLite or use real
+broker credentials. CI is evidence only **if the exact commit's workflow
+actually completes successfully**. Queued jobs are not a PASS.
+
+The scope still does not include PostgreSQL migration of all Sterling
+execution journal, risk, broker-account, inventory or credential tables.
+No live database switches or broker calls have been performed.
