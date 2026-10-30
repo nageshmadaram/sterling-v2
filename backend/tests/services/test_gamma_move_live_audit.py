@@ -213,6 +213,8 @@ async def test_concurrent_exit_triggers_send_one_sell(monkeypatch):
                                intent_key="offline-canonical-1")
 
     monkeypatch.setattr(reductions, "submit_reduction", offline_canonical_exit)
+    monkeypatch.setattr(reductions, "reduction_inventory_refusal",
+                        lambda **_kw: None)  # exercise serialization, not ledger admission
 
     results = await asyncio.gather(
         runner._execute_exit("u1", pos, market_ltp=89.0, reason="SL", grade_price=90.0),
