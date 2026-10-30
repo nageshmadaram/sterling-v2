@@ -421,9 +421,10 @@ def test_broker_activate_and_connect_require_delegated_configuration_not_just_ki
         assert response.status_code == 404, response.text
 
 
-def test_role_kite_mutation_matrix_and_simulation_isolation(workspace):
-    """Real JWT and global route enforcement for admin/operator/legacy/viewer."""
-    from app.core import tokens
+def test_role_kite_mutation_matrix_and_simulation_isolation(workspace, monkeypatch):
+    """Owner's virtual paper writes remain available; live writes never leak."""
+    from app.core import tokens, auth
+    monkeypatch.setattr(auth, "_owner_uid", lambda: "default")
 
     user_store.add("operator", "Synthetic-password-123", role="operator", user_id="operator")
     user_store.add("viewer", "Synthetic-password-123", role="viewer", user_id="viewer")
@@ -438,6 +439,10 @@ def test_role_kite_mutation_matrix_and_simulation_isolation(workspace):
     @app.post("/api/v1/kite/orders")
     async def synthetic_write():
         return {"reached": True}
+
+    @app.post("/api/v1/kite/trading/kill-switch")
+    async def forbidden_global_halt():
+        return {"should_not_run": True}
 
     @app.get("/api/v1/kite/orders")
     async def synthetic_read():
@@ -456,7 +461,14 @@ def test_role_kite_mutation_matrix_and_simulation_isolation(workspace):
                 # No virtual simulation identity may mutate a live account,
                 # even if its owner has an explicit Kite write grant.
                 sim_headers = {**headers, "X-Sterling-View": "simulation"}
-                assert client.post("/api/v1/kite/orders", headers=sim_headers).status_code == 403
+                # Only the designated admin may enter the Simulation tenant.
+                # Its virtual book remains writable, but external/global routes
+                # are prohibited by auth.simulation_denied, not a blanket block.
+                expect_sim = 200 if uid == "default" else 403
+                assert client.post("/api/v1/kite/orders", headers=sim_headers).status_code == expect_sim
+                if uid == "default":
+                    assert client.post("/api/v1/kite/trading/kill-switch",
+                                       headers=sim_headers).status_code == 403
 
 
 def test_broker_activation_and_session_test_are_configuration_mutations(workspace):
