@@ -193,3 +193,29 @@ Do not revert to a prior unsafe direct SELL sender in response to blocked
 legacy inventory; require approved broker-account reconciliation and
 review of the original pending order before any renewed action.
 
+
+
+### Latest source refinement: Gamma UNKNOWN recovery and journal ownership
+
+- A Gamma-Unwind `ke...` exit tag that appears **exactly once** in the broker
+  order book is now matched against the existing canonical journal account,
+  contract, product, SELL side and requested quantity. Only then is a lost
+  acknowledgement rebound to that intent. An ambiguous, conflicting or missing
+  journal identity leaves the original exit fenced.
+- A canonical Gamma exit with no broker-book match is **not** declared unsent
+  merely because a single read returned an empty list. Operator reconciliation
+  remains necessary; the old protective GTT is not silently rearmed.
+- A shared broker-fill consumer never clears another strategy's EXIT
+  `projection_pending` marker. SuperTrend likewise retains its marker when
+  the signed fill ledger write fails. A strategy-specific confirmed fill
+  may clear its exact version only after the strategy registry is durable.
+- New negative tests cover the exact-tag Gamma acknowledgement recovery,
+  absent-book UNKNOWN fencing, cross-strategy journal retention, SuperTrend
+  ledger failure, signed short-cover reduction, and pre-disarm GTT preservation.
+
+**Acceptance distinction:** source and regression tests have been committed,
+but no latest-head CI PASS or full runtime recovery proof has been established.
+The five previously grandfathered calls plus the discovered SuperTrend
+indirect alias are source-migrated; isolated PAPER HTTP order handling still
+requires later canonical integration. Existing live holdings without
+authoritatively reconciled journal inventory require operator attention.
