@@ -1046,6 +1046,17 @@ async def _exit_position(uid: str, client, pos: IntradayPosition, reason: str,
              f"local quantity {pos.quantity}")
         return False
 
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    canonical_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=pos.contract.exchange,
+        symbol=pos.contract.tradingsymbol, quantity=int(pos.quantity), side="SELL",
+    )
+    if canonical_refusal:
+        pos.exiting = False
+        store.put(uid, pos)
+        note(uid, "warning", f"{pos.contract.tradingsymbol}: stop retained; {canonical_refusal}")
+        return False
+
     if not await _release_protection_for_exit(uid, client, pos):
         pos.exiting = False
         store.put(uid, pos)
@@ -1127,6 +1138,16 @@ async def _scale_out(uid: str, client, pos: IntradayPosition, premium: float,
         return False
     pos.exiting = True
     store.put(uid, pos)
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    canonical_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=pos.contract.exchange,
+        symbol=pos.contract.tradingsymbol, quantity=int(qty), side="SELL",
+    )
+    if canonical_refusal:
+        pos.exiting = False
+        store.put(uid, pos)
+        note(uid, "warning", f"{pos.contract.tradingsymbol}: stop retained; {canonical_refusal}")
+        return False
     if not await _release_protection_for_exit(uid, client, pos):
         pos.exiting = False
         store.put(uid, pos)
