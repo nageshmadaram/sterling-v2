@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import Header from '../../src/components/Header';
 import { api } from '../../src/services/api';
-import { assertGlobalRiskControlAllowed, canManageGlobalRisk, currentWorkspacePolicy } from '../../src/services/workspacePolicy';
+import { assertKillSwitchChangeAllowed, assertDailyLossChangeAllowed, canManageGlobalRisk, canWriteKite, currentWorkspacePolicy } from '../../src/services/workspacePolicy';
 import { theme } from '../../src/styles/theme';
 import { useStore } from '../../src/store/useStore';
 
@@ -19,6 +19,7 @@ export default function SettingsDashboard() {
   const [killKnown, setKillKnown] = useState(false);
   const [lossKnown, setLossKnown] = useState(false);
   const [controlAllowed, setControlAllowed] = useState(false);
+  const [writeAllowed, setWriteAllowed] = useState(false);
   const [loadError, setLoadError] = useState('');
   // INR, and stored negative. The USD fields these used to carry went with the
   // crypto surface, along with every route this screen called.
@@ -30,6 +31,7 @@ export default function SettingsDashboard() {
     try {
       const policy = await currentWorkspacePolicy();
       setControlAllowed(canManageGlobalRisk(policy));
+      setWriteAllowed(canWriteKite(policy));
       // allSettled, not all. One dead route used to reject the whole batch, so a
       // single 404 left the screen blank -- including the kill switch, which is
       // the control you most need when something else is already broken.
@@ -66,6 +68,7 @@ export default function SettingsDashboard() {
       setSystemInfo(null);
     } catch (e) {
       setControlAllowed(false);
+      setWriteAllowed(false);
       setKillKnown(false);
       setLossKnown(false);
       setLoadError('Workspace policy could not be verified. Controls are unavailable.');
@@ -79,14 +82,14 @@ export default function SettingsDashboard() {
   }, []);
 
   const handleToggleKill = async () => {
-    if (!killKnown || !controlAllowed || busy) return;
+    if (!killKnown || !writeAllowed || (killSwitch.enabled && !controlAllowed) || busy) return;
     setBusy(true);
     try {
-      await assertGlobalRiskControlAllowed();
       const next = !killSwitch.enabled;
+      await assertKillSwitchChangeAllowed(next);
       await api.post('/api/v1/kite/trading/kill-switch', {
         enabled: next,
-        reason: next ? 'manual mobile operator halt' : ''
+        reason: next ? 'manual mobile operator halt' : 'mobile administrator request to lift halt after review'
       });
       Alert.alert(next ? 'New entries halted' : 'Entry halt removed', 'Existing positions remain managed. Other entry checks still apply.');
       await fetchSettings();
@@ -98,7 +101,7 @@ export default function SettingsDashboard() {
   };
 
   const handleSaveDailyLoss = async () => {
-    if (!lossKnown || !controlAllowed || busy) return;
+    if (!lossKnown || !writeAllowed || busy) return;
     const soft = Math.abs(Number(dailyLoss.soft_warn_inr));
     const hard = Math.abs(Number(dailyLoss.hard_halt_inr));
     if (!Number.isFinite(soft) || !Number.isFinite(hard) || (dailyLoss.enabled && (hard <= 0 || soft > hard))) {
@@ -107,7 +110,13 @@ export default function SettingsDashboard() {
     }
     setBusy(true);
     try {
-      await assertGlobalRiskControlAllowed();
+      // Fresh server thresholds determine whether this change loosens the
+      // circuit breaker. A stale mobile slider cannot authorize a relaxation.
+      const current = await api.get<{enabled: boolean; hard_halt_inr: number}>('/api/v1/kite/risk/daily-loss');
+      await assertDailyLossChangeAllowed(current, {
+        enabled: dailyLoss.enabled,
+        hard_halt_inr: -hard,
+      });
       await api.put('/api/v1/kite/risk/daily-loss', {
         enabled: dailyLoss.enabled,
         // Typed as a positive rupee amount, stored as the loss it describes.
@@ -161,7 +170,7 @@ export default function SettingsDashboard() {
           </TouchableOpacity>
         </View>
 
-        {!controlAllowed ? <Text accessibilityRole="text" style={{ color: theme.colors.textMuted, paddingVertical: 7, fontSize: 12 }}>Read-only settings. Global trading safeguards require administrator privileges.</Text> : null}
+        {!writeAllowed ? <Text accessibilityRole="text" style={{ color: theme.colors.textMuted, paddingVertical: 7, fontSize: 12 }}>Read-only settings. Trading safeguards are unavailable.</Text> : !controlAllowed ? <Text accessibilityRole="text" style={{ color: theme.colors.textMuted, paddingVertical: 7, fontSize: 12 }}>Operator access: you can engage a halt or tighten loss limits. Only the administrator can lift a halt or loosen limits.</Text> : null}
         {/* Global Safety (Kill Switch) */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>GLOBAL SAFETY</Text>
@@ -176,7 +185,7 @@ export default function SettingsDashboard() {
               <Switch
                 value={killSwitch.enabled}
                 onValueChange={handleToggleKill}
-                disabled={busy || !killKnown || !controlAllowed}
+                disabled={busy || !killKnown || !writeAllowed || (killSwitch.enabled && !controlAllowed)}
                 trackColor={{ false: '#3f3f46', true: theme.colors.red }}
                 thumbColor={killSwitch.enabled ? '#fff' : '#a1a1aa'}
               />
@@ -193,7 +202,7 @@ export default function SettingsDashboard() {
               <Switch
                 value={dailyLoss.enabled}
                 onValueChange={(val) => setDailyLoss({ ...dailyLoss, enabled: val })}
-                disabled={!controlAllowed || busy}
+                disabled={!writeAllowed || busy}
                 trackColor={{ false: '#3f3f46', true: theme.colors.green }}
               />
             </View>
@@ -203,7 +212,7 @@ export default function SettingsDashboard() {
               <TextInput
                 style={styles.input}
                 value={String(dailyLoss.soft_warn_inr)}
-                editable={controlAllowed && !busy}
+                editable={writeAllowed && !busy}
                 onChangeText={(val) => setDailyLoss({ ...dailyLoss, soft_warn_inr: Number(val) || 0 })}
                 keyboardType="numeric"
                 placeholderTextColor={theme.colors.textMuted}
@@ -215,14 +224,14 @@ export default function SettingsDashboard() {
               <TextInput
                 style={styles.input}
                 value={String(dailyLoss.hard_halt_inr)}
-                editable={controlAllowed && !busy}
+                editable={writeAllowed && !busy}
                 onChangeText={(val) => setDailyLoss({ ...dailyLoss, hard_halt_inr: Number(val) || 0 })}
                 keyboardType="numeric"
                 placeholderTextColor={theme.colors.textMuted}
               />
             </View>
 
-            <TouchableOpacity style={styles.saveButton} disabled={busy || !lossKnown || !controlAllowed} onPress={handleSaveDailyLoss}>
+            <TouchableOpacity style={styles.saveButton} disabled={busy || !lossKnown || !writeAllowed} onPress={handleSaveDailyLoss}>
               <Text style={styles.saveButtonText}>SAVE LOSS PARAMETERS</Text>
             </TouchableOpacity>
           </View>
