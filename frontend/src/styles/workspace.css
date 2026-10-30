@@ -162,3 +162,6 @@ button,a{-webkit-tap-highlight-color:transparent}
 @media(max-width:760px) {
   .workspace-header button.workspace-cycle {max-width:30vw;padding:6px;}
 }
+
+/* Viewer role is enforced by the API; this notice makes the restriction explicit. */
+.workspace-viewer-notice{font-size:12px;line-height:1.4;padding:6px 12px;text-align:center;background:var(--k-surface,rgba(100,116,139,.12));color:var(--k-text,#334155);border-bottom:1px solid rgba(100,116,139,.18)}
