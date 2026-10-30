@@ -211,3 +211,30 @@ async def test_synthetic_live_transport_requires_exact_fresh_broker_product_buck
     assert accepted.success and accepted.order_id == "OFFLINE-ORDER-1"
     assert len(exact.calls) == 1
     assert exact.calls[0][3]["product"] == "MIS"
+
+
+@pytest.mark.asyncio
+async def test_short_cover_buy_is_canonical_reduction_not_a_new_long(isolated):
+    """A short futures position may be reduced by BUY, never via a SELL-only shim."""
+    client = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", -10, exchange="NFO")
+    result = await submit_reduction(**args(client, side="BUY", kind="short-cover"))
+    assert result.success and result.status == "ACKNOWLEDGED"
+    assert len(client.calls) == 1 and client.calls[0][1] == "BUY"
+    intent = order_journal.get(result.intent_key)
+    assert intent.side == "BUY" and intent.quantity == 10
+    assert intent.payload["reduction_kind"] == "short-cover"
+
+
+@pytest.mark.asyncio
+async def test_pre_disarm_inventory_refuses_missing_and_wrong_signed_side(isolated):
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    client = PaperBroker()
+    symbol = "SYNTHETIC26NOV25000CE"
+    args = dict(client=client, uid="synthetic-user", symbol=symbol,
+                exchange="NFO", quantity=10, side="SELL")
+    assert reduction_inventory_refusal(**args)
+    db.set_inventory("acct-1", "synthetic-user", symbol, -10, exchange="NFO")
+    assert reduction_inventory_refusal(**args)
+    assert reduction_inventory_refusal(**{**args, "side": "BUY"}) is None
+    assert reduction_inventory_refusal(**{**args, "exchange": "BFO"})
