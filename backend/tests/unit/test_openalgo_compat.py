@@ -83,3 +83,38 @@ def test_malformed_or_synthetic_order_identity_is_rejected(changes):
 
 def test_no_intent_is_a_not_found_error():
     assert canonical_order_status(None)["code"] == "ORDER_NOT_FOUND"
+
+
+def test_quarantined_terminal_fill_is_not_exposed_as_success():
+    response = canonical_order_status(intent(
+        state="FILLED", filled_quantity=25, filled_value=2500,
+        reconciliation_required=True,
+    ))
+    assert response == {
+        "status": "error",
+        "code": "BROKER_EVIDENCE_CONFLICT",
+        "message": "Order evidence is quarantined and requires operator reconciliation",
+    }
+
+
+def test_pending_position_projection_is_disclosed_on_confirmed_broker_fill():
+    pending = canonical_order_status(intent(
+        state="FILLED", filled_quantity=25, filled_value=2500,
+        projection_pending=True,
+    ))
+    assert pending["status"] == "success"
+    assert pending["data"]["order_status"] == "complete"
+    assert pending["data"]["position_projection_pending"] is True
+    saved = canonical_order_status(intent(
+        state="FILLED", filled_quantity=25, filled_value=2500,
+        projection_pending=False,
+    ))
+    assert saved["data"]["position_projection_pending"] is False
+
+
+@pytest.mark.parametrize("state", ["SUBMITTED", "PARTIAL", "CANCELLED", "REJECTED"])
+def test_any_quarantined_state_refuses_success(state):
+    response = canonical_order_status(intent(
+        state=state, reconciliation_required=True,
+    ))
+    assert response["code"] == "BROKER_EVIDENCE_CONFLICT"
