@@ -45,6 +45,9 @@ jobs:
             tests/unit/test_canonical_execution_convergence.py \
             tests/unit/test_canonical_journal_snapshot_restore.py \
             tests/unit/test_execution_unknown_settlement.py \
+            tests/services/test_adaptive_edge_execution.py::test_a_definitive_exit_refusal_re_arms_the_protection_it_cancelled \
+            tests/services/test_adaptive_edge_execution.py::test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm \
+            tests/services/test_adaptive_edge_execution.py::test_missing_exit_order_id_is_uncertain_and_does_not_rearm \
             tests/unit/simulation/test_r1_snapback_alerts.py \
             tests/unit/test_account_binding_manifest_integrity.py \
             tests/services/test_canonical_entry_input_integrity.py \
