@@ -52,8 +52,6 @@ SKIPPED_PREFIXES = ("tests/", "study/")
 #: converted, delete its line — leaving a stale entry quietly re-permits a call.
 KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
     ("services/adaptive_edge_runner.py", "place_order"): 1,
-    ("services/execution/order_router.py", "place_order"): 1,
-    ("services/execution/order_router.py", "place_order_option"): 1,
     ("services/gamma_move_runner.py", "place_order"): 1,
     ("services/intraday_runner.py", "place_order"): 2,
     ("services/opening_volume_execution.py", "place_order_option"): 1,
@@ -66,10 +64,6 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     # Noncanonical/unpromoted entry paths are converted to the permanent
     # paper-only floor one at a time. Remaining entries still on
     # entry_transport_allowed require canonical migration before live promotion.
-    "services/execution/order_router.py": (
-        "_submit_live",
-        "noncanonical_broker_write_allowed",
-    ),
 }
 
 
@@ -508,3 +502,20 @@ async def test_legacy_broker_facade_refuses_real_and_unknown_transports():
         with pytest.raises(RuntimeError, match='cannot cancel live or mode-unknown'):
             await agent.cancel_order('synthetic-order', 1)
         agent.adapter.cancel_order.assert_not_awaited()
+
+
+def test_legacy_router_has_no_adapter_order_send_and_hands_off_typed_canonical():
+    src = (APP / 'services/execution/order_router.py').read_text(encoding='utf-8')
+    assert not _direct_entry_calls(APP / 'services/execution/order_router.py')
+    tree = ast.parse(src)
+    named = {
+        n.name: n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    handoff = named['submit_canonical']
+    assert any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == 'submit_order'
+        for n in ast.walk(handoff)
+    )
+    assert '_is_paper' not in ast.get_source_segment(src, named['_submit_live'])
