@@ -19,7 +19,7 @@ changes deployment runtime configuration. Review and verify before integration.
    constructing an execution request, and coerced fractional sizes via `int`.
 3. `backend/app/core/broker_account_binding.py` inferred live-ready permission from any scope containing `live`, including `not_live` and `live_disabled`. It now requires exactly `live` or `live_minimum` (case-insensitive after trimming); unknown historical scopes remain readable but NOT live-ready.
 4. `backend/tests/unit/test_canonical_execution_convergence.py` declares five
-   grandfathered direct entry calls in seven (file,method) entries. This is a
+   grandfathered reduction calls across four (file,method) entries. This is a
    static legacy-allowance baseline, **not proof the canonical migration is
    complete**. The existing noncanonical entry floor must remain enforced.
 5. `backend/app/services/auth/user_store.py` and
@@ -212,7 +212,7 @@ live trading and real broker order routing NOT AUTHORIZED.
   `CanonicalExecutionService.submit_order`. Old ad hoc symbol/side/quantity
   payloads fail closed, even on paper adapters. A real broker adapter cannot
   gain an unreviewed send just because the wrapper is called. The static
-  direct-call baseline shrank from **eight to seven**; its test is updated to
+  direct-call baseline eventually shrank from **eight to five**; its test is updated to
   forbid a newly reintroduced call.
 - Kite broker account `POST /accounts/{id}/activate` now checks an explicit
   delegated broker update capability twice around the account lock; connection
