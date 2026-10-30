@@ -455,6 +455,24 @@ class BrokerOrderResolution:
         return self.filled_quantity > 0 and self.average_price > 0
 
 
+def _invalid_broker_fill_reason(
+    *, status: str, filled: int, average: float, expected: int,
+) -> str:
+    """Refuse impossible fills before treating any order as settled.
+
+    A terminal cancellation can contain a legitimate partial fill; it cannot
+    contain more than the requested quantity. A nonterminal full cumulative
+    quantity needs a recognized status and a confirmed positive execution price.
+    """
+    if filled > expected:
+        return "broker_overfill"
+    if filled > 0 and average <= 0:
+        return "filled_price_unverified"
+    if filled >= expected and status not in _TERMINAL | _PENDING:
+        return "broker_status_unverified"
+    return ""
+
+
 async def resolve_acknowledged_order(
     *,
     client: Any,
@@ -504,6 +522,14 @@ async def resolve_acknowledged_order(
     average = 0.0
     while True:
         status, filled, average, _raw = await _broker_snapshot(client, oid)
+        invalid_reason = _invalid_broker_fill_reason(
+            status=status, filled=filled, average=average, expected=expected,
+        )
+        if invalid_reason:
+            return BrokerOrderResolution(
+                oid, status or "UNKNOWN", filled, average,
+                status in _TERMINAL, False, reason=invalid_reason,
+            )
         if status in _TERMINAL:
             if status == "COMPLETE" and filled != expected:
                 return BrokerOrderResolution(
@@ -548,6 +574,14 @@ async def resolve_acknowledged_order(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, _raw = await _broker_snapshot(client, oid)
+            invalid_reason = _invalid_broker_fill_reason(
+                status=status, filled=filled, average=average, expected=expected,
+            )
+            if invalid_reason:
+                return BrokerOrderResolution(
+                    oid, status or "UNKNOWN", filled, average,
+                    status in _TERMINAL, False, reason=invalid_reason,
+                )
             if status in _TERMINAL:
                 if status == "COMPLETE" and filled != expected:
                     return BrokerOrderResolution(
