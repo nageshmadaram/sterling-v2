@@ -13,10 +13,10 @@ def _source(tmp_path):
     source = tmp_path / 'current' / 'state.db'
     source.parent.mkdir(parents=True)
     with sqlite3.connect(source) as c:
+        c.execute('PRAGMA journal_mode=WAL')
         c.execute('CREATE TABLE records(id INTEGER PRIMARY KEY, value TEXT NOT NULL)')
         c.execute('INSERT INTO records VALUES(1, ?)', ('synthetic-state',))
         c.execute('PRAGMA user_version=3')
-        c.execute('PRAGMA journal_mode=WAL')
         c.execute('INSERT INTO records VALUES(2, ?)', ('uncheckpointed-state',))
     return source
 
