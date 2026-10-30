@@ -62,6 +62,15 @@ async def test_reduction_requires_real_reconciled_inventory_and_no_implicit_entr
     assert not overshoot.success and client.calls == []
     mismatched = await submit_reduction(**args(client, exchange="BFO"))
     assert not mismatched.success and client.calls == []
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_inventory SET reconciliation_required=1 "
+            "WHERE account_id=? AND uid=? AND symbol=?",
+            ("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE"),
+        )
+    unreconciled = await submit_reduction(**request)
+    assert unreconciled.status == "REJECTED" and client.calls == []
 
 
 @pytest.mark.asyncio
@@ -79,6 +88,12 @@ async def test_durable_ack_and_restart_dedup_never_resend(isolated):
     assert len(client.calls) == 1
     assert client.calls[0][1] == "SELL"
     assert client.calls[0][2] == 10
+    # A later config generation must not mutate the same signal's quantity.
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 20, exchange="NFO")
+    mutated = await submit_reduction(**args(client, quantity=11, generation_id="gen-3"))
+    assert not mutated.success and mutated.status == "REJECTED"
+    assert "immutable_intent_conflict" in mutated.error
+    assert len(client.calls) == 1
 
 
 @pytest.mark.asyncio
