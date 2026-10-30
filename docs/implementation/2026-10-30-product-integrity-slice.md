@@ -18,7 +18,7 @@ changes deployment runtime configuration. Review and verify before integration.
    values of positive infinity, did not reject NaN/Infinity entry prices before
    constructing an execution request, and coerced fractional sizes via `int`.
 3. `backend/app/core/broker_account_binding.py` inferred live-ready permission from any scope containing `live`, including `not_live` and `live_disabled`. It now requires exactly `live` or `live_minimum` (case-insensitive after trimming); unknown historical scopes remain readable but NOT live-ready.
-4. `backend/tests/unit/test_canonical_execution_convergence.py` declares eight
+4. `backend/tests/unit/test_canonical_execution_convergence.py` declares seven
    grandfathered direct entry calls in seven (file,method) entries. This is a
    static legacy-allowance baseline, **not proof the canonical migration is
    complete**. The existing noncanonical entry floor must remain enforced.
@@ -140,12 +140,12 @@ solved** by this patch and still require transactional/locking treatment.
 
 ### Grandfathered direct-order call audit
 
-The static legacy baseline still counts eight method calls in seven
+The static legacy baseline now counts seven method calls in six
 (file,method) entries; this is **NOT** complete canonical execution convergence.
 
 | Location | Calls | Classification | Current boundary |
 | --- | ---: | --- | --- |
-| BrokerAgent | 1 | Paper-only generic facade | Live/unknown transport refused |
+| BrokerAgent | 0 | Typed canonical facade | Legacy unbound order submissions refused; CanonicalExecutionService handles requests |
 | Legacy OrderRouter | 2 | Paper-only generic entry facade | Live/unknown transport refused |
 | Adaptive Edge | 1 | SELL exit | Inventory + `INTENT_REDUCE` and bound capability |
 | Gamma Unwind | 1 | SELL exit | Precommitted exit identity + bound reduction |
@@ -192,14 +192,77 @@ preserve durable order journals and account-binding history.
 
 | Priority | Item | Status | Due |
 | --- | --- | --- | --- |
-| P0 | Canonicalize all five remaining direct SELL reductions with durable order intents and timeout/restart reconciliation, and retire paper-only facades | PENDING | Unscheduled |
+| P0 | Canonicalize all five remaining direct SELL reductions plus two legacy OrderRouter sends with durable order intents and timeout/restart reconciliation | PENDING | Unscheduled |
 | P0 | Complete full backend/frontend policy parity for all admin/operator/viewer mutation surfaces and browser controls | PARTIAL | Unscheduled |
 | P0 | Execute and reconcile complete order lifecycle across restart with no duplicate broker sends | EXISTING TESTS, END-TO-END PASS NOT ESTABLISHED | Unscheduled |
 | P1 | Full SQLite migration + rollback and Postgres restore drills on disposable real schema | PARTIAL (SQLite snapshot test only) | Unscheduled |
 | P1 | Desktop/mobile Playwright, real-device routes, and error recovery | PENDING | Unscheduled |
-| P1 | Expo SDK package/lockfile update (issue #16), clean npm ci and export | BLOCKED / NOT WORKED in this increment | Unscheduled |
+| P1 | Expo SDK package/lockfile update (issue #16), clean npm ci and export | IMPLEMENTED IN SOURCE; final clean install/export acceptance pending | Unscheduled |
 | External | Production host/TLS/MFA device checks, broker market acceptance, monitoring/notification and independent approver | BLOCKED | Unknown |
 
 **Decision unchanged:** product-wide end-to-end certification NOT ESTABLISHED;
 production controls accepted 0/12, blocked 12/12; production deployment NO-GO;
 live trading and real broker order routing NOT AUTHORIZED.
+
+
+## Continuing implementation — canonical BrokerAgent, broker grants and mobile parity
+
+- `app/agents/broker_agent.py` no longer calls `adapter.place_order`.
+  The facade requires a typed `ExecutionRequest` and delegates to
+  `CanonicalExecutionService.submit_order`. Old ad hoc symbol/side/quantity
+  payloads fail closed, even on paper adapters. A real broker adapter cannot
+  gain an unreviewed send just because the wrapper is called. The static
+  direct-call baseline shrank from **eight to seven**; its test is updated to
+  forbid a newly reintroduced call.
+- Kite broker account `POST /accounts/{id}/activate` now checks an explicit
+  delegated broker update capability twice around the account lock; connection
+  test `POST /accounts/{id}/test` requires the same grant before touching a
+  broker client. Previously a Kite workspace grant alone was enough.
+- Mobile Markets now queries `/api/v1/auth/me` before displaying order-entry
+  affordances and closes an open order form on revoked permissions. The form
+  independently fetches a fresh server policy before sending an order. Mobile
+  global halt/daily-loss changes require designated administrator policy and
+  recheck it immediately before mutation. Failure to read policy denies UI
+  actions; backend remains the authoritative enforcement point.
+- Expo SDK 58 constraints and `mobile/package-lock.json` were aligned using
+  `npm install --package-lock-only` in an isolated GitHub Actions job, recording
+  real registry metadata for six direct and transitive dependencies. The
+  temporary resolver workflow was deleted. **Do not call Expo fixed until
+  clean `npm ci`, `expo install --check`, mobile tests and export all pass.**
+- The Snapback lifecycle alert test now grants the real simulation owner an
+  explicit Kite feature in its disposable database. No production authorization
+  bypass was introduced. Both Snapback and regression-gate CI use the pinned
+  Python dependency lock instead of a potentially incompatible newer
+  Pydantic/Freezegun pair.
+
+### Updated verification (current branch head, not historical evidence)
+
+```sh
+cd backend
+python -m pytest -q tests/test_agents.py tests/test_workspace_access.py \
+  tests/unit/test_canonical_execution_convergence.py \
+  tests/unit/simulation/test_r1_snapback_alerts.py
+cd ../mobile
+npm ci --ignore-scripts
+npm run ts:check
+npm test
+npx expo install --check
+npx expo export --platform all --max-workers 2 --output-dir dist
+```
+
+Run the repository's full backend, browser (Chromium/Firefox/WebKit),
+regression, Expo, Docker and Snapback release gates on one immutable commit.
+Success on an earlier SHA is not transferable to newer commits.
+
+### Updated due/blocked register
+
+**Completed in source:** BrokerAgent canonical request routing, broker
+activation/connection grants, mobile role-aware order and global-risk controls,
+Expo dependency/lockfile generation. **Validation of the latest SHA:** pending
+independent CI results. **Still due (unscheduled):** five direct protected SELL
+reductions and two paper-only OrderRouter calls, cross-engine UNKNOWN/restart
+reconciliation, all database migration downgrade/restore drills, mobile real
+device and desktop browser acceptance. **External blockers:** host TLS/secrets,
+broker market acceptance, independent monitoring and release approval. Nothing
+here grants live execution. **Production control acceptance: 0/12; blocked
+12/12. Deployment: NO-GO. Live broker routing: NOT AUTHORIZED.**
