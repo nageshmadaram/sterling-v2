@@ -317,3 +317,25 @@ broker conditions remain a blocker. The backend remains authoritative.
 **Latest source status:** Implementation committed in review branch;
 full latest-SHA CI outcomes pending. No automatic release/merge or
 production order routing is permitted.
+
+### Review continuation: legacy duplicate claims and mobile order acknowledgement
+
+- `OrderRouter.submit` now refuses an already-recorded idempotency key
+  when the request is a legacy unbound LIVE payload. Without that check,
+  a different canonical sender's recorded ID could previously be
+  misrepresented as an accepted LIVE duplicate by the legacy facade.
+  A regression test constructs this case and asserts no adapter I/O.
+- Mobile `OrderModal` no longer converts every HTTP 200 into "order
+  placed successfully." It requires a nonblank string `order_id`
+  and rejects error/blocked/rejected/unknown result statuses. The
+  confirmation says **acknowledged, not filled**; an ambiguous response
+  directs the user to inspect Orders before retrying. Tests cover empty,
+  malformed, blocked and unknown results.
+- Focused CI exercises `tests/test_order_router.py`,
+  `tests/test_release_safety_62_65.py`, the real journal snapshot
+  restoration test, and mobile policy/outcome tests via `npm test`.
+  Latest-SHA CI is required before declaring these fixes validated.
+
+**Production certification:** NOT ACHIEVED. Protected SELL migration
+remains pending for all five remaining direct calls. No release, deployment,
+broker session, or live-order routing is authorized.
