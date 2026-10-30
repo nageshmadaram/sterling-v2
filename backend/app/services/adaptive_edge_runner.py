@@ -1376,6 +1376,7 @@ async def _settle_exit_order(
         _restore_open_after_failed_exit(position, resolution.status)
         put(uid, position)
         await _place_protection(uid, client, position, cfg)
+        mark_reduction_projected(resolution)
         return False, resolution.status or "unfilled"
 
     fill = float(resolution.average_price or position.exit_requested_price or 0.0)
