@@ -15,6 +15,12 @@ from app.services import db
 
 Feature = Literal['kite', 'tv', 'radio']
 FEATURES: tuple[Feature, ...] = ('kite', 'tv', 'radio')
+# Backward compatibility: persisted 'user' is a trading operator, not a viewer.
+WRITER_ROLES = frozenset(('admin', 'operator', 'user'))
+
+
+def may_mutate(role: str) -> bool:
+    return role in WRITER_ROLES
 
 
 class PolicyUnavailable(RuntimeError):
@@ -224,7 +230,7 @@ def entry_refusal(user_id: str) -> str | None:
     from app.services.simulation.identity import owner_uid
     try:
         current = require_feature(owner_uid(user_id), 'kite')
-        if current.role not in ('admin', 'operator', 'user'):
+        if not may_mutate(current.role):
             return 'Viewer/unknown role has no order entry authority.'
     except (PermissionError, PolicyUnavailable):
         return 'Kite access is disabled or its policy cannot be verified.'
