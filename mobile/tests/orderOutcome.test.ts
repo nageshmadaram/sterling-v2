@@ -8,7 +8,8 @@ it('reports an acknowledged order ID, not an assumed fill', () => {
 
 it('does not treat a 200 error, unknown or missing order ID as success', () => {
   for (const outcome of [undefined, null, {}, { order_id: '' },
-    { order_id: 12 }, { status: 'blocked', order_id: 'X' },
+    { order_id: 12 }, { order_id: 'UNKNOWN' }, { order_id: 'PENDING' },
+    { status: 'blocked', order_id: 'X' },
     { status: 'UNKNOWN', order_id: 'X' },
     { status: 'rejected', order_id: 'X' },
     { status: 'error', order_id: 'X' }]) {
