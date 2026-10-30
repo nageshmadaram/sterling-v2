@@ -91,8 +91,19 @@ def test_execution_candidate_gate_accepts_only_complete_decisions():
     ) == [candidate]
 
 
+@pytest.fixture
+def opening_reduction_db(tmp_path, monkeypatch):
+    from app.services import db, live_safety
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "opening-reduce.sqlite"))
+    assert db.init()
+    live_safety.reset_all_for_tests()
+    db.set_inventory("acct-opening", "synthetic-owner", "RELIANCE26SEP3000CE", 250, exchange="NFO")
+    yield
+    live_safety.reset_all_for_tests()
+
+
 @pytest.mark.asyncio
-async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch):
+async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch, opening_reduction_db):
     class Client:
         _is_paper = False
         _account_id = "acct-opening"
@@ -108,17 +119,12 @@ async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch):
     )
 
     assert closed is False
-    assert "Canonical inventory" in note
+    assert "Broker has no" in note
 
 
 @pytest.mark.asyncio
-async def test_live_emergency_close_carries_reduce_authority(monkeypatch, tmp_path):
+async def test_live_emergency_close_carries_reduce_authority(monkeypatch, opening_reduction_db):
     from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
-    from app.services import db, live_safety
-    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "opening-reduce.sqlite"))
-    assert db.init()
-    live_safety.reset_all_for_tests()
-    db.set_inventory("acct-opening", "synthetic-owner", "RELIANCE26SEP3000CE", 250, exchange="NFO")
 
     class Client:
         _is_paper = True  # offline broker double; no production transport
@@ -148,7 +154,7 @@ async def test_live_emergency_close_carries_reduce_authority(monkeypatch, tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_live_emergency_close_does_not_cross_product_buckets():
+async def test_live_emergency_close_does_not_cross_product_buckets(opening_reduction_db):
     class Client:
         _is_paper = False
         _account_id = "acct-opening"
@@ -168,7 +174,7 @@ async def test_live_emergency_close_does_not_cross_product_buckets():
         Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
     )
     assert closed is False
-    assert "Canonical inventory" in note
+    assert "Broker has no" in note
 
 
 @pytest.mark.asyncio
