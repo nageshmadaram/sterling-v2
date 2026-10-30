@@ -1608,8 +1608,12 @@ async def _resolve_submitted_exit(uid: str, client, pos: PositionState) -> tuple
     submitted = int(pos.exit_submitted_ms or 0)
     if submitted and _now_ms() - submitted < _EXIT_IN_FLIGHT_GRACE_MS:
         return "", "exit_submit_unconfirmed"
-    # The book was read and holds no such SELL after the in-flight window: the exit
-    # never reached the broker. Release it and put the broker stop back.
+    # Canonical UNKNOWN cannot be disproved by a single empty order-book
+    # response. Retain the durable exit and halt for operator reconciliation.
+    if str(pos.exit_tag or "").startswith("ke"):
+        _halt_unresolved_exit(uid, client, pos, EXIT_SUBMITTING)
+        return "", "canonical_exit_book_absent_requires_reconciliation"
+    # Historical pre-migration records retain their legacy recovery behavior.
     _clear_exit_fields(pos)
     positions_store.put(uid, pos)
     session_for(uid).note(
@@ -1644,11 +1648,29 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         if not oid:
             return False, why
 
-    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
+    from app.services.kite_engine import order_journal
+    canonical_intent_key = ""
+    if str(pos.exit_tag or "").startswith("ke"):
+        try:
+            canonical = order_journal.find(
+                uid=uid, account_id=str(getattr(client, "_account_id", "") or ""),
+                tag=pos.exit_tag, exchange=pos.instrument.exchange,
+                symbol=pos.instrument.tradingsymbol, side="SELL",
+            )
+            if canonical is None:
+                raise ValueError("canonical_gamma_exit_intent_missing")
+            canonical_intent_key = canonical.intent_key
+        except Exception as exc:
+            _halt_unresolved_exit(uid, client, pos, oid)
+            session_for(uid).note("error", f"canonical gamma exit journal unreadable: {exc}")
+            return False, "exit_reconciliation_required"
 
     requested = int(pos.exit_requested_qty or pos.quantity)
-    resolution = await resolve_acknowledged_order(
-        client=client,
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=canonical_intent_key, client=client,
         order_id=oid,
         expected_quantity=requested,
         reference_price=float(
@@ -1681,6 +1703,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         _clear_exit_fields(pos)
         positions_store.put(uid, pos)
         await _ensure_protection(uid, client, pos)
+        mark_reduction_projected(resolution)
         return False, f"exit_{str(resolution.status or 'unfilled').lower()}"
 
     session = session_for(uid)
@@ -1707,6 +1730,8 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         positions_store.put(uid, pos)
         session.record.add_realised(pnl, _today_str())
         positions_store.save_record(uid, session.record)
+        if booking != BOOK_UNKNOWN:
+            mark_reduction_projected(resolution)
         protected = await _ensure_protection(uid, client, pos)
         if (pos.stop > 0 and pos.stop_mode != "monitor"
                 and not protected
@@ -1750,6 +1775,8 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         outcome_pnl=float(pos.partial_realised_inr) + float(pnl),
     )
     positions_store.save_record(uid, session.record)
+    if booking != BOOK_UNKNOWN:
+        mark_reduction_projected(resolution)
     session.note(
         "exit",
         f"{pos.instrument.tradingsymbol}: {reason} @ {fill:g}",
