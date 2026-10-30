@@ -70,6 +70,8 @@ def allow_everything(monkeypatch):
                                intent_key="synthetic-offline-intent")
 
     monkeypatch.setattr(reductions, "submit_reduction", canonical_exit)
+    monkeypatch.setattr(reductions, "reduction_inventory_refusal",
+                        lambda **_kw: None)  # dedicated ledger tests assert the real gate
 
 
 class FakeClient:
