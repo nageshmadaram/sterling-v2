@@ -394,7 +394,7 @@ def test_broker_activate_and_connect_require_delegated_configuration_not_just_ki
         'default', 'member', {'kite': True, 'tv': False, 'radio': False}, 0,
     )
     app = FastAPI()
-    app.include_router(kite.router, prefix='/api/v1/kite')
+    app.include_router(kite.router, prefix='/api/v1')
     app.dependency_overrides[get_current_user] = lambda: member
     client = TestClient(app)
 
