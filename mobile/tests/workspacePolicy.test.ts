@@ -6,6 +6,9 @@ vi.mock('../src/services/api', () => ({ api: requests }));
 import {
   assertKiteWriteAllowed,
   assertGlobalRiskControlAllowed,
+  assertKillSwitchChangeAllowed,
+  assertDailyLossChangeAllowed,
+  loosensDailyLoss,
   canManageGlobalRisk,
   canWriteKite,
 } from '../src/services/workspacePolicy';
@@ -55,4 +58,42 @@ it('never sends a global risk mutation without a fresh designated-admin policy',
   await expect(assertGlobalRiskControlAllowed()).rejects.toThrow('designated administrator');
   await expect(assertGlobalRiskControlAllowed()).resolves.toBeUndefined();
   expect(requests.get).toHaveBeenCalledTimes(2);
+});
+
+it('matches the backend direction-aware operator/admin safety authority', async () => {
+  const operator = { role: 'operator', administrator: false, features: enabled };
+  const administrator = { role: 'admin', administrator: true, features: enabled };
+  requests.get.mockResolvedValueOnce(operator).mockResolvedValueOnce(operator)
+    .mockResolvedValueOnce(operator).mockResolvedValueOnce(operator)
+    .mockResolvedValueOnce(administrator);
+  await expect(assertKillSwitchChangeAllowed(true)).resolves.toBeUndefined();
+  await expect(assertKillSwitchChangeAllowed(false)).rejects.toThrow('designated administrator');
+  await expect(assertDailyLossChangeAllowed(
+    { enabled: true, hard_halt_inr: -1500 },
+    { enabled: true, hard_halt_inr: -1000 },
+  )).resolves.toBeUndefined();
+  await expect(assertDailyLossChangeAllowed(
+    { enabled: true, hard_halt_inr: -1500 },
+    { enabled: true, hard_halt_inr: -3000 },
+  )).rejects.toThrow('designated administrator');
+  await expect(assertKillSwitchChangeAllowed(false)).resolves.toBeUndefined();
+});
+
+it('requires admin for disabling or loosening loss, not tightening or re-enabling', () => {
+  expect(loosensDailyLoss(
+    { enabled: true, hard_halt_inr: -1500 },
+    { enabled: false, hard_halt_inr: -1500 },
+  )).toBe(true);
+  expect(loosensDailyLoss(
+    { enabled: true, hard_halt_inr: -1500 },
+    { enabled: true, hard_halt_inr: -3000 },
+  )).toBe(true);
+  expect(loosensDailyLoss(
+    { enabled: true, hard_halt_inr: -1500 },
+    { enabled: true, hard_halt_inr: -1000 },
+  )).toBe(false);
+  expect(loosensDailyLoss(
+    { enabled: false, hard_halt_inr: -1500 },
+    { enabled: true, hard_halt_inr: -1000 },
+  )).toBe(false);
 });
