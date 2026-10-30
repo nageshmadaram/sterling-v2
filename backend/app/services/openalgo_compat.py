@@ -30,6 +30,14 @@ def canonical_order_status(intent: Any) -> dict:
     """
     if intent is None:
         return _error("ORDER_NOT_FOUND", "No canonical order intent was found")
+    # The journal quarantines contradictory or orphan broker evidence without
+    # necessarily changing a previously observed terminal state. That state
+    # must NEVER be exposed as a successful order after quarantine.
+    if getattr(intent, "reconciliation_required", False) is not False:
+        return _error(
+            "BROKER_EVIDENCE_CONFLICT",
+            "Order evidence is quarantined and requires operator reconciliation",
+        )
     state = str(getattr(intent, "state", "") or "").strip().upper()
     if state in _UNRESOLVED:
         return _error("ORDER_OUTCOME_UNRESOLVED",
@@ -74,5 +82,11 @@ def canonical_order_status(intent: Any) -> dict:
             "quantity": str(quantity),
             "filled_quantity": str(filled),
             "average_price": round(average, 8),
+            # A broker fill can precede projection to the strategy ledger.
+            # Disclose the pending accounting step rather than implying the
+            # complete operator position state is already up to date.
+            "position_projection_pending": bool(
+                getattr(intent, "projection_pending", False)
+            ),
         },
     }
