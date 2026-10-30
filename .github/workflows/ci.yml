@@ -93,6 +93,9 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci --silent
+      - name: Build required local media CSS and font assets
+        working-directory: frontend
+        run: npm run media:styles
       - name: Run Vitest
         working-directory: frontend
         run: npx vitest run --coverage=false
