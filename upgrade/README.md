@@ -55,7 +55,9 @@ API wrappers remain pending until identity and broker event parity are proven.
 ## Validation commands (offline reviewer/CI, not evidence of execution)
 
 ```bash
-PYTHONPATH=. python -m pytest -q scripts/tests/test_openalgo_compat_upgrade.py
+PYTHONPATH=. python -m pytest -q scripts/tests/test_openalgo_compat_upgrade.py \
+  scripts/tests/test_openalgo_route_inventory.py
+python -m upgrade.api_inventory
 cd backend
 python -m pytest -q tests/unit/test_openalgo_compat.py \
   tests/test_workspace_access.py
