@@ -62,7 +62,7 @@ async def enforce_feature_access(connection: HTTPConnection):
         current = require_feature(principal)
         # A feature grant allows a viewer to inspect the workspace, not mutate
         # trading state. Unknown or imported roles fail closed on API writes.
-        if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        if policy == 'kite' and request.method not in ('GET', 'HEAD', 'OPTIONS'):
             # get_current_user() already scopes an owner's Simulation request
             # to the virtual tenant and enforces SIM_VIEW_DENY_RULES for every
             # live broker/global mutation. Do not prohibit all simulation writes
