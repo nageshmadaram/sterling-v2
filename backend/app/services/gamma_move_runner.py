@@ -1594,6 +1594,29 @@ async def _resolve_submitted_exit(uid: str, client, pos: PositionState) -> tuple
 
     if len(matches) == 1:
         oid = str(matches[0].get("order_id") or "")
+        if tag.startswith("ke"):
+            # Lost broker acknowledgement: the unique canonical tag, exact
+            # account/exchange/product/side/size, and post-request timestamp
+            # have now been verified against the live broker order book.
+            # Bind that evidence to the existing journal intent before the
+            # strategy adopts its order ID. Never create a new intent here.
+            from app.services.kite_engine import order_journal
+            try:
+                intent = order_journal.find(
+                    uid=uid,
+                    account_id=str(getattr(client, "_account_id", "") or ""),
+                    tag=tag, exchange=exchange, symbol=symbol, side="SELL",
+                )
+                if (intent is None or intent.reconciliation_required
+                        or int(intent.quantity) != wanted_qty
+                        or intent.order_id not in ("", oid)):
+                    raise ValueError("canonical_gamma_unknown_exit_identity_conflict")
+                order_journal.acknowledge(intent.intent_key, oid)
+            except Exception as exc:
+                _halt_unresolved_exit(uid, client, pos, EXIT_SUBMITTING)
+                session_for(uid).note("error",
+                    f"{symbol}: broker SELL found but canonical journal could not bind it: {exc}")
+                return "", "canonical_exit_journal_unresolved"
         pos.exit_order_id = oid
         positions_store.put(uid, pos)
         session_for(uid).note(
