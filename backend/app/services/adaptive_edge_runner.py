@@ -1409,6 +1409,7 @@ async def _settle_exit_order(
     _clear_exit_identity(position)
     put(uid, position)
     close_position(uid, position.symbol, fill, reason, closed_ms=ist_now_ms())
+    mark_reduction_projected(resolution)
     await _subscribe_watched(uid)
     session = _sessions.get(uid)
     if session:
