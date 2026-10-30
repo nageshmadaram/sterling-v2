@@ -50,12 +50,7 @@ SKIPPED_PREFIXES = ("tests/", "study/")
 #: The contract is that this baseline only ever shrinks. A new direct call, or an
 #: extra one in a file that already has some, fails the test. When an engine is
 #: converted, delete its line — leaving a stale entry quietly re-permits a call.
-KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
-    ("services/adaptive_edge_runner.py", "place_order"): 1,
-    ("services/gamma_move_runner.py", "place_order"): 1,
-    ("services/intraday_runner.py", "place_order"): 2,
-    ("services/opening_volume_execution.py", "place_order_option"): 1,
-}
+KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {}  # no grandfathered direct order sends
 
 
 # Grandfathered strategy entry functions that still use the transport directly
@@ -222,13 +217,12 @@ def test_intraday_entry_path_uses_the_canonical_door():
     assert "result = await submit_entry(" in source
 
 
-def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
-    """The two remaining direct orders are exits, not an unchecked second door."""
+def test_intraday_exits_use_only_canonical_reduction():
     source = (APP / "services/intraday_runner.py").read_text(encoding="utf-8")
+    assert source.count("submit_reduction(") == 2
     assert "broker_qty = await _broker_long_quantity(client, pos)" in source
-    assert "if not await _release_protection_for_exit(uid, client, pos):" in source
-    assert "intent=INTENT_REDUCE" in source
-    assert "refusing a second SELL" in source
+    assert "_release_protection_for_exit(uid, client, pos)" in source
+
 
 
 def test_opening_volume_tag_recovery_never_invents_live_order_ownership():
@@ -238,12 +232,12 @@ def test_opening_volume_tag_recovery_never_invents_live_order_ownership():
     assert "Do not cancel it" in source
 
 
-def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
+def test_opening_volume_emergency_sell_uses_canonical_nrml_reduction():
     source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
-    assert 'want_product = str(product or "").strip().upper()' in source
-    assert 'client, symbol, exchange, product="NRML"' in source
+    assert "submit_reduction(" in source
     assert 'product="NRML"' in source
-    assert "intent=INTENT_REDUCE" in source
+    assert 'kind="emergency-protection-failed"' in source
+
 
 
 def test_kite_order_wrapper_keeps_live_option_exits_available_under_halt():
@@ -323,7 +317,7 @@ def test_intraday_family_mutations_are_bound_to_mis_product_bucket():
         if rel.endswith("gamma_move_runner.py"):
             # Gamma carries the broker product bucket on the position itself; every
             # broker mutation derives it from there rather than from the hold.
-            assert source.count("product=_product(pos)") >= 3
+            assert source.count("product=_product(pos)") >= 2
         else:
             assert 'want_product = "MIS"' in source
             assert 'product="MIS"' in source
@@ -374,7 +368,7 @@ def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_na
     assert "_cancel_protection" in source
     assert "cancel_stop_result" in source
     assert "STOP_ABSENT" in source
-    assert "intent=INTENT_REDUCE" in source
+    assert "submit_reduction(" in source
     assert "broker quantity" in source
 
 
@@ -519,3 +513,26 @@ def test_legacy_router_has_no_adapter_order_send_and_hands_off_typed_canonical()
         for n in ast.walk(handoff)
     )
     assert '_is_paper' not in ast.get_source_segment(src, named['_submit_live'])
+
+
+def test_no_legacy_order_send_call_remains_in_production_paths():
+    assert KNOWN_DIRECT_CALLS == {}
+    assert _observed_direct_calls() == {}
+    for rel, expected in (
+        ("services/adaptive_edge_runner.py", 1),
+        ("services/gamma_move_runner.py", 1),
+        ("services/intraday_runner.py", 2),
+        ("services/opening_volume_execution.py", 1),
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert source.count("submit_reduction(") == expected
+
+
+def test_canonical_reduction_bridge_never_fabricates_inventory():
+    source = (APP / "services/canonical_strategy_reduction.py").read_text(encoding="utf-8")
+    assert "db.get_inventory_strict(" in source
+    assert "db.set_inventory(" not in source
+    assert "CanonicalExecutionService().submit_order(" in source
+    assert "ExposureEffect.CLOSE_POSITION" in source
+    assert "ExposureEffect.REDUCE_EXPOSURE" in source
+    assert "client.place_order(" not in source
