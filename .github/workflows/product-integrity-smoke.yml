@@ -45,6 +45,11 @@ jobs:
             tests/unit/test_canonical_execution_convergence.py \
             tests/unit/test_canonical_journal_snapshot_restore.py \
             tests/unit/test_execution_unknown_settlement.py \
+            tests/unit/test_canonical_strategy_reduction.py \
+            tests/services/test_opening_volume_execution.py::test_live_emergency_close_requires_fresh_broker_quantity \
+            tests/services/test_opening_volume_execution.py::test_live_emergency_close_carries_reduce_authority \
+            tests/services/test_opening_volume_execution.py::test_live_emergency_close_does_not_cross_product_buckets \
+            tests/services/test_gamma_move_live_audit.py::test_concurrent_exit_triggers_send_one_sell \
             tests/services/test_adaptive_edge_execution.py::test_a_definitive_exit_refusal_re_arms_the_protection_it_cancelled \
             tests/services/test_adaptive_edge_execution.py::test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm \
             tests/services/test_adaptive_edge_execution.py::test_missing_exit_order_id_is_uncertain_and_does_not_rearm \
