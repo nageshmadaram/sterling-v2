@@ -158,6 +158,28 @@ FULL_PARITY_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
 # Never infer migration rewrites for legacy usernames, "default" users, or
 # synthetic simulation accounts. Count orphaned references so the operator
 # can plan explicit identity reconciliation on an *offline* snapshot.
+# The singleton administrator is also enforced by SQL triggers. These names
+# are sourced from account_policy.migrate(); presence is a necessary check,
+# NOT a substitute for verifying target PostgreSQL trigger semantics.
+POLICY_GUARD_TRIGGERS = frozenset({
+    "platform_admin_validate_insert",
+    "users_preserve_admin_replace",
+    "users_designate_admin",
+    "users_preserve_admin_update",
+    "users_preserve_admin_delete",
+    "platform_admin_preserve_update",
+    "platform_admin_preserve_delete",
+    "users_prevent_admin_promotion",
+    "users_admin_active",
+})
+# Only the two literal declared SQLite FK edges are required here. Other
+# user_id relationships are validated as logical orphans instead of falsely
+# claiming that the legacy schema already uses physical foreign keys.
+REQUIRED_IDENTITY_FKS: tuple[tuple[str, str, str, str], ...] = (
+    ("platform_admin", "user_id", "users", "id"),
+    ("user_workspace_visibility", "user_id", "users", "id"),
+)
+
 IDENTITY_REFERENCES: tuple[tuple[str, str, str, str], ...] = (
     ("kite_accounts", "user_id", "users", "id"),
     ("platform_admin", "user_id", "users", "id"),
@@ -199,6 +221,33 @@ def _orphan_identity_counts(conn: sqlite3.Connection, tables: set[str]) -> dict[
         if missing:
             counts[child] = missing
     return counts
+
+
+def _missing_auth_guards(conn: sqlite3.Connection) -> list[str]:
+    present = {
+        str(row[0]) for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='trigger'"
+        )
+    }
+    return sorted(POLICY_GUARD_TRIGGERS - present)
+
+
+def _missing_physical_identity_fks(
+    conn: sqlite3.Connection, tables: set[str]
+) -> list[str]:
+    """Report absent SQL-level edges without presuming historical data repair."""
+    missing = []
+    for child, column, parent, parent_column in REQUIRED_IDENTITY_FKS:
+        if child not in tables or parent not in tables:
+            continue  # missing tables have their own audit field
+        quoted = '"' + child.replace('"', '""') + '"'
+        edges = {
+            (str(row[3]), str(row[2]), str(row[4]))
+            for row in conn.execute(f"PRAGMA foreign_key_list({quoted})")
+        }
+        if (column, parent, parent_column) not in edges:
+            missing.append(f"{child}.{column}->{parent}.{parent_column}")
+    return sorted(missing)
 
 
 def _source(path: Path) -> Path:
@@ -455,6 +504,10 @@ def audit_full_migration_preflight(path: Path) -> dict:
             "missing_safety_unique_keys": missing_keys,
             "nullable_identity_columns": nullable_keys,
             "orphan_identity_row_counts": _orphan_identity_counts(conn, tables),
+            "missing_policy_guard_triggers": _missing_auth_guards(conn),
+            "missing_declared_identity_foreign_keys": _missing_physical_identity_fks(
+                conn, tables
+            ),
             # Report truly outside the reviewed critical-key contracts;
             # critical tables are already named by critical_tables above.
             "unmapped_operational_tables": sorted(tables - set(FULL_PARITY_KEYS)),
