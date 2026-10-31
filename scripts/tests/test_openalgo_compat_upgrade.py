@@ -340,3 +340,44 @@ def test_full_parity_cli_never_combines_read_only_report_with_write(tmp_path):
     assert proc.returncode == 2
     assert "cannot be combined" in proc.stderr
     assert not destination.exists()
+
+
+def test_full_parity_audit_explicitly_flags_nullable_sqlite_text_primary_keys(tmp_path):
+    source = synthetic_db(tmp_path)
+    result = migration.audit_full_migration_preflight(source)
+    # The synthetic operational positions schema deliberately declares
+    # id TEXT PRIMARY KEY without NOT NULL. SQLite rowid tables admit NULL.
+    assert "id" in result["nullable_identity_columns"]["positions"]
+    assert result["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_sqlite_nullable_unique_index_does_not_establish_pg_identity_parity(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("CREATE UNIQUE INDEX ux_nullable_tag ON kite_order_intents(tag)")
+    result = migration.audit_full_migration_preflight(source)
+    assert "tag" in result["nullable_identity_columns"]["kite_order_intents"]
+    assert result["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_sqlite_identity_nullability_distinguishes_rowid_alias_and_without_rowid():
+    with sqlite3.connect(":memory:") as conn:
+        conn.execute("CREATE TABLE weak_identity (id TEXT PRIMARY KEY)")
+        conn.execute("CREATE TABLE rowid_identity (id INTEGER PRIMARY KEY)")
+        conn.execute("CREATE TABLE strong_identity (id TEXT PRIMARY KEY) WITHOUT ROWID")
+        assert migration._nullable_identity_columns(
+            conn, "weak_identity", (("id",),)
+        ) == ["id"]
+        assert migration._nullable_identity_columns(
+            conn, "rowid_identity", (("id",),)
+        ) == []
+        assert migration._nullable_identity_columns(
+            conn, "strong_identity", (("id",),)
+        ) == []
+        # Confirm this is not only a PRAGMA inference: SQLite permits duplicate
+        # NULL TEXT primary keys on an ordinary rowid table.
+        conn.execute("INSERT INTO weak_identity(id) VALUES(NULL)")
+        conn.execute("INSERT INTO weak_identity(id) VALUES(NULL)")
+        assert conn.execute(
+            "SELECT COUNT(*) FROM weak_identity WHERE id IS NULL"
+        ).fetchone()[0] == 2
