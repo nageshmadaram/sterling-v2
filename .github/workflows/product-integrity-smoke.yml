@@ -41,6 +41,7 @@ jobs:
             tests/test_kite_router.py::test_order_idempotency_marker_never_masquerades_as_broker_ack \
             tests/test_release_safety_62_65.py \
             tests/test_account_policy.py \
+            tests/test_configuration_policy.py \
             tests/test_workspace_access.py \
             tests/test_workspace_visibility.py \
             tests/unit/test_canonical_single_order_reconciliation.py \

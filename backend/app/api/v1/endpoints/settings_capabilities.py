@@ -34,6 +34,8 @@ class ConfigurationEdit(BaseModel):
     visible: StrictBool
     grants: list[ScopedGrant] = Field(default_factory=list, max_length=100)
     expected_revision: int = Field(ge=0, strict=True)
+    reason_code: str | None = Field(default=None, pattern=r'^[A-Z][A-Z0-9_]{2,63}$',
+                                    description='Structured admin reason, not independent approval')
 
 
 @router.get('/settings/capabilities', response_model=CapabilitiesResponse)
@@ -72,7 +74,8 @@ async def update_configuration(user_id: str, body: ConfigurationEdit, response: 
         raise HTTPException(403, 'Configuration is unavailable in simulation.')
     try:
         return configuration_policy.replace_section(user.user_id, user_id, body.section,
-            visible=body.visible, grants=[g.model_dump() for g in body.grants], expected_revision=body.expected_revision)
+            visible=body.visible, grants=[g.model_dump() for g in body.grants],
+            expected_revision=body.expected_revision, reason_code=body.reason_code or 'NOT_PROVIDED')
     except account_policy.PolicyConflict as exc:
         raise HTTPException(409, str(exc)) from None
     except PermissionError as exc:

@@ -127,7 +127,8 @@ def validate_section(section: Section, *, visible: bool, grants: list[dict], now
 
 
 def replace_section(actor_id: str, user_id: str, section: Section, *, visible: bool,
-                    grants: list[dict], expected_revision: int) -> dict:
+                    grants: list[dict], expected_revision: int,
+                    reason_code: str = 'NOT_PROVIDED') -> dict:
     from app.services.auth.user_store import _now_ms
     now = _now_ms()
     validate_section(section, visible=visible, grants=grants, now=now)
@@ -157,7 +158,8 @@ def replace_section(actor_id: str, user_id: str, section: Section, *, visible: b
                 ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision''', (user_id, revision))
             event = account_policy.audit(c, actor_id, user_id, 'configuration.updated',
                 {'section': section, **before['sections'][section]},
-                {'section': section, 'visible': visible, 'grants': grants}, now)
+                {'section': section, 'visible': visible, 'grants': grants}, now,
+                reason_code=reason_code)
             c.execute('INSERT INTO auth_event_outbox(event_id,user_id,revision) VALUES(?,?,?)', (event, user_id, revision))
             result = _read(c, user_id, now)
         return result
