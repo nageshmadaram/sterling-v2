@@ -116,6 +116,12 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
         except Exception:
             latest = {}
 
+    # Never interpret a broker-history row belonging to a different order.
+    # A badly scoped API result must not be able to settle an acknowledged ID.
+    returned_order = str(latest.get("order_id") or "").strip()
+    if returned_order and returned_order != str(order_id).strip():
+        return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+
     status = _normalize_status(latest.get("status"))
     filled = _safe_int(
         latest.get("filled_quantity", latest.get("filled_qty"))
@@ -142,9 +148,10 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
                     ambiguous = True
                     break
                 reported_order = str(trade.get("order_id") or "").strip()
-                if reported_order and reported_order != str(order_id):
-                    ambiguous = True
-                    break
+                if reported_order and reported_order != str(order_id).strip():
+                    # Do not fall back to otherwise valid-looking history once
+                    # this broker API returned a trade for a different order.
+                    return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
                 trade_id = str(trade.get("trade_id") or "").strip()
                 q = _safe_int(trade.get("quantity"))
                 px = _safe_float(trade.get("average_price", trade.get("price")))
@@ -253,7 +260,28 @@ def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") ->
     execution_ms = (exchange_ms(json.loads(row["raw_json"])) or int(row["received_ts_ms"])) if row else 0
     state = str(intent.state or "")
     terminal = state in order_journal.TERMINAL
-    settled = terminal or int(intent.filled_quantity or 0) >= int(intent.quantity or 0)
+    # Existing terminal evidence is not permission to treat a NEW failed
+    # reconciliation as settled. UNKNOWN, a journal conflict, or a broker-
+    # identity contradiction must stop strategy position projection.
+    unsafe_reason = str(reason or "")
+    failed_observation = (
+        unsafe_reason in {
+            "broker_mode_unknown",
+            "complete_filled_quantity_unverified",
+            "broker_order_identity_mismatch",
+            "entry_fill_unresolved_after_bounded_reconciliation",
+        }
+        or unsafe_reason.startswith((
+            "journal_observation_failed:",
+            "post_cancel_observation_failed:",
+        ))
+    )
+    settled = (
+        (terminal or int(intent.filled_quantity or 0) >= int(intent.quantity or 0))
+        and not bool(intent.reconciliation_required)
+        and str(status or state).upper() != "UNKNOWN"
+        and not failed_observation
+    )
     return FillResolution(
         order_id=order_id,
         intent_key=intent.intent_key,
@@ -331,6 +359,12 @@ async def resolve_entry_fill(
 
     while True:
         status, filled, average, raw = await _broker_snapshot(client, oid)
+        if status == "IDENTITY MISMATCH":
+            _halt_uncertain_live(client, f"entry broker order identity mismatch for {oid}")
+            return _resolution(
+                _find_intent(uid, client, oid), oid,
+                status="UNKNOWN", reason="broker_order_identity_mismatch",
+            )
         if status == "COMPLETE" and filled == 0:
             # COMPLETE plus an average price cannot prove a quantity. Never
             # infer a full fill from a field that contains no quantity evidence.
@@ -383,6 +417,12 @@ async def resolve_entry_fill(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, raw = await _broker_snapshot(client, oid)
+            if status == "IDENTITY MISMATCH":
+                _halt_uncertain_live(client, f"post-cancel entry order identity mismatch for {oid}")
+                return _resolution(
+                    _find_intent(uid, client, oid), oid,
+                    status="UNKNOWN", reason="broker_order_identity_mismatch",
+                )
             if status == "COMPLETE" and filled == 0:
                 _halt_uncertain_live(client, f"post-cancel COMPLETE missing fill quantity for {oid}")
                 return _resolution(
@@ -482,6 +522,8 @@ def _invalid_broker_fill_reason(
     contain more than the requested quantity. A nonterminal full cumulative
     quantity needs a recognized status and a confirmed positive execution price.
     """
+    if status == "IDENTITY MISMATCH":
+        return "broker_order_identity_mismatch"
     if filled > expected:
         return "broker_overfill"
     if filled > 0 and average <= 0:
