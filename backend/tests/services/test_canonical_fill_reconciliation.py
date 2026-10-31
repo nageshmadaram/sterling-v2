@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import db
+from app.services import db, live_safety
 from app.services import canonical_fill_reconciliation as fills
 from app.services.kite_engine import order_journal
 
@@ -11,11 +11,15 @@ from app.services.kite_engine import order_journal
 def _journal():
     prior = db._available
     db.init()
+    # Uncertain synthetic real-mode orders now set the durable global
+    # entry halt. Isolate each test so state never bleeds into later suites.
+    live_safety.reset_all_for_tests()
     for uid in ("fill-paper", "fill-partial", "fill-unknown", "fill-mismatch"):
         order_journal.clear_for_tests(uid)
     yield
     for uid in ("fill-paper", "fill-partial", "fill-unknown"):
         order_journal.clear_for_tests(uid)
+    live_safety.reset_all_for_tests()
     db._available = prior
 
 
