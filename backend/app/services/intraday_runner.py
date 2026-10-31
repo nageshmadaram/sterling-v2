@@ -901,7 +901,7 @@ async def _settle_pending_reduction(
         note(
             uid,
             "warning",
-            f"{pos.contract.tradingsymbol}: reduction {status.lower() with no fill; "
+            f"{pos.contract.tradingsymbol}: reduction {status.lower()} with no fill; "
             "position remains open and protection was restored",
         )
         return False, status
