@@ -206,6 +206,7 @@ def main(argv=None) -> int:
             "status": "SOURCE_ONLY", "production": "NO_GO",
             "unapproved": len(report["unapproved_order_method_references"]),
             "parse_errors": len(report["parsing_errors"]),
+            "parsing_error_files": report["parsing_errors"],
             "output": str(args.output),
         }))
         if args.strict and (report["unapproved_order_method_references"] or report["parsing_errors"]):
