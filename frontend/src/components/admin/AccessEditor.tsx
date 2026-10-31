@@ -8,6 +8,10 @@ type Features = { kite: boolean; tv: boolean; radio: boolean };
 type FeaturePolicy = { user_id: string; revision: number; features: Features; visibility: Features };
 const BASE = '/api/v1/auth/users';
 const SECTIONS: ConfigurationSection[] = ['brokers', 'telegram', 'integrations'];
+const AUDIT_REASONS = [
+  ['ACCESS_REVIEW', 'Access review'], ['USER_REQUEST', 'User request'],
+  ['SECURITY_RESTRICTION', 'Security restriction'], ['CORRECTION', 'Correction'],
+] as const;
 
 function FeatureEditor({ userId }: { userId: string }) {
   const qc = useQueryClient();
@@ -35,10 +39,7 @@ function FeatureEditor({ userId }: { userId: string }) {
         <select className="bac-input" aria-label="Reason for workspace change" value={reasonCode}
           disabled={save.isPending} onChange={e => setReasonCode(e.target.value)}>
           <option value="">Select a reason</option>
-          <option value="ACCESS_REVIEW">Access review</option>
-          <option value="USER_REQUEST">User request</option>
-          <option value="SECURITY_RESTRICTION">Security restriction</option>
-          <option value="CORRECTION">Correction</option>
+          {AUDIT_REASONS.map(([code,label]) => <option key={code} value={code}>{label}</option>)}
         </select>
       </label>
       <button className="bac-btn bac-btn-primary" disabled={save.isPending||!dirty||!reasonCode}>Save workspace settings</button>
@@ -52,6 +53,7 @@ function SectionEditor({ userId, section, policy }: { userId: string; section: C
   const qc = useQueryClient();
   const [original,setOriginal]=useState(policy.sections[section]);
   const [expectedRevision,setExpectedRevision]=useState(policy.revision);
+  const [reasonCode,setReasonCode]=useState('');
   const [visible, setVisible] = useState(policy.sections[section].visible);
   const [grants, setGrants] = useState<ConfigurationGrant[]>(policy.sections[section].grants.map(({ action, resource_id, expires_at_ms }) => ({ action, resource_id, expires_at_ms })));
   const dirty=visible!==original.visible||JSON.stringify(grants)!==JSON.stringify(original.grants.map(({action,resource_id,expires_at_ms})=>({action,resource_id,expires_at_ms})));
@@ -64,8 +66,8 @@ function SectionEditor({ userId, section, policy }: { userId: string; section: C
 
   const eligibleActions: ConfigurationAction[] = section === 'telegram' ? ['recipients', 'test'] : section === 'brokers' ? ['create', 'update'] : ['create', 'update', 'test'];
   const save = useMutation({ mutationFn: () => api.put<ConfigurationCapabilities>(`${BASE}/${encodeURIComponent(userId)}/configuration-access`,
-    { section, visible, grants:visible?grants:[], expected_revision: expectedRevision }),
-    onSuccess: data => { setOriginal(data.sections[section]);setVisible(data.sections[section].visible);setGrants(data.sections[section].grants.map(({action,resource_id,expires_at_ms})=>({action,resource_id,expires_at_ms})));setExpectedRevision(data.revision);qc.setQueryData(['admin-configuration', userId], data); void qc.invalidateQueries({ queryKey: ['admin-features', userId] }); void qc.invalidateQueries({ queryKey: ['sterling-configuration-capabilities'] }); } });
+    { section, visible, grants:visible?grants:[], expected_revision: expectedRevision, reason_code: reasonCode }),
+    onSuccess: data => { setReasonCode('');setOriginal(data.sections[section]);setVisible(data.sections[section].visible);setGrants(data.sections[section].grants.map(({action,resource_id,expires_at_ms})=>({action,resource_id,expires_at_ms})));setExpectedRevision(data.revision);qc.setQueryData(['admin-configuration', userId], data); void qc.invalidateQueries({ queryKey: ['admin-features', userId] }); void qc.invalidateQueries({ queryKey: ['sterling-configuration-capabilities'] }); } });
   return <form className="admin-section" onSubmit={e => { e.preventDefault(); save.mutate(); }}>
     <h3>{section === 'brokers' ? 'Broker settings' : section === 'telegram' ? 'Telegram settings' : 'Integration settings'}</h3>
     <label><input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} /> Visible</label>
@@ -77,7 +79,14 @@ function SectionEditor({ userId, section, policy }: { userId: string; section: C
         <button type="button" className="bac-btn" onClick={() => setGrants(grants.filter(item => item.action !== grant.action || item.resource_id !== grant.resource_id))}>Remove scope</button>
       </li>)}</ul>
     </fieldset>}
-    <button className="bac-btn bac-btn-primary" disabled={save.isPending}>Save permissions</button>
+    <label className="admin-access-reason">Reason for settings change
+      <select className="bac-input" aria-label={`Reason for ${section} settings change`}
+        value={reasonCode} disabled={save.isPending} onChange={event=>setReasonCode(event.target.value)}>
+        <option value="">Select a reason</option>
+        {AUDIT_REASONS.map(([code,label])=><option key={code} value={code}>{label}</option>)}
+      </select>
+    </label>
+    <button className="bac-btn bac-btn-primary" disabled={save.isPending||!dirty||!reasonCode}>Save permissions</button>
     {save.isError && <p role="alert">{save.error.message} <button type="button" className="bac-btn" onClick={() => {const incoming=policy.sections[section];setOriginal(incoming);setVisible(incoming.visible);setGrants(incoming.grants.map(({action,resource_id,expires_at_ms})=>({action,resource_id,expires_at_ms})));setExpectedRevision(policy.revision);void qc.invalidateQueries({queryKey:['admin-configuration',userId]});}}>Reload access</button></p>}
   </form>;
 }

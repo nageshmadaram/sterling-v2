@@ -18,3 +18,15 @@ An admin toggling a feature uses a revision CAS transaction, before/after audit 
 **Known fixed discrepancy:** `WorkspaceRouter` formerly checked grants when mounting but did not also apply visibility; `/auth/me` previously serialized the request-context role. Both are corrected on the PR branch, with focused tests added. Backend visibility remains intentionally independent of a grant.
 
 **Unverified:** comprehensive endpoint-by-verb policy enforcement, broker assignment mismatch across every API route, stale-session race handling on all workers, frontend modal/focus/toast uniformity across mobile and desktop. Add route-level tests on a disposable database; do not declare this completed on the strength of role-dependent rendering alone.
+
+
+### Configuration-permission audit coverage (31 October 2026)
+
+The configuration delegation service and route accept `reason_code` for
+broker, Telegram and integration permission updates. The reason is stored
+in the same atomic audit/event-outbox transaction as actor, target, previous
+permissions, new permissions and revision. The administrative UI requires a
+structured reason to submit a change. The wire API remains backward-compatible:
+a missing code records `NOT_PROVIDED` instead of fabricating approval.
+Invalid free-form reason strings fail validation. This is change traceability,
+**not** an independent production attestation.
