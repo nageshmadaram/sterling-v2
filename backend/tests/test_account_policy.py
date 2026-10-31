@@ -165,3 +165,41 @@ def test_preflight_is_read_only_and_redacted(identities):
     assert report['administrator_ids'] == ['default']
     assert 'password' not in str(report)
     assert path.read_bytes() == before
+
+
+
+@pytest.mark.asyncio
+async def test_administrator_reason_code_is_durable_and_not_an_approval(identities):
+    actor = UserContext(user_id='default', role='admin')
+    payload = api.FeatureEdit(
+        expected_revision=0,
+        features=api.FeatureGrants(kite=True, tv=False, radio=False),
+        reason_code="ACCESS_REVIEW",
+    )
+    updated = await api.update_features('member', payload, Response(), actor)
+    assert updated["revision"] == 1
+    with db._conn() as c:
+        audit = c.execute(
+            "SELECT actor_id,target_id,action,reason_code,before_json,after_json,created_at_ms "
+            "FROM auth_audit_events WHERE action='features.updated'"
+        ).fetchone()
+        assert audit["actor_id"] == "default" and audit["target_id"] == "member"
+        assert audit["reason_code"] == "ACCESS_REVIEW"
+        assert audit["created_at_ms"] > 0
+        assert '"kite": true' in audit["after_json"]
+        assert '"kite": false' in audit["before_json"]
+    user_store._init_table()  # repeated migration preserves reason and event
+    with db._conn() as c:
+        assert c.execute("SELECT reason_code FROM auth_audit_events").fetchone()[0] == "ACCESS_REVIEW"
+    with pytest.raises(ValidationError):
+        api.FeatureEdit(
+            expected_revision=1,
+            features=api.FeatureGrants(kite=False, tv=False, radio=False),
+            reason_code="user supplied free-form secret",
+        )
+
+
+def test_unsupplied_reason_is_honestly_recorded_as_not_provided(identities):
+    policy.set_features("default", "member", dict.fromkeys(policy.FEATURES, True), 0)
+    with db._conn() as c:
+        assert c.execute("SELECT reason_code FROM auth_audit_events").fetchone()[0] == "NOT_PROVIDED"

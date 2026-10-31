@@ -208,6 +208,7 @@ class BulkAccess(BaseModel):
     model_config=ConfigDict(extra='forbid')
     users: list[BulkUser]=Field(min_length=1,max_length=100)
     features: dict[str,StrictBool]
+    reason_code: str|None=Field(default=None,pattern=r"^[A-Z][A-Z0-9_]{2,63}$")
 
 
 @router.patch('/directory/access')
@@ -234,7 +235,7 @@ async def bulk_access(body:BulkAccess,user:UserContext=Depends(get_current_user)
                         DO UPDATE SET enabled=excluded.enabled,actor_id=excluded.actor_id,updated_at_ms=excluded.updated_at_ms''',(item.user_id,feature,int(enabled),user.user_id,now))
                 revision=item.expected_revision+1
                 c.execute('INSERT INTO account_policy_revisions VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision',(item.user_id,revision))
-                event=account_policy.audit(c,user.user_id,item.user_id,'features.bulk_updated',old,{**old,**body.features},now)
+                event=account_policy.audit(c,user.user_id,item.user_id,'features.bulk_updated',old,{**old,**body.features},now,reason_code=body.reason_code or 'NOT_PROVIDED')
                 c.execute('INSERT INTO auth_event_outbox(event_id,user_id,revision) VALUES(?,?,?)',(event,item.user_id,revision))
         return {'updated':len(body.users)}
     except account_policy.PolicyConflict as exc: raise HTTPException(409,str(exc)) from None

@@ -106,6 +106,8 @@ class FeatureEdit(BaseModel):
     expected_revision: int = Field(ge=0, strict=True)
     features: FeatureGrants
     visibility: FeatureGrants | None = None
+    reason_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,63}$",
+                                    description="Structured administrative change reason; not release approval")
 
 
 def policy_public(policy):
@@ -137,7 +139,8 @@ async def update_features(user_id: str, body: FeatureEdit, response: Response,
     try:
         return policy_public(account_policy.set_features(
             user.user_id, user_id, body.features.model_dump(), body.expected_revision,
-            visibility=body.visibility.model_dump() if body.visibility is not None else None))
+            visibility=body.visibility.model_dump() if body.visibility is not None else None,
+            reason_code=body.reason_code or "NOT_PROVIDED"))
     except account_policy.PolicyConflict as exc:
         raise HTTPException(409, str(exc)) from None
     except PermissionError as exc:
