@@ -1132,3 +1132,107 @@ async def test_monotonic_partial_to_cancelled_preserves_confirmed_quantity():
     assert result.terminal
     assert result.filled_quantity == 5
     assert result.average_price == 80
+
+@pytest.mark.parametrize("state,order_id,allowed", [
+    ("OPEN", "SYNTHETIC-EXIT", True),
+    ("UPDATE", "SYNTHETIC-EXIT", True),
+    ("CANCEL PENDING", "SYNTHETIC-EXIT", False),
+    ("TRIGGER PENDING", "SYNTHETIC-EXIT", False),
+    ("OPEN PENDING", "SYNTHETIC-EXIT", False),
+    ("OPEN", "", False),
+    ("OPEN", "FOREIGN-ORDER", False),
+    ("COMPLETE", "SYNTHETIC-EXIT", False),
+])
+def test_cancel_authority_requires_verified_active_broker_order(
+    state, order_id, allowed,
+):
+    from app.services.canonical_fill_reconciliation import (
+        _can_cancel_verified_working_order,
+    )
+    assert _can_cancel_verified_working_order(
+        status=state, broker_row={"order_id": order_id},
+        order_id="SYNTHETIC-EXIT",
+    ) is allowed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("book", ["empty", "unavailable", "pending_cancel", "trigger"])
+async def test_unknown_or_nonworking_broker_book_cannot_send_exit_cancel(book):
+    """No broker-history evidence means no demonstrated cancellable remainder."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticUnavailableBook:
+        _is_paper = True
+        _is_simulated = True
+
+        def __init__(self):
+            self.cancel_calls = 0
+
+        async def get_order_history(self, order_id):
+            if book == "unavailable":
+                raise ConnectionError("synthetic broker book offline")
+            if book == "empty":
+                return []
+            return [{
+                "order_id": order_id,
+                "status": ("CANCEL PENDING" if book == "pending_cancel"
+                           else "TRIGGER PENDING"),
+                "filled_quantity": 0, "average_price": 0,
+            }]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancel_calls += 1
+
+    broker = SyntheticUnavailableBook()
+    result = await resolve_acknowledged_order(
+        client=broker, order_id="SYNTHETIC-EXIT",
+        expected_quantity=10, reference_price=80,
+        timeout_s=0, cancel_unfilled=True,
+    )
+    assert not result.settled
+    assert result.reason == "broker_order_unresolved_after_bounded_reconciliation"
+    assert broker.cancel_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_verified_working_exit_cancels_exact_id_then_reconciles_partial():
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticWorkingOrder:
+        _is_paper = True
+        _is_simulated = True
+
+        def __init__(self):
+            self.cancelled = False
+            self.cancel_calls = []
+
+        async def get_order_history(self, order_id):
+            assert order_id == "SYNTHETIC-EXIT"
+            return [{
+                "order_id": order_id,
+                "status": "CANCELLED" if self.cancelled else "OPEN",
+                "filled_quantity": 3, "average_price": 80,
+            }]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancel_calls.append(order_id)
+            self.cancelled = True
+            return {"order_id": order_id}
+
+    broker = SyntheticWorkingOrder()
+    result = await resolve_acknowledged_order(
+        client=broker, order_id="SYNTHETIC-EXIT",
+        expected_quantity=10, reference_price=80,
+        timeout_s=0, cancel_unfilled=True,
+    )
+    assert broker.cancel_calls == ["SYNTHETIC-EXIT"]
+    assert result.settled and result.terminal
+    assert result.status == "CANCELLED"
+    assert result.filled_quantity == 3
+    assert result.average_price == 80
