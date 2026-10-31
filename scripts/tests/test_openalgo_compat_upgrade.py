@@ -519,3 +519,49 @@ def test_full_parity_refuses_policy_guard_name_on_wrong_table(tmp_path):
     report = migration.audit_full_migration_preflight(source)
     assert "users_admin_active" in report["missing_policy_guard_triggers"]
     assert report["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_reports_actual_null_identities_without_exposing_values(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        # SQLite ordinary rowid TEXT PRIMARY KEY permits multiple NULL IDs.
+        conn.execute(
+            "INSERT INTO positions(id,synthetic_payload) VALUES(NULL,?)",
+            ("secret-orphan-position",),
+        )
+        conn.execute(
+            "INSERT INTO positions(id,synthetic_payload) VALUES(NULL,?)",
+            ("secret-second-position",),
+        )
+    before = source.read_bytes()
+    report = migration.audit_full_migration_preflight(source)
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
+    assert report["null_identity_row_counts"]["positions"] == 2
+    assert report["null_identity_row_counts"]["kite_fill_ledger"] == 1
+    assert "secret-orphan-position" not in json.dumps(report)
+    assert "secret-second-position" not in json.dumps(report)
+    assert report["source_modified"] is False
+    assert source.read_bytes() == before
+
+
+def test_full_parity_null_identity_counts_cleared_only_by_source_data_change(tmp_path):
+    source = synthetic_db(tmp_path)
+    before = migration.audit_full_migration_preflight(source)
+    assert before["null_identity_row_counts"]["kite_order_intents"] == 1
+    with sqlite3.connect(source) as conn:
+        conn.execute(
+            "UPDATE kite_order_intents SET intent_key=?, tag=?",
+            ("synthetic-order-1", "synthetic-tag-1"),
+        )
+    after = migration.audit_full_migration_preflight(source)
+    assert "kite_order_intents" not in after["null_identity_row_counts"]
+    # This is still not a successful physical PostgreSQL migration.
+    assert after["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_missing_identity_column_is_reported_without_bad_sql(tmp_path):
+    source = synthetic_db(tmp_path, altered_column=("kite_order_intents", "tag", "MISSING"))
+    report = migration.audit_full_migration_preflight(source)
+    assert "tag" in report["critical_column_mismatches"]["kite_order_intents"]
+    assert "kite_order_intents" not in report["null_identity_row_counts"]
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
