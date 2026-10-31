@@ -1050,3 +1050,85 @@ async def test_malformed_entry_quantity_never_projects_or_cancels(isolated):
     assert client.cancels == 0
     assert order_journal.get(ack.intent_key).state == "SUBMITTED"
     assert not live_safety._KILL_SWITCH["enabled"]
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rows", [
+    [
+        {"order_id": "SYNTHETIC-EXIT", "status": "OPEN",
+         "filled_quantity": 5, "average_price": 80},
+        {"order_id": "SYNTHETIC-EXIT", "status": "CANCELLED",
+         "filled_quantity": 0, "average_price": 0},
+    ],
+    [
+        {"order_id": "SYNTHETIC-EXIT", "status": "OPEN",
+         "filled_quantity": "1.5", "average_price": 80},
+        {"order_id": "SYNTHETIC-EXIT", "status": "CANCELLED",
+         "filled_quantity": 0, "average_price": 0},
+    ],
+    [
+        {"order_id": "SYNTHETIC-EXIT", "status": "OPEN",
+         "filled_quantity": 5, "average_price": 80},
+        {"order_id": "SYNTHETIC-EXIT", "status": "COMPLETE",
+         "filled_quantity": 10, "average_price": 80},
+        {"order_id": "SYNTHETIC-EXIT", "status": "CANCELLED",
+         "filled_quantity": 5, "average_price": 80},
+    ],
+])
+async def test_history_cumulative_regression_cannot_erase_fill_or_cancel(rows):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class NonmonotonicHistory:
+        _is_paper = True
+        _is_simulated = True
+
+        def __init__(self):
+            self.cancels = 0
+
+        async def get_order_history(self, order_id):
+            return rows
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancels += 1
+
+    client = NonmonotonicHistory()
+    result = await resolve_acknowledged_order(
+        client=client, order_id="SYNTHETIC-EXIT", expected_quantity=10,
+        reference_price=80, timeout_s=0, cancel_unfilled=True,
+    )
+    assert not result.settled
+    assert result.reason == "broker_fill_quantity_unverified"
+    assert client.cancels == 0
+
+
+@pytest.mark.asyncio
+async def test_monotonic_partial_to_cancelled_preserves_confirmed_quantity():
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class MonotonicHistory:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            return [
+                {"order_id": order_id, "status": "OPEN",
+                 "filled_quantity": 0, "average_price": 0},
+                {"order_id": order_id, "status": "OPEN",
+                 "filled_quantity": 5, "average_price": 80},
+                {"order_id": order_id, "status": "CANCELLED",
+                 "filled_quantity": 5, "average_price": 80},
+            ]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    result = await resolve_acknowledged_order(
+        client=MonotonicHistory(), order_id="SYNTHETIC-EXIT",
+        expected_quantity=10, reference_price=80, timeout_s=0,
+    )
+    assert result.settled
+    assert result.terminal
+    assert result.filled_quantity == 5
+    assert result.average_price == 80
