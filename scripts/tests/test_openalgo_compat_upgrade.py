@@ -565,3 +565,30 @@ def test_full_parity_missing_identity_column_is_reported_without_bad_sql(tmp_pat
     assert "tag" in report["critical_column_mismatches"]["kite_order_intents"]
     assert "kite_order_intents" not in report["null_identity_row_counts"]
     assert report["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_refuses_configured_active_source_before_db_open(
+    tmp_path, monkeypatch,
+):
+    source = synthetic_db(tmp_path)
+    original_bytes = source.read_bytes()
+    monkeypatch.setenv("STERLING_DB_PATH", str(source))
+    with pytest.raises(PermissionError, match="offline source"):
+        migration.audit_full_migration_preflight(source)
+    assert source.read_bytes() == original_bytes
+
+
+def test_full_parity_refuses_operational_default_filename(tmp_path):
+    source = synthetic_db(tmp_path)
+    active_named_source = source.with_name("sterling_paper.db")
+    source.rename(active_named_source)
+    with pytest.raises(PermissionError, match="offline source"):
+        migration.audit_full_migration_preflight(active_named_source)
+
+
+def test_full_parity_does_not_assume_arbitrary_filename_is_safe_to_deploy(tmp_path):
+    source = synthetic_db(tmp_path)
+    report = migration.audit_full_migration_preflight(source)
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
+    assert report["production_migration"] == "NOT_CERTIFIED"
+    assert report["postgresql_data_migration"] == "NOT_IMPLEMENTED"
