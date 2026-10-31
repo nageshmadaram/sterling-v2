@@ -160,3 +160,29 @@ approved, complete PostgreSQL domain models, data transfer, rollback and
 independent acceptance are delivered. The current raw operational schema has
 no such verified PostgreSQL parity. Read-only auditing is not a substitute for
 auth, broker order lifecycle or native user-journey acceptance.
+
+
+### 31 October: auth and financial-evidence schema coverage expansion
+
+The full-parity preflight now checks **20 explicit Sterling safety-key table
+contracts**, based on source SQLite DDL rather than claimed OpenAlgo identity:
+the original order/inventory/risk core plus platform administrator
+designation, feature and workspace grants, policy revisions, auth events,
+auth outbox, schema version and realized-P&L event identities.
+
+It also reports (aggregate metadata only):
+- `orphan_identity_row_counts`: references to missing user rows in the
+  known account/authorization tables, without exposing IDs or secret rows.
+- `missing_policy_guard_triggers`: missing source SQL trigger names that
+  protect the designated administrator (name-presence only).
+- `missing_declared_identity_foreign_keys`: missing actual SQLite
+  references on `platform_admin` and `user_workspace_visibility`.
+- `unmapped_operational_tables`: only tables *outside* the audited critical
+  contracts, not the critical tables themselves.
+- critical column-affinity, uniqueness and NULL-identity gaps for the newly
+  covered tables and execution observation/increment/lease/conflict ledgers.
+
+All reports remain **READ ONLY** and **BLOCKED_FULL_MIGRATION**. The guard
+checks are not physical PostgreSQL DDL, credential transfer, target policy
+enforcement, canonical replay, rollback certification or deployment.
+Synthetic test source is added, but full exact-commit CI acceptance is pending.
