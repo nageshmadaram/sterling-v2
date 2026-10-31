@@ -89,6 +89,7 @@ async def test_partial_live_fill_cancels_remainder_and_returns_confirmed_quantit
         async def get_order_history(self, order_id):
             assert order_id == "LIVE-1"
             return [{
+                "order_id": order_id,
                 "status": "CANCELLED" if self.cancelled else "OPEN",
                 "filled_quantity": 40,
                 "average_price": 101.25,
@@ -170,6 +171,7 @@ async def test_complete_with_partial_quantity_is_not_treated_as_settled_reductio
 
         async def get_order_history(self, order_id):
             return [{
+                "order_id": order_id,
                 "status": "COMPLETE",
                 "filled_quantity": 40,
                 "average_price": 99.0,
