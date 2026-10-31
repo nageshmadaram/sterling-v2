@@ -140,3 +140,23 @@ actually completes successfully**. Queued jobs are not a PASS.
 The scope still does not include PostgreSQL migration of all Sterling
 execution journal, risk, broker-account, inventory or credential tables.
 No live database switches or broker calls have been performed.
+
+
+## Full migration preflight: new negative acceptance gate
+
+The copy-only inventory is intentionally permissive enough to support
+synthetic legacy SQLite snapshots. It was not a full operational migration
+readiness result. The new
+`python -m upgrade.sterling_openalgo --source <isolated.db> --audit-full-parity`
+reports strict **account, authentication, order, signed-fill, inventory, lease,
+execution control and settings unique-key gaps** and all discovered SQLite
+table names without disclosing record contents or credentials. It treats a
+partial unique index as insufficient to enforce immutable order identity.
+This is a source-only addition on draft PR #15 with negative synthetic
+regression coverage.
+
+Its response is always `BLOCKED_FULL_MIGRATION` (shell exit 2) until
+approved, complete PostgreSQL domain models, data transfer, rollback and
+independent acceptance are delivered. The current raw operational schema has
+no such verified PostgreSQL parity. Read-only auditing is not a substitute for
+auth, broker order lifecycle or native user-journey acceptance.
