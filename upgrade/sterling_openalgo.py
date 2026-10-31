@@ -74,6 +74,27 @@ REQUIRED_COLUMNS = {
 }
 LEDGER_COLUMNS = ("version", "phase", "source_schema_sha256")
 
+# Safety-significant SQLite keys observed in the operational Sterling baseline.
+# These are NOT inferred OpenAlgo table definitions or claims of PostgreSQL parity.
+# A missing UNIQUE/PK key would permit duplicates after a future data backfill.
+FULL_PARITY_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "users": (("id",), ("username",)),
+    "positions": (("id",),),
+    "kite_accounts": (("id",),),
+    "kite_order_intents": (("intent_key",), ("tag",)),
+    "kite_order_observations": (("id",), ("intent_key", "fingerprint")),
+    "kite_fill_ledger": (("account_id", "order_id", "trade_id"),),
+    "kite_execution_increments": (
+        ("id",), ("account_id", "order_id", "cumulative_quantity"),
+    ),
+    "kite_inventory": (("account_id", "uid", "symbol"),),
+    "kite_execution_leases": (("scope", "account_id", "uid", "symbol"),),
+    "kite_execution_conflicts": (("id",),),
+    "execution_control": (("scope", "uid", "account_id"),),
+    "system_config": (("key",),),
+}
+
+
 
 def _source(path: Path) -> Path:
     if path.is_symlink() or not path.is_file():
@@ -220,6 +241,84 @@ def inventory(path: Path) -> dict:
             "production_migration": "NOT_CERTIFIED",
         }
 
+
+
+def _unique_keys(conn: sqlite3.Connection, table: str) -> set[tuple[str, ...]]:
+    """Only unconditional column-only PRIMARY KEY/UNIQUE constraints count.
+
+    A partial or expression index cannot prove global uniqueness; index names
+    are not trusted as identity contracts. Never read a table's row values.
+    """
+    quoted = '"' + table.replace('"', '""') + '"'
+    column_rows = list(conn.execute(f"PRAGMA table_info({quoted})"))
+    primary = tuple(
+        str(row[1]) for row in sorted(
+            (r for r in column_rows if int(r[5]) > 0), key=lambda r: int(r[5])
+        )
+    )
+    keys = {tuple(sorted(primary))} if primary else set()
+    for index in conn.execute(f"PRAGMA index_list({quoted})"):
+        # (seq, name, unique, origin, partial); a partial unique index only
+        # protects rows satisfying its predicate, not the entire trading book.
+        if not int(index[2]) or (len(index) > 4 and int(index[4])):
+            continue
+        name = '"' + str(index[1]).replace('"', '""') + '"'
+        parts = list(conn.execute(f"PRAGMA index_xinfo({name})"))
+        key_columns = [r for r in parts if int(r[5]) == 1]
+        if not key_columns or any(int(r[1]) < 0 or r[2] is None for r in key_columns):
+            continue
+        keys.add(tuple(sorted(str(r[2]) for r in key_columns)))
+    return keys
+
+
+def audit_full_migration_preflight(path: Path) -> dict:
+    """Read-only, exhaustive *safety-key* baseline; never authorizes migration.
+
+    This gate intentionally has no passing full-migration state until complete
+    PostgreSQL operational models, transactional data transfer, restore, broker
+    reconciliation and independent approval are implemented and verified.
+    Unlike the backwards-compatible copy-only inventory, it also requires the
+    separately initialized user and execution evidence tables.
+    """
+    source = _source(Path(path))
+    with closing(_read_only(source)) as conn:
+        conn.execute("BEGIN")  # stable read snapshot across the entire audit
+        _check(conn)
+        counts = _counts(conn)
+        tables = set(counts)
+        missing = sorted(set(FULL_PARITY_KEYS) - tables)
+        mismatches = _column_gaps(conn, tables)
+        missing_keys: dict[str, list[list[str]]] = {}
+        for table, expected in FULL_PARITY_KEYS.items():
+            if table not in tables:
+                continue
+            present = _unique_keys(conn, table)
+            absent = [
+                list(key) for key in expected
+                if tuple(sorted(key)) not in present
+            ]
+            if absent:
+                missing_keys[table] = absent
+        return {
+            "status": "BLOCKED_FULL_MIGRATION",
+            "mode": "READ_ONLY_FULL_PARITY_PREFLIGHT",
+            "schema_sha256": _schema(conn)["schema_sha256"],
+            "sqlite_user_version": int(conn.execute("PRAGMA user_version").fetchone()[0]),
+            "tables_scanned": len(tables),
+            "critical_tables": sorted(FULL_PARITY_KEYS),
+            "missing_critical_tables": missing,
+            "critical_column_mismatches": mismatches,
+            "missing_safety_unique_keys": missing_keys,
+            "unmapped_operational_tables": sorted(tables),
+            "postgresql_operational_schema": "NOT_IMPLEMENTED",
+            "postgresql_data_migration": "NOT_IMPLEMENTED",
+            "restore_and_rollback_evidence": "NOT_VERIFIED",
+            "independent_approval": "NOT_PROVIDED",
+            "source_modified": False,
+            "broker_connection": "NOT_ATTEMPTED",
+            "live_trading": "NOT_AUTHORIZED",
+            "production_migration": "NOT_CERTIFIED",
+        }
 
 def _ledger_status(conn: sqlite3.Connection, baseline_hash: str) -> str:
     tables = set(_counts(conn))
@@ -372,7 +471,15 @@ def main() -> None:
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--destination", type=Path)
     parser.add_argument("--apply-to-copy", action="store_true")
+    parser.add_argument("--audit-full-parity", action="store_true",
+                        help="read-only safety-key audit; always blocks full migration until certified")
     args = parser.parse_args()
+    if args.audit_full_parity:
+        if args.apply_to_copy or args.destination is not None:
+            parser.error("--audit-full-parity cannot be combined with a copy destination")
+        result = audit_full_migration_preflight(args.source)
+        print(json.dumps(result, sort_keys=True))
+        raise SystemExit(2)  # a blocked migration must not be a green shell gate
     if args.apply_to_copy:
         if args.destination is None:
             parser.error("--apply-to-copy requires --destination")
