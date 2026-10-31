@@ -194,14 +194,20 @@ class QuoteSource:
     def __init__(self, real_client_provider: RealClientProvider, *, owner: str = "", ttl_s: float = 1.0,
                  clock: Callable[[], float] = time.monotonic, tick_reader: Optional[TickReader] = None,
                  use_websocket: bool = True, max_quote_age_s: Optional[float] = DEFAULT_MAX_QUOTE_AGE_S,
-                 wall_clock: Callable[[], float] = time.time) -> None:
+                 wall_clock: Optional[Callable[[], float]] = None) -> None:
         self._provider = real_client_provider
         self.owner = owner_uid(owner) if owner else ""
         self.ttl_s = float(ttl_s)
         self._clock = clock
         self._tick_reader = tick_reader if tick_reader is not None else (default_tick_reader() if use_websocket else None)
         self.max_quote_age_s = max_quote_age_s          # None lifts the limit: tests only
-        self._wall = wall_clock
+        # Resolve wall-clock time at invocation, not at module import. Frozen
+        # scenario clocks and process restarts can change time.time after this
+        # module loads; capturing the original callable makes a fresh exchange
+        # quote appear weeks old and incorrectly stops virtual margin reads.
+        # Real deployments still use the same system clock, and stale quotes
+        # remain strictly rejected by _stale.
+        self._wall = wall_clock if wall_clock is not None else (lambda: time.time())
         self._cache: Dict[str, Tuple[float, Book]] = {}
         self._seq = 0                                # counts REST reads stored: tells "fetched while I waited" apart
         self._cache_seq: Dict[str, int] = {}
