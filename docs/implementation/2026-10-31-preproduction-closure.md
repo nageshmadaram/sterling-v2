@@ -111,3 +111,25 @@ normalization or source-independent broker verification.
 
 **No merge, no deployment, no live session/order, no production authority.
 External controls remain 0/12 accepted; production NO-GO.**
+
+## Follow-up: prevent blind cancellation on an unverified broker book
+
+The strategy entry and exit bounded-reconciliation paths no longer attempt
+automatic broker cancellation when the most recent broker-history observation
+does not contain the exact matching order ID and an explicitly working
+`OPEN` or `UPDATE` state. Empty/unavailable history, `CANCEL PENDING`,
+`TRIGGER PENDING`, non-working states and ambiguous observations stay
+unresolved; real-mode uncertainty retains the existing halt behavior.
+A journal acknowledgement identifies an intended order, but by itself does
+not prove that the broker still has a cancellable working remainder.
+
+Offline synthetic regressions now exercise unavailable/empty books,
+non-working states, the absence of cancellation, and a verified partial
+`OPEN` to `CANCELLED` lifecycle. Both affected test modules are included
+in the existing focused product-integrity workflow. This is a source
+change and test commitment, **not exact-SHA test evidence**.
+
+Production readiness remains **NO-GO** until exact-head CI and independent
+execution, device, broker and host acceptance; external controls remain
+**0/12 accepted**. Do not infer permission to merge, deploy, connect live
+broker sessions or route live orders.
