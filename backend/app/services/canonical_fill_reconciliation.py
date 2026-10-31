@@ -139,6 +139,7 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
         try:
             rows = await history(order_id)
             if isinstance(rows, list):
+                prior_filled = 0
                 for history_row in rows:
                     if not isinstance(history_row, dict):
                         # A malformed row prevents proving that the response
@@ -147,6 +148,17 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
                     reported = str(history_row.get("order_id") or "").strip()
                     if reported != str(order_id).strip():
                         return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+                    row_quantity = _parse_broker_quantity(history_row.get(
+                        "filled_quantity", history_row.get("filled_qty"),
+                    ))
+                    # A later snapshot cannot erase an earlier confirmed fill.
+                    # Ordered history is required to prove a terminal zero
+                    # rather than silently substituting a stale row.
+                    if row_quantity is None or row_quantity < prior_filled:
+                        return "FILL EVIDENCE INVALID", 0, 0.0, {
+                            "fill_evidence_invalid": True,
+                        }
+                    prior_filled = row_quantity
             latest = (
                 rows[-1]
                 if isinstance(rows, list) and rows and isinstance(rows[-1], dict)
