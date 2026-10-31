@@ -153,7 +153,9 @@ async def test_ambiguous_live_remainder_is_not_resubmitted_or_invented_as_fill()
         timeout_s=0,
     )
 
-    assert client.cancel_calls == 1
+    # No broker history means no verified working-order remainder. A blind
+    # cancellation could target an already-filled or protected order.
+    assert client.cancel_calls == 0
     assert resolution.filled_quantity == 0
     assert resolution.settled is False
     assert resolution.status in {"SUBMITTED", "UNKNOWN"}
