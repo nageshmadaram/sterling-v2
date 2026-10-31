@@ -46,6 +46,7 @@ jobs:
             tests/unit/test_canonical_journal_snapshot_restore.py \
             tests/unit/test_execution_unknown_settlement.py \
             tests/unit/test_canonical_strategy_reduction.py \
+            tests/services/test_canonical_fill_reconciliation.py \
             tests/unit/test_openalgo_compat.py \
             tests/unit/test_alembic_disposable_guard.py \
             tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_supertrend_exit_keeps_resting_stop_when_canonical_inventory_is_missing \
