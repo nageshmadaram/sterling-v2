@@ -277,6 +277,22 @@ def _observe(
     return observed.intent, observed
 
 
+def _can_cancel_verified_working_order(
+    *, status: str, broker_row: dict, order_id: str,
+) -> bool:
+    """Require a matching, actively working broker row before cancellation.
+
+    A missing broker read does not establish that an acknowledged order is
+    still working. CANCEL PENDING / TRIGGER PENDING may refer to protective
+    orders and must not prompt another mutation.
+    """
+    return (
+        status in {"OPEN", "UPDATE"}
+        and isinstance(broker_row, dict)
+        and str(broker_row.get("order_id") or "").strip() == order_id
+    )
+
+
 async def _cancel_remaining(client: Any, order_id: str) -> bool:
     cancel = getattr(client, "cancel_order", None)
     if not callable(cancel):
@@ -484,7 +500,11 @@ async def resolve_entry_fill(
     if int(latest.filled_quantity or 0) >= expected:
         return _resolution(latest, oid, status=last_status or latest.state)
 
-    if cancel_unfilled and await _cancel_remaining(client, oid):
+    if (cancel_unfilled
+            and _can_cancel_verified_working_order(
+                status=last_status, broker_row=last_raw, order_id=oid,
+            )
+            and await _cancel_remaining(client, oid)):
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, raw = await _broker_snapshot(client, oid)
@@ -659,8 +679,9 @@ async def resolve_acknowledged_order(
     status = ""
     filled = 0
     average = 0.0
+    last_broker_row: dict = {}
     while True:
-        status, filled, average, _raw = await _broker_snapshot(client, oid)
+        status, filled, average, last_broker_row = await _broker_snapshot(client, oid)
         invalid_reason = _invalid_broker_fill_reason(
             status=status, filled=filled, average=average, expected=expected,
         )
@@ -711,7 +732,11 @@ async def resolve_acknowledged_order(
             break
         await asyncio.sleep(0.25)
 
-    if cancel_unfilled and await _cancel_remaining(client, oid):
+    if (cancel_unfilled
+            and _can_cancel_verified_working_order(
+                status=status, broker_row=last_broker_row, order_id=oid,
+            )
+            and await _cancel_remaining(client, oid)):
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, _raw = await _broker_snapshot(client, oid)
