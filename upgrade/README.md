@@ -108,3 +108,38 @@ Alembic at an externally hosted database.
 The ORM migration remains only `positions`, `mirrored_records` and
 `equity_snapshots`. Full Sterling journal, inventory, broker, auth, strategy
 and risk table migration **has not been implemented or run on PostgreSQL**.
+
+
+## Full operational migration preflight (read-only, deliberately NO-GO)
+
+`python -m upgrade.sterling_openalgo --source /path/to/offline-disposable-snapshot.db --audit-full-parity`
+
+This new **read-only** report is distinct from `--apply-to-copy`. It inventories
+all table names without dumping any row data, detects missing core account,
+order, signed-fill, inventory, risk, execution lease and identity tables,
+checks critical column affinities, and checks **global primary/unique keys**
+that enforce immutable execution identity. Partial or expression unique indexes
+cannot substitute for those keys. It reports missing safety keys, current
+schema fingerprint, unmapped operational table names and unavailable full
+PostgreSQL migration/restore evidence. Do not point it at live broker storage;
+use an independently preserved, custody-reviewed offline snapshot.
+
+The command returns **exit 2** and `BLOCKED_FULL_MIGRATION` even if every
+SQLite key exists: the complete PostgreSQL operational schema, row-transfer
+mapping, secrets custody, strategy registry parity, broker-state recovery,
+independent restore and sign-off do not exist. An exact-key match is *not*
+authorization to run SQL migrations or enable live routing. A full-parity
+audit cannot be combined with a copy/write operation. The existing
+`--apply-to-copy` and default dry-run contracts remain unchanged.
+
+This gate implements part of the specification's phase-0/1 inventory and
+phase-2 negative preflight; it does **not** deliver full schema migration,
+reversible deployment or OpenAlgo physical model equivalence. Offline tests
+live in `scripts/tests/test_openalgo_compat_upgrade.py` and are part of the
+focused product-integrity workflow. Historical successful runs do not
+validate a newer commit.
+
+Never overwrite existing `.env`/secret material while adapting an OpenAlgo
+runtime bootstrap. Merge new variable definitions selectively and require
+operator review of any key rotation; the current project does not implement
+credential migration.
