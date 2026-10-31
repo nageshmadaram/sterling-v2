@@ -108,6 +108,13 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
     if callable(history):
         try:
             rows = await history(order_id)
+            if isinstance(rows, list):
+                for history_row in rows:
+                    if not isinstance(history_row, dict):
+                        continue
+                    reported = str(history_row.get("order_id") or "").strip()
+                    if reported and reported != str(order_id).strip():
+                        return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
             latest = (
                 rows[-1]
                 if isinstance(rows, list) and rows and isinstance(rows[-1], dict)
