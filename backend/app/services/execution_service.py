@@ -405,6 +405,43 @@ class CanonicalExecutionService:
             return False, verdict.reason
         return True, "OK"
 
+    def require_execution_authority(
+        self,
+        *,
+        uid: str,
+        account_id: str,
+        exposure_effect: ExposureEffect,
+        scope: str = "global",
+        strategy_id: str = "",
+        ignore_intent_keys: Tuple[str, ...] = (),
+        entry_request: Optional[ExecutionRequest] = None,
+    ) -> Tuple[bool, str]:
+        """Fail-closed lifecycle/safe-mode admission for canonical operations.
+
+        This SafetySupervisor verdict is NOT sufficient to send to a broker.
+        submit_order also checks policy, risk, account, session, release scope,
+        transport and the final just-before-send safety revision.
+        """
+        try:
+            effect = ExposureEffect(exposure_effect)
+        except (TypeError, ValueError):
+            return False, "Unknown execution exposure effect"
+        if (
+            not isinstance(uid, str) or not uid.strip() or uid != uid.strip()
+            or not isinstance(account_id, str) or not account_id.strip()
+            or account_id != account_id.strip()
+        ):
+            return False, "Invalid execution account identity"
+        try:
+            return self.is_trading_allowed(
+                scope=scope, uid=uid, account_id=account_id,
+                exposure_effect=effect, strategy_id=strategy_id,
+                ignore_intent_keys=ignore_intent_keys,
+                entry_request=entry_request,
+            )
+        except Exception:
+            return False, "Canonical execution safety authority unavailable"
+
     @staticmethod
     def _mark_submission_uncertain(request: ExecutionRequest, intent: Any, reason: str) -> None:
         """Record an uncertain send and fence the account until recovery reads the broker."""
@@ -680,7 +717,7 @@ class CanonicalExecutionService:
                     error="Snapback live gate: " + ", ".join(decision.reasons),
                 )
 
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=request.uid,
             account_id=request.account_id,
             exposure_effect=effective_effect,
@@ -890,7 +927,7 @@ class CanonicalExecutionService:
         # race open, so the same authority is asked again here, with nothing
         # between it and the send.
         if is_exposure_increasing:
-            still_allowed, still_reason = self.is_trading_allowed(
+            still_allowed, still_reason = self.require_execution_authority(
                 uid=request.uid,
                 account_id=request.account_id,
                 exposure_effect=effective_effect,
@@ -1021,7 +1058,7 @@ class CanonicalExecutionService:
                     account = accounts.get(request.uid, request.account_id)
                     if not account or not account.is_active or not accounts.client_is_current(broker_client, user_id=request.uid):
                         raise PermissionError("Broker account/session changed before send")
-                allowed, reason = self.is_trading_allowed(
+                allowed, reason = self.require_execution_authority(
                     uid=request.uid, account_id=request.account_id,
                     exposure_effect=effective_effect, strategy_id=request.strategy_id,
                     ignore_intent_keys=(intent.intent_key,),
@@ -1188,7 +1225,7 @@ class CanonicalExecutionService:
                 error="Order modification blocked: execution control state unavailable",
             )
 
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=uid, account_id=account_id, exposure_effect=effect
         )
         if not allowed:
@@ -1233,7 +1270,7 @@ class CanonicalExecutionService:
         variety: str = "regular",
     ) -> ExecutionResult:
         """Cancel an open order (permitted even during HALTED state)."""
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=uid, account_id=account_id, exposure_effect=ExposureEffect.CANCEL_ORDER
         )
         if not allowed:
@@ -1318,7 +1355,7 @@ class CanonicalExecutionService:
         broker_client: Any = None,
     ) -> ExecutionResult:
         """Place GTT / stop protection order with durable protection_pending fence and cross-process lease."""
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=uid, account_id=account_id, exposure_effect=ExposureEffect.PROTECT_POSITION
         )
         if not allowed:

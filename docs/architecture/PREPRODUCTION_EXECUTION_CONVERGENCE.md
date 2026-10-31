@@ -23,7 +23,7 @@ Kite transport (only when independently authorized in a future release)
 Broker book observation -> canonical journal -> fill / position projection
 ```
 
-The actual service contains `submit_order()`, `cancel_order()`, `modify_order()` and `startup_recovery()`. The journal handles reserved/submitting/unknown and immutable intent keys. No implementation of a missing named method is to be inferred from this design diagram.
+The service implements `submit_order()`, `cancel_order()`, `modify_order()`, `startup_recovery()`, and this review adds broker-read-only `reconcile_order()`, `record_execution_outcome()` and a fail-closed SafetySupervisor `require_execution_authority()` wrapper. These new methods are not release authority or proof of complete policy and strategy projection integration.
 
 ## Required final service contract
 
@@ -34,7 +34,7 @@ The actual service contains `submit_order()`, `cancel_order()`, `modify_order()`
 - `require_execution_authority()`: combine policy, lifecycle, deployment scope, broker identity and risk approval; never rely on UI or caller-declared reduction.
 - Correlation metadata: stable intent key, correlation ID, user/account/session, broker identity, strategy, route, generation, signal and authorizing revision. Never log credentials.
 
-The last three contracts are **DESIGNED, NOT CERTIFIED AS INTEGRATED**. Do not treat a partial adapter, callback or test double as complete.
+The additional named interfaces now exist in source, but **latest-SHA CI, full integration with legacy routes, cross-layer correlation and independent runtime recovery remain NOT CERTIFIED**. This additive source slice must not be interpreted as complete migration or live approval.
 
 ## Legacy transport mapping and disposition
 

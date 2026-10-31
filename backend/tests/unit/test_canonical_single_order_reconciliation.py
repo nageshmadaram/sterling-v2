@@ -116,3 +116,39 @@ async def test_transport_without_explicit_mode_fails_closed(claimed):
     result = await observe(broker)
     assert not result.success and result.status == "REJECTED"
     assert broker.reads == broker.writes == 0
+
+
+
+def test_authority_wrapper_refuses_bad_effect_and_unavailable_control():
+    service = CanonicalExecutionService()
+    assert service.require_execution_authority(
+        uid="observer", account_id="synthetic-account",
+        exposure_effect="UNLIMITED_RISK",
+    )[0] is False
+
+    def unavailable(**_kwargs):
+        raise RuntimeError("synthetic offline failure")
+
+    service.is_trading_allowed = unavailable
+    result = service.require_execution_authority(
+        uid="observer", account_id="synthetic-account",
+        exposure_effect="INCREASE_EXPOSURE",
+    )
+    assert result == (False, "Canonical execution safety authority unavailable")
+
+
+def test_authority_wrapper_preserves_safe_mode_refusal():
+    service = CanonicalExecutionService()
+    seen = []
+
+    def denied(**kwargs):
+        seen.append(kwargs)
+        return False, "durable safe mode"
+
+    service.is_trading_allowed = denied
+    result = service.require_execution_authority(
+        uid="observer", account_id="synthetic-account",
+        exposure_effect="INCREASE_EXPOSURE", strategy_id="synthetic",
+    )
+    assert result == (False, "durable safe mode")
+    assert seen[0]["account_id"] == "synthetic-account"
