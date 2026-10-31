@@ -146,3 +146,18 @@ it('never mounts a feature for a viewer after its grant is revoked', async () =>
   expect(screen.queryByText('Kite runtime mounted')).toBeNull();
   expect(screen.queryByText(/Read-only Kite workspace/)).toBeNull();
 });
+
+it('does not mount a hidden but granted workspace by direct route or after policy refresh', async () => {
+  window.history.replaceState({}, '', '/kite');
+  const permitted = { ...base, features: { kite: true, tv: true, radio: true },
+    visibility: { kite: true, tv: true, radio: true } };
+  const client = show(permitted);
+  await screen.findByText('Kite runtime mounted');
+  act(() => client.setQueryData(['sterling-session-policy'], {
+    ...permitted, policy_revision: 2, visibility: { ...permitted.visibility, kite: false }
+  }));
+  await screen.findByRole('heading', { name: 'Workspace unavailable' });
+  expect(screen.queryByText('Kite runtime mounted')).toBeNull();
+  expect(screen.queryByRole('button', { name: /Request access to Kite/ })).toBeNull();
+  expect(api.post).not.toHaveBeenCalled();
+});
