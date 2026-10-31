@@ -20,6 +20,7 @@ import asyncio
 import logging
 import math
 from decimal import Decimal, InvalidOperation
+from numbers import Integral
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -91,12 +92,24 @@ def _safe_int(value: Any) -> int:
             return 0
         quantity = Decimal(literal)
         if (not quantity.is_finite() or quantity < 0
-                or quantity != quantity.to_integral_value()
-                or quantity.adjusted() > 18):
+                or quantity.adjusted() > 18
+                or quantity != quantity.to_integral_value()):
             return 0
         return int(quantity)
     except (InvalidOperation, TypeError, ValueError, OverflowError):
         return 0
+
+
+
+def _expected_quantity(value: Any) -> int:
+    """Require an actual positive integral order request; never truncate floats.
+
+    Bool is an Integral subclass and must not create a quantity-one order.
+    Broker-reported quantities are parsed separately by _safe_int.
+    """
+    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
+        raise ValueError("expected_quantity_must_be_positive_integral")
+    return int(value)
 
 
 def _safe_float(value: Any) -> float:
@@ -335,9 +348,7 @@ async def resolve_entry_fill(
     the deadline, the attributable order is cancelled once and reconciled; a
     failed/ambiguous cancellation stays unresolved and blocks further exposure.
     """
-    expected = int(expected_quantity)
-    if expected <= 0:
-        raise ValueError("expected_quantity_must_be_positive")
+    expected = _expected_quantity(expected_quantity)
     oid = str(order_id or "").strip()
     if not oid:
         raise ValueError("order_id_required")
@@ -347,6 +358,8 @@ async def resolve_entry_fill(
         raise ValueError("canonical_intent_quantity_mismatch")
 
     if is_instant_paper(client):          # the legacy paper client fills synchronously; a simulated one reports by postback
+        if _safe_float(reference_price) <= 0:
+            raise ValueError("reference_price_must_be_positive")
         intent, observed = _observe(
             uid=uid,
             client=client,
@@ -563,14 +576,14 @@ async def resolve_acknowledged_order(
     wait leaves a live remainder, it attempts one cancellation of that exact
     acknowledged order and then reconciles cumulative fills.
     """
-    expected = int(expected_quantity)
+    expected = _expected_quantity(expected_quantity)
     oid = str(order_id or "").strip()
-    if expected <= 0:
-        raise ValueError("expected_quantity_must_be_positive")
     if not oid:
         raise ValueError("order_id_required")
 
     if is_instant_paper(client):
+        if _safe_float(reference_price) <= 0:
+            raise ValueError("reference_price_must_be_positive")
         return BrokerOrderResolution(
             order_id=oid,
             status="COMPLETE",
@@ -758,6 +771,7 @@ async def resolve_canonical_reduction(
         )
     except Exception as exc:
         log.error("Could not prove canonical reduction %s projection: %s", intent_key, exc)
+        _halt_uncertain_live(client, f"canonical reduction journal unresolved for {order_id}")
         return replace(
             result, settled=False,
             reason=f"canonical_reduction_journal_unresolved:{type(exc).__name__}:{exc}",
