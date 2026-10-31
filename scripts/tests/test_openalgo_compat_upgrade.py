@@ -263,3 +263,80 @@ def test_live_named_or_configured_source_is_refused_even_with_new_destination(tm
     with pytest.raises(PermissionError, match="offline source snapshot"):
         migration.migrate_copy(named_live, dest)
     assert not dest.exists()
+
+
+def test_full_parity_audit_reads_without_modifying_or_exporting_private_rows(tmp_path):
+    source = synthetic_db(tmp_path)
+    before = source.read_bytes()
+    report = migration.audit_full_migration_preflight(source)
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
+    assert report["mode"] == "READ_ONLY_FULL_PARITY_PREFLIGHT"
+    assert report["missing_critical_tables"]
+    assert "users" in report["missing_critical_tables"]
+    assert "kite_order_intents" in report["missing_safety_unique_keys"]
+    assert ["tag"] in report["missing_safety_unique_keys"]["kite_order_intents"]
+    assert report["postgresql_operational_schema"] == "NOT_IMPLEMENTED"
+    assert report["independent_approval"] == "NOT_PROVIDED"
+    assert report["source_modified"] is False
+    assert "synthetic-secret" not in json.dumps(report)
+    assert source.read_bytes() == before
+
+
+def test_full_parity_audit_recognizes_global_unique_key_but_not_partial(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute(
+            "CREATE UNIQUE INDEX ix_partial_tag ON kite_order_intents(tag) "
+            "WHERE tag IS NOT NULL"
+        )
+    report = migration.audit_full_migration_preflight(source)
+    assert ["tag"] in report["missing_safety_unique_keys"]["kite_order_intents"]
+    with sqlite3.connect(source) as conn:
+        conn.execute("CREATE UNIQUE INDEX ux_exact_tag ON kite_order_intents(tag)")
+    after = migration.audit_full_migration_preflight(source)
+    assert "kite_order_intents" not in after["missing_safety_unique_keys"] or (
+        ["tag"] not in after["missing_safety_unique_keys"]["kite_order_intents"]
+    )
+    assert after["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_audit_detects_missing_primary_key_after_same_row_count(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("CREATE TABLE weak_control(scope TEXT, uid TEXT, account_id TEXT)")
+        conn.execute("INSERT INTO weak_control VALUES('global','u','a')")
+        conn.execute("DROP TABLE execution_control")
+        conn.execute("ALTER TABLE weak_control RENAME TO execution_control")
+    report = migration.audit_full_migration_preflight(source)
+    assert ["scope", "uid", "account_id"] in report[
+        "missing_safety_unique_keys"
+    ]["execution_control"]
+    assert report["tables_scanned"] >= len(migration.REQUIRED)
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_cli_emits_redacted_json_and_nonzero_blocked_exit(tmp_path):
+    source = synthetic_db(tmp_path)
+    command = [sys.executable, "-m", "upgrade.sterling_openalgo",
+               "--source", str(source), "--audit-full-parity"]
+    proc = subprocess.run(command, capture_output=True, text=True)
+    assert proc.returncode == 2
+    report = json.loads(proc.stdout)
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
+    assert report["broker_connection"] == "NOT_ATTEMPTED"
+    assert "synthetic-secret" not in proc.stdout
+    assert not proc.stderr
+
+
+def test_full_parity_cli_never_combines_read_only_report_with_write(tmp_path):
+    source = synthetic_db(tmp_path)
+    destination = tmp_path / "other" / "copy.db"
+    proc = subprocess.run(
+        [sys.executable, "-m", "upgrade.sterling_openalgo",
+         "--source", str(source), "--destination", str(destination),
+         "--apply-to-copy", "--audit-full-parity"],
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 2
+    assert "cannot be combined" in proc.stderr
+    assert not destination.exists()
