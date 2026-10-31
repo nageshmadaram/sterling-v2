@@ -154,6 +154,51 @@ FULL_PARITY_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
     "system_config": (("key",),),
 }
 
+# Only stable principal relations supported by the current Sterling schema.
+# Never infer migration rewrites for legacy usernames, "default" users, or
+# synthetic simulation accounts. Count orphaned references so the operator
+# can plan explicit identity reconciliation on an *offline* snapshot.
+IDENTITY_REFERENCES: tuple[tuple[str, str, str, str], ...] = (
+    ("kite_accounts", "user_id", "users", "id"),
+    ("platform_admin", "user_id", "users", "id"),
+    ("account_policy_revisions", "user_id", "users", "id"),
+    ("user_feature_grants", "user_id", "users", "id"),
+    ("user_workspace_visibility", "user_id", "users", "id"),
+    ("auth_event_outbox", "user_id", "users", "id"),
+)
+
+
+def _orphan_identity_counts(conn: sqlite3.Connection, tables: set[str]) -> dict[str, int]:
+    """Aggregate missing principal references without exporting identities.
+
+    Some original tables lack physical FOREIGN KEY constraints; SQLite's
+    foreign_key_check cannot catch those logical orphans. Do not repair them
+    automatically or treat an unknown legacy user as a new account.
+    """
+    counts = {}
+    for child, child_key, parent, parent_key in IDENTITY_REFERENCES:
+        if child not in tables or parent not in tables:
+            continue
+        fields = {
+            table: {str(row[1]) for row in conn.execute(
+                'PRAGMA table_info("' + table.replace('"', '""') + '")'
+            )}
+            for table in (child, parent)
+        }
+        if child_key not in fields[child] or parent_key not in fields[parent]:
+            continue  # column gaps are reported separately
+        child_sql = '"' + child.replace('"', '""') + '"'
+        parent_sql = '"' + parent.replace('"', '""') + '"'
+        c_sql = '"' + child_key.replace('"', '""') + '"'
+        p_sql = '"' + parent_key.replace('"', '""') + '"'
+        missing = int(conn.execute(
+            f'SELECT COUNT(*) FROM {child_sql} AS c '
+            f'LEFT JOIN {parent_sql} AS p ON c.{c_sql}=p.{p_sql} '
+            f'WHERE p.{p_sql} IS NULL'
+        ).fetchone()[0])
+        if missing:
+            counts[child] = missing
+    return counts
 
 
 def _source(path: Path) -> Path:
@@ -409,6 +454,7 @@ def audit_full_migration_preflight(path: Path) -> dict:
             "critical_column_mismatches": mismatches,
             "missing_safety_unique_keys": missing_keys,
             "nullable_identity_columns": nullable_keys,
+            "orphan_identity_row_counts": _orphan_identity_counts(conn, tables),
             # Report truly outside the reviewed critical-key contracts;
             # critical tables are already named by critical_tables above.
             "unmapped_operational_tables": sorted(tables - set(FULL_PARITY_KEYS)),
