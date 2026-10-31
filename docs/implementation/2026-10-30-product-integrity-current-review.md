@@ -1,6 +1,8 @@
 # Sterling V2 — Current controlled-review status (30 October 2026)
 
-**Authoritative current checkpoint for PR #15.** The earlier
+**Historical checkpoint (30 October), superseded by
+[31 October pre-production completion review](2026-10-31-preproduction-closure.md)
+and its NO-GO evidence registry.** The earlier
 `2026-10-30-product-integrity-slice.md` is an implementation history: its
 intermediate counts of five/eight legacy order sends are **superseded** by
 this register. All source changes are review-only; the latest immutable SHA

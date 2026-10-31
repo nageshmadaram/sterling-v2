@@ -1,13 +1,18 @@
 # Sterling
 
-Sterling is a live trading platform for Indian derivatives. A FastAPI backend and
-React clients place real orders on Zerodha Kite for four strategies:
-**SuperTrend**, **Snapback**, **Gamma Unwind** and **Price Rules**. Market data comes from Kite and
-TrueData.
+**Pre-production review only — production deployment NO-GO; live broker order routing
+and live trading NOT AUTHORIZED.** This checkout includes FastAPI, React, Kite
+transport integration and canonical execution source for Indian derivatives, but
+the presence of real-order code does not establish permission to exercise it.
+The four focused strategies are **SuperTrend**, **Snapback**, **Gamma Unwind**
+and **Price Rules**. Market-data integrations include Kite and TrueData.
 
-Live view places real broker orders. Simulation uses a separate virtual workspace
-and does not certify real broker execution. Before live trading, read
-[docs/operator/START_HERE.md](docs/operator/START_HERE.md) before the first session.
+Keep the master new-entry switch disabled and preserve safe-mode/lifecycle
+guards. Simulation is isolated and does not certify broker execution. Current
+implementation gaps and independent release gates are documented in
+[the 31 October pre-production review](docs/implementation/2026-10-31-preproduction-closure.md)
+and [control matrix](docs/ops/PREPRODUCTION_CONTROL_MATRIX.md). Historical
+operator instructions are not a live-trading approval.
 
 ## Applications
 
