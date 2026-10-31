@@ -88,3 +88,26 @@ sign-off, and any grant of broker execution authority.
 The source checkpoint above is not a proof of the later documentation SHA.
 Any new code change must be validated on its exact SHA. **Production NO-GO,
 broker routing NOT AUTHORIZED, independent control acceptance 0/12.**
+
+## Follow-up: broker quantity evidence and cumulative-history integrity (review only)
+
+The strategy broker-fill reader now distinguishes a verified numeric zero from
+missing, nonintegral, negative, boolean or nonfinite quantity responses. A
+terminal cancellation/rejection with an unproved fill quantity cannot be
+accepted as a zero-execution settlement. Historical broker snapshots must
+carry the exact returned order ID and nondecreasing cumulative filled
+quantity; anonymous trades do not add to fills. Invalid order identity or
+quantity evidence stops bounded reconciliation without a cancellation send,
+with durable fresh-entry halt requested only for real-mode clients.
+
+Synthetic regression cases cover missing and malformed terminal quantity,
+history regressions, no-cancel behavior, valid zero fills, valid terminal
+partial fills and the real-mode global halt. They are **committed tests, not
+evidence of passing results until executed at the exact branch SHA**.
+History ordering is an explicit adapter contract and must be validated with
+independent broker-book fixtures before promotion. The reader is not a
+replacement for cross-strategy inventory projection, out-of-order postback
+normalization or source-independent broker verification.
+
+**No merge, no deployment, no live session/order, no production authority.
+External controls remain 0/12 accepted; production NO-GO.**
