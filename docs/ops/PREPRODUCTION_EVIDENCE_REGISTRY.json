@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "project": "Sterling V2",
+  "decision": "NO_GO",
+  "registry_status": "OPEN_REQUIREMENTS_NOT_ACCEPTANCE",
+  "evidence": [
+    {
+      "control": "H01",
+      "description": "Host, TLS and secret custody",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "T02",
+      "description": "Transport and static egress",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "S03",
+      "description": "Operator security and MFA",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "I04",
+      "description": "Broker account identity and session binding",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "D05",
+      "description": "Database migration and restore",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "R06",
+      "description": "Order lifecycle restart and UNKNOWN recovery",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "B07",
+      "description": "Broker/exchange execution acceptance",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "M08",
+      "description": "Monitoring and incident observability",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "A09",
+      "description": "Operator alert and notification delivery",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "L10",
+      "description": "Lifecycle and safe-mode control",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "F11",
+      "description": "Risk, accounting and performance validation",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    },
+    {
+      "control": "G12",
+      "description": "Governance and release decision",
+      "required_external_proof": "NOT_SUBMITTED",
+      "verified_sha": null,
+      "artifact_uri": null,
+      "actor": null,
+      "observed_at": null,
+      "independent_reviewer": null,
+      "status": "NOT_SUBMITTED"
+    }
+  ],
+  "note": "Template only. Never edit status to accepted without independently verified artifacts tied to a specific SHA, environment, owner and reviewer."
+}
