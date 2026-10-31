@@ -482,7 +482,7 @@ def test_broker_activation_and_session_test_are_configuration_mutations(workspac
     assert route_policy("/api/v1/kite/orders", "GET") == "kite"
 
 
-def test_openalgo_style_orderstatus_is_jwt_scoped_read_only_and_viewer_compatible(workspace):
+def test_openalgo_style_orderstatus_is_jwt_scoped_read_only_and_viewer_compatible(workspace, monkeypatch):
     """Compatibility POST must not grant raw OpenAlgo API-key/broker write authority."""
     from app.core import tokens
     from app.api.v1.endpoints.openalgo_compat import router
@@ -516,6 +516,9 @@ def test_openalgo_style_orderstatus_is_jwt_scoped_read_only_and_viewer_compatibl
     other_headers = {
         "Authorization": "Bearer " + tokens.mint_access("other", "other", "operator", 1),
     }
+    # Local development intentionally permits the anonymous loopback operator.
+    # This explicit production-mode test proves the JWT-only endpoint boundary.
+    monkeypatch.setenv("ENVIRONMENT", "production")
     with TestClient(app) as client:
         assert route_policy("/api/v1/compat/openalgo/orderstatus", "POST") == "kite_read_only"
         assert client.post("/api/v1/compat/openalgo/orderstatus", json=body).status_code == 401

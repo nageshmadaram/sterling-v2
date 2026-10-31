@@ -317,7 +317,7 @@ def test_broker_numeric_parser_refuses_bad_fill_prices(value):
     ("10", "NaN", "filled_price_unverified"),
     ("10", "Infinity", "filled_price_unverified"),
     ("9", "80.0", "complete_quantity_mismatch"),
-    ("11", "80.0", "complete_quantity_mismatch"),
+    ("11", "80.0", "broker_overfill"),  # Overshoot is a stronger explicit refusal.
 ])
 async def test_complete_postback_invalid_evidence_never_settles_exit(
     quantity, average, reason,
@@ -483,9 +483,13 @@ async def test_unattributable_or_conflicting_broker_trades_never_raise_fill_coun
     status, filled, average, _ = await _broker_snapshot(
         UntrustedTradePostback(), "SYNTHETIC-ORDER",
     )
-    assert status == "OPEN"
-    assert filled == 2  # Preserve only independently reported order evidence.
-    assert average == 80.0
+    if any(trade.get("order_id") not in (None, "", "SYNTHETIC-ORDER") for trade in invalid_trades):
+        # Cross-order evidence cannot even be attributed to the requested order.
+        assert (status, filled, average) == ("IDENTITY MISMATCH", 0, 0.0)
+    else:
+        assert status == "OPEN"
+        assert filled == 2  # Preserve only independently reported order evidence.
+        assert average == 80.0
 
 
 @pytest.mark.asyncio

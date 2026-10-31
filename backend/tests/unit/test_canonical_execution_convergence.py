@@ -309,7 +309,7 @@ def test_no_broker_order_method_is_rebound_to_bypass_direct_call_audit():
 def test_legacy_order_router_auxiliary_mutations_are_paper_only():
     """Names like reduce-close/stop-replace are not broker-truth proofs."""
     source = (APP / "services/execution/order_router.py").read_text(encoding="utf-8")
-    assert source.count("noncanonical_broker_write_allowed(self.adapter)") >= 3
+    assert source.count("noncanonical_broker_write_allowed(self.adapter)") == 2  # The only two live legacy auxiliary mutation methods.
     messages = [n.value for n in ast.walk(ast.parse(source))
                 if isinstance(n, ast.Constant) and isinstance(n.value, str)]
     assert any("cannot prove live broker inventory for partial close" in message for message in messages)

@@ -479,6 +479,6 @@ class TestModeHotSwap:
         # Hot-swap to live and submit fresh idempotency key
         router.mode = RouterMode.LIVE
         r2 = await router.submit(_basic_req(client_order_id="m2"))
-        assert r2.mode == "live"
+        assert r2.mode == "rejected"  # No legacy request can transition into broker execution.
         assert not r2.accepted and r2.code == "noncanonical_live_order_disabled"
         adapter.place_order.assert_not_awaited()
