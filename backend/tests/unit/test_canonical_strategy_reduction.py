@@ -723,3 +723,77 @@ async def test_ambiguous_simulated_exit_never_mutates_live_kill_switch(isolated)
     assert resolved.reason == "complete_quantity_mismatch"
     assert not live_safety._KILL_SWITCH["enabled"]
     assert db.get_execution_control()["operator_state"] == "RUNNING"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("quantity", [True, False, 0, -1, 1.9, 3.0, "10"])
+async def test_reduction_fill_resolution_refuses_implicit_quantity_coercion(
+    quantity,
+):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    with pytest.raises(ValueError, match="expected_quantity_must_be_positive_integral"):
+        await resolve_acknowledged_order(
+            client=PaperBroker(), order_id="OFFLINE-ORDER",
+            expected_quantity=quantity, reference_price=80.0,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("price", [0, -10, True, False, float("nan"), float("inf")])
+async def test_instant_paper_fill_never_settles_at_invalid_reference_price(price):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    with pytest.raises(ValueError, match="reference_price_must_be_positive"):
+        await resolve_acknowledged_order(
+            client=PaperBroker(), order_id="OFFLINE-ORDER",
+            expected_quantity=10, reference_price=price,
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_entry_rejects_invalid_reference_before_journal_observation(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_entry_fill
+
+    client = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    ack = await submit_reduction(**args(client))
+    assert ack.success
+    with pytest.raises(ValueError, match="reference_price_must_be_positive"):
+        await resolve_entry_fill(
+            uid="synthetic-user", client=client, order_id=ack.order_id,
+            expected_quantity=10, reference_price=float("nan"),
+        )
+    assert order_journal.get(ack.intent_key).state == "SUBMITTED"
+
+
+@pytest.mark.asyncio
+async def test_canonical_exit_journal_identity_conflict_halts_new_real_entries(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_canonical_reduction
+
+    paper = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    ack = await submit_reduction(**args(paper))
+    assert ack.success
+
+    class SyntheticBrokerDifferentOrder:
+        _is_paper = False
+        _account_id = "acct-1"
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "COMPLETE",
+                     "filled_quantity": 10, "average_price": 80.0}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    unresolved = await resolve_canonical_reduction(
+        uid="synthetic-user", intent_key=ack.intent_key,
+        client=SyntheticBrokerDifferentOrder(), order_id="OTHER-ORDER",
+        expected_quantity=10, reference_price=80.0, timeout_s=0,
+    )
+    assert not unresolved.settled
+    assert "canonical_reduction_journal_unresolved" in unresolved.reason
+    assert order_journal.get(ack.intent_key).order_id == ack.order_id
+    assert live_safety._KILL_SWITCH["enabled"] is True
+    assert db.get_execution_control()["operator_state"] == "HALTED"
