@@ -44,6 +44,7 @@ jobs:
             tests/test_workspace_access.py \
             tests/test_workspace_visibility.py \
             tests/unit/test_canonical_single_order_reconciliation.py \
+            tests/unit/test_simulation_quote_clock_binding.py \
             tests/unit/test_canonical_execution_convergence.py \
             tests/unit/test_canonical_journal_snapshot_restore.py \
             tests/unit/test_execution_unknown_settlement.py \
