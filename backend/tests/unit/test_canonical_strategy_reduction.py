@@ -330,7 +330,7 @@ async def test_complete_postback_invalid_evidence_never_settles_exit(
 
         async def get_order_history(self, order_id):
             assert order_id == "SYNTHETIC-ORDER"
-            return [{"status": "COMPLETE", "filled_quantity": quantity,
+            return [{"order_id": order_id, "status": "COMPLETE", "filled_quantity": quantity,
                      "average_price": average}]
 
         async def get_order_trades(self, order_id):
@@ -354,7 +354,7 @@ async def test_valid_complete_postback_with_exact_fill_quantity_can_settle_exit(
         _is_simulated = True
 
         async def get_order_history(self, order_id):
-            return [{"status": "COMPLETE", "filled_quantity": "10",
+            return [{"order_id": order_id, "status": "COMPLETE", "filled_quantity": "10",
                      "average_price": "80.0"}]
 
         async def get_order_trades(self, order_id):
@@ -418,7 +418,7 @@ async def test_valid_broker_full_and_terminal_partial_evidence_preserved(
         _is_simulated = True
 
         async def get_order_history(self, order_id):
-            return [{"status": status, "filled_quantity": filled,
+            return [{"order_id": order_id, "status": status, "filled_quantity": filled,
                      "average_price": 80.0 if filled else 0}]
 
         async def get_order_trades(self, order_id):
@@ -439,7 +439,7 @@ async def test_trade_aggregation_counts_duplicate_broker_trade_id_once():
 
     class DuplicateTradePostback:
         async def get_order_history(self, order_id):
-            return [{"status": "OPEN", "filled_quantity": 1,
+            return [{"order_id": order_id, "status": "OPEN", "filled_quantity": 1,
                      "average_price": 80.0}]
 
         async def get_order_trades(self, order_id):
@@ -474,7 +474,7 @@ async def test_unattributable_or_conflicting_broker_trades_never_raise_fill_coun
 
     class UntrustedTradePostback:
         async def get_order_history(self, order_id):
-            return [{"status": "OPEN", "filled_quantity": 2,
+            return [{"order_id": order_id, "status": "OPEN", "filled_quantity": 2,
                      "average_price": 80.0}]
 
         async def get_order_trades(self, order_id):
@@ -799,5 +799,99 @@ async def test_canonical_exit_journal_identity_conflict_halts_new_real_entries(i
     assert not unresolved.settled
     assert "canonical_reduction_journal_unresolved" in unresolved.reason
     assert order_journal.get(ack.intent_key).order_id == ack.order_id
+    assert live_safety._KILL_SWITCH["enabled"] is True
+    assert db.get_execution_control()["operator_state"] == "HALTED"
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history", [
+    [{"status": "COMPLETE", "filled_quantity": 10, "average_price": 80}],
+    [{"order_id": "", "status": "COMPLETE",
+      "filled_quantity": 10, "average_price": 80}],
+    [{"order_id": None, "status": "CANCELLED",
+      "filled_quantity": 5, "average_price": 80}],
+    [{"order_id": "SYNTHETIC-ORDER", "status": "OPEN",
+      "filled_quantity": 3, "average_price": 80},
+     {"status": "COMPLETE", "filled_quantity": 10, "average_price": 80}],
+])
+async def test_missing_history_order_identity_refuses_exit_and_skips_cancel(history):
+    """Calling a broker lookup with an ID does not authenticate its response."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class UnidentifiedHistory:
+        _is_paper = True
+        _is_simulated = True
+        cancellations = 0
+
+        async def get_order_history(self, order_id):
+            return history
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancellations += 1
+
+    client = UnidentifiedHistory()
+    result = await resolve_acknowledged_order(
+        client=client, order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80,
+        timeout_s=0, cancel_unfilled=True,
+    )
+    assert not result.settled
+    assert result.filled_quantity == 0
+    assert result.reason == "broker_order_identity_mismatch"
+    assert client.cancellations == 0
+
+
+@pytest.mark.asyncio
+async def test_unscoped_trade_id_cannot_increase_verified_order_fill():
+    """A trade_id alone cannot establish that execution belongs to this order."""
+    from app.services.canonical_fill_reconciliation import _broker_snapshot
+
+    class UnscopedTrade:
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "OPEN",
+                     "filled_quantity": 2, "average_price": 80.0}]
+
+        async def get_order_trades(self, order_id):
+            return [{"trade_id": "T-ANONYMOUS", "quantity": 8, "price": 81}]
+
+    status, filled, average, _ = await _broker_snapshot(
+        UnscopedTrade(), "SYNTHETIC-ORDER",
+    )
+    assert status == "OPEN"
+    assert filled == 2
+    assert average == 80.0
+
+
+@pytest.mark.asyncio
+async def test_unlabelled_real_mode_history_halts_fresh_entries(isolated):
+    """The real-mode flag is synthetic; this test never contacts a broker."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class UnidentifiedLiveHistory:
+        _is_paper = False
+        _account_id = "acct-1"
+        cancellations = 0
+
+        async def get_order_history(self, order_id):
+            return [{"status": "COMPLETE",
+                     "filled_quantity": 10, "average_price": 80.0}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancellations += 1
+
+    client = UnidentifiedLiveHistory()
+    result = await resolve_acknowledged_order(
+        client=client, order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80,
+        timeout_s=0, cancel_unfilled=True,
+    )
+    assert not result.settled
+    assert result.reason == "broker_order_identity_mismatch"
+    assert client.cancellations == 0
     assert live_safety._KILL_SWITCH["enabled"] is True
     assert db.get_execution_control()["operator_state"] == "HALTED"
