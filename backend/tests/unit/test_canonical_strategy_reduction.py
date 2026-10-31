@@ -611,3 +611,115 @@ def test_broker_quantity_parser_rejects_bounded_resource_exhaustion(value):
 def test_broker_price_parser_rejects_boolean_execution_prices(value):
     from app.services.canonical_fill_reconciliation import _safe_float
     assert _safe_float(value) == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, quantity, price, reason", [
+    ("COMPLETE", 9, 80.0, "complete_quantity_mismatch"),
+    ("COMPLETE", 0, 80.0, "complete_filled_quantity_unverified"),
+    ("OPEN", 11, 80.0, "broker_overfill"),
+    ("OPEN", 10, 0.0, "filled_price_unverified"),
+])
+async def test_ambiguous_live_exit_evidence_persists_new_entry_halt(
+    isolated, status, quantity, price, reason,
+):
+    """No real broker: explicit real-mode synthetic client tests the halt."""
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticLiveExit:
+        _is_paper = False
+        _account_id = "acct-1"
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": status,
+                     "filled_quantity": quantity, "average_price": price}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    result = await resolve_acknowledged_order(
+        client=SyntheticLiveExit(), order_id="OFFLINE-EXIT",
+        expected_quantity=10, reference_price=80.0,
+        timeout_s=0.0, cancel_unfilled=False,
+    )
+    assert not result.settled
+    assert result.reason == reason
+    assert live_safety._KILL_SWITCH["enabled"] is True
+    assert db.get_execution_control()["operator_state"] == "HALTED"
+
+
+@pytest.mark.asyncio
+async def test_unresolved_live_exit_halts_without_retrying_a_broker_send(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticUnresolved:
+        _is_paper = False
+        _account_id = "acct-1"
+        sends = 0
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "OPEN",
+                     "filled_quantity": 0, "average_price": 0}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    client = SyntheticUnresolved()
+    outcome = await resolve_acknowledged_order(
+        client=client, order_id="OFFLINE-EXIT", expected_quantity=10,
+        reference_price=80, timeout_s=0, cancel_unfilled=False,
+    )
+    assert outcome.reason == "broker_order_unresolved_after_bounded_reconciliation"
+    assert not outcome.settled
+    assert client.sends == 0
+    assert db.get_execution_control()["operator_state"] == "HALTED"
+
+
+@pytest.mark.asyncio
+async def test_valid_complete_live_exit_does_not_raise_global_halt(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticConfirmed:
+        _is_paper = False
+        _account_id = "acct-1"
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "COMPLETE",
+                     "filled_quantity": 10, "average_price": 80}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    completed = await resolve_acknowledged_order(
+        client=SyntheticConfirmed(), order_id="OFFLINE-EXIT",
+        expected_quantity=10, reference_price=80, timeout_s=0,
+    )
+    assert completed.settled
+    assert completed.filled_quantity == 10
+    assert not live_safety._KILL_SWITCH["enabled"]
+    assert db.get_execution_control()["operator_state"] == "RUNNING"
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_simulated_exit_never_mutates_live_kill_switch(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class SyntheticSimulation:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "COMPLETE",
+                     "filled_quantity": 3, "average_price": 80}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    resolved = await resolve_acknowledged_order(
+        client=SyntheticSimulation(), order_id="SIM-EXIT",
+        expected_quantity=10, reference_price=80, timeout_s=0,
+    )
+    assert not resolved.settled
+    assert resolved.reason == "complete_quantity_mismatch"
+    assert not live_safety._KILL_SWITCH["enabled"]
+    assert db.get_execution_control()["operator_state"] == "RUNNING"
