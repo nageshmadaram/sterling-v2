@@ -84,9 +84,15 @@ def _safe_int(value: Any) -> int:
     if value is None or isinstance(value, bool):
         return 0
     try:
-        quantity = Decimal(str(value).strip())
+        literal = str(value).strip()
+        # Decimal accepts expressions such as 1e100000000. Never allocate an
+        # astronomical Python integer because a broker reply is malformed.
+        if not literal or len(literal) > 64:
+            return 0
+        quantity = Decimal(literal)
         if (not quantity.is_finite() or quantity < 0
-                or quantity != quantity.to_integral_value()):
+                or quantity != quantity.to_integral_value()
+                or quantity.adjusted() > 18):
             return 0
         return int(quantity)
     except (InvalidOperation, TypeError, ValueError, OverflowError):
@@ -94,7 +100,9 @@ def _safe_int(value: Any) -> int:
 
 
 def _safe_float(value: Any) -> float:
-    """Reject NaN and infinity; neither is a valid broker execution price."""
+    """Reject NaN, infinity and booleans as broker execution prices."""
+    if isinstance(value, bool):
+        return 0.0
     try:
         out = float(value or 0.0)
         return out if math.isfinite(out) and out >= 0 else 0.0
