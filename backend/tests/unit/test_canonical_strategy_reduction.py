@@ -312,8 +312,8 @@ def test_broker_numeric_parser_refuses_bad_fill_prices(value):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("quantity, average, reason", [
-    (None, "80.0", "complete_filled_quantity_unverified"),
-    ("1.5", "80.0", "complete_filled_quantity_unverified"),
+    (None, "80.0", "broker_fill_quantity_unverified"),
+    ("1.5", "80.0", "broker_fill_quantity_unverified"),
     ("10", "NaN", "filled_price_unverified"),
     ("10", "Infinity", "filled_price_unverified"),
     ("9", "80.0", "complete_quantity_mismatch"),
@@ -895,3 +895,158 @@ async def test_unlabelled_real_mode_history_halts_fresh_entries(isolated):
     assert client.cancellations == 0
     assert live_safety._KILL_SWITCH["enabled"] is True
     assert db.get_execution_control()["operator_state"] == "HALTED"
+
+@pytest.mark.parametrize("bad", [None, True, False, "", "1.5", "-1", "NaN",
+                                 float("inf"), "1e100000000"])
+def test_broker_quantity_proof_distinguishes_invalid_from_real_zero(bad):
+    from app.services.canonical_fill_reconciliation import _parse_broker_quantity
+    assert _parse_broker_quantity(bad) is None
+
+
+@pytest.mark.parametrize("valid, parsed", [(0, 0), ("0", 0), ("0.0", 0),
+                                           (5, 5), ("5", 5)])
+def test_broker_quantity_proof_preserves_confirmed_zero_and_integral_fills(
+    valid, parsed,
+):
+    from app.services.canonical_fill_reconciliation import _parse_broker_quantity
+    assert _parse_broker_quantity(valid) == parsed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,quantity", [
+    ("CANCELLED", None),
+    ("CANCELLED", "bad"),
+    ("REJECTED", "1.9"),
+    ("EXPIRED", float("nan")),
+    ("OPEN", None),
+])
+async def test_unverified_broker_quantity_never_settles_or_cancels_exit(
+    status, quantity,
+):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class InvalidQuantityExit:
+        _is_paper = True
+        _is_simulated = True
+
+        def __init__(self):
+            self.cancels = 0
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": status,
+                     "filled_quantity": quantity, "average_price": 80}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancels += 1
+
+    client = InvalidQuantityExit()
+    resolution = await resolve_acknowledged_order(
+        client=client, order_id="SYNTHETIC-EXIT", expected_quantity=10,
+        reference_price=80, timeout_s=0, cancel_unfilled=True,
+    )
+    assert not resolution.settled
+    assert resolution.reason == "broker_fill_quantity_unverified"
+    assert resolution.filled_quantity == 0
+    assert client.cancels == 0
+
+
+@pytest.mark.asyncio
+async def test_verified_zero_fill_cancel_remains_valid():
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class VerifiedZero:
+        _is_paper = True
+        _is_simulated = True
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "CANCELLED",
+                     "filled_quantity": "0", "average_price": 0}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+    resolution = await resolve_acknowledged_order(
+        client=VerifiedZero(), order_id="SYNTHETIC-EXIT",
+        expected_quantity=10, reference_price=80, timeout_s=0,
+    )
+    assert resolution.settled
+    assert resolution.terminal
+    assert resolution.filled_quantity == 0
+
+
+@pytest.mark.asyncio
+async def test_malformed_live_exit_quantity_halts_entries_without_cancel(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class RealModeTestDouble:
+        _is_paper = False
+        _account_id = "acct-1"
+
+        def __init__(self):
+            self.cancels = 0
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "CANCELLED",
+                     "filled_quantity": None, "average_price": 0}]
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancels += 1
+
+    client = RealModeTestDouble()
+    result = await resolve_acknowledged_order(
+        client=client, order_id="SYNTHETIC-EXIT", expected_quantity=10,
+        reference_price=80, timeout_s=0, cancel_unfilled=True,
+    )
+    assert not result.settled
+    assert result.reason == "broker_fill_quantity_unverified"
+    assert client.cancels == 0
+    assert live_safety._KILL_SWITCH["enabled"] is True
+    assert db.get_execution_control()["operator_state"] == "HALTED"
+
+
+@pytest.mark.asyncio
+async def test_malformed_entry_quantity_never_projects_or_cancels(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_entry_fill
+
+    paper = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE",
+                     10, exchange="NFO")
+    ack = await submit_reduction(**args(paper))
+    assert ack.success and ack.intent_key
+
+    class SimulatedMalformedEntry:
+        _is_paper = True
+        _is_simulated = True
+        _account_id = "acct-1"
+
+        def __init__(self):
+            self.cancels = 0
+
+        async def get_order_history(self, order_id):
+            return [{"order_id": order_id, "status": "CANCELLED",
+                     "average_price": 0}]  # missing quantity is not zero
+
+        async def get_order_trades(self, order_id):
+            return []
+
+        async def cancel_order(self, order_id):
+            self.cancels += 1
+
+    client = SimulatedMalformedEntry()
+    resolution = await resolve_entry_fill(
+        uid="synthetic-user", client=client, order_id=ack.order_id,
+        expected_quantity=10, reference_price=80, timeout_s=0,
+        cancel_unfilled=True,
+    )
+    assert not resolution.settled
+    assert resolution.status == "UNKNOWN"
+    assert resolution.reason == "broker_fill_quantity_unverified"
+    assert client.cancels == 0
+    assert order_journal.get(ack.intent_key).state == "SUBMITTED"
+    assert not live_safety._KILL_SWITCH["enabled"]
