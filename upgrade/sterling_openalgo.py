@@ -224,12 +224,20 @@ def _orphan_identity_counts(conn: sqlite3.Connection, tables: set[str]) -> dict[
 
 
 def _missing_auth_guards(conn: sqlite3.Connection) -> list[str]:
-    present = {
-        str(row[0]) for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='trigger'"
+    # A trigger with the expected name on the wrong table is not protection.
+    # This remains a metadata gate, NOT validation of trigger-body semantics.
+    owners = {
+        str(row[0]): str(row[1])
+        for row in conn.execute(
+            "SELECT name, tbl_name FROM sqlite_master WHERE type='trigger'"
         )
     }
-    return sorted(POLICY_GUARD_TRIGGERS - present)
+    return sorted(
+        name for name in POLICY_GUARD_TRIGGERS
+        if owners.get(name) != (
+            "platform_admin" if name.startswith("platform_admin_") else "users"
+        )
+    )
 
 
 def _missing_physical_identity_fks(
