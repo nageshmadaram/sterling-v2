@@ -271,6 +271,41 @@ def _unique_keys(conn: sqlite3.Connection, table: str) -> set[tuple[str, ...]]:
     return keys
 
 
+
+def _nullable_identity_columns(
+    conn: sqlite3.Connection, table: str, expected: tuple[tuple[str, ...], ...]
+) -> list[str]:
+    """Find identity fields that SQLite allows to be NULL.
+
+    For an ordinary SQLite rowid table, TEXT PRIMARY KEY alone does *not*
+    imply NOT NULL. PostgreSQL primary keys do. An INTEGER PRIMARY KEY rowid
+    alias generates a unique integer on NULL and is not treated as weak.
+    WITHOUT ROWID primary-key columns are implicitly NOT NULL.
+    """
+    quoted = '"' + table.replace('"', '""') + '"'
+    cols = {str(row[1]): row for row in conn.execute(f"PRAGMA table_info({quoted})")}
+    schema_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone()
+    definition = str(schema_row[0] or "").upper() if schema_row else ""
+    without_rowid = "WITHOUT ROWID" in definition
+    pk_count = sum(int(row[5]) > 0 for row in cols.values())
+    weak = set()
+    for key in expected:
+        for name in key:
+            row = cols.get(name)
+            if row is None:
+                continue  # separately reported as a missing/mismatched column
+            is_pk = int(row[5]) > 0
+            rowid_alias = (
+                is_pk and pk_count == 1 and str(row[2]).strip().upper() == "INTEGER"
+                and not without_rowid
+            )
+            if not int(row[3]) and not rowid_alias and not (is_pk and without_rowid):
+                weak.add(name)
+    return sorted(weak)
+
+
 def audit_full_migration_preflight(path: Path) -> dict:
     """Read-only, exhaustive *safety-key* baseline; never authorizes migration.
 
@@ -289,6 +324,7 @@ def audit_full_migration_preflight(path: Path) -> dict:
         missing = sorted(set(FULL_PARITY_KEYS) - tables)
         mismatches = _column_gaps(conn, tables)
         missing_keys: dict[str, list[list[str]]] = {}
+        nullable_keys: dict[str, list[str]] = {}
         for table, expected in FULL_PARITY_KEYS.items():
             if table not in tables:
                 continue
@@ -299,6 +335,9 @@ def audit_full_migration_preflight(path: Path) -> dict:
             ]
             if absent:
                 missing_keys[table] = absent
+            weak = _nullable_identity_columns(conn, table, expected)
+            if weak:
+                nullable_keys[table] = weak
         return {
             "status": "BLOCKED_FULL_MIGRATION",
             "mode": "READ_ONLY_FULL_PARITY_PREFLIGHT",
@@ -309,6 +348,7 @@ def audit_full_migration_preflight(path: Path) -> dict:
             "missing_critical_tables": missing,
             "critical_column_mismatches": mismatches,
             "missing_safety_unique_keys": missing_keys,
+            "nullable_identity_columns": nullable_keys,
             "unmapped_operational_tables": sorted(tables),
             "postgresql_operational_schema": "NOT_IMPLEMENTED",
             "postgresql_data_migration": "NOT_IMPLEMENTED",
