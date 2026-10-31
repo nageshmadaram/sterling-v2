@@ -355,3 +355,27 @@ Complete operational PostgreSQL schema/data migration, rollback, independent
 restore, broker account/session recovery, every strategy's execution
 convergence, full API compatibility and desktop/native acceptance remain P0/P1
 work. Controls 0/12 accepted; deployment/live routing NO-GO.
+
+
+## 31 October 2026 — exact broker identity and settlement fail-closed increment
+
+- Broker history is no longer accepted as evidence for another order ID,
+  including mixed-ID chronological histories. Trade rows referencing a
+  foreign order also refuse settlement, even when other fields look complete.
+  An identity mismatch is reported as `broker_order_identity_mismatch`;
+  an acknowledged entry does **not** cancel a misidentified order.
+- A previously terminal journal intent can no longer be presented as
+  `settled=True` if the new observation was UNKNOWN, the journal requires
+  reconciliation, or the current observation failed. Strategy projection
+  still requires genuine newly verified broker evidence.
+- Broker numeric parsing rejects unbounded scientific-notation quantities
+  and boolean execution prices. Exact nonnegative integral quantities and
+  finite nonnegative prices remain supported.
+- Synthetic offline regressions cover conflicting history timelines,
+  foreign trade IDs, no-cancel-on-mismatch, and terminal journal
+  conflict/UNKNOWN responses. The frozen-clock E2E regression was also
+  corrected to avoid type assertions against Freezegun's patched globals.
+- **Evidence limit:** source/test code committed to draft PR #15. Exact-HEAD
+  checks are still pending; there has been no verified green suite, broker
+  session, production restore, merge or deployment. All controls remain
+  **0/12 accepted**; production/live order routing **NOT AUTHORIZED**.
