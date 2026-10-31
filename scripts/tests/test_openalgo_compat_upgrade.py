@@ -508,3 +508,14 @@ def test_full_parity_reports_missing_identity_foreign_key_edges(tmp_path):
     assert "user_workspace_visibility.user_id->users.id" in missing
     assert "platform_admin.user_id->users.id" not in missing
     assert report["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_refuses_policy_guard_name_on_wrong_table(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("CREATE TABLE bogus_protection(value INTEGER)")
+        conn.execute("""CREATE TRIGGER users_admin_active BEFORE INSERT
+            ON bogus_protection BEGIN SELECT 1; END""")
+    report = migration.audit_full_migration_preflight(source)
+    assert "users_admin_active" in report["missing_policy_guard_triggers"]
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
