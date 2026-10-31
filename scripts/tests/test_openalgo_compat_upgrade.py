@@ -381,3 +381,100 @@ def test_sqlite_identity_nullability_distinguishes_rowid_alias_and_without_rowid
         assert conn.execute(
             "SELECT COUNT(*) FROM weak_identity WHERE id IS NULL"
         ).fetchone()[0] == 2
+
+
+def test_full_parity_tracks_auth_policy_and_exact_once_pnl_identity_contracts(tmp_path):
+    source = synthetic_db(tmp_path)
+    report = migration.audit_full_migration_preflight(source)
+    critical = set(report["critical_tables"])
+    assert {
+        "platform_admin",
+        "account_policy_revisions",
+        "user_feature_grants",
+        "user_workspace_visibility",
+        "auth_audit_events",
+        "auth_event_outbox",
+        "account_schema_versions",
+        "kite_realized_pnl_events",
+    } <= critical
+    assert "kite_realized_pnl_events" in report["missing_critical_tables"]
+    # "Unmapped" means not covered by FULL_PARITY_KEYS, not ALL tables.
+    assert not (set(report["unmapped_operational_tables"]) & critical)
+    assert not (set(report["unmapped_operational_tables"]) & set(report["critical_tables"]))
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_refuses_auth_grants_without_compound_identity_key(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("""CREATE TABLE user_feature_grants (
+            user_id TEXT NOT NULL, feature TEXT NOT NULL,
+            enabled INTEGER NOT NULL, actor_id TEXT NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        )""")
+        conn.execute("INSERT INTO user_feature_grants VALUES('u','kite',1,'owner',1)")
+    result = migration.audit_full_migration_preflight(source)
+    assert ["user_id", "feature"] in result["missing_safety_unique_keys"]["user_feature_grants"]
+    assert "user_feature_grants" not in result["critical_column_mismatches"]
+    assert result["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_refuses_pnl_dedup_loss_and_wrong_numeric_type(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("""CREATE TABLE kite_realized_pnl_events (
+            uid TEXT NOT NULL, event_key TEXT NOT NULL,
+            day_iso TEXT NOT NULL, pnl TEXT NOT NULL,
+            created_ms INTEGER NOT NULL
+        )""")
+        conn.execute("INSERT INTO kite_realized_pnl_events VALUES('u','trade1','2026-10-31','999',1)")
+    result = migration.audit_full_migration_preflight(source)
+    assert ["uid", "event_key"] in result["missing_safety_unique_keys"]["kite_realized_pnl_events"]
+    assert result["critical_column_mismatches"]["kite_realized_pnl_events"]["pnl"] == {
+        "expected": "REAL", "actual": "TEXT"
+    }
+    assert result["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_readonly_orphan_counts_without_leaking_principal_values(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("""CREATE TABLE users (
+            id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL, role TEXT NOT NULL,
+            is_active INTEGER NOT NULL, token_version INTEGER NOT NULL
+        )""")
+        conn.execute(
+            "INSERT INTO users VALUES('known-user','public-name','private-secret','user',1,1)"
+        )
+        conn.execute(
+            "UPDATE kite_accounts SET user_id='orphan-secret-id'"
+        )
+    before = source.read_bytes()
+    first = migration.audit_full_migration_preflight(source)
+    assert first["orphan_identity_row_counts"]["kite_accounts"] == 1
+    assert "orphan-secret-id" not in json.dumps(first)
+    assert "private-secret" not in json.dumps(first)
+    assert source.read_bytes() == before
+    with sqlite3.connect(source) as conn:
+        conn.execute(
+            "UPDATE kite_accounts SET user_id='known-user'"
+        )
+    second = migration.audit_full_migration_preflight(source)
+    assert "kite_accounts" not in second["orphan_identity_row_counts"]
+    assert second["source_modified"] is False
+
+
+def test_full_parity_auth_policy_integer_slot_and_unique_designation(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute("""CREATE TABLE platform_admin (
+            slot INTEGER PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE
+        )""")
+        conn.execute("INSERT INTO platform_admin VALUES(1,'u')")
+    report = migration.audit_full_migration_preflight(source)
+    assert "platform_admin" not in report["missing_safety_unique_keys"]
+    assert "platform_admin" not in report["critical_column_mismatches"]
+    assert "platform_admin" not in report["nullable_identity_columns"]
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
