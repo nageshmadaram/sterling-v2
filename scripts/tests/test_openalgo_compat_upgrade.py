@@ -478,3 +478,33 @@ def test_full_parity_auth_policy_integer_slot_and_unique_designation(tmp_path):
     assert "platform_admin" not in report["critical_column_mismatches"]
     assert "platform_admin" not in report["nullable_identity_columns"]
     assert report["status"] == "BLOCKED_FULL_MIGRATION"
+
+
+def test_full_parity_requires_declared_admin_guard_triggers(tmp_path):
+    source = synthetic_db(tmp_path)
+    before = source.read_bytes()
+    result = migration.audit_full_migration_preflight(source)
+    assert sorted(result["missing_policy_guard_triggers"]) == sorted(
+        migration.POLICY_GUARD_TRIGGERS
+    )
+    assert result["status"] == "BLOCKED_FULL_MIGRATION"
+    assert source.read_bytes() == before
+
+
+def test_full_parity_reports_missing_identity_foreign_key_edges(tmp_path):
+    source = synthetic_db(tmp_path)
+    with sqlite3.connect(source) as conn:
+        conn.execute('CREATE TABLE users(id TEXT PRIMARY KEY)')
+        conn.execute("""CREATE TABLE platform_admin(
+            slot INTEGER PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE RESTRICT
+        )""")
+        conn.execute("""CREATE TABLE user_workspace_visibility(
+            user_id TEXT NOT NULL, feature TEXT NOT NULL,
+            visible INTEGER NOT NULL, PRIMARY KEY(user_id, feature)
+        )""")
+    report = migration.audit_full_migration_preflight(source)
+    missing = report["missing_declared_identity_foreign_keys"]
+    assert "user_workspace_visibility.user_id->users.id" in missing
+    assert "platform_admin.user_id->users.id" not in missing
+    assert report["status"] == "BLOCKED_FULL_MIGRATION"
