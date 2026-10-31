@@ -408,3 +408,26 @@ PASS. Full release, data migration and broker-session acceptance remain
 blocked. PR #15 remains draft/unmerged; main unchanged; 0/12 external
 production controls accepted; production deployment and live order routing
 NOT AUTHORIZED.
+
+
+## 31 October 2026 — critical identity row audit and active-source refusal
+
+The read-only migration preflight now reports `null_identity_row_counts`,
+anonymized counts of actual source rows where any checked critical table
+identity is NULL. Missing identity columns are reported independently and
+skipped by the row counter rather than causing a malformed SQL query.
+Synthetic tests demonstrate duplicate NULL SQLite text primary-key rows,
+expected disappearance after independent data correction, missing-key
+handling and unchanged source bytes.
+
+The full-parity preflight now rejects a known active SQLite input
+(`STERLING_DB_PATH` or `sterling_paper.db`) before opening it, using
+the same fail-closed negative guard as copy-only migration.
+Passing this pathname guard cannot authenticate an offline snapshot.
+No credentials are exported, no identities rewritten and no database
+migration/deployment executed.
+
+**Evidence boundary:** Source/test changes committed to draft PR #15;
+latest exact-commit GitHub Actions jobs are queued/pending, not passed.
+No merge, operator DB modification or broker order routing.
+Production controls accepted: 0/12. Production deployment: NO-GO.
