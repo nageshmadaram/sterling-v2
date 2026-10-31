@@ -1,5 +1,11 @@
 # Price Rules — live long index options
 
+> **HISTORICAL CAPABILITY DOCUMENT, NOT LIVE-TRADING APPROVAL.**
+> All order and enablement steps below describe implementation behavior that
+> remains blocked from production use. Sterling V2 is **NO-GO** and broker order
+> routing is **NOT AUTHORIZED**, even if the UI exposes a Live label.
+> See [pre-production execution review](architecture/PREPRODUCTION_EXECUTION_CONVERGENCE.md).
+
 Price Rules is an independent fourth Sterling strategy, derived from the README in Live_PTrading-v2.14.zip. The supplied program is a paper practice pad; its executable is not executed, redistributed or linked. This integration uses Sterling's authenticated broker sessions and canonical order authority for real orders.
 
 ## Operator flow

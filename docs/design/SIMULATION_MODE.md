@@ -1,5 +1,11 @@
 # Simulation mode and Trade Journal — design contract
 
+> **DESIGN/HISTORICAL DOCUMENT ONLY.** "Live" and "AUTO" describe UI or
+> architecture paths, not current production approval. The approved action
+> boundary remains pre-production NO-GO; simulations contain no real
+> broker-order authority. See the
+> [31 October implementation review](../implementation/2026-10-31-preproduction-closure.md).
+
 Owner request: a **Simulation** mode that behaves exactly like AUTO — real-time signals, entries,
 broker-style stops, trailing, exits — but with **virtual money and no real orders**, plus a
 **Journal** tab with complete per-trade detail so the family can see what each strategy did,

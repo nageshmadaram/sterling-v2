@@ -1,5 +1,11 @@
 # Going live — what runs, and what it is allowed to do
 
+> **HISTORICAL RESEARCH/GATE DESIGN — NOT A RELEASE AUTHORIZATION.**
+> Any statements below describing a "live" engine refer to source capabilities
+> and data observation, not permission to open real positions. Sterling V2
+> remains pre-production **NO-GO**, with live broker routing **NOT AUTHORIZED**.
+> Current controls: [production acceptance matrix](../../ops/PREPRODUCTION_CONTROL_MATRIX.md).
+
 The engine is live. It scans, forecasts, measures, records, and manages
 positions. It is **not** permitted to open one, and it will not be until its own
 record says it should.

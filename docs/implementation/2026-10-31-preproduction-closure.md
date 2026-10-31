@@ -57,3 +57,34 @@ npx vitest run src/pages/__tests__/WorkspaceRouter.test.tsx
 ```
 
 Archive command outputs with source SHA, UTC execution time, nonzero exit handling, runner/OS, sanitized logs, artifact hashes and reviewer. Never use synthetic or historic outputs as current proof.
+
+
+## 31 October focused engineering verification checkpoint
+
+On review-source SHA `58d156976d3d2dd28dbf9bad0268345d9111b37d`, the following
+GitHub Actions results were observed. These are *offline/source* evidence, not
+independent host, broker or operator proof:
+
+| Check | Result | Evidence |
+|---|---|---|
+| Focused acceptance | PASS: 370 backend, 55 scripts/recovery, 20 admin/workspace UI and 19 mobile tests; Expo export succeeded | [run 41215770046](https://github.com/nageshmadaram/sterling-v2/actions/runs/41215770046) |
+| Snapback release gate | PASS: 3,529 passing, 1 skipped; 58 release-invariant tests and 6 promotion-authority tests | [run 41215769980](https://github.com/nageshmadaram/sterling-v2/actions/runs/41215769980) |
+| Isolated Snapback E2E | PASS: 2 tests (entry/hedge/stop-out and schema restart) | [run 41215770074](https://github.com/nageshmadaram/sterling-v2/actions/runs/41215770074) |
+| AST and governance source check | PASS (static only, not dynamic proof) | [run 41215769977](https://github.com/nageshmadaram/sterling-v2/actions/runs/41215769977) |
+| Disposable PostgreSQL migration/restore | PASS (disposable runner only) | [run 41215769961](https://github.com/nageshmadaram/sterling-v2/actions/runs/41215769961) |
+
+The simulation quote-freshness issue was repaired by binding its wall clock at call
+time. The fix retains rejection of stale quotes and unresolved broker margin
+evidence. Single and bulk workspace-feature changes can carry a structured
+administrator reason code. The user-facing workspace editor requires selecting
+one; existing legacy audit events remain unaltered and unprovided reasons stay
+`NOT_PROVIDED`.
+
+**Explicitly incomplete:** full dynamic call-path review, full admin reason
+coverage beyond feature grants, independent operator/device/host recovery,
+external broker identity receipts, cross-layer order traceability, production
+sign-off, and any grant of broker execution authority.
+
+The source checkpoint above is not a proof of the later documentation SHA.
+Any new code change must be validated on its exact SHA. **Production NO-GO,
+broker routing NOT AUTHORIZED, independent control acceptance 0/12.**
