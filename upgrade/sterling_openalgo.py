@@ -468,6 +468,38 @@ def _nullable_identity_columns(
     return sorted(weak)
 
 
+def _null_identity_row_counts(
+    conn: sqlite3.Connection, tables: set[str]
+) -> dict[str, int]:
+    """Count rows containing NULL in a critical migration identity key.
+
+    SQLite rowid tables can hold NULL in a TEXT PRIMARY KEY or UNIQUE column.
+    PostgreSQL PRIMARY KEY columns cannot. Report counts ONLY; never return
+    private account, trade, strategy or user identifiers, and never modify rows.
+    """
+    result: dict[str, int] = {}
+    for table, keys in FULL_PARITY_KEYS.items():
+        if table not in tables:
+            continue
+        quoted = '"' + table.replace('"', '""') + '"'
+        columns = {
+            str(row[1]) for row in conn.execute(f"PRAGMA table_info({quoted})")
+        }
+        required = sorted({name for key in keys for name in key})
+        if any(name not in columns for name in required):
+            continue  # a missing column is reported under critical_column_mismatches
+        where = " OR ".join(
+            '"' + name.replace('"', '""') + '" IS NULL'
+            for name in required
+        )
+        count = int(conn.execute(
+            f"SELECT COUNT(*) FROM {quoted} WHERE {where}"
+        ).fetchone()[0])
+        if count:
+            result[table] = count
+    return result
+
+
 def audit_full_migration_preflight(path: Path) -> dict:
     """Read-only, exhaustive *safety-key* baseline; never authorizes migration.
 
@@ -511,6 +543,7 @@ def audit_full_migration_preflight(path: Path) -> dict:
             "critical_column_mismatches": mismatches,
             "missing_safety_unique_keys": missing_keys,
             "nullable_identity_columns": nullable_keys,
+            "null_identity_row_counts": _null_identity_row_counts(conn, tables),
             "orphan_identity_row_counts": _orphan_identity_counts(conn, tables),
             "missing_policy_guard_triggers": _missing_auth_guards(conn),
             "missing_declared_identity_foreign_keys": _missing_physical_identity_fks(
