@@ -124,6 +124,30 @@ schema fingerprint, unmapped operational table names and unavailable full
 PostgreSQL migration/restore evidence. Do not point it at live broker storage;
 use an independently preserved, custody-reviewed offline snapshot.
 
+The full-parity audit now also covers **account-policy authority and
+immutable financial evidence**, using Sterling's actual
+`auth/user_store.py`, `auth/account_policy.py`, and
+`services/db.py` source DDL. Its critical-key inventory includes the
+singleton administrator designation, account-policy revisions,
+`(user_id, feature)` grants and visibility keys, auth-audit IDs,
+notification-outbox IDs, auth-schema versions, and
+`(uid, event_key)` realized-P&L idempotency. It validates mandatory
+column affinities for these as well as the order observation, execution
+increment, lease, and conflict ledgers. Missing tables or incompatible
+keys remain **migration blockers**, not instructions to manufacture
+replacement user/position rows.
+
+The `orphan_identity_row_counts` field reports **only aggregate counts**
+of user references with no matching `users.id` across the known session
+and account-policy tables. Legacy `default` principals and
+simulation identities are never silently remapped or created. This
+does not decrypt, display, or repair credentials. A counted orphan is a
+plan-and-approve blocker for independent identity reconciliation.
+`unmapped_operational_tables` now means tables genuinely outside
+the reviewed safety-key inventory; it no longer repeats already mapped
+critical table names. Additional strategy and feature tables still
+require their own verified schemas and migration contracts.
+
 The command returns **exit 2** and `BLOCKED_FULL_MIGRATION` even if every
 SQLite key exists: the complete PostgreSQL operational schema, row-transfer
 mapping, secrets custody, strategy registry parity, broker-state recovery,
