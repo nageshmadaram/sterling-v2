@@ -143,3 +143,14 @@ Never overwrite existing `.env`/secret material while adapting an OpenAlgo
 runtime bootstrap. Merge new variable definitions selectively and require
 operator review of any key rotation; the current project does not implement
 credential migration.
+
+
+**Important SQLite/PostgreSQL mismatch:** the report includes
+`nullable_identity_columns`. In ordinary SQLite rowid tables, a
+`TEXT PRIMARY KEY` declaration without `NOT NULL` may store multiple
+`NULL` values. PostgreSQL primary keys cannot. The audit distinguishes
+those columns from true `INTEGER PRIMARY KEY` rowid aliases and
+`WITHOUT ROWID` primary keys. A globally unique index on a nullable
+column is therefore not sufficient migration proof. This is reported
+as a blocker requiring a reviewed data-cleanup and target-constraint
+mapping, never silently repaired in the source.
