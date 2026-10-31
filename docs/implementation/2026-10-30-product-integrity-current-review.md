@@ -379,3 +379,32 @@ work. Controls 0/12 accepted; deployment/live routing NO-GO.
   checks are still pending; there has been no verified green suite, broker
   session, production restore, merge or deployment. All controls remain
   **0/12 accepted**; production/live order routing **NOT AUTHORIZED**.
+
+
+## 31 October 2026 — ambiguous exit evidence durable halt (review only)
+
+The canonical risk-reducing order resolver now calls the existing durable
+live kill-switch path on impossible/foreign broker fills, terminal COMPLETE
+quantity mismatches, or unresolved cancellation/reconciliation. A confirmed
+exact full exit or legitimate terminal cancellation still returns its normal
+resolution. Synthetic simulation failures do not trigger the real-account
+kill switch. A broker-confirmed reduction that fails its canonical journal
+identity/observation proof now also halts further real-money entries.
+
+Submission expected quantities require a strictly positive integral value
+rather than float truncation or boolean coercion. Instant-paper settlement
+now refuses nonpositive/nonfinite/boolean reference prices instead of
+fabricating a confirmed fill. Broker-decimal exponents are bounded before
+integral conversion to avoid excessive conversion resources.
+
+The focused product-integrity workflow explicitly includes
+`tests/services/test_canonical_fill_reconciliation.py` alongside the
+canonical strategy-reduction suite. New unit tests assert real-mode durable
+halt, no halt for confirmed or simulated outcomes, invalid request rejection,
+source journal immutability and no broker resubmission.
+
+**Acceptance remains pending:** authored code/tests are NOT an exact-commit
+PASS. Full release, data migration and broker-session acceptance remain
+blocked. PR #15 remains draft/unmerged; main unchanged; 0/12 external
+production controls accepted; production deployment and live order routing
+NOT AUTHORIZED.
