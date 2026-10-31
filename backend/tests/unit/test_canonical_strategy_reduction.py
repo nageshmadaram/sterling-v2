@@ -597,3 +597,17 @@ async def test_stale_filled_journal_cannot_authorize_failed_reconciliation(isola
     assert replay.reconciliation_required
     assert not replay.settled
     assert replay.filled_quantity == 10
+
+
+@pytest.mark.parametrize("value", [
+    "1e100000000", "9" * 1000, 10 ** 30, "1" * 128,
+])
+def test_broker_quantity_parser_rejects_bounded_resource_exhaustion(value):
+    from app.services.canonical_fill_reconciliation import _safe_int
+    assert _safe_int(value) == 0
+
+
+@pytest.mark.parametrize("value", [True, False])
+def test_broker_price_parser_rejects_boolean_execution_prices(value):
+    from app.services.canonical_fill_reconciliation import _safe_float
+    assert _safe_float(value) == 0.0
