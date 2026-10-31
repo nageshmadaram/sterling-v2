@@ -69,7 +69,57 @@ REQUIRED_COLUMNS = {
     "system_config": {"key": "TEXT", "value": "TEXT"},
     "users": {
         "id": "TEXT", "username": "TEXT", "password_hash": "TEXT",
-        "role": "TEXT", "token_version": "INTEGER",
+        "role": "TEXT", "is_active": "INTEGER",
+        "token_version": "INTEGER",
+    },
+    # Additional tables created by auth/user_store.py and account_policy.py,
+    # or by db._create_tables(). Missing these is a real identity or exact-once
+    # financial-evidence gap; never invent a target PostgreSQL schema for them.
+    "platform_admin": {"slot": "INTEGER", "user_id": "TEXT"},
+    "account_policy_revisions": {"user_id": "TEXT", "revision": "INTEGER"},
+    "user_feature_grants": {
+        "user_id": "TEXT", "feature": "TEXT", "enabled": "INTEGER",
+        "actor_id": "TEXT", "updated_at_ms": "INTEGER",
+    },
+    "user_workspace_visibility": {
+        "user_id": "TEXT", "feature": "TEXT", "visible": "INTEGER",
+    },
+    "auth_audit_events": {
+        "id": "TEXT", "actor_id": "TEXT", "target_id": "TEXT",
+        "action": "TEXT", "before_json": "TEXT", "after_json": "TEXT",
+    },
+    "auth_event_outbox": {
+        "event_id": "TEXT", "user_id": "TEXT", "revision": "INTEGER",
+    },
+    "account_schema_versions": {
+        "version": "INTEGER", "description": "TEXT",
+    },
+    "kite_order_observations": {
+        "id": "INTEGER", "intent_key": "TEXT", "fingerprint": "TEXT",
+        "order_id": "TEXT", "broker_status": "TEXT",
+        "filled_quantity": "INTEGER", "filled_value": "REAL",
+        "disposition": "TEXT", "received_ts_ms": "INTEGER",
+    },
+    "kite_execution_increments": {
+        "id": "INTEGER", "account_id": "TEXT", "uid": "TEXT",
+        "order_id": "TEXT", "side": "TEXT",
+        "cumulative_quantity": "INTEGER", "cumulative_value": "REAL",
+        "signed_quantity": "INTEGER", "price": "REAL",
+        "received_ts_ms": "INTEGER",
+    },
+    "kite_execution_leases": {
+        "scope": "TEXT", "account_id": "TEXT", "uid": "TEXT",
+        "symbol": "TEXT", "owner": "TEXT",
+        "acquired_ms": "INTEGER", "expires_ms": "INTEGER",
+    },
+    "kite_execution_conflicts": {
+        "id": "INTEGER", "account_id": "TEXT", "uid": "TEXT",
+        "order_id": "TEXT", "reason": "TEXT",
+        "received_ts_ms": "INTEGER",
+    },
+    "kite_realized_pnl_events": {
+        "uid": "TEXT", "event_key": "TEXT", "day_iso": "TEXT",
+        "pnl": "REAL", "created_ms": "INTEGER",
     },
 }
 LEDGER_COLUMNS = ("version", "phase", "source_schema_sha256")
@@ -79,11 +129,21 @@ LEDGER_COLUMNS = ("version", "phase", "source_schema_sha256")
 # A missing UNIQUE/PK key would permit duplicates after a future data backfill.
 FULL_PARITY_KEYS: dict[str, tuple[tuple[str, ...], ...]] = {
     "users": (("id",), ("username",)),
+    # Role and feature authority must survive a physical data migration,
+    # including singleton administrator identity and audit/outbox idempotency.
+    "platform_admin": (("slot",), ("user_id",)),
+    "account_policy_revisions": (("user_id",),),
+    "user_feature_grants": (("user_id", "feature"),),
+    "user_workspace_visibility": (("user_id", "feature"),),
+    "auth_audit_events": (("id",),),
+    "auth_event_outbox": (("event_id",),),
+    "account_schema_versions": (("version",),),
     "positions": (("id",),),
     "kite_accounts": (("id",),),
     "kite_order_intents": (("intent_key",), ("tag",)),
     "kite_order_observations": (("id",), ("intent_key", "fingerprint")),
     "kite_fill_ledger": (("account_id", "order_id", "trade_id"),),
+    "kite_realized_pnl_events": (("uid", "event_key"),),
     "kite_execution_increments": (
         ("id",), ("account_id", "order_id", "cumulative_quantity"),
     ),
@@ -349,7 +409,9 @@ def audit_full_migration_preflight(path: Path) -> dict:
             "critical_column_mismatches": mismatches,
             "missing_safety_unique_keys": missing_keys,
             "nullable_identity_columns": nullable_keys,
-            "unmapped_operational_tables": sorted(tables),
+            # Report truly outside the reviewed critical-key contracts;
+            # critical tables are already named by critical_tables above.
+            "unmapped_operational_tables": sorted(tables - set(FULL_PARITY_KEYS)),
             "postgresql_operational_schema": "NOT_IMPLEMENTED",
             "postgresql_data_migration": "NOT_IMPLEMENTED",
             "restore_and_rollback_evidence": "NOT_VERIFIED",
