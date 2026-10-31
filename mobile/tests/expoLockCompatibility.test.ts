@@ -10,12 +10,13 @@ const lock = read('../package-lock.json');
 
 it('locks the Expo SDK 58 compatibility matrix and root manifest identically', () => {
   const expected: Record<string, string> = {
-    expo: '58.0.21',
+    expo: '58.0.22',
     'expo-constants': '58.0.14',
     'expo-image': '58.0.18',
     'expo-linking': '58.0.15',
-    'expo-router': '58.0.28',
+    'expo-router': '58.0.29',
     'react-native': '0.88.1',
+    'react-native-screens': '4.30.1',
   };
   expect(lock.lockfileVersion).toBe(3);
   for (const [name, version] of Object.entries(expected)) {
