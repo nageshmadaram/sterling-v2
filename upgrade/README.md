@@ -143,6 +143,13 @@ and account-policy tables. Legacy `default` principals and
 simulation identities are never silently remapped or created. This
 does not decrypt, display, or repair credentials. A counted orphan is a
 plan-and-approve blocker for independent identity reconciliation.
+The report additionally includes `missing_policy_guard_triggers` (the nine
+named singleton-admin protections declared in `account_policy.migrate`)
+and `missing_declared_identity_foreign_keys` (the two actual user-key
+references on `platform_admin` and `user_workspace_visibility`). These
+checks are necessary **negative gates**, not proof of equivalent PostgreSQL
+triggers or authorization semantics; target-side DDL and destructive/negative
+tests are still mandatory.
 `unmapped_operational_tables` now means tables genuinely outside
 the reviewed safety-key inventory; it no longer repeats already mapped
 critical table names. Additional strategy and feature tables still
