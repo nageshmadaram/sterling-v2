@@ -486,3 +486,114 @@ async def test_unattributable_or_conflicting_broker_trades_never_raise_fill_coun
     assert status == "OPEN"
     assert filled == 2  # Preserve only independently reported order evidence.
     assert average == 80.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history, trades", [
+    ([{"order_id": "OTHER", "status": "COMPLETE",
+       "filled_quantity": 10, "average_price": 80}], []),
+    ([{"order_id": "OTHER", "status": "OPEN", "filled_quantity": 0},
+      {"order_id": "SYNTHETIC-ORDER", "status": "COMPLETE",
+       "filled_quantity": 10, "average_price": 80}], []),
+    ([{"order_id": "SYNTHETIC-ORDER", "status": "COMPLETE",
+       "filled_quantity": 10, "average_price": 80}],
+     [{"order_id": "OTHER", "trade_id": "T1", "quantity": 10, "price": 80}]),
+])
+async def test_wrong_order_history_or_trade_cannot_settle_or_cancel_ack(
+    history, trades,
+):
+    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+
+    class CrossOrderPostback:
+        _is_paper = True
+        _is_simulated = True
+        cancels = 0
+
+        async def get_order_history(self, order_id):
+            return history
+
+        async def get_order_trades(self, order_id):
+            return trades
+
+        async def cancel_order(self, order_id):
+            self.cancels += 1
+            return {"status": "success"}
+
+    client = CrossOrderPostback()
+    result = await resolve_acknowledged_order(
+        client=client, order_id="SYNTHETIC-ORDER",
+        expected_quantity=10, reference_price=80,
+        timeout_s=0, cancel_unfilled=True,
+    )
+    assert not result.settled
+    assert result.filled_quantity == 0
+    assert result.reason == "broker_order_identity_mismatch"
+    assert client.cancels == 0
+
+
+@pytest.mark.asyncio
+async def test_mismatched_entry_broker_order_never_changes_journal_or_cancels(isolated):
+    from app.services.canonical_fill_reconciliation import resolve_entry_fill
+
+    client = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    ack = await submit_reduction(**args(client))
+    assert ack.success and ack.order_id
+
+    client._is_simulated = True
+    cancelled = []
+
+    async def wrong_history(_order_id):
+        return [{"order_id": "FOREIGN-ORDER", "status": "COMPLETE",
+                 "filled_quantity": 10, "average_price": 80}]
+
+    async def no_trades(_order_id):
+        return []
+
+    async def cancellation(order_id):
+        cancelled.append(order_id)
+
+    client.get_order_history = wrong_history
+    client.get_order_trades = no_trades
+    client.cancel_order = cancellation
+    resolved = await resolve_entry_fill(
+        uid="synthetic-user", client=client, order_id=ack.order_id,
+        expected_quantity=10, reference_price=80,
+        timeout_s=0, cancel_unfilled=True,
+    )
+    assert not resolved.settled
+    assert resolved.reason == "broker_order_identity_mismatch"
+    assert not cancelled
+    assert order_journal.get(ack.intent_key).state == "SUBMITTED"
+
+
+@pytest.mark.asyncio
+async def test_stale_filled_journal_cannot_authorize_failed_reconciliation(isolated):
+    from app.services.canonical_fill_reconciliation import _resolution
+
+    client = PaperBroker()
+    db.set_inventory("acct-1", "synthetic-user", "SYNTHETIC26NOV25000CE", 10, exchange="NFO")
+    ack = await submit_reduction(**args(client))
+    assert ack.success and ack.intent_key
+
+    valid = order_journal.observe_order(
+        ack.intent_key, status="COMPLETE", order_id=ack.order_id,
+        filled_quantity=10, average_price=80,
+    )
+    assert valid.intent.state == "FILLED"
+    assert _resolution(valid.intent, ack.order_id, status="COMPLETE").settled
+    unknown = _resolution(
+        order_journal.get(ack.intent_key), ack.order_id,
+        status="UNKNOWN", reason="broker_order_identity_mismatch",
+    )
+    assert not unknown.settled
+
+    conflict = order_journal.observe_order(
+        ack.intent_key, status="COMPLETE", order_id=ack.order_id,
+        filled_quantity=11, average_price=80,
+    )
+    assert conflict.intent.reconciliation_required
+    replay = _resolution(conflict.intent, ack.order_id, status="COMPLETE")
+    assert replay.reconciliation_required
+    assert not replay.settled
+    assert replay.filled_quantity == 10
