@@ -500,6 +500,21 @@ def _null_identity_row_counts(
     return result
 
 
+def _require_offline_snapshot(source: Path) -> None:
+    """Block expensive safety audits and copy migration on a known live DB.
+
+    This is a necessary identity/name guard, not positive proof that an
+    arbitrarily named SQLite file is a safely quiesced offline snapshot.
+    """
+    configured = (os.environ.get("STERLING_DB_PATH") or "").strip()
+    if (source.name.lower() == "sterling_paper.db"
+            or (configured and source == Path(configured).expanduser().resolve())):
+        raise PermissionError(
+            "Full-parity audit and copy migration require an offline source "
+            "snapshot, not the active Sterling operational database"
+        )
+
+
 def audit_full_migration_preflight(path: Path) -> dict:
     """Read-only, exhaustive *safety-key* baseline; never authorizes migration.
 
@@ -510,6 +525,7 @@ def audit_full_migration_preflight(path: Path) -> dict:
     separately initialized user and execution evidence tables.
     """
     source = _source(Path(path))
+    _require_offline_snapshot(source)
     with closing(_read_only(source)) as conn:
         conn.execute("BEGIN")  # stable read snapshot across the entire audit
         _check(conn)
@@ -603,13 +619,7 @@ def migrate_copy(source: Path, destination: Path, *, fail_after_ledger: bool = F
     # credentials and a non-quiescent risk state. Require a separately created
     # and reviewed offline source snapshot; do not silently use the active
     # operator database just because the destination is disposable.
-    configured = (os.environ.get("STERLING_DB_PATH") or "").strip()
-    if (src.name.lower() == "sterling_paper.db"
-            or (configured and src == Path(configured).resolve())):
-        raise PermissionError(
-            "Copy-only migration requires an offline source snapshot, "
-            "not the active Sterling operational database"
-        )
+    _require_offline_snapshot(src)
     dest = Path(destination).absolute()
     if dest.exists() or dest.is_symlink() or dest.resolve() == src:
         raise ValueError("Destination must be a new isolated file; no overwrite")
