@@ -152,3 +152,34 @@ def test_authority_wrapper_preserves_safe_mode_refusal():
     )
     assert result == (False, "durable safe mode")
     assert seen[0]["account_id"] == "synthetic-account"
+
+
+@pytest.mark.asyncio
+async def test_unlabelled_broker_history_cannot_settle_acknowledged_order(claimed):
+    broker = ReadOnlyBroker([{
+        # A broker adapter may return a valid-looking status without the
+        # requested ID. Never attribute it by proximity to the request alone.
+        "status": "COMPLETE", "filled_quantity": 2, "average_price": 120,
+    }])
+    result = await observe(broker)
+    assert not result.success and result.status == "UNKNOWN"
+    assert "identity" in result.error.lower()
+    assert broker.reads == 1 and broker.writes == 0
+    assert order_journal.get(claimed.intent_key).filled_quantity == 0
+    ctrl = db.get_execution_control(uid="observer", account_id="synthetic-account")
+    assert ctrl["recovery_state"] == "RECOVERY_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_unlabelled_broker_history_never_overwrites_prior_confirmed_fill(claimed):
+    broker = ReadOnlyBroker([{
+        "order_id": "SYNTHETIC-ORDER", "status": "OPEN",
+        "filled_quantity": 1, "average_price": 120,
+    }])
+    first = await observe(broker)
+    assert first.success and first.filled_quantity == 1
+    broker.rows = [{"status": "COMPLETE", "filled_quantity": 2, "average_price": 121}]
+    refused = await observe(broker)
+    assert not refused.success and refused.status == "UNKNOWN"
+    assert order_journal.get(claimed.intent_key).filled_quantity == 1
+    assert broker.writes == 0

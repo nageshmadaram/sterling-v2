@@ -1610,12 +1610,18 @@ class CanonicalExecutionService:
                     _TERMINAL, _PENDING, _broker_snapshot,
                 )
 
-                status, filled, price, _ = await _broker_snapshot(broker_client, order_id)
+                status, filled, price, broker_row = await _broker_snapshot(broker_client, order_id)
             except Exception:
                 return fence("Broker order read unavailable")
 
             if status == "IDENTITY MISMATCH":
                 return fence("Broker order identity mismatch")
+            # Journal correlation is not proof that the broker responded for
+            # this order. Reject status-only and unlabelled broker history:
+            # such a row could be a transport adapter's unrelated fallback.
+            if (not isinstance(broker_row, dict)
+                    or str(broker_row.get("order_id") or "").strip() != order_id):
+                return fence("Broker response lacks matching order identity")
             if status not in _TERMINAL | _PENDING:
                 return fence("Broker order status unknown")
             if status == "COMPLETE" and filled <= 0:

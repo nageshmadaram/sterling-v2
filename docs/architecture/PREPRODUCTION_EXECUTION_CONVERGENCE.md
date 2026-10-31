@@ -50,3 +50,15 @@ The additional named interfaces now exist in source, but **latest-SHA CI, full i
 | Direct Kite transport / GTT / cancellation | Only within typed capability context | Source inventory, exact ownership, negative tests | Must be reviewed individually |
 
 Run the AST inventory and then **manually inspect each emitted candidate**. The scanner intentionally cannot prove dynamic calls, runtime authorization or transport semantics. Any unknown real-money route remains blocked. Entry kill switch defaults off; do not weaken safe mode to improve test results.
+
+
+### Exact broker order-ID proof for single-order reconciliation (31 October)
+
+The canonical read-only `reconcile_order` / `record_execution_outcome`
+path now requires the **returned broker-history row** to explicitly contain
+an `order_id` equal to the journal's acknowledged order ID. A broker API
+that returns a plausible `COMPLETE`/fill row without an attributable ID
+cannot settle the order. That mismatch fences recovery as
+`RECOVERY_REQUIRED`, preserves existing confirmed journal fills, and never
+sends/cancels an order. This does not claim strategy projection, a resolved
+UNKNOWN execution, or independent broker acceptance evidence.
