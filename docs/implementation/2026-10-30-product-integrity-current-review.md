@@ -330,3 +330,28 @@ be called passed. Production 0/12 accepted, 12/12 blocked; **NO-GO**.
 **Acceptance unchanged:** PR #15 draft/unmerged; main unchanged; 0/12 external
 production controls independently accepted; production deployment **NO-GO**;
 live execution and broker routing **NOT AUTHORIZED**.
+
+
+## 31 October 2026 — strict operational schema readiness gate
+
+The uploaded upgrade specification's schema-first and rollback requirements
+remain incomplete. In draft PR #15 the read-only
+`--audit-full-parity` command now checks all discovered SQLite table
+names, safety-relevant PRIMARY KEY/UNIQUE combinations, separately initialized
+user tables and critical column declarations. It detects missing keys,
+partial indexes that are not globally unique, and SQLite's nullable
+`TEXT PRIMARY KEY`/nullable unique-key mismatch with PostgreSQL.
+All results are metadata-only; private rows and credentials are not exported.
+
+This deliberately exits **2 / BLOCKED_FULL_MIGRATION**, and cannot be
+combined with a copy/write request. It does not introduce PostgreSQL
+models, transfer operational rows, migrate authentication tokens, change
+runtime DB flags, run a broker, or claim schema parity. Offline synthetic
+tests cover redaction, repeatability, missing identity constraints,
+partial versus unconditional uniqueness, nullable primary keys and
+negative CLI status. **No exact-head CI PASS is claimed.**
+
+Complete operational PostgreSQL schema/data migration, rollback, independent
+restore, broker account/session recovery, every strategy's execution
+convergence, full API compatibility and desktop/native acceptance remain P0/P1
+work. Controls 0/12 accepted; deployment/live routing NO-GO.
