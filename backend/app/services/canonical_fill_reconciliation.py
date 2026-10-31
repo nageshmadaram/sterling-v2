@@ -601,12 +601,14 @@ async def resolve_acknowledged_order(
             status=status, filled=filled, average=average, expected=expected,
         )
         if invalid_reason:
+            _halt_uncertain_live(client, f"exit evidence invalid for {oid}: {invalid_reason}")
             return BrokerOrderResolution(
                 oid, status or "UNKNOWN", filled, average,
                 status in _TERMINAL, False, reason=invalid_reason,
             )
         if status in _TERMINAL:
             if status == "COMPLETE" and filled != expected:
+                _halt_uncertain_live(client, f"exit COMPLETE quantity mismatch for {oid}")
                 return BrokerOrderResolution(
                     oid,
                     status,
@@ -653,12 +655,14 @@ async def resolve_acknowledged_order(
                 status=status, filled=filled, average=average, expected=expected,
             )
             if invalid_reason:
+                _halt_uncertain_live(client, f"post-cancel exit evidence invalid for {oid}: {invalid_reason}")
                 return BrokerOrderResolution(
                     oid, status or "UNKNOWN", filled, average,
                     status in _TERMINAL, False, reason=invalid_reason,
                 )
             if status in _TERMINAL:
                 if status == "COMPLETE" and filled != expected:
+                    _halt_uncertain_live(client, f"post-cancel COMPLETE quantity mismatch for {oid}")
                     return BrokerOrderResolution(
                         oid,
                         status,
@@ -697,6 +701,7 @@ async def resolve_acknowledged_order(
                 break
             await asyncio.sleep(0.25)
 
+    _halt_uncertain_live(client, f"risk-reducing order unresolved for {oid}")
     return BrokerOrderResolution(
         order_id=oid,
         status=status or "UNKNOWN",
