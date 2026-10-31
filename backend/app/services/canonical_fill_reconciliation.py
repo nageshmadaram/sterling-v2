@@ -132,9 +132,11 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
             if isinstance(rows, list):
                 for history_row in rows:
                     if not isinstance(history_row, dict):
-                        continue
+                        # A malformed row prevents proving that the response
+                        # belongs to the acknowledged order.
+                        return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
                     reported = str(history_row.get("order_id") or "").strip()
-                    if reported and reported != str(order_id).strip():
+                    if reported != str(order_id).strip():
                         return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
             latest = (
                 rows[-1]
@@ -147,7 +149,9 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
     # Never interpret a broker-history row belonging to a different order.
     # A badly scoped API result must not be able to settle an acknowledged ID.
     returned_order = str(latest.get("order_id") or "").strip()
-    if returned_order and returned_order != str(order_id).strip():
+    if latest and returned_order != str(order_id).strip():
+        # A status/fill row without a returned order_id is not attributable
+        # merely because it was requested using this order_id.
         return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
 
     status = _normalize_status(latest.get("status"))
@@ -180,6 +184,12 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
                     # Do not fall back to otherwise valid-looking history once
                     # this broker API returned a trade for a different order.
                     return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+                if not reported_order:
+                    # A trade ID without a matching order ID is not sufficient
+                    # to attribute executed quantity. Retain verified history
+                    # only; never promote an anonymous trade into a fill.
+                    ambiguous = True
+                    break
                 trade_id = str(trade.get("trade_id") or "").strip()
                 q = _safe_int(trade.get("quantity"))
                 px = _safe_float(trade.get("average_price", trade.get("price")))
