@@ -76,29 +76,38 @@ def _normalize_status(value: Any) -> str:
     return status
 
 
-def _safe_int(value: Any) -> int:
-    """Accept only exact, finite, nonnegative integral broker quantities.
+def _parse_broker_quantity(value: Any) -> int | None:
+    """Return None when quantity evidence is absent, malformed or unsafe.
 
-    Truncating 1.9 to 1, or accepting a huge float rounded to an integer,
-    fabricates fill evidence. An invalid value must never increase fills.
+    Zero is an actual broker value only if explicitly represented as a finite
+    integral zero. Invalid/missing quantities cannot be treated as a proof
+    that a cancelled or rejected order executed nothing.
     """
     if value is None or isinstance(value, bool):
-        return 0
+        return None
     try:
         literal = str(value).strip()
-        # Decimal accepts expressions such as 1e100000000. Never allocate an
-        # astronomical Python integer because a broker reply is malformed.
+        # Avoid huge exponent/number conversions from untrusted broker data.
         if not literal or len(literal) > 64:
-            return 0
+            return None
         quantity = Decimal(literal)
         if (not quantity.is_finite() or quantity < 0
                 or quantity.adjusted() > 18
                 or quantity != quantity.to_integral_value()):
-            return 0
+            return None
         return int(quantity)
     except (InvalidOperation, TypeError, ValueError, OverflowError):
-        return 0
+        return None
 
+
+def _safe_int(value: Any) -> int:
+    """Legacy nonnegative parser interface for non-authorizing callers.
+
+    Only _parse_broker_quantity distinguishes invalid from a proven zero.
+    Do not use _safe_int alone to certify a zero-fill terminal order.
+    """
+    parsed = _parse_broker_quantity(value)
+    return parsed if parsed is not None else 0
 
 
 def _expected_quantity(value: Any) -> int:
@@ -155,9 +164,14 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
         return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
 
     status = _normalize_status(latest.get("status"))
-    filled = _safe_int(
-        latest.get("filled_quantity", latest.get("filled_qty"))
-    )
+    raw_quantity = latest.get("filled_quantity", latest.get("filled_qty"))
+    parsed_quantity = _parse_broker_quantity(raw_quantity)
+    if latest and parsed_quantity is None:
+        # In particular, terminal CANCELLED/REJECTED plus malformed fill
+        # quantity does NOT prove a zero-fill terminal settlement. Reject
+        # immediately; do not cancel again or guess from trade records.
+        return "FILL EVIDENCE INVALID", 0, 0.0, {"fill_evidence_invalid": True}
+    filled = parsed_quantity if parsed_quantity is not None else 0
     average = _safe_float(
         latest.get("average_price", latest.get("average_price_filled"))
     )
@@ -306,6 +320,7 @@ def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") ->
         unsafe_reason in {
             "broker_mode_unknown",
             "complete_filled_quantity_unverified",
+            "broker_fill_quantity_unverified",
             "broker_order_identity_mismatch",
             "entry_fill_unresolved_after_bounded_reconciliation",
         }
@@ -397,6 +412,12 @@ async def resolve_entry_fill(
 
     while True:
         status, filled, average, raw = await _broker_snapshot(client, oid)
+        if status == "FILL EVIDENCE INVALID":
+            _halt_uncertain_live(client, f"entry fill quantity unverified for {oid}")
+            return _resolution(
+                _find_intent(uid, client, oid), oid,
+                status="UNKNOWN", reason="broker_fill_quantity_unverified",
+            )
         if status == "IDENTITY MISMATCH":
             _halt_uncertain_live(client, f"entry broker order identity mismatch for {oid}")
             return _resolution(
@@ -455,6 +476,12 @@ async def resolve_entry_fill(
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, raw = await _broker_snapshot(client, oid)
+            if status == "FILL EVIDENCE INVALID":
+                _halt_uncertain_live(client, f"post-cancel entry fill quantity unverified for {oid}")
+                return _resolution(
+                    _find_intent(uid, client, oid), oid,
+                    status="UNKNOWN", reason="broker_fill_quantity_unverified",
+                )
             if status == "IDENTITY MISMATCH":
                 _halt_uncertain_live(client, f"post-cancel entry order identity mismatch for {oid}")
                 return _resolution(
@@ -562,6 +589,8 @@ def _invalid_broker_fill_reason(
     """
     if status == "IDENTITY MISMATCH":
         return "broker_order_identity_mismatch"
+    if status == "FILL EVIDENCE INVALID":
+        return "broker_fill_quantity_unverified"
     if filled > expected:
         return "broker_overfill"
     if filled > 0 and average <= 0:
