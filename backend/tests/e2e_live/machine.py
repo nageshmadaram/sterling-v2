@@ -262,9 +262,28 @@ class LiveMachine:
         return importlib.import_module(name)
 
     def fresh_process(self) -> None:
-        """Forget every in-memory byte the application learned; keep the files."""
-        self._purge_modules()
-        self._install_process_patches()
+        """Forget process state but build Pydantic schemas outside the frozen clock.
+
+        Under modern Pydantic, importing request models while Freezegun replaces
+        datetime.datetime with FakeDatetime fails schema generation. The test
+        clock is restored BEFORE startup or any broker/risk decision. This
+        affects the disposable offline harness only, never production code.
+        """
+        if self._freezer is None:
+            self._purge_modules()
+            self._install_process_patches()
+            self.m("main")
+            return
+
+        # No app lifespan is active during this phase: restart() shut it down,
+        # and the initial fixture calls fresh_process() before the first boot.
+        self._freezer.stop()
+        try:
+            self._purge_modules()
+            self._install_process_patches()
+            self.m("main")  # eagerly build all FastAPI/Pydantic request schemas
+        finally:
+            self._freezer.start()  # scenario time must govern the next boot
 
     def _install_process_patches(self) -> None:
         """Patches that belong to one process life (re-applied after every restart)."""
