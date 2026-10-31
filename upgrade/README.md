@@ -155,6 +155,22 @@ the reviewed safety-key inventory; it no longer repeats already mapped
 critical table names. Additional strategy and feature tables still
 require their own verified schemas and migration contracts.
 
+`null_identity_row_counts` additionally counts source rows that actually
+contain NULL in any reviewed safety-critical identity column (without
+returning IDs, symbols, order tags, account values or user data). This
+distinguishes a nullable schema defect from actual stored-row cleanup
+requirements, without modifying anything. A counted row requires
+independent review and an explicit reconciliation/mapping plan, not
+automatic coercion or synthetic identity creation.
+
+Both `--audit-full-parity` and `--apply-to-copy` refuse the configured
+`STERLING_DB_PATH` and the default operational filename
+`sterling_paper.db`. Because source identity by pathname is only a
+**negative guard**, passing it never proves an arbitrarily named file
+is an offline, consistent or approved snapshot. The operator must
+still provide a quiesced/custody-reviewed offline source. The default
+metadata-only inventory remains read-only and unchanged.
+
 The command returns **exit 2** and `BLOCKED_FULL_MIGRATION` even if every
 SQLite key exists: the complete PostgreSQL operational schema, row-transfer
 mapping, secrets custody, strategy registry parity, broker-state recovery,
