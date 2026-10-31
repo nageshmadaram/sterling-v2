@@ -1490,6 +1490,156 @@ class CanonicalExecutionService:
                     log.warning("Failed to set RECOVERY_REQUIRED in DB during protection uncertainty: %s", db_err)
                 return ExecutionResult(success=False, status="UNKNOWN", error=f"Protection outcome uncertain: {exc}")
 
+
+    async def reconcile_order(
+        self,
+        *,
+        uid: str,
+        account_id: str,
+        order_id: str,
+        broker_client: Any = None,
+    ) -> ExecutionResult:
+        """Read one canonical broker order and durably observe it, never send.
+
+        Only existing journaled, account-owned orders are eligible. A missing,
+        ambiguous, cross-account, or malformed broker response cannot be used to
+        clear UNKNOWN/recovery state. This operation intentionally does NOT
+        project strategy inventory or resolve account-wide recovery readiness.
+        """
+        from app.services.execution_identity_lock import account_lock
+
+        if any(
+            not isinstance(value, str) or not value.strip() or value != value.strip()
+            for value in (uid, account_id, order_id)
+        ):
+            return ExecutionResult(False, "REJECTED", error="Invalid reconciliation identity")
+        if broker_client is None:
+            return ExecutionResult(False, "REJECTED", error="Authenticated broker client required")
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            return ExecutionResult(False, "REJECTED", error="Unknown broker transport mode")
+        client_account = str(getattr(broker_client, "_account_id", "") or "").strip()
+        if client_account != account_id:
+            return ExecutionResult(False, "REJECTED", error="Broker account identity mismatch")
+
+        async with account_lock(uid):
+            try:
+                intent = order_journal.find(uid=uid, account_id=account_id, order_id=order_id)
+            except Exception:
+                return ExecutionResult(False, "REJECTED", error="Ambiguous or unavailable canonical order identity")
+            if intent is None:
+                return ExecutionResult(False, "REJECTED", error="Canonical order does not exist for this account")
+            if intent.reconciliation_required:
+                return ExecutionResult(
+                    False, "UNKNOWN", intent_key=intent.intent_key, order_id=order_id,
+                    error="Existing order conflict requires independent reconciliation",
+                )
+
+            def fence(code: str) -> ExecutionResult:
+                # A broker read can be uncertain, but never a reason to retry
+                # a submit. Persist the halt, with a conservative in-process
+                # fallback if the control database is unavailable.
+                try:
+                    db.set_recovery_state(
+                        recovery_state="RECOVERY_REQUIRED",
+                        reason_code="CANONICAL_ORDER_RECONCILIATION_FAILED",
+                        reason="Canonical order " + order_id + ": " + code,
+                        uid=uid,
+                        account_id=account_id,
+                    )
+                except Exception:
+                    try:
+                        from app.services import live_safety
+
+                        live_safety.set_kill_switch(
+                            True, reason="Canonical order reconciliation unavailable",
+                            uid=uid, reason_code="CANONICAL_ORDER_RECONCILIATION_FAILED",
+                        )
+                    except Exception:
+                        log.critical("Cannot persist canonical reconciliation halt")
+                return ExecutionResult(
+                    False, "UNKNOWN", intent_key=intent.intent_key, order_id=order_id,
+                    error=code,
+                )
+
+            if intent.state == "RESERVED":
+                return fence("Unclaimed reservation has unexpected broker-order identity")
+
+            # Existing shared broker parser validates history/trade identity and
+            # exact nonnegative fill quantities. This path is observation-only:
+            # unlike a bounded entry-fill resolver, it never cancels an order.
+            try:
+                from app.services.canonical_fill_reconciliation import (
+                    _TERMINAL, _PENDING, _broker_snapshot,
+                )
+
+                status, filled, price, _ = await _broker_snapshot(broker_client, order_id)
+            except Exception:
+                return fence("Broker order read unavailable")
+
+            if status == "IDENTITY MISMATCH":
+                return fence("Broker order identity mismatch")
+            if status not in _TERMINAL | _PENDING:
+                return fence("Broker order status unknown")
+            if status == "COMPLETE" and filled <= 0:
+                return fence("Complete order lacks verified fill quantity")
+
+            # Do not place arbitrary broker payloads (including potential
+            # credentials) into the audit journal. Persist only an allowlisted
+            # source attribution and fields already validated by the parser.
+            raw = {
+                "source": "canonical_broker_order_read",
+                "order_id": order_id,
+                "broker_status": status,
+                "filled_quantity": filled,
+                "average_price": price,
+            }
+            try:
+                observed = order_journal.observe_order(
+                    intent.intent_key,
+                    status=status,
+                    order_id=order_id,
+                    filled_quantity=filled,
+                    average_price=price,
+                    raw=raw,
+                )
+            except Exception:
+                return fence("Durable journal observation failed")
+            if observed.reconciliation_required:
+                return fence("Conflicting broker order evidence")
+            current = observed.intent
+            return ExecutionResult(
+                True,
+                current.state,
+                intent_key=current.intent_key,
+                order_id=order_id,
+                filled_quantity=current.filled_quantity,
+                filled_price=(
+                    current.filled_value / current.filled_quantity
+                    if current.filled_quantity else 0.0
+                ),
+                revision=current.projection_version,
+            )
+
+    async def record_execution_outcome(
+        self,
+        *,
+        uid: str,
+        account_id: str,
+        order_id: str,
+        broker_client: Any = None,
+    ) -> ExecutionResult:
+        """Record a fresh broker-read outcome through the same canonical journal.
+
+        Caller-provided status/price/quantity are deliberately not accepted.
+        The method cannot create an order, bypass authority, or settle UNKNOWN
+        without account-bound broker evidence.
+        """
+        return await self.reconcile_order(
+            uid=uid, account_id=account_id, order_id=order_id,
+            broker_client=broker_client,
+        )
+
     async def startup_recovery(
         self,
         uid: str = "default",
