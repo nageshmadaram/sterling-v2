@@ -85,7 +85,7 @@ jobs:
         working-directory: frontend
         run: |
           npx tsc --noEmit
-          npx vitest run src/pages/__tests__/WorkspaceRouter.test.tsx --coverage=false
+          npx vitest run src/pages/__tests__/WorkspaceRouter.test.tsx src/components/admin/AccessEditor.test.tsx --coverage=false
       - name: Install mobile Expo dependency lock
         working-directory: mobile
         run: npm ci --ignore-scripts --no-audit --no-fund

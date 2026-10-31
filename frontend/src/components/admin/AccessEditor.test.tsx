@@ -23,11 +23,15 @@ it('updates only Kite menu visibility while retaining feature grants',async()=>{
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
   render(<QueryClientProvider client={client}><AccessEditor userId="member" /></QueryClientProvider>);
   fireEvent.click(await screen.findByRole('checkbox',{name:'Show kite in workspace chooser'}));
-  fireEvent.click(screen.getByRole('button',{name:'Save workspace settings'}));
+  const save = screen.getByRole('button',{name:'Save workspace settings'});
+  expect(save).toBeDisabled();
+  fireEvent.change(screen.getByRole('combobox',{name:'Reason for workspace change'}),{target:{value:'ACCESS_REVIEW'}});
+  fireEvent.click(save);
   await waitFor(()=>expect(api.put).toHaveBeenCalledTimes(1));
   expect(api.put).toHaveBeenCalledWith('/api/v1/auth/users/member/features',{
     expected_revision:4,
     features:{kite:false,radio:true,tv:true},
     visibility:{kite:false,radio:true,tv:true},
+    reason_code:'ACCESS_REVIEW',
   });
 });
