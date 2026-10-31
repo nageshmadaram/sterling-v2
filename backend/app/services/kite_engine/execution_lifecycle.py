@@ -468,6 +468,15 @@ async def _observe_foreign_intent(uid: str, aid: str, intent, order: dict,
                 f"{symbol}: conflicting {intent.strategy_id} broker fill evidence",
             )
             return True
+        # Cross-strategy canonical EXITs are owned by the originating runner.
+        # Observing the broker event is not the same as durably subtracting its
+        # fill from Adaptive/Intraday/Gamma/Opening strategy state. Never
+        # acknowledge projection here: those runners must ACK the exact journal
+        # version after writing their own position/realized-PnL registry.
+        if (str(observed.intent.payload.get("intent_type") or "").upper() == "EXIT"
+                or str(observed.intent.payload.get("exposure_effect") or "").upper()
+                in ("REDUCE_EXPOSURE", "CLOSE_POSITION")):
+            return True
         verdict = _gamma_projection_verdict(uid, observed.intent, recovering=recovering)
         if verdict == _DEFER:
             # Gamma's own arm/reconcile projects this fill into its registry and
@@ -675,7 +684,15 @@ async def consume_order(client, uid: str, order: dict, *, recovering: bool = Fal
                     positions.persist_strict(uid)
             elif latest.state in journal.TERMINAL and p:
                 await apply_broker_charges(client, uid, p, oid, order)
-            journal.mark_projected(intent.intent_key, latest.projection_version)
+            if booked_ok and p is not None:
+                journal.mark_projected(intent.intent_key, latest.projection_version)
+            else:
+                # A broker fill with no durable strategy projection or failed
+                # signed-ledger booking remains recoverable. Do not clear the
+                # only outstanding version marker to make the dashboard green.
+                state.log(uid, "order_failed",
+                          f"{symbol}: SuperTrend exit projection pending; "
+                          "position/ledger reconciliation required")
             return True
 
         if not observed.accepted and not observed.intent.projection_pending:

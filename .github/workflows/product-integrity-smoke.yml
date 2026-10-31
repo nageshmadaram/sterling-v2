@@ -1,0 +1,97 @@
+name: Product Integrity Offline Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-integrity:
+    name: Focused offline product-integrity tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock.txt
+      - name: Install pinned backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Compile modified backend and recovery tool
+        run: python -m compileall -q backend/app scripts/verify_sqlite_recovery.py
+      - name: Test authorization, canonical boundary, binding persistence
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: "true"
+          REAL_PUBLIC_DATA: "false"
+          LOG_LEVEL: WARNING
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_role_based_write_access.py \
+            tests/test_agents.py \
+            tests/test_order_router.py \
+            tests/test_kite_router.py::test_order_idempotency_marker_never_masquerades_as_broker_ack \
+            tests/test_release_safety_62_65.py \
+            tests/test_account_policy.py \
+            tests/test_workspace_access.py \
+            tests/test_workspace_visibility.py \
+            tests/unit/test_canonical_single_order_reconciliation.py \
+            tests/unit/test_canonical_execution_convergence.py \
+            tests/unit/test_canonical_journal_snapshot_restore.py \
+            tests/unit/test_execution_unknown_settlement.py \
+            tests/unit/test_canonical_strategy_reduction.py \
+            tests/services/test_canonical_fill_reconciliation.py \
+            tests/unit/test_openalgo_compat.py \
+            tests/unit/test_alembic_disposable_guard.py \
+            tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_supertrend_exit_keeps_resting_stop_when_canonical_inventory_is_missing \
+            tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_foreign_canonical_sell_fill_remains_pending_until_strategy_persists_it \
+            tests/engines/sterling_kite_engine/test_execution_lifecycle.py::test_supertrend_exit_failed_signed_ledger_keeps_pending_projection \
+            tests/services/test_opening_volume_execution.py::test_live_emergency_close_requires_fresh_broker_quantity \
+            tests/services/test_opening_volume_execution.py::test_live_emergency_close_carries_reduce_authority \
+            tests/services/test_opening_volume_execution.py::test_live_emergency_close_does_not_cross_product_buckets \
+            tests/services/test_gamma_move_live_audit.py::test_concurrent_exit_triggers_send_one_sell \
+            tests/services/test_gamma_move_live_audit.py::test_gamma_lost_canonical_exit_ack_rebinds_only_exact_broker_book_order \
+            tests/services/test_gamma_move_live_audit.py::test_gamma_empty_broker_book_never_clears_canonical_unknown_or_rearms_stop \
+            tests/services/test_adaptive_edge_execution.py::test_a_definitive_exit_refusal_re_arms_the_protection_it_cancelled \
+            tests/services/test_adaptive_edge_execution.py::test_ambiguous_exit_failure_keeps_durable_exit_claim_and_does_not_rearm \
+            tests/services/test_adaptive_edge_execution.py::test_missing_exit_order_id_is_uncertain_and_does_not_rearm \
+            tests/services/test_intraday_runner.py::TestTicks::test_a_definitively_refused_exit_restores_available_protection \
+            tests/services/test_intraday_runner.py::TestTicks::test_ambiguous_exit_reply_keeps_durable_claim_and_refuses_second_sell \
+            tests/services/test_intraday_runner.py::TestTheRunnerLeg::test_ambiguous_scale_out_latches_unknown_instead_of_rearming \
+            tests/unit/simulation/test_r1_snapback_alerts.py \
+            tests/unit/test_account_binding_manifest_integrity.py \
+            tests/services/test_canonical_entry_input_integrity.py \
+            tests/unit/test_broker_binding_verification.py
+      - name: Test isolated SQLite backup and restore
+        run: PYTHONPATH=. python -m pytest -q scripts/tests/test_sqlite_recovery_preflight.py scripts/tests/test_alembic_rollback_preflight.py scripts/tests/test_openalgo_compat_upgrade.py scripts/tests/test_openalgo_route_inventory.py --tb=short
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+      - name: Check TypeScript and viewer routes
+        working-directory: frontend
+        run: |
+          npx tsc --noEmit
+          npx vitest run src/pages/__tests__/WorkspaceRouter.test.tsx --coverage=false
+      - name: Install mobile Expo dependency lock
+        working-directory: mobile
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate mobile policy, TypeScript and Expo compatibility
+        working-directory: mobile
+        run: |
+          npm run ts:check
+          npm test
+          npx expo install --check
+          npx expo export --platform all

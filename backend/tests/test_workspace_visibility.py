@@ -116,3 +116,11 @@ def test_pending_request_cannot_be_approved_after_admin_hides_workspace(accounts
     with db._conn() as c:
         row = c.execute("SELECT status FROM feature_access_requests WHERE id=?", (prior["id"],)).fetchone()
         assert row["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_me_uses_authoritative_policy_role_not_stale_request_role(accounts):
+    _, member = accounts
+    reply = await auth.me(Response(), UserContext(user_id=member.user_id, role="admin"))
+    assert reply.role == account_policy.read(member.user_id).role == "user"
+    assert not reply.administrator

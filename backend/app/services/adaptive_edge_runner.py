@@ -1316,6 +1316,7 @@ async def _ensure_protection_synced(
 
 def _clear_exit_identity(position: AdaptiveEdgePosition) -> None:
     position.exit_order_id = ""
+    position.exit_intent_key = ""
     position.exit_requested_qty = 0
     position.exit_requested_price = 0.0
     position.exit_pending_reason = ""
@@ -1341,14 +1342,16 @@ async def _settle_exit_order(
     timeout_s: float = 5.0,
 ) -> tuple[bool, str]:
     """Project only broker-confirmed SELL quantity into Adaptive Edge state."""
-    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
 
     requested = int(position.exit_requested_qty or 0)
     if not position.exit_order_id or requested <= 0:
         return False, "no_pending_exit"
 
-    resolution = await resolve_acknowledged_order(
-        client=client,
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=position.exit_intent_key, client=client,
         order_id=position.exit_order_id,
         expected_quantity=requested,
         reference_price=float(position.exit_requested_price or position.entry_price),
@@ -1373,6 +1376,7 @@ async def _settle_exit_order(
         _restore_open_after_failed_exit(position, resolution.status)
         put(uid, position)
         await _place_protection(uid, client, position, cfg)
+        mark_reduction_projected(resolution)
         return False, resolution.status or "unfilled"
 
     fill = float(resolution.average_price or position.exit_requested_price or 0.0)
@@ -1399,11 +1403,13 @@ async def _settle_exit_order(
         _clear_exit_identity(position)
         put(uid, position)
         await _place_protection(uid, client, position, cfg)
+        mark_reduction_projected(resolution)
         return False, "partial_exit"
 
     _clear_exit_identity(position)
     put(uid, position)
     close_position(uid, position.symbol, fill, reason, closed_ms=ist_now_ms())
+    mark_reduction_projected(resolution)
     await _subscribe_watched(uid)
     session = _sessions.get(uid)
     if session:
@@ -1443,41 +1449,59 @@ async def _exit_position(uid: str, client, position: AdaptiveEdgePosition,
             )
         return False
 
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    canonical_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=position.exchange,
+        symbol=position.symbol, quantity=int(position.quantity), side="SELL",
+    )
+    if canonical_refusal:
+        _restore_open_after_failed_exit(position, "REJECTED")
+        put(uid, position)
+        log.warning("adaptive_edge: keeping broker protection for %s: %s",
+                    position.symbol, canonical_refusal)
+        return False
+
     if not await _cancel_protection(uid, client, position):
         _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
         return False
 
     limit = exit_order_price(price, position.tick_size)
-    try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound,
-            canonical_broker_capability,
-        )
-        with canonical_broker_capability(
-            f"adaptive-edge-exit:{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{position.symbol}:{position.signal_id}",
-            intent=INTENT_REDUCE,
-            bound=ReduceBound.closing(exchange=position.exchange, symbol=position.symbol, side="SELL", quantity=position.quantity),
-        ):
-            result = await client.place_order(
-                f"{position.exchange}:{position.symbol}", "sell", float(position.quantity),
-                order_type="limit_order", limit_price=float(limit),
-                product="MIS", tag="adaptive_edge-exit")
-        order_id = str((result or {}).get("order_id")
-                       or ((result or {}).get("data") or {}).get("order_id") or "")
-    except Exception as exc:                                       # noqa: BLE001
-        _restore_open_after_failed_exit(position, "REJECTED")
+    # Persist the exact requested reduction before the broker call. A lost
+    # acknowledgement is an unresolved EXIT_INTENT, not permission to retry.
+    position.exit_requested_qty = int(position.quantity)
+    position.exit_requested_price = float(limit)
+    position.exit_pending_reason = str(reason)
+    put(uid, position)
+    from app.services.canonical_strategy_reduction import submit_reduction
+    outcome = await submit_reduction(
+        client=client, uid=uid, strategy_id=STRATEGY_ID,
+        generation_id="adaptive-exit-v1",
+        signal_id=str(position.signal_id or position.order_id),
+        exchange=position.exchange, symbol=position.symbol,
+        quantity=int(position.quantity), product="MIS",
+        order_type="limit_order", limit_price=float(limit),
+        kind="exit", reason=str(reason),
+    )
+    position.exit_intent_key = str(outcome.intent_key or "")
+    if not outcome.success:
+        if outcome.status in ("REJECTED", "HALTED"):
+            # Canonical authority proved no submission; safe to restore stop.
+            _restore_open_after_failed_exit(position, "REJECTED")
+            put(uid, position)
+            await _place_protection(uid, client, position, cfg)
+            log.warning("adaptive_edge: canonical exit refused for %s: %s", position.symbol, outcome.error)
+            return False
+        # UNKNOWN/SUBMITTING, including lost ACK: no second SELL or stop rearm.
         put(uid, position)
-        await _place_protection(uid, client, position, cfg)
-        log.error("adaptive_edge: exit rejected for %s: %s", position.symbol, exc)
+        if getattr(client, "_is_paper", None) is False:
+            from app.services import live_safety
+            live_safety.set_kill_switch(True, f"Adaptive Edge canonical SELL unresolved for {position.symbol}; reconcile broker")
+        log.error("adaptive_edge: canonical exit unconfirmed for %s: %s", position.symbol, outcome.error)
         return False
-
+    order_id = str(outcome.order_id or "")
     if not order_id:
-        _restore_open_after_failed_exit(position, "REJECTED")
         put(uid, position)
-        await _place_protection(uid, client, position, cfg)
-        log.error("adaptive_edge: exit for %s returned no order id", position.symbol)
         return False
 
     position.exit_order_id = order_id

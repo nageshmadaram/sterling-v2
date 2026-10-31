@@ -19,7 +19,9 @@ setup('app shell + storageState', async ({ page }) => {
   // unrelated operational prerequisite and previously tempted setup code to
   // mutate a real account.
   await offlineSession(page);
-  await page.goto('/');
+  // An administrator now lands in management on '/'; the KITE app must
+  // be opened explicitly and is only permitted by its real workspace grant.
+  await page.goto('/kite');
 
   // The navigation rail is part of the authenticated Sterling application shell
   // and does not require an active broker session.

@@ -360,6 +360,31 @@ def test_place_order_paper_happy_path(client):
     assert r.json()["order_id"].startswith("PAPER-")
 
 
+@pytest.mark.parametrize("marker", ["UNKNOWN", "PENDING"])
+def test_order_idempotency_marker_never_masquerades_as_broker_ack(
+    client, monkeypatch, marker,
+):
+    """An uncertain POST must not return 200 with a synthetic broker order ID."""
+    from app.api.v1.endpoints import kite
+
+    _add_account(client, paper=True)
+    monkeypatch.setattr(kite, "_safety_gate", lambda *_a, **_kw: "synthetic-key")
+    live_safety.record_idempotency("synthetic-key", marker)
+    broker = SimpleNamespace(_is_paper=True, _place=AsyncMock())
+    monkeypatch.setattr(kite_accounts, "acquire_client", AsyncMock(return_value=broker))
+
+    request = {
+        "tradingsymbol": "INFY", "exchange": "NSE", "transaction_type": "BUY",
+        "quantity": 1, "order_type": "MARKET", "product": "CNC",
+    }
+    response = client.post("/api/v1/kite/orders", json=request)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "submission_unknown"
+    assert "order_id" not in response.json()
+    assert live_safety.check_idempotency("synthetic-key") == marker
+    broker._place.assert_not_awaited()
+
+
 def test_live_noncanonical_order_fallback_is_refused(client):
     """A live cash order cannot bypass canonical execution via KiteClient._place."""
     _add_account(client, paper=False)

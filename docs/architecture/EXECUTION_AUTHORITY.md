@@ -1,5 +1,12 @@
 # Sterling — Durable Execution Control & Universal ExecutionService Specification
 
+> **Historical architecture and migration roadmap, not certification.**
+> Source hardening has advanced beyond the open-state rows below. The current
+> implementation and outstanding canonical-interface gaps are documented in
+> [the pre-production convergence contract](PREPRODUCTION_EXECUTION_CONVERGENCE.md)
+> and [the 31 October review](../implementation/2026-10-31-preproduction-closure.md).
+> Production is **NO-GO** and broker order routing is **NOT AUTHORIZED**.
+
 ## 1. Single Execution Authority Principle
 
 All broker order submissions across Sterling—including Kite Engine, Opening Leaders, Intraday, Gamma Move, Adaptive Edge, Navigator, and manual orders—must route exclusively through the canonical `ExecutionService`.

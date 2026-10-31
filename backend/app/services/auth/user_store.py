@@ -200,7 +200,7 @@ def get_by_username(username: str) -> Optional["_User"]:
 
 def add(username: str, password: str, role: str = "user",
         user_id: Optional[str] = None) -> "_User":
-    if role not in ("admin", "user"):
+    if role not in ("admin", "user", "operator", "viewer"):
         raise ValueError("Invalid role.")
     if role == "admin" and any(u.role == "admin" for u in _users.values()):
         raise ValueError("Only one designated administrator is allowed.")

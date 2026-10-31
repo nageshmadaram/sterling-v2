@@ -10,7 +10,7 @@ export async function offlineSession(page: Page) {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/v1/auth/preferences') return route.fulfill({ json: { values: {}, initialized: true } });
     if (path === '/api/v1/auth/me') {
-      return route.fulfill({ json: { user_id: 'default', username: 'Browser fixture', role: 'admin' } });
+      return route.fulfill({ json: { user_id: 'default', username: 'Browser fixture', role: 'admin', administrator: true, policy_revision: 1, features: { kite: true, tv: false, radio: false }, visibility: { kite: true, tv: true, radio: true } } });
     }
     if (path === '/api/v1/auth/remember' || path === '/api/v1/auth/refresh') {
       return route.fulfill({ json: { access_token: 'browser-contract-access', refresh_token: 'browser-contract-refresh' } });

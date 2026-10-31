@@ -15,6 +15,12 @@ from app.services import db
 
 Feature = Literal['kite', 'tv', 'radio']
 FEATURES: tuple[Feature, ...] = ('kite', 'tv', 'radio')
+# Backward compatibility: persisted 'user' is a trading operator, not a viewer.
+WRITER_ROLES = frozenset(('admin', 'operator', 'user'))
+
+
+def may_mutate(role: str) -> bool:
+    return role in WRITER_ROLES
 
 
 class PolicyUnavailable(RuntimeError):
@@ -124,6 +130,7 @@ class Policy:
     administrator: bool
     features: dict[str, bool]
     visibility: dict[str, bool]
+    role: str = 'user'  # Legacy 'user' means operator; read-only 'viewer' cannot mutate trading state.
 
 
 def read(user_id: str) -> Policy:
@@ -132,7 +139,7 @@ def read(user_id: str) -> Policy:
         with db._conn() as c:
             # One read transaction prevents mixing account and policy revisions.
             c.execute('BEGIN')
-            row = c.execute('''SELECT u.is_active, p.revision,
+            row = c.execute('''SELECT u.is_active, u.role, p.revision,
                 EXISTS(SELECT 1 FROM platform_admin a WHERE a.user_id=u.id AND u.role='admin') AS administrator
                 FROM users u LEFT JOIN account_policy_revisions p ON p.user_id=u.id WHERE u.id=?''', (user_id,)).fetchone()
             grants = c.execute('SELECT feature,enabled FROM user_feature_grants WHERE user_id=?', (user_id,)).fetchall()
@@ -143,7 +150,8 @@ def read(user_id: str) -> Policy:
         return Policy(user_id, int(row['revision'] or 0) if row else 0, active,
                       bool(active and row['administrator']),
                       {feature: active and stored.get(feature, False) for feature in FEATURES},
-                      {feature: active and stored_visibility.get(feature, True) for feature in FEATURES})
+                      {feature: active and stored_visibility.get(feature, True) for feature in FEATURES},
+                      str(row['role']) if row else 'unknown')
     except sqlite3.Error as exc:
         raise PolicyUnavailable('Account policy could not be loaded; access denied.') from exc
 
@@ -221,7 +229,9 @@ def entry_refusal(user_id: str) -> str | None:
     """New-risk admission only; protective reductions do not call this helper."""
     from app.services.simulation.identity import owner_uid
     try:
-        require_feature(owner_uid(user_id), 'kite')
+        current = require_feature(owner_uid(user_id), 'kite')
+        if not may_mutate(current.role):
+            return 'Viewer/unknown role has no order entry authority.'
     except (PermissionError, PolicyUnavailable):
         return 'Kite access is disabled or its policy cannot be verified.'
     return None

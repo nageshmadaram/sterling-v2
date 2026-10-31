@@ -103,16 +103,44 @@ def test_reconciliation_agent_detects_drift():
     assert diff["BANKNIFTYUSD"] == {"internal": 2.0, "broker": 3.0}
 
 
-# ── BrokerAgent passes through to the adapter ─────────────────────────────
+# ── BrokerAgent accepts only a validated canonical execution request ───
 @pytest.mark.asyncio
-async def test_broker_agent_passes_through():
+async def test_broker_agent_refuses_legacy_adapter_payload_even_for_paper():
     adapter = AsyncMock()
     adapter._is_paper = True
-    adapter.place_order.return_value = {"id": "ORD1"}
     agent = BrokerAgent(adapter=adapter)
-    out = await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
-    assert out == {"id": "ORD1"}
-    adapter.place_order.assert_awaited_once()
+    with pytest.raises(RuntimeError, match="CanonicalExecutionService"):
+        await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
+    adapter.place_order.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_broker_agent_delegates_typed_request_and_publishes_only_success(monkeypatch):
+    from app.services.execution_service import (
+        CanonicalExecutionService, ExecutionRequest, ExecutionResult
+    )
+    adapter = AsyncMock()
+    adapter._is_paper = True
+    bus = EventBus()
+    events = []
+    bus.subscribe(OrderAccepted, lambda e: events.append(e.payload))
+    captured = []
+
+    async def canonical(_self, request, broker_client=None, risk_approval=None):
+        captured.append((request, broker_client, risk_approval))
+        return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id="PAPER-1")
+
+    monkeypatch.setattr(CanonicalExecutionService, "submit_order", canonical)
+    req = ExecutionRequest(
+        uid="sim:default", account_id="SIM-TEST", strategy_id="synthetic",
+        generation_id="g", signal_id="s", exchange="NFO",
+        symbol="NIFTY26NOV25000CE", side="BUY", quantity=1,
+    )
+    result = await BrokerAgent(adapter=adapter, bus=bus).place_order(request=req)
+    assert result.order_id == "PAPER-1" and result.success
+    assert captured == [(req, adapter, None)]
+    assert len(events) == 1
+    adapter.place_order.assert_not_awaited()
 
 
 # ── MarketAgent normalizes price access ───────────────────────────────────
@@ -151,7 +179,7 @@ async def test_broker_agent_blocks_live_and_unknown_transport(mode):
         except AttributeError:
             pass
     agent = BrokerAgent(adapter=adapter)
-    with pytest.raises(RuntimeError, match="cannot perform live or mode-unknown broker writes"):
+    with pytest.raises(RuntimeError, match="CanonicalExecutionService"):
         await agent.place_order(symbol="NIFTYUSD", side="buy", size=1)
     adapter.place_order.assert_not_awaited()
 

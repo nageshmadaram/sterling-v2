@@ -110,9 +110,10 @@ class FakeClient:
 @pytest.fixture
 def live(tmp_path, monkeypatch):
     monkeypatch.setenv("STERLING_DB_PATH", str(tmp_path / "t.db"))
-    from app.services import db
+    from app.services import db, live_safety
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "t.db"), raising=False)
     db.init()
+    live_safety.reset_all_for_tests()
     store.reset()
     svc._state.clear()
     runner._notes.clear()
@@ -129,7 +130,35 @@ def live(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "is_paper", lambda uid: False)
     monkeypatch.setattr(runner, "_safety", lambda uid, key: (True, ""))
     monkeypatch.setattr(runner, "_replay_owns_the_board", lambda _uid: False)
+    # Isolate runner state-machine tests from the canonical journal's own
+    # acceptance tests. Only this synthetic broker double receives an order.
+    from app.services import canonical_strategy_reduction as reductions
+    from app.services.execution_service import ExecutionResult
+    from app.services.kite_engine.protective_stop import is_definitive_refusal
+
+    async def simulated_canonical_exit(**kw):
+        try:
+            result = await client.place_order(
+                f'{kw["exchange"]}:{kw["symbol"]}', "sell", float(kw["quantity"]),
+                order_type=kw["order_type"], limit_price=kw["limit_price"],
+                product=kw["product"], tag="SYNTHETIC-CANONICAL-EXIT",
+            )
+        except Exception as exc:
+            return ExecutionResult(
+                False, "REJECTED" if is_definitive_refusal(exc) else "UNKNOWN",
+                error=str(exc),
+            )
+        order_id = str((result or {}).get("order_id") or "")
+        if not order_id:
+            return ExecutionResult(False, "UNKNOWN", error="synthetic broker ACK missing order ID")
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id=order_id,
+                               intent_key="")  # orchestration double; real journal tested separately
+
+    monkeypatch.setattr(reductions, "submit_reduction", simulated_canonical_exit)
+    monkeypatch.setattr(reductions, "reduction_inventory_refusal",
+                        lambda **_kw: None)  # real admission tested against SQLite elsewhere
     yield client
+    live_safety.reset_all_for_tests()
     store.reset()
     svc._state.clear()
 
@@ -385,15 +414,30 @@ class TestTicks:
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
         assert store.get("u1", "NIFTY26SEP24800CE").exit_reason == "target"
 
-    async def test_a_failed_exit_puts_the_stop_back(self, live):
-        """The protection was cancelled to make room for the exit. If the exit
-        does not go out, an unprotected position is the worst outcome."""
-        live.raise_on_order = True
+    async def test_a_definitively_refused_exit_restores_available_protection(self, live):
+        """Only a proven pre-wire rejection may clear the in-flight SELL latch."""
+        async def refused(*_args, **_kwargs):
+            raise PermissionError("pre-wire broker guard denied order")
+        live.place_order = refused
         held()
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.is_open and pos.exiting is False
         assert pos.gtt_id == 0 and not live.gtts
+
+    async def test_ambiguous_exit_reply_keeps_durable_claim_and_refuses_second_sell(self, live):
+        live.raise_on_order = True  # opaque post-send failure; cannot prove refusal
+        held()
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 65.0}])
+        pos = store.get("u1", "NIFTY26SEP24800CE")
+        assert pos.is_open and pos.exiting is True
+        assert pos.exit_requested_qty == 75
+        assert pos.exit_pending_kind == "exit"
+        assert pos.exit_pending_reason == "stop"
+        assert pos.gtt_id == 0 and not live.gtts
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 63.0}])
+        assert store.get("u1", "NIFTY26SEP24800CE").exiting
+        assert not live.orders
 
     async def test_unresolved_exit_is_persisted_and_never_double_submitted(
         self, live, monkeypatch
@@ -915,12 +959,18 @@ class TestTheRunnerLeg:
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
         assert store.get("u1", "NIFTY26SEP24800CE").exit_reason == "target"
 
-    async def test_a_failed_scale_out_leaves_the_position_protected(self, live):
-        live.raise_on_order = True
+    async def test_ambiguous_scale_out_latches_unknown_instead_of_rearming(self, live):
+        live.raise_on_order = True  # unclassified error, may have reached broker
         held(quantity=150, lots=2, target=160.0, target2=190.0)
         await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 165.0}])
         pos = store.get("u1", "NIFTY26SEP24800CE")
         assert pos.quantity == 150 and pos.gtt_id == 0 and not live.gtts
+        assert pos.exiting is True
+        assert pos.exit_pending_kind == "scale"
+        assert pos.exit_requested_qty == 75
+        await runner.on_ticks("u1", [{"instrument_token": 1234, "last_price": 166.0}])
+        assert store.get("u1", "NIFTY26SEP24800CE").exiting
+        assert not live.orders
 
 
 @pytest.mark.asyncio

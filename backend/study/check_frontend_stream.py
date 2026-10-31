@@ -45,9 +45,37 @@ async def check(base_url: str) -> dict:
         })
         response.raise_for_status()
         token = response.json()["access_token"]
+        # The isolated administrator starts with default-deny Kite access.
+        # Grant the test-only principal through the real audited policy API,
+        # rather than weakening the WebSocket authorization boundary.
+        auth_header = {"Authorization": f"Bearer {token}"}
+        policy = await client.get(
+            f"{base_url}/api/v1/auth/users/default/features", headers=auth_header
+        )
+        policy.raise_for_status()
+        current = policy.json()
+        if current["features"]["kite"]:
+            raise RuntimeError("isolated test administrator unexpectedly has Kite access")
+        granted = await client.put(
+            f"{base_url}/api/v1/auth/users/default/features",
+            headers=auth_header,
+            json={
+                "expected_revision": current["revision"],
+                "features": {"kite": True, "tv": False, "radio": False},
+            },
+        )
+        granted.raise_for_status()
+        if granted.json()["features"] != {"kite": True, "tv": False, "radio": False}:
+            raise RuntimeError("isolated Kite permission was not persisted")
 
     ws_url = base_url.replace("http://", "ws://") + "/api/v1/stream/ws"
-    async with websockets.connect(ws_url, origin=base_url, proxy=None, open_timeout=5) as ws:
+    # Authenticate at handshake as well as the first frame. In non-production
+    # the pre-accept policy gate otherwise evaluates an anonymous default user
+    # before it can see the JWT, and correctly refuses a default-denied socket.
+    async with websockets.connect(
+        ws_url, origin=base_url, proxy=None, open_timeout=5,
+        additional_headers=auth_header,
+    ) as ws:
         await ws.send(json.dumps({"action": "auth", "token": token}))
         async def receive_result():
             async with asyncio.timeout(5):

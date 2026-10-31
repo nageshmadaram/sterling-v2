@@ -66,6 +66,7 @@ class AdaptiveEdgePosition:
     #: the same position.
     exiting: bool = False
     exit_order_id: str = ""
+    exit_intent_key: str = ""  # canonical journal identity; legacy empty rows remain readable
     exit_requested_qty: int = 0
     exit_requested_price: float = 0.0
     exit_pending_reason: str = ""

@@ -37,6 +37,30 @@ def _explain(outcome: "S.Outcome") -> str:
     return f"{outcome}\n" + "\n".join(f"  {line}" for line in outcome.activity[-8:])
 
 
+@pytest.mark.asyncio
+async def test_fresh_process_reconstructs_datetime_routes_with_real_schema_types(machine):
+    """A restart under the synthetic market clock must not poison Pydantic.
+
+    Python's real datetime is required at *model construction* even though
+    scenario/runtime time remains frozen. This regression is offline only.
+    """
+    from freezegun.api import real_datetime
+
+    machine.fresh_process()
+    machine.provision_account()
+    await machine.restart()
+
+    route = machine.m("app.api.v1.endpoints.opening_volume_leaders")
+    field = route.OpeningVolumeBarRequest.model_fields["timestamp"]
+    assert field.annotation is real_datetime
+    validated = route.OpeningVolumeBarRequest.model_validate({
+        "timestamp": "2026-10-12T10:16:00+05:30",
+        "open": 100.0, "high": 101.0,
+        "low": 99.0, "close": 100.0, "volume": 5.0,
+    })
+    assert validated.timestamp.year == 2026
+
+
 # ---------------------------------------------------------------------------------- boot
 
 @pytest.mark.asyncio

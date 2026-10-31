@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "registry_kind": "PROPOSED_PREPRODUCTION_CONTROLS",
+  "project": "Sterling V2",
+  "decision": "NO_GO",
+  "production_certified": false,
+  "broker_order_routing_authorized": false,
+  "live_trading_authorized": false,
+  "acceptance_count": 0,
+  "blocked_count": 12,
+  "authoritative_note": "Proposed interpretation of the twelve requested IDs; mapping and owners require independent review. Code and historical CI do not approve controls.",
+  "controls": [
+    {
+      "id": "H01",
+      "issue": "Host, TLS and secret custody",
+      "owner": "UNASSIGNED (Platform/Security role proposed)",
+      "evidence_required": "Host inventory, TLS probe, documented credential custody, independent attestation",
+      "current_status": "BLOCKED",
+      "next_action": "Appoint host owner; collect external host/TLS/secret proof",
+      "approval_gate": "Independent host/security acceptance",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "T02",
+      "issue": "Transport and static egress",
+      "owner": "UNASSIGNED (Platform/Networking role proposed)",
+      "evidence_required": "Static egress owner receipt, callback verification, network isolation and deny tests",
+      "current_status": "BLOCKED",
+      "next_action": "Verify on actual isolated target host",
+      "approval_gate": "Network-owner sign-off",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "S03",
+      "issue": "Operator security and MFA",
+      "owner": "UNASSIGNED (Security/IAM role proposed)",
+      "evidence_required": "Active user role matrix, fresh MFA device check, token revocation and protected route test",
+      "current_status": "BLOCKED",
+      "next_action": "Complete device-backed access and revocation drill",
+      "approval_gate": "Security reviewer sign-off",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "I04",
+      "issue": "Broker account identity and session binding",
+      "owner": "UNASSIGNED (Trading Operations role proposed)",
+      "evidence_required": "Broker profile readback, exact account/deployment/session correlation and mismatch negatives",
+      "current_status": "BLOCKED",
+      "next_action": "Resolve canonical account-to-broker mapping with test identities",
+      "approval_gate": "Broker-identity owner sign-off",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "D05",
+      "issue": "Database migration and restore",
+      "owner": "UNASSIGNED (DBA/Platform role proposed)",
+      "evidence_required": "Disposable PostgreSQL upgrade, content-hash parity, backup, off-host restore and rollback evidence",
+      "current_status": "BLOCKED",
+      "next_action": "Execute isolated migration and independently validated restore",
+      "approval_gate": "DBA plus recovery approver",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "R06",
+      "issue": "Order lifecycle restart and UNKNOWN recovery",
+      "owner": "UNASSIGNED (Execution Engineering role proposed)",
+      "evidence_required": "Reserved/submitting/unknown crash drill, immutable order/trade ids, partial fills, no repeat send",
+      "current_status": "BLOCKED",
+      "next_action": "Run supervised isolated crash/recovery scenario",
+      "approval_gate": "Execution owner and independent witness",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "B07",
+      "issue": "Broker/exchange execution acceptance",
+      "owner": "UNASSIGNED (Broker Integration role proposed)",
+      "evidence_required": "Broker/exchange order, cancellation, protection and reconciliation receipts with signed authorization",
+      "current_status": "BLOCKED",
+      "next_action": "Obtain broker-side test authorization; never attempt live order in this review",
+      "approval_gate": "Broker representative plus release authority",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "M08",
+      "issue": "Monitoring and incident observability",
+      "owner": "UNASSIGNED (SRE role proposed)",
+      "evidence_required": "Sanitized structured logs, failure taxonomies, dashboards, alert delivery and on-call acknowledgements",
+      "current_status": "BLOCKED",
+      "next_action": "Prove independent monitor and escalation delivery",
+      "approval_gate": "SRE/on-call sign-off",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "A09",
+      "issue": "Operator alert and notification delivery",
+      "owner": "UNASSIGNED (Operations role proposed)",
+      "evidence_required": "Device receipt, retry/outbox behavior, reconcile and policy-alert negatives",
+      "current_status": "BLOCKED",
+      "next_action": "Exercise controlled device notification end-to-end",
+      "approval_gate": "Operator receipt and witness",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "L10",
+      "issue": "Lifecycle and safe-mode control",
+      "owner": "UNASSIGNED (Execution/SRE role proposed)",
+      "evidence_required": "Kill-switch, safe-mode, durable halt, unclean restart and reconnect evidence",
+      "current_status": "BLOCKED",
+      "next_action": "Run isolated end-to-end lifecycle drills",
+      "approval_gate": "Operations and safety approvers",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "F11",
+      "issue": "Risk, accounting and performance validation",
+      "owner": "UNASSIGNED (Risk/Research role proposed)",
+      "evidence_required": "RiskApproval provenance, capital limits, fill-ledger reconciliation, independent after-cost/OOS review",
+      "current_status": "BLOCKED",
+      "next_action": "Run independent risk/accounting sign-off checklist",
+      "approval_gate": "Risk and research sign-off",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    },
+    {
+      "id": "G12",
+      "issue": "Governance and release decision",
+      "owner": "UNASSIGNED (Release Governance role proposed)",
+      "evidence_required": "Complete evidence registry with immutable SHA, exception register, dual review and explicit decision",
+      "current_status": "BLOCKED",
+      "next_action": "Assign owners, review all controls, issue separate signed GO/NO-GO decision",
+      "approval_gate": "Independent release board approval",
+      "accepted_evidence_ids": [],
+      "independent_signoff": "NOT_PROVIDED"
+    }
+  ]
+}

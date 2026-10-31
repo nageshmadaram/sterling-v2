@@ -63,7 +63,8 @@ async function request<T>(path: string, options?: RequestInit, retried = false):
     if (!response.ok) {
       const body = await response.json().catch(() => ({ detail: response.statusText }));
       const detail = body?.detail;
-      throw new Error(typeof detail === 'string' ? detail : `Request failed (HTTP ${response.status}).`);
+      const reason = typeof detail === 'string' ? detail : typeof detail?.reason === 'string' ? detail.reason : '';
+      throw new Error(reason || `Request failed (HTTP ${response.status}).`);
     }
     if (response.status === 204) return undefined as T;
     try { return await response.json() as T; }

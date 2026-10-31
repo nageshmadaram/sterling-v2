@@ -7,6 +7,7 @@ import { useFocusEffect } from 'expo-router';
 import Header from '../../src/components/Header';
 import OrderModal from '../../src/components/OrderModal';
 import { api } from '../../src/services/api';
+import { canWriteKite, currentWorkspacePolicy } from '../../src/services/workspacePolicy';
 import { theme } from '../../src/styles/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -30,6 +31,7 @@ export default function IndianMarketsTerminal() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [orderAllowed, setOrderAllowed] = useState(false);
   const inFlight = useRef(false);
 
   // Order modal states
@@ -40,6 +42,13 @@ export default function IndianMarketsTerminal() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
+      // A viewer can inspect market data, but no session alone can enable
+      // order composition. Poll the server policy with each data refresh.
+      const session = await currentWorkspacePolicy();
+      const writable = canWriteKite(session);
+      setOrderAllowed(writable);
+      if (!writable) setOrderModalVisible(false);
+      if (session.features?.kite !== true) throw new Error('Kite workspace access is not enabled.');
       if (activeTab === 'WATCHLIST') {
         // Kite Connect has no saved-marketwatch endpoint; the backend synthesises
         // one from holdings, positions and GTTs.
@@ -71,6 +80,8 @@ export default function IndianMarketsTerminal() {
       }
       setError('');
     } catch (e) {
+      setOrderAllowed(false);
+      setOrderModalVisible(false);
       setError(e instanceof Error ? e.message : 'Market data is unavailable.');
     } finally {
       inFlight.current = false;
@@ -96,6 +107,7 @@ export default function IndianMarketsTerminal() {
   };
 
   const handleOpenOrder = (symbol: string) => {
+    if (!orderAllowed) return;
     setSelectedSymbol(symbol);
     setOrderModalVisible(true);
   };
@@ -137,7 +149,7 @@ export default function IndianMarketsTerminal() {
           return (
             <TouchableOpacity
               style={styles.cardRow}
-              disabled={!priced}
+              disabled={!priced || !orderAllowed}
               onPress={() => handleOpenOrder(item.symbol)}
             >
               <View>
@@ -288,6 +300,7 @@ export default function IndianMarketsTerminal() {
     <View style={styles.container}>
       <Header />
       {error ? <Text accessibilityRole="alert" style={{ color: theme.colors.red, padding: 12 }}>{error} Displayed values may be out of date.</Text> : null}
+      {!error && !orderAllowed ? <Text accessibilityRole="text" style={{ color: theme.colors.textMuted, paddingHorizontal: 12, paddingVertical: 5, fontSize: 11 }}>Read-only workspace — order actions are unavailable.</Text> : null}
       {renderSubTabs()}
 
       <View style={styles.contentContainer}>

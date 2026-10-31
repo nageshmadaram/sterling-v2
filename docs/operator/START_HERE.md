@@ -1,5 +1,12 @@
 # Sterling — Start Here
 
+> **CURRENT STATUS (31 October 2026): PRE-PRODUCTION / NO-GO.**
+> Live broker routing and real-money trading are NOT AUTHORIZED. The procedures
+> below describe prospective operation and historical safeguards only; do not
+> use them to enable live entries. See
+> [the current review](../implementation/2026-10-31-preproduction-closure.md)
+> and [independent controls](../ops/PREPRODUCTION_CONTROL_MATRIX.md).
+
 You do not need to read code or understand options to run Sterling safely. You
 need this page and the four pages it points to.
 
@@ -11,8 +18,9 @@ need this page and the four pages it points to.
 
 ## 1. What Sterling is
 
-Sterling trades **real money** on your Zerodha Kite account with four primary
-strategies:
+Sterling contains the capability to trade **real money** on Zerodha Kite,
+but it is **not authorized to do so** in the current pre-production review.
+The four primary strategies are:
 
 - **Supertrend** — three trend lines of different speeds agreeing on a direction.
 - **Snapback** — a sharp move away from a stock's own recent range that tends to
@@ -23,7 +31,8 @@ strategies:
 
 Adaptive Edge, Intraday and Opening Volume are disabled by default and manage
 existing positions in maintenance mode. Enable them per user under Settings →
-Archived. Navigator remains advisory. Live entries place real broker orders.
+Archived. Navigator remains advisory. A live entry would place a real broker order;
+**do not authorize or initiate one under the current NO-GO decision.**
 
 ## 2. How it protects you
 

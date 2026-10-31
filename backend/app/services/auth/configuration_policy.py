@@ -41,7 +41,7 @@ def migrate(c: sqlite3.Connection) -> None:
 
 
 def _read(c, user_id: str, now: int) -> dict:
-    row = c.execute('''SELECT u.is_active, p.revision,
+    row = c.execute('''SELECT u.is_active, u.role, p.revision,
         EXISTS(SELECT 1 FROM platform_admin a WHERE a.user_id=u.id AND u.role='admin') AS administrator
         FROM users u LEFT JOIN account_policy_revisions p ON p.user_id=u.id WHERE u.id=?''', (user_id,)).fetchone()
     active = bool(row and row['is_active'] == 1)
@@ -51,7 +51,7 @@ def _read(c, user_id: str, now: int) -> dict:
     grants = c.execute('''SELECT section,action,resource_id,expires_at_ms FROM user_configuration_grants
         WHERE user_id=? AND (expires_at_ms IS NULL OR (typeof(expires_at_ms)='integer' AND expires_at_ms>?))
         ORDER BY section,action,resource_id''', (user_id, now)).fetchall()
-    return {'user_id': user_id, 'revision': int(row['revision'] or 0) if row else 0,
+    return {'user_id': user_id, 'role': str(row['role']) if row else 'unknown', 'revision': int(row['revision'] or 0) if row else 0,
             'administrator': administrator, 'active': active,
             'sections': {section: {
                 'visible': active and (administrator or visible.get(section, False)),
@@ -82,6 +82,8 @@ def require(user_id: str, section: Section, action: Action | None = None,
     policy = read(user_id)
     if not policy['active'] or not policy['sections'][section]['visible']:
         raise PermissionError('This configuration section is not enabled.')
+    if action is not None and not account_policy.may_mutate(policy['role']):
+        raise PermissionError('Viewer/unknown role cannot change broker or integration configuration.')
     if action == 'reveal':
         raise PermissionError('Saved-secret reveal requires an MFA-bound challenge; unavailable in this release.')
     if administrator_only and not policy['administrator']:

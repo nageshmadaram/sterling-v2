@@ -261,10 +261,36 @@ class LiveMachine:
         """The CURRENT module object. Never cache the result across ``restart()``."""
         return importlib.import_module(name)
 
-    def fresh_process(self) -> None:
-        """Forget every in-memory byte the application learned; keep the files."""
-        self._purge_modules()
-        self._install_process_patches()
+    def fresh_process(self, *, eager_openapi: bool = False) -> None:
+        """Forget process state but build Pydantic schemas outside the frozen clock.
+
+        Under modern Pydantic, importing request models while Freezegun replaces
+        datetime.datetime with FakeDatetime fails schema generation. The test
+        clock is restored BEFORE startup or any broker/risk decision. This
+        affects the disposable offline harness only, never production code.
+        """
+        if self._freezer is None:
+            self._purge_modules()
+            self._install_process_patches()
+            application = self.m("main")
+            if eager_openapi:
+                application.app.openapi()
+            return
+
+        # No app lifespan is active during this phase: restart() shut it down,
+        # and the initial fixture calls fresh_process() before the first boot.
+        self._freezer.stop()
+        try:
+            self._purge_modules()
+            self._install_process_patches()
+            application = self.m("main")  # import under real datetime
+            if eager_openapi:
+                # FastAPI lazily constructs some TypeAdapters at first OpenAPI
+                # access. Prebuild them here with the real datetime class,
+                # before Freezegun changes stdlib references for this test.
+                application.app.openapi()
+        finally:
+            self._freezer.start()  # scenario time must govern the next boot
 
     def _install_process_patches(self) -> None:
         """Patches that belong to one process life (re-applied after every restart)."""
@@ -396,7 +422,22 @@ class LiveMachine:
         ``asyncio.create_task`` is captured for the duration of the startup only: every
         background loop the lifespan creates is recorded in ``self.tasks`` and not run.
         """
-        main = self.m("main")
+        # On each synthetic process restart, imported route models must be
+        # constructed with the *real* datetime class. Pydantic 2 rejects
+        # freezegun.api.FakeDatetime as a schema annotation, even though
+        # freezegun may subsequently patch the same module's clock safely.
+        #
+        # Only module import is performed with the freezer stopped. Startup,
+        # admission checks, broker postbacks and all simulated trading logic
+        # still run under the deterministic frozen market-session clock.
+        freezer = self._freezer
+        if freezer is not None:
+            freezer.stop()
+        try:
+            main = self.m("main")
+        finally:
+            if freezer is not None:
+                freezer.start()
         self.tasks = []
         self.boots += 1
         machine = self

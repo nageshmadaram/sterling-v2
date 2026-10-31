@@ -4,6 +4,8 @@ import {
   TouchableWithoutFeedback, Keyboard, ActivityIndicator, Alert 
 } from 'react-native';
 import { api } from '../services/api';
+import { assertKiteWriteAllowed } from '../services/workspacePolicy';
+import { requireOrderAcknowledgement } from '../services/orderOutcome';
 import { theme } from '../styles/theme';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,6 +44,9 @@ export default function OrderModal({ visible, onClose, symbol }: OrderModalProps
     setLoading(true);
 
     try {
+      // Re-read the server's live policy immediately before an order mutation;
+      // the parent screen's last render may predate revocation.
+      await assertKiteWriteAllowed();
       const payload = {
         tradingsymbol: symbol.split(':').pop() || symbol,
         exchange: symbol.includes(':') ? symbol.split(':')[0] : 'NSE',
@@ -52,8 +57,9 @@ export default function OrderModal({ visible, onClose, symbol }: OrderModalProps
         product,
         variety: 'regular'
       };
-      await api.post('/api/v1/kite/orders', payload);
-      Alert.alert('Success', `Kite ${side} order placed successfully.`);
+      const outcome = await api.post<unknown>('/api/v1/kite/orders', payload);
+      const brokerOrderId = requireOrderAcknowledgement(outcome);
+      Alert.alert('Order acknowledged', `Order ${brokerOrderId} was accepted. Check Orders for fill status.`);
       onClose();
     } catch (e: any) {
       Alert.alert('Order Failed', e.message || 'Unknown error occurred.');

@@ -405,6 +405,43 @@ class CanonicalExecutionService:
             return False, verdict.reason
         return True, "OK"
 
+    def require_execution_authority(
+        self,
+        *,
+        uid: str,
+        account_id: str,
+        exposure_effect: ExposureEffect,
+        scope: str = "global",
+        strategy_id: str = "",
+        ignore_intent_keys: Tuple[str, ...] = (),
+        entry_request: Optional[ExecutionRequest] = None,
+    ) -> Tuple[bool, str]:
+        """Fail-closed lifecycle/safe-mode admission for canonical operations.
+
+        This SafetySupervisor verdict is NOT sufficient to send to a broker.
+        submit_order also checks policy, risk, account, session, release scope,
+        transport and the final just-before-send safety revision.
+        """
+        try:
+            effect = ExposureEffect(exposure_effect)
+        except (TypeError, ValueError):
+            return False, "Unknown execution exposure effect"
+        if (
+            not isinstance(uid, str) or not uid.strip() or uid != uid.strip()
+            or not isinstance(account_id, str) or not account_id.strip()
+            or account_id != account_id.strip()
+        ):
+            return False, "Invalid execution account identity"
+        try:
+            return self.is_trading_allowed(
+                scope=scope, uid=uid, account_id=account_id,
+                exposure_effect=effect, strategy_id=strategy_id,
+                ignore_intent_keys=ignore_intent_keys,
+                entry_request=entry_request,
+            )
+        except Exception:
+            return False, "Canonical execution safety authority unavailable"
+
     @staticmethod
     def _mark_submission_uncertain(request: ExecutionRequest, intent: Any, reason: str) -> None:
         """Record an uncertain send and fence the account until recovery reads the broker."""
@@ -680,7 +717,7 @@ class CanonicalExecutionService:
                     error="Snapback live gate: " + ", ".join(decision.reasons),
                 )
 
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=request.uid,
             account_id=request.account_id,
             exposure_effect=effective_effect,
@@ -890,7 +927,7 @@ class CanonicalExecutionService:
         # race open, so the same authority is asked again here, with nothing
         # between it and the send.
         if is_exposure_increasing:
-            still_allowed, still_reason = self.is_trading_allowed(
+            still_allowed, still_reason = self.require_execution_authority(
                 uid=request.uid,
                 account_id=request.account_id,
                 exposure_effect=effective_effect,
@@ -1021,7 +1058,7 @@ class CanonicalExecutionService:
                     account = accounts.get(request.uid, request.account_id)
                     if not account or not account.is_active or not accounts.client_is_current(broker_client, user_id=request.uid):
                         raise PermissionError("Broker account/session changed before send")
-                allowed, reason = self.is_trading_allowed(
+                allowed, reason = self.require_execution_authority(
                     uid=request.uid, account_id=request.account_id,
                     exposure_effect=effective_effect, strategy_id=request.strategy_id,
                     ignore_intent_keys=(intent.intent_key,),
@@ -1029,6 +1066,20 @@ class CanonicalExecutionService:
                 )
                 if not allowed:
                     raise PermissionError(f"Safety engaged before send: {reason}")
+
+            # Broker inventory may change after the first pre-reservation
+            # proof (a manual trade or an independent worker can close it).
+            # Recheck the exact SELL/BUY bucket at the last asynchronous
+            # boundary before invoking the transport; never transform a
+            # stale reduction into an exposure-increasing order.
+            if not is_exposure_increasing:
+                still_reducing, reduce_reason = await self.verify_broker_reduction(
+                    broker_client, request,
+                )
+                if not still_reducing:
+                    raise BrokerRejected(
+                        "Fresh reduction proof changed before broker send: " + reduce_reason
+                    )
 
             with canonical_broker_capability(
                 request.signal_id or request.strategy_id or "canonical",
@@ -1174,7 +1225,7 @@ class CanonicalExecutionService:
                 error="Order modification blocked: execution control state unavailable",
             )
 
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=uid, account_id=account_id, exposure_effect=effect
         )
         if not allowed:
@@ -1219,7 +1270,7 @@ class CanonicalExecutionService:
         variety: str = "regular",
     ) -> ExecutionResult:
         """Cancel an open order (permitted even during HALTED state)."""
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=uid, account_id=account_id, exposure_effect=ExposureEffect.CANCEL_ORDER
         )
         if not allowed:
@@ -1304,7 +1355,7 @@ class CanonicalExecutionService:
         broker_client: Any = None,
     ) -> ExecutionResult:
         """Place GTT / stop protection order with durable protection_pending fence and cross-process lease."""
-        allowed, reason = self.is_trading_allowed(
+        allowed, reason = self.require_execution_authority(
             uid=uid, account_id=account_id, exposure_effect=ExposureEffect.PROTECT_POSITION
         )
         if not allowed:
@@ -1475,6 +1526,156 @@ class CanonicalExecutionService:
                 except Exception as db_err:
                     log.warning("Failed to set RECOVERY_REQUIRED in DB during protection uncertainty: %s", db_err)
                 return ExecutionResult(success=False, status="UNKNOWN", error=f"Protection outcome uncertain: {exc}")
+
+
+    async def reconcile_order(
+        self,
+        *,
+        uid: str,
+        account_id: str,
+        order_id: str,
+        broker_client: Any = None,
+    ) -> ExecutionResult:
+        """Read one canonical broker order and durably observe it, never send.
+
+        Only existing journaled, account-owned orders are eligible. A missing,
+        ambiguous, cross-account, or malformed broker response cannot be used to
+        clear UNKNOWN/recovery state. This operation intentionally does NOT
+        project strategy inventory or resolve account-wide recovery readiness.
+        """
+        from app.services.execution_identity_lock import account_lock
+
+        if any(
+            not isinstance(value, str) or not value.strip() or value != value.strip()
+            for value in (uid, account_id, order_id)
+        ):
+            return ExecutionResult(False, "REJECTED", error="Invalid reconciliation identity")
+        if broker_client is None:
+            return ExecutionResult(False, "REJECTED", error="Authenticated broker client required")
+        mode = getattr(broker_client, "_is_paper", None)
+        if mode is not True and mode is not False:
+            return ExecutionResult(False, "REJECTED", error="Unknown broker transport mode")
+        client_account = str(getattr(broker_client, "_account_id", "") or "").strip()
+        if client_account != account_id:
+            return ExecutionResult(False, "REJECTED", error="Broker account identity mismatch")
+
+        async with account_lock(uid):
+            try:
+                intent = order_journal.find(uid=uid, account_id=account_id, order_id=order_id)
+            except Exception:
+                return ExecutionResult(False, "REJECTED", error="Ambiguous or unavailable canonical order identity")
+            if intent is None:
+                return ExecutionResult(False, "REJECTED", error="Canonical order does not exist for this account")
+            if intent.reconciliation_required:
+                return ExecutionResult(
+                    False, "UNKNOWN", intent_key=intent.intent_key, order_id=order_id,
+                    error="Existing order conflict requires independent reconciliation",
+                )
+
+            def fence(code: str) -> ExecutionResult:
+                # A broker read can be uncertain, but never a reason to retry
+                # a submit. Persist the halt, with a conservative in-process
+                # fallback if the control database is unavailable.
+                try:
+                    db.set_recovery_state(
+                        recovery_state="RECOVERY_REQUIRED",
+                        reason_code="CANONICAL_ORDER_RECONCILIATION_FAILED",
+                        reason="Canonical order " + order_id + ": " + code,
+                        uid=uid,
+                        account_id=account_id,
+                    )
+                except Exception:
+                    try:
+                        from app.services import live_safety
+
+                        live_safety.set_kill_switch(
+                            True, reason="Canonical order reconciliation unavailable",
+                            uid=uid, reason_code="CANONICAL_ORDER_RECONCILIATION_FAILED",
+                        )
+                    except Exception:
+                        log.critical("Cannot persist canonical reconciliation halt")
+                return ExecutionResult(
+                    False, "UNKNOWN", intent_key=intent.intent_key, order_id=order_id,
+                    error=code,
+                )
+
+            if intent.state == "RESERVED":
+                return fence("Unclaimed reservation has unexpected broker-order identity")
+
+            # Existing shared broker parser validates history/trade identity and
+            # exact nonnegative fill quantities. This path is observation-only:
+            # unlike a bounded entry-fill resolver, it never cancels an order.
+            try:
+                from app.services.canonical_fill_reconciliation import (
+                    _TERMINAL, _PENDING, _broker_snapshot,
+                )
+
+                status, filled, price, _ = await _broker_snapshot(broker_client, order_id)
+            except Exception:
+                return fence("Broker order read unavailable")
+
+            if status == "IDENTITY MISMATCH":
+                return fence("Broker order identity mismatch")
+            if status not in _TERMINAL | _PENDING:
+                return fence("Broker order status unknown")
+            if status == "COMPLETE" and filled <= 0:
+                return fence("Complete order lacks verified fill quantity")
+
+            # Do not place arbitrary broker payloads (including potential
+            # credentials) into the audit journal. Persist only an allowlisted
+            # source attribution and fields already validated by the parser.
+            raw = {
+                "source": "canonical_broker_order_read",
+                "order_id": order_id,
+                "broker_status": status,
+                "filled_quantity": filled,
+                "average_price": price,
+            }
+            try:
+                observed = order_journal.observe_order(
+                    intent.intent_key,
+                    status=status,
+                    order_id=order_id,
+                    filled_quantity=filled,
+                    average_price=price,
+                    raw=raw,
+                )
+            except Exception:
+                return fence("Durable journal observation failed")
+            if observed.reconciliation_required:
+                return fence("Conflicting broker order evidence")
+            current = observed.intent
+            return ExecutionResult(
+                True,
+                current.state,
+                intent_key=current.intent_key,
+                order_id=order_id,
+                filled_quantity=current.filled_quantity,
+                filled_price=(
+                    current.filled_value / current.filled_quantity
+                    if current.filled_quantity else 0.0
+                ),
+                revision=current.projection_version,
+            )
+
+    async def record_execution_outcome(
+        self,
+        *,
+        uid: str,
+        account_id: str,
+        order_id: str,
+        broker_client: Any = None,
+    ) -> ExecutionResult:
+        """Record a fresh broker-read outcome through the same canonical journal.
+
+        Caller-provided status/price/quantity are deliberately not accepted.
+        The method cannot create an order, bypass authority, or settle UNKNOWN
+        without account-bound broker evidence.
+        """
+        return await self.reconcile_order(
+            uid=uid, account_id=account_id, order_id=order_id,
+            broker_client=broker_client,
+        )
 
     async def startup_recovery(
         self,

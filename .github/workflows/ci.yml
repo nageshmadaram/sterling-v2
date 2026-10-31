@@ -39,6 +39,8 @@ jobs:
           DEFAULT_UNDERLYING: NIFTY
           LOG_LEVEL: WARNING
 
+      - name: Validate isolated SQLite backup and restore tool
+        run: PYTHONPATH=. python -m pytest scripts/tests/test_sqlite_recovery_preflight.py -q --tb=short
       - name: Data lake regression tests
         run: PYTHONPATH=.:backend python -m pytest kitelake/tests -q --tb=short
       - name: Audit backend dependencies
@@ -93,6 +95,9 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci --silent
+      - name: Build required local media CSS and font assets
+        working-directory: frontend
+        run: npm run media:styles
       - name: Run Vitest
         working-directory: frontend
         run: npx vitest run --coverage=false

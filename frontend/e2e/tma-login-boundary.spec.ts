@@ -1,9 +1,14 @@
 import {test,expect} from '@playwright/test';
 import {execFileSync} from 'node:child_process';
+import {existsSync} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
-const html=execFileSync(path.join(root,'backend/.venv/bin/python'),['-c','from app.api.v1.endpoints.tma import _generate_tma_html; print(_generate_tma_html())'],{cwd:path.join(root,'backend'),encoding:'utf8',env:{...process.env,ENVIRONMENT:'development'}});
+const localPython=path.join(root,'backend/.venv/bin/python');
+// CI installs the tested interpreter globally rather than in backend/.venv.
+// Do not require the developer-only virtualenv to run browser security tests.
+const python=existsSync(localPython) ? localPython : 'python3';
+const html=execFileSync(python,['-c','from app.api.v1.endpoints.tma import _generate_tma_html; print(_generate_tma_html())'],{cwd:path.join(root,'backend'),encoding:'utf8',env:{...process.env,ENVIRONMENT:'development'}});
 
 test('gateway transport failure preserves session and does not masquerade as bad login',async({page})=>{
  await page.route('**/*',route=>{

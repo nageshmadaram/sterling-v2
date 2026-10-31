@@ -165,52 +165,41 @@ async def _broker_long_quantity(
     return max(0, net_qty) if matched else 0
 
 
-async def _sell_and_verify(client, symbol: str, exchange: str, quantity: int):
+async def _sell_and_verify(
+    client, uid: str, signal_id: str, symbol: str, exchange: str, quantity: int,
+    *, reference_price: float = 0.0,
+):
+    """Emergency flatten via canonical, durable inventory and send authority."""
     if quantity <= 0:
         return True, "nothing to close"
 
-    if getattr(client, "_is_paper", None) is not True:
-        broker_qty = await _broker_long_quantity(
-            client, symbol, exchange, product="NRML"
-        )
-        if broker_qty is None or broker_qty < int(quantity):
-            return (
-                False,
-                f"emergency close refused: broker quantity "
-                f"{broker_qty if broker_qty is not None else 'unknown'} "
-                f"is below requested {quantity}",
-            )
-
-    try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound,
-            canonical_broker_capability,
-        )
-        with canonical_broker_capability(
-            f"opening-volume-emergency-exit:"
-            f"{getattr(client, '_account_id', '') or 'paper'}:{symbol}",
-            intent=INTENT_REDUCE,
-            bound=ReduceBound.closing(exchange=exchange, symbol=symbol, side="SELL", quantity=quantity),
-        ):
-            response = await client.place_order_option(
-                symbol,
-                "sell",
-                quantity,
-                exchange=exchange,
-                product="NRML",
-                tag="OPENING-PROTECTION-FAIL-CLOSE",
-            )
-        oid = str(
-            (response or {}).get("order_id")
-            or (response or {}).get("orderId")
-            or ""
-        )
-        if not oid:
-            return False, "emergency close returned no order id"
-        filled, _, status = await _resolve_fill(client, oid, 5.0)
-        return (filled >= quantity, f"closed {filled}/{quantity} ({status})")
-    except Exception as exc:
-        return False, f"emergency close failed: {exc}"
+    from app.services.canonical_strategy_reduction import submit_reduction
+    outcome = await submit_reduction(
+        client=client, uid=uid, strategy_id=str(STRATEGY_CONTRACT["id"]),
+        generation_id=str(STRATEGY_CONTRACT["version"]),
+        signal_id=signal_id, exchange=exchange, symbol=symbol,
+        quantity=int(quantity), product="NRML",
+        order_type="market_order", kind="emergency-protection-failed",
+        reason="Opening Volume broker protection could not be armed",
+    )
+    if not outcome.success:
+        return False, f"canonical emergency close {outcome.status}: {outcome.error}"
+    oid = str(outcome.order_id or "")
+    if not oid:
+        return False, "emergency close unacknowledged; broker reconciliation required"
+    from app.services.canonical_fill_reconciliation import resolve_canonical_reduction
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=str(outcome.intent_key or ""),
+        client=client, order_id=oid, expected_quantity=int(quantity),
+        reference_price=float(reference_price), timeout_s=5.0,
+    )
+    # The emergency exit was not yet projected into a durable strategy-close
+    # record; its canonical journal projection_pending flag MUST remain set.
+    # A broker ACK or an unverified status cannot be described as "closed".
+    closed = bool(resolution.settled and resolution.filled_quantity >= quantity
+                  and resolution.average_price > 0)
+    return (closed, f"closed {resolution.filled_quantity}/{quantity} ({resolution.status}); intent={outcome.intent_key}"
+            if closed else f"emergency exit unresolved: {resolution.reason or resolution.status}; intent={outcome.intent_key}")
 
 
 def _quote_age(value: Any):
@@ -859,7 +848,10 @@ async def execute_opening_scan(
                 )
                 closed, note = False, "entry remainder unresolved; no compensating SELL sent"
             else:
-                closed, note = await _sell_and_verify(client, symbol, exchange, filled)
+                closed, note = await _sell_and_verify(
+                    client, uid, signal_key, symbol, exchange, filled,
+                    reference_price=float(fill_price or quote["ask"]),
+                )
                 if not closed:
                     live_safety.set_kill_switch(
                         True, f"unprotected Opening Leader position {symbol}: {note}"
