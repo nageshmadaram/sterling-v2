@@ -261,7 +261,7 @@ class LiveMachine:
         """The CURRENT module object. Never cache the result across ``restart()``."""
         return importlib.import_module(name)
 
-    def fresh_process(self) -> None:
+    def fresh_process(self, *, eager_openapi: bool = False) -> None:
         """Forget process state but build Pydantic schemas outside the frozen clock.
 
         Under modern Pydantic, importing request models while Freezegun replaces
@@ -272,7 +272,9 @@ class LiveMachine:
         if self._freezer is None:
             self._purge_modules()
             self._install_process_patches()
-            self.m("main")
+            application = self.m("main")
+            if eager_openapi:
+                application.app.openapi()
             return
 
         # No app lifespan is active during this phase: restart() shut it down,
@@ -281,7 +283,12 @@ class LiveMachine:
         try:
             self._purge_modules()
             self._install_process_patches()
-            self.m("main")  # eagerly build all FastAPI/Pydantic request schemas
+            application = self.m("main")  # import under real datetime
+            if eager_openapi:
+                # FastAPI lazily constructs some TypeAdapters at first OpenAPI
+                # access. Prebuild them here with the real datetime class,
+                # before Freezegun changes stdlib references for this test.
+                application.app.openapi()
         finally:
             self._freezer.start()  # scenario time must govern the next boot
 

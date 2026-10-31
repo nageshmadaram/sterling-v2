@@ -228,6 +228,9 @@ async def test_a_snapback_entry_on_the_sim_tenant_fills_virtually_with_its_hedge
     ex.set_quote(f"NFO:{S.SNAPBACK_OPTION}", 299.5, bid=299.0, ask=300.0)
     ex.set_quote(f"NFO:{S.SNAPBACK_FUTURE}", 25020.0, bid=25019.5, ask=25020.5, oi=9_000_000)
     ex.set_quote("NSE:NIFTY 50", 25000.0)
+    # Deliver the owner's actual synthetic quote feed to the virtual tenant
+    # before the capacity decision. Do not fabricate a hedge price or margin.
+    await settle(world)
     st = snapback.status(SIM)
     st.rows = [S.snapback_row(machine, ask=300.0)]
     st.last_scan_ms = snapback.ist_now_ms()

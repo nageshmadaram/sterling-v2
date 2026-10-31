@@ -13,7 +13,10 @@ from tests.e2e_live.machine import NOW
 @pytest.mark.asyncio
 async def test_snapback_repeated_fresh_import_preserves_pydantic_datetime_contract(machine):
     for _ in range(2):
-        machine.fresh_process()
+        # A real production process builds its schemas against stdlib datetime.
+        # Warm the OpenAPI cache before the harness resumes its synthetic clock;
+        # this tests restart/cache durability without importing FakeDatetime.
+        machine.fresh_process(eager_openapi=True)
         api = machine.m("app.api.v1.endpoints.opening_volume_leaders")
         payload = api.OpeningVolumeBarRequest.model_validate({
             "timestamp": NOW.isoformat(),
