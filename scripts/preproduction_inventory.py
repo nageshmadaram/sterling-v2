@@ -104,7 +104,9 @@ def inventory(root: Path) -> dict:
             source = path.read_text(encoding="utf-8")
             tree = ast.parse(source, filename=rel)
         except (SyntaxError, UnicodeError, OSError) as exc:
-            errors.append({"source": rel, "error_type": type(exc).__name__})
+            errors.append({"source": rel, "error_type": type(exc).__name__,
+                           "line": getattr(exc, "lineno", None),
+                           "reason": getattr(exc, "msg", None) if isinstance(exc, SyntaxError) else None})
             continue
         routes.extend(_route_declarations(root, path, tree))
         classification = _kind(rel)
