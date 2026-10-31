@@ -396,7 +396,22 @@ class LiveMachine:
         ``asyncio.create_task`` is captured for the duration of the startup only: every
         background loop the lifespan creates is recorded in ``self.tasks`` and not run.
         """
-        main = self.m("main")
+        # On each synthetic process restart, imported route models must be
+        # constructed with the *real* datetime class. Pydantic 2 rejects
+        # freezegun.api.FakeDatetime as a schema annotation, even though
+        # freezegun may subsequently patch the same module's clock safely.
+        #
+        # Only module import is performed with the freezer stopped. Startup,
+        # admission checks, broker postbacks and all simulated trading logic
+        # still run under the deterministic frozen market-session clock.
+        freezer = self._freezer
+        if freezer is not None:
+            freezer.stop()
+        try:
+            main = self.m("main")
+        finally:
+            if freezer is not None:
+                freezer.start()
         self.tasks = []
         self.boots += 1
         machine = self
