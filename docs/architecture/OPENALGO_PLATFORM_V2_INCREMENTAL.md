@@ -141,3 +141,30 @@ Both endpoints require the existing scoped JWT/identity and Kite feature grant,
 are GET-only and non-cacheable. Ambiguous session/feed inputs are refused rather
 than normalized into a false success. Tests check the invariant matrix,
 strategy registry consistency and access-denial-before-service calls.
+
+## Offline authoring: Python source and Flow graph foundations
+
+`app.services.platform_authoring_contracts` implements **pure, bounded,
+non-executing validators** only: source-size-limited Python AST structure
+checking for a single `on_bar(bar)` function with no calls/imports/attribute
+access or loops; and an inert allowlisted Flow DAG schema containing only
+`source`, `compare` and `note` nodes. Cycles, unknown nodes, duplicate
+edges, orphan nodes, and broker/order actions are refused. No user source or
+graph is persisted or executed. Passing the AST validator is *not* proof that
+Python execution would be safe; no runtime, subprocess, OS sandbox, access to
+broker services or strategy scheduler is provided.
+
+`GET /api/v1/platform/authoring/capabilities` is authenticated and
+Kite-feature gated, discloses those validation-only bounds, and explicitly
+declares `execute_enabled:false`, `sandbox_certified:false`.
+It also points to the existing `GET /api/v1/candles/{underlying}` and
+`GET /api/v1/strategies/{strategy}/modes` contracts for future charting
+and scalping integration. Global `/python`, `/flow`, `/trading` and
+`/scalping` UI routes remain unmounted; new order hotkeys are disabled.
+This is an authoring/schema foundation, **not** a hosted Python strategy
+engine, runnable Flow builder, or production platform.
+
+A future execution implementation is independently gated on genuine process
+isolation, explicit broker-network denial, CPU/memory/time limits, tenant
+authentication, durable audit and reviewed canonical risk/order hand-off.
+Never launch uploaded Python or user graphs in the API or existing broker worker.
