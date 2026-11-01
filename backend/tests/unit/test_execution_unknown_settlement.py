@@ -137,6 +137,44 @@ async def test_a_read_timeout_stays_unknown_and_fences_the_account():
 
 @pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ack", [
+    None,
+    {"order_id": None},
+    {"order_id": "UNKNOWN"},
+    {"order_id": "PENDING"},
+    {"order_id": "paper:virtual-position"},
+    {"order_id": True},
+    {"order_id": 0},
+    {"order_id": "  "},
+])
+async def test_missing_or_synthetic_broker_ack_is_unknown_and_never_resent(ack):
+    class AmbiguousAckBroker(Broker):
+        async def place_order(self, **kwargs):
+            self.sent += 1
+            return ack
+
+    client = AmbiguousAckBroker()
+    req, approval = _entry()
+    executor = CanonicalExecutionService()
+
+    result = await executor.submit_order(
+        req, broker_client=client, risk_approval=approval,
+    )
+    assert not result.success and result.status == "UNKNOWN"
+    assert not result.order_id
+    assert client.sent == 1
+    assert _intent(req).state == "UNKNOWN"
+    assert db.get_execution_control(uid="u1", account_id="acc1")["recovery_state"] == "RECOVERY_REQUIRED"
+
+    replay = await executor.submit_order(
+        req, broker_client=client, risk_approval=approval,
+    )
+    assert not replay.success
+    assert client.sent == 1
+
+
+@pytest.mark.kite_features('default', 'u1')
+@pytest.mark.asyncio
 async def test_a_cancelled_send_is_recorded_as_uncertain_not_left_submitting():
     req, approval = _entry()
     with pytest.raises(asyncio.CancelledError):
