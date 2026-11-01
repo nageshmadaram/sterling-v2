@@ -10,6 +10,8 @@ on:
       - "backend/app/services/platform_session_read.py"
       - "backend/tests/unit/test_platform_tool_registry.py"
       - "backend/app/services/platform_tool_registry.py"
+      - "backend/app/services/platform_api_normalization.py"
+      - "backend/tests/unit/test_platform_api_normalization.py"
       - "backend/tests/unit/test_platform_session_read.py"
       - "backend/tests/unit/test_platform_surface_registry.py"
       - "backend/app/api/v1/endpoints/openalgo_compat.py"
