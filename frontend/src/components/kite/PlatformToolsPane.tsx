@@ -23,10 +23,35 @@ type Catalog = {
 
 // The backend is the sole source of tool metadata. Do not create a second
 // frontend command registry or interpret a returned path as a callable action.
-const KNOWN_READ_TOOLS = new Set([
-  'pcr_session', 'pcr_instrument', 'candles', 'strategy_modes', 'ticker_health',
+// A defensive DISPLAY allowlist, not a second command registry. Keep route
+// identities equal to the canonical backend tool registry: drift fails closed.
+const KNOWN_READ_TOOLS: Readonly<Record<string, Pick<ToolMetadata, 'category' | 'api_path' | 'backend_module'>>> = {
+  pcr_session: {
+    category: 'analytics', api_path: '/api/v1/pcr/session',
+    backend_module: 'app.api.v1.endpoints.pcr',
+  },
+  pcr_instrument: {
+    category: 'analytics', api_path: '/api/v1/pcr/instrument',
+    backend_module: 'app.api.v1.endpoints.pcr',
+  },
+  candles: {
+    category: 'charting', api_path: '/api/v1/candles/{underlying}',
+    backend_module: 'app.api.v1.endpoints.candles',
+  },
+  strategy_modes: {
+    category: 'strategy', api_path: '/api/v1/strategies/{strategy}/modes',
+    backend_module: 'app.api.v1.endpoints.lanes',
+  },
+  ticker_health: {
+    category: 'feed', api_path: '/api/v1/kite/ticker/status',
+    backend_module: 'app.api.v1.endpoints.kite',
+  },
+};
+const CATALOG_FIELDS = new Set(['version', 'execution_authorized', 'tools_ui_mounted', 'tools']);
+const TOOL_FIELDS = new Set([
+  'key', 'label', 'category', 'method', 'api_path', 'backend_module',
+  'requires_kite_feature', 'permits_order_write', 'launches_runtime',
 ]);
-const CATEGORIES = new Set(['analytics', 'charting', 'strategy', 'feed']);
 
 export function safeToolCatalog(value: unknown): Catalog | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -34,21 +59,28 @@ export function safeToolCatalog(value: unknown): Catalog | null {
   if (
     raw.version !== '0.1.0' || raw.execution_authorized !== false
     || raw.tools_ui_mounted !== false || !Array.isArray(raw.tools)
-    || raw.tools.length > KNOWN_READ_TOOLS.size
+    || raw.tools.length > Object.keys(KNOWN_READ_TOOLS).length
+    || Object.keys(raw).length !== CATALOG_FIELDS.size
+    || Object.keys(raw).some(field => !CATALOG_FIELDS.has(field))
   ) return null;
   const seen = new Set<string>();
   for (const candidate of raw.tools) {
     if (!candidate || typeof candidate !== 'object') return null;
     const item = candidate as Partial<ToolMetadata>;
+    const expected = typeof item.key === 'string'
+      ? Object.prototype.hasOwnProperty.call(KNOWN_READ_TOOLS, item.key)
+        ? KNOWN_READ_TOOLS[item.key] : undefined
+      : undefined;
     if (
-      typeof item.key !== 'string' || !KNOWN_READ_TOOLS.has(item.key)
-      || seen.has(item.key)
+      !expected || !item.key || seen.has(item.key)
+      || Array.isArray(item)
+      || Object.keys(item).length !== TOOL_FIELDS.size
+      || Object.keys(item).some(field => !TOOL_FIELDS.has(field))
       || typeof item.label !== 'string' || !item.label.trim() || item.label.length > 90
-      || !CATEGORIES.has(item.category ?? '')
+      || item.category !== expected.category
       || item.method !== 'GET'
-      || typeof item.api_path !== 'string' || !item.api_path.startsWith('/api/v1/')
-      || typeof item.backend_module !== 'string'
-      || !item.backend_module.startsWith('app.api.v1.endpoints.')
+      || item.api_path !== expected.api_path
+      || item.backend_module !== expected.backend_module
       || item.requires_kite_feature !== true
       || item.permits_order_write !== false || item.launches_runtime !== false
     ) return null;
