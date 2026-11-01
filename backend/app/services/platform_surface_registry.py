@@ -20,6 +20,7 @@ class Surface:
     label: str
     state: SurfaceState
     backing: str
+    http_method: Literal["GET", "POST"] = "GET"
     mounts_route: bool = False
     permits_order_write: bool = False
 
@@ -29,7 +30,7 @@ class Surface:
 # backend/main.py. The six planned UI surfaces have no route registration.
 SURFACES: tuple[Surface, ...] = (
     Surface(
-        "broker_api", "/api/v1/", "Sterling broker API", "existing_partial",
+        "broker_api", "/api/v1/kite/accounts", "Sterling scoped account read", "existing_partial",
         "app.api.v1.endpoints.kite",
         mounts_route=True,
     ),
@@ -37,7 +38,12 @@ SURFACES: tuple[Surface, ...] = (
         "openalgo_orderstatus", "/api/v1/compat/openalgo/orderstatus",
         "Read-only canonical order status", "existing_partial",
         "app.api.v1.endpoints.openalgo_compat",
-        mounts_route=True,
+        http_method="POST", mounts_route=True,
+    ),
+    Surface(
+        "platform_runtime", "/api/v1/platform/runtime",
+        "Existing account and feed read contract", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
         "python", "/python", "Python strategy host", "planned", "",
