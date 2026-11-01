@@ -170,3 +170,31 @@ This is a phase-1 read contract only; full OpenAlgo runtime, normalized
 broker responses, executable platform adapters, and production certification
 remain outstanding. Parent PR #15 and all stacked drafts remain NO-GO until
 their independent exact-SHA release checks are accepted.
+
+## Offline-only Python draft and Flow topology foundations
+
+`app.services.platform_offline_authoring` provides two pure review utilities,
+with **no HTTP route, code execution, persistence, workers, external process,
+broker imports, market subscriptions or strategy integration**:
+
+1. `review_python_draft(source)`: bounded UTF-8 size, Python syntax parse and
+   AST node budget. Returns only syntax validity, source SHA-256, and explicit
+   `sandbox_available=false` / `execution_authorized=false`. Syntax-valid
+   code is **not trusted or safe to execute**. The source is never executed,
+   compiled to bytecode, logged by this utility, or saved.
+2. `validate_flow_topology(graph)`: a strict, finite nodes/edges-only graph
+   schema, deterministic topological ordering, rejection of duplicates,
+   malformed references, cycles, unknown fields, oversized graphs and any
+   embedded action or broker-call payload. Returns
+   `graph_executor_available=false` and `execution_authorized=false`.
+   This is a graph-shape validator, **not** a Flow node interpreter or dry run.
+
+Neither helper is a runnable Python host or functioning no-code builder.
+A future execution host requires an external OS-enforced sandbox (not
+AST-based "security"), memory/CPU/time/network/filesystem confinement,
+tenant isolation, durable audit, independent risk and broker authorization
+review, and negative end-to-end validation. Existing canonical trading
+paths must not be imported into untrusted execution environments.
+
+Full charting/scalping UI routes, Python execution and Flow execution remain
+unmounted. Production is NO-GO.
