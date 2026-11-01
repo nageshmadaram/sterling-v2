@@ -99,3 +99,23 @@ Acceptance: run `backend/tests/unit/test_platform_session_read.py`,
 `test_openalgo_compat.py`, ticker ownership, account rotation and Simulation
 feed tests on the **exact** stacked PR head. It must remain unmerged until its
 upstream parent and integration gates are separately accepted.
+
+## Read-only tool registry over existing Kite endpoints
+
+`GET /api/v1/platform/tools` lists a finite allowlist of the **existing**
+PCR session/instrument reads, instrument-candle read, strategy-mode read and
+Kite ticker-status read. It is authenticated, Kite-feature-gated, non-cacheable
+and available to authorized read-only viewers. Each item records the actual
+`GET` path, endpoint module and category. Source-AST tests check that
+each route is declared in the original Sterling endpoint source.
+
+This registry never invokes those endpoints, interpolates path variables,
+calls broker adapters or bypasses existing policy. Actual data requests still
+go to the canonical `/api/v1` routers with their ordinary tenant checks and
+status/error semantics; the registry is **not** a proxy or permission grant.
+
+The proposed global `/tools` React workspace **does not exist** in this
+slice; existing Kite tools stay inside their current dock. A future UI
+registry adapter can consume the authenticated metadata but must not create
+separate data subscriptions or order actions. Python and Flow execution
+remain disabled pending independent isolated-runtime design and tests.
