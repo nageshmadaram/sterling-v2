@@ -16,6 +16,12 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
     if (path === '/api/v1/auth/me') {
       await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: 'viewer', username: 'Viewer', role: 'user', administrator: false, features: { kite: false, tv: true, radio: false }, policy_revision: 1 } : { detail: 'Sign in' } }); return;
     }
+    if (path === '/api/v1/auth/profile') {
+      await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn
+        ? { user_id: 'viewer', username: 'Viewer', display_name: 'Viewer', photo: '', role: 'user' }
+        : { detail: 'Sign in' } });
+      return;
+    }
     if (path === '/api/v1/auth/preferences') {
       if (route.request().method() === 'PATCH') {
         const body = route.request().postDataJSON();
@@ -75,6 +81,7 @@ test('central administration creates a user, grants TV, and saves assigned broke
     if (path === '/api/v1/admin/access-requests') { await route.fulfill({json:{requests:[]}}); return; }
     const session = { user_id: 'default', username: 'Primary', role: 'admin', administrator: true, features: { kite: false, tv: false, radio: false }, policy_revision: 0 };
     if (path === '/api/v1/auth/me') { await route.fulfill({ json: session }); return; }
+    if (path === '/api/v1/auth/profile') { await route.fulfill({ json: { user_id: 'default', username: 'Primary', display_name: 'Primary', photo: '', role: 'admin' } }); return; }
     if (path === '/api/v1/settings/capabilities') { await route.fulfill({ json: { user_id: 'default', active: true, administrator: true, revision: 0, sections: hiddenSections() } }); return; }
     if (path === '/api/v1/auth/users') {
       if (method === 'POST') { const body = request.postDataJSON(); expect(body.role).toBe('user'); users.push({ id: 'member', username: body.username, role: 'user', primary: false, active: true, password_set: true }); await route.fulfill({ json: users[1] }); return; }
@@ -154,6 +161,7 @@ for (const width of [390, 1440]) {
       requests.push(path);
       if (path === '/api/v1/auth/login') { signedIn = true; await route.fulfill({ json: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh' } }); return; }
       if (path === '/api/v1/auth/me') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: 'viewer', username: 'Viewer', role: 'user', administrator: false, features, policy_revision: 1 } : { detail: 'Sign in' } }); return; }
+      if (path === '/api/v1/auth/profile') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: 'viewer', username: 'Viewer', display_name: 'Viewer', photo: '', role: 'user' } : { detail: 'Sign in' } }); return; }
       if (path === '/api/v1/auth/preferences') {
         if (route.request().method() === 'PATCH') {
           const body = route.request().postDataJSON();
