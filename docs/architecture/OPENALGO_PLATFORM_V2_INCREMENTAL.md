@@ -62,3 +62,40 @@ merge or deploy this stacked draft on top of a failing execution parent.
 
 **Current status:** catalog implementation submitted for review. Full
 OpenAlgo-style product host remains partial and production NO-GO.
+
+## Additive account + market-data read contract (follow-up review slice)
+
+The authenticated `GET /api/v1/platform/runtime` projection consumes exactly
+`accounts.get_active(scoped_uid)` and, when that account exists,
+`ticker_manager.status(scoped_uid)`. It never calls `ensure()`,
+`acquire_client()`, `build_client()`, `subscribe()` or a broker API.
+The account store remains the only authority for active identity and session
+token presence; the ticker manager remains the only authority for feed state.
+No second maps, sessions, network clients, workers or order routes are added.
+
+The payload distinguishes:
+- `stored_session_present`: a stored token exists; **not** broker-validated login;
+- `active_account_feed_bound`: the ticker belongs to the same active,
+  non-paper account and there is a stored token;
+- `feed_connected`: a currently connected existing feed bound to that account;
+- `subscribed_count`: aggregate only, no symbols, tokens or owner tags;
+- `shared_owner_feed`: Simulation is reading its authenticated owner's
+  existing live feed. It has no independent broker socket.
+
+A missing active account skips ticker lookup. A stale account-bound stream is
+never represented as connected. A malformed account/user scope is a refusal,
+not an auto-reconnect or session creation. Live and Simulation identities must
+be resolved through `get_current_user` and the existing feature-access gate.
+
+The discovery registry now names the actual `GET /api/v1/kite/accounts`
+endpoint, not the non-mountable `/api/v1/` prefix; the existing restricted
+`POST /api/v1/compat/openalgo/orderstatus` remains explicitly read-only.
+Source-level tests verify those concrete HTTP methods and paths.
+This is **not** full broker API normalization, strategy execution, a
+`/tools` launcher or OpenAlgo API-key compatibility.
+
+Acceptance: run `backend/tests/unit/test_platform_session_read.py`,
+`backend/tests/unit/test_platform_surface_registry.py`, existing
+`test_openalgo_compat.py`, ticker ownership, account rotation and Simulation
+feed tests on the **exact** stacked PR head. It must remain unmerged until its
+upstream parent and integration gates are separately accepted.
