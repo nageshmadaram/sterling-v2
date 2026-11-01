@@ -44,7 +44,4 @@ jobs:
           PAPER_TRADING: "true"
           REAL_PUBLIC_DATA: "false"
         run: |
-          python -m pytest -q --tb=short             tests/unit/test_platform_surface_registry.py             tests/unit/test_openalgo_compat.py \
-            tests/services/test_ticker_subscription_ownership.py \
-            tests/test_kite_ticker_account_binding.py \
-            tests/unit/simulation/test_tenancy_feed.py
+          python -m pytest -q --tb=short tests/unit/test_platform_surface_registry.py tests/unit/test_openalgo_compat.py tests/services/test_ticker_subscription_ownership.py tests/test_kite_ticker_account_binding.py tests/unit/simulation/test_tenancy_feed.py
