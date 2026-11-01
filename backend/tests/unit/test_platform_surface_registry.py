@@ -90,7 +90,11 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/tools",
             "/api/v1/platform/tools",
         ),
-        "api_normalization": (
+
+        "strategy_contract": (
+            "platform_surfaces.py", "get", "/platform/strategies",
+            "/api/v1/platform/strategies",
+        ),        "api_normalization": (
             "platform_surfaces.py", "get", "/platform/api-normalization",
             "/api/v1/platform/api-normalization",
         ),
