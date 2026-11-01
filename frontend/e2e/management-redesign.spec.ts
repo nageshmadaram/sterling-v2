@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 // Both cases are 390px touch journeys. Desktop browser projects are not
 // touch-enabled by default; a tap without this context is a fixture error.
-test.use({ hasTouch: true, isMobile: true });
+test.use({ hasTouch: true });
 
 test('mobile Kite has one touchable header and the Sterling icon switches UIs', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
