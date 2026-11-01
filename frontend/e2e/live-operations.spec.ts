@@ -124,7 +124,7 @@ async function openOperationsTab(page: any) {
   const tools = page.getByRole('button', { name: /^Tools/ });
   await expect(tools).toBeVisible({ timeout: 30_000 });
   await tools.click();
-  await page.getByRole('menuitem', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Markets', exact: true }).click();
 
   const operations = page.getByTestId('more-tab-operations');
   await expect(operations).toBeVisible({ timeout: 15_000 });
