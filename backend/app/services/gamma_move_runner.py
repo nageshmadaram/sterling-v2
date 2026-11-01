@@ -1594,6 +1594,29 @@ async def _resolve_submitted_exit(uid: str, client, pos: PositionState) -> tuple
 
     if len(matches) == 1:
         oid = str(matches[0].get("order_id") or "")
+        if tag.startswith("ke"):
+            # Lost broker acknowledgement: the unique canonical tag, exact
+            # account/exchange/product/side/size, and post-request timestamp
+            # have now been verified against the live broker order book.
+            # Bind that evidence to the existing journal intent before the
+            # strategy adopts its order ID. Never create a new intent here.
+            from app.services.kite_engine import order_journal
+            try:
+                intent = order_journal.find(
+                    uid=uid,
+                    account_id=str(getattr(client, "_account_id", "") or ""),
+                    tag=tag, exchange=exchange, symbol=symbol, side="SELL",
+                )
+                if (intent is None or intent.reconciliation_required
+                        or int(intent.quantity) != wanted_qty
+                        or intent.order_id not in ("", oid)):
+                    raise ValueError("canonical_gamma_unknown_exit_identity_conflict")
+                order_journal.acknowledge(intent.intent_key, oid)
+            except Exception as exc:
+                _halt_unresolved_exit(uid, client, pos, EXIT_SUBMITTING)
+                session_for(uid).note("error",
+                    f"{symbol}: broker SELL found but canonical journal could not bind it: {exc}")
+                return "", "canonical_exit_journal_unresolved"
         pos.exit_order_id = oid
         positions_store.put(uid, pos)
         session_for(uid).note(
@@ -1608,8 +1631,12 @@ async def _resolve_submitted_exit(uid: str, client, pos: PositionState) -> tuple
     submitted = int(pos.exit_submitted_ms or 0)
     if submitted and _now_ms() - submitted < _EXIT_IN_FLIGHT_GRACE_MS:
         return "", "exit_submit_unconfirmed"
-    # The book was read and holds no such SELL after the in-flight window: the exit
-    # never reached the broker. Release it and put the broker stop back.
+    # Canonical UNKNOWN cannot be disproved by a single empty order-book
+    # response. Retain the durable exit and halt for operator reconciliation.
+    if str(pos.exit_tag or "").startswith("ke"):
+        _halt_unresolved_exit(uid, client, pos, EXIT_SUBMITTING)
+        return "", "canonical_exit_book_absent_requires_reconciliation"
+    # Historical pre-migration records retain their legacy recovery behavior.
     _clear_exit_fields(pos)
     positions_store.put(uid, pos)
     session_for(uid).note(
@@ -1644,11 +1671,29 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         if not oid:
             return False, why
 
-    from app.services.canonical_fill_reconciliation import resolve_acknowledged_order
+    from app.services.canonical_fill_reconciliation import (
+        resolve_canonical_reduction, mark_reduction_projected,
+    )
+    from app.services.kite_engine import order_journal
+    canonical_intent_key = ""
+    if str(pos.exit_tag or "").startswith("ke"):
+        try:
+            canonical = order_journal.find(
+                uid=uid, account_id=str(getattr(client, "_account_id", "") or ""),
+                tag=pos.exit_tag, exchange=pos.instrument.exchange,
+                symbol=pos.instrument.tradingsymbol, side="SELL",
+            )
+            if canonical is None:
+                raise ValueError("canonical_gamma_exit_intent_missing")
+            canonical_intent_key = canonical.intent_key
+        except Exception as exc:
+            _halt_unresolved_exit(uid, client, pos, oid)
+            session_for(uid).note("error", f"canonical gamma exit journal unreadable: {exc}")
+            return False, "exit_reconciliation_required"
 
     requested = int(pos.exit_requested_qty or pos.quantity)
-    resolution = await resolve_acknowledged_order(
-        client=client,
+    resolution = await resolve_canonical_reduction(
+        uid=uid, intent_key=canonical_intent_key, client=client,
         order_id=oid,
         expected_quantity=requested,
         reference_price=float(
@@ -1681,6 +1726,7 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         _clear_exit_fields(pos)
         positions_store.put(uid, pos)
         await _ensure_protection(uid, client, pos)
+        mark_reduction_projected(resolution)
         return False, f"exit_{str(resolution.status or 'unfilled').lower()}"
 
     session = session_for(uid)
@@ -1707,6 +1753,8 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         positions_store.put(uid, pos)
         session.record.add_realised(pnl, _today_str())
         positions_store.save_record(uid, session.record)
+        if booking != BOOK_UNKNOWN:
+            mark_reduction_projected(resolution)
         protected = await _ensure_protection(uid, client, pos)
         if (pos.stop > 0 and pos.stop_mode != "monitor"
                 and not protected
@@ -1750,6 +1798,8 @@ async def _settle_known_exit(uid: str, client, pos: PositionState) -> tuple[bool
         outcome_pnl=float(pos.partial_realised_inr) + float(pnl),
     )
     positions_store.save_record(uid, session.record)
+    if booking != BOOK_UNKNOWN:
+        mark_reduction_projected(resolution)
     session.note(
         "exit",
         f"{pos.instrument.tradingsymbol}: {reason} @ {fill:g}",
@@ -1846,6 +1896,21 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     if broker_qty is None or broker_qty <= 0:
         return False, "broker_quantity_unverified"
     held_before = int(pos.quantity)
+    from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+    canonical_refusal = reduction_inventory_refusal(
+        client=client, uid=uid, exchange=pos.instrument.exchange,
+        symbol=pos.instrument.tradingsymbol, quantity=int(pos.quantity), side="SELL",
+    )
+    if canonical_refusal:
+        session.note("error", f"canonical exit cannot disarm protection: {canonical_refusal}")
+        return False, "canonical_inventory_unverified"
+    # Refuse before cancelling the resting GTT if canonical recovery identity
+    # cannot be formed. Otherwise a legacy blank-account/signal row could lose
+    # protection while the deterministic journal-key constructor raises.
+    if not str(getattr(client, "_account_id", "") or "").strip():
+        return False, "broker_account_identity_unverified"
+    if not str(pos.signal_id or "").strip():
+        return False, "exit_signal_identity_unverified"
     # ``forced`` (an operator flatten) is passed only when set: it does not wait out the
     # grace window for a fired stop's resting child.
     released = (await _cancel_protection(uid, client, pos, forced=True) if forced
@@ -1865,7 +1930,18 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     # The SELL's identity is durable BEFORE it leaves: a unique tag and a
     # "submitting" id. A cancelled task, a lost reply or a crash then leaves
     # something reconcile can find in the order book instead of a stranded exit.
-    tag = _new_exit_tag()
+    from app.services.kite_engine import order_journal
+    from app.services.canonical_strategy_reduction import submit_reduction
+    # The canonical journal's deterministic tag must match the persisted
+    # in-flight identity so recovery can bind an ACK lost mid-transport.
+    canonical_key = order_journal.make_key(
+        uid=uid, account_id=str(getattr(client, "_account_id", "") or ""),
+        strategy_id=STRATEGY_ID, generation_id=CONTRACT_VERSION,
+        signal_id=f"{pos.signal_id}:reduce:exit",
+        exchange=pos.instrument.exchange,
+        symbol=pos.instrument.tradingsymbol, side="SELL",
+    )
+    tag = "ke" + canonical_key[:18]
     pos.exiting = True
     pos.exit_pending_reason = str(reason)
     # This value is only a grading/reference fallback; live P&L uses broker fill.
@@ -1885,62 +1961,36 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     _journal.gm_exit_submitted(uid, pos, str(reason))
 
     try:
-        from app.services.snapback_family_mode import (
-            INTENT_REDUCE, ReduceBound, canonical_broker_capability,
+        outcome = await submit_reduction(
+            client=client, uid=uid, strategy_id=STRATEGY_ID,
+            generation_id=CONTRACT_VERSION, signal_id=pos.signal_id,
+            exchange=pos.instrument.exchange,
+            symbol=pos.instrument.tradingsymbol, quantity=int(pos.quantity),
+            product=_product(pos), order_type="market_order",
+            kind="exit", reason=str(reason),
         )
-        with canonical_broker_capability(
-            f"gamma-unwind-exit:"
-            f"{getattr(client, '_account_id', '') or 'paper'}:"
-            f"{pos.instrument.tradingsymbol}:{pos.signal_id}",
-            intent=INTENT_REDUCE,
-            # One contract, the closing side, never more than the position: the
-            # transport refuses an exit that would open or flip exposure.
-            bound=ReduceBound.closing(
-                exchange=pos.instrument.exchange,
-                symbol=pos.instrument.tradingsymbol,
-                side="SELL", quantity=int(pos.quantity),
-            ),
-        ):
-            res = await client.place_order(
-                f"{pos.instrument.exchange}:{pos.instrument.tradingsymbol}",
-                "sell",
-                float(pos.quantity),
-                order_type="market_order",
-                product=_product(pos),
-                tag=tag,
-                allow_amo=False,
-            )
-        oid = str((res or {}).get("order_id") or "")
     except asyncio.CancelledError:
-        # The SELL may or may not have reached the broker. The durable
-        # 'submitting' identity above is exactly what reconcile resolves; rolling
-        # it back here would re-arm a stop over a SELL that may be live.
+        # The canonical service marks an in-flight send UNKNOWN; the durable
+        # strategy identity stays latched for order-book reconciliation.
         raise
-    except Exception as exc:
-        from app.services.kite_engine.protective_stop import is_definitive_refusal
-        if is_definitive_refusal(exc):
-            # Nothing was created at the broker: release the exit, restore the stop.
+
+    if not outcome.success:
+        if outcome.status == "REJECTED":
+            # The canonical sender rejected before a broker placement.
             _clear_exit_fields(pos)
             positions_store.put(uid, pos)
             await _ensure_protection(uid, client, pos)
-            session.note(
-                "error",
-                f"exit rejected for {pos.instrument.tradingsymbol}: {exc}",
-            )
+            session.note("error", f"canonical exit refused for {pos.instrument.tradingsymbol}: {outcome.error}")
             return False, "submit_failed"
         session.note(
             "error",
-            f"exit for {pos.instrument.tradingsymbol} not acknowledged ({exc}); "
-            "resolving against the order book, no resend",
+            f"canonical exit {outcome.status} for {pos.instrument.tradingsymbol}: "
+            f"{outcome.error}; reconcile journal and broker orders, no resend",
         )
         return await _settle_known_exit(uid, client, pos)
 
+    oid = str(outcome.order_id or "")
     if not oid:
-        session.note(
-            "error",
-            f"exit for {pos.instrument.tradingsymbol} returned no order id; "
-            "resolving against the order book, no resend",
-        )
         return await _settle_known_exit(uid, client, pos)
 
     pos.exit_order_id = oid

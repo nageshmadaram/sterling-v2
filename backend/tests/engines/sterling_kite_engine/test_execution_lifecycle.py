@@ -373,3 +373,88 @@ def test_paper_protection_failure_does_not_engage_real_money_global_halt(monkeyp
     life._halt_new_entries_after_protection_failure(paper, held, "simulated refusal")
 
     halt.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_supertrend_exit_keeps_resting_stop_when_canonical_inventory_is_missing(monkeypatch):
+    """A migrated exit may never cancel protection then discover no journal inventory."""
+    from app.services import db
+
+    position = positions.OpenPosition(
+        uid="synthetic-u", symbol="SYNTHETICOPT", exchange="NFO",
+        qty=50, status=positions.OPEN, direction="long",
+        account_id="synthetic-acct", gtt_id=41, product="NRML",
+    )
+    client = Client()
+    client._is_paper = True
+    client._account_id = "synthetic-acct"
+    client.cancel_gtt = AsyncMock()
+    client.place_order_option = AsyncMock()
+    monkeypatch.setattr(db, "get_inventory_strict", lambda *_a, **_k: None)
+    monitor._exiting.discard(("synthetic-u", "SYNTHETICOPT"))
+
+    attempted = await monitor._exit_position(
+        client, "synthetic-u", position, 80.0, reason="synthetic-stop",
+    )
+    assert attempted is False
+    assert position.gtt_id == 41
+    assert not position.exit_order_id
+    client.cancel_gtt.assert_not_awaited()
+    client.place_order_option.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_foreign_canonical_sell_fill_remains_pending_until_strategy_persists_it(setup):
+    """The shared broker consumer must not ACK a fill in another strategy's registry."""
+    _, entry_order, client, _ = setup
+    foreign = journal.reserve(
+        uid="u", account_id="account", strategy_id="adaptive_edge",
+        generation_id="synthetic-g1", signal_id="synthetic-exit",
+        exchange="NFO", symbol="OTHEROPT", side="SELL", quantity=50,
+        payload={"product": "NRML", "intent_type": "EXIT",
+                 "exposure_effect": "CLOSE_POSITION"},
+    )
+    assert journal.claim_submission(foreign.intent_key)
+    journal.transition(foreign.intent_key, "SUBMITTED", order_id="SYNTHETIC-EXIT-1")
+    handled = await life.consume_order(
+        client, "u", {
+            **entry_order, "order_id": "SYNTHETIC-EXIT-1", "tag": foreign.tag,
+            "tradingsymbol": "OTHEROPT", "transaction_type": "SELL",
+            "quantity": 50, "filled_quantity": 50, "average_price": 90.0,
+        },
+    )
+    assert handled
+    latest = journal.get(foreign.intent_key)
+    assert latest.state == "FILLED" and latest.projection_pending
+    assert positions.get("u", "OTHEROPT") is None
+
+
+@pytest.mark.asyncio
+async def test_supertrend_exit_failed_signed_ledger_keeps_pending_projection(setup, monkeypatch):
+    """A confirmed broker SELL with failed cost-basis booking cannot disappear."""
+    _, entry_order, client, _ = setup
+    await life.consume_order(client, "u", entry_order)
+    assert positions.get("u", "OPT") is not None
+    exit_intent = journal.reserve(
+        uid="u", account_id="account", strategy_id="sterling-kite",
+        generation_id="synthetic-exit", signal_id="synthetic-exit",
+        exchange="NFO", symbol="OPT", side="SELL", quantity=100,
+        payload={"product": "NRML", "intent_type": "EXIT",
+                 "exposure_effect": "CLOSE_POSITION"},
+    )
+    assert journal.claim_submission(exit_intent.intent_key)
+    journal.transition(exit_intent.intent_key, "SUBMITTED", order_id="SYNTHETIC-EXIT-2")
+
+    from app.services.kite_engine import fill_ledger
+    def broken_signed_ledger(**_kwargs):
+        raise OSError("simulated interrupted durable fill write")
+    monkeypatch.setattr(fill_ledger, "record", broken_signed_ledger)
+    handled = await life.consume_order(
+        client, "u", {
+            **entry_order, "order_id": "SYNTHETIC-EXIT-2", "tag": exit_intent.tag,
+            "transaction_type": "SELL", "quantity": 100, "filled_quantity": 100,
+            "average_price": 85.0,
+        },
+    )
+    assert handled
+    latest = journal.get(exit_intent.intent_key)
+    assert latest.state == "FILLED" and latest.projection_pending

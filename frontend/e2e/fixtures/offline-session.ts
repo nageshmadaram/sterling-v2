@@ -9,8 +9,11 @@ export async function offlineSession(page: Page) {
   await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/api/v1/auth/preferences') return route.fulfill({ json: { values: {}, initialized: true } });
+    if (path === '/api/v1/auth/profile') {
+      return route.fulfill({ json: { user_id: 'default', username: 'Browser fixture', display_name: 'Browser fixture', role: 'admin', photo: '' } });
+    }
     if (path === '/api/v1/auth/me') {
-      return route.fulfill({ json: { user_id: 'default', username: 'Browser fixture', role: 'admin' } });
+      return route.fulfill({ json: { user_id: 'default', username: 'Browser fixture', role: 'admin', administrator: true, policy_revision: 1, features: { kite: true, tv: false, radio: false }, visibility: { kite: true, tv: true, radio: true } } });
     }
     if (path === '/api/v1/auth/remember' || path === '/api/v1/auth/refresh') {
       return route.fulfill({ json: { access_token: 'browser-contract-access', refresh_token: 'browser-contract-refresh' } });

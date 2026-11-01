@@ -228,6 +228,19 @@ async def test_a_snapback_entry_on_the_sim_tenant_fills_virtually_with_its_hedge
     ex.set_quote(f"NFO:{S.SNAPBACK_OPTION}", 299.5, bid=299.0, ask=300.0)
     ex.set_quote(f"NFO:{S.SNAPBACK_FUTURE}", 25020.0, bid=25019.5, ask=25020.5, oi=9_000_000)
     ex.set_quote("NSE:NIFTY 50", 25000.0)
+    # Deliver the owner's actual synthetic quote feed to the virtual tenant
+    # before the capacity decision. Do not fabricate a hedge price or margin.
+    await settle(world)
+    # The virtual margin calculation must use the owner's actual fake-broker
+    # quote; an absent price must fail closed rather than inventing margin.
+    future_key = f"NFO:{S.SNAPBACK_FUTURE}"
+    live_quote = (await world.client.get_quote([future_key])).get(future_key)
+    assert live_quote and live_quote["last_price"] > 0, "owner futures quote missing"
+    margin = await world.client.order_margins([{
+        "exchange": "NFO", "tradingsymbol": S.SNAPBACK_FUTURE,
+        "transaction_type": "BUY", "quantity": 75,
+    }])
+    assert margin and margin[0]["total"] > 0, "virtual futures margin not observed"
     st = snapback.status(SIM)
     st.rows = [S.snapback_row(machine, ask=300.0)]
     st.last_scan_ms = snapback.ist_now_ms()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services import db
+from app.services import db, live_safety
 from app.services import canonical_fill_reconciliation as fills
 from app.services.kite_engine import order_journal
 
@@ -11,11 +11,15 @@ from app.services.kite_engine import order_journal
 def _journal():
     prior = db._available
     db.init()
+    # Uncertain synthetic real-mode orders now set the durable global
+    # entry halt. Isolate each test so state never bleeds into later suites.
+    live_safety.reset_all_for_tests()
     for uid in ("fill-paper", "fill-partial", "fill-unknown", "fill-mismatch"):
         order_journal.clear_for_tests(uid)
     yield
     for uid in ("fill-paper", "fill-partial", "fill-unknown"):
         order_journal.clear_for_tests(uid)
+    live_safety.reset_all_for_tests()
     db._available = prior
 
 
@@ -85,6 +89,7 @@ async def test_partial_live_fill_cancels_remainder_and_returns_confirmed_quantit
         async def get_order_history(self, order_id):
             assert order_id == "LIVE-1"
             return [{
+                "order_id": order_id,
                 "status": "CANCELLED" if self.cancelled else "OPEN",
                 "filled_quantity": 40,
                 "average_price": 101.25,
@@ -148,7 +153,9 @@ async def test_ambiguous_live_remainder_is_not_resubmitted_or_invented_as_fill()
         timeout_s=0,
     )
 
-    assert client.cancel_calls == 1
+    # No broker history means no verified working-order remainder. A blind
+    # cancellation could target an already-filled or protected order.
+    assert client.cancel_calls == 0
     assert resolution.filled_quantity == 0
     assert resolution.settled is False
     assert resolution.status in {"SUBMITTED", "UNKNOWN"}
@@ -166,6 +173,7 @@ async def test_complete_with_partial_quantity_is_not_treated_as_settled_reductio
 
         async def get_order_history(self, order_id):
             return [{
+                "order_id": order_id,
                 "status": "COMPLETE",
                 "filled_quantity": 40,
                 "average_price": 99.0,

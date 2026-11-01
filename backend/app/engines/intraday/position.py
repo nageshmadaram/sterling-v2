@@ -111,6 +111,7 @@ class IntradayPosition:
     # A reduction ACK is not a fill. Persist its identity so a restart can
     # reconcile the exact broker order rather than submitting another SELL.
     exit_order_id: str = ""
+    exit_intent_key: str = ""  # canonical journal key, absent on pre-migration rows
     exit_requested_qty: int = 0
     exit_requested_price: float = 0.0
     exit_pending_kind: str = ""       # "exit" or "scale"

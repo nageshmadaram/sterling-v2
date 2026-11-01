@@ -35,7 +35,19 @@ export function StrategyBoardFooter({ name, children, onReset }: {
   notes.push(...items.slice(1).filter(c => !heavy(c) && (!interactive(c)
     || (React.isValidElement<{ role?: string }>(c) && c.props.role === 'alert'))));
   const hasHistory = name === 'Gamma Unwind';
+  // Compaction must not remove actions. A prior refactor retained status notes
+  // but dropped every first-row button for EMA Trend and Snapback (including
+  // Scan now and Settings). Preserve interactive controls in a single,
+  // horizontally scrollable row; status remains a separate compact line.
+  const actions = controls.filter(interactive);
   return <>
+    {actions.length > 0 && <section className="sb-strategy-actions"
+      aria-label={`${name} actions`}
+      style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8,
+        maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden',
+        padding: '4px 12px', fontSize: 11, scrollbarWidth: 'thin' }}>
+      {actions}
+    </section>}
     {(notes.length > 0 || hasHistory) && <section className="sb-strategy-footer sb-strategy-notes" aria-label={`${name} status`} style={{ display: 'flex', flexWrap: hasHistory ? 'wrap' : 'nowrap', gap: 10, alignItems: 'center', padding: '4px 12px', fontSize: 11, color: 'var(--k-dim)', whiteSpace: hasHistory ? 'normal' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
       {hasHistory && <button type="button" className="sb-tool" aria-label="Gamma history and coverage" aria-expanded={open} onClick={() => setOpen(true)} style={{ flexShrink: 0 }}>History</button>}
       {!open && notes}

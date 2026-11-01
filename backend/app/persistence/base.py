@@ -18,7 +18,8 @@ def resolve_database_url() -> str:
 
     Precedence: settings.database_url → a DEDICATED sqlite file under backend/.
     Never defaults to the live sterling_paper.db (Phase 5b wires that explicitly).
-    Set DATABASE_URL to a postgresql:// URL for production.
+    The review-only PostgreSQL Alembic path uses postgresql+asyncpg:// and
+    requires a disposable target; a production database migration is not authorized.
     """
     try:
         from app.core.config import settings

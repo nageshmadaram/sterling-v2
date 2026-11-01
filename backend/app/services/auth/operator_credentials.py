@@ -25,8 +25,8 @@ def manage(actor_id: str, action: str, username: str, password: str, *, target_i
     if action == 'update' and target is None:
         raise ValueError('User not found.')
     chosen_role = role or (target.role if target else 'user')
-    if chosen_role not in ('admin', 'user'):
-        raise ValueError('Role must be administrator or user.')
+    if chosen_role not in ('admin', 'user', 'operator', 'viewer'):
+        raise ValueError('Role must be administrator, operator, user, or viewer.')
     if chosen_role == 'admin' and (target is None or target.role != 'admin'):
         raise ValueError('Only one designated administrator is allowed.')
     chosen_active = active if active is not None else (target.is_active if target else True)

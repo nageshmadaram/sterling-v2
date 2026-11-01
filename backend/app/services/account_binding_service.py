@@ -15,6 +15,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -188,7 +190,14 @@ class AccountBindingStore:
                 row = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise BindingError(f"account binding {path.name} is unreadable: {exc}") from exc
-            out.append(binding_from_row(row))
+            binding = binding_from_row(row)
+            # The on-disk filename is part of the durable identity. A renamed
+            # or tampered manifest must never silently represent another account.
+            if binding.binding_id != path.stem:
+                raise BindingError(
+                    f"account binding {path.name} identity does not match its filename"
+                )
+            out.append(binding)
         return out
 
     def get(self, binding_id: str) -> BrokerAccountBinding | None:
@@ -210,14 +219,41 @@ class AccountBindingStore:
 
     # -- writing -----------------------------------------------------------
     def _path_for(self, binding_id: str) -> Path:
+        # Refuse traversal, hidden files and arbitrary filesystem components.
+        # Existing generated identifiers use broker-client-YYYYMMDD.
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", binding_id):
+            raise BindingError("unsafe broker account binding identifier")
         return self.directory / f"{binding_id}.json"
 
     def save(self, binding: BrokerAccountBinding) -> Path:
+        """Publish a complete manifest atomically, never a truncated JSON file.
+
+        Staging in the destination directory keeps os.replace on the same
+        filesystem. Flush both the file and its containing directory so an
+        interrupted writer cannot publish half a binding record.
+        """
         row = binding.as_row()
         assert_no_secrets(row)
-        self.directory.mkdir(parents=True, exist_ok=True)
         path = self._path_for(binding.binding_id)
-        path.write_text(json.dumps(row, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        self.directory.mkdir(parents=True, exist_ok=True)
+        content = (json.dumps(row, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{binding.binding_id}.", suffix=".tmp", dir=self.directory
+        )
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_name, path)
+            dir_fd = os.open(self.directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
         return path
 
     def declare(

@@ -1,5 +1,11 @@
 # Sterling operator handoff
 
+> **Historical operational handoff, not release approval.**
+> Current status: **PRE-PRODUCTION / NO-GO; live trading NOT AUTHORIZED**.
+> The current evidence and external control gates are in
+> [the 31 October review](../implementation/2026-10-31-preproduction-closure.md).
+> Do not run live-entry enablement steps without independent release approval.
+
 Prepared 11 October 2026 for SuperTrend, Snapback and Gamma Unwind.
 Read alongside [the audit and implementation ledger](../design/STRATEGY_PRODUCTION_AUDIT.md).
 
@@ -20,7 +26,7 @@ was submitted or certified by these tests.
 ## Preparing the production account
 
 1. Keep new entries off while configuring the deployment. `STERLING_LIVE_EXECUTION=0`
-   is the master new-entry kill switch; product default when unset is ON. Readiness
+   is the master new-entry kill switch; product default when unset is OFF (the fail-closed startup default). Readiness
    identifies this as the operator master switch. Restart the supervised backend
    after changing this environment setting; it is resolved at process startup. Exits,
    protection and reconciliation use their own continuing lifecycle.

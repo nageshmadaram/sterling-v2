@@ -1,6 +1,7 @@
 """Administrator user management; no passwords or hashes in API responses."""
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field, ConfigDict, StrictBool
+from typing import Literal
 from app.core.auth import UserContext, get_current_user
 from app.services.auth import user_store, operator_credentials, account_policy
 from app.services import db
@@ -58,7 +59,7 @@ class UserEdit(BaseModel):
     model_config = ConfigDict(extra="forbid")
     username:str=Field(min_length=3,max_length=64)
     password:str=''
-    role:str='user'
+    role:Literal['admin', 'user', 'operator', 'viewer']='user'
     active:bool=True
 
 
@@ -105,6 +106,8 @@ class FeatureEdit(BaseModel):
     expected_revision: int = Field(ge=0, strict=True)
     features: FeatureGrants
     visibility: FeatureGrants | None = None
+    reason_code: str | None = Field(default=None, pattern=r"^[A-Z][A-Z0-9_]{2,63}$",
+                                    description="Structured administrative change reason; not release approval")
 
 
 def policy_public(policy):
@@ -136,7 +139,8 @@ async def update_features(user_id: str, body: FeatureEdit, response: Response,
     try:
         return policy_public(account_policy.set_features(
             user.user_id, user_id, body.features.model_dump(), body.expected_revision,
-            visibility=body.visibility.model_dump() if body.visibility is not None else None))
+            visibility=body.visibility.model_dump() if body.visibility is not None else None,
+            reason_code=body.reason_code or "NOT_PROVIDED"))
     except account_policy.PolicyConflict as exc:
         raise HTTPException(409, str(exc)) from None
     except PermissionError as exc:

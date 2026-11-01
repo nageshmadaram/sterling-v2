@@ -91,8 +91,19 @@ def test_execution_candidate_gate_accepts_only_complete_decisions():
     ) == [candidate]
 
 
+@pytest.fixture
+def opening_reduction_db(tmp_path, monkeypatch):
+    from app.services import db, live_safety
+    monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "opening-reduce.sqlite"))
+    assert db.init()
+    live_safety.reset_all_for_tests()
+    db.set_inventory("acct-opening", "synthetic-owner", "RELIANCE26SEP3000CE", 250, exchange="NFO")
+    yield
+    live_safety.reset_all_for_tests()
+
+
 @pytest.mark.asyncio
-async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch):
+async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch, opening_reduction_db):
     class Client:
         _is_paper = False
         _account_id = "acct-opening"
@@ -104,57 +115,48 @@ async def test_live_emergency_close_requires_fresh_broker_quantity(monkeypatch):
             raise AssertionError("SELL must not be sent without broker inventory proof")
 
     closed, note = await execution._sell_and_verify(
-        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
     )
 
     assert closed is False
-    assert "broker quantity 0" in note
+    assert "Broker has no" in note
 
 
 @pytest.mark.asyncio
-async def test_live_emergency_close_carries_reduce_authority(monkeypatch):
+async def test_live_emergency_close_carries_reduce_authority(monkeypatch, opening_reduction_db):
     from app.services.snapback_family_mode import INTENT_REDUCE, current_intent
 
     class Client:
-        _is_paper = False
+        _is_paper = True  # offline broker double; no production transport
         _account_id = "acct-opening"
 
-        async def get_positions_raw(self):
-            return {
-                "net": [
-                    {
-                        "tradingsymbol": "RELIANCE26SEP3000CE",
-                        "exchange": "NFO",
-                        "product": "NRML",
-                        "quantity": 250,
-                    }
-                ]
-            }
-
-        async def place_order_option(self, _symbol, side, quantity, **_kwargs):
-            assert side == "sell"
-            assert quantity == 250
-            assert _kwargs["exchange"] == "NFO"
-            assert _kwargs["product"] == "NRML"
+        async def place_order(self, symbol, side, size, **kwargs):
+            assert symbol == "RELIANCE26SEP3000CE"
+            assert side == "SELL"
+            assert size == 250
+            assert kwargs["exchange"] == "NFO"
+            assert kwargs["product"] == "NRML"
             assert current_intent() == INTENT_REDUCE
             return {"order_id": "EXIT-1"}
 
-    monkeypatch.setattr(
-        execution,
-        "_resolve_fill",
-        lambda *_args, **_kwargs: _async_value((250, 50.0, "COMPLETE")),
-    )
+    # Paper broker fills at an explicit synthetic reference price; a live
+    # broker must instead supply its own actual fill price.
+    from app.services.kite_engine import order_journal
 
     closed, note = await execution._sell_and_verify(
-        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250,
+        reference_price=50.0,
     )
 
     assert closed is True
     assert "closed 250/250" in note
+    intent = order_journal.find(uid="synthetic-owner", account_id="acct-opening", order_id="EXIT-1")
+    assert intent and intent.state == "FILLED"
+    assert intent.projection_pending  # not yet projected into durable strategy closure
 
 
 @pytest.mark.asyncio
-async def test_live_emergency_close_does_not_cross_product_buckets():
+async def test_live_emergency_close_does_not_cross_product_buckets(opening_reduction_db):
     class Client:
         _is_paper = False
         _account_id = "acct-opening"
@@ -171,10 +173,10 @@ async def test_live_emergency_close_does_not_cross_product_buckets():
             raise AssertionError("NRML SELL must not be authorized by MIS inventory")
 
     closed, note = await execution._sell_and_verify(
-        Client(), "RELIANCE26SEP3000CE", "NFO", 250
+        Client(), "synthetic-owner", "synthetic-opening-signal", "RELIANCE26SEP3000CE", "NFO", 250
     )
     assert closed is False
-    assert "broker quantity 0" in note
+    assert "Broker has no" in note
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,14 @@
 # Deployment
 
+> **CURRENT APPROVAL: PRE-PRODUCTION ONLY — NO-GO.** This page describes
+> engineering and historical deployment mechanisms, not an approved release
+> procedure. Do not configure broker-write authority, enable the live-entry
+> switch, run production deployment, or use real-money accounts under the
+> current review state. Safe mode and all canonical lifecycle guards remain
+> mandatory. [Current approval matrix](docs/ops/PREPRODUCTION_CONTROL_MATRIX.md)
+> and [implementation status](docs/implementation/2026-10-31-preproduction-closure.md)
+> take precedence over older operational instructions.
+
 Sterling is a live-money trading app. Connecting a Kite account does not, by itself,
 authorize new real-money orders: `STERLING_LIVE_EXECUTION` defaults to disabled
 when unset or blank, and independent runtime safety checks also apply. Explicitly

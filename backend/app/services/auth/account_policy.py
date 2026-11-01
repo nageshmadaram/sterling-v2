@@ -15,6 +15,12 @@ from app.services import db
 
 Feature = Literal['kite', 'tv', 'radio']
 FEATURES: tuple[Feature, ...] = ('kite', 'tv', 'radio')
+# Backward compatibility: persisted 'user' is a trading operator, not a viewer.
+WRITER_ROLES = frozenset(('admin', 'operator', 'user'))
+
+
+def may_mutate(role: str) -> bool:
+    return role in WRITER_ROLES
 
 
 class PolicyUnavailable(RuntimeError):
@@ -91,8 +97,14 @@ def migrate(c: sqlite3.Connection) -> None:
     c.execute('''CREATE TABLE IF NOT EXISTS auth_audit_events (
         id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, target_id TEXT NOT NULL,
         action TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
-        created_at_ms INTEGER NOT NULL
+        created_at_ms INTEGER NOT NULL,
+        reason_code TEXT NOT NULL DEFAULT 'NOT_PROVIDED'
     )''')
+    # Additive and transactional: pre-existing events cannot acquire fabricated
+    # operator reasons, and a repeat startup must preserve the original rows.
+    columns = {row["name"] for row in c.execute("PRAGMA table_info(auth_audit_events)")}
+    if "reason_code" not in columns:
+        c.execute("ALTER TABLE auth_audit_events ADD COLUMN reason_code TEXT NOT NULL DEFAULT 'NOT_PROVIDED'")
     c.execute('''CREATE TABLE IF NOT EXISTS auth_event_outbox (
         event_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, revision INTEGER NOT NULL,
         delivered_at_ms INTEGER
@@ -124,6 +136,7 @@ class Policy:
     administrator: bool
     features: dict[str, bool]
     visibility: dict[str, bool]
+    role: str = 'user'  # Legacy 'user' means operator; read-only 'viewer' cannot mutate trading state.
 
 
 def read(user_id: str) -> Policy:
@@ -132,7 +145,7 @@ def read(user_id: str) -> Policy:
         with db._conn() as c:
             # One read transaction prevents mixing account and policy revisions.
             c.execute('BEGIN')
-            row = c.execute('''SELECT u.is_active, p.revision,
+            row = c.execute('''SELECT u.is_active, u.role, p.revision,
                 EXISTS(SELECT 1 FROM platform_admin a WHERE a.user_id=u.id AND u.role='admin') AS administrator
                 FROM users u LEFT JOIN account_policy_revisions p ON p.user_id=u.id WHERE u.id=?''', (user_id,)).fetchone()
             grants = c.execute('SELECT feature,enabled FROM user_feature_grants WHERE user_id=?', (user_id,)).fetchall()
@@ -143,7 +156,8 @@ def read(user_id: str) -> Policy:
         return Policy(user_id, int(row['revision'] or 0) if row else 0, active,
                       bool(active and row['administrator']),
                       {feature: active and stored.get(feature, False) for feature in FEATURES},
-                      {feature: active and stored_visibility.get(feature, True) for feature in FEATURES})
+                      {feature: active and stored_visibility.get(feature, True) for feature in FEATURES},
+                      str(row['role']) if row else 'unknown')
     except sqlite3.Error as exc:
         raise PolicyUnavailable('Account policy could not be loaded; access denied.') from exc
 
@@ -157,16 +171,29 @@ def require_feature(user_id: str, feature: Feature) -> Policy:
     return policy
 
 
-def audit(c, actor_id: str, target_id: str, action: str, before: dict, after: dict, now: int) -> str:
+def audit(c, actor_id: str, target_id: str, action: str, before: dict, after: dict, now: int,
+          *, reason_code: str = "NOT_PROVIDED") -> str:
+    """Causal admin-event record; a missing reason must never imply approval.
+
+    Only a bounded machine code can be stored: free-form user text could carry
+    passwords or tokens. An independent approval receipt is never inferred.
+    """
+    import re
+
+    if not isinstance(reason_code, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", reason_code):
+        raise ValueError("Invalid audit reason code")
     event_id = uuid.uuid4().hex
-    c.execute('INSERT INTO auth_audit_events VALUES(?,?,?,?,?,?,?)',
-              (event_id, actor_id, target_id, action, json.dumps(before, sort_keys=True),
-               json.dumps(after, sort_keys=True), now))
+    c.execute('''INSERT INTO auth_audit_events
+        (id,actor_id,target_id,action,before_json,after_json,created_at_ms,reason_code)
+        VALUES(?,?,?,?,?,?,?,?)''',
+        (event_id, actor_id, target_id, action, json.dumps(before, sort_keys=True),
+         json.dumps(after, sort_keys=True), now, reason_code))
     return event_id
 
 
 def set_features(actor_id: str, target_id: str, features: dict[str, bool], expected_revision: int,
-                 *, visibility: dict[str, bool] | None = None) -> Policy:
+                 *, visibility: dict[str, bool] | None = None,
+                 reason_code: str = "NOT_PROVIDED") -> Policy:
     """Compare-and-swap, audit and invalidation outbox in a single transaction."""
     from app.services.auth import user_store
     if set(features) != set(FEATURES) or any(type(v) is not bool for v in features.values()):
@@ -209,7 +236,8 @@ def set_features(actor_id: str, target_id: str, features: dict[str, bool], expec
                              {'features': {f: old.get(f, False) for f in FEATURES},
                               'visibility': {f: old_visibility.get(f, True) for f in FEATURES}},
                              {'features': features,
-                              'visibility': visibility if visibility is not None else {f: old_visibility.get(f, True) for f in FEATURES}}, now)
+                              'visibility': visibility if visibility is not None else {f: old_visibility.get(f, True) for f in FEATURES}}, now,
+                             reason_code=reason_code)
             c.execute('INSERT INTO auth_event_outbox(event_id,user_id,revision) VALUES(?,?,?)',
                       (event_id, target_id, revision + 1))
     except sqlite3.Error as exc:
@@ -221,7 +249,9 @@ def entry_refusal(user_id: str) -> str | None:
     """New-risk admission only; protective reductions do not call this helper."""
     from app.services.simulation.identity import owner_uid
     try:
-        require_feature(owner_uid(user_id), 'kite')
+        current = require_feature(owner_uid(user_id), 'kite')
+        if not may_mutate(current.role):
+            return 'Viewer/unknown role has no order entry authority.'
     except (PermissionError, PolicyUnavailable):
         return 'Kite access is disabled or its policy cannot be verified.'
     return None

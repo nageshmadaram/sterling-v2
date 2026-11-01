@@ -18,7 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass
+import math
+from decimal import Decimal, InvalidOperation
+from numbers import Integral
+from dataclasses import dataclass, replace
 from typing import Any
 
 from app.services.kite_engine import order_journal
@@ -73,18 +76,59 @@ def _normalize_status(value: Any) -> str:
     return status
 
 
-def _safe_int(value: Any) -> int:
+def _parse_broker_quantity(value: Any) -> int | None:
+    """Return None when quantity evidence is absent, malformed or unsafe.
+
+    Zero is an actual broker value only if explicitly represented as a finite
+    integral zero. Invalid/missing quantities cannot be treated as a proof
+    that a cancelled or rejected order executed nothing.
+    """
+    if value is None or isinstance(value, bool):
+        return None
     try:
-        return max(0, int(float(value or 0)))
-    except (TypeError, ValueError):
-        return 0
+        literal = str(value).strip()
+        # Avoid huge exponent/number conversions from untrusted broker data.
+        if not literal or len(literal) > 64:
+            return None
+        quantity = Decimal(literal)
+        if (not quantity.is_finite() or quantity < 0
+                or quantity.adjusted() > 18
+                or quantity != quantity.to_integral_value()):
+            return None
+        return int(quantity)
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        return None
+
+
+def _safe_int(value: Any) -> int:
+    """Legacy nonnegative parser interface for non-authorizing callers.
+
+    Only _parse_broker_quantity distinguishes invalid from a proven zero.
+    Do not use _safe_int alone to certify a zero-fill terminal order.
+    """
+    parsed = _parse_broker_quantity(value)
+    return parsed if parsed is not None else 0
+
+
+def _expected_quantity(value: Any) -> int:
+    """Require an actual positive integral order request; never truncate floats.
+
+    Bool is an Integral subclass and must not create a quantity-one order.
+    Broker-reported quantities are parsed separately by _safe_int.
+    """
+    if isinstance(value, bool) or not isinstance(value, Integral) or int(value) <= 0:
+        raise ValueError("expected_quantity_must_be_positive_integral")
+    return int(value)
 
 
 def _safe_float(value: Any) -> float:
+    """Reject NaN, infinity and booleans as broker execution prices."""
+    if isinstance(value, bool):
+        return 0.0
     try:
         out = float(value or 0.0)
-        return out if out >= 0 else 0.0
-    except (TypeError, ValueError):
+        return out if math.isfinite(out) and out >= 0 else 0.0
+    except (TypeError, ValueError, OverflowError):
         return 0.0
 
 
@@ -94,6 +138,27 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
     if callable(history):
         try:
             rows = await history(order_id)
+            if isinstance(rows, list):
+                prior_filled = 0
+                for history_row in rows:
+                    if not isinstance(history_row, dict):
+                        # A malformed row prevents proving that the response
+                        # belongs to the acknowledged order.
+                        return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+                    reported = str(history_row.get("order_id") or "").strip()
+                    if reported != str(order_id).strip():
+                        return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+                    row_quantity = _parse_broker_quantity(history_row.get(
+                        "filled_quantity", history_row.get("filled_qty"),
+                    ))
+                    # A later snapshot cannot erase an earlier confirmed fill.
+                    # Ordered history is required to prove a terminal zero
+                    # rather than silently substituting a stale row.
+                    if row_quantity is None or row_quantity < prior_filled:
+                        return "FILL EVIDENCE INVALID", 0, 0.0, {
+                            "fill_evidence_invalid": True,
+                        }
+                    prior_filled = row_quantity
             latest = (
                 rows[-1]
                 if isinstance(rows, list) and rows and isinstance(rows[-1], dict)
@@ -102,10 +167,23 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
         except Exception:
             latest = {}
 
+    # Never interpret a broker-history row belonging to a different order.
+    # A badly scoped API result must not be able to settle an acknowledged ID.
+    returned_order = str(latest.get("order_id") or "").strip()
+    if latest and returned_order != str(order_id).strip():
+        # A status/fill row without a returned order_id is not attributable
+        # merely because it was requested using this order_id.
+        return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+
     status = _normalize_status(latest.get("status"))
-    filled = _safe_int(
-        latest.get("filled_quantity", latest.get("filled_qty"))
-    )
+    raw_quantity = latest.get("filled_quantity", latest.get("filled_qty"))
+    parsed_quantity = _parse_broker_quantity(raw_quantity)
+    if latest and parsed_quantity is None:
+        # In particular, terminal CANCELLED/REJECTED plus malformed fill
+        # quantity does NOT prove a zero-fill terminal settlement. Reject
+        # immediately; do not cancel again or guess from trade records.
+        return "FILL EVIDENCE INVALID", 0, 0.0, {"fill_evidence_invalid": True}
+    filled = parsed_quantity if parsed_quantity is not None else 0
     average = _safe_float(
         latest.get("average_price", latest.get("average_price_filled"))
     )
@@ -117,19 +195,44 @@ async def _broker_snapshot(client: Any, order_id: str) -> tuple[str, int, float,
         except Exception:
             trades = []
         if isinstance(trades, list) and trades:
-            qty = 0
-            value = 0.0
+            # A broker API may repeat a trade row on replay or return rows from
+            # another order. Summing unidentifiable/duplicate rows can create
+            # fictitious executed quantity. Use unique, attributable trade IDs
+            # only; otherwise rely on the order's cumulative history evidence.
+            identified: dict[str, tuple[int, float]] = {}
+            ambiguous = False
             for trade in trades:
                 if not isinstance(trade, dict):
-                    continue
+                    ambiguous = True
+                    break
+                reported_order = str(trade.get("order_id") or "").strip()
+                if reported_order and reported_order != str(order_id).strip():
+                    # Do not fall back to otherwise valid-looking history once
+                    # this broker API returned a trade for a different order.
+                    return "IDENTITY MISMATCH", 0, 0.0, {"identity_mismatch": True}
+                if not reported_order:
+                    # A trade ID without a matching order ID is not sufficient
+                    # to attribute executed quantity. Retain verified history
+                    # only; never promote an anonymous trade into a fill.
+                    ambiguous = True
+                    break
+                trade_id = str(trade.get("trade_id") or "").strip()
                 q = _safe_int(trade.get("quantity"))
                 px = _safe_float(trade.get("average_price", trade.get("price")))
-                if q > 0 and px > 0:
-                    qty += q
-                    value += q * px
-            if qty > filled:
-                filled = qty
-                average = value / qty if value > 0 else average
+                if not trade_id or q <= 0 or px <= 0:
+                    ambiguous = True
+                    break
+                entry = (q, px)
+                if trade_id in identified and identified[trade_id] != entry:
+                    ambiguous = True
+                    break
+                identified[trade_id] = entry
+            if not ambiguous and identified:
+                qty = sum(q for q, _ in identified.values())
+                value = sum(q * px for q, px in identified.values())
+                if qty > filled and math.isfinite(value):
+                    filled = qty
+                    average = value / qty if value > 0 else average
 
     return status, filled, average, latest
 
@@ -172,6 +275,22 @@ def _observe(
         raw=dict(raw or {}),
     )
     return observed.intent, observed
+
+
+def _can_cancel_verified_working_order(
+    *, status: str, broker_row: dict, order_id: str,
+) -> bool:
+    """Require a matching, actively working broker row before cancellation.
+
+    A missing broker read does not establish that an acknowledged order is
+    still working. CANCEL PENDING / TRIGGER PENDING may refer to protective
+    orders and must not prompt another mutation.
+    """
+    return (
+        status in {"OPEN", "UPDATE"}
+        and isinstance(broker_row, dict)
+        and str(broker_row.get("order_id") or "").strip() == order_id
+    )
 
 
 async def _cancel_remaining(client: Any, order_id: str) -> bool:
@@ -221,7 +340,29 @@ def _resolution(intent, order_id: str, *, status: str = "", reason: str = "") ->
     execution_ms = (exchange_ms(json.loads(row["raw_json"])) or int(row["received_ts_ms"])) if row else 0
     state = str(intent.state or "")
     terminal = state in order_journal.TERMINAL
-    settled = terminal or int(intent.filled_quantity or 0) >= int(intent.quantity or 0)
+    # Existing terminal evidence is not permission to treat a NEW failed
+    # reconciliation as settled. UNKNOWN, a journal conflict, or a broker-
+    # identity contradiction must stop strategy position projection.
+    unsafe_reason = str(reason or "")
+    failed_observation = (
+        unsafe_reason in {
+            "broker_mode_unknown",
+            "complete_filled_quantity_unverified",
+            "broker_fill_quantity_unverified",
+            "broker_order_identity_mismatch",
+            "entry_fill_unresolved_after_bounded_reconciliation",
+        }
+        or unsafe_reason.startswith((
+            "journal_observation_failed:",
+            "post_cancel_observation_failed:",
+        ))
+    )
+    settled = (
+        (terminal or int(intent.filled_quantity or 0) >= int(intent.quantity or 0))
+        and not bool(intent.reconciliation_required)
+        and str(status or state).upper() != "UNKNOWN"
+        and not failed_observation
+    )
     return FillResolution(
         order_id=order_id,
         intent_key=intent.intent_key,
@@ -260,9 +401,7 @@ async def resolve_entry_fill(
     the deadline, the attributable order is cancelled once and reconciled; a
     failed/ambiguous cancellation stays unresolved and blocks further exposure.
     """
-    expected = int(expected_quantity)
-    if expected <= 0:
-        raise ValueError("expected_quantity_must_be_positive")
+    expected = _expected_quantity(expected_quantity)
     oid = str(order_id or "").strip()
     if not oid:
         raise ValueError("order_id_required")
@@ -272,6 +411,8 @@ async def resolve_entry_fill(
         raise ValueError("canonical_intent_quantity_mismatch")
 
     if is_instant_paper(client):          # the legacy paper client fills synchronously; a simulated one reports by postback
+        if _safe_float(reference_price) <= 0:
+            raise ValueError("reference_price_must_be_positive")
         intent, observed = _observe(
             uid=uid,
             client=client,
@@ -299,10 +440,26 @@ async def resolve_entry_fill(
 
     while True:
         status, filled, average, raw = await _broker_snapshot(client, oid)
-        if status == "COMPLETE" and filled == 0 and average > 0:
-            # Kite COMPLETE is terminal full execution even when a reduced
-            # response/fixture omits cumulative filled_quantity.
-            filled = expected
+        if status == "FILL EVIDENCE INVALID":
+            _halt_uncertain_live(client, f"entry fill quantity unverified for {oid}")
+            return _resolution(
+                _find_intent(uid, client, oid), oid,
+                status="UNKNOWN", reason="broker_fill_quantity_unverified",
+            )
+        if status == "IDENTITY MISMATCH":
+            _halt_uncertain_live(client, f"entry broker order identity mismatch for {oid}")
+            return _resolution(
+                _find_intent(uid, client, oid), oid,
+                status="UNKNOWN", reason="broker_order_identity_mismatch",
+            )
+        if status == "COMPLETE" and filled == 0:
+            # COMPLETE plus an average price cannot prove a quantity. Never
+            # infer a full fill from a field that contains no quantity evidence.
+            _halt_uncertain_live(client, f"entry COMPLETE missing fill quantity for {oid}")
+            return _resolution(
+                _find_intent(uid, client, oid), oid,
+                status="UNKNOWN", reason="complete_filled_quantity_unverified",
+            )
         last_status, last_raw = status, raw
         if status in _TERMINAL | _PENDING:
             try:
@@ -343,12 +500,32 @@ async def resolve_entry_fill(
     if int(latest.filled_quantity or 0) >= expected:
         return _resolution(latest, oid, status=last_status or latest.state)
 
-    if cancel_unfilled and await _cancel_remaining(client, oid):
+    if (cancel_unfilled
+            and _can_cancel_verified_working_order(
+                status=last_status, broker_row=last_raw, order_id=oid,
+            )
+            and await _cancel_remaining(client, oid)):
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, raw = await _broker_snapshot(client, oid)
-            if status == "COMPLETE" and filled == 0 and average > 0:
-                filled = expected
+            if status == "FILL EVIDENCE INVALID":
+                _halt_uncertain_live(client, f"post-cancel entry fill quantity unverified for {oid}")
+                return _resolution(
+                    _find_intent(uid, client, oid), oid,
+                    status="UNKNOWN", reason="broker_fill_quantity_unverified",
+                )
+            if status == "IDENTITY MISMATCH":
+                _halt_uncertain_live(client, f"post-cancel entry order identity mismatch for {oid}")
+                return _resolution(
+                    _find_intent(uid, client, oid), oid,
+                    status="UNKNOWN", reason="broker_order_identity_mismatch",
+                )
+            if status == "COMPLETE" and filled == 0:
+                _halt_uncertain_live(client, f"post-cancel COMPLETE missing fill quantity for {oid}")
+                return _resolution(
+                    _find_intent(uid, client, oid), oid,
+                    status="UNKNOWN", reason="complete_filled_quantity_unverified",
+                )
             if status in _TERMINAL | _PENDING:
                 try:
                     latest, observed = _observe(
@@ -425,10 +602,34 @@ class BrokerOrderResolution:
     terminal: bool
     settled: bool
     reason: str = ""
+    intent_key: str = ""
+    projection_version: int = 0
 
     @property
     def has_fill(self) -> bool:
         return self.filled_quantity > 0 and self.average_price > 0
+
+
+def _invalid_broker_fill_reason(
+    *, status: str, filled: int, average: float, expected: int,
+) -> str:
+    """Refuse impossible fills before treating any order as settled.
+
+    A terminal cancellation can contain a legitimate partial fill; it cannot
+    contain more than the requested quantity. A nonterminal full cumulative
+    quantity needs a recognized status and a confirmed positive execution price.
+    """
+    if status == "IDENTITY MISMATCH":
+        return "broker_order_identity_mismatch"
+    if status == "FILL EVIDENCE INVALID":
+        return "broker_fill_quantity_unverified"
+    if filled > expected:
+        return "broker_overfill"
+    if filled > 0 and average <= 0:
+        return "filled_price_unverified"
+    if filled >= expected and status not in _TERMINAL | _PENDING:
+        return "broker_status_unverified"
+    return ""
 
 
 async def resolve_acknowledged_order(
@@ -446,14 +647,14 @@ async def resolve_acknowledged_order(
     wait leaves a live remainder, it attempts one cancellation of that exact
     acknowledged order and then reconciles cumulative fills.
     """
-    expected = int(expected_quantity)
+    expected = _expected_quantity(expected_quantity)
     oid = str(order_id or "").strip()
-    if expected <= 0:
-        raise ValueError("expected_quantity_must_be_positive")
     if not oid:
         raise ValueError("order_id_required")
 
     if is_instant_paper(client):
+        if _safe_float(reference_price) <= 0:
+            raise ValueError("reference_price_must_be_positive")
         return BrokerOrderResolution(
             order_id=oid,
             status="COMPLETE",
@@ -478,12 +679,21 @@ async def resolve_acknowledged_order(
     status = ""
     filled = 0
     average = 0.0
+    last_broker_row: dict = {}
     while True:
-        status, filled, average, _raw = await _broker_snapshot(client, oid)
-        if status == "COMPLETE" and filled == 0 and average > 0:
-            filled = expected
+        status, filled, average, last_broker_row = await _broker_snapshot(client, oid)
+        invalid_reason = _invalid_broker_fill_reason(
+            status=status, filled=filled, average=average, expected=expected,
+        )
+        if invalid_reason:
+            _halt_uncertain_live(client, f"exit evidence invalid for {oid}: {invalid_reason}")
+            return BrokerOrderResolution(
+                oid, status or "UNKNOWN", filled, average,
+                status in _TERMINAL, False, reason=invalid_reason,
+            )
         if status in _TERMINAL:
-            if status == "COMPLETE" and 0 < filled < expected:
+            if status == "COMPLETE" and filled != expected:
+                _halt_uncertain_live(client, f"exit COMPLETE quantity mismatch for {oid}")
                 return BrokerOrderResolution(
                     oid,
                     status,
@@ -491,7 +701,15 @@ async def resolve_acknowledged_order(
                     average,
                     True,
                     False,
-                    reason="complete_quantity_mismatch",
+                    reason=(
+                        "complete_filled_quantity_unverified" if filled == 0
+                        else "complete_quantity_mismatch"
+                    ),
+                )
+            if filled > 0 and average <= 0:
+                return BrokerOrderResolution(
+                    oid, status, filled, average, True, False,
+                    reason="filled_price_unverified",
                 )
             return BrokerOrderResolution(
                 oid,
@@ -514,14 +732,26 @@ async def resolve_acknowledged_order(
             break
         await asyncio.sleep(0.25)
 
-    if cancel_unfilled and await _cancel_remaining(client, oid):
+    if (cancel_unfilled
+            and _can_cancel_verified_working_order(
+                status=status, broker_row=last_broker_row, order_id=oid,
+            )
+            and await _cancel_remaining(client, oid)):
         cancel_deadline = loop.time() + 3.0
         while True:
             status, filled, average, _raw = await _broker_snapshot(client, oid)
-            if status == "COMPLETE" and filled == 0 and average > 0:
-                filled = expected
+            invalid_reason = _invalid_broker_fill_reason(
+                status=status, filled=filled, average=average, expected=expected,
+            )
+            if invalid_reason:
+                _halt_uncertain_live(client, f"post-cancel exit evidence invalid for {oid}: {invalid_reason}")
+                return BrokerOrderResolution(
+                    oid, status or "UNKNOWN", filled, average,
+                    status in _TERMINAL, False, reason=invalid_reason,
+                )
             if status in _TERMINAL:
-                if status == "COMPLETE" and 0 < filled < expected:
+                if status == "COMPLETE" and filled != expected:
+                    _halt_uncertain_live(client, f"post-cancel COMPLETE quantity mismatch for {oid}")
                     return BrokerOrderResolution(
                         oid,
                         status,
@@ -529,7 +759,15 @@ async def resolve_acknowledged_order(
                         average,
                         True,
                         False,
-                        reason="complete_quantity_mismatch",
+                        reason=(
+                            "complete_filled_quantity_unverified" if filled == 0
+                            else "complete_quantity_mismatch"
+                        ),
+                    )
+                if filled > 0 and average <= 0:
+                    return BrokerOrderResolution(
+                        oid, status, filled, average, True, False,
+                        reason="filled_price_unverified",
                     )
                 return BrokerOrderResolution(
                     oid,
@@ -552,6 +790,7 @@ async def resolve_acknowledged_order(
                 break
             await asyncio.sleep(0.25)
 
+    _halt_uncertain_live(client, f"risk-reducing order unresolved for {oid}")
     return BrokerOrderResolution(
         order_id=oid,
         status=status or "UNKNOWN",
@@ -561,6 +800,68 @@ async def resolve_acknowledged_order(
         settled=False,
         reason="broker_order_unresolved_after_bounded_reconciliation",
     )
+
+async def resolve_canonical_reduction(
+    *, uid: str, intent_key: str = "", client: Any,
+    order_id: str, expected_quantity: int, reference_price: float,
+    timeout_s: float = 5.0, cancel_unfilled: bool = True,
+) -> BrokerOrderResolution:
+    """Settle an acknowledged reduction, durably observe its cumulative fill.
+
+    A strategy must call mark_reduction_projected only AFTER committing the
+    corresponding strategy position update; otherwise a process crash could
+    erase the only durable evidence that still requires projection.
+    Historical legacy exits have no canonical intent; they retain their old
+    broker-book settlement behavior, but cannot be called certified journaled.
+    """
+    result = await resolve_acknowledged_order(
+        client=client, order_id=order_id, expected_quantity=expected_quantity,
+        reference_price=reference_price, timeout_s=timeout_s,
+        cancel_unfilled=cancel_unfilled,
+    )
+    if not result.settled or not intent_key:
+        return result
+    try:
+        intent = order_journal.get(intent_key)
+        account_id = str(getattr(client, "_account_id", "") or "").strip()
+        if (intent is None or intent.uid != uid or intent.account_id != account_id
+                or intent.order_id != str(order_id).strip()
+                or intent.side not in {"SELL", "BUY"}
+                or int(intent.quantity) != int(expected_quantity)):
+            raise ValueError("canonical_reduction_order_identity_mismatch")
+        if result.status not in _TERMINAL | _PENDING:
+            raise ValueError("unrecognized_canonical_exit_broker_status")
+        observed = order_journal.observe_order(
+            intent_key,
+            status=result.status,
+            order_id=result.order_id,
+            filled_quantity=result.filled_quantity,
+            average_price=result.average_price,
+            raw={"source": "strategy_exit_broker_resolution"},
+        )
+        if observed.intent.reconciliation_required:
+            raise ValueError("canonical_reduction_journal_requires_reconciliation")
+        return replace(
+            result, intent_key=intent_key,
+            projection_version=int(observed.intent.projection_version or 0),
+        )
+    except Exception as exc:
+        log.error("Could not prove canonical reduction %s projection: %s", intent_key, exc)
+        _halt_uncertain_live(client, f"canonical reduction journal unresolved for {order_id}")
+        return replace(
+            result, settled=False,
+            reason=f"canonical_reduction_journal_unresolved:{type(exc).__name__}:{exc}",
+        )
+
+
+def mark_reduction_projected(resolution: BrokerOrderResolution) -> bool:
+    """Clear the exact observed version after the strategy registry is durable."""
+    if not resolution.intent_key or resolution.projection_version <= 0:
+        return False
+    return order_journal.mark_projected(
+        resolution.intent_key, resolution.projection_version,
+    )
+
 
 def mark_projected(resolution: FillResolution) -> bool:
     """Acknowledge the exact journal version after strategy persistence."""

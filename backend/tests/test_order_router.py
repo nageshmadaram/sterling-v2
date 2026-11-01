@@ -15,6 +15,7 @@ Exercises every dispatch path (paper, shadow, live) and every reject code:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock
 
@@ -151,8 +152,33 @@ class TestPaperMode:
 
         resp = await router.submit(_basic_req())
 
-        assert resp.entry_price == 0.0
-        assert resp.accepted is True
+        assert resp.accepted is False
+        assert resp.code == "paper_quote_unavailable"
+        assert resp.status == "rejected"
+        assert resp.paper_position_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [RouterMode.PAPER, RouterMode.SHADOW])
+@pytest.mark.parametrize("quote", [0, -1, float("nan"), float("inf")])
+async def test_invalid_quote_cannot_create_simulated_fill(mode, quote):
+    saved = []
+    adapter = _make_adapter(index_price=quote)
+    deps = RouterDeps(
+        list_open_positions=lambda: [],
+        create_paper_position=lambda *_args: saved.append(_args) or "VIRTUAL-1",
+        greeks_budget_gate=lambda *_a, **_k: None,
+    )
+    router = OrderRouter(mode, adapter, deps, _resolve)
+    request = _basic_req(client_order_id=f"invalid-quote-{mode.value}-{quote}")
+    response = await router.submit(request)
+    assert not response.accepted
+    assert response.code == "paper_quote_unavailable"
+    assert response.status == "rejected"
+    assert response.order_id is None and response.paper_position_id is None
+    assert saved == []
+    assert live_safety.check_idempotency(request.client_order_id) is None
+    adapter.place_order.assert_not_awaited()
 
 
 # ─── Live mode ────────────────────────────────────────────────────────────
@@ -213,6 +239,18 @@ class TestLiveMode:
         adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_legacy_live_cannot_claim_existing_canonical_id_as_accepted_duplicate(self):
+        adapter = _make_adapter(is_paper=False)
+        router = OrderRouter(RouterMode.LIVE, adapter, _make_deps(), _resolve)
+        live_safety.record_idempotency("canonical-key", "EXISTING-CANONICAL-ORDER")
+        result = await router.submit(_basic_req(client_order_id="canonical-key"))
+        assert not result.accepted
+        assert result.code == "noncanonical_live_order_disabled"
+        assert result.order_id is None
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_live_without_greeks_authority_fails_closed(self) -> None:
         adapter = _make_adapter()
         deps = RouterDeps(
@@ -228,54 +266,54 @@ class TestLiveMode:
         adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_live_calls_place_order_returns_id(self) -> None:
-        adapter = _make_adapter(place_order_result={"id": "ABC", "average_fill_price": 49_999.0})
-        deps = _make_deps()
-        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+    async def test_typed_canonical_request_delegates_to_service_not_raw_adapter(self, monkeypatch):
+        from app.services.execution_service import (
+            CanonicalExecutionService, ExecutionRequest, ExecutionResult
+        )
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.LIVE, adapter, _make_deps(), _resolve)
+        request = ExecutionRequest(
+            uid="sim:default", account_id="SIM-ONLY", strategy_id="synthetic",
+            generation_id="g", signal_id="s", exchange="NFO",
+            symbol="SYNTHETIC26NOV25000CE", side="BUY", quantity=1,
+        )
+        calls = []
 
-        resp = await router.submit(_basic_req(client_order_id="ck1"))
+        async def canonical(_self, req, broker_client=None, risk_approval=None):
+            calls.append((req, broker_client))
+            return ExecutionResult(success=True, status="ACKNOWLEDGED", order_id="PAPER-1")
 
-        assert resp.accepted is True
-        assert resp.order_id == "ABC"
-        assert resp.entry_price == 49_999.0
-        adapter.place_order.assert_called_once()
+        monkeypatch.setattr(CanonicalExecutionService, "submit_order", canonical)
+        result = await router.submit_canonical(request=request)
+        assert result.success and result.order_id == "PAPER-1"
+        assert calls == [(request, adapter)]
+        adapter.place_order.assert_not_awaited()
+        adapter.place_order_option.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_live_options_uses_buy_side(self) -> None:
-        adapter = _make_adapter(place_order_result={"id": "OP", "average_fill_price": 0.05})
-        deps = _make_deps()
-        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
-
-        resp = await router.submit(_basic_req(
+    async def test_legacy_option_payload_cannot_place_even_on_paper_adapter(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.LIVE, adapter, _make_deps(), _resolve)
+        response = await router.submit(_basic_req(
             instrument_type="options", option_symbol="C-NIFTY-50000-051226",
-            direction="short",         # short via PE — but order side is still buy
+            direction="short", client_order_id="legacy-options"
         ))
-
-        assert resp.accepted is True
-        kwargs = adapter.place_order_option.call_args.kwargs
-        assert kwargs["side"] == "buy"
+        assert not response.accepted
+        assert response.code == "noncanonical_live_order_disabled"
+        adapter.place_order_option.assert_not_awaited()
+        adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_live_transport_failure_is_unknown_and_never_replayed(self) -> None:
+    async def test_legacy_live_rejects_before_transport_even_if_adapter_would_timeout(self) -> None:
         adapter = _make_adapter(place_order_raises=RuntimeError("network blip"))
-        deps = _make_deps()
-        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
-
-        resp = await router.submit(_basic_req(client_order_id="r1"))
-
-        assert resp.accepted is False
-        assert resp.code == "submission_unknown"
-        assert resp.status == "unknown"
-        assert resp.retry_id is None
-        assert live_safety.check_idempotency("r1") == "UNKNOWN"
+        router = OrderRouter(RouterMode.LIVE, adapter, _make_deps(), _resolve)
+        first = await router.submit(_basic_req(client_order_id="r1"))
+        second = await router.submit(_basic_req(client_order_id="r1"))
+        assert not first.accepted and not second.accepted
+        assert first.code == "noncanonical_live_order_disabled"
+        assert second.code == "noncanonical_live_order_disabled"
+        assert adapter.place_order.await_count == 0
         assert live_safety.list_retries() == []
-        assert adapter.place_order.await_count == 1
-
-        # The uncertainty is durable: a second click cannot become a replay.
-        again = await router.submit(_basic_req(client_order_id="r1"))
-        assert again.accepted is False
-        assert again.code in {"recovery_required", "submission_unknown"}
-        assert adapter.place_order.await_count == 1
 
     @pytest.mark.asyncio
     async def test_live_entry_refuses_non_atomic_bracket(self) -> None:
@@ -294,16 +332,60 @@ class TestLiveMode:
         adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_empty_broker_order_id_is_unknown(self) -> None:
+    async def test_legacy_router_never_treats_empty_broker_id_as_an_ack(self) -> None:
         adapter = _make_adapter(place_order_result={"average_fill_price": 49_999.0})
-        deps = _make_deps()
-        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+        router = OrderRouter(RouterMode.LIVE, adapter, _make_deps(), _resolve)
+        result = await router.submit(_basic_req(client_order_id="empty-ack"))
+        assert not result.accepted
+        assert result.code == "noncanonical_live_order_disabled"
+        assert live_safety.check_idempotency("empty-ack") is None
+        adapter.place_order.assert_not_awaited()
 
-        resp = await router.submit(_basic_req(client_order_id="empty-ack"))
 
-        assert resp.accepted is False
-        assert resp.code == "submission_unknown"
-        assert live_safety.check_idempotency("empty-ack") == "UNKNOWN"
+    @pytest.mark.asyncio
+    async def test_paper_writer_failure_keeps_unknown_not_a_fake_fill(self) -> None:
+        adapter = _make_adapter()
+        def fail_after_possible_write(*_args, **_kwargs):
+            raise RuntimeError("storage failure: secret-token")
+        deps = RouterDeps(
+            list_open_positions=lambda: [],
+            create_paper_position=fail_after_possible_write,
+        )
+        router = OrderRouter(RouterMode.PAPER, adapter, deps, _resolve)
+
+        first = await router.submit(_basic_req(client_order_id="paper-fail"))
+        assert not first.accepted
+        assert first.status == "unknown" and first.code == "paper_record_unknown"
+        assert first.order_id is None and first.paper_position_id is None
+        assert "secret-token" not in first.reason
+        second = await router.submit(_basic_req(client_order_id="paper-fail"))
+        assert not second.accepted and second.code == "submission_unknown"
+        adapter.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_idempotency_never_promotes_broker_id_into_paper_ack(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.PAPER, adapter, _make_deps(), _resolve)
+        live_safety.record_idempotency("foreign-id", "BROKER-ACK-1")
+
+        result = await router.submit(_basic_req(client_order_id="foreign-id"))
+        assert not result.accepted
+        assert result.code == "idempotency_identity_conflict"
+        assert result.order_id is None
+        adapter.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_paper_cache_cannot_be_reused_as_shadow_position(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.PAPER, adapter, _make_deps(), _resolve)
+        first = await router.submit(_basic_req(client_order_id="cross-mode"))
+        assert first.accepted and first.paper_position_id == "PP_001"
+        router.mode = RouterMode.SHADOW
+
+        second = await router.submit(_basic_req(client_order_id="cross-mode"))
+        assert not second.accepted and second.code == "idempotency_identity_conflict"
+        assert second.order_id is None and second.paper_position_id is None
+        adapter.place_order.assert_not_awaited()
 
 
 # ─── Shadow mode ──────────────────────────────────────────────────────────
@@ -331,7 +413,7 @@ class TestShadowMode:
         adapter = _make_adapter(place_order_result={"id": "SHD", "average_fill_price": 50_100.0})
 
         def _bad_paper(*_a, **_k):
-            raise RuntimeError("disk full")
+            raise RuntimeError("disk full: token-secret-must-not-leak")
 
         deps = RouterDeps(
             list_open_positions=lambda: [],
@@ -341,12 +423,29 @@ class TestShadowMode:
 
         resp = await router.submit(_basic_req(client_order_id="s2"))
 
-        assert resp.accepted is True
+        assert resp.accepted is False
+        assert resp.status == "unknown"
         assert resp.order_id is None
         assert resp.code == "shadow_record_failed"
-        assert "shadow paper-record failed" in resp.reason
+        assert "token-secret-must-not-leak" not in resp.reason
+        again = await router.submit(_basic_req(client_order_id="s2"))
+        assert not again.accepted and again.code == "submission_unknown"
         adapter.place_order.assert_not_awaited()
         adapter.place_order_option.assert_not_awaited()
+
+
+    @pytest.mark.asyncio
+    async def test_shadow_missing_position_identity_is_not_accepted(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.SHADOW, adapter, _make_deps(paper_create_returns=""), _resolve)
+
+        first = await router.submit(_basic_req(client_order_id="bad-shadow-id"))
+        assert not first.accepted
+        assert first.status == "unknown" and first.code == "shadow_record_failed"
+        assert first.order_id is None and first.paper_position_id is None
+        again = await router.submit(_basic_req(client_order_id="bad-shadow-id"))
+        assert not again.accepted and again.code == "submission_unknown"
+        adapter.place_order.assert_not_awaited()
 
 
 # ─── Safety reject paths ─────────────────────────────────────────────────
@@ -392,7 +491,7 @@ class TestSafetyRejects:
     async def test_idempotency_returns_prior_id(self) -> None:
         adapter = _make_adapter(place_order_result={"id": "I1", "average_fill_price": 50_000.0})
         deps = _make_deps()
-        router = OrderRouter(RouterMode.LIVE, adapter, deps, _resolve)
+        router = OrderRouter(RouterMode.PAPER, adapter, deps, _resolve)
 
         first = await router.submit(_basic_req(client_order_id="dup"))
         second = await router.submit(_basic_req(client_order_id="dup"))
@@ -400,7 +499,9 @@ class TestSafetyRejects:
         assert first.accepted is True
         assert second.accepted is True
         assert second.status == "duplicate"
-        assert second.order_id == first.order_id
+        assert second.order_id is None
+        assert second.paper_position_id == "PP_001"
+        adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_cooldown_active_rejects(self) -> None:
@@ -467,5 +568,6 @@ class TestModeHotSwap:
         # Hot-swap to live and submit fresh idempotency key
         router.mode = RouterMode.LIVE
         r2 = await router.submit(_basic_req(client_order_id="m2"))
-        assert r2.mode == "live"
-        adapter.place_order.assert_called_once()
+        assert r2.mode == "rejected"  # No legacy request can transition into broker execution.
+        assert not r2.accepted and r2.code == "noncanonical_live_order_disabled"
+        adapter.place_order.assert_not_awaited()

@@ -1,0 +1,99 @@
+name: Disposable PostgreSQL OpenAlgo-pattern migration and restore drill
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/postgres-migration-drill.yml"
+      - "backend/alembic/**"
+      - "backend/app/persistence/**"
+      - "backend/requirements.lock.txt"
+      - "backend/tests/unit/test_alembic_disposable_guard.py"
+      - "upgrade/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  disposable-postgresql-migration-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: sterling_test
+          POSTGRES_PASSWORD: synthetic_only
+          POSTGRES_DB: sterling_test_schema
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sterling_test -d sterling_test_schema"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ENVIRONMENT: test
+      STERLING_ALEMBIC_DISPOSABLE: "1"
+      DATABASE_URL: postgresql+asyncpg://sterling_test:synthetic_only@127.0.0.1:5432/sterling_test_schema
+      STERLING_LIVE_EXECUTION: "false"
+      REAL_PUBLIC_DATA: "false"
+      LOG_LEVEL: WARNING
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.lock.txt
+      - name: Install only the committed backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Guard migration URLs and exercise isolated SQLite baseline
+        working-directory: backend
+        run: python -m pytest -q tests/unit/test_alembic_disposable_guard.py --tb=short
+      - name: Apply and reapply Alembic baseline on disposable PostgreSQL
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          alembic upgrade head
+          alembic upgrade head
+      - name: Insert synthetic row, prove transactional rollback, restore independent DB
+        env:
+          PG_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$PG_CONTAINER"
+          trap 'rm -f "$RUNNER_TEMP/sterling-test-schema.dump"' EXIT
+          # No owner PII, brokerage credentials, actual trading state or live DB.
+          docker exec "$PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 \
+            -U sterling_test -d sterling_test_schema -c \
+            "INSERT INTO mirrored_records(store, key, payload, updated_ts) VALUES ('compat_test','durable','synthetic_restore_marker',1)"
+          docker exec "$PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 \
+            -U sterling_test -d sterling_test_schema -c \
+            "BEGIN; INSERT INTO mirrored_records(store,key,payload,updated_ts) VALUES ('compat_test','rolled_back','must_not_survive',2); ROLLBACK;"
+          test "$(docker exec "$PG_CONTAINER" psql -XAtq -U sterling_test -d sterling_test_schema -c \
+            "SELECT COUNT(*) FROM mirrored_records WHERE store='compat_test' AND key='rolled_back'")" = "0"
+          docker exec "$PG_CONTAINER" pg_dump -U sterling_test \
+            --format=custom --no-owner --no-privileges \
+            -d sterling_test_schema > "$RUNNER_TEMP/sterling-test-schema.dump"
+          docker exec "$PG_CONTAINER" psql -X -v ON_ERROR_STOP=1 \
+            -U sterling_test -d postgres -c "CREATE DATABASE sterling_test_restored"
+          docker exec -i "$PG_CONTAINER" pg_restore \
+            --exit-on-error --no-owner --no-privileges \
+            -U sterling_test -d sterling_test_restored < "$RUNNER_TEMP/sterling-test-schema.dump"
+          # A schema-only equivalence is insufficient: verify the restored
+          # Alembic revision AND a synthetic durable row, with the rolled-back
+          # row absent in both databases.
+          for database in sterling_test_schema sterling_test_restored; do
+            result="$(docker exec "$PG_CONTAINER" psql -XAtq -U sterling_test -d "$database" -c \
+              "SELECT payload FROM mirrored_records WHERE store='compat_test' AND key='durable'")"
+            test "$result" = "synthetic_restore_marker"
+            test "$(docker exec "$PG_CONTAINER" psql -XAtq -U sterling_test -d "$database" -c \
+              "SELECT COUNT(*) FROM mirrored_records WHERE store='compat_test' AND key='rolled_back'")" = "0"
+            test "$(docker exec "$PG_CONTAINER" psql -XAtq -U sterling_test -d "$database" -c \
+              "SELECT COUNT(*) FROM alembic_version")" = "1"
+            test "$(docker exec "$PG_CONTAINER" psql -XAtq -U sterling_test -d "$database" -c \
+              "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('positions','equity_snapshots','mirrored_records')")" = "3"
+          done
+          echo "DISPOSABLE PostgreSQL migration/restore evidence succeeded; production authorization remains NO-GO"

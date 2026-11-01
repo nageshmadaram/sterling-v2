@@ -80,9 +80,9 @@ async def test_ambiguous_broker_error_is_not_enqueued_for_retry(router_deps, mon
     monkeypatch.setattr(lane_registry, "LIVE_EXECUTION_ENABLED", True)
     router_deps.greeks_budget_gate = lambda *args: None
     adapter = Mock()
-    # This test is about ambiguous submission handling, not authorization to
-    # originate real exposure. Exercise the legacy dispatcher on paper so the
-    # transport failure path remains covered after real entries are disabled.
+    # Raw legacy LIVE requests no longer submit even on paper adapters.
+    # Canonical ambiguous-outcome settlement is covered in
+    # tests/unit/test_execution_unknown_settlement.py.
     adapter._is_paper = True
     adapter.get_product_id = AsyncMock(return_value=1)
     adapter.place_order = AsyncMock(side_effect=RuntimeError("ack lost"))
@@ -93,11 +93,11 @@ async def test_ambiguous_broker_error_is_not_enqueued_for_retry(router_deps, mon
     ))
 
     assert not response.accepted
-    assert response.code == "submission_unknown"
+    assert response.code == "noncanonical_live_order_disabled"
     assert response.retry_id is None
     assert live_safety.list_retries() == []
-    assert live_safety.check_idempotency("fixed") == "UNKNOWN"
-    adapter.place_order.assert_awaited_once()
+    assert live_safety.check_idempotency("fixed") is None
+    adapter.place_order.assert_not_awaited()
 
 
 def test_webhook_destination_rejects_metadata_and_local(monkeypatch):

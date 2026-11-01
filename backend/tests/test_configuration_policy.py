@@ -225,3 +225,44 @@ async def test_all_provider_credential_writes_are_default_denied(identities, mon
             await operation()
         assert denied.value.status_code == 403
     assert not writes
+
+
+def test_configuration_audit_reason_is_durable_and_invalid_reason_rolls_back(identities):
+    grants = [{'action': 'update', 'resource_id': 'own', 'expires_at_ms': None}]
+    updated = policy.replace_section('default', 'member', 'brokers', visible=True,
+        grants=grants, expected_revision=0, reason_code='ACCESS_REVIEW')
+    assert updated['revision'] == 1
+    with db._conn() as c:
+        entry = c.execute("SELECT * FROM auth_audit_events WHERE action='configuration.updated'").fetchone()
+        assert entry['actor_id'] == 'default' and entry['target_id'] == 'member'
+        assert entry['reason_code'] == 'ACCESS_REVIEW'
+        assert json.loads(entry['after_json'])['grants'] == grants
+        assert json.loads(entry['before_json'])['section'] == 'brokers'
+        assert c.execute('SELECT COUNT(*) FROM auth_event_outbox').fetchone()[0] == 1
+    with pytest.raises(ValueError, match='reason'):
+        policy.replace_section('default', 'member', 'brokers', visible=False,
+            grants=[], expected_revision=1, reason_code='free form secret')
+    assert policy.read('member')['revision'] == 1
+    assert policy.read('member')['sections']['brokers']['visible']
+    with db._conn() as c:
+        assert c.execute('SELECT COUNT(*) FROM auth_audit_events').fetchone()[0] == 1
+    policy.replace_section('default', 'member', 'brokers', visible=False, grants=[], expected_revision=1)
+    with db._conn() as c:
+        assert c.execute('SELECT reason_code FROM auth_audit_events WHERE action=? ORDER BY rowid DESC LIMIT 1',
+                         ('configuration.updated',)).fetchone()[0] == 'NOT_PROVIDED'
+
+
+def test_configuration_http_rejects_unstructured_reason(identities):
+    administrator, _ = identities
+    app = FastAPI()
+    app.include_router(settings_capabilities.router, prefix='/api/v1')
+    app.dependency_overrides[get_current_user] = lambda: administrator
+    client = TestClient(app)
+    url = '/api/v1/auth/users/member/configuration-access'
+    body = {'section': 'telegram', 'visible': True, 'grants': [],
+            'expected_revision': 0, 'reason_code': 'USER_REQUEST'}
+    assert client.put(url, json={**body, 'reason_code': 'free form passphrase'}).status_code == 422
+    assert client.put(url, json=body).status_code == 200
+    with db._conn() as c:
+        assert c.execute("SELECT reason_code FROM auth_audit_events WHERE action='configuration.updated'").fetchone()[0] == 'USER_REQUEST'
+    assert client.put(url, json=body).status_code == 409

@@ -26,6 +26,7 @@ Non-goals
 """
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -44,7 +45,7 @@ log = get_logger(__name__)
 class RouterMode(str, Enum):
     PAPER = "paper"      # never call exchange; record paper position only
     SHADOW = "shadow"    # simulate and record only; never call exchange
-    LIVE = "live"        # call exchange; no paper record
+    LIVE = "live"        # legacy payload rejected; typed canonical handoff required
 
 
 # ─── Request / Response shapes ────────────────────────────────────────────
@@ -183,6 +184,15 @@ class OrderRouter:
             sym, req.direction, req.instrument_type, req.size,
             int(now_ms // 60_000),       # minute bucket
         )
+        # A legacy LIVE payload has no canonical execution identity. Do not
+        # return an "accepted duplicate" from an idempotency key belonging to
+        # another sender: the legacy request itself was never authorized.
+        if self.mode == RouterMode.LIVE and live_safety.check_idempotency(idem_key):
+            return self._reject(
+                req, "noncanonical_live_order_disabled",
+                "Legacy LIVE request cannot claim existing broker order identity; "
+                "submit a typed CanonicalExecutionService request", now_ms,
+            )
         decision = live_safety.assert_safe_to_trade(
             positions=self.deps.list_open_positions(),
             idempotency_key=idem_key,
@@ -201,10 +211,22 @@ class OrderRouter:
                         "Prior broker submission outcome is unknown; reconcile before retrying",
                         now_ms,
                     )
+                # Idempotency cache entries are NOT broker order acknowledgements.
+                # A simulated position may only be reused within the same mode.
+                prefix = f"{self.mode.value}:"
+                if (self.mode not in (RouterMode.PAPER, RouterMode.SHADOW)
+                        or not isinstance(prior, str)
+                        or not prior.startswith(prefix)
+                        or not prior[len(prefix):].strip()):
+                    return self._reject(
+                        req, "idempotency_identity_conflict",
+                        "Cached submission does not identify a matching simulated position",
+                        now_ms,
+                    )
                 return OrderRouterResponse(
                     accepted=True,
                     mode=self.mode.value,
-                    order_id=prior,
+                    paper_position_id=prior[len(prefix):],
                     symbol=self._symbol_for(req, inst),
                     side=self._side(req),
                     size=req.size,
@@ -254,7 +276,34 @@ class OrderRouter:
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
         entry = await self._fetch_entry_price(inst)
-        pid = self.deps.create_paper_position(req, self._symbol_for(req, inst), entry, None)
+        if not math.isfinite(entry) or entry <= 0:
+            # Missing/invalid market evidence must not create a fictitious
+            # filled virtual position. This is a definitive pre-write refusal.
+            return OrderRouterResponse(
+                accepted=False, mode=self.mode.value,
+                symbol=self._symbol_for(req, inst), side=self._side(req),
+                size=req.size, status="rejected", code="paper_quote_unavailable",
+                reason="A finite positive quote is required for simulated fills",
+                timestamp_ms=now_ms,
+            )
+        try:
+            pid = self.deps.create_paper_position(
+                req, self._symbol_for(req, inst), entry, None,
+            )
+            if not isinstance(pid, str) or not pid.strip():
+                raise ValueError("missing simulated position identity")
+        except Exception:
+            # A failing writer might already have committed; never emit a
+            # successful fill or blindly create another simulated position.
+            live_safety.record_idempotency(idem_key, "UNKNOWN")
+            log.error("paper position persistence outcome unknown")
+            return OrderRouterResponse(
+                accepted=False, mode="paper", symbol=self._symbol_for(req, inst),
+                side=self._side(req), size=req.size, entry_price=entry,
+                status="unknown", code="paper_record_unknown",
+                reason="Paper position evidence is uncertain; inspect the virtual ledger before retrying",
+                timestamp_ms=now_ms,
+            )
         live_safety.record_idempotency(idem_key, f"paper:{pid}")
         return OrderRouterResponse(
             accepted=True, mode="paper",
@@ -271,18 +320,28 @@ class OrderRouter:
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
         entry = await self._fetch_entry_price(inst)
+        if not math.isfinite(entry) or entry <= 0:
+            # Missing/invalid market evidence must not create a fictitious
+            # filled virtual position. This is a definitive pre-write refusal.
+            return OrderRouterResponse(
+                accepted=False, mode=self.mode.value,
+                symbol=self._symbol_for(req, inst), side=self._side(req),
+                size=req.size, status="rejected", code="paper_quote_unavailable",
+                reason="A finite positive quote is required for simulated fills",
+                timestamp_ms=now_ms,
+            )
         try:
             pid = self.deps.create_paper_position(
                 req, self._symbol_for(req, inst), entry, None,
             )
-        except Exception as exc:  # noqa: BLE001
-            # SHADOW is observational only: a persistence failure must never fall
-            # through to a broker send, but it also must not masquerade as a
-            # strategy rejection. Surface the evidence failure explicitly so the
-            # operator can repair the writer.
-            log.error("shadow evidence record failed for %s: %s", self._symbol_for(req, inst), exc)
+        except Exception:
+            # The writer may have committed before failing. Keep an UNKNOWN
+            # marker, never acknowledge missing evidence, and never leak the
+            # exception (which may include provider or storage secrets).
+            live_safety.record_idempotency(idem_key, "UNKNOWN")
+            log.error("shadow position persistence outcome unknown")
             return OrderRouterResponse(
-                accepted=True,
+                accepted=False,
                 mode="shadow",
                 symbol=self._symbol_for(req, inst),
                 side=self._side(req),
@@ -290,7 +349,21 @@ class OrderRouter:
                 entry_price=entry,
                 status="unknown",
                 code="shadow_record_failed",
-                reason=f"shadow paper-record failed: {exc}",
+                reason="Shadow position evidence is uncertain; inspect the virtual ledger before retrying",
+                timestamp_ms=now_ms,
+            )
+        if not isinstance(pid, str) or not pid.strip():
+            live_safety.record_idempotency(idem_key, "UNKNOWN")
+            return OrderRouterResponse(
+                accepted=False,
+                mode="shadow",
+                symbol=self._symbol_for(req, inst),
+                side=self._side(req),
+                size=req.size,
+                entry_price=entry,
+                status="unknown",
+                code="shadow_record_failed",
+                reason="Shadow position identity is unavailable; inspect the virtual ledger before retrying",
                 timestamp_ms=now_ms,
             )
         live_safety.record_idempotency(idem_key, f"shadow:{pid}")
@@ -301,25 +374,43 @@ class OrderRouter:
             timestamp_ms=now_ms,
         )
 
+    async def submit_canonical(self, *, request, risk_approval=None):
+        """Submit an authenticated, fully identified intent to the sole authority.
+
+        This accepts the canonical contract as-is. The old OrderRouterRequest
+        lacks account, generation and signal identity and can never be upgraded
+        by guessing them from a UI request, even against a paper adapter.
+        """
+        from app.services.execution_service import (
+            CanonicalExecutionService, ExecutionRequest, RiskApproval,
+        )
+        if not isinstance(request, ExecutionRequest):
+            raise TypeError("Canonical ExecutionRequest required")
+        if risk_approval is not None and not isinstance(risk_approval, RiskApproval):
+            raise TypeError("Typed RiskApproval required")
+        return await CanonicalExecutionService().submit_order(
+            request, broker_client=self.adapter, risk_approval=risk_approval,
+        )
+
     async def _submit_live(
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
+        """Never place orders from the unauthenticated legacy LIVE payload.
+
+        Keep preflight risk diagnostics but do not grant broker-write authority
+        based on a mode switch or a paper test double. Real canonical requests
+        must pass to submit_canonical() and durable journal admission.
+        """
         if self.adapter is None:
             return self._reject(req, "no_adapter", "Live mode requires an adapter", now_ms)
-
-        # ── Portfolio Greeks budget hard gate ───────────────────────────────
-        # Runs ONLY in live (not paper/shadow). The gate refreshes open
-        # positions' Greeks at current market via portfolio_greeks_aggregator
-        # before checking the new order's contribution against the budget caps.
-        # An unavailable risk check cannot authorize an exposure increase.
         try:
             gate_result = self.deps.greeks_budget_gate(
                 req, self.deps.list_open_positions(),
             )
             if hasattr(gate_result, "__await__"):
-                gate_result = await gate_result   # type: ignore[assignment]
-        except Exception as _exc:
-            log.warning("order router: greeks_budget_gate failed: %s", _exc)
+                gate_result = await gate_result
+        except Exception as exc:
+            log.warning("order router: greeks_budget_gate failed: %s", exc)
             return self._reject(req, "greeks_budget_unknown",
                                 "Portfolio Greeks budget unavailable", now_ms)
         if gate_result:
@@ -327,117 +418,21 @@ class OrderRouter:
                 req, "greeks_budget_breach",
                 f"Portfolio Greeks budget breach: {gate_result}", now_ms,
             )
-
-        side = self._side(req)
-        symbol = self._symbol_for(req, inst)
-
-        # Kite has no atomic entry+SL/TP bracket. This legacy router cannot claim
-        # a protected live entry simply because stop/target fields were supplied:
-        # the generic adapter ignores those fields for an ordinary MARKET/LIMIT
-        # entry. The canonical Kite lifecycle confirms the fill and then arms a
-        # durable broker-side GTT; protected entries must use that path.
         if not req.reduce_only and any(
-            value is not None
-            for value in (req.stop_loss, req.take_profit, req.trail_amount)
+            value is not None for value in (
+                req.stop_loss, req.take_profit, req.trail_amount
+            )
         ):
             return self._reject(
-                req,
-                "atomic_protection_unsupported",
+                req, "atomic_protection_unsupported",
                 "Legacy OrderRouter cannot guarantee exchange-side entry protection; "
-                "use canonical protected execution",
-                now_ms,
+                "use canonical protected execution", now_ms,
             )
-
-        # This router is a legacy dispatcher, not the canonical execution
-        # authority. Its request lacks authenticated account/generation proof and
-        # cannot verify a caller-provided reduce_only claim against broker inventory.
-        # Therefore every generic broker submission is paper-only. Purpose-built,
-        # verified close paths must remain separate from this generic dispatcher.
-        from app.core.lane_registry import noncanonical_broker_write_allowed
-        if not noncanonical_broker_write_allowed(self.adapter):
-            return self._reject(
-                req,
-                "noncanonical_live_order_disabled",
-                "Legacy OrderRouter cannot submit live broker orders; "
-                "use CanonicalExecutionService or a verified close primitive",
-                now_ms,
-            )
-
-        # Mark pending idempotency immediately before dispatching to adapter to prevent race conditions (TOCTOU)
-        live_safety.record_idempotency(idem_key, "PENDING")
-
-        extra_kwargs: Dict[str, Any] = {}
-        if req.stop_loss is not None:
-            extra_kwargs["trigger_price"] = req.stop_loss
-            if req.order_type in ("sl", "sl-m", "slm", "stop", "stop_loss", "stop_market") or req.reduce_only:
-                extra_kwargs["kite_order_type"] = "SL" if req.limit_price else "SL-M"
-
-        try:
-            if req.instrument_type == "options":
-                if not req.option_symbol:
-                    if getattr(live_safety, "_IDEMPOTENCY_CACHE", None) is not None:
-                        live_safety._IDEMPOTENCY_CACHE.pop(idem_key, None)
-                    return self._reject(req, "missing_option_symbol",
-                                        "Options orders require option_symbol", now_ms)
-                order = await self.adapter.place_order_option(
-                    option_symbol=req.option_symbol,
-                    side="buy" if not req.reduce_only else "sell",
-                    size=req.size,
-                    order_type=self._api_order_type(req.order_type),
-                    limit_price=req.limit_price,
-                    stop_loss=req.stop_loss,
-                    take_profit=req.take_profit,
-                    **extra_kwargs,
-                )
-                symbol = req.option_symbol
-            else:
-                product_id = await self.adapter.get_product_id(symbol)
-                order = await self.adapter.place_order(
-                    symbol=symbol,
-                    side=side,
-                    size=req.size,
-                    order_type=self._api_order_type(req.order_type),
-                    limit_price=req.limit_price,
-                    time_in_force=req.time_in_force,
-                    reduce_only=req.reduce_only,
-                    stop_loss=req.stop_loss,
-                    take_profit=req.take_profit,
-                    trail_amount=req.trail_amount,
-                    **extra_kwargs,
-                )
-        except Exception as exc:
-            return self._submission_unknown(
-                req=req,
-                idem_key=idem_key,
-                now_ms=now_ms,
-                symbol=symbol,
-                side=side,
-                detail=str(exc),
-            )
-
-        order_id = str(order.get("id") or order.get("order_id") or "")
-        if not order_id:
-            return self._submission_unknown(
-                req=req,
-                idem_key=idem_key,
-                now_ms=now_ms,
-                symbol=symbol,
-                side=side,
-                detail="Broker returned no order id",
-            )
-
-        entry_price = float(
-            order.get("average_fill_price") or order.get("limit_price") or 0.0
-        ) or None
-        live_safety.record_idempotency(idem_key, order_id)
-
-        return OrderRouterResponse(
-            accepted=True, mode=self.mode.value,
-            order_id=order_id,
-            symbol=symbol, side=side, size=req.size,
-            entry_price=entry_price,
-            status="filled" if not req.limit_price else "pending",
-            timestamp_ms=now_ms,
+        return self._reject(
+            req, "noncanonical_live_order_disabled",
+            "Legacy OrderRouterRequest has no account/generation authority; "
+            "use CanonicalExecutionService via submit_canonical() with a validated ExecutionRequest",
+            now_ms,
         )
 
     # ── stop amendment ──────────────────────────────────────────────────
@@ -619,7 +614,8 @@ class OrderRouter:
         if self.adapter is None:
             return 0.0
         try:
-            return float(await self.adapter.get_index_price(inst))
+            price = float(await self.adapter.get_index_price(inst))
+            return price if math.isfinite(price) and price > 0 else 0.0
         except Exception:
             return 0.0
 

@@ -7,7 +7,9 @@ authority. It never weakens the global live-entry floor.
 """
 from __future__ import annotations
 
+import math
 import time
+from numbers import Integral
 from typing import Any, Mapping, Optional
 
 from app.services.execution_service import (
@@ -27,7 +29,7 @@ async def available_entry_capital(client: Any) -> float:
         available = float(await available_fo_capital(client))
     except Exception:
         available = 0.0
-    if available > 0:
+    if math.isfinite(available) and available > 0:
         return available
 
     if getattr(client, "_is_paper", None) is not True:
@@ -47,7 +49,7 @@ async def available_entry_capital(client: Any) -> float:
             value = float(getattr(balance, "available", 0.0) or 0.0)
         except (TypeError, ValueError):
             return 0.0
-        return value if value > 0 else 0.0
+        return value if math.isfinite(value) and value > 0 else 0.0
     return 0.0
 
 
@@ -78,13 +80,24 @@ async def submit_entry(
             error="Authenticated broker account identity is unavailable",
         )
 
-    qty = int(quantity)
-    price = float(capital_price)
-    if qty <= 0 or price <= 0:
+    # Reject malformed or non-finite financial inputs before reserving an
+    # execution intent. Never coerce a fractional or boolean size to contracts.
+    try:
+        qty = int(quantity)
+        price = float(capital_price)
+    except (TypeError, ValueError, OverflowError):
+        qty, price = 0, 0.0
+    if (
+        isinstance(quantity, bool)
+        or not isinstance(quantity, Integral)
+        or qty <= 0
+        or not math.isfinite(price)
+        or price <= 0
+    ):
         return ExecutionResult(
             success=False,
             status="REJECTED",
-            error="Canonical entry requires positive quantity and capital price",
+            error="Canonical entry requires finite positive price and integral quantity",
         )
 
     available = await available_entry_capital(client)
@@ -96,6 +109,12 @@ async def submit_entry(
         )
 
     required = price * qty
+    if not math.isfinite(required) or required <= 0:
+        return ExecutionResult(
+            success=False,
+            status="REJECTED",
+            error="Canonical entry capital requirement is not finite",
+        )
     now_ms = int(time.time() * 1000)
     request_payload = dict(payload or {})
     request_payload.setdefault("product", product)

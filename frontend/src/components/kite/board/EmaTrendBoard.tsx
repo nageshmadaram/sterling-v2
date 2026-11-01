@@ -126,14 +126,15 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
   const startReadOnlyScanner = () => {
     if (historical || !config.data || config.data.config.symbols.length ||
         quickstart.isPending) return;
-    // Explicit user action; 5 cash stocks × 4 profiles. Never enable paper
-    // auto-entry, submit a trade, or silently overwrite an existing universe.
+    // Explicit user action: five cash stocks, original Daily/Weekly only.
+    // Historical retired profiles remain viewable; never enable new scans
+    // for them, arm paper entry, or silently overwrite an existing universe.
     quickstart.mutate({
       expected_revision: config.data.revision,
       changes: {
         symbols: [...EMA_TREND_QUICKSTART],
         scan_stocks_enabled: true,
-        modes: [...MODES],
+        modes: ['swing'],
         enabled: true,
         auto_execute: false,
       },
@@ -232,7 +233,7 @@ export function EmaTrendBoard({ onOpenDetail, onOpenChart }: {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button className="sb-tool" type="button" onClick={startReadOnlyScanner}
               disabled={quickstart.isPending || !config.data}>
-              {quickstart.isPending ? 'Configuring scanner…' : 'Start scanning 5 NSE stocks · All profiles'}
+              {quickstart.isPending ? 'Configuring scanner…' : 'Start scanning 5 NSE stocks · Original Daily/Weekly'}
             </button>
             <button className="sb-tool" type="button" onClick={() => openSettingsSection('emaTrend')}>
               Choose instruments

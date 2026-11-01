@@ -117,12 +117,14 @@ async function openOperationsTab(page: any) {
     }),
   );
 
-  await page.goto('/');
+  // WorkspaceRouter sends administrators at '/' to administration, not Kite.
+  // Open the explicitly granted Kite workspace for this isolated UI contract.
+  await page.goto('/kite');
 
   const tools = page.getByRole('button', { name: /^Tools/ });
   await expect(tools).toBeVisible({ timeout: 30_000 });
   await tools.click();
-  await page.getByRole('menuitem', { name: 'More', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Markets', exact: true }).click();
 
   const operations = page.getByTestId('more-tab-operations');
   await expect(operations).toBeVisible({ timeout: 15_000 });

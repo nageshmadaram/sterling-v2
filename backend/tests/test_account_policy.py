@@ -165,3 +165,74 @@ def test_preflight_is_read_only_and_redacted(identities):
     assert report['administrator_ids'] == ['default']
     assert 'password' not in str(report)
     assert path.read_bytes() == before
+
+
+
+@pytest.mark.asyncio
+async def test_administrator_reason_code_is_durable_and_not_an_approval(identities):
+    actor = UserContext(user_id='default', role='admin')
+    payload = api.FeatureEdit(
+        expected_revision=0,
+        features=api.FeatureGrants(kite=True, tv=False, radio=False),
+        reason_code="ACCESS_REVIEW",
+    )
+    updated = await api.update_features('member', payload, Response(), actor)
+    assert updated["revision"] == 1
+    with db._conn() as c:
+        audit = c.execute(
+            "SELECT actor_id,target_id,action,reason_code,before_json,after_json,created_at_ms "
+            "FROM auth_audit_events WHERE action='features.updated'"
+        ).fetchone()
+        assert audit["actor_id"] == "default" and audit["target_id"] == "member"
+        assert audit["reason_code"] == "ACCESS_REVIEW"
+        assert audit["created_at_ms"] > 0
+        assert '"kite": true' in audit["after_json"]
+        assert '"kite": false' in audit["before_json"]
+    user_store._init_table()  # repeated migration preserves reason and event
+    with db._conn() as c:
+        assert c.execute("SELECT reason_code FROM auth_audit_events").fetchone()[0] == "ACCESS_REVIEW"
+    with pytest.raises(ValidationError):
+        api.FeatureEdit(
+            expected_revision=1,
+            features=api.FeatureGrants(kite=False, tv=False, radio=False),
+            reason_code="user supplied free-form secret",
+        )
+
+
+def test_unsupplied_reason_is_honestly_recorded_as_not_provided(identities):
+    policy.set_features("default", "member", dict.fromkeys(policy.FEATURES, True), 0)
+    with db._conn() as c:
+        assert c.execute("SELECT reason_code FROM auth_audit_events").fetchone()[0] == "NOT_PROVIDED"
+
+
+
+def test_historical_audit_schema_upgrade_preserves_existing_events(tmp_path, monkeypatch):
+    """The additive reason-code migration must not rewrite prior audit causality."""
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'legacy-audit.sqlite'))
+    assert db.init()
+    with db._conn() as c:
+        c.execute("""CREATE TABLE auth_audit_events (
+            id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, target_id TEXT NOT NULL,
+            action TEXT NOT NULL, before_json TEXT NOT NULL, after_json TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL
+        )""")
+        c.execute(
+            "INSERT INTO auth_audit_events VALUES(?,?,?,?,?,?,?)",
+            ('legacy-event', 'historical-actor', 'historical-member', 'features.updated',
+             '{"kite": false}', '{"kite": true}', 1660000000000),
+        )
+    user_store._init_table()
+    user_store._init_table()  # second migration is required to be a no-op
+    with db._conn() as c:
+        rows = c.execute(
+            'SELECT * FROM auth_audit_events WHERE id=?', ('legacy-event',)
+        ).fetchall()
+        assert len(rows) == 1
+        record = dict(rows[0])
+        assert record['actor_id'] == 'historical-actor'
+        assert record['target_id'] == 'historical-member'
+        assert record['action'] == 'features.updated'
+        assert record['before_json'] == '{"kite": false}'
+        assert record['after_json'] == '{"kite": true}'
+        assert record['created_at_ms'] == 1660000000000
+        assert record['reason_code'] == 'NOT_PROVIDED'

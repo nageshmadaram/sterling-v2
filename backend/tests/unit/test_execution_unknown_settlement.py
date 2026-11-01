@@ -137,6 +137,44 @@ async def test_a_read_timeout_stays_unknown_and_fences_the_account():
 
 @pytest.mark.kite_features('default', 'u1')
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ack", [
+    None,
+    {"order_id": None},
+    {"order_id": "UNKNOWN"},
+    {"order_id": "PENDING"},
+    {"order_id": "paper:virtual-position"},
+    {"order_id": True},
+    {"order_id": 0},
+    {"order_id": "  "},
+])
+async def test_missing_or_synthetic_broker_ack_is_unknown_and_never_resent(ack):
+    class AmbiguousAckBroker(Broker):
+        async def place_order(self, **kwargs):
+            self.sent += 1
+            return ack
+
+    client = AmbiguousAckBroker()
+    req, approval = _entry()
+    executor = CanonicalExecutionService()
+
+    result = await executor.submit_order(
+        req, broker_client=client, risk_approval=approval,
+    )
+    assert not result.success and result.status == "UNKNOWN"
+    assert not result.order_id
+    assert client.sent == 1
+    assert _intent(req).state == "UNKNOWN"
+    assert db.get_execution_control(uid="u1", account_id="acc1")["recovery_state"] == "RECOVERY_REQUIRED"
+
+    replay = await executor.submit_order(
+        req, broker_client=client, risk_approval=approval,
+    )
+    assert not replay.success
+    assert client.sent == 1
+
+
+@pytest.mark.kite_features('default', 'u1')
+@pytest.mark.asyncio
 async def test_a_cancelled_send_is_recorded_as_uncertain_not_left_submitting():
     req, approval = _entry()
     with pytest.raises(asyncio.CancelledError):
@@ -164,6 +202,37 @@ async def test_a_refused_reduction_proof_leaves_a_reserved_row_not_a_submitting_
     again = await CanonicalExecutionService().submit_order(_exit(), broker_client=broker)
     assert again.success is True and again.order_id == "ORD-1"
     assert broker.sent == 1
+
+
+@pytest.mark.asyncio
+async def test_broker_reduction_inventory_disappearing_between_proofs_never_sends():
+    """Pre-reservation inventory is not sufficient to authorize a final SELL."""
+    db.set_inventory(account_id="acc1", uid="u1", symbol="SBIN", net_quantity=10, exchange="NSE")
+
+    class BrokerThatLosesInventory(Broker):
+        def __init__(self):
+            super().__init__(rows=[{
+                "tradingsymbol": "SBIN", "exchange": "NSE",
+                "product": "NRML", "quantity": 10,
+            }])
+            self.reads = 0
+
+        async def get_positions_raw(self):
+            self.reads += 1
+            if self.reads == 1:
+                return await super().get_positions_raw()
+            return {"net": [], "day": []}
+
+    broker = BrokerThatLosesInventory()
+    req = _exit(signal="inventory-flipped-before-send")
+    result = await CanonicalExecutionService().submit_order(req, broker_client=broker)
+    assert result.success is False
+    assert result.status == "REJECTED"
+    assert "reduction proof changed" in result.error
+    assert broker.reads == 2
+    assert broker.sent == 0
+    assert _intent(req).state == "REJECTED"
+    assert db.get_execution_control(uid="u1", account_id="acc1")["recovery_state"] == "CLEAN"
 
 
 @pytest.mark.kite_features('default', 'u1')

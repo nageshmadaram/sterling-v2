@@ -11,8 +11,8 @@ The rule has three parts:
   * production code may not call a broker order-placing method directly;
   * the exception is the canonical execution service itself, which is where the
     single permitted send lives;
-  * exits, cancels and protective orders are NOT covered — refusing to close a
-    position is how a safety mechanism becomes the thing that loses the money.
+  * ordinary BUY and SELL order sends are covered. Broker-side GTT protection,
+    cancellation and amendments have separate narrowly-scoped safety tests.
 """
 from __future__ import annotations
 
@@ -40,25 +40,11 @@ ALLOWED_FILES = {
 #: Paths that are not production order flow.
 SKIPPED_PREFIXES = ("tests/", "study/")
 
-#: The direct calls that existed when this rule was written, counted per file and
-#: method. None of these engines is family-visible — `FAMILY_VISIBLE_STRATEGIES`
-#: is `{"snapback"}` — and in Family Mode `guard_broker_write` refuses every one
-#: of them at the transport, so they cannot reach a family account today. They
-#: are recorded rather than converted because converting six engines at once, in
-#: one release, is how a safety refactor becomes the outage.
-#:
-#: The contract is that this baseline only ever shrinks. A new direct call, or an
-#: extra one in a file that already has some, fails the test. When an engine is
-#: converted, delete its line — leaving a stale entry quietly re-permits a call.
-KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {
-    ("agents/broker_agent.py", "place_order"): 1,
-    ("services/adaptive_edge_runner.py", "place_order"): 1,
-    ("services/execution/order_router.py", "place_order"): 1,
-    ("services/execution/order_router.py", "place_order_option"): 1,
-    ("services/gamma_move_runner.py", "place_order"): 1,
-    ("services/intraday_runner.py", "place_order"): 2,
-    ("services/opening_volume_execution.py", "place_order_option"): 1,
-}
+#: There are no grandfathered direct broker-order send calls. Any newly
+#: introduced strategy place_order/place_order_option/place_order_future is a
+#: regression, including a protective SELL. GTT protection and cancellation
+#: remain separate capabilities and are not ordinary order sends.
+KNOWN_DIRECT_CALLS: dict[tuple[str, str], int] = {}  # no grandfathered direct order sends
 
 
 # Grandfathered strategy entry functions that still use the transport directly
@@ -67,11 +53,6 @@ DIRECT_ENTRY_FUNCTIONS: dict[str, tuple[str, str]] = {
     # Noncanonical/unpromoted entry paths are converted to the permanent
     # paper-only floor one at a time. Remaining entries still on
     # entry_transport_allowed require canonical migration before live promotion.
-    "agents/broker_agent.py": ("place_order", "noncanonical_broker_write_allowed"),
-    "services/execution/order_router.py": (
-        "_submit_live",
-        "noncanonical_broker_write_allowed",
-    ),
 }
 
 
@@ -230,13 +211,12 @@ def test_intraday_entry_path_uses_the_canonical_door():
     assert "result = await submit_entry(" in source
 
 
-def test_intraday_direct_sells_require_broker_truth_and_reduce_authority():
-    """The two remaining direct orders are exits, not an unchecked second door."""
+def test_intraday_exits_use_only_canonical_reduction():
     source = (APP / "services/intraday_runner.py").read_text(encoding="utf-8")
+    assert source.count("submit_reduction(") == 2
     assert "broker_qty = await _broker_long_quantity(client, pos)" in source
-    assert "if not await _release_protection_for_exit(uid, client, pos):" in source
-    assert "intent=INTENT_REDUCE" in source
-    assert "refusing a second SELL" in source
+    assert "_release_protection_for_exit(uid, client, pos)" in source
+
 
 
 def test_opening_volume_tag_recovery_never_invents_live_order_ownership():
@@ -246,12 +226,12 @@ def test_opening_volume_tag_recovery_never_invents_live_order_ownership():
     assert "Do not cancel it" in source
 
 
-def test_opening_volume_emergency_sell_is_exact_nrml_reduce_only():
+def test_opening_volume_emergency_sell_uses_canonical_nrml_reduction():
     source = (APP / "services/opening_volume_execution.py").read_text(encoding="utf-8")
-    assert 'want_product = str(product or "").strip().upper()' in source
-    assert 'client, symbol, exchange, product="NRML"' in source
+    assert "submit_reduction(" in source
     assert 'product="NRML"' in source
-    assert "intent=INTENT_REDUCE" in source
+    assert 'kind="emergency-protection-failed"' in source
+
 
 
 def test_kite_order_wrapper_keeps_live_option_exits_available_under_halt():
@@ -302,18 +282,34 @@ def test_unknown_exit_recovery_requires_immutable_full_order_identity():
     assert 'str(order.get("exchange") or "").strip().upper()' in service_source
 
 
-def test_canonical_monitor_exit_send_carries_reduce_authority():
-    """Family Mode must never block the canonical exit at the transport boundary."""
+def test_supertrend_monitor_exit_uses_canonical_journal_instead_of_an_indirect_send():
     source = (APP / "services/kite_engine/monitor.py").read_text(encoding="utf-8")
-    assert "exit-send:" in source
-    assert "intent=INTENT_REDUCE" in source
-    assert "result = await place(" in source
+    assert "reduction_inventory_refusal(" in source
+    assert "submit_reduction(" in source
+    assert "canonical_intent_key = order_journal.make_key(" in source
+    assert 'p.exit_tag = "ke" + canonical_intent_key[:18]' in source
+    assert "result = await place(" not in source
+    assert "place = client.place_order_" not in source
+
+
+def test_no_broker_order_method_is_rebound_to_bypass_direct_call_audit():
+    """Catch a former SuperTrend bypass: place=client.place_order_option; await place(...)."""
+    found = []
+    for path in _production_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
+                value = node.value
+                if isinstance(value, ast.Attribute) and value.attr in ENTRY_METHODS:
+                    found.append(f"{_relative(path)}:{node.lineno}:{value.attr}")
+    assert not found, "Indirect broker order methods bypass canonical journal: " + ", ".join(found)
+
 
 
 def test_legacy_order_router_auxiliary_mutations_are_paper_only():
     """Names like reduce-close/stop-replace are not broker-truth proofs."""
     source = (APP / "services/execution/order_router.py").read_text(encoding="utf-8")
-    assert source.count("noncanonical_broker_write_allowed(self.adapter)") >= 3
+    assert source.count("noncanonical_broker_write_allowed(self.adapter)") == 2  # The only two live legacy auxiliary mutation methods.
     messages = [n.value for n in ast.walk(ast.parse(source))
                 if isinstance(n, ast.Constant) and isinstance(n.value, str)]
     assert any("cannot prove live broker inventory for partial close" in message for message in messages)
@@ -331,7 +327,7 @@ def test_intraday_family_mutations_are_bound_to_mis_product_bucket():
         if rel.endswith("gamma_move_runner.py"):
             # Gamma carries the broker product bucket on the position itself; every
             # broker mutation derives it from there rather than from the hold.
-            assert source.count("product=_product(pos)") >= 3
+            assert source.count("product=_product(pos)") >= 2
         else:
             assert 'want_product = "MIS"' in source
             assert 'product="MIS"' in source
@@ -382,7 +378,7 @@ def test_legacy_engine_exits_prove_broker_truth_and_gtt_release(rel, position_na
     assert "_cancel_protection" in source
     assert "cancel_stop_result" in source
     assert "STOP_ABSENT" in source
-    assert "intent=INTENT_REDUCE" in source
+    assert "submit_reduction(" in source
     assert "broker quantity" in source
 
 
@@ -440,3 +436,80 @@ def test_exit_paths_are_not_covered_by_this_rule():
 def test_allowlist_entries_still_exist(allowed: str):
     """An allowlist entry pointing at a deleted file silently widens the rule."""
     assert (APP / allowed).exists(), f"allowlisted file {allowed} no longer exists"
+
+
+def test_all_five_former_legacy_sell_paths_have_canonical_journal_handoffs():
+    """No grandfathered SELL bypasses, including the original five reductions."""
+    expected = {
+        "services/adaptive_edge_runner.py": 1,
+        "services/gamma_move_runner.py": 1,
+        "services/intraday_runner.py": 2,
+        "services/opening_volume_execution.py": 1,
+    }
+    for rel, count in expected.items():
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert source.count("submit_reduction(") == count, f"{rel}: missing canonical reductions"
+        assert not _direct_entry_calls(APP / rel), f"{rel}: direct broker write returned"
+    assert not _direct_entry_calls(APP / "services/kite_engine/monitor.py")
+
+
+
+@pytest.mark.asyncio
+async def test_legacy_broker_facade_refuses_real_and_unknown_transports():
+    """Neither a supplied reduce_only flag nor missing transport mode grants access."""
+    from unittest.mock import AsyncMock
+    from app.agents.broker_agent import BrokerAgent
+
+    for mode in (False, None):
+        class Adapter:
+            _is_paper = mode
+            place_order = AsyncMock(return_value={'id': 'should-not-exist'})
+            cancel_order = AsyncMock(return_value={})
+
+        agent = BrokerAgent(Adapter())
+        with pytest.raises(RuntimeError, match='CanonicalExecutionService'):
+            await agent.place_order(symbol='NIFTY', side='buy', reduce_only=True)
+        agent.adapter.place_order.assert_not_awaited()
+        with pytest.raises(RuntimeError, match='cannot cancel live or mode-unknown'):
+            await agent.cancel_order('synthetic-order', 1)
+        agent.adapter.cancel_order.assert_not_awaited()
+
+
+def test_legacy_router_has_no_adapter_order_send_and_hands_off_typed_canonical():
+    src = (APP / 'services/execution/order_router.py').read_text(encoding='utf-8')
+    assert not _direct_entry_calls(APP / 'services/execution/order_router.py')
+    tree = ast.parse(src)
+    named = {
+        n.name: n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    handoff = named['submit_canonical']
+    assert any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == 'submit_order'
+        for n in ast.walk(handoff)
+    )
+    assert '_is_paper' not in ast.get_source_segment(src, named['_submit_live'])
+
+
+def test_no_legacy_order_send_call_remains_in_production_paths():
+    assert KNOWN_DIRECT_CALLS == {}
+    assert _observed_direct_calls() == {}
+    for rel, expected in (
+        ("services/adaptive_edge_runner.py", 1),
+        ("services/gamma_move_runner.py", 1),
+        ("services/intraday_runner.py", 2),
+        ("services/opening_volume_execution.py", 1),
+    ):
+        source = (APP / rel).read_text(encoding="utf-8")
+        assert source.count("submit_reduction(") == expected
+
+
+def test_canonical_reduction_bridge_never_fabricates_inventory():
+    source = (APP / "services/canonical_strategy_reduction.py").read_text(encoding="utf-8")
+    assert "db.get_inventory_strict(" in source
+    assert "db.set_inventory(" not in source
+    assert "CanonicalExecutionService().submit_order(" in source
+    assert "ExposureEffect.CLOSE_POSITION" in source
+    assert "ExposureEffect.REDUCE_EXPOSURE" in source
+    assert "client.place_order(" not in source

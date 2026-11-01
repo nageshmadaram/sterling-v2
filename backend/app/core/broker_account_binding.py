@@ -164,7 +164,9 @@ class BrokerAccountBinding:
         """
         return (
             self.status is BindingStatus.ACTIVE
-            and "live" in self.account_scope.lower()
+            # Never infer broker-write authority from a substring. An
+            # imported "not_live" / "live_disabled" scope is not live.
+            and self.account_scope.strip().lower() in {"live", "live_minimum"}
             and bool(self.static_egress_profile.strip())
         )
 
