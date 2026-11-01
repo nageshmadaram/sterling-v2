@@ -119,3 +119,178 @@ slice; existing Kite tools stay inside their current dock. A future UI
 registry adapter can consume the authenticated metadata but must not create
 separate data subscriptions or order actions. Python and Flow execution
 remain disabled pending independent isolated-runtime design and tests.
+
+## Non-authorizing broker API normalization (next stacked slice)
+
+`GET /api/v1/platform/api-normalization` publishes source-verifiable OpenAlgo
+operation-to-Sterling route mappings. Only the existing authenticated
+`POST /api/v1/compat/openalgo/orderstatus` is an implemented **read-only**
+compatibility adapter. `placeorder`, `cancelorder`, and `orderbook` are
+documented as **no_wrapper**; their Sterling paths remain canonical and are
+not called by this metadata router.
+
+The mapping is a pure immutable registry. It does not execute a mapped
+method, authenticate OpenAlgo API keys, poll brokers, create sessions,
+subscribe, place/cancel orders, or alter Sterling risk gates. Unit tests
+check actual route declarations, default-deny dispatch, authorized viewer
+reads, no-store, denial on missing Kite grant, and production JWT refusal.
+Full normalized response schemas and write-adapter parity remain outstanding,
+and no OpenAlgo order execution API is authorized by this inventory.
+
+This slice must remain draft/unmerged until its exact-head offline contract
+workflow passes and its stacked parents and broad release gates have separate
+acceptance. Production remains NO-GO.
+
+## Strategy/RMS integration boundary: phase-1 lane read contract
+
+`GET /api/v1/platform/strategies` is authenticated and Kite-feature-gated.
+It projects *existing* `app.core.lane_registry.all_lanes` records into typed
+strategy/mode metadata without copying the registry. It explicitly declares
+`execution_authorized=false`, `strategy_dispatch_mounted=false`, and
+`platform_execute_authorized=false` for every lane. A lane's declared
+`live_minimum` state is NOT a trading permission.
+
+The only existing entry-to-order path remains
+`canonical_strategy_entry.submit_entry` →
+`CanonicalExecutionService.submit_order`, with its original kill-switch,
+account identity, risk approval, durable intent and evidence checks. These
+are **source references** in the new discovery contract, not an alternative
+execution adapter or a new endpoint for strategies to submit orders.
+
+The next execution-adapter work must be preceded by exact-head tests of
+account-scoped identity, accepted/rejected capital and risk decisions,
+UNKNOWN fill behavior, protective stop retention, and all legacy strategy
+entry/exit call sites. No code in this slice relaxes those gates.
+An offline Flow validator and Python runner must each be implemented
+without importing or contacting canonical broker clients or write paths.
+Actual `/strategy`, `/flow`, `/python`, `/tools`, `/trading`, and
+`/scalping` workspaces remain unmounted.
+
+This is a phase-1 read contract only; full OpenAlgo runtime, normalized
+broker responses, executable platform adapters, and production certification
+remain outstanding. Parent PR #15 and all stacked drafts remain NO-GO until
+their independent exact-SHA release checks are accepted.
+
+## Offline-only Python draft and Flow topology foundations
+
+`app.services.platform_offline_authoring` provides two pure review utilities,
+with **no HTTP route, code execution, persistence, workers, external process,
+broker imports, market subscriptions or strategy integration**:
+
+1. `review_python_draft(source)`: bounded UTF-8 size, Python syntax parse and
+   AST node budget. Returns only syntax validity, source SHA-256, and explicit
+   `sandbox_available=false` / `execution_authorized=false`. Syntax-valid
+   code is **not trusted or safe to execute**. The source is never executed,
+   compiled to bytecode, logged by this utility, or saved.
+2. `validate_flow_topology(graph)`: a strict, finite nodes/edges-only graph
+   schema, deterministic topological ordering, rejection of duplicates,
+   malformed references, cycles, unknown fields, oversized graphs and any
+   embedded action or broker-call payload. Returns
+   `graph_executor_available=false` and `execution_authorized=false`.
+   This is a graph-shape validator, **not** a Flow node interpreter or dry run.
+
+Neither helper is a runnable Python host or functioning no-code builder.
+A future execution host requires an external OS-enforced sandbox (not
+AST-based "security"), memory/CPU/time/network/filesystem confinement,
+tenant isolation, durable audit, independent risk and broker authorization
+review, and negative end-to-end validation. Existing canonical trading
+paths must not be imported into untrusted execution environments.
+
+Full charting/scalping UI routes, Python execution and Flow execution remain
+unmounted. Production is NO-GO.
+
+## Kite Tools catalog UI foundation (stacked follow-up)
+
+Within the existing `/kite` workspace only, the **More → Tools** tab renders
+a read-only catalog from `GET /api/v1/platform/tools` in
+`frontend/src/components/kite/PlatformToolsPane.tsx`. It reuses
+`KiteTab`, `KiteLayout`, `api.get` and the existing authenticated
+workspace and Simulation view boundaries; it adds no new global workspace,
+broker session, market-data subscription, tool dispatcher or trade action.
+
+The view fails closed if catalog retrieval fails or the server changes any
+required non-execution or Kite-grant metadata. The UI does not call the
+listed endpoints: it renders exact canonical method/path labels as inert
+text, never converting server-provided paths into executable links.
+TanStack query keys include the current live/Simulation view so the
+two tenant contexts do not share metadata cache entries.
+
+The global `/tools` route stays **planned/unmounted** and is not a new
+access grant. The global `/trading` and `/scalping` routes likewise stay
+**planned/unmounted**: existing Kite instrument/chart views and canonical
+lane-runner logic remain the only available integration surfaces. Adding a
+direct route later requires independent policy revocation, route-isolation,
+viewer read-only, strategy gate and device/browser tests. Do not interpret
+catalog visibility as permission to place an order.
+
+Acceptance for this slice includes TypeScript, a focused browser-DOM test
+for safe/unsafe catalog payloads, authorization failures and Simulation
+query-key separation, plus inherited backend identity/ticker/registry tests.
+Full browser integration, charts/scalping parity and production acceptance
+remain outstanding.
+
+## Canonical Tool identity enforcement and chart/scalping view contracts
+
+The existing Kite More → Tools pane formerly accepted any `/api/v1/` path
+and endpoint-module prefix for a known tool key. Although the pane displayed
+these strings as inert text, this under-validated the source contract and
+could mask registry drift. Its display validator now requires the exact
+key/category/path/module triplet declared by the backend registry, the GET
+method, exact no-execution flags and only known fields. Tests reject a known
+tool key renamed to an order path or backed by a different endpoint module;
+valid PCR, candles, strategy-mode and ticker-status declarations still pass.
+This defensive display allowlist does not dispatch requests or replace backend
+authorization; incompatible future metadata must be reviewed before display.
+
+`GET /api/v1/platform/view-contracts` is a **read-only** authenticated
+Kite-feature-gated endpoint providing concrete source references to existing
+chart and scalping capabilities:
+
+- Charting: current Kite main-dock `InstrumentPane` chart, using
+  canonical `GET /api/v1/candles/{underlying}` as a read API reference.
+- Scalping: actual `lane_registry` scalping-mode lane identifiers,
+  with read API reference to
+  `GET /api/v1/strategies/{strategy}/{mode}/status`. This is **not** a
+  standalone scalping UI or a substitute for `may_originate`.
+
+Both `/trading` and `/scalping` remain unmounted global paths.
+Every contract explicitly reports `route_mounted=false`,
+`execution_authorized=false`, and `independent_feed=false`.
+The endpoint does not invoke chart handlers or strategy execution,
+create broker state, start a feed, perform a trade, or grant a session.
+New negative tests verify route isolation, feature denial, anonymous
+production refusal, canonical API and frontend source correspondence,
+actual (not copied) lane identifiers, and non-execution imports.
+
+This **completes only the inert route-metadata slice**, not a standalone
+chart/scalping product. Working global UI routes, market-data lifecycle
+parity and operator-facing execution acceptance remain blocked behind
+independent reviews and parent PR #15's broad release gates.
+
+## Session identity and registry completeness hardening
+
+The passive `GET /api/v1/platform/runtime` projection now requires **two
+nonblank string account IDs** (the scoped active Sterling account and the
+existing ticker's recorded account binding) that match exactly before
+reporting an account-bound or connected feed. Two missing, empty, or
+whitespace-only identifiers must **never** count as a binding, even when
+the ticker reports `connected=true`. A malformed non-dictionary
+`ticker_manager.status` result causes fail-closed HTTP 503 rather than
+a false connection claim or an unhandled response.
+
+The correction remains inside the non-authorizing read projection. It does
+not mutate `accounts`, `ticker_manager`, refresh tokens, instantiate a
+Kite client, or subscribe to feeds. The active-account owner, broker token,
+Sim owner/tenant and risk logic remain authoritative. New regression tests
+cover empty/mismatched account IDs, malformed feed states, refusal at the
+authenticated endpoint, and no auto-provisioning.
+
+The surface registry now includes its own real
+`GET /api/v1/platform/surfaces` entry; a new source-AST completeness
+test compares **all actual platform-discovery GET declarations** against
+the registry and response so adding a mounted route without registration
+fails validation. Route metadata is still information, not a new grant.
+
+This change does **not** establish fresh broker-login verification,
+data-feed recency guarantees, live-order safety acceptance, or operational
+readiness. All parent drafts and the production release remain NO-GO.

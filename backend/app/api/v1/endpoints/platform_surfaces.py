@@ -14,6 +14,12 @@ from app.core.feature_access import require_feature
 from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
 from app.services.platform_session_read import session_feed_snapshot
 from app.services.platform_tool_registry import tools_snapshot
+from app.services.platform_view_contracts import view_contract_snapshot
+from app.services.platform_api_normalization import normalization_snapshot
+from app.services.platform_strategy_contract import (
+    CANONICAL_ENTRY, CANONICAL_EXECUTION, CANONICAL_LANE_AUTHORITY,
+    strategy_contract_snapshot,
+)
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -132,4 +138,114 @@ async def platform_tools(
         execution_authorized=False,
         tools_ui_mounted=False,
         tools=[ToolContract(**entry) for entry in tools_snapshot()],
+    )
+
+
+class ApiNormalizationEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str
+    target_method: Literal["GET", "POST", "DELETE"]
+    target_path: str
+    canonical_method: Literal["GET", "POST", "DELETE"]
+    canonical_path: str
+    canonical_module: str
+    compatibility: Literal["read_only_adapter", "no_wrapper"]
+    executable_through_platform: Literal[False]
+
+
+class ApiNormalizationContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    proxy_mounted: Literal[False]
+    mappings: list[ApiNormalizationEntry]
+
+
+@router.get("/platform/api-normalization", response_model=ApiNormalizationContract)
+async def platform_api_normalization(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> ApiNormalizationContract:
+    """Inventory only; does not dispatch to any mapped broker or order route."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return ApiNormalizationContract(
+        version="0.1.0", execution_authorized=False, proxy_mounted=False,
+        mappings=[ApiNormalizationEntry(**entry) for entry in normalization_snapshot()],
+    )
+
+
+class StrategyLaneReadContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    strategy_id: str
+    mode: str
+    lane_key: str
+    state: str
+    rules_defined: bool
+    platform_execute_authorized: Literal[False]
+
+
+class StrategyAdapterReadContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    strategy_dispatch_mounted: Literal[False]
+    canonical_entry: str
+    canonical_execution: str
+    canonical_lane_authority: str
+    lanes: list[StrategyLaneReadContract]
+
+
+@router.get("/platform/strategies", response_model=StrategyAdapterReadContract)
+async def platform_strategies(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> StrategyAdapterReadContract:
+    """Describe real registered strategy lanes, never submit or approve orders."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return StrategyAdapterReadContract(
+        version="0.1.0",
+        execution_authorized=False,
+        strategy_dispatch_mounted=False,
+        canonical_entry=CANONICAL_ENTRY,
+        canonical_execution=CANONICAL_EXECUTION,
+        canonical_lane_authority=CANONICAL_LANE_AUTHORITY,
+        lanes=[StrategyLaneReadContract(**r) for r in strategy_contract_snapshot()],
+    )
+
+
+class ViewSurfaceContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: Literal["charting", "scalping"]
+    proposed_global_route: Literal["/trading", "/scalping"]
+    existing_kite_surface: str
+    existing_component: str
+    canonical_read_api: str
+    route_mounted: Literal[False]
+    execution_authorized: Literal[False]
+    independent_feed: Literal[False]
+    existing_lane_keys: list[str]
+
+
+class ViewSurfaceCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    global_routes_mounted: Literal[False]
+    surfaces: list[ViewSurfaceContract]
+
+
+@router.get("/platform/view-contracts", response_model=ViewSurfaceCatalog)
+async def platform_view_contracts(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> ViewSurfaceCatalog:
+    """Describe existing Kite views without activating global routes or trading."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return ViewSurfaceCatalog(
+        version="0.1.0", execution_authorized=False,
+        global_routes_mounted=False,
+        surfaces=[ViewSurfaceContract(**row) for row in view_contract_snapshot()],
     )

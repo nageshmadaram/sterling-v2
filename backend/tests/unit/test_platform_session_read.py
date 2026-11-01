@@ -140,3 +140,55 @@ def test_runtime_inconsistent_account_fails_closed(monkeypatch):
                         lambda *args: (_ for _ in ()).throw(ValueError("account_scope_mismatch")))
     with TestClient(app) as c:
         assert c.get("/api/v1/platform/runtime").status_code == 503
+
+
+@pytest.mark.parametrize("identifier", [None, "", " ", "\t"])
+def test_matching_missing_account_ids_never_prove_ticker_ownership(monkeypatch, identifier):
+    """Two empty IDs matching must not turn a disconnected/unknown feed green."""
+    monkeypatch.setattr(accounts, "get_active", lambda uid: account(ident=identifier))
+    monkeypatch.setattr(ticker_manager, "status", lambda uid: {
+        "account_id": identifier, "connected": True, "subscribed": [1, 2],
+        "last_tick_ms": 123,
+    })
+    result = session_feed_snapshot(UserContext(user_id="alice"))
+    assert result["account_configured"] is True
+    assert result["stored_session_present"] is True
+    assert result["active_account_feed_bound"] is False
+    assert result["feed_connected"] is False
+    assert result["subscribed_count"] == result["last_tick_ms"] == 0
+
+
+@pytest.mark.parametrize("ticker_id", [None, "", " ", "OTHER-ACCOUNT"])
+def test_unverified_ticker_account_id_is_not_trusted(monkeypatch, ticker_id):
+    monkeypatch.setattr(accounts, "get_active", lambda uid: account(ident="KITE-A"))
+    monkeypatch.setattr(ticker_manager, "status", lambda uid: {
+        "account_id": ticker_id, "connected": True, "subscribed": [1],
+        "last_tick_ms": 101,
+    })
+    result = session_feed_snapshot(UserContext(user_id="alice"))
+    assert result["active_account_feed_bound"] is False
+    assert result["feed_connected"] is False
+    assert result["subscribed_count"] == result["last_tick_ms"] == 0
+
+
+@pytest.mark.parametrize("ticker_state", [None, [], "connected", 1])
+def test_malformed_existing_ticker_status_fails_closed(monkeypatch, ticker_state):
+    monkeypatch.setattr(accounts, "get_active", lambda uid: account())
+    monkeypatch.setattr(ticker_manager, "status", lambda uid: ticker_state)
+    monkeypatch.setattr(ticker_manager, "ensure", fail_new_state)
+    with pytest.raises(ValueError, match="scoped_ticker_status_invalid"):
+        session_feed_snapshot(UserContext(user_id="alice"))
+
+
+def test_malformed_ticker_status_is_not_returned_as_a_healthy_api_response(monkeypatch):
+    app = FastAPI()
+    app.include_router(endpoint.router, prefix="/api/v1")
+    app.dependency_overrides[get_current_user] = lambda: UserContext(user_id="alice")
+    monkeypatch.setattr(endpoint, "require_feature", lambda *_args: None)
+    monkeypatch.setattr(accounts, "get_active", lambda uid: account())
+    monkeypatch.setattr(ticker_manager, "status", lambda uid: None)
+    monkeypatch.setattr(ticker_manager, "ensure", fail_new_state)
+    with TestClient(app) as client:
+        response = client.get("/api/v1/platform/runtime")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Scoped platform runtime unavailable"}
