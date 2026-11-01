@@ -189,7 +189,7 @@ test('EMA empty universe can start safe read-only scans with a single explicit a
   });
   await page.goto('/e2e/fixtures/ema-trend-harness.html');
   await page.getByRole('button', { name: 'Signals workspace' }).click();
-  const button = page.getByRole('button', { name: 'Start scanning 5 NSE stocks · All profiles' });
+  const button = page.getByRole('button', { name: 'Start scanning 5 NSE stocks · Original Daily/Weekly' });
   await expect(button).toBeEnabled();
   expect(requests).toEqual([]); // Merely opening the board never changes strategy config.
   await button.click();
@@ -197,10 +197,12 @@ test('EMA empty universe can start safe read-only scans with a single explicit a
   const patch = requests.find(row => row.method === 'PATCH');
   expect(patch?.body?.changes).toMatchObject({
     enabled: true, auto_execute: false,
-    modes: ['swing', 'intraday', 'scalping', 'ultra_scalping'],
+    modes: ['swing'],
     symbols: ['NSE:RELIANCE', 'NSE:TCS', 'NSE:INFY', 'NSE:HDFCBANK', 'NSE:ICICIBANK'],
   });
   await expect.poll(() => requests.some(row => row.path.endsWith('/scan'))).toBe(true);
+  const scan = requests.find(row => row.path.endsWith('/scan'));
+  expect(scan?.body?.modes).toEqual(['swing']);
   expect(requests.every(row => !row.path.endsWith('/arm') && !row.path.endsWith('/actions'))).toBe(true);
   expect(saved.config.auto_execute).toBe(false);
 });
