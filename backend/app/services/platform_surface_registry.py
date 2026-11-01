@@ -61,6 +61,11 @@ SURFACES: tuple[Surface, ...] = (
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
+        "authoring_capabilities", "/api/v1/platform/authoring/capabilities",
+        "Offline authoring and chart/scalp capability flags", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "python", "/python", "Python strategy host", "planned", "",
     ),
     Surface(

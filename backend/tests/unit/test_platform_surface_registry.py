@@ -98,6 +98,10 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/strategies",
             "/api/v1/platform/strategies",
         ),
+        "authoring_capabilities": (
+            "platform_surfaces.py", "get", "/platform/authoring/capabilities",
+            "/api/v1/platform/authoring/capabilities",
+        ),
     }
     for key, (filename, method, relative, canonical) in expected.items():
         item = next(s for s in SURFACES if s.key == key)

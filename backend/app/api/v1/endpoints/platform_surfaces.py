@@ -16,6 +16,7 @@ from app.services.platform_session_read import session_feed_snapshot
 from app.services.platform_tool_registry import tools_snapshot
 from app.services.platform_broker_read import normalize_broker_read
 from app.services.platform_strategy_read import strategy_catalog
+from app.services.platform_authoring_contracts import authoring_capabilities
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -200,3 +201,52 @@ async def platform_strategy_catalog(
         risk_preflight_performed=False, source="sterling_canonical_lane_registry",
         lanes=[StrategyLaneContract(**row) for row in strategy_catalog()],
     )
+
+
+class PythonAuthoringContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    source_validation_only: Literal[True]
+    execute_enabled: Literal[False]
+    sandbox_certified: Literal[False]
+    max_source_bytes: int
+
+
+class FlowAuthoringContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    schema_validation_only: Literal[True]
+    execute_enabled: Literal[False]
+    node_kinds: list[Literal["source", "compare", "note"]]
+    max_nodes: int
+    max_edges: int
+
+
+class ChartReadContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    existing_data_route: Literal["/api/v1/candles/{underlying}"]
+    global_workspace_mounted: Literal[False]
+
+
+class ScalpReadContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    existing_strategy_modes_route: Literal["/api/v1/strategies/{strategy}/modes"]
+    global_workspace_mounted: Literal[False]
+    new_order_controls_enabled: Literal[False]
+
+
+class AuthoringCapabilitiesContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    python: PythonAuthoringContract
+    flow: FlowAuthoringContract
+    charting: ChartReadContract
+    scalping: ScalpReadContract
+
+
+@router.get("/platform/authoring/capabilities", response_model=AuthoringCapabilitiesContract)
+async def platform_authoring_capabilities(
+    response: Response, user: UserContext = Depends(get_current_user),
+) -> AuthoringCapabilitiesContract:
+    """Read-only authoring constraints; no submitted source or graph execution."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return AuthoringCapabilitiesContract(**authoring_capabilities())
