@@ -6,12 +6,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict
 
 from app.core.auth import UserContext, get_current_user
 from app.core.feature_access import require_feature
 from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
+from app.services.platform_session_read import session_feed_snapshot
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -51,4 +52,45 @@ async def platform_surfaces(
         planned_routes_mounted=False,
         canonical_services=dict(CANONICAL_SERVICES),
         surfaces=[SurfaceContract(**item) for item in catalog()],
+    )
+
+
+class PlatformRuntimeContract(BaseModel):
+    """A passive session/feed projection; no source IDs, tokens or credentials."""
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    view: Literal["live", "simulation"]
+    account_configured: bool
+    stored_session_present: bool
+    shared_owner_feed: bool
+    active_account_feed_bound: bool
+    feed_connected: bool
+    subscribed_count: int
+    last_tick_ms: int
+
+
+@router.get("/platform/runtime", response_model=PlatformRuntimeContract)
+async def platform_runtime(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> PlatformRuntimeContract:
+    """Read only the authenticated tenant's active account/shared ticker status.
+
+    Token presence is not a validated broker login, and no new Kite session or
+    feed is established. The real account and subscription-owner lists stay
+    entirely in the existing services.
+    """
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    try:
+        snapshot = session_feed_snapshot(user)
+    except (ValueError, TypeError):
+        # A broken tenant/account binding is a hard refusal, not an excuse to
+        # fall back to another user's account or provision a new connection.
+        raise HTTPException(status_code=503, detail="Scoped platform runtime unavailable") from None
+    return PlatformRuntimeContract(
+        version="0.1.0",
+        execution_authorized=False,
+        **snapshot,
     )
