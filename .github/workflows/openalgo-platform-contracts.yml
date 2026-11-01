@@ -42,7 +42,7 @@ jobs:
       - name: Install pinned dependencies
         run: python -m pip install -r backend/requirements.lock.txt
       - name: Syntax check
-        run: python -m compileall -q backend/app/api/v1/endpoints/platform_surfaces.py backend/app/services/platform_surface_registry.py backend/tests/unit/test_platform_surface_registry.py backend/tests/unit/test_platform_session_read.py backend/app/services/platform_tool_registry.py backend/tests/unit/test_platform_tool_registry.py
+        run: python -m compileall -q backend/app/api/v1/endpoints/platform_surfaces.py backend/app/services/platform_surface_registry.py backend/tests/unit/test_platform_surface_registry.py backend/tests/unit/test_platform_session_read.py backend/app/services/platform_tool_registry.py backend/tests/unit/test_platform_tool_registry.py backend/app/services/platform_api_normalization.py backend/tests/unit/test_platform_api_normalization.py
       - name: Check JWT, feature gates, metadata, legacy read adapter and route isolation
         working-directory: backend
         env:
@@ -50,4 +50,4 @@ jobs:
           PAPER_TRADING: "true"
           REAL_PUBLIC_DATA: "false"
         run: |
-          python -m pytest -q --tb=short tests/unit/test_platform_surface_registry.py tests/unit/test_platform_session_read.py tests/unit/test_platform_tool_registry.py tests/unit/test_openalgo_compat.py tests/services/test_ticker_subscription_ownership.py tests/test_kite_ticker_account_binding.py tests/unit/simulation/test_tenancy_feed.py
+          python -m pytest -q --tb=short tests/unit/test_platform_surface_registry.py tests/unit/test_platform_session_read.py tests/unit/test_platform_tool_registry.py tests/unit/test_platform_api_normalization.py tests/unit/test_openalgo_compat.py tests/services/test_ticker_subscription_ownership.py tests/test_kite_ticker_account_binding.py tests/unit/simulation/test_tenancy_feed.py
