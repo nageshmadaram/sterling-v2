@@ -63,8 +63,10 @@ const JournalTab = lazy(() => import('../journal/JournalTab').then(m => ({ defau
 const LiveOperationsPanel = lazy(() => import('./LiveOperationsPanel').then(m => ({ default: m.LiveOperationsPanel })));
 
 const PriceRulesPanel = lazy(() => import('./PriceRulesPanel').then(m => ({ default: m.PriceRulesPanel })));
+const PlatformToolsPane = lazy(() => import('./PlatformToolsPane'));
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
+  { id: 'platform-tools', label: 'Tools' },
   { id: 'bids', label: 'Bids' },
   { id: 'funds', label: 'Funds' },
   { id: 'mf', label: 'Mutual Funds' },
@@ -110,6 +112,7 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
           {activeTab === 'data' && <MarketDataPane />}
           {activeTab === 'operations' && <LiveOperationsPanel />}
           {activeTab === 'price-rules' && <PriceRulesPanel />}
+          {activeTab === 'platform-tools' && <PlatformToolsPane />}
         </Suspense>
       </div>
     </div>

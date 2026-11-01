@@ -30,6 +30,11 @@ class Surface:
 # backend/main.py. The six planned UI surfaces have no route registration.
 SURFACES: tuple[Surface, ...] = (
     Surface(
+        "platform_surfaces", "/api/v1/platform/surfaces",
+        "Authenticated platform surface discovery", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "broker_api", "/api/v1/kite/accounts", "Sterling scoped account read", "existing_partial",
         "app.api.v1.endpoints.kite",
         mounts_route=True,
@@ -44,6 +49,27 @@ SURFACES: tuple[Surface, ...] = (
         "platform_runtime", "/api/v1/platform/runtime",
         "Existing account and feed read contract", "existing_partial",
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
+        "platform_tools", "/api/v1/platform/tools",
+        "Existing read-only tools catalog", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
+        "api_normalization", "/api/v1/platform/api-normalization",
+        "Canonical broker API normalization inventory", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
+        "strategy_contract", "/api/v1/platform/strategies",
+        "Existing lane and canonical execution source map", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
+        "view_contracts", "/api/v1/platform/view-contracts",
+        "Existing Kite charting and scalping read surface contracts",
+        "existing_partial", "app.api.v1.endpoints.platform_surfaces",
+        mounts_route=True,
     ),
     Surface(
         "python", "/python", "Python strategy host", "planned", "",
