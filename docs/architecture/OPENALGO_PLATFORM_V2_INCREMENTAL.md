@@ -119,3 +119,24 @@ slice; existing Kite tools stay inside their current dock. A future UI
 registry adapter can consume the authenticated metadata but must not create
 separate data subscriptions or order actions. Python and Flow execution
 remain disabled pending independent isolated-runtime design and tests.
+
+## Non-authorizing broker API normalization (next stacked slice)
+
+`GET /api/v1/platform/api-normalization` publishes source-verifiable OpenAlgo
+operation-to-Sterling route mappings. Only the existing authenticated
+`POST /api/v1/compat/openalgo/orderstatus` is an implemented **read-only**
+compatibility adapter. `placeorder`, `cancelorder`, and `orderbook` are
+documented as **no_wrapper**; their Sterling paths remain canonical and are
+not called by this metadata router.
+
+The mapping is a pure immutable registry. It does not execute a mapped
+method, authenticate OpenAlgo API keys, poll brokers, create sessions,
+subscribe, place/cancel orders, or alter Sterling risk gates. Unit tests
+check actual route declarations, default-deny dispatch, authorized viewer
+reads, no-store, denial on missing Kite grant, and production JWT refusal.
+Full normalized response schemas and write-adapter parity remain outstanding,
+and no OpenAlgo order execution API is authorized by this inventory.
+
+This slice must remain draft/unmerged until its exact-head offline contract
+workflow passes and its stacked parents and broad release gates have separate
+acceptance. Production remains NO-GO.
