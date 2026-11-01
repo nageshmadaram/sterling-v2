@@ -1,0 +1,64 @@
+# Sterling V2 / OpenAlgo-style platform — incremental implementation register
+
+This is **Sterling V2**, `nageshmadaram/sterling-v2`, not the independent
+`nageshmadaram/sterling` repository. OpenAlgo is a reference for API and
+product structure, not permission to replace Sterling execution/risk systems.
+
+## Source-verified inventory
+
+- `exchanges/kite/accounts.py` owns account-scoped broker sessions and the
+  isolated virtual Simulation account. Do not create another broker client.
+- `exchanges/kite/ticker_manager.py` owns the existing live ticker, token
+  ownership registry and WebSocket fan-out. Do not subscribe per surface.
+- `execution_service.py`, `canonical_fill_reconciliation.py`, and the
+  durable `kite_engine/order_journal.py` remain the execution/fill source of
+  truth. Incomplete exits and ambiguous broker replies remain blockers.
+- `/api/v1/compat/openalgo/orderstatus` exists on PR #15 and consults only
+  the authenticated principal's canonical journal state. It is not an OpenAlgo
+  API-key substitute, broker poll, live order, or full API equivalence.
+- `upgrade/api_inventory.py` reports static route deltas. It must not
+  interpret a matching path name as equivalent semantics.
+- `upgrade/sterling_openalgo.py` has read-only inventory and copy-only
+  SQLite preflight. Full operational PostgreSQL migration is explicitly NO-GO.
+- The six new UI paths are not global workspaces, even when functionality
+  (charts, tools, strategies) exists within the Kite workspace.
+
+## This slice
+
+`GET /api/v1/platform/surfaces` is JWT-authenticated, Kite-feature-gated,
+read-only discovery. The `existing_partial` state refers only to known
+mounted API paths; `planned` paths are metadata, not routes.
+
+The `canonical_services` mapping is a documentation/contract pointer to
+already existing modules. It does **not** proxy, instantiate, cache, reset,
+reconnect or enable them. These source paths must be audited and proven
+with account/tenant/reconnect subscription tests before a dynamic UI uses them.
+
+No new WebSocket, broker write, order intent, strategy worker, Python process,
+Flow graph executor, keyboard trade action, risk rule or credential is created.
+There is no hosted-code execution sandbox in this slice.
+
+## Acceptance sequence
+
+| Phase | Task | Necessary evidence |
+|---|---|---|
+| 0 | Restore exact-HEAD CI; negative broker-fill tests | Product Integrity, Snapback and full regression PASS |
+| 1 | Inspect account/session and ticker ownership semantics | Cross-user/Simulation/account-rotation tests, reconnect without duplicate streams |
+| 2 | Finalize read-only platform/API/tool registry contract | JWT, feature grant, viewer, route-isolation and static/dynamic metadata tests |
+| 3 | Normalize broker read DTOs without changing execution | Journal status identity, freshness/error envelopes, pagination/tenant tests |
+| 4 | Shared strategy/RMS adapter | Existing canonical risk/execution path, no bypass via adapter |
+| 5 | Isolated Python host in offline mode | OS sandbox, network/filesystem denial, resource ceilings, durable scheduler audit |
+| 6 | Flow graph offline validation/dry run | Strict node allowlist, bounded graphs, no broker order node execution |
+| 7 | Tool/chart/scalping UI read surfaces | Real device/browser access and view parity, no new write button authority |
+| 8 | Operational migration and release | Independent restore/rollback, security review, twelve controls accepted |
+
+## Non-negotiable boundaries
+
+The source registry is not a feature-authorization token. The backend must
+revalidate operator identity, account and workspace scope for every read, and
+must use canonical broker risk/idempotency for any later execution request.
+The current kill switch and LIVE/SIMULATION split stay unchanged. Do not
+merge or deploy this stacked draft on top of a failing execution parent.
+
+**Current status:** catalog implementation submitted for review. Full
+OpenAlgo-style product host remains partial and production NO-GO.
