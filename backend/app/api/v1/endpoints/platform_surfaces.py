@@ -13,6 +13,7 @@ from app.core.auth import UserContext, get_current_user
 from app.core.feature_access import require_feature
 from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
 from app.services.platform_session_read import session_feed_snapshot
+from app.services.platform_tool_registry import tools_snapshot
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -94,4 +95,41 @@ async def platform_runtime(
         version="0.1.0",
         execution_authorized=False,
         **snapshot,
+    )
+
+
+class ToolContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str
+    label: str
+    category: Literal["analytics", "charting", "strategy", "feed"]
+    method: Literal["GET"]
+    api_path: str
+    backend_module: str
+    requires_kite_feature: Literal[True]
+    permits_order_write: Literal[False]
+    launches_runtime: Literal[False]
+
+
+class ToolCatalogContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    tools_ui_mounted: Literal[False]
+    tools: list[ToolContract]
+
+
+@router.get("/platform/tools", response_model=ToolCatalogContract)
+async def platform_tools(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> ToolCatalogContract:
+    """Expose existing read-route metadata, not a new tool runtime or proxy."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return ToolCatalogContract(
+        version="0.1.0",
+        execution_authorized=False,
+        tools_ui_mounted=False,
+        tools=[ToolContract(**entry) for entry in tools_snapshot()],
     )
