@@ -14,6 +14,7 @@ from app.core.feature_access import require_feature
 from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
 from app.services.platform_session_read import session_feed_snapshot
 from app.services.platform_tool_registry import tools_snapshot
+from app.services.platform_api_normalization import normalization_snapshot
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -132,4 +133,38 @@ async def platform_tools(
         execution_authorized=False,
         tools_ui_mounted=False,
         tools=[ToolContract(**entry) for entry in tools_snapshot()],
+    )
+
+
+class ApiNormalizationEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str
+    target_method: Literal["GET", "POST", "DELETE"]
+    target_path: str
+    canonical_method: Literal["GET", "POST", "DELETE"]
+    canonical_path: str
+    canonical_module: str
+    compatibility: Literal["read_only_adapter", "no_wrapper"]
+    executable_through_platform: Literal[False]
+
+
+class ApiNormalizationContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    proxy_mounted: Literal[False]
+    mappings: list[ApiNormalizationEntry]
+
+
+@router.get("/platform/api-normalization", response_model=ApiNormalizationContract)
+async def platform_api_normalization(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> ApiNormalizationContract:
+    """Inventory only; does not dispatch to any mapped broker or order route."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return ApiNormalizationContract(
+        version="0.1.0", execution_authorized=False, proxy_mounted=False,
+        mappings=[ApiNormalizationEntry(**entry) for entry in normalization_snapshot()],
     )
