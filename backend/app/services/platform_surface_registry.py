@@ -46,6 +46,11 @@ SURFACES: tuple[Surface, ...] = (
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
+        "platform_tools", "/api/v1/platform/tools",
+        "Existing read-only tools catalog", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "python", "/python", "Python strategy host", "planned", "",
     ),
     Surface(
