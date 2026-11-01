@@ -140,3 +140,33 @@ and no OpenAlgo order execution API is authorized by this inventory.
 This slice must remain draft/unmerged until its exact-head offline contract
 workflow passes and its stacked parents and broad release gates have separate
 acceptance. Production remains NO-GO.
+
+## Strategy/RMS integration boundary: phase-1 lane read contract
+
+`GET /api/v1/platform/strategies` is authenticated and Kite-feature-gated.
+It projects *existing* `app.core.lane_registry.all_lanes` records into typed
+strategy/mode metadata without copying the registry. It explicitly declares
+`execution_authorized=false`, `strategy_dispatch_mounted=false`, and
+`platform_execute_authorized=false` for every lane. A lane's declared
+`live_minimum` state is NOT a trading permission.
+
+The only existing entry-to-order path remains
+`canonical_strategy_entry.submit_entry` →
+`CanonicalExecutionService.submit_order`, with its original kill-switch,
+account identity, risk approval, durable intent and evidence checks. These
+are **source references** in the new discovery contract, not an alternative
+execution adapter or a new endpoint for strategies to submit orders.
+
+The next execution-adapter work must be preceded by exact-head tests of
+account-scoped identity, accepted/rejected capital and risk decisions,
+UNKNOWN fill behavior, protective stop retention, and all legacy strategy
+entry/exit call sites. No code in this slice relaxes those gates.
+An offline Flow validator and Python runner must each be implemented
+without importing or contacting canonical broker clients or write paths.
+Actual `/strategy`, `/flow`, `/python`, `/tools`, `/trading`, and
+`/scalping` workspaces remain unmounted.
+
+This is a phase-1 read contract only; full OpenAlgo runtime, normalized
+broker responses, executable platform adapters, and production certification
+remain outstanding. Parent PR #15 and all stacked drafts remain NO-GO until
+their independent exact-SHA release checks are accepted.
