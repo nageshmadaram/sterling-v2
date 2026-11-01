@@ -26,6 +26,7 @@ Non-goals
 """
 from __future__ import annotations
 
+import math
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -275,6 +276,16 @@ class OrderRouter:
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
         entry = await self._fetch_entry_price(inst)
+        if not math.isfinite(entry) or entry <= 0:
+            # Missing/invalid market evidence must not create a fictitious
+            # filled virtual position. This is a definitive pre-write refusal.
+            return OrderRouterResponse(
+                accepted=False, mode=self.mode.value,
+                symbol=self._symbol_for(req, inst), side=self._side(req),
+                size=req.size, status="rejected", code="paper_quote_unavailable",
+                reason="A finite positive quote is required for simulated fills",
+                timestamp_ms=now_ms,
+            )
         try:
             pid = self.deps.create_paper_position(
                 req, self._symbol_for(req, inst), entry, None,
@@ -309,6 +320,16 @@ class OrderRouter:
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
         entry = await self._fetch_entry_price(inst)
+        if not math.isfinite(entry) or entry <= 0:
+            # Missing/invalid market evidence must not create a fictitious
+            # filled virtual position. This is a definitive pre-write refusal.
+            return OrderRouterResponse(
+                accepted=False, mode=self.mode.value,
+                symbol=self._symbol_for(req, inst), side=self._side(req),
+                size=req.size, status="rejected", code="paper_quote_unavailable",
+                reason="A finite positive quote is required for simulated fills",
+                timestamp_ms=now_ms,
+            )
         try:
             pid = self.deps.create_paper_position(
                 req, self._symbol_for(req, inst), entry, None,
@@ -593,7 +614,8 @@ class OrderRouter:
         if self.adapter is None:
             return 0.0
         try:
-            return float(await self.adapter.get_index_price(inst))
+            price = float(await self.adapter.get_index_price(inst))
+            return price if math.isfinite(price) and price > 0 else 0.0
         except Exception:
             return 0.0
 
