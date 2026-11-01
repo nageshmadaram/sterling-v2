@@ -178,7 +178,8 @@ class LiveBroker:
         order = self.orders.get(order_id)
         if order is None:
             return []
-        return [{"status": order["status"], "filled_quantity": order["filled_quantity"],
+        return [{"order_id": order["order_id"], "status": order["status"],
+                 "filled_quantity": order["filled_quantity"],
                  "average_price": order["average_price"]}]
 
     async def get_order_trades(self, order_id):
