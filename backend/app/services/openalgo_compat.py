@@ -62,6 +62,12 @@ def canonical_order_status(intent: Any) -> dict:
             or quantity <= 0 or type(filled) is not int or not 0 <= filled <= quantity
             or type(value) not in (int, float) or not math.isfinite(value) or value < 0):
         return _error("INVALID_JOURNAL_IDENTITY", "Order evidence has inconsistent fields")
+    # The cumulative value must agree with the confirmed fill quantity for
+    # every journal state. A zero-fill ACK/cancel with positive traded value,
+    # or a positive fill without value, is contradictory broker evidence.
+    # Neither state may surface as a successful compatibility response.
+    if (filled == 0 and value != 0) or (filled > 0 and value <= 0):
+        return _error("CONFLICTING_BROKER_FILL", "Broker fill evidence requires reconciliation")
     if ((state == "FILLED" and (filled != quantity or value <= 0))
             or (state == "PARTIAL" and not (0 < filled < quantity and value > 0))):
         return _error("CONFLICTING_BROKER_FILL", "Broker fill evidence requires reconciliation")
