@@ -90,6 +90,10 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/tools",
             "/api/v1/platform/tools",
         ),
+        "view_contracts": (
+            "platform_surfaces.py", "get", "/platform/view-contracts",
+            "/api/v1/platform/view-contracts",
+        ),
 
         "strategy_contract": (
             "platform_surfaces.py", "get", "/platform/strategies",
