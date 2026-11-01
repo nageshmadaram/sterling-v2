@@ -152,8 +152,33 @@ class TestPaperMode:
 
         resp = await router.submit(_basic_req())
 
-        assert resp.entry_price == 0.0
-        assert resp.accepted is True
+        assert resp.accepted is False
+        assert resp.code == "paper_quote_unavailable"
+        assert resp.status == "rejected"
+        assert resp.paper_position_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [RouterMode.PAPER, RouterMode.SHADOW])
+@pytest.mark.parametrize("quote", [0, -1, float("nan"), float("inf")])
+async def test_invalid_quote_cannot_create_simulated_fill(mode, quote):
+    saved = []
+    adapter = _make_adapter(index_price=quote)
+    deps = RouterDeps(
+        list_open_positions=lambda: [],
+        create_paper_position=lambda *_args: saved.append(_args) or "VIRTUAL-1",
+        greeks_budget_gate=lambda *_a, **_k: None,
+    )
+    router = OrderRouter(mode, adapter, deps, _resolve)
+    request = _basic_req(client_order_id=f"invalid-quote-{mode.value}-{quote}")
+    response = await router.submit(request)
+    assert not response.accepted
+    assert response.code == "paper_quote_unavailable"
+    assert response.status == "rejected"
+    assert response.order_id is None and response.paper_position_id is None
+    assert saved == []
+    assert live_safety.check_idempotency(request.client_order_id) is None
+    adapter.place_order.assert_not_awaited()
 
 
 # ─── Live mode ────────────────────────────────────────────────────────────
