@@ -90,6 +90,14 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/tools",
             "/api/v1/platform/tools",
         ),
+        "broker_summary": (
+            "platform_surfaces.py", "get", "/platform/broker/summary",
+            "/api/v1/platform/broker/summary",
+        ),
+        "strategy_catalog": (
+            "platform_surfaces.py", "get", "/platform/strategies",
+            "/api/v1/platform/strategies",
+        ),
     }
     for key, (filename, method, relative, canonical) in expected.items():
         item = next(s for s in SURFACES if s.key == key)

@@ -119,3 +119,25 @@ slice; existing Kite tools stay inside their current dock. A future UI
 registry adapter can consume the authenticated metadata but must not create
 separate data subscriptions or order actions. Python and Flow execution
 remain disabled pending independent isolated-runtime design and tests.
+
+## Canonical read normalization and strategy inventory (stacked slice)
+
+`GET /api/v1/platform/broker/summary` normalizes the **passive** existing
+account/ticker snapshot into one explicit status:
+`not_configured`, `no_stored_token`, `stored_token_unverified`,
+`feed_disconnected` or `feed_connected`. Even a connected feed does not
+establish a validated broker login or trading authorization: the read contract
+sets both claims to `false` and never contacts the broker.
+
+`GET /api/v1/platform/strategies` projects *declared* lanes directly from
+`app.core.lane_registry.all_lanes()`. It deliberately does not invoke
+`may_originate()` as a trade admission decision, perform risk preflight or
+submit an order; its `order_submission_enabled` remains `false`.
+The real execution entry path, kill switch, safety supervisor and durable
+journal remain the sole authorities. These are not shadow execution/risk
+engines and do not change any original route.
+
+Both endpoints require the existing scoped JWT/identity and Kite feature grant,
+are GET-only and non-cacheable. Ambiguous session/feed inputs are refused rather
+than normalized into a false success. Tests check the invariant matrix,
+strategy registry consistency and access-denial-before-service calls.
