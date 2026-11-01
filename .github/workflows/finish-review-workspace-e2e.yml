@@ -1,0 +1,58 @@
+name: Finish Review Workspace E2E (offline)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/finish-review-workspace-e2e.yml"
+      - "frontend/e2e/workspace-flow.spec.ts"
+      - "frontend/e2e/auth.setup.ts"
+      - "frontend/e2e/fixtures/offline-session.ts"
+      - "frontend/src/components/AccountMenu.tsx"
+      - "frontend/src/pages/WorkspaceRouter.tsx"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: finish-review-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-browser:
+    name: Isolated workspace/profile request contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout without stored credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install pinned frontend packages
+        working-directory: frontend
+        run: npm ci --silent
+      - name: Install isolated Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run workspace-flow and offline auth setup only
+        working-directory: frontend
+        env:
+          CI: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          PAPER_TRADING: 'true'
+        run: npx playwright test e2e/workspace-flow.spec.ts --project=chromium --reporter=list
+      - name: Preserve failure diagnostics (not release evidence)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finish-review-workspace-${{ github.sha }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
