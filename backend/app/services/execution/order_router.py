@@ -210,10 +210,22 @@ class OrderRouter:
                         "Prior broker submission outcome is unknown; reconcile before retrying",
                         now_ms,
                     )
+                # Idempotency cache entries are NOT broker order acknowledgements.
+                # A simulated position may only be reused within the same mode.
+                prefix = f"{self.mode.value}:"
+                if (self.mode not in (RouterMode.PAPER, RouterMode.SHADOW)
+                        or not isinstance(prior, str)
+                        or not prior.startswith(prefix)
+                        or not prior[len(prefix):].strip()):
+                    return self._reject(
+                        req, "idempotency_identity_conflict",
+                        "Cached submission does not identify a matching simulated position",
+                        now_ms,
+                    )
                 return OrderRouterResponse(
                     accepted=True,
                     mode=self.mode.value,
-                    order_id=prior,
+                    paper_position_id=prior[len(prefix):],
                     symbol=self._symbol_for(req, inst),
                     side=self._side(req),
                     size=req.size,
@@ -263,7 +275,24 @@ class OrderRouter:
         self, req: OrderRouterRequest, inst: Any, idem_key: str, now_ms: int,
     ) -> OrderRouterResponse:
         entry = await self._fetch_entry_price(inst)
-        pid = self.deps.create_paper_position(req, self._symbol_for(req, inst), entry, None)
+        try:
+            pid = self.deps.create_paper_position(
+                req, self._symbol_for(req, inst), entry, None,
+            )
+            if not isinstance(pid, str) or not pid.strip():
+                raise ValueError("missing simulated position identity")
+        except Exception:
+            # A failing writer might already have committed; never emit a
+            # successful fill or blindly create another simulated position.
+            live_safety.record_idempotency(idem_key, "UNKNOWN")
+            log.error("paper position persistence outcome unknown")
+            return OrderRouterResponse(
+                accepted=False, mode="paper", symbol=self._symbol_for(req, inst),
+                side=self._side(req), size=req.size, entry_price=entry,
+                status="unknown", code="paper_record_unknown",
+                reason="Paper position evidence is uncertain; inspect the virtual ledger before retrying",
+                timestamp_ms=now_ms,
+            )
         live_safety.record_idempotency(idem_key, f"paper:{pid}")
         return OrderRouterResponse(
             accepted=True, mode="paper",
@@ -284,14 +313,14 @@ class OrderRouter:
             pid = self.deps.create_paper_position(
                 req, self._symbol_for(req, inst), entry, None,
             )
-        except Exception as exc:  # noqa: BLE001
-            # SHADOW is observational only: a persistence failure must never fall
-            # through to a broker send, but it also must not masquerade as a
-            # strategy rejection. Surface the evidence failure explicitly so the
-            # operator can repair the writer.
-            log.error("shadow evidence record failed for %s: %s", self._symbol_for(req, inst), exc)
+        except Exception:
+            # The writer may have committed before failing. Keep an UNKNOWN
+            # marker, never acknowledge missing evidence, and never leak the
+            # exception (which may include provider or storage secrets).
+            live_safety.record_idempotency(idem_key, "UNKNOWN")
+            log.error("shadow position persistence outcome unknown")
             return OrderRouterResponse(
-                accepted=True,
+                accepted=False,
                 mode="shadow",
                 symbol=self._symbol_for(req, inst),
                 side=self._side(req),
@@ -299,7 +328,21 @@ class OrderRouter:
                 entry_price=entry,
                 status="unknown",
                 code="shadow_record_failed",
-                reason=f"shadow paper-record failed: {exc}",
+                reason="Shadow position evidence is uncertain; inspect the virtual ledger before retrying",
+                timestamp_ms=now_ms,
+            )
+        if not isinstance(pid, str) or not pid.strip():
+            live_safety.record_idempotency(idem_key, "UNKNOWN")
+            return OrderRouterResponse(
+                accepted=False,
+                mode="shadow",
+                symbol=self._symbol_for(req, inst),
+                side=self._side(req),
+                size=req.size,
+                entry_price=entry,
+                status="unknown",
+                code="shadow_record_failed",
+                reason="Shadow position identity is unavailable; inspect the virtual ledger before retrying",
                 timestamp_ms=now_ms,
             )
         live_safety.record_idempotency(idem_key, f"shadow:{pid}")
