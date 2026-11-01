@@ -18,6 +18,8 @@ on:
       - "frontend/src/components/kite/__tests__/PlatformToolsPane.test.tsx"
       - "frontend/src/components/kite/KiteLayout.tsx"
       - "frontend/src/components/kite/KiteTab.tsx"
+      - "frontend/src/pages/WorkspaceRouter.tsx"
+      - "frontend/src/pages/__tests__/WorkspaceRouter.test.tsx"
       - "backend/tests/unit/test_platform_strategy_contract.py"
       - "backend/tests/unit/test_platform_api_normalization.py"
       - "backend/tests/unit/test_platform_session_read.py"
@@ -73,4 +75,4 @@ jobs:
         working-directory: frontend
         run: |
           npx tsc --noEmit
-          npx vitest run src/components/kite/__tests__/PlatformToolsPane.test.tsx --coverage=false
+          npx vitest run src/components/kite/__tests__/PlatformToolsPane.test.tsx src/pages/__tests__/WorkspaceRouter.test.tsx --coverage=false
