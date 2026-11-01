@@ -51,6 +51,11 @@ SURFACES: tuple[Surface, ...] = (
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
+        "api_normalization", "/api/v1/platform/api-normalization",
+        "Canonical broker API normalization inventory", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "python", "/python", "Python strategy host", "planned", "",
     ),
     Surface(
