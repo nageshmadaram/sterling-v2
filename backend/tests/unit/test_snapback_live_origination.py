@@ -461,3 +461,19 @@ def test_another_dispatcher_waits_for_the_current_lifecycle_cycle(env, monkeypat
         await asyncio.gather(first, second)
         assert second_entered.is_set()
     run(verify())
+
+def test_offline_broker_history_is_explicitly_scoped_to_acknowledged_order():
+    """Canonical reconciliation requires broker history to prove order identity.
+
+    A bare status/filled_quantity is not attributable merely because the API
+    call was scoped to one ID; the offline broker double must model that proof.
+    """
+    broker = LiveBroker()
+    response = run(broker.place_order(symbol=OPTION_SYMBOL, side="BUY", size=75))
+    order_id = response["order_id"]
+    rows = run(broker.get_order_history(order_id))
+    assert len(rows) == 1
+    assert rows[0]["order_id"] == order_id
+    assert rows[0]["filled_quantity"] == 75
+    assert run(broker.get_order_history("NOT-AN-ORDER")) == []
+
