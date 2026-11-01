@@ -161,3 +161,15 @@ it('does not mount a hidden but granted workspace by direct route or after polic
   expect(screen.queryByRole('button', { name: /Request access to Kite/ })).toBeNull();
   expect(api.post).not.toHaveBeenCalled();
 });
+
+it.each(['/tools', '/trading', '/scalping'])(
+  'does not mount an unapproved global OpenAlgo workspace at %s',
+  async route => {
+    window.history.replaceState({}, '', route);
+    show({ ...base, features: { kite: true, tv: false, radio: false } });
+    expect(await screen.findByRole('heading', { name: 'Choose your workspace' })).toBeInTheDocument();
+    expect(screen.queryByText('Kite runtime mounted')).toBeNull();
+    expect(screen.queryByText('Central administration mounted')).toBeNull();
+    expect(api.post).not.toHaveBeenCalled();
+  },
+);

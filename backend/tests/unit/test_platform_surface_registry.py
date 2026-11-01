@@ -77,6 +77,10 @@ def test_existing_api_entries_have_exact_source_declared_methods():
 
     endpoint_dir = Path(__file__).resolve().parents[2] / "app" / "api" / "v1" / "endpoints"
     expected = {
+        "platform_surfaces": (
+            "platform_surfaces.py", "get", "/platform/surfaces",
+            "/api/v1/platform/surfaces",
+        ),
         "broker_api": ("kite.py", "get", "/accounts", "/api/v1/kite/accounts"),
         "openalgo_orderstatus": (
             "openalgo_compat.py", "post", "/orderstatus",
@@ -90,7 +94,15 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/tools",
             "/api/v1/platform/tools",
         ),
-        "api_normalization": (
+        "view_contracts": (
+            "platform_surfaces.py", "get", "/platform/view-contracts",
+            "/api/v1/platform/view-contracts",
+        ),
+
+        "strategy_contract": (
+            "platform_surfaces.py", "get", "/platform/strategies",
+            "/api/v1/platform/strategies",
+        ),        "api_normalization": (
             "platform_surfaces.py", "get", "/platform/api-normalization",
             "/api/v1/platform/api-normalization",
         ),
@@ -125,3 +137,37 @@ def test_planned_platform_entries_have_no_execution_metadata():
     }
     assert all(not s.mounts_route and not s.permits_order_write for s in planned)
     assert all(not s.backing for s in planned)
+
+
+def test_surface_discovery_is_complete_for_its_own_routes(client):
+    """Every mounted platform-discovery GET must appear once in registry."""
+    import ast
+    from pathlib import Path
+
+    file = Path(__file__).resolve().parents[2] / "app/api/v1/endpoints/platform_surfaces.py"
+    tree = ast.parse(file.read_text("utf-8"))
+    declared = {
+        "/api/v1" + dec.args[0].value
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for dec in node.decorator_list
+        if isinstance(dec, ast.Call)
+        and isinstance(dec.func, ast.Attribute)
+        and isinstance(dec.func.value, ast.Name)
+        and dec.func.value.id == "router" and dec.func.attr == "get"
+        and dec.args and isinstance(dec.args[0], ast.Constant)
+    }
+    registered = {
+        surface.path
+        for surface in SURFACES
+        if surface.backing == "app.api.v1.endpoints.platform_surfaces"
+        and surface.mounts_route and surface.http_method == "GET"
+    }
+    assert registered == declared
+    response = client.get("/api/v1/platform/surfaces")
+    assert response.status_code == 200
+    reported = {
+        item["path"] for item in response.json()["surfaces"]
+        if item["backing"] == "app.api.v1.endpoints.platform_surfaces"
+    }
+    assert reported == declared

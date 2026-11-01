@@ -63,8 +63,18 @@ def session_feed_snapshot(principal: UserContext) -> SessionFeedSnapshot:
     # Do not read the ticker map if the caller has no active scoped account.
     # Reading status() is passive; ensure() would create a broker WebSocket.
     stream = ticker_manager.status(principal.user_id) if configured else {}
+    if not isinstance(stream, dict):
+        # Malformed broker-feed state cannot be treated as a healthy session.
+        raise ValueError("scoped_ticker_status_invalid")
+    account_id = getattr(account, "id", None) if configured else None
+    feed_account_id = stream.get("account_id")
+    # Equal *missing* or blank identifiers do not prove account binding.
+    # A session and its ticker must each identify the same nonblank account.
     bound = bool(
-        configured and stored_token and stream.get("account_id") == account.id
+        configured and stored_token
+        and isinstance(account_id, str) and bool(account_id.strip())
+        and isinstance(feed_account_id, str) and bool(feed_account_id.strip())
+        and feed_account_id == account_id
     )
     subscribed = stream.get("subscribed")
     valid_subscriptions = subscribed if isinstance(subscribed, (list, tuple, set)) else ()
