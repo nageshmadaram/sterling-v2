@@ -121,3 +121,38 @@ def test_authoring_capabilities_require_kite_grant_and_production_auth(client, m
     monkeypatch.setattr(runtime_env, "is_production", lambda: True)
     client.app.dependency_overrides.clear()
     assert client.get("/api/v1/platform/authoring/capabilities").status_code == 401
+
+
+def test_invalid_unicode_source_is_explicitly_refused():
+    with pytest.raises(AuthoringRejected, match="encoding"):
+        validate_python_source("def on_bar(bar): return '\\ud800'".replace("\\ud800", chr(0xD800)))
+
+
+def test_chart_and_scalping_reference_real_canonical_read_routes():
+    """Metadata must not drift from the canonical API source declarations."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "app" / "api" / "v1" / "endpoints"
+    capability = authoring_capabilities()
+    source_routes = (
+        (capability["charting"]["existing_data_route"],
+         "candles.py", "/api/v1/candles", "/{underlying}"),
+        (capability["scalping"]["existing_strategy_modes_route"],
+         "lanes.py", "/api/v1", "/strategies/{strategy}/modes"),
+    )
+    for configured_path, file, prefix, relative_path in source_routes:
+        assert configured_path == prefix + relative_path
+        parsed = ast.parse((root / file).read_text(encoding="utf-8"))
+        assert any(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and any(
+                isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)
+                and isinstance(dec.func.value, ast.Name)
+                and dec.func.value.id == "router" and dec.func.attr == "get"
+                and len(dec.args) == 1 and isinstance(dec.args[0], ast.Constant)
+                and dec.args[0].value == relative_path
+                for dec in node.decorator_list
+            )
+            for node in parsed.body
+        ), (file, relative_path)
