@@ -228,3 +228,69 @@ for safe/unsafe catalog payloads, authorization failures and Simulation
 query-key separation, plus inherited backend identity/ticker/registry tests.
 Full browser integration, charts/scalping parity and production acceptance
 remain outstanding.
+
+## Canonical Tool identity enforcement and chart/scalping view contracts
+
+The existing Kite More → Tools pane formerly accepted any `/api/v1/` path
+and endpoint-module prefix for a known tool key. Although the pane displayed
+these strings as inert text, this under-validated the source contract and
+could mask registry drift. Its display validator now requires the exact
+key/category/path/module triplet declared by the backend registry, the GET
+method, exact no-execution flags and only known fields. Tests reject a known
+tool key renamed to an order path or backed by a different endpoint module;
+valid PCR, candles, strategy-mode and ticker-status declarations still pass.
+This defensive display allowlist does not dispatch requests or replace backend
+authorization; incompatible future metadata must be reviewed before display.
+
+`GET /api/v1/platform/view-contracts` is a **read-only** authenticated
+Kite-feature-gated endpoint providing concrete source references to existing
+chart and scalping capabilities:
+
+- Charting: current Kite main-dock `InstrumentPane` chart, using
+  canonical `GET /api/v1/candles/{underlying}` as a read API reference.
+- Scalping: actual `lane_registry` scalping-mode lane identifiers,
+  with read API reference to
+  `GET /api/v1/strategies/{strategy}/{mode}/status`. This is **not** a
+  standalone scalping UI or a substitute for `may_originate`.
+
+Both `/trading` and `/scalping` remain unmounted global paths.
+Every contract explicitly reports `route_mounted=false`,
+`execution_authorized=false`, and `independent_feed=false`.
+The endpoint does not invoke chart handlers or strategy execution,
+create broker state, start a feed, perform a trade, or grant a session.
+New negative tests verify route isolation, feature denial, anonymous
+production refusal, canonical API and frontend source correspondence,
+actual (not copied) lane identifiers, and non-execution imports.
+
+This **completes only the inert route-metadata slice**, not a standalone
+chart/scalping product. Working global UI routes, market-data lifecycle
+parity and operator-facing execution acceptance remain blocked behind
+independent reviews and parent PR #15's broad release gates.
+
+## Session identity and registry completeness hardening
+
+The passive `GET /api/v1/platform/runtime` projection now requires **two
+nonblank string account IDs** (the scoped active Sterling account and the
+existing ticker's recorded account binding) that match exactly before
+reporting an account-bound or connected feed. Two missing, empty, or
+whitespace-only identifiers must **never** count as a binding, even when
+the ticker reports `connected=true`. A malformed non-dictionary
+`ticker_manager.status` result causes fail-closed HTTP 503 rather than
+a false connection claim or an unhandled response.
+
+The correction remains inside the non-authorizing read projection. It does
+not mutate `accounts`, `ticker_manager`, refresh tokens, instantiate a
+Kite client, or subscribe to feeds. The active-account owner, broker token,
+Sim owner/tenant and risk logic remain authoritative. New regression tests
+cover empty/mismatched account IDs, malformed feed states, refusal at the
+authenticated endpoint, and no auto-provisioning.
+
+The surface registry now includes its own real
+`GET /api/v1/platform/surfaces` entry; a new source-AST completeness
+test compares **all actual platform-discovery GET declarations** against
+the registry and response so adding a mounted route without registration
+fails validation. Route metadata is still information, not a new grant.
+
+This change does **not** establish fresh broker-login verification,
+data-feed recency guarantees, live-order safety acceptance, or operational
+readiness. All parent drafts and the production release remain NO-GO.
