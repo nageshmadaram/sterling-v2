@@ -266,3 +266,31 @@ This **completes only the inert route-metadata slice**, not a standalone
 chart/scalping product. Working global UI routes, market-data lifecycle
 parity and operator-facing execution acceptance remain blocked behind
 independent reviews and parent PR #15's broad release gates.
+
+## Session identity and registry completeness hardening
+
+The passive `GET /api/v1/platform/runtime` projection now requires **two
+nonblank string account IDs** (the scoped active Sterling account and the
+existing ticker's recorded account binding) that match exactly before
+reporting an account-bound or connected feed. Two missing, empty, or
+whitespace-only identifiers must **never** count as a binding, even when
+the ticker reports `connected=true`. A malformed non-dictionary
+`ticker_manager.status` result causes fail-closed HTTP 503 rather than
+a false connection claim or an unhandled response.
+
+The correction remains inside the non-authorizing read projection. It does
+not mutate `accounts`, `ticker_manager`, refresh tokens, instantiate a
+Kite client, or subscribe to feeds. The active-account owner, broker token,
+Sim owner/tenant and risk logic remain authoritative. New regression tests
+cover empty/mismatched account IDs, malformed feed states, refusal at the
+authenticated endpoint, and no auto-provisioning.
+
+The surface registry now includes its own real
+`GET /api/v1/platform/surfaces` entry; a new source-AST completeness
+test compares **all actual platform-discovery GET declarations** against
+the registry and response so adding a mounted route without registration
+fails validation. Route metadata is still information, not a new grant.
+
+This change does **not** establish fresh broker-login verification,
+data-feed recency guarantees, live-order safety acceptance, or operational
+readiness. All parent drafts and the production release remain NO-GO.

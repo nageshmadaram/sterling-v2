@@ -30,6 +30,11 @@ class Surface:
 # backend/main.py. The six planned UI surfaces have no route registration.
 SURFACES: tuple[Surface, ...] = (
     Surface(
+        "platform_surfaces", "/api/v1/platform/surfaces",
+        "Authenticated platform surface discovery", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "broker_api", "/api/v1/kite/accounts", "Sterling scoped account read", "existing_partial",
         "app.api.v1.endpoints.kite",
         mounts_route=True,
