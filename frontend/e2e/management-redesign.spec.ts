@@ -28,10 +28,10 @@ test('mobile Kite has one touchable header and the Sterling icon switches UIs', 
   await expect(page.locator('.workspace-header')).toHaveCount(0);
   await expect(page.locator('.sterling-mobile-command-row')).toHaveCount(0);
   await page.getByRole('button', { name: 'Menu', exact: true }).tap();
-  const menu = page.getByRole('dialog', { name: 'Sterling mobile menu' });
+  const menu = page.getByRole('dialog', { name: 'Account and navigation' });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole('button', { name: 'Astrology', exact: true })).toHaveCount(1);
-  await page.getByRole('button', { name: 'Close mobile menu', exact: true }).tap();
+  await page.getByRole('button', { name: 'Close menu', exact: true }).tap();
   await logo.tap();
   const selector = page.getByRole('dialog', { name: 'Choose your workspace' });
   await expect(selector).toBeVisible();
@@ -61,6 +61,10 @@ test('a denied workspace creates an admin request, and approval enables it', asy
     throw new Error(`Unexpected request ${path}`);
   });
   await page.goto('/');
+  // The chooser navigates to a denied workspace; the actual access request
+  // requires a separate explicit click and must never auto-grant a feature.
+  await page.getByRole('button', { name: 'Request access to Echo', exact: true }).tap();
+  await expect(page.getByRole('heading', { name: 'Echo is not enabled for your account' })).toBeVisible();
   await page.getByRole('button', { name: 'Request access to Echo', exact: true }).tap();
   await expect(page.getByRole('status')).toContainText('has been sent to your administrator');
   expect(requests).toHaveLength(1);
