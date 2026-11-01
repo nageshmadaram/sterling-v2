@@ -14,6 +14,8 @@ for (const viewport of [{ width: 1440, height: 1050 }, { width: 390, height: 844
       const responses: Record<string, unknown> = {
         '/api/v1/admin/access-requests': {requests: []},
         '/api/v1/auth/me': { user_id: 'default', username: 'Primary', role: 'admin', administrator: true, features: { kite: false, tv: false, radio: false }, policy_revision: 0 },
+        // The global account menu reads this independently of any Kite runtime.
+        '/api/v1/auth/profile': { user_id: 'default', username: 'Primary', display_name: 'Primary', photo: '', role: 'admin' },
         '/api/v1/auth/remember': { access_token: 'synthetic', refresh_token: 'synthetic' },
         '/api/v1/settings/capabilities': { user_id: 'default', revision: 0, active: true, administrator: true, sections },
         '/api/v1/auth/users': { current_user_id: 'default', users: [
