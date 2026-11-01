@@ -15,6 +15,10 @@ from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
 from app.services.platform_session_read import session_feed_snapshot
 from app.services.platform_tool_registry import tools_snapshot
 from app.services.platform_api_normalization import normalization_snapshot
+from app.services.platform_strategy_contract import (
+    CANONICAL_ENTRY, CANONICAL_EXECUTION, CANONICAL_LANE_AUTHORITY,
+    strategy_contract_snapshot,
+)
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -167,4 +171,44 @@ async def platform_api_normalization(
     return ApiNormalizationContract(
         version="0.1.0", execution_authorized=False, proxy_mounted=False,
         mappings=[ApiNormalizationEntry(**entry) for entry in normalization_snapshot()],
+    )
+
+
+class StrategyLaneReadContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    strategy_id: str
+    mode: str
+    lane_key: str
+    state: str
+    rules_defined: bool
+    platform_execute_authorized: Literal[False]
+
+
+class StrategyAdapterReadContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    strategy_dispatch_mounted: Literal[False]
+    canonical_entry: str
+    canonical_execution: str
+    canonical_lane_authority: str
+    lanes: list[StrategyLaneReadContract]
+
+
+@router.get("/platform/strategies", response_model=StrategyAdapterReadContract)
+async def platform_strategies(
+    response: Response,
+    user: UserContext = Depends(get_current_user),
+) -> StrategyAdapterReadContract:
+    """Describe real registered strategy lanes, never submit or approve orders."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return StrategyAdapterReadContract(
+        version="0.1.0",
+        execution_authorized=False,
+        strategy_dispatch_mounted=False,
+        canonical_entry=CANONICAL_ENTRY,
+        canonical_execution=CANONICAL_EXECUTION,
+        canonical_lane_authority=CANONICAL_LANE_AUTHORITY,
+        lanes=[StrategyLaneReadContract(**r) for r in strategy_contract_snapshot()],
     )
