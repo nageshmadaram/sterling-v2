@@ -198,3 +198,33 @@ paths must not be imported into untrusted execution environments.
 
 Full charting/scalping UI routes, Python execution and Flow execution remain
 unmounted. Production is NO-GO.
+
+## Kite Tools catalog UI foundation (stacked follow-up)
+
+Within the existing `/kite` workspace only, the **More → Tools** tab renders
+a read-only catalog from `GET /api/v1/platform/tools` in
+`frontend/src/components/kite/PlatformToolsPane.tsx`. It reuses
+`KiteTab`, `KiteLayout`, `api.get` and the existing authenticated
+workspace and Simulation view boundaries; it adds no new global workspace,
+broker session, market-data subscription, tool dispatcher or trade action.
+
+The view fails closed if catalog retrieval fails or the server changes any
+required non-execution or Kite-grant metadata. The UI does not call the
+listed endpoints: it renders exact canonical method/path labels as inert
+text, never converting server-provided paths into executable links.
+TanStack query keys include the current live/Simulation view so the
+two tenant contexts do not share metadata cache entries.
+
+The global `/tools` route stays **planned/unmounted** and is not a new
+access grant. The global `/trading` and `/scalping` routes likewise stay
+**planned/unmounted**: existing Kite instrument/chart views and canonical
+lane-runner logic remain the only available integration surfaces. Adding a
+direct route later requires independent policy revocation, route-isolation,
+viewer read-only, strategy gate and device/browser tests. Do not interpret
+catalog visibility as permission to place an order.
+
+Acceptance for this slice includes TypeScript, a focused browser-DOM test
+for safe/unsafe catalog payloads, authorization failures and Simulation
+query-key separation, plus inherited backend identity/ticker/registry tests.
+Full browser integration, charts/scalping parity and production acceptance
+remain outstanding.
