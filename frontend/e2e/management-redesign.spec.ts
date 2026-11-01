@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
 
+// Both cases are 390px touch journeys. Desktop browser projects are not
+// touch-enabled by default; a tap without this context is a fixture error.
+test.use({ hasTouch: true, isMobile: true });
+
 test('mobile Kite has one touchable header and the Sterling icon switches UIs', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   // Keep the real terminal shell, header, menus and CSS; isolate trading panes.
@@ -48,6 +52,7 @@ test('a denied workspace creates an admin request, and approval enables it', asy
     if (path === '/api/v1/auth/logout') { signedIn = false; await route.fulfill({ json: { ok: true } }); return; }
     if (path === '/api/v1/auth/login') { admin = new URLSearchParams(request.postData() || '').get('username') === 'admin'; signedIn = true; await route.fulfill({ json: { access_token: 'synthetic', refresh_token: 'synthetic' } }); return; }
     if (path === '/api/v1/auth/me') { await route.fulfill({ status: signedIn ? 200 : 401, json: signedIn ? { user_id: admin ? 'default' : 'member', username: admin ? 'Admin' : 'Member', role: admin ? 'admin' : 'user', administrator: admin, features: { kite: false, tv: false, radio: !admin && approved }, policy_revision: approved ? 1 : 0 } : { detail: 'Sign in' } }); return; }
+    if (path === '/api/v1/auth/profile') { await route.fulfill({ json: { user_id: admin ? 'default' : 'member', username: admin ? 'Admin' : 'Member', display_name: admin ? 'Admin' : 'Member', role: admin ? 'admin' : 'user', photo: '' } }); return; }
     if (path === '/api/v1/settings/access-requests') { if (!requests.length) requests.push({ id: 'request-1', user_id: 'member', username: 'Member', feature: 'radio', status: 'pending', created_at_ms: Date.now() }); await route.fulfill({ json: requests[0] }); return; }
     if (path === '/api/v1/admin/access-requests/request-1') { expect(admin).toBe(true); approved = true; requests[0].status = 'approved'; await route.fulfill({ json: requests[0] }); return; }
     if (path === '/api/v1/admin/access-requests') { await route.fulfill({ json: { requests } }); return; }
