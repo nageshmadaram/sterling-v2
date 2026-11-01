@@ -54,6 +54,13 @@ it.each([
   { ...response, tools: [{ ...response.tools[0], key: 'placeorder' }] },
   { ...response, tools: [{ ...response.tools[0] }, { ...response.tools[0] }] },
   { ...response, tools: [{ ...response.tools[0], api_path: 'https://evil.invalid/placeorder' }] },
+  { ...response, tools: [{ ...response.tools[0], api_path: '/api/v1/kite/orders' }] },
+  { ...response, tools: [{ ...response.tools[0], api_path: '/api/v1/pcr/instrument' }] },
+  { ...response, tools: [{ ...response.tools[0], backend_module: 'app.api.v1.endpoints.kite' }] },
+  { ...response, tools: [{ ...response.tools[0], category: 'strategy' }] },
+  { ...response, tools: [{ ...response.tools[0], future_execution: true }] },
+  { ...response, unexpected_capability: 'trade' },
+  { ...response, tools: [[response.tools[0]]] },
 ])('fails closed on a changed or unsafe server contract', async payload => {
   expect(safeToolCatalog(payload)).toBeNull();
   stub.get.mockResolvedValue(payload);
