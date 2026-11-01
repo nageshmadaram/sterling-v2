@@ -66,6 +66,7 @@ const PriceRulesPanel = lazy(() => import('./PriceRulesPanel').then(m => ({ defa
 const PlatformToolsPane = lazy(() => import('./PlatformToolsPane'));
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
+  { id: 'platform-tools', label: 'Tools' },
   { id: 'bids', label: 'Bids' },
   { id: 'funds', label: 'Funds' },
   { id: 'mf', label: 'Mutual Funds' },
