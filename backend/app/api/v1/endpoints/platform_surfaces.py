@@ -24,6 +24,7 @@ class SurfaceContract(BaseModel):
     label: str
     state: Literal["existing_partial", "planned"]
     backing: str
+    http_method: Literal["GET", "POST"]
     mounts_route: bool
     permits_order_write: Literal[False]
 
