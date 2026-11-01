@@ -66,7 +66,8 @@ test('fresh TV-only login opens the chooser, then protected TV, with no Kite run
   await page.getByRole('button', { name: 'Choose workspace', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Choose your workspace' })).toBeVisible();
   await page.getByRole('button', { name: 'Close workspace selector', exact: true }).click();
-  await page.getByRole('button', { name: 'Sign out', exact: true }).click();
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Account and navigation' }).getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(page.getByRole('form', { name: 'Sterling login' })).toBeVisible();
 });
 
@@ -210,8 +211,8 @@ for (const width of [390, 1440]) {
     await page.getByRole('button', { name: 'Open Echo', exact: true }).click();
     await expect(page.frameLocator('iframe').locator('body')).toContainText('Protected radio document');
     expect(initialized).toBe(true);
-    await page.getByRole('button', { name: 'Radio display settings', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Switch workspace', exact: true }).click();
+    await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Account and navigation' }).getByRole('button', { name: 'Switch workspace', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Choose your workspace' })).toBeVisible();
     expect(requests.some(path => path.startsWith('/api/v1/kite/'))).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
