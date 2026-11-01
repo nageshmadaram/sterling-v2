@@ -26,7 +26,7 @@ In an isolated review checkout, after confirming HEAD:
 ```sh
 python scripts/validate_preproduction_controls.py
 python -m unittest discover -s scripts/tests -p 'test_preproduction_finish_review.py'
-python scripts/preproduction_finish_review.py \
+python -m scripts.preproduction_finish_review \
   --head-sha "<exact 40-character reviewed Git commit>" \
   --output "/tmp/sterling-v2-review/finish-review.json"
 ```
