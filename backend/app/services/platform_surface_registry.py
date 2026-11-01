@@ -51,6 +51,16 @@ SURFACES: tuple[Surface, ...] = (
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
+        "broker_summary", "/api/v1/platform/broker/summary",
+        "Normalized scoped broker read", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
+        "strategy_catalog", "/api/v1/platform/strategies",
+        "Canonical lane read catalog", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "python", "/python", "Python strategy host", "planned", "",
     ),
     Surface(
