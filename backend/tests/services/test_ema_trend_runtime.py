@@ -230,6 +230,30 @@ def test_historical_snapshot_keeps_held_campaigns_visible():
     assert len(view["campaigns"])==1 and view["historical_view"]
 
 
+def test_original_only_scans_do_not_hide_retired_mode_campaigns():
+    # The UI uses batched ?modes=swing, but every unresolved legacy paper
+    # campaign must remain visible regardless of its retired entry profile.
+    # A single-mode row query must never be interpreted as exposure flatness.
+    for mode in ("swing", "intraday"):
+        campaign = Campaign(
+            id=f"historical-{mode}", uid=sim_uid("alice"),
+            account_id=sim_account_id("alice"), symbol="NSE:INFY",
+            mode=mode, product="CNC", config_hash="historical",
+            config_revision=1, config_snapshot={}, budget=100,
+            initial_stop=95, stop=95, entry_index=1,
+        )
+        repo.put("alice", "campaign", campaign.id,
+                 campaign.model_dump(mode="json"), 0)
+
+    view = snapshot.snapshot("alice", modes=["swing"], row_limit=50)
+    assert {campaign["id"] for campaign in view["campaigns"]} == {
+        "historical-swing", "historical-intraday",
+    }
+    assert view["tenant_kind"] == "SIMULATION"
+    assert view["execution_mode"] == "PAPER"
+    assert snapshot.snapshot("bob", modes=["swing"], row_limit=50)["campaigns"] == []
+
+
 def test_disabled_scanning_never_hides_order_recovery_state():
     config_store.update("alice",0,{"enabled":False})
     repo.put("alice","scan","failed",{"status":"FAILED","errors":[{"reason":"PROVIDER_DOWN"}]},0)
