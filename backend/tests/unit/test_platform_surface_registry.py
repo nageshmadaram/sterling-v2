@@ -86,6 +86,10 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/runtime",
             "/api/v1/platform/runtime",
         ),
+        "platform_tools": (
+            "platform_surfaces.py", "get", "/platform/tools",
+            "/api/v1/platform/tools",
+        ),
     }
     for key, (filename, method, relative, canonical) in expected.items():
         item = next(s for s in SURFACES if s.key == key)
