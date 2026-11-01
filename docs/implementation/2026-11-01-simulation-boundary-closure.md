@@ -78,6 +78,54 @@ The authoritative operational decision remains in
 | `/api/v1/compat/openalgo/orderstatus` | JWT + feature grant; journal-scoped read only | Existing contract retained |
 | `/api/v1/platform/surfaces` | Inventory metadata, not route mounts or execution grants | Existing contract retained |
 
+## Continued checkpoint: quote integrity and browser contract migration
+
+After the original broker-ACK patch, the existing paper/shadow router was
+verified to accept `0.0` as a virtual execution price when the adapter was
+absent or a quote read failed. Both virtual writer paths now refuse a simulated
+fill before persistence unless the input quote is **finite and positive**.
+A definitive pre-write refusal does not insert an idempotency marker; a new
+request may be tried after valid data becomes available. The test suite now
+covers zero, negative, NaN and infinite synthetic quote inputs, and the agent
+reference-flow test supplies a labeled synthetic market quote.
+
+The latest review also inspected exact-commit Playwright E2E job logs for
+`062f47b59b22dcf805483a001425291a2a2c9b23`:
+Chromium reported **69 failing / 5 passing** scenarios (with retries), and
+the Firefox and WebKit jobs also failed. These are **not accepted** runs.
+
+Identified independent browser blockers:
+
+- Strict mocked workspaces did not recognize the current authenticated
+  `/api/v1/auth/profile` read; fixtures now give identity-consistent reads
+  and continue to refuse unspecified endpoints.
+- Directory-based administration calls `/api/v1/admin/directory`, while
+  the old browser fixture expected a removed manage-user dropdown. The
+  administration-isolation contract now uses the current directory read model
+  and preserves the zero-Kite-network assertion.
+- The root workspace sends an administrator to administration; existing
+  isolated risk/operations tests incorrectly expected the Kite Tools button
+  at `/`. They now navigate explicitly to the granted `/kite` workspace.
+- Mobile E2E scripts called Playwright `.tap()` without enabling browser
+  touch. Those tests now set `hasTouch` without forcing Firefox-unsupported
+  `isMobile` semantics.
+- The `frontend/e2e/media/spotify.spec.ts` tests request
+  `/radio/index.html` and `/tv/index.html`. These entry documents are absent
+  in the current V2 `frontend/public/radio` and `frontend/public/tv`
+  directories. Their browser failures are **not** resolved by an auth mock.
+  Restore actual authorized media artifacts and test them, or explicitly
+  separate an approved legacy-media suite; do not manufacture green results.
+- Replay browser-to-backend scenarios received `403 Feature access is not
+  enabled` for the default principal. This is a secure denial, not
+  permission to weaken backend policy; controlled test grants or adjusted
+  negative contracts are still needed.
+- EMA Trend signal profile tests contain stale mode/selector expectations.
+  These require fixture-to-current-UI reconciliation before acceptance.
+
+Browser fixture edits **are not** claims of passing browser tests. The
+latest branch additionally needs its own completed Playwright and Python
+CI results. Do not mark the repo regression-clean until those are reviewed.
+
 ## Focused verification
 
 Targeted local command (execute with the repository's pinned dependencies):
@@ -100,9 +148,9 @@ not acceptance. Follow the current PR head SHA, not a historical green run.
 - The in-memory legacy idempotency cache has a TTL; it is not a durable
   restart-recovery guarantee. **Canonical journal persistence is still
   required for any broker-affecting submission.**
-- The paper simulation's legacy quote-unavailable behavior and its effect on
-  reported virtual fill prices require a separately scoped compatibility
-  migration and validation; this checkpoint does not certify paper P&L.
+- The legacy paper/shadow router now refuses virtual fills without valid
+  positive market quotes, but this does not certify paper P&L, execution
+  economics, or equivalence to live broker fills.
 - The current review branch's
   `tests/unit/test_canonical_execution_convergence.py` asserts the five
   formerly direct protective SELL call sites now invoke `submit_reduction`
