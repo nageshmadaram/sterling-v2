@@ -63,6 +63,7 @@ const JournalTab = lazy(() => import('../journal/JournalTab').then(m => ({ defau
 const LiveOperationsPanel = lazy(() => import('./LiveOperationsPanel').then(m => ({ default: m.LiveOperationsPanel })));
 
 const PriceRulesPanel = lazy(() => import('./PriceRulesPanel').then(m => ({ default: m.PriceRulesPanel })));
+const PlatformToolsPane = lazy(() => import('./PlatformToolsPane'));
 
 const MORE_TABS: { id: MoreTab; label: string }[] = [
   { id: 'bids', label: 'Bids' },
