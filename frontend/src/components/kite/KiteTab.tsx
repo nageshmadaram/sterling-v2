@@ -112,6 +112,7 @@ function MorePane({ activeTab, onTabChange }: { activeTab: MoreTab; onTabChange:
           {activeTab === 'data' && <MarketDataPane />}
           {activeTab === 'operations' && <LiveOperationsPanel />}
           {activeTab === 'price-rules' && <PriceRulesPanel />}
+          {activeTab === 'platform-tools' && <PlatformToolsPane />}
         </Suspense>
       </div>
     </div>
