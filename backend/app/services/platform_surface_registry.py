@@ -56,6 +56,11 @@ SURFACES: tuple[Surface, ...] = (
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
+        "strategy_contract", "/api/v1/platform/strategies",
+        "Existing lane and canonical execution source map", "existing_partial",
+        "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
+    ),
+    Surface(
         "python", "/python", "Python strategy host", "planned", "",
     ),
     Surface(
