@@ -10,10 +10,18 @@ on:
       - "backend/app/services/platform_session_read.py"
       - "backend/tests/unit/test_platform_tool_registry.py"
       - "backend/app/services/platform_tool_registry.py"
+      - "backend/app/services/platform_view_contracts.py"
+      - "backend/tests/unit/test_platform_view_contracts.py"
       - "backend/app/services/platform_api_normalization.py"
       - "backend/app/services/platform_strategy_contract.py"
       - "backend/app/services/platform_offline_authoring.py"
       - "backend/tests/unit/test_platform_offline_authoring.py"
+      - "frontend/src/components/kite/PlatformToolsPane.tsx"
+      - "frontend/src/components/kite/__tests__/PlatformToolsPane.test.tsx"
+      - "frontend/src/components/kite/KiteLayout.tsx"
+      - "frontend/src/components/kite/KiteTab.tsx"
+      - "frontend/src/pages/WorkspaceRouter.tsx"
+      - "frontend/src/pages/__tests__/WorkspaceRouter.test.tsx"
       - "backend/tests/unit/test_platform_strategy_contract.py"
       - "backend/tests/unit/test_platform_api_normalization.py"
       - "backend/tests/unit/test_platform_session_read.py"
@@ -46,7 +54,7 @@ jobs:
       - name: Install pinned dependencies
         run: python -m pip install -r backend/requirements.lock.txt
       - name: Syntax check
-        run: python -m compileall -q backend/app/api/v1/endpoints/platform_surfaces.py backend/app/services/platform_surface_registry.py backend/tests/unit/test_platform_surface_registry.py backend/tests/unit/test_platform_session_read.py backend/app/services/platform_tool_registry.py backend/tests/unit/test_platform_tool_registry.py backend/app/services/platform_api_normalization.py backend/tests/unit/test_platform_api_normalization.py backend/app/services/platform_strategy_contract.py backend/tests/unit/test_platform_strategy_contract.py backend/app/services/platform_offline_authoring.py backend/tests/unit/test_platform_offline_authoring.py
+        run: python -m compileall -q backend/app/api/v1/endpoints/platform_surfaces.py backend/app/services/platform_surface_registry.py backend/tests/unit/test_platform_surface_registry.py backend/tests/unit/test_platform_session_read.py backend/app/services/platform_tool_registry.py backend/tests/unit/test_platform_tool_registry.py backend/app/services/platform_api_normalization.py backend/tests/unit/test_platform_api_normalization.py backend/app/services/platform_strategy_contract.py backend/tests/unit/test_platform_strategy_contract.py backend/app/services/platform_offline_authoring.py backend/tests/unit/test_platform_offline_authoring.py backend/app/services/platform_view_contracts.py backend/tests/unit/test_platform_view_contracts.py
       - name: Check JWT, feature gates, metadata, legacy read adapter and route isolation
         working-directory: backend
         env:
@@ -54,4 +62,19 @@ jobs:
           PAPER_TRADING: "true"
           REAL_PUBLIC_DATA: "false"
         run: |
-          python -m pytest -q --tb=short tests/unit/test_platform_surface_registry.py tests/unit/test_platform_session_read.py tests/unit/test_platform_tool_registry.py tests/unit/test_platform_api_normalization.py tests/unit/test_platform_strategy_contract.py tests/unit/test_platform_offline_authoring.py tests/unit/test_openalgo_compat.py tests/services/test_ticker_subscription_ownership.py tests/test_kite_ticker_account_binding.py tests/unit/simulation/test_tenancy_feed.py
+          python -m pytest -q --tb=short tests/unit/test_platform_surface_registry.py tests/unit/test_platform_session_read.py tests/unit/test_platform_tool_registry.py tests/unit/test_platform_api_normalization.py tests/unit/test_platform_strategy_contract.py tests/unit/test_platform_offline_authoring.py tests/unit/test_openalgo_compat.py tests/services/test_ticker_subscription_ownership.py tests/test_kite_ticker_account_binding.py tests/unit/simulation/test_tenancy_feed.py tests/unit/test_platform_view_contracts.py
+
+      - name: Node 22 for existing Kite workspace
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+      - name: Verify Tools pane TypeScript and fail-closed UI tests
+        working-directory: frontend
+        run: |
+          npx tsc --noEmit
+          npx vitest run src/components/kite/__tests__/PlatformToolsPane.test.tsx src/pages/__tests__/WorkspaceRouter.test.tsx --coverage=false
