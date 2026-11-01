@@ -89,3 +89,34 @@ it('keys the read-only metadata cache by the current Simulation/live view', asyn
   expect(client.getQueryData(['kite', 'platform-tools-readonly', 'live'])).toBeDefined();
   expect(client.getQueryData(['kite', 'platform-tools-readonly', 'simulation'])).toBeDefined();
 });
+
+it('accepts every exact known canonical read route, including route templates', () => {
+  const canonical = [
+    response.tools[0],
+    {
+      ...response.tools[0], key: 'pcr_instrument', label: 'PCR instrument',
+      api_path: '/api/v1/pcr/instrument',
+    },
+    {
+      ...response.tools[0], key: 'candles', label: 'Instrument candles',
+      category: 'charting', api_path: '/api/v1/candles/{underlying}',
+      backend_module: 'app.api.v1.endpoints.candles',
+    },
+    {
+      ...response.tools[0], key: 'strategy_modes', label: 'Strategy modes',
+      category: 'strategy', api_path: '/api/v1/strategies/{strategy}/modes',
+      backend_module: 'app.api.v1.endpoints.lanes',
+    },
+    {
+      ...response.tools[0], key: 'ticker_health', label: 'Kite ticker health',
+      category: 'feed', api_path: '/api/v1/kite/ticker/status',
+      backend_module: 'app.api.v1.endpoints.kite',
+    },
+  ];
+  expect(safeToolCatalog({ ...response, tools: canonical })).not.toBeNull();
+  expect(safeToolCatalog({
+    ...response,
+    tools: canonical.map((tool, i) => i === 2
+      ? { ...tool, api_path: '/api/v1/kite/orders' } : tool),
+  })).toBeNull();
+});
