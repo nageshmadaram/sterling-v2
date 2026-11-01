@@ -14,6 +14,8 @@ from app.core.feature_access import require_feature
 from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
 from app.services.platform_session_read import session_feed_snapshot
 from app.services.platform_tool_registry import tools_snapshot
+from app.services.platform_broker_read import normalize_broker_read
+from app.services.platform_strategy_read import strategy_catalog
 
 router = APIRouter(tags=["platform-discovery"])
 
@@ -132,4 +134,69 @@ async def platform_tools(
         execution_authorized=False,
         tools_ui_mounted=False,
         tools=[ToolContract(**entry) for entry in tools_snapshot()],
+    )
+
+
+class BrokerSummaryContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    source: Literal["sterling_existing_account_and_ticker_managers"]
+    view: Literal["live", "simulation"]
+    session_state: Literal[
+        "not_configured", "no_stored_token", "stored_token_unverified",
+        "feed_disconnected", "feed_connected",
+    ]
+    broker_login_verified: Literal[False]
+    order_execution_authorized: Literal[False]
+    feed_bound_to_active_account: bool
+    feed_connected: bool
+    shared_owner_feed: bool
+    subscriptions_count: int
+    last_tick_ms: int
+
+
+@router.get("/platform/broker/summary", response_model=BrokerSummaryContract)
+async def platform_broker_summary(
+    response: Response, user: UserContext = Depends(get_current_user),
+) -> BrokerSummaryContract:
+    """Normalize read-only session/feed evidence; no broker validation or writes."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    try:
+        result = normalize_broker_read(session_feed_snapshot(user))
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(status_code=503, detail="Scoped broker read unavailable") from None
+    return BrokerSummaryContract(**result)
+
+
+class StrategyLaneContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    strategy_id: str
+    mode: str
+    lane_key: str
+    configured_state: str
+    rules_defined: bool
+    order_submission_enabled: Literal[False]
+
+
+class StrategyCatalogContract(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    risk_preflight_performed: Literal[False]
+    source: Literal["sterling_canonical_lane_registry"]
+    lanes: list[StrategyLaneContract]
+
+
+@router.get("/platform/strategies", response_model=StrategyCatalogContract)
+async def platform_strategy_catalog(
+    response: Response, user: UserContext = Depends(get_current_user),
+) -> StrategyCatalogContract:
+    """Describe existing lanes; never dispatch or claim risk/kill-switch approval."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return StrategyCatalogContract(
+        version="0.1.0", execution_authorized=False,
+        risk_preflight_performed=False, source="sterling_canonical_lane_registry",
+        lanes=[StrategyLaneContract(**row) for row in strategy_catalog()],
     )
