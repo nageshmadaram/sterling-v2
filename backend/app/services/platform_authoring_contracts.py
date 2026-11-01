@@ -37,7 +37,13 @@ class AuthoringRejected(ValueError):
 
 def validate_python_source(source: str) -> dict[str, Any]:
     """Parse one on_bar(bar) declaration; never load or run the source."""
-    if not isinstance(source, str) or not 0 < len(source.encode("utf-8")) <= MAX_PYTHON_BYTES:
+    if not isinstance(source, str):
+        raise AuthoringRejected("python_source_type_invalid")
+    try:
+        source_size = len(source.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise AuthoringRejected("python_source_encoding_invalid") from exc
+    if not 0 < source_size <= MAX_PYTHON_BYTES:
         raise AuthoringRejected("python_source_size_invalid")
     if "\x00" in source:
         raise AuthoringRejected("python_source_nul_refused")
