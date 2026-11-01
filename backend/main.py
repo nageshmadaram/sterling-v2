@@ -666,6 +666,9 @@ def create_app() -> FastAPI:
     # API keys, query a live broker or submit orders.
     from app.api.v1.endpoints.openalgo_compat import router as openalgo_compat_router
     app.include_router(openalgo_compat_router, prefix="/api/v1")
+    # Authenticated discovery only. This does NOT mount any planned platform UI route.
+    from app.api.v1.endpoints.platform_surfaces import router as platform_surfaces_router
+    app.include_router(platform_surfaces_router, prefix="/api/v1")
 
     # TrueData market data provider endpoints
     from app.api.v1.endpoints.truedata import router as truedata_router
