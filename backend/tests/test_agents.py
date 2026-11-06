@@ -67,8 +67,12 @@ async def test_execution_agent_routes_and_emits_events():
     events = []
     bus.subscribe(OrderSubmitted, lambda e: events.append(e.event_type))
     bus.subscribe(OrderAccepted, lambda e: events.append(e.event_type))
+    # Paper fill evidence still needs an explicit positive synthetic quote.
+    adapter = AsyncMock()
+    adapter._is_paper = True
+    adapter.get_index_price.return_value = 100.0
     router = OrderRouter(
-        mode=RouterMode.PAPER, adapter=None,
+        mode=RouterMode.PAPER, adapter=adapter,
         deps=RouterDeps(list_open_positions=lambda: [],
                         create_paper_position=lambda *_a, **_k: "PP"),
         instrument_resolver=lambda _s: _Inst(),

@@ -13,9 +13,10 @@ test('selected risk overrides persist without enabling trading', async ({ page }
     }
     return route.fulfill({ json: profile });
   });
-  await page.goto('/');
+  // Root is the administration landing page for the fixture administrator.
+  await page.goto('/kite');
   await page.getByRole('button', { name: /^Tools/ }).click();
-  await page.getByRole('menuitem', { name: 'Connect', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Settings section', { exact: true }).selectOption('mode');
   await expect(page.getByText('Saving these settings does not enable trading.')).toBeVisible();
   await expect(page.getByLabel('Allocation cap (₹)', { exact: true })).toHaveValue('');

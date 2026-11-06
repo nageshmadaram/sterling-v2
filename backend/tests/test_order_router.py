@@ -152,8 +152,33 @@ class TestPaperMode:
 
         resp = await router.submit(_basic_req())
 
-        assert resp.entry_price == 0.0
-        assert resp.accepted is True
+        assert resp.accepted is False
+        assert resp.code == "paper_quote_unavailable"
+        assert resp.status == "rejected"
+        assert resp.paper_position_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [RouterMode.PAPER, RouterMode.SHADOW])
+@pytest.mark.parametrize("quote", [0, -1, float("nan"), float("inf")])
+async def test_invalid_quote_cannot_create_simulated_fill(mode, quote):
+    saved = []
+    adapter = _make_adapter(index_price=quote)
+    deps = RouterDeps(
+        list_open_positions=lambda: [],
+        create_paper_position=lambda *_args: saved.append(_args) or "VIRTUAL-1",
+        greeks_budget_gate=lambda *_a, **_k: None,
+    )
+    router = OrderRouter(mode, adapter, deps, _resolve)
+    request = _basic_req(client_order_id=f"invalid-quote-{mode.value}-{quote}")
+    response = await router.submit(request)
+    assert not response.accepted
+    assert response.code == "paper_quote_unavailable"
+    assert response.status == "rejected"
+    assert response.order_id is None and response.paper_position_id is None
+    assert saved == []
+    assert live_safety.check_idempotency(request.client_order_id) is None
+    adapter.place_order.assert_not_awaited()
 
 
 # ─── Live mode ────────────────────────────────────────────────────────────
@@ -317,6 +342,52 @@ class TestLiveMode:
         adapter.place_order.assert_not_awaited()
 
 
+    @pytest.mark.asyncio
+    async def test_paper_writer_failure_keeps_unknown_not_a_fake_fill(self) -> None:
+        adapter = _make_adapter()
+        def fail_after_possible_write(*_args, **_kwargs):
+            raise RuntimeError("storage failure: secret-token")
+        deps = RouterDeps(
+            list_open_positions=lambda: [],
+            create_paper_position=fail_after_possible_write,
+        )
+        router = OrderRouter(RouterMode.PAPER, adapter, deps, _resolve)
+
+        first = await router.submit(_basic_req(client_order_id="paper-fail"))
+        assert not first.accepted
+        assert first.status == "unknown" and first.code == "paper_record_unknown"
+        assert first.order_id is None and first.paper_position_id is None
+        assert "secret-token" not in first.reason
+        second = await router.submit(_basic_req(client_order_id="paper-fail"))
+        assert not second.accepted and second.code == "submission_unknown"
+        adapter.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_idempotency_never_promotes_broker_id_into_paper_ack(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.PAPER, adapter, _make_deps(), _resolve)
+        live_safety.record_idempotency("foreign-id", "BROKER-ACK-1")
+
+        result = await router.submit(_basic_req(client_order_id="foreign-id"))
+        assert not result.accepted
+        assert result.code == "idempotency_identity_conflict"
+        assert result.order_id is None
+        adapter.place_order.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_paper_cache_cannot_be_reused_as_shadow_position(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.PAPER, adapter, _make_deps(), _resolve)
+        first = await router.submit(_basic_req(client_order_id="cross-mode"))
+        assert first.accepted and first.paper_position_id == "PP_001"
+        router.mode = RouterMode.SHADOW
+
+        second = await router.submit(_basic_req(client_order_id="cross-mode"))
+        assert not second.accepted and second.code == "idempotency_identity_conflict"
+        assert second.order_id is None and second.paper_position_id is None
+        adapter.place_order.assert_not_awaited()
+
+
 # ─── Shadow mode ──────────────────────────────────────────────────────────
 
 
@@ -342,7 +413,7 @@ class TestShadowMode:
         adapter = _make_adapter(place_order_result={"id": "SHD", "average_fill_price": 50_100.0})
 
         def _bad_paper(*_a, **_k):
-            raise RuntimeError("disk full")
+            raise RuntimeError("disk full: token-secret-must-not-leak")
 
         deps = RouterDeps(
             list_open_positions=lambda: [],
@@ -352,12 +423,29 @@ class TestShadowMode:
 
         resp = await router.submit(_basic_req(client_order_id="s2"))
 
-        assert resp.accepted is True
+        assert resp.accepted is False
+        assert resp.status == "unknown"
         assert resp.order_id is None
         assert resp.code == "shadow_record_failed"
-        assert "shadow paper-record failed" in resp.reason
+        assert "token-secret-must-not-leak" not in resp.reason
+        again = await router.submit(_basic_req(client_order_id="s2"))
+        assert not again.accepted and again.code == "submission_unknown"
         adapter.place_order.assert_not_awaited()
         adapter.place_order_option.assert_not_awaited()
+
+
+    @pytest.mark.asyncio
+    async def test_shadow_missing_position_identity_is_not_accepted(self) -> None:
+        adapter = _make_adapter()
+        router = OrderRouter(RouterMode.SHADOW, adapter, _make_deps(paper_create_returns=""), _resolve)
+
+        first = await router.submit(_basic_req(client_order_id="bad-shadow-id"))
+        assert not first.accepted
+        assert first.status == "unknown" and first.code == "shadow_record_failed"
+        assert first.order_id is None and first.paper_position_id is None
+        again = await router.submit(_basic_req(client_order_id="bad-shadow-id"))
+        assert not again.accepted and again.code == "submission_unknown"
+        adapter.place_order.assert_not_awaited()
 
 
 # ─── Safety reject paths ─────────────────────────────────────────────────
@@ -411,7 +499,8 @@ class TestSafetyRejects:
         assert first.accepted is True
         assert second.accepted is True
         assert second.status == "duplicate"
-        assert second.order_id == "paper:PP_001"
+        assert second.order_id is None
+        assert second.paper_position_id == "PP_001"
         adapter.place_order.assert_not_awaited()
 
     @pytest.mark.asyncio

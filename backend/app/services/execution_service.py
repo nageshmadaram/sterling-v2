@@ -66,6 +66,26 @@ def _never_reached_the_broker(exc: BaseException) -> bool:
     return False
 
 
+def _validated_broker_order_id(response: Any) -> str:
+    """Require an attributable broker ACK, never a stringified missing value.
+
+    The broker transport may return a mapping with order_id or a bare ID.
+    A transport returning None, a boolean or a local lifecycle sentinel did
+    not establish an exchange identity, even if the HTTP call returned 200.
+    The caller must mark the already-sent intent UNKNOWN, not send again.
+    """
+    raw = response.get("order_id") if isinstance(response, dict) else response
+    if isinstance(raw, bool) or not isinstance(raw, (str, int)):
+        raise SubmissionOutcomeUnknown("Broker acknowledgement missing attributable order ID")
+    order_id = str(raw).strip()
+    if (not order_id or order_id.upper() in {
+            "NONE", "NULL", "UNKNOWN", "PENDING", "SUBMITTING", "RESERVED",
+            "NAN", "UNDEFINED", "FALSE", "TRUE", "0",
+        } or order_id.lower().startswith(("paper:", "shadow:", "idempotency:"))):
+        raise SubmissionOutcomeUnknown("Broker acknowledgement missing attributable order ID")
+    return order_id
+
+
 class ExposureEffect(str, Enum):
     INCREASE_EXPOSURE = "INCREASE_EXPOSURE"
     REDUCE_EXPOSURE = "REDUCE_EXPOSURE"
@@ -1094,13 +1114,7 @@ class CanonicalExecutionService:
                 else:
                     res = place_fn(**kwargs)
 
-            if isinstance(res, dict):
-                order_id = str(res.get("order_id", ""))
-            else:
-                order_id = str(res)
-
-            if not order_id:
-                raise SubmissionOutcomeUnknown("Broker place_order returned empty order_id")
+            order_id = _validated_broker_order_id(res)
 
         except asyncio.CancelledError:
             # The task was cancelled somewhere inside the send: the request may
