@@ -1,0 +1,59 @@
+name: Independent Production Certification Intake (NO-GO Only)
+
+on:
+  push:
+    branches:
+      - cert/production-readiness-evidence-20261029
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-intake-no-go-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fail-closed-governance-intake:
+    name: Source-only NO-GO register and negative decision tests (NOT a production certification)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile isolated governance verifier and tests
+        run: python -m compileall -q certification/
+      - name: Verify critical NO-GO logic rejects all unsafe approvals
+        run: python -m unittest discover -s certification/tests -p 'test_*.py' -v
+      - name: Verify evidence register and main/source freeze (NO EXTERNAL SYSTEMS)
+        run: python certification/verify_production_no_go.py --output /tmp/sterling-production-intake-no-go.json
+      - name: Independently assert unverified production evidence remains blocked
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          m=json.loads(Path('/tmp/sterling-production-intake-no-go.json').read_text())
+          assert m['registration_integrity'] == 'PASS'
+          assert m['real_world_evidence_verified'] is False
+          assert m['independently_observed_controls'] == 0
+          assert m['blocked_control_count'] == 12
+          assert m['production_certification'] == 'BLOCKED'
+          assert m['production_deployment'] == 'NO_GO'
+          assert m['live_trading'] == 'NOT_AUTHORIZED'
+          assert m['broker_order_routing'] == 'NOT_AUTHORIZED'
+          assert m['main_merge'] == 'NOT_AUTHORIZED'
+          assert m['external_approver_signoff'] == 'NOT_PROVIDED'
+          print('NO-GO intake valid. ZERO real-world controls accepted. NO merge/deployment/trading.')
+          PY
+      - name: Store sanitized NO-GO review artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: sterling-v2-independent-production-review-blocked
+          path: /tmp/sterling-production-intake-no-go.json
+          retention-days: 30
+          if-no-files-found: error
