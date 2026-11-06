@@ -21,10 +21,18 @@ jobs:
         run: python -m unittest discover -s scripts/tests -p 'test_preproduction_inventory.py'
       - name: Offline governance schema regression tests
         run: python -m unittest discover -s scripts/tests -p 'test_preproduction_controls.py'
+      - name: Exact-SHA finish-evidence manifest unit tests (non-authorizing)
+        run: python -m unittest discover -s scripts/tests -p 'test_preproduction_finish_review.py'
       - name: Verify twelve controls remain explicitly unapproved
         run: python scripts/validate_preproduction_controls.py
       - name: Fail closed on new ordinary broker-order bypasses
         run: python scripts/preproduction_inventory.py --output "$RUNNER_TEMP/preproduction-inventory" --strict
+      - name: Bind review-only control evidence to exact checked-out SHA
+        run: |
+          python -m scripts.preproduction_finish_review \
+            --head-sha "${{ github.sha }}" \
+            --run-id "${{ github.run_id }}" \
+            --output "$RUNNER_TEMP/preproduction-inventory/finish-review.json"
       - name: Upload source-only evidence (never a release approval)
         if: always()
         uses: actions/upload-artifact@v4

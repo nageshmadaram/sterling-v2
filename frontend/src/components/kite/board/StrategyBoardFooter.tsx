@@ -41,7 +41,7 @@ export function StrategyBoardFooter({ name, children, onReset }: {
   // horizontally scrollable row; status remains a separate compact line.
   const actions = controls.filter(interactive);
   return <>
-    {actions.length > 0 && <section className="sb-strategy-actions"
+    {actions.length > 0 && !open && <section className="sb-strategy-actions"
       aria-label={`${name} actions`}
       style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8,
         maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden',

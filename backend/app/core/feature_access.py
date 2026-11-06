@@ -28,6 +28,11 @@ def route_policy(path: str, method: str) -> str:
     # a trading mutation under the default-deny role rule.
     if path == '/api/v1/compat/openalgo/orderstatus' and method == 'POST':
         return 'kite_read_only'
+    # This namespace is intentionally not a broker-write compatibility API.
+    # Without this explicit refusal, new /compat/openalgo paths fall through to
+    # the ordinary Kite writer-role policy and could silently add order routes.
+    if path == '/api/v1/compat/openalgo' or path.startswith('/api/v1/compat/openalgo/'):
+        return 'compatibility_denied'
     if path.startswith(('/tma/', '/api/v1/tma/')):
         return 'telegram'
     if path.startswith('/api/v1/admin/'):
@@ -57,6 +62,9 @@ async def enforce_feature_access(connection: HTTPConnection):
         return  # WebSocket identity and each send/subscription have their own durable checks.
     request = connection
     policy = route_policy(request.url.path, request.method)
+    if policy == 'compatibility_denied':
+        # Deny independently of caller role, simulation, and runtime flags.
+        raise HTTPException(403, 'OpenAlgo compatibility route is read-only and not authorized.')
     if policy in ('kite', 'kite_read_only'):
         principal = await get_current_user(request)
         current = require_feature(principal)

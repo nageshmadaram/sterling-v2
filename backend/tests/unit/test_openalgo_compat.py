@@ -60,6 +60,12 @@ def test_partial_fill_preserves_partial_status():
     {"state": "PARTIAL", "filled_quantity": 25, "filled_value": 2500},
     {"state": "SUBMITTED", "filled_quantity": 1, "filled_value": 99},
     {"state": "REJECTED", "filled_quantity": 1, "filled_value": 0},
+    {"state": "SUBMITTED", "filled_quantity": 0, "filled_value": 100},
+    {"state": "ACKNOWLEDGED", "filled_quantity": 0, "filled_value": 100},
+    {"state": "CANCELLED", "filled_quantity": 0, "filled_value": 100},
+    {"state": "REJECTED", "filled_quantity": 0, "filled_value": 100},
+    {"state": "CANCELLED", "filled_quantity": 1, "filled_value": 0},
+    {"state": "PARTIAL", "filled_quantity": 0, "filled_value": 100},
 ])
 def test_conflicting_fill_evidence_cannot_be_presented_as_order_success(changes):
     result = canonical_order_status(intent(**changes))
