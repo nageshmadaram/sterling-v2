@@ -211,3 +211,20 @@ def test_terminal_parent_order_request_quantity_must_equal_filled_plus_remainder
     result = assess(broker_orders=orders)
     assert result.reason == "contract_sell_order_history_requires_reconciliation"
     assert not result.protected_for_review and not result.execution_authorized
+
+
+@pytest.mark.parametrize("position_rows", [
+    [15, 15],  # a split net can look equal to the expected holding
+    [30, 0],   # a duplicate zero row still makes ownership ambiguous
+    [40, -10], # offsetting long/short records do not prove one held bucket
+])
+def test_multiple_same_bucket_positions_never_prove_a_unique_remainder(position_rows):
+    positions = deepcopy(BASE["broker_positions"])
+    positions["net"] = [
+        dict(tradingsymbol=BASE["symbol"], exchange="NFO", product="NRML", quantity=qty)
+        for qty in position_rows
+    ]
+    result = assess(broker_positions=positions)
+    assert result.reason == "broker_position_bucket_ambiguous"
+    assert result.protected_for_review is False
+    assert result.execution_authorized is False

@@ -27,9 +27,12 @@ has `execution_authorized=False`; there is no success-to-send conversion.
 - The supplied snapshot-completion timestamp is within a conservative
   5-second maximum and not in the future (caller-supplied timestamps cannot
   independently prove actual broker freshness).
-- A raw `{ "net": [...] }` broker-position book has exact positive quantity
-  equal to the reconciled remainder in the requested bucket. Boolean,
-  fractional, unknown or mismatched other-product exposure is rejected.
+- A raw `{ "net": [...] }` broker-position book contains **exactly one**
+  matching exchange/symbol/product row whose positive quantity equals the
+  reconciled remainder. Boolean, fractional, unknown, duplicate, offsetting
+  signed rows and mismatched other-product exposure are rejected. A sum of
+  multiple rows can accidentally equal the remainder without proving one
+  uniquely protected broker holding.
 - The *recorded* GTT exists in the supplied broker book, has an active
   single-trigger condition and a single matching priced SELL LIMIT leg with
   the exact protected quantity. Malformed price, wrong product, wrong contract,
@@ -57,9 +60,9 @@ unchanged. No automatic remaining-quantity SELL is implemented.
 
 ## Regression evidence
 
-The new module has 67 offline tests including a consistent snapshot and
+The module has 70 offline tests including a consistent snapshot and
 strict negative cases for wrong account, price/quantity rounding, stale or
-future timestamps, misbound GTT legs, duplicate/conflicting SELLs, wrong
+future timestamps, misbound GTT legs, duplicate/conflicting SELLs, duplicate broker position buckets, wrong
 broker order fill and unverified stop status. The existing eight-suite
 Gamma/canonical regression remains in the offline CI workflow; the new suite
 is included in the same job. Exact-head CI must independently pass.
