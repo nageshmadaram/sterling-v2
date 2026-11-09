@@ -103,6 +103,12 @@ class LiveBroker:
             row["day_sell_quantity"], row["day_sell_price"] = self.day_sells
         return {"net": [row]}
 
+    # Canonical execution requires the raw broker book, independently of
+    # Gamma's legacy get_positions() reader. This double exposes the same
+    # synthetic book through the public transport API.
+    async def get_positions_raw(self):
+        return await self.get_positions()
+
     async def get_ltp(self, keys):
         return {key: {"last_price": self.ltp} for key in keys}
 
@@ -159,8 +165,24 @@ class LiveBroker:
         return {"trigger_id": int(trigger_id)}
 
     # ----- order writes
-    async def place_order(self, symbol, side, qty, **kwargs):
-        self.place_order_calls.append({"symbol": symbol, "side": side, "qty": qty, **kwargs})
+    async def place_order(self, symbol=None, side=None, qty=None, **kwargs):
+        # CanonicalExecutionService supplies Kite's named `quantity` argument,
+        # while a legacy recovery regression deliberately supplies positional
+        # (symbol, side, qty). Refuse ambiguous or malformed synthetic orders.
+        if qty is None:
+            qty = kwargs.get("quantity")
+        symbol = symbol or kwargs.get("tradingsymbol")
+        side = side or kwargs.get("transaction_type")
+        if (symbol not in (SYMBOL, f"NFO:{SYMBOL}") or str(side).upper() != "SELL"
+                or type(qty) is not int or qty <= 0 or qty > self.net_qty
+                or kwargs.get("exchange", "NFO") != "NFO"
+                or kwargs.get("product", "NRML") != "NRML"
+                or kwargs.get("tradingsymbol", SYMBOL) != SYMBOL
+                or str(kwargs.get("transaction_type", side)).upper() != "SELL"
+                or any(key in kwargs and (type(kwargs[key]) is not int or kwargs[key] != qty)
+                       for key in ("quantity", "size"))):
+            raise ValueError("synthetic_order_not_proved_as_exact_reduction")
+        self.place_order_calls.append({"symbol": symbol, "side": side, **kwargs, "qty": qty})
         if self.place_order_error_before_create is not None:
             raise self.place_order_error_before_create
         self.order_seq += 1
@@ -192,6 +214,9 @@ def env(monkeypatch, tmp_path):
     from app.services import db
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "gamma_recovery.db"))
     db.init()
+    # The live-mode double must have separately seeded canonical inventory:
+    # a Gamma position row alone is not authoritative broker-order evidence.
+    db.set_inventory("acct-live", UID, SYMBOL, 50, exchange="NFO")
     runner.clear()
     runner._schedule_done.clear()
     _wipe_registry()
@@ -263,6 +288,25 @@ def _live_triggers(broker: LiveBroker) -> list[dict]:
     return [g for g in broker.gtts if g["status"] == "active"]
 
 
+@pytest.mark.parametrize("attempt", [
+    {"symbol": SYMBOL, "side": "BUY", "quantity": 10},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": 0},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": 51},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": True},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": 10, "exchange": "BFO"},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": 10, "product": "MIS"},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": 10, "size": 11},
+    {"symbol": SYMBOL, "side": "SELL", "quantity": 10, "tradingsymbol": "OTHER"},
+])
+@pytest.mark.asyncio
+async def test_gamma_canonical_broker_double_rejects_nonreducing_or_mismatched_order(env, attempt):
+    """The synthetic transport must reject oversized/misbound reductions too."""
+    with pytest.raises(ValueError, match="synthetic_order_not_proved_as_exact_reduction"):
+        await env.broker.place_order(**attempt)
+    assert env.broker.net_qty == 50
+    assert env.broker.place_order_calls == env.broker.orders == []
+
+
 @pytest.mark.asyncio
 async def test_gamma_exit_refuses_shared_bucket_deficit(env, monkeypatch):
     from app.services import snapback_reconciliation as recon
@@ -304,6 +348,26 @@ async def test_gamma_exit_refuses_shared_bucket_deficit(env, monkeypatch):
     assert status == "broker_quantity_unverified"
     assert len(env.broker.place_order_calls) == before
     assert store.get(UID, SYMBOL).quantity == 50
+
+
+@pytest.mark.asyncio
+async def test_gamma_exit_missing_canonical_holding_never_disarms_stop(env):
+    """A synthetic registry+broker snapshot cannot substitute for the ledger."""
+    from app.services import db
+
+    pos = await _armed(env, qty=50)
+    old_trigger = pos.gtt_id
+    assert old_trigger and env.broker.net_qty == 50
+    db.set_inventory("acct-live", UID, SYMBOL, 0, exchange="NFO")
+
+    ok, status = await runner._execute_exit(
+        UID, pos, market_ltp=88.0, reason="SL"
+    )
+
+    assert (ok, status) == (False, "canonical_inventory_unverified")
+    assert pos.gtt_id == old_trigger
+    assert env.broker.deleted == [] and env.broker.place_order_calls == []
+    assert store.get(UID, SYMBOL).is_open
 
 
 @pytest.mark.asyncio
@@ -643,7 +707,7 @@ async def test_exit_with_a_lost_reply_is_resolved_not_resent(env, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_exit_that_never_reached_the_broker_rearms_after_the_grace(env, monkeypatch):
+async def test_cancelled_canonical_send_stays_fenced_after_grace(env, monkeypatch):
     _capture_booking(monkeypatch)
     pos = await _armed(env, qty=50)
     env.broker.place_order_error_before_create = asyncio.CancelledError()
@@ -662,10 +726,14 @@ async def test_exit_that_never_reached_the_broker_rearms_after_the_grace(env, mo
     env.clock["ms"] += 120_000
     await runner.reconcile(UID)
 
-    freed = _reload()
-    assert freed.exiting is False and freed.exit_tag == ""
-    assert len(_live_triggers(env.broker)) == 1         # the stop is back
-    assert len(env.broker.place_order_calls) == 1       # and no SELL was invented
+    # A cancelled canonical send is UNKNOWN even if one later order-book
+    # observation is empty; an empty book is not proof the order never landed.
+    # Re-arming the stop could create a duplicate SELL if the first arrives.
+    fenced = _reload()
+    assert fenced.exiting is True and fenced.exit_tag.startswith("ke")
+    assert _live_triggers(env.broker) == []
+    assert len(env.broker.place_order_calls) == 1       # no retry or invented SELL
+    assert any(a["event_type"] == "EXIT UNRESOLVED" for a in env.alerts)
 
 
 @pytest.mark.asyncio
@@ -943,7 +1011,8 @@ async def test_flatten_all_cancels_the_stop_and_exits_through_the_canonical_path
     assert env.broker.deleted == [trigger_id]
     assert len(env.broker.place_order_calls) == 1
     sell = env.broker.place_order_calls[0]
-    assert sell["qty"] == 50 and sell["tag"].startswith("gx")
+    assert sell["qty"] == 50 and sell["tag"].startswith("ke")
+    assert len(sell["tag"]) <= 20  # canonical broker/journal identity
     assert store.get(UID, SYMBOL).status == "closed"
     assert store.get(UID, SYMBOL).exit_reason == "EMERGENCY"
     assert booked == [pytest.approx(-600.0)]
@@ -1002,7 +1071,7 @@ async def test_flatten_all_is_serialised_with_an_exit_already_in_flight(env, mon
 
 
 @pytest.mark.asyncio
-async def test_flatten_all_sells_the_remainder_of_a_part_filled_exit(env, monkeypatch):
+async def test_flatten_all_refuses_reusing_immutable_partial_exit_intent(env, monkeypatch):
     _capture_booking(monkeypatch)
     pos = await _armed(env, qty=50)
     env.broker.order_fill = 20            # first attempt fills 20, the rest is cancelled
@@ -1017,14 +1086,23 @@ async def test_flatten_all_sells_the_remainder_of_a_part_filled_exit(env, monkey
     env.broker.place_order = place
     result = await runner.flatten_all(UID, env.broker)
 
-    assert result == {"closed": 1, "failed": [], "skipped": []}
-    assert [c["qty"] for c in env.broker.place_order_calls] == [50, 30]
-    assert store.get(UID, SYMBOL).status == "closed"
+    # The first order was confirmed partially filled (20/50). The second
+    # reduction would reuse the first order's immutable canonical signal ID
+    # with a different requested quantity (30): the journal correctly rejects
+    # this identity conflict. Never send a new SELL without a distinct,
+    # durable remaining-quantity intent and reconciled canonical inventory.
+    assert any("immutable_intent_conflict" in str(message)
+               for _kind, message in env.notes)
+    assert result["closed"] == 0 and result["failed"]
+    assert "submit_failed" in result["failed"][0]
+    assert [c["qty"] for c in env.broker.place_order_calls] == [50]
+    assert env.broker.net_qty == 30
+    assert store.get(UID, SYMBOL).quantity == 30
 
 
 # ===================================================================== finding 10
 @pytest.mark.asyncio
-async def test_gamma_stop_out_reaches_the_daily_loss_breaker_when_the_ledger_holding_is_flat(env):
+async def test_gamma_exit_refuses_when_other_strategys_ledger_has_erased_canonical_holding(env):
     from app.services.kite_engine import fill_ledger, state
 
     pos = await _armed(env, qty=50)
@@ -1041,8 +1119,12 @@ async def test_gamma_stop_out_reaches_the_daily_loss_breaker_when_the_ledger_hol
 
     ok, status = await runner._execute_exit(UID, pos, market_ltp=88.0, reason="SL")
 
-    assert (ok, status) == (True, "closed")
-    assert state.daily_realized_pnl_strict(UID) == pytest.approx(flat_ledger_pnl - 600.0)
+    # The shared canonical inventory says flat despite the Gamma registry and
+    # synthetic broker reporting 50. Neither the registry nor the broker
+    # reading alone can repair that contradiction or authorize another SELL.
+    assert (ok, status) == (False, "canonical_inventory_unverified")
+    assert env.broker.place_order_calls == []
+    assert state.daily_realized_pnl_strict(UID) == pytest.approx(flat_ledger_pnl)
 
 
 # ===================================================================== finding 11
