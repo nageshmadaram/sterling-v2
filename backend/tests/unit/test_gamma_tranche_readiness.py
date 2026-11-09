@@ -1080,3 +1080,39 @@ def test_old_review_claim_replay_refuses_consistent_historical_fill_rewrite(stor
     assert not outcome.held_for_review and not outcome.execution_authorized
     with db._conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def test_signed_parent_increment_rejects_nonmonotone_broker_event_chronology(store):
+    """Sorting by cumulative quantity must not hide inverted event history."""
+    _two_increment_terminal_parent()
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_execution_increments SET received_ts_ms=received_ts_ms+900000 "
+            "WHERE account_id=? AND order_id=? AND cumulative_quantity=10",
+            (ACCOUNT, "EXIT-TRANCHE-1"),
+        )
+    from app.services.kite_engine import fill_ledger
+    rows = [row for row in fill_ledger.increments(UID, account_id=ACCOUNT, symbol=SYMBOL)
+            if row["order_id"] == "EXIT-TRANCHE-1"]
+    assert [row["cumulative_quantity"] for row in rows] == [20, 10]
+    assert review().reason == "parent_signed_execution_disagrees"
+    claim = _hold()
+    assert not claim.held_for_review and not claim.execution_authorized
+
+
+def test_ordered_increment_digest_changes_if_event_chronology_is_rewritten(store):
+    """Same signed values in different event order cannot replay an old proof."""
+    _two_increment_terminal_parent()
+    first = _hold()
+    assert first.held_for_review and not first.replay
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_execution_increments SET received_ts_ms=received_ts_ms+900000 "
+            "WHERE account_id=? AND order_id=? AND cumulative_quantity=10",
+            (ACCOUNT, "EXIT-TRANCHE-1"),
+        )
+    result = _hold()
+    assert not result.held_for_review and not result.execution_authorized
+    assert result.reason == "parent_signed_execution_disagrees"
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1

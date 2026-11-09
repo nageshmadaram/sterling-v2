@@ -203,7 +203,8 @@ def hold_terminal_child_review(
             executions = conn.execute(
                 "SELECT * FROM kite_execution_increments WHERE account_id=? "
                 "AND uid=? AND symbol=? AND order_id=? "
-                "ORDER BY cumulative_quantity DESC",
+                "ORDER BY COALESCE(NULLIF(exchange_ts_ms,0), received_ts_ms), "
+                "received_ts_ms, id",
                 (account_id, uid, symbol, parent["order_id"]),
             ).fetchall()
             if not valid_parent_sell_increments(
