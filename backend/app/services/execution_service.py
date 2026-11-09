@@ -22,6 +22,7 @@ from enum import Enum
 import inspect
 import math
 import time
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional, Tuple
 
 from app.core.logging import get_logger
@@ -30,6 +31,28 @@ from app.services.kite_engine import order_journal
 from app.services.kite_engine.execution_lifecycle import recover
 
 log = get_logger(__name__)
+
+
+def _exact_broker_net_quantity(value: Any) -> int | None:
+    """Only finite, integral signed broker quantities can prove a reduction.
+
+    Truncating a float or accepting a Boolean can turn a malformed raw broker
+    payload into permission to reduce exposure. Bound parsing before Decimal
+    conversion to avoid enormous untrusted numeric strings.
+    """
+    if isinstance(value, bool) or type(value) not in (int, float, str, Decimal):
+        return None
+    text = str(value).strip()
+    if not text or len(text) > 64:
+        return None
+    try:
+        quantity = Decimal(text)
+        if (not quantity.is_finite() or quantity != quantity.to_integral_value()
+                or quantity.adjusted() > 15):
+            return None
+        return int(quantity)
+    except (InvalidOperation, TypeError, ValueError, OverflowError):
+        return None
 
 
 class BrokerRejected(Exception):
@@ -257,6 +280,12 @@ class CanonicalExecutionService:
             return True, "paper"
         if mode is not False:
             return False, "Cannot verify broker mode for live reduction"
+        # The read must belong to the precise account named by this immutable
+        # order request. An unrelated account's positive book is no authority.
+        account = getattr(broker_client, "_account_id", None)
+        if (type(account) is not str or not account.strip()
+                or account != request.account_id):
+            return False, "Broker account identity mismatch for live reduction"
 
         reader = getattr(broker_client, "get_positions_raw", None)
         if not callable(reader):
@@ -285,24 +314,42 @@ class CanonicalExecutionService:
         matched = False
         for row in rows:
             if not isinstance(row, dict):
-                continue
-            row_symbol = str(row.get("tradingsymbol") or row.get("symbol") or "").strip().upper()
+                return False, "Fresh broker positions contain an invalid row"
+            primary = row.get("tradingsymbol")
+            alias = row.get("symbol")
+            # A contradictory symbol alias is ambiguous even when the other
+            # field matches the requested contract. Never silently select one.
+            if primary is not None and alias is not None:
+                if (type(primary) is not str or type(alias) is not str
+                        or primary.strip().upper() != alias.strip().upper()):
+                    return False, "Fresh broker position symbol aliases disagree"
+            row_symbol = str(primary or alias or "").strip().upper()
             row_exchange = str(row.get("exchange") or "").strip().upper()
             row_product = str(row.get("product") or "").strip().upper()
             if row_symbol != symbol or row_exchange != exchange or row_product != product:
                 continue
-            try:
-                net_qty += int(row.get("quantity") or row.get("net_quantity") or 0)
-            except (TypeError, ValueError):
+            if matched:
+                # Kite's NET book must identify one net position per contract
+                # bucket; summing duplicate rows could invent extra holdings.
+                return False, "Duplicate broker position contract bucket"
+            quantity = _exact_broker_net_quantity(
+                row["quantity"] if "quantity" in row else row.get("net_quantity")
+            )
+            if quantity is None:
                 return False, "Fresh broker position quantity is invalid"
+            if "quantity" in row and "net_quantity" in row:
+                alternate = _exact_broker_net_quantity(row["net_quantity"])
+                if alternate is None or alternate != quantity:
+                    return False, "Fresh broker position quantities disagree"
+            net_qty = quantity
             matched = True
 
         if not matched or net_qty == 0:
             return False, f"Broker has no {exchange}:{symbol} {product} inventory to reduce"
 
         side = str(request.side or "").upper()
-        qty = int(request.quantity or 0)
-        if qty <= 0:
+        qty = request.quantity
+        if type(qty) is not int or qty <= 0:
             return False, "Reduction quantity must be positive"
         if side == "SELL" and net_qty > 0 and qty <= net_qty:
             return True, "verified long reduction"
