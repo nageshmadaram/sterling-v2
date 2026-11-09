@@ -1,0 +1,48 @@
+name: Gamma Frontend Unit Acceptance (non-authorizing)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gamma-frontend-unit-offline.yml'
+      - 'frontend/src/components/kite/board/StrategyBoardFooter.tsx'
+      - 'frontend/src/components/kite/board/GammaMoveBoard.tsx'
+      - 'frontend/src/components/kite/board/__tests__/GammaMoveBoard.test.tsx'
+      - 'frontend/scripts/build-media-styles.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gamma-frontend-unit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-frontend-offline:
+    name: Gamma modal regression and full Vitest (offline only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout source without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+      - name: Build required local media CSS and font assets
+        working-directory: frontend
+        run: npm run media:styles
+      - name: Type check the complete frontend
+        working-directory: frontend
+        run: npx tsc --noEmit
+      - name: Verify all frontend unit regressions
+        working-directory: frontend
+        run: npx vitest run --coverage=false
+        env:
+          VITE_API_BASE_URL: http://localhost:8000

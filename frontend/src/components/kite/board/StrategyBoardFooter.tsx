@@ -39,7 +39,11 @@ export function StrategyBoardFooter({ name, children, onReset }: {
   // but dropped every first-row button for EMA Trend and Snapback (including
   // Scan now and Settings). Preserve interactive controls in a single,
   // horizontally scrollable row; status remains a separate compact line.
-  const actions = controls.filter(interactive);
+  // Gamma's date/trading-day inputs belong inside its History dialog only.
+  // Rendering the same interactive label in the compact toolbar *and* portal
+  // duplicated accessible names (and created two independent selection UIs).
+  // Keep Scan, Help and other toolbar buttons reachable outside the dialog.
+  const actions = controls.filter(c => interactive(c) && !(hasHistory && React.isValidElement(c) && c.type === 'label'));
   return <>
     {actions.length > 0 && <section className="sb-strategy-actions"
       aria-label={`${name} actions`}

@@ -266,7 +266,13 @@ def reserve(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
 def claim_submission(intent_key: str) -> bool:
     """Only the winning durable RESERVED→SUBMITTING CAS may call the broker."""
     with _transaction() as conn:
-        _get(conn, intent_key)
+        intent = _get(conn, intent_key)
+        # Offline canonical child prototypes are durable review evidence, never
+        # executable broker orders. Even a direct call to claim_submission must
+        # not turn one into SUBMITTING. This is defense in depth on the only
+        # canonical RESERVED -> SUBMITTING broker-send admission transition.
+        if intent.payload.get("gamma_terminal_review_only") is True:
+            return False
         changed = conn.execute("""UPDATE kite_order_intents SET state='SUBMITTING',updated_ms=?
             WHERE intent_key=? AND state='RESERVED' AND reconciliation_required=0""",
             (int(time.time() * 1000), intent_key)).rowcount

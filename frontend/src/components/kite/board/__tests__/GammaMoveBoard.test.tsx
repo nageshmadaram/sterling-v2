@@ -615,3 +615,20 @@ it('labels retained non-session archives in the date selector and timeline', () 
   expect(scanState.mutate).not.toHaveBeenCalled();
   expect(armState.mutate).not.toHaveBeenCalled();
 });
+
+it('keeps one Gamma historical-date control in the modal without duplicating toolbar UI', () => {
+  snap.data = data();
+  renderEvidence(<GammaMoveBoard nowMs={MORNING} />);
+  expect(screen.getByRole('button', { name: 'Scan now' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('Gamma history date')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Gamma trading day')).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+  const dialog = screen.getByRole('dialog', { name: 'Gamma history and coverage' });
+  expect(dialog).toBeInTheDocument();
+  expect(screen.getAllByLabelText('Gamma history date')).toHaveLength(1);
+  expect(screen.getAllByLabelText('Gamma trading day')).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Scan now' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Close strategy options' }));
+  expect(screen.queryByLabelText('Gamma history date')).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Scan now' })).toBeInTheDocument();
+});
