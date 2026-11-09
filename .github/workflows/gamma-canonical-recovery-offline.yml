@@ -1,0 +1,64 @@
+name: Gamma Canonical Recovery (offline review)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/gamma-canonical-recovery-offline.yml'
+      - 'backend/tests/services/test_gamma_recovery.py'
+      - 'backend/tests/services/test_gamma_fired_child.py'
+      - 'backend/tests/services/test_gamma_move_live_audit.py'
+      - 'backend/tests/services/test_gamma_move_production.py'
+      - 'backend/tests/services/test_canonical_fill_reconciliation.py'
+      - 'backend/tests/unit/test_canonical_strategy_reduction.py'
+      - 'backend/tests/unit/test_canonical_execution_convergence.py'
+      - 'backend/app/services/gamma_move_runner.py'
+      - 'backend/app/services/canonical_strategy_reduction.py'
+      - 'backend/app/services/canonical_fill_reconciliation.py'
+      - 'backend/app/services/execution_service.py'
+      - 'backend/app/services/kite_engine/order_journal.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gamma-canonical-offline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-recovery:
+    name: Canonical Gamma lifecycle and fail-closed regression (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements.lock.txt
+      - name: Install pinned backend dependencies
+        run: python -m pip install -r backend/requirements.lock.txt
+      - name: Verify test syntax and static release-control manifest
+        run: |
+          python -m compileall -q backend/tests/services/test_gamma_recovery.py
+          python scripts/validate_preproduction_controls.py
+      - name: Synthetic Gamma and canonical reduction regression
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          STERLING_LIVE_EXECUTION: '0'
+        run: |
+          python -m pytest -q --tb=short \
+            tests/services/test_gamma_recovery.py \
+            tests/services/test_gamma_fired_child.py \
+            tests/services/test_gamma_move_live_audit.py \
+            tests/services/test_gamma_move_production.py \
+            tests/services/test_canonical_fill_reconciliation.py \
+            tests/unit/test_canonical_strategy_reduction.py \
+            tests/unit/test_canonical_execution_convergence.py
