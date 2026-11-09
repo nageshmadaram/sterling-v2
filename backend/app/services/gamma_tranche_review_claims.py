@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import stat
 import sqlite3
 import tempfile
 import time
@@ -49,6 +50,8 @@ def _schema(conn: sqlite3.Connection) -> None:
         parent_filled_quantity INTEGER NOT NULL CHECK(parent_filled_quantity > 0),
         remaining_quantity INTEGER NOT NULL CHECK(remaining_quantity > 0),
         inventory_version INTEGER NOT NULL CHECK(inventory_version > 0),
+        parent_projection_version INTEGER NOT NULL CHECK(parent_projection_version > 0),
+        parent_observed_value REAL NOT NULL CHECK(parent_observed_value > 0),
         status TEXT NOT NULL DEFAULT 'REVIEW_HELD'
             CHECK(status = 'REVIEW_HELD'),
         created_ms INTEGER NOT NULL,
@@ -77,7 +80,14 @@ def _strictly_disposable_review_database(path: str) -> bool:
             return False
         if not resolved.lower().endswith((".db", ".sqlite", ".sqlite3")):
             return False
-        return os.path.isdir(os.path.dirname(resolved))
+        if not os.path.isdir(os.path.dirname(resolved)):
+            return False
+        # A hard link looks like a fresh disposable temp file, but its inode
+        # may also be a persistent operator DB outside the temp directory.
+        # Never write a review hold through a multiply-linked database inode.
+        # SQLite must already have initialized the actual file before review.
+        info = os.stat(path, follow_symlinks=False)
+        return stat.S_ISREG(info.st_mode) and info.st_nlink == 1
     except (OSError, ValueError, TypeError):
         return False
 
@@ -216,6 +226,14 @@ def hold_terminal_child_review(
                         or int(prior["parent_filled_quantity"]) != filled
                         or int(prior["remaining_quantity"]) != remaining):
                     return stop("existing_review_claim_conflicts")
+                # An existing hold is an immutable snapshot, not renewable
+                # permission. A replay is valid only if the *same* durable
+                # inventory and parent projection revisions are still present.
+                # Even a same-quantity re-projection invalidates old evidence.
+                if (int(prior["inventory_version"]) != int(inv["version"])
+                        or int(prior["parent_projection_version"]) != int(parent["projection_version"])
+                        or float(prior["parent_observed_value"]) != float(parent["observed_value"])):
+                    return stop("existing_review_claim_evidence_changed")
                 return ReviewHoldResult(True, "review_hold_replayed", candidate.candidate_intent_key,
                                         candidate.parent_intent_key, remaining, replay=True)
             if conn.execute(
@@ -228,11 +246,13 @@ def hold_terminal_child_review(
                 "INSERT INTO gamma_terminal_review_holds "
                 "(candidate_intent_key,parent_intent_key,uid,account_id,strategy_id,"
                 "signal_id,exchange,symbol,product,parent_order_id,parent_filled_quantity,"
-                "remaining_quantity,inventory_version,created_ms) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "remaining_quantity,inventory_version,parent_projection_version,"
+                "parent_observed_value,created_ms) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (candidate.candidate_intent_key, candidate.parent_intent_key,
                  uid, account_id, strategy_id, signal_id, exchange, symbol, product,
                  parent["order_id"], filled, remaining, int(inv["version"]),
+                 int(parent["projection_version"]), float(parent["observed_value"]),
                  int(time.time() * 1000)),
             )
             return ReviewHoldResult(True, "review_held_offline_only", candidate.candidate_intent_key,
