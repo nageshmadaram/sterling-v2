@@ -14,6 +14,8 @@ on:
       - 'backend/tests/unit/test_gamma_tranche_readiness.py'
       - 'backend/app/services/gamma_tranche_readiness.py'
       - 'backend/app/services/gamma_tranche_review_claims.py'
+      - 'backend/app/services/gamma_broker_protection_review.py'
+      - 'backend/tests/unit/test_gamma_broker_protection_review.py'
       - 'backend/app/services/gamma_move_runner.py'
       - 'backend/app/services/canonical_strategy_reduction.py'
       - 'backend/app/services/canonical_fill_reconciliation.py'
@@ -65,4 +67,5 @@ jobs:
             tests/services/test_canonical_fill_reconciliation.py \
             tests/unit/test_canonical_strategy_reduction.py \
             tests/unit/test_canonical_execution_convergence.py \
-            tests/unit/test_gamma_tranche_readiness.py
+            tests/unit/test_gamma_tranche_readiness.py \
+            tests/unit/test_gamma_broker_protection_review.py
