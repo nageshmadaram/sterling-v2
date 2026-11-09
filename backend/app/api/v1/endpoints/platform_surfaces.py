@@ -13,6 +13,10 @@ from app.core.auth import UserContext, get_current_user
 from app.core.feature_access import require_feature
 from app.services.platform_surface_registry import CANONICAL_SERVICES, catalog
 from app.services.platform_session_read import session_feed_snapshot
+from app.services.platform_broker_read import normalize_broker_read
+from app.services.platform_offline_authoring import (
+    MAX_SOURCE_BYTES, MAX_AST_NODES, MAX_FLOW_NODES, MAX_FLOW_EDGES,
+)
 from app.services.platform_tool_registry import tools_snapshot
 from app.services.platform_view_contracts import view_contract_snapshot
 from app.services.platform_api_normalization import normalization_snapshot
@@ -101,6 +105,75 @@ async def platform_runtime(
         version="0.1.0",
         execution_authorized=False,
         **snapshot,
+    )
+
+
+class BrokerSummaryContract(BaseModel):
+    """Session/feed hints only; neither broker login nor order permission."""
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    source: Literal["sterling_existing_account_and_ticker_managers"]
+    view: Literal["live", "simulation"]
+    session_state: Literal[
+        "not_configured", "no_stored_token", "stored_token_unverified",
+        "feed_disconnected", "feed_connected",
+    ]
+    broker_login_verified: Literal[False]
+    order_execution_authorized: Literal[False]
+    feed_bound_to_active_account: bool
+    feed_connected: bool
+    shared_owner_feed: bool
+    subscriptions_count: int
+    last_tick_ms: int
+
+
+@router.get("/platform/broker/summary", response_model=BrokerSummaryContract)
+async def platform_broker_summary(
+    response: Response, user: UserContext = Depends(get_current_user),
+) -> BrokerSummaryContract:
+    """Read existing scoped evidence without contacting a broker."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    try:
+        result = normalize_broker_read(session_feed_snapshot(user))
+    except (ValueError, TypeError, KeyError):
+        raise HTTPException(status_code=503, detail="Scoped broker read unavailable") from None
+    return BrokerSummaryContract(**result)
+
+
+class OfflineAuthoringCapabilitiesContract(BaseModel):
+    """Actual bounded review contract, not a sandbox or an execution API."""
+    model_config = ConfigDict(extra="forbid")
+    version: Literal["0.1.0"]
+    execution_authorized: Literal[False]
+    python_syntax_inspection_only: Literal[True]
+    python_sandbox_available: Literal[False]
+    python_max_source_bytes: int
+    python_max_ast_nodes: int
+    flow_topology_validation_only: Literal[True]
+    flow_executor_available: Literal[False]
+    flow_node_schema: Literal["id_only"]
+    flow_max_nodes: int
+    flow_max_edges: int
+    global_authoring_routes_mounted: Literal[False]
+
+
+@router.get("/platform/authoring/capabilities", response_model=OfflineAuthoringCapabilitiesContract)
+async def platform_authoring_capabilities(
+    response: Response, user: UserContext = Depends(get_current_user),
+) -> OfflineAuthoringCapabilitiesContract:
+    """Describe #25's existing passive checks, not #22's incompatible schema."""
+    require_feature(user, "kite")
+    response.headers["Cache-Control"] = "no-store, private"
+    return OfflineAuthoringCapabilitiesContract(
+        version="0.1.0", execution_authorized=False,
+        python_syntax_inspection_only=True, python_sandbox_available=False,
+        python_max_source_bytes=MAX_SOURCE_BYTES,
+        python_max_ast_nodes=MAX_AST_NODES,
+        flow_topology_validation_only=True, flow_executor_available=False,
+        flow_node_schema="id_only", flow_max_nodes=MAX_FLOW_NODES,
+        flow_max_edges=MAX_FLOW_EDGES,
+        global_authoring_routes_mounted=False,
     )
 
 

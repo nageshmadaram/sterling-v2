@@ -88,16 +88,27 @@ test('central administration creates a user, grants TV, and saves assigned broke
       await route.fulfill({ json: { user_id: 'default', username: 'Primary', display_name: 'Primary', role: 'admin', photo: '' } }); return;
     }
     if (path === '/api/v1/settings/capabilities') { await route.fulfill({ json: { user_id: 'default', active: true, administrator: true, revision: 0, sections: hiddenSections() } }); return; }
+    if (path === '/api/v1/admin/directory') {
+      await route.fulfill({ json: { current_user_id: 'default',
+        users: users.map(user => ({ ...user, features: user.id === 'member' ? features : { kite: false, tv: false, radio: false }, revision,
+          activity: [], last_login_ms: null, online: false,
+          brokers: brokers.filter(broker => (broker as { user_id: string }).user_id === user.id), telegram: user.id === 'member' ? targets : [] })),
+        brokers } }); return;
+    }
     if (path === '/api/v1/auth/users') {
       if (method === 'POST') { const body = request.postDataJSON(); expect(body.role).toBe('user'); users.push({ id: 'member', username: body.username, role: 'user', primary: false, active: true, password_set: true }); await route.fulfill({ json: users[1] }); return; }
       await route.fulfill({ json: { current_user_id: 'default', users } }); return;
     }
     if (path === '/api/v1/auth/users/member/features') {
-      if (method === 'PUT') { const body = request.postDataJSON(); expect(body.expected_revision).toBe(revision); features = body.features; revision++; }
-      await route.fulfill({ json: { user_id: 'member', features, revision } }); return;
+      if (method === 'PUT') { const body = request.postDataJSON(); expect(body.expected_revision).toBe(revision); expect(body.reason_code).toBe('ACCESS_REVIEW'); features = body.features; revision++; }
+      await route.fulfill({ json: { user_id: 'member', features, revision, visibility: { kite: true, tv: true, radio: true } } }); return;
     }
     if (path === '/api/v1/auth/users/member/configuration-access') {
       await route.fulfill({ json: { user_id: 'member', revision, active: true, administrator: false, sections } }); return;
+    }
+    if (path === '/api/v1/admin/brokers/K-SYNTHETIC/login-credentials') {
+      expect(method).toBe('GET');
+      await route.fulfill({ json: { password_saved: false } }); return;
     }
     if (path === '/api/v1/admin/brokers/K-SYNTHETIC/assignment') { const body = request.postDataJSON(); expect(body.expected_user_id).toBe('member'); expect(body.user_id).toBe('default'); brokers[0] = { ...(brokers[0] as object), user_id: 'default', updated_at_ms: 2 }; await route.fulfill({json: brokers[0]}); return; }
     if (path === '/api/v1/admin/brokers') {
@@ -116,19 +127,20 @@ test('central administration creates a user, grants TV, and saves assigned broke
   });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Administration', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '+ Add user', exact: true }).click();
+  await page.getByRole('button', { name: 'Add user', exact: true }).click();
   await page.getByLabel('Username', { exact: true }).fill('NewViewer');
   await page.getByLabel('Password', { exact: true }).fill('Synthetic-password-123');
   await page.getByLabel('Repeat password', { exact: true }).fill('Synthetic-password-123');
   await page.getByRole('button', { name: 'Save user', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Manage user access' }).fill('NewViewer');
-  await page.getByRole('option', { name: /NewViewer/ }).click();
-  await page.getByRole('checkbox', { name: 'Space (TV)', exact: true }).check();
-  await page.getByRole('button', { name: 'Save features', exact: true }).click();
-  await expect(page.getByText('Feature grants saved.')).toBeVisible();
-  await page.getByRole('button', { name: 'Broker connections', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Assign to Sterling user' }).fill('NewViewer');
-  await page.getByRole('option', { name: /NewViewer/ }).click();
+  await expect(page.getByRole('region', { name: 'Selected user' }).getByRole('heading', { name: 'NewViewer' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'User management' }).getByRole('button', { name: 'Access', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Allow tv access' }).check();
+  await page.getByRole('combobox', { name: 'Reason for workspace change' }).selectOption('ACCESS_REVIEW');
+  await page.getByRole('button', { name: 'Save workspace settings' }).click();
+  await expect(page.getByText('Workspace access and menu visibility saved.')).toBeVisible();
+  expect(features.tv).toBe(true);
+  await page.getByRole('navigation', { name: 'Administration sections' }).getByRole('button', { name: 'Brokers', exact: true }).click();
+  await page.getByRole('group', { name: 'Assign to user' }).getByRole('button', { name: 'NewViewer', exact: true }).click();
   await page.getByLabel('Connection label', { exact: true }).fill('Viewer Kite');
   await page.getByLabel('API key', { exact: true }).fill('synthetic-key');
   await page.getByLabel('API secret', { exact: true }).fill('synthetic-secret');
@@ -136,13 +148,13 @@ test('central administration creates a user, grants TV, and saves assigned broke
   await expect(page.getByRole('heading', { name: 'Viewer Kite', exact: true })).toBeVisible();
   await expect(page.getByLabel('API secret', { exact: true })).toHaveValue('');
   await page.getByText('Assign to a Sterling user', {exact:true}).click();
-  await page.getByRole('combobox', {name:'Assign broker profile to'}).fill('Primary');
-  await page.getByRole('option', {name:/Primary/}).click();
-  await page.getByRole('button', {name:'Save assignment',exact:true}).click();
-  await expect(page.getByText('Assigned to Primary', {exact:true})).toBeVisible();
-  await page.getByRole('button', { name: 'Telegram integrations', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Integration owner' }).fill('NewViewer');
-  await page.getByRole('option', { name: /NewViewer/ }).click();
+  await page.locator('details.admin-assign-panel').getByRole('button', { name: 'Primary', exact: true }).click();
+  await page.getByRole('button', { name: 'Save assignment', exact: true }).click();
+  await page.getByRole('button', { name: 'Assign broker', exact: true }).click();
+  await expect(page.getByText('Assigned to Primary', { exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Administration sections' }).getByRole('button', { name: /Users/ }).click();
+  await page.getByRole('region', { name: 'User directory' }).getByRole('button', { name: /NewViewer/ }).click();
+  await page.getByRole('navigation', { name: 'User management' }).getByRole('button', { name: /Telegram/ }).click();
   await page.getByLabel('Destination label', { exact: true }).fill('Viewer alerts');
   await page.getByLabel('Bot token', { exact: true }).fill('synthetic-token');
   await page.getByLabel('Recipient chat ID', { exact: true }).fill('12345');
