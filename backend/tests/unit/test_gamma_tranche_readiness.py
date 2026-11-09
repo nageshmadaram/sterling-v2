@@ -443,6 +443,24 @@ def test_atomic_review_claim_replays_same_immutable_row_after_restart(store):
         assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
 
 
+def test_review_claim_refuses_hardlinked_temp_alias(store, tmp_path, monkeypatch):
+    """A temp-looking alias may share an inode with an existing database."""
+    import os
+    prepared_terminal_lineage()
+    source = db._DB_PATH
+    alias = tmp_path / "hardlink-test.sqlite"
+    os.link(source, alias)
+    assert os.stat(source).st_nlink == 2
+    monkeypatch.setattr(db, "_DB_PATH", str(alias))
+    outcome = _hold()
+    assert outcome.reason == "offline_disposable_test_database_required"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    monkeypatch.setattr(db, "_DB_PATH", source)
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master "
+                            "WHERE name='gamma_terminal_review_holds'").fetchone() is None
+
+
 def test_review_claim_serializes_parallel_same_candidate_without_duplicates(store):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

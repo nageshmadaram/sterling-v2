@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import stat
 import sqlite3
 import tempfile
 import time
@@ -77,7 +78,14 @@ def _strictly_disposable_review_database(path: str) -> bool:
             return False
         if not resolved.lower().endswith((".db", ".sqlite", ".sqlite3")):
             return False
-        return os.path.isdir(os.path.dirname(resolved))
+        if not os.path.isdir(os.path.dirname(resolved)):
+            return False
+        # A hard link looks like a fresh disposable temp file, but its inode
+        # may also be a persistent operator DB outside the temp directory.
+        # Never write a review hold through a multiply-linked database inode.
+        # SQLite must already have initialized the actual file before review.
+        info = os.stat(path, follow_symlinks=False)
+        return stat.S_ISREG(info.st_mode) and info.st_nlink == 1
     except (OSError, ValueError, TypeError):
         return False
 
