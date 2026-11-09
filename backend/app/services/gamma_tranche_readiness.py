@@ -8,6 +8,8 @@ UNKNOWN/immutability protections. A positive review is not broker truth.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
+import json
 from math import isclose
 
 from app.services import db
@@ -21,6 +23,8 @@ class PartialExitReadiness:
     remaining_quantity: int = 0
     parent_intent_key: str = ""
     parent_order_id: str = ""
+    parent_quantity: int = 0
+    parent_filled_quantity: int = 0
     # Deliberate invariant: this report can NEVER authorize a broker order.
     execution_authorized: bool = False
 
@@ -73,10 +77,12 @@ def inspect_terminal_partial_exit(
         if (intent.reconciliation_required or intent.projection_pending
                 or intent.projection_version <= 0):
             return refused("parent_reconciliation_or_projection_pending")
-        # Another unresolved order for this very broker bucket could fill
-        # between inspections. Never infer available inventory from the parent.
-        if any(item.exchange == exchange and item.symbol == symbol
-               for item in order_journal.unresolved(uid, account_id)):
+        # Account inventory is shared across users. A pending intent from any
+        # user under this same authenticated account and contract may settle
+        # into the bucket; inspecting only this user's journal would undercount.
+        if order_journal.account_bucket_has_unresolved(
+            account_id=account_id, exchange=exchange, symbol=symbol,
+        ):
             return refused("other_bucket_intent_unresolved")
         remainder = intent.quantity - intent.filled_quantity
         inv = db.get_inventory_strict(account_id, uid, symbol)
@@ -109,8 +115,87 @@ def inspect_terminal_partial_exit(
         return PartialExitReadiness(
             True, "lineage_evidence_consistent_review_only", remainder,
             intent.intent_key, intent.order_id,
+            intent.quantity, intent.filled_quantity,
         )
     except Exception:
         # Do not leak broker/account/database internals into a readout that
         # might be exposed in a review log or administrator UI later.
         return refused("partial_lineage_evidence_unavailable")
+
+
+@dataclass(frozen=True)
+class ChildTranchePreview:
+    """Stable *proposed* lineage only; no persistent reservation/authorization."""
+    identifiable_for_review: bool
+    reason: str
+    child_signal_id: str = ""
+    candidate_intent_key: str = ""
+    remaining_quantity: int = 0
+    parent_intent_key: str = ""
+    execution_authorized: bool = False
+
+
+def preview_terminal_child_identity(
+    *, uid: str, account_id: str, strategy_id: str, signal_id: str,
+    exchange: str, symbol: str, product: str,
+) -> ChildTranchePreview:
+    """Compute an idempotent child *candidate*, without reserving or sending.
+
+    The digest deliberately excludes timestamps, scheduler generation, reasons,
+    and inventory versions: a restart, benign recheck or different UI reason
+    must NOT mint a fresh SELL identity. Parent signed cumulative fill and
+    order identity are immutable terminal evidence after projection.
+
+    This is not a transactional checkpoint. It cannot authorize orders even if
+    it returns a candidate key; further authenticated broker inventory, GTT
+    lifecycle, concurrent reservation and independent review are required.
+    """
+    def refused(reason: str) -> ChildTranchePreview:
+        return ChildTranchePreview(False, reason)
+
+    audit = inspect_terminal_partial_exit(
+        uid=uid, account_id=account_id, strategy_id=strategy_id,
+        signal_id=signal_id, exchange=exchange, symbol=symbol, product=product,
+    )
+    if not audit.ready_for_review:
+        return refused(audit.reason)
+    if (not audit.parent_intent_key or not audit.parent_order_id
+            or audit.remaining_quantity <= 0
+            or audit.parent_quantity <= audit.parent_filled_quantity
+            or audit.parent_filled_quantity <= 0):
+        return refused("invalid_parent_tranche_evidence")
+    try:
+        payload = [
+            "gamma-terminal-child-v1", uid, account_id, strategy_id,
+            signal_id, exchange, symbol, product, audit.parent_intent_key,
+            audit.parent_order_id, audit.parent_quantity,
+            audit.parent_filled_quantity, audit.remaining_quantity,
+        ]
+        digest = sha256(json.dumps(payload, sort_keys=False,
+                                   separators=(",", ":"),
+                                   ensure_ascii=True).encode("utf-8")).hexdigest()
+        child_signal_id = f"{signal_id}:terminal-child:v1:{digest[:32]}"
+        journal_signal = f"{child_signal_id}:reduce:exit"
+        candidate_key = order_journal.make_key(
+            uid=uid, account_id=account_id, strategy_id=strategy_id,
+            generation_id="review-only", signal_id=journal_signal,
+            exchange=exchange, symbol=symbol, side="SELL",
+        )
+        if order_journal.identity_exists(
+            uid=uid, account_id=account_id, strategy_id=strategy_id,
+            signal_id=journal_signal, exchange=exchange, symbol=symbol,
+            side="SELL",
+        ):
+            return refused("child_identity_already_recorded")
+        # Read again to narrow accidental stale-positive diagnostics. This is
+        # still not atomic and can NEVER be used as a pre-disarm order gate.
+        if order_journal.account_bucket_has_unresolved(
+            account_id=account_id, exchange=exchange, symbol=symbol,
+        ):
+            return refused("other_bucket_intent_unresolved")
+        return ChildTranchePreview(
+            True, "stable_child_identity_preview_only", child_signal_id,
+            candidate_key, audit.remaining_quantity, audit.parent_intent_key,
+        )
+    except Exception:
+        return refused("child_identity_evidence_unavailable")

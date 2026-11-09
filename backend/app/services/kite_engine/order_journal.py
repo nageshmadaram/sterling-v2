@@ -325,6 +325,32 @@ def unresolved(uid: str, account_id: Optional[str] = None) -> List[Intent]:
     return [_row(r) for r in rows]
 
 
+
+def account_bucket_has_unresolved(*, account_id: str, exchange: str,
+                                  symbol: str) -> bool:
+    """Does *any* user have in-flight/unprojected risk for this account bucket?
+
+    Read-only, with no user identities returned. Multi-user accounts must not
+    interpret a user-local empty journal as permission to reduce exposure.
+    A missing/unreadable durable journal raises so callers fail closed.
+    This is diagnostic only; not an atomic broker reservation or order gate.
+    """
+    _ready()
+    for label, value in (("account_id", account_id), ("exchange", exchange),
+                         ("symbol", symbol)):
+        _text(value, label)
+    markers = ",".join("?" for _ in UNRESOLVED)
+    sql = ("SELECT 1 FROM kite_order_intents "
+           "WHERE account_id=? AND exchange=? AND symbol=? "
+           f"AND (state IN ({markers}) OR reconciliation_required=1 "
+           "OR projection_pending=1) LIMIT 1")
+    with db._conn() as conn:
+        found = conn.execute(sql,
+                             (account_id, exchange, symbol,
+                              *sorted(UNRESOLVED))).fetchone()
+    return found is not None
+
+
 def known_uids() -> List[str]:
     """Every user with durable canonical intent history.
 
