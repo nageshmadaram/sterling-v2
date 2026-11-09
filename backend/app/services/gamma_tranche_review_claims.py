@@ -13,11 +13,13 @@ import stat
 import sqlite3
 import tempfile
 import time
-from math import isclose
 
 from app.services import db
 from app.services.gamma_tranche_readiness import preview_terminal_child_identity
 from app.services.kite_engine import order_journal
+from app.services.gamma_signed_increment_provenance import (
+    valid_parent_sell_increments, parent_sell_increment_fingerprint,
+)
 
 
 @dataclass(frozen=True)
@@ -52,6 +54,7 @@ def _schema(conn: sqlite3.Connection) -> None:
         inventory_version INTEGER NOT NULL CHECK(inventory_version > 0),
         parent_projection_version INTEGER NOT NULL CHECK(parent_projection_version > 0),
         parent_observed_value REAL NOT NULL CHECK(parent_observed_value > 0),
+        parent_increment_digest TEXT NOT NULL CHECK(length(parent_increment_digest)=64),
         status TEXT NOT NULL DEFAULT 'REVIEW_HELD'
             CHECK(status = 'REVIEW_HELD'),
         created_ms INTEGER NOT NULL,
@@ -203,15 +206,17 @@ def hold_terminal_child_review(
                 "ORDER BY cumulative_quantity DESC",
                 (account_id, uid, symbol, parent["order_id"]),
             ).fetchall()
-            if (not executions
-                    or any(r["exchange"] != exchange or r["side"] != "SELL"
-                           or r["source"] not in {"exit", "recovery", "reconciliation"}
-                           or int(r["signed_quantity"]) >= 0 for r in executions)
-                    or int(executions[0]["cumulative_quantity"]) != filled
-                    or not isclose(float(executions[0]["cumulative_value"]),
-                                   float(parent["observed_value"]),
-                                   rel_tol=1e-9, abs_tol=1e-6)):
+            if not valid_parent_sell_increments(
+                executions, account_id=account_id, uid=uid, symbol=symbol,
+                exchange=exchange, order_id=parent["order_id"],
+                cumulative_quantity=filled,
+                cumulative_value=float(parent["observed_value"]),
+            ):
                 return stop("signed_execution_changed_during_review")
+            # Bind the exact complete signed execution history to this
+            # immutable review hold; the same terminal totals at new prices
+            # are *not* the original evidence and cannot be replayed as such.
+            parent_increment_digest = parent_sell_increment_fingerprint(executions)
             prior = conn.execute(
                 "SELECT * FROM gamma_terminal_review_holds WHERE candidate_intent_key=?",
                 (candidate.candidate_intent_key,),
@@ -232,7 +237,8 @@ def hold_terminal_child_review(
                 # Even a same-quantity re-projection invalidates old evidence.
                 if (int(prior["inventory_version"]) != int(inv["version"])
                         or int(prior["parent_projection_version"]) != int(parent["projection_version"])
-                        or float(prior["parent_observed_value"]) != float(parent["observed_value"])):
+                        or float(prior["parent_observed_value"]) != float(parent["observed_value"])
+                        or prior["parent_increment_digest"] != parent_increment_digest):
                     return stop("existing_review_claim_evidence_changed")
                 return ReviewHoldResult(True, "review_hold_replayed", candidate.candidate_intent_key,
                                         candidate.parent_intent_key, remaining, replay=True)
@@ -247,13 +253,13 @@ def hold_terminal_child_review(
                 "(candidate_intent_key,parent_intent_key,uid,account_id,strategy_id,"
                 "signal_id,exchange,symbol,product,parent_order_id,parent_filled_quantity,"
                 "remaining_quantity,inventory_version,parent_projection_version,"
-                "parent_observed_value,created_ms) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "parent_observed_value,parent_increment_digest,created_ms) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (candidate.candidate_intent_key, candidate.parent_intent_key,
                  uid, account_id, strategy_id, signal_id, exchange, symbol, product,
                  parent["order_id"], filled, remaining, int(inv["version"]),
                  int(parent["projection_version"]), float(parent["observed_value"]),
-                 int(time.time() * 1000)),
+                 parent_increment_digest, int(time.time() * 1000)),
             )
             return ReviewHoldResult(True, "review_held_offline_only", candidate.candidate_intent_key,
                                     candidate.parent_intent_key, remaining)

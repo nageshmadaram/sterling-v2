@@ -699,7 +699,8 @@ def test_review_hold_schema_enforces_one_immutable_row_per_account_bucket(store)
                   strategy_id, 'OTHER-SIGNAL', exchange, symbol, product,
                   'OTHER-ORDER', parent_filled_quantity, remaining_quantity,
                   inventory_version, parent_projection_version,
-                  parent_observed_value, status, created_ms
+                  parent_observed_value, parent_increment_digest,
+                  status, created_ms
                 FROM gamma_terminal_review_holds""")
     with db._conn() as conn:
         rows = conn.execute("SELECT * FROM gamma_terminal_review_holds").fetchall()
@@ -911,7 +912,8 @@ def test_review_hold_replay_refuses_reconciled_parent_value_correction(store):
             "WHERE intent_key=?", (parent.intent_key,),
         )
         conn.execute(
-            "UPDATE kite_execution_increments SET cumulative_value=cumulative_value+10 "
+            "UPDATE kite_execution_increments SET cumulative_value=cumulative_value+10, "
+            "price=price+0.5 "
             "WHERE account_id=? AND uid=? AND symbol=? AND order_id=?",
             (ACCOUNT, UID, SYMBOL, "EXIT-TRANCHE-1"),
         )
@@ -953,3 +955,128 @@ def test_legacy_disposable_review_schema_is_not_silently_upgraded(store):
         assert "parent_observed_value" not in cols
         assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("field,value", [
+    ("signed_quantity", -1),
+    ("price", 1.0),
+])
+def test_signed_parent_increment_rejects_inconsistent_delta_or_price(store, field, value):
+    """A matching final cumulative SELL is not proof of each signed fill."""
+    prepared_terminal_lineage()
+    with db._conn() as conn:
+        conn.execute(
+            f"UPDATE kite_execution_increments SET {field}=? "
+            "WHERE account_id=? AND uid=? AND symbol=? AND order_id=?",
+            (value, ACCOUNT, UID, SYMBOL, "EXIT-TRANCHE-1"),
+        )
+    assert review().reason == "parent_signed_execution_disagrees"
+    claim = _hold()
+    assert claim.reason == "parent_signed_execution_disagrees"
+    assert not claim.held_for_review and not claim.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'"
+        ).fetchone() is None
+
+
+def _two_increment_terminal_parent():
+    """20 filled over two real ledger increments, still leaving 30 inventory."""
+    parent = terminal_partial()
+    assert fill_ledger.record(
+        account_id=ACCOUNT, uid=UID, symbol=SYMBOL, exchange="NFO",
+        side="BUY", order_id="ENTRY-TRANCHE-1", cumulative_quantity=50,
+        cumulative_value=5000.0, source="entry", lot_size=10,
+    ).accepted
+    assert fill_ledger.record(
+        account_id=ACCOUNT, uid=UID, symbol=SYMBOL, exchange="NFO",
+        side="SELL", order_id="EXIT-TRANCHE-1", cumulative_quantity=10,
+        cumulative_value=900.0, source="exit", lot_size=10,
+    ).accepted
+    assert fill_ledger.record(
+        account_id=ACCOUNT, uid=UID, symbol=SYMBOL, exchange="NFO",
+        side="SELL", order_id="EXIT-TRANCHE-1", cumulative_quantity=20,
+        cumulative_value=1760.0, source="exit", lot_size=10,
+    ).accepted
+    assert order_journal.mark_projected(parent.intent_key, parent.projection_version)
+    return parent
+
+
+def test_valid_two_increment_parent_is_reviewable_but_cannot_authorize(store):
+    _two_increment_terminal_parent()
+    result = review()
+    assert result.ready_for_review and not result.execution_authorized
+    claim = _hold()
+    assert claim.held_for_review and not claim.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("field,value", [
+    ("signed_quantity", -1),
+    ("price", 10.0),
+    ("cumulative_value", 990.0),
+])
+def test_two_increment_parent_requires_every_consistent_delta(store, field, value):
+    _two_increment_terminal_parent()
+    with db._conn() as conn:
+        conn.execute(
+            f"UPDATE kite_execution_increments SET {field}=? "
+            "WHERE account_id=? AND order_id=? AND cumulative_quantity=10",
+            (value, ACCOUNT, "EXIT-TRANCHE-1"),
+        )
+    assert review().reason == "parent_signed_execution_disagrees"
+    claim = _hold()
+    assert not claim.held_for_review and not claim.execution_authorized
+
+
+def test_same_transaction_rechecks_historical_signed_fill_after_preview(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+
+    _two_increment_terminal_parent()
+    original_preview = claims.preview_terminal_child_identity
+
+    def changed_during_preflight(**kwargs):
+        result = original_preview(**kwargs)
+        assert result.identifiable_for_review
+        with db._conn() as conn:
+            conn.execute(
+                "UPDATE kite_execution_increments SET signed_quantity=-1 "
+                "WHERE account_id=? AND order_id=? AND cumulative_quantity=10",
+                (ACCOUNT, "EXIT-TRANCHE-1"),
+            )
+        return result
+
+    monkeypatch.setattr(claims, "preview_terminal_child_identity", changed_during_preflight)
+    outcome = _hold()
+    assert outcome.reason == "signed_execution_changed_during_review"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 0
+
+
+def test_old_review_claim_replay_refuses_consistent_historical_fill_rewrite(store):
+    """Correct final fill and replay version must not hide altered fill history."""
+    _two_increment_terminal_parent()
+    initial = _hold()
+    assert initial.held_for_review
+    with db._conn() as conn:
+        # Rewrite both incremental prices and first cumulative amount so the
+        # total remains 20/1760; the final parent and inventory revisions do
+        # not change, yet the actual evidence sequence is different.
+        conn.execute(
+            "UPDATE kite_execution_increments SET cumulative_value=910, price=91 "
+            "WHERE account_id=? AND order_id=? AND cumulative_quantity=10",
+            (ACCOUNT, "EXIT-TRANCHE-1"),
+        )
+        conn.execute(
+            "UPDATE kite_execution_increments SET price=85 "
+            "WHERE account_id=? AND order_id=? AND cumulative_quantity=20",
+            (ACCOUNT, "EXIT-TRANCHE-1"),
+        )
+    assert review().ready_for_review
+    outcome = _hold()
+    assert outcome.reason == "existing_review_claim_evidence_changed"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1

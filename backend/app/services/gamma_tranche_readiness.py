@@ -10,10 +10,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 import json
-from math import isclose
 
 from app.services import db
 from app.services.kite_engine import fill_ledger, order_journal
+from app.services.gamma_signed_increment_provenance import valid_parent_sell_increments
 
 
 @dataclass(frozen=True)
@@ -117,11 +117,12 @@ def inspect_terminal_partial_exit(
                        or row.get("source") not in {"exit", "recovery", "reconciliation"}
                        for row in parent_rows)):
             return refused("parent_signed_execution_missing")
-        final_row = max(parent_rows, key=lambda row: int(row["cumulative_quantity"]))
-        if (int(final_row["cumulative_quantity"]) != intent.filled_quantity
-                or not isclose(float(final_row["cumulative_value"]),
-                               intent.filled_value, rel_tol=1e-9, abs_tol=1e-6)
-                or int(final_row["signed_quantity"]) >= 0):
+        if not valid_parent_sell_increments(
+            parent_rows, account_id=account_id, uid=uid, symbol=symbol,
+            exchange=exchange, order_id=intent.order_id,
+            cumulative_quantity=intent.filled_quantity,
+            cumulative_value=intent.filled_value,
+        ):
             return refused("parent_signed_execution_disagrees")
         return PartialExitReadiness(
             True, "lineage_evidence_consistent_review_only", remainder,
