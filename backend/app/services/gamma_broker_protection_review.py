@@ -102,7 +102,13 @@ def assess_protected_remainder_snapshot(
         qty = row.get("quantity")
         if type(qty) is not int:
             return refuse("broker_position_quantity_invalid")
-        net_qty += qty
+        # The broker's net book is expected to contain one exact
+        # (exchange, product, symbol) bucket. Summing duplicate positive,
+        # zero or offsetting negative rows could falsely certify a protected
+        # remainder without proving which holding is actually covered.
+        if matching_position:
+            return refuse("broker_position_bucket_ambiguous")
+        net_qty = qty
         matching_position = True
     if not matching_position or net_qty != remainder_quantity:
         return refuse("broker_remainder_not_exact")
