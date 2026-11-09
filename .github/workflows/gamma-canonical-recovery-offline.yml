@@ -15,6 +15,7 @@ on:
       - 'backend/tests/unit/test_gamma_tranche_readiness.py'
       - 'backend/app/services/gamma_tranche_readiness.py'
       - 'backend/app/services/gamma_tranche_review_claims.py'
+      - 'backend/app/services/gamma_offline_canonical_child.py'
       - 'backend/app/services/gamma_signed_increment_provenance.py'
       - 'backend/app/services/gamma_broker_protection_review.py'
       - 'backend/tests/unit/test_gamma_broker_protection_review.py'

@@ -1116,3 +1116,249 @@ def test_ordered_increment_digest_changes_if_event_chronology_is_rewritten(store
     assert result.reason == "parent_signed_execution_disagrees"
     with db._conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def _offline_child(**overrides):
+    from app.services.gamma_offline_canonical_child import reserve_offline_canonical_terminal_child
+    return reserve_offline_canonical_terminal_child(**{**ID, **overrides})
+
+
+def test_offline_canonical_child_is_durable_and_never_submittable(store):
+    parent = prepared_terminal_lineage()
+    result = _offline_child()
+    assert result.reserved_for_review and not result.replay
+    assert not result.execution_authorized and result.remaining_quantity == 30
+    assert result.parent_intent_key == parent.intent_key
+    child = order_journal.get(result.child_intent_key)
+    assert child is not None
+    assert child.state == 'RESERVED' and child.side == 'SELL' and child.quantity == 30
+    assert child.payload['gamma_terminal_review_only'] is True
+    assert child.payload['execution_authorized'] is False
+    assert child.payload['parent_intent_key'] == parent.intent_key
+    assert not child.order_id
+    assert not order_journal.claim_submission(child.intent_key)
+    assert order_journal.get(child.intent_key).state == 'RESERVED'
+    assert order_journal.account_bucket_has_unresolved(account_id=ACCOUNT, exchange='NFO', symbol=SYMBOL)
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+        assert conn.execute('SELECT COUNT(*) FROM gamma_terminal_review_holds').fetchone()[0] == 1
+
+
+def test_offline_canonical_child_is_idempotent_across_process_initialization(store):
+    prepared_terminal_lineage()
+    first = _offline_child()
+    assert first.reserved_for_review
+    assert db.init()
+    second = _offline_child()
+    assert second.reserved_for_review and second.replay
+    assert second.child_intent_key == first.child_intent_key
+    assert not second.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+
+
+def test_offline_canonical_child_concurrent_threads_only_once(store):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    prepared_terminal_lineage()
+    barrier = Barrier(2)
+    def worker():
+        barrier.wait(timeout=10)
+        return _offline_child()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(lambda _: worker(), (1, 2)))
+    assert first.reserved_for_review and second.reserved_for_review
+    assert sorted([first.replay, second.replay]) == [False, True]
+    assert first.child_intent_key == second.child_intent_key
+    assert not first.execution_authorized and not second.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+
+
+def test_offline_canonical_child_fails_closed_if_review_parent_proof_changes(store):
+    prepared_terminal_lineage()
+    first = _offline_child()
+    assert first.reserved_for_review
+    with db._conn() as conn:
+        conn.execute('UPDATE kite_inventory SET version=version+1 WHERE account_id=? AND uid=? AND symbol=?',
+                     (ACCOUNT, UID, SYMBOL))
+    second = _offline_child()
+    assert second.reason == 'inventory_proof_changed'
+    assert not second.reserved_for_review and not second.execution_authorized
+    assert not order_journal.claim_submission(first.child_intent_key)
+
+
+def test_offline_canonical_child_cannot_reuse_cancelled_child(store):
+    prepared_terminal_lineage()
+    first = _offline_child()
+    assert first.reserved_for_review
+    assert order_journal.transition(first.child_intent_key, 'CANCELLED').state == 'CANCELLED'
+    result = _offline_child()
+    assert result.reason == 'immutable_child_identity_conflict'
+    assert not result.reserved_for_review
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+
+
+def test_offline_canonical_child_after_review_checkpoint_recovers_without_resend(store):
+    prepared_terminal_lineage()
+    checkpoint = _hold()
+    assert checkpoint.held_for_review
+    assert order_journal.get(checkpoint.candidate_intent_key) is None
+    result = _offline_child()
+    assert result.reserved_for_review
+    assert result.child_intent_key == checkpoint.candidate_intent_key
+    assert not order_journal.claim_submission(result.child_intent_key)
+
+
+def test_offline_canonical_child_rejects_other_user_competing_order_after_checkpoint(store):
+    prepared_terminal_lineage()
+    assert _hold().held_for_review
+    order_journal.reserve(uid='other-owner', account_id=ACCOUNT,
+                          strategy_id='other-strategy', generation_id='gen-2',
+                          signal_id='other-sell', exchange='NFO', symbol=SYMBOL,
+                          side='SELL', quantity=1)
+    result = _offline_child()
+    assert result.reason == 'account_bucket_order_conflict'
+    assert not result.reserved_for_review and not result.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+
+
+@pytest.mark.parametrize('setting', ['1', 'true', 'yes'])
+def test_offline_canonical_child_refuses_live_execution_process(store, monkeypatch, setting):
+    prepared_terminal_lineage()
+    monkeypatch.setenv('STERLING_LIVE_EXECUTION', setting)
+    result = _offline_child()
+    assert result.reason == 'live_execution_environment_refused'
+    assert not result.reserved_for_review
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone() is None
+
+
+def test_offline_canonical_child_refuses_user_scope_and_tampered_ledger(store):
+    prepared_terminal_lineage()
+    assert _offline_child(uid='other-user').reserved_for_review is False
+    with db._conn() as conn:
+        conn.execute('UPDATE kite_execution_increments SET signed_quantity=-1 '
+                     'WHERE account_id=? AND order_id=? AND side=\'SELL\'',
+                     (ACCOUNT, 'EXIT-TRANCHE-1'))
+    result = _offline_child()
+    assert not result.reserved_for_review
+    assert result.reason in {'parent_signed_execution_disagrees', 'signed_fill_proof_changed'}
+
+
+def test_offline_canonical_child_journal_send_refusal_survives_real_payload_replay(store):
+    prepared_terminal_lineage()
+    child_result = _offline_child()
+    child = order_journal.get(child_result.child_intent_key)
+    assert child
+    replayed = order_journal.reserve(
+        uid=UID, account_id=ACCOUNT, strategy_id='gamma-unwind',
+        generation_id='arbitrary-new-generation', signal_id=child.signal_id,
+        exchange='NFO', symbol=SYMBOL, side='SELL', quantity=30,
+        payload=child.payload,
+    )
+    assert replayed.intent_key == child.intent_key
+    assert not order_journal.claim_submission(replayed.intent_key)
+    assert order_journal.get(replayed.intent_key).state == 'RESERVED'
+
+
+def test_offline_child_two_processes_get_one_durable_canonical_record(store):
+    import json
+    import subprocess
+
+    prepared_terminal_lineage()
+    script = '''
+import json, sys
+from app.services import db
+from app.services.gamma_offline_canonical_child import reserve_offline_canonical_terminal_child
+db._DB_PATH = sys.argv[1]
+assert db.init()
+r = reserve_offline_canonical_terminal_child(
+    uid="tranche-review-user", account_id="acct-tranche", strategy_id="gamma-unwind",
+    signal_id="gamma:partial", exchange="NFO", symbol="SYNTHETIC26NOV25000CE",
+    product="NRML",
+)
+print(json.dumps({"held": r.reserved_for_review, "replay": r.replay,
+                  "authorized": r.execution_authorized, "key": r.child_intent_key,
+                  "reason": r.reason}))
+'''
+    args, env, cwd = _child_review_command(script, db._DB_PATH)
+    p1 = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    p2 = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out1, err1 = p1.communicate(timeout=30)
+    out2, err2 = p2.communicate(timeout=30)
+    assert p1.returncode == p2.returncode == 0, (err1[-500:], err2[-500:])
+    results = [json.loads(out1.strip().splitlines()[-1]), json.loads(out2.strip().splitlines()[-1])]
+    assert all(r['held'] and not r['authorized'] for r in results), results
+    assert sorted(r['replay'] for r in results) == [False, True]
+    assert results[0]['key'] == results[1]['key']
+    assert not order_journal.claim_submission(results[0]['key'])
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+        assert conn.execute('SELECT COUNT(*) FROM gamma_terminal_review_holds').fetchone()[0] == 1
+
+
+def test_offline_child_crash_during_canonical_insert_rolls_back_and_replays_checkpoint(store):
+    import subprocess
+
+    prepared_terminal_lineage()
+    saved_checkpoint = _hold()
+    assert saved_checkpoint.held_for_review
+    script = '''
+import os,sys
+from app.services import db
+from app.services.gamma_offline_canonical_child import reserve_offline_canonical_terminal_child
+db._DB_PATH=sys.argv[1]
+assert db.init()
+original=db._conn
+from contextlib import contextmanager
+@contextmanager
+def crash_conn():
+  with original() as conn:
+    conn.create_function("crash_before_commit", 0, lambda: os._exit(79))
+    conn.execute("""CREATE TEMP TRIGGER abort_offline_child AFTER INSERT ON kite_order_intents
+      WHEN NEW.signal_id LIKE '%:terminal-child:%'
+      BEGIN SELECT crash_before_commit(); END""")
+    yield conn
+db._conn=crash_conn
+reserve_offline_canonical_terminal_child(
+  uid="tranche-review-user",account_id="acct-tranche",strategy_id="gamma-unwind",
+  signal_id="gamma:partial",exchange="NFO",symbol="SYNTHETIC26NOV25000CE",product="NRML")
+'''
+    args, env, cwd = _child_review_command(script, db._DB_PATH)
+    crashed = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    assert crashed.returncode == 79, crashed.stderr[-500:]
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 1
+        assert conn.execute('SELECT COUNT(*) FROM gamma_terminal_review_holds').fetchone()[0] == 1
+    retry = _offline_child()
+    assert retry.reserved_for_review and not retry.replay and not retry.execution_authorized
+    assert retry.child_intent_key == saved_checkpoint.candidate_intent_key
+    assert not order_journal.claim_submission(retry.child_intent_key)
+
+
+def test_offline_child_cannot_be_claimed_after_setting_live_mode(store, monkeypatch):
+    prepared_terminal_lineage()
+    result = _offline_child()
+    assert result.reserved_for_review
+    monkeypatch.setenv('STERLING_LIVE_EXECUTION', 'true')
+    assert not order_journal.claim_submission(result.child_intent_key)
+    assert order_journal.get(result.child_intent_key).state == 'RESERVED'
+
+
+def test_canonical_regular_reservation_cannot_convert_offline_child_into_live_order(store):
+    prepared_terminal_lineage()
+    result = _offline_child()
+    child = order_journal.get(result.child_intent_key)
+    assert child
+    with pytest.raises(ValueError, match='immutable_intent_conflict'):
+        order_journal.reserve(
+            uid=UID, account_id=ACCOUNT, strategy_id='gamma-unwind',
+            generation_id='new-live-generation', signal_id=child.signal_id,
+            exchange='NFO', symbol=SYMBOL, side='SELL', quantity=30,
+            payload={'intent_type': 'EXIT', 'product': 'NRML', 'reduction_kind': 'exit'},
+        )
+    assert not order_journal.claim_submission(child.intent_key)
+    assert order_journal.get(child.intent_key).state == 'RESERVED'
