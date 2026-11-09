@@ -11,6 +11,8 @@ on:
       - 'backend/tests/services/test_canonical_fill_reconciliation.py'
       - 'backend/tests/unit/test_canonical_strategy_reduction.py'
       - 'backend/tests/unit/test_canonical_execution_convergence.py'
+      - 'backend/tests/unit/test_gamma_tranche_readiness.py'
+      - 'backend/app/services/gamma_tranche_readiness.py'
       - 'backend/app/services/gamma_move_runner.py'
       - 'backend/app/services/canonical_strategy_reduction.py'
       - 'backend/app/services/canonical_fill_reconciliation.py'
@@ -61,4 +63,5 @@ jobs:
             tests/services/test_gamma_move_production.py \
             tests/services/test_canonical_fill_reconciliation.py \
             tests/unit/test_canonical_strategy_reduction.py \
-            tests/unit/test_canonical_execution_convergence.py
+            tests/unit/test_canonical_execution_convergence.py \
+            tests/unit/test_gamma_tranche_readiness.py
