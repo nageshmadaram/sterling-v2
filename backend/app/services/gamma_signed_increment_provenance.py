@@ -31,7 +31,10 @@ def valid_parent_sell_increments(
                    (account_id, uid, symbol, exchange, order_id))):
         return False
     try:
-        ordered = sorted(rows, key=lambda row: row["cumulative_quantity"])
+        # Callers supply the ledger's chronological event order. Never sort
+        # by cumulative quantity: doing so masks a decreasing historical fill
+        # sequence and manufactures a superficially valid progression.
+        ordered = list(rows)
         if not ordered:
             return False
         prior_quantity = 0
@@ -75,13 +78,15 @@ def parent_sell_increment_fingerprint(rows: Iterable[Any]) -> str:
     record; it is not an authentication signature or broker authorization.
     Validity must be checked independently with valid_parent_sell_increments.
     """
-    observed = sorted(rows, key=lambda row: row["cumulative_quantity"])
+    # A change in the received/exchange event ordering is a *different*
+    # provenance record even when the final signed totals are unchanged.
+    observed = list(rows)
     if not observed:
         raise ValueError("parent_increment_history_missing")
     fields = (
         "id", "account_id", "uid", "exchange", "symbol", "order_id",
         "source", "side", "cumulative_quantity", "cumulative_value",
-        "signed_quantity", "price",
+        "signed_quantity", "price", "exchange_ts_ms", "received_ts_ms",
     )
     payload = [[row[field] for field in fields] for row in observed]
     encoded = json.dumps(["gamma-parent-executions-v1", payload],
