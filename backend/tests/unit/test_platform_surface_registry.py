@@ -90,6 +90,14 @@ def test_existing_api_entries_have_exact_source_declared_methods():
             "platform_surfaces.py", "get", "/platform/runtime",
             "/api/v1/platform/runtime",
         ),
+        "platform_broker_summary": (
+            "platform_surfaces.py", "get", "/platform/broker/summary",
+            "/api/v1/platform/broker/summary",
+        ),
+        "platform_authoring_capabilities": (
+            "platform_surfaces.py", "get", "/platform/authoring/capabilities",
+            "/api/v1/platform/authoring/capabilities",
+        ),
         "platform_tools": (
             "platform_surfaces.py", "get", "/platform/tools",
             "/api/v1/platform/tools",

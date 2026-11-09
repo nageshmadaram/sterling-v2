@@ -43,6 +43,28 @@ describe('compact strategy header controls', () => {
       .toContainElement(screen.getByRole('button', { name: 'Scan now' }));
   });
 
+  it('keeps Gamma history date unique when the modal is open and restores it on close', () => {
+    const onScan = vi.fn();
+    render(<StrategyBoardFooter name="Gamma Unwind">
+      <div>
+        <button type="button" onClick={onScan}>Scan now</button>
+        <label>History date <input aria-label="Gamma history date" type="date" defaultValue="2026-10-02" /></label>
+      </div>
+    </StrategyBoardFooter>);
+    expect(screen.getAllByLabelText('Gamma history date')).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Gamma history and coverage' }));
+    const dialog = screen.getByRole('dialog', { name: 'Gamma history and coverage' });
+    expect(within(dialog).getByLabelText('Gamma history date')).toBeVisible();
+    expect(screen.getAllByLabelText('Gamma history date')).toHaveLength(1);
+    const toolbar = screen.getByRole('region', { name: 'Gamma Unwind actions' });
+    expect(within(toolbar).queryByLabelText('Gamma history date')).toBeNull();
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Scan now' }));
+    expect(onScan).toHaveBeenCalledOnce();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close strategy options' }));
+    expect(screen.queryByRole('dialog', { name: 'Gamma history and coverage' })).toBeNull();
+    expect(within(toolbar).getByLabelText('Gamma history date')).toBeVisible();
+  });
+
   it('leaves the SuperTrend header layout unchanged', () => {
     renderStrategy('SuperTrend');
     expect(screen.getByRole('region', { name: 'SuperTrend controls and information' }))

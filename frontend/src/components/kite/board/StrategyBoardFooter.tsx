@@ -39,9 +39,15 @@ export function StrategyBoardFooter({ name, children, onReset }: {
   // but dropped every first-row button for EMA Trend and Snapback (including
   // Scan now and Settings). Preserve interactive controls in a single,
   // horizontally scrollable row; status remains a separate compact line.
-  const actions = controls.filter(interactive);
+  // When Gamma's history dialog opens, its secondary controls move into the
+  // portal. Do not leave identical live controls in the toolbar: duplicated
+  // labels and selectors break accessibility and target the wrong date.
+  // Direct scan actions remain mounted, and the toolbar recovers on close.
+  const actions = controls.filter(c =>
+    interactive(c) && !(hasHistory && open && secondary.includes(c))
+  );
   return <>
-    {actions.length > 0 && !open && <section className="sb-strategy-actions"
+    {actions.length > 0 && <section className="sb-strategy-actions"
       aria-label={`${name} actions`}
       style={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 8,
         maxWidth: '100%', minWidth: 0, overflowX: 'auto', overflowY: 'hidden',

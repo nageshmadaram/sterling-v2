@@ -51,6 +51,18 @@ SURFACES: tuple[Surface, ...] = (
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,
     ),
     Surface(
+        "platform_broker_summary", "/api/v1/platform/broker/summary",
+        "Normalized existing account and feed hints (not broker login)",
+        "existing_partial", "app.api.v1.endpoints.platform_surfaces",
+        mounts_route=True,
+    ),
+    Surface(
+        "platform_authoring_capabilities", "/api/v1/platform/authoring/capabilities",
+        "Passive offline authoring limits; no Python or Flow execution",
+        "existing_partial", "app.api.v1.endpoints.platform_surfaces",
+        mounts_route=True,
+    ),
+    Surface(
         "platform_tools", "/api/v1/platform/tools",
         "Existing read-only tools catalog", "existing_partial",
         "app.api.v1.endpoints.platform_surfaces", mounts_route=True,

@@ -294,3 +294,38 @@ fails validation. Route metadata is still information, not a new grant.
 This change does **not** establish fresh broker-login verification,
 data-feed recency guarantees, live-order safety acceptance, or operational
 readiness. All parent drafts and the production release remain NO-GO.
+
+## 2026-11-09 reconciled offline read-contract slice (review only)
+
+Integration branch `review/v2-reconcile-20261109` rebases its content on the
+verified draft PR #29 head (`cdf10851`) without merging `main` or approving
+production. It combines the independent Gamma control behavior from draft
+PR #30, a scoped passive broker-summary contract from PR #21, and a read-only
+authoring-capability description aligned with the *already integrated* PR #25
+source. All additions are JWT/feature gated and require `no-store, private`.
+
+`GET /api/v1/platform/broker/summary` normalizes only the existing account
+and ticker snapshot. Its `broker_login_verified` and
+`order_execution_authorized` fields are both always `false`. Missing/contradictory
+scoping evidence responds with HTTP 503; no broker poll, new socket, or order
+route is installed. The older PR #21 strategy catalog is **not** copied: the
+more complete canonical lane read contract from PR #24 remains authoritative.
+
+`GET /api/v1/platform/authoring/capabilities` reports the actual size, AST
+and Flow topology limits of `platform_offline_authoring` (#25) without adding
+a Python host, runtime sandbox, graph interpreter, draft submission, strategy
+activation, or planned global workspaces. PR #22's distinct `on_bar` syntax
+subset and `kind`-based graph schema are **not** silently grafted onto the
+existing id-only graph contract: a separately versioned and reviewed schema
+would be necessary before adopting them. `python_sandbox_available`,
+`flow_executor_available` and `execution_authorized` remain `false`.
+
+Gamma Unwind history opens with only one live date picker while direct Scan
+actions stay accessible and secondary controls move into the modal; behavior
+is regression tested with modal open and closed. PR #29's fail-closed OpenAlgo
+compatibility enforcement and exact-SHA governance proof are preserved.
+
+This is a source integration candidate only. No independent approval, CI
+acceptance for the new composite head, rollout, or live order authorization is
+implied. Twelve production controls remain unapproved unless independently
+confirmed against the exact candidate SHA.
