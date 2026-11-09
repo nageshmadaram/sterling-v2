@@ -443,6 +443,24 @@ def test_atomic_review_claim_replays_same_immutable_row_after_restart(store):
         assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
 
 
+def test_review_claim_refuses_hardlinked_temp_alias(store, tmp_path, monkeypatch):
+    """A temp-looking alias may share an inode with an existing database."""
+    import os
+    prepared_terminal_lineage()
+    source = db._DB_PATH
+    alias = tmp_path / "hardlink-test.sqlite"
+    os.link(source, alias)
+    assert os.stat(source).st_nlink == 2
+    monkeypatch.setattr(db, "_DB_PATH", str(alias))
+    outcome = _hold()
+    assert outcome.reason == "offline_disposable_test_database_required"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    monkeypatch.setattr(db, "_DB_PATH", source)
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master "
+                            "WHERE name='gamma_terminal_review_holds'").fetchone() is None
+
+
 def test_review_claim_serializes_parallel_same_candidate_without_duplicates(store):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
@@ -680,7 +698,8 @@ def test_review_hold_schema_enforces_one_immutable_row_per_account_bucket(store)
                 SELECT 'OTHER-CANDIDATE', 'OTHER-PARENT', uid, account_id,
                   strategy_id, 'OTHER-SIGNAL', exchange, symbol, product,
                   'OTHER-ORDER', parent_filled_quantity, remaining_quantity,
-                  inventory_version, status, created_ms
+                  inventory_version, parent_projection_version,
+                  parent_observed_value, status, created_ms
                 FROM gamma_terminal_review_holds""")
     with db._conn() as conn:
         rows = conn.execute("SELECT * FROM gamma_terminal_review_holds").fetchall()
@@ -841,3 +860,96 @@ claims.hold_terminal_child_review(
     assert restarted.held_for_review and not restarted.replay and not restarted.execution_authorized
     with db._conn() as conn:
         assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def test_review_hold_replay_refuses_reprojected_inventory_version(store):
+    """Same net quantity at a newer inventory version is NOT the held proof."""
+    prepared_terminal_lineage()
+    first = _hold()
+    assert first.held_for_review and not first.replay
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_inventory SET version=version+1 "
+            "WHERE account_id=? AND uid=? AND symbol=?",
+            (ACCOUNT, UID, SYMBOL),
+        )
+    result = _hold()
+    assert result.reason == "existing_review_claim_evidence_changed"
+    assert not result.held_for_review and not result.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
+
+
+def test_review_hold_replay_refuses_parent_projection_revision_drift(store):
+    """A parent projection revision cannot silently renew a persisted claim."""
+    parent = prepared_terminal_lineage()
+    first = _hold()
+    assert first.held_for_review and not first.replay
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_order_intents SET projection_version=projection_version+1 "
+            "WHERE intent_key=?", (parent.intent_key,),
+        )
+    result = _hold()
+    assert result.reason == "existing_review_claim_evidence_changed"
+    assert not result.held_for_review and not result.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def test_review_hold_replay_refuses_reconciled_parent_value_correction(store):
+    """Same filled quantity/order cannot silently revise a held price proof."""
+    parent = prepared_terminal_lineage()
+    first = _hold()
+    assert first.held_for_review and not first.replay
+    # Model a later corroborated correction of cumulative SELL value: the
+    # journal and signed-fill row agree again, but do not match the held proof.
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_order_intents SET observed_value=observed_value+10 "
+            "WHERE intent_key=?", (parent.intent_key,),
+        )
+        conn.execute(
+            "UPDATE kite_execution_increments SET cumulative_value=cumulative_value+10 "
+            "WHERE account_id=? AND uid=? AND symbol=? AND order_id=?",
+            (ACCOUNT, UID, SYMBOL, "EXIT-TRANCHE-1"),
+        )
+    result = _hold()
+    assert result.reason == "existing_review_claim_evidence_changed"
+    assert not result.held_for_review and not result.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def test_legacy_disposable_review_schema_is_not_silently_upgraded(store):
+    """A prior test schema lacks proof revisions; do not infer them on replay."""
+    prepared_terminal_lineage()
+    with db._conn() as conn:
+        conn.execute("""CREATE TABLE gamma_terminal_review_holds (
+            candidate_intent_key TEXT PRIMARY KEY,
+            parent_intent_key TEXT NOT NULL UNIQUE,
+            uid TEXT NOT NULL,
+            account_id TEXT NOT NULL,
+            strategy_id TEXT NOT NULL,
+            signal_id TEXT NOT NULL,
+            exchange TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            product TEXT NOT NULL,
+            parent_order_id TEXT NOT NULL,
+            parent_filled_quantity INTEGER NOT NULL,
+            remaining_quantity INTEGER NOT NULL,
+            inventory_version INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'REVIEW_HELD',
+            created_ms INTEGER NOT NULL,
+            UNIQUE(account_id, exchange, symbol)
+        )""")
+    outcome = _hold()
+    assert outcome.reason == "review_claim_storage_or_consistency_unavailable"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    with db._conn() as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(gamma_terminal_review_holds)")}
+        assert "parent_projection_version" not in cols
+        assert "parent_observed_value" not in cols
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
