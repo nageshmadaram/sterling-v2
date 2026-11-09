@@ -2896,7 +2896,11 @@ def _protection_due(uid: str, pos: PositionState) -> bool:
         and abs(float(pos.gtt_at or 0.0) - float(pos.stop)) < 0.005
     )
     now = time.monotonic()
-    if synced and now - _protection_checked_at.get(key, 0.0) < _PROTECTION_RECHECK_S:
+    last_checked = _protection_checked_at.get(key)
+    # A never-checked stop must get its first broker verification even when
+    # this process has been alive for less than the recheck interval. A
+    # synthetic timestamp of zero is not evidence of an actual prior read.
+    if synced and last_checked is not None and now - last_checked < _PROTECTION_RECHECK_S:
         return False
     _protection_checked_at[key] = now
     return True

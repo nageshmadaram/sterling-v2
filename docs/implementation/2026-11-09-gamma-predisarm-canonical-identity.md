@@ -63,3 +63,20 @@ account exposure state, journal transition or UI. It remains **NO-GO**.
    protective stop lifecycle with full CI and independent operational review.
 4. Full parent PR #15 CI and 12 external safety controls are still blocked;
    draft work alone is not production or funded-trading authority.
+
+## Exact-commit CI regression found and corrected
+
+The first GitHub run for `57eff107` executed the Gamma synthetic workflow and
+failed **one** of 299 tests:
+`test_synchronised_broker_stop_is_not_rewritten_every_scheduler_pass`.
+On a newly started Actions runner, `time.monotonic()` was still lower than the
+protection recheck interval. The old expression treated a missing per-position
+check timestamp as zero, wrongly suppressing the first broker-stop check.
+The fix distinguishes **missing** from a real recorded timestamp and preserves
+normal repeat-check throttling. A deterministic fresh-process test mocks a
+positive 1-second uptime and proves the first check runs while the immediate
+second check is throttled. This is a production-safety correctness fix, not a
+skip or weakening of the failing test.
+
+The first GitHub run is **FAILED** and never constitutes acceptance. Exact-head
+CI must be re-run after this correction; a local green test is not enough.
