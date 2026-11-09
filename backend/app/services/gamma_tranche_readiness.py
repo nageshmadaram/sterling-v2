@@ -95,6 +95,17 @@ def inspect_terminal_partial_exit(
                 or type(inv.get("version")) is not int
                 or inv["version"] <= 0):
             return refused("account_inventory_not_projected_exactly")
+        # Another scoped user may already own the same broker account/contract.
+        # The user-local net balance cannot prove that the shared broker bucket
+        # has no other exposure. This is a conservative offline review fence.
+        with db._conn() as conn:
+            other_owner = conn.execute(
+                "SELECT 1 FROM kite_inventory WHERE account_id=? AND symbol=? "
+                "AND uid<>? AND (net_quantity<>0 OR reconciliation_required=1) "
+                "LIMIT 1", (account_id, symbol, uid),
+            ).fetchone()
+        if other_owner is not None:
+            return refused("other_owner_inventory_present")
         executions = fill_ledger.increments(
             uid, account_id=account_id, symbol=symbol,
         )
@@ -132,6 +143,9 @@ class ChildTranchePreview:
     candidate_intent_key: str = ""
     remaining_quantity: int = 0
     parent_intent_key: str = ""
+    parent_order_id: str = ""
+    parent_quantity: int = 0
+    parent_filled_quantity: int = 0
     execution_authorized: bool = False
 
 
@@ -196,6 +210,7 @@ def preview_terminal_child_identity(
         return ChildTranchePreview(
             True, "stable_child_identity_preview_only", child_signal_id,
             candidate_key, audit.remaining_quantity, audit.parent_intent_key,
+            audit.parent_order_id, audit.parent_quantity, audit.parent_filled_quantity,
         )
     except Exception:
         return refused("child_identity_evidence_unavailable")

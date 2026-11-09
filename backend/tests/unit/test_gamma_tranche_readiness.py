@@ -391,3 +391,286 @@ def test_other_user_terminal_unprojected_order_is_account_bucket_blocker(store):
     outcome = preview()
     assert outcome.reason == "other_bucket_intent_unresolved"
     assert not outcome.execution_authorized
+
+
+def _hold(**overrides):
+    from app.services.gamma_tranche_review_claims import hold_terminal_child_review
+    return hold_terminal_child_review(**{**ID, **overrides})
+
+
+def test_atomic_review_claim_persists_without_creating_canonical_order(store):
+    parent = prepared_terminal_lineage()
+    proposed = preview()
+    first = _hold()
+    assert first.held_for_review and not first.execution_authorized
+    assert first.reason == "review_held_offline_only" and not first.replay
+    assert first.candidate_intent_key == proposed.candidate_intent_key
+    assert first.parent_intent_key == parent.intent_key
+    assert first.remaining_quantity == 30
+    assert order_journal.get(proposed.candidate_intent_key) is None
+    with db._conn() as conn:
+        rows = conn.execute("SELECT * FROM gamma_terminal_review_holds").fetchall()
+        assert len(rows) == 1 and rows[0]["status"] == "REVIEW_HELD"
+        assert rows[0]["parent_order_id"] == "EXIT-TRANCHE-1"
+        assert rows[0]["inventory_version"] > 0
+    assert len(order_journal.unresolved(UID, ACCOUNT)) == 0
+
+
+def test_atomic_review_claim_replays_same_immutable_row_after_restart(store):
+    prepared_terminal_lineage()
+    first = _hold()
+    assert first.held_for_review
+    # Reinitialization simulates a fresh process opening the existing DB file.
+    assert db.init()
+    second = _hold()
+    assert second.held_for_review and second.replay
+    assert second.reason == "review_hold_replayed"
+    assert second.candidate_intent_key == first.candidate_intent_key
+    assert not second.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
+
+
+def test_review_claim_serializes_parallel_same_candidate_without_duplicates(store):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    prepared_terminal_lineage()
+    barrier = Barrier(2)
+
+    def concurrent():
+        barrier.wait(timeout=10)
+        return _hold()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(lambda _: concurrent(), (1, 2)))
+    assert first.held_for_review and second.held_for_review
+    assert not first.execution_authorized and not second.execution_authorized
+    assert sorted([first.replay, second.replay]) == [False, True]
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def test_review_claim_requires_offline_disposable_db_even_if_lineage_valid(store, monkeypatch):
+    prepared_terminal_lineage()
+    monkeypatch.setattr(db, "under_test", lambda: False)
+    result = _hold()
+    assert result.reason == "offline_disposable_test_database_required"
+    assert not result.held_for_review and not result.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone() is None
+
+
+def test_review_claim_cannot_ignore_new_other_user_intent_at_transaction_boundary(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+
+    prepared_terminal_lineage()
+    initial_preview = claims.preview_terminal_child_identity
+
+    def racing_preview(**kwargs):
+        proposal = initial_preview(**kwargs)
+        assert proposal.identifiable_for_review
+        order_journal.reserve(
+            uid="new-cross-owner", account_id=ACCOUNT, strategy_id="competitor",
+            generation_id="gen-1", signal_id="incoming-order",
+            exchange="NFO", symbol=SYMBOL, side="SELL", quantity=1,
+        )
+        return proposal
+
+    monkeypatch.setattr(claims, "preview_terminal_child_identity", racing_preview)
+    outcome = _hold()
+    assert outcome.reason == "account_bucket_changed_during_review"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 0
+
+
+def test_review_claim_rechecks_account_inventory_in_same_write_transaction(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+    prepared_terminal_lineage()
+    prior = claims.preview_terminal_child_identity
+
+    def stale_preview(**kwargs):
+        result = prior(**kwargs)
+        with db._conn() as conn:
+            conn.execute("UPDATE kite_inventory SET net_quantity=50 "
+                         "WHERE uid=? AND account_id=? AND symbol=?",
+                         (UID, ACCOUNT, SYMBOL))
+        return result
+
+    monkeypatch.setattr(claims, "preview_terminal_child_identity", stale_preview)
+    result = _hold()
+    assert result.reason == "inventory_changed_during_review"
+    assert not result.held_for_review and not result.execution_authorized
+
+
+def test_review_claim_refuses_parent_order_id_changed_after_preview(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+    prepared_terminal_lineage()
+    prior = claims.preview_terminal_child_identity
+
+    def stale_preview(**kwargs):
+        result = prior(**kwargs)
+        with db._conn() as conn:
+            conn.execute("UPDATE kite_order_intents SET order_id='CHANGED-ORDER' "
+                         "WHERE intent_key=?", (result.parent_intent_key,))
+        return result
+
+    monkeypatch.setattr(claims, "preview_terminal_child_identity", stale_preview)
+    result = _hold()
+    assert result.reason == "parent_changed_during_review"
+    assert not result.held_for_review and not result.execution_authorized
+
+
+def test_review_claim_cannot_steal_an_existing_canonical_child(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+    prepared_terminal_lineage()
+    prior = claims.preview_terminal_child_identity
+
+    def racing_preview(**kwargs):
+        result = prior(**kwargs)
+        order_journal.reserve(
+            uid=UID, account_id=ACCOUNT, strategy_id="gamma-unwind",
+            generation_id="gen-child", signal_id=f"{result.child_signal_id}:reduce:exit",
+            exchange="NFO", symbol=SYMBOL, side="SELL", quantity=30,
+            payload={"intent_type": "EXIT", "product": "NRML", "reduction_kind": "exit"},
+        )
+        return result
+
+    monkeypatch.setattr(claims, "preview_terminal_child_identity", racing_preview)
+    result = _hold()
+    assert result.reason == "account_bucket_changed_during_review"
+    assert not result.held_for_review and not result.execution_authorized
+
+
+def test_review_claim_storage_errors_are_fail_closed(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+    prepared_terminal_lineage()
+    first = preview()
+    assert first.identifiable_for_review
+    prior = claims.db._conn
+    from contextlib import contextmanager
+
+    @contextmanager
+    def broken_conn():
+        raise RuntimeError("sqlite internal secret")
+        yield
+
+    monkeypatch.setattr(claims.db, "_conn", broken_conn)
+    result = _hold()
+    assert not result.held_for_review and not result.execution_authorized
+    assert "secret" not in repr(result)
+    monkeypatch.setattr(claims.db, "_conn", prior)
+    assert order_journal.get(first.candidate_intent_key) is None
+
+
+def test_account_wide_review_claim_excludes_separate_user_same_contract(store):
+    prepared_terminal_lineage()
+    initial = _hold()
+    assert initial.held_for_review
+    second_uid = "other-review-user"
+    second_signal = "different-eligible-partial"
+    other = order_journal.reserve(
+        uid=second_uid, account_id=ACCOUNT, strategy_id="gamma-unwind",
+        generation_id="other-gen", signal_id=f"{second_signal}:reduce:exit",
+        exchange="NFO", symbol=SYMBOL, side="SELL", quantity=50,
+        payload={"intent_type": "EXIT", "product": "NRML", "reduction_kind": "exit"},
+    )
+    assert order_journal.claim_submission(other.intent_key)
+    order_journal.acknowledge(other.intent_key, "OTHER-EXIT")
+    observed = order_journal.observe_order(
+        other.intent_key, status="CANCELLED", order_id="OTHER-EXIT",
+        filled_quantity=20, average_price=88.0,
+    )
+    assert observed.accepted
+    assert fill_ledger.record(
+        account_id=ACCOUNT, uid=second_uid, symbol=SYMBOL, exchange="NFO",
+        side="BUY", order_id="OTHER-ENTRY", cumulative_quantity=50,
+        cumulative_value=5000, source="entry", lot_size=10,
+    ).accepted
+    assert fill_ledger.record(
+        account_id=ACCOUNT, uid=second_uid, symbol=SYMBOL, exchange="NFO",
+        side="SELL", order_id="OTHER-EXIT", cumulative_quantity=20,
+        cumulative_value=1760, source="exit", lot_size=10,
+    ).accepted
+    assert order_journal.mark_projected(other.intent_key, observed.intent.projection_version)
+    alternative = {**ID, "uid": second_uid, "signal_id": second_signal}
+    assert preview_terminal_child_identity(**alternative).reason == "other_owner_inventory_present"
+    contender = _hold(uid=second_uid, signal_id=second_signal)
+    assert contender.reason == "other_owner_inventory_present"
+    assert not contender.held_for_review and not contender.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+
+
+def test_failed_review_claim_insert_rolls_back_entire_transaction(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+
+    prepared_terminal_lineage()
+    original_schema = claims._schema
+
+    def rejecting_schema(conn):
+        original_schema(conn)
+        conn.execute("""CREATE TEMP TRIGGER forbid_gamma_claim
+            BEFORE INSERT ON gamma_terminal_review_holds BEGIN
+                SELECT RAISE(ABORT, 'synthetic database failure');
+            END""")
+
+    monkeypatch.setattr(claims, "_schema", rejecting_schema)
+    refused = _hold()
+    assert refused.reason == "review_claim_storage_or_consistency_unavailable"
+    assert not refused.held_for_review and not refused.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone() is None
+    monkeypatch.setattr(claims, "_schema", original_schema)
+    assert _hold().held_for_review
+
+
+def test_other_owner_positive_inventory_blocks_review_even_without_pending_intents(store):
+    """No journal pending does not imply the shared broker bucket is ours."""
+    prepared_terminal_lineage()
+    db.set_inventory(ACCOUNT, "other-uid", SYMBOL, 5, exchange="NFO")
+    readiness = review()
+    assert not readiness.ready_for_review
+    assert readiness.reason == "other_owner_inventory_present"
+    result = _hold()
+    assert result.reason == "other_owner_inventory_present"
+    assert not result.held_for_review and not result.execution_authorized
+
+
+def test_review_claim_rechecks_other_owner_inventory_inside_transaction(store, monkeypatch):
+    from app.services import gamma_tranche_review_claims as claims
+    prepared_terminal_lineage()
+    original_preview = claims.preview_terminal_child_identity
+
+    def concurrent_other_owner_holding(**kwargs):
+        proposed = original_preview(**kwargs)
+        assert proposed.identifiable_for_review
+        db.set_inventory(ACCOUNT, "unrelated-bucket-owner", SYMBOL, 1, exchange="NFO")
+        return proposed
+
+    monkeypatch.setattr(claims, "preview_terminal_child_identity", concurrent_other_owner_holding)
+    outcome = _hold()
+    assert outcome.reason == "other_owner_inventory_changed_during_review"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 0
+
+
+def test_review_hold_schema_enforces_one_immutable_row_per_account_bucket(store):
+    import sqlite3
+    prepared_terminal_lineage()
+    first = _hold()
+    assert first.held_for_review
+    with pytest.raises(sqlite3.IntegrityError):
+        with db._conn() as conn:
+            conn.execute("""INSERT INTO gamma_terminal_review_holds
+                SELECT 'OTHER-CANDIDATE', 'OTHER-PARENT', uid, account_id,
+                  strategy_id, 'OTHER-SIGNAL', exchange, symbol, product,
+                  'OTHER-ORDER', parent_filled_quantity, remaining_quantity,
+                  inventory_version, status, created_ms
+                FROM gamma_terminal_review_holds""")
+    with db._conn() as conn:
+        rows = conn.execute("SELECT * FROM gamma_terminal_review_holds").fetchall()
+        assert len(rows) == 1 and rows[0]["candidate_intent_key"] == first.candidate_intent_key
