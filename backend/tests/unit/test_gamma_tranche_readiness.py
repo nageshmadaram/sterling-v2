@@ -9,6 +9,17 @@ from app.services.gamma_tranche_readiness import (
 )
 from app.services.kite_engine import fill_ledger, order_journal
 
+@pytest.fixture(autouse=True)
+def isolated_gamma_review_mode(monkeypatch):
+    """This module tests a non-executable offline review claim only.
+
+    The general backend conftest tests live-mode safety by default. A review
+    hold must instead be denied under that setting; explicitly opt the tests
+    into the distinct offline-only mode, and test the denial separately.
+    """
+    monkeypatch.setenv("STERLING_LIVE_EXECUTION", "0")
+
+
 UID, ACCOUNT, SYMBOL = "tranche-review-user", "acct-tranche", "SYNTHETIC26NOV25000CE"
 ID = dict(uid=UID, account_id=ACCOUNT, strategy_id="gamma-unwind",
           signal_id="gamma:partial", exchange="NFO", symbol=SYMBOL,
@@ -674,3 +685,159 @@ def test_review_hold_schema_enforces_one_immutable_row_per_account_bucket(store)
     with db._conn() as conn:
         rows = conn.execute("SELECT * FROM gamma_terminal_review_holds").fetchall()
         assert len(rows) == 1 and rows[0]["candidate_intent_key"] == first.candidate_intent_key
+
+
+@pytest.mark.parametrize("setting", ["1", "true", "yes", "ON", "unexpected"])
+def test_review_claim_denies_process_with_live_execution_enabled(store, monkeypatch, setting):
+    prepared_terminal_lineage()
+    monkeypatch.setenv("STERLING_LIVE_EXECUTION", setting)
+    outcome = _hold()
+    assert outcome.reason == "live_execution_environment_refused"
+    assert not outcome.held_for_review and not outcome.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute(
+            "SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'"
+        ).fetchone() is None
+
+
+@pytest.mark.parametrize("path_kind", ["outside_temp", "symlink", "uri", "memory", "relative"])
+def test_review_claim_rejects_disguised_nontemporary_database_paths(
+    store, monkeypatch, tmp_path, path_kind,
+):
+    from app.services.gamma_tranche_review_claims import _strictly_disposable_review_database
+    prepared_terminal_lineage()
+    if path_kind == "outside_temp":
+        fake = str(__import__('pathlib').Path(__file__).resolve().parent / "operator_test.db")
+    elif path_kind == "symlink":
+        fake = str(tmp_path / "operator_test.sqlite")
+        __import__('pathlib').Path(fake).symlink_to(
+            __import__('pathlib').Path(__file__).resolve().parent / "operator_database.db"
+        )
+    elif path_kind == "uri":
+        fake = f"file:{tmp_path / 'operator_test.sqlite'}"
+    elif path_kind == "memory":
+        fake = ":memory:"
+    else:
+        # A relative-path rejection test must not leave SQLite WAL sidecars in
+        # the source checkout when another fixture executes cleanup.
+        monkeypatch.chdir(tmp_path)
+        fake = "relative_operator_test.sqlite"
+    # The shared heuristic permits filenames with 'test'; this strict local
+    # guard must not be fooled by names, URIs or symlink targets.
+    assert not _strictly_disposable_review_database(fake)
+    original_path = db._DB_PATH
+    monkeypatch.setattr(db, "_DB_PATH", fake)
+    try:
+        result = _hold()
+        assert result.reason == "offline_disposable_test_database_required"
+        assert not result.held_for_review and not result.execution_authorized
+    finally:
+        # Other pytest cleanup hooks may still open the active test store.
+        # Restore it *before* fixture teardown, not only via monkeypatch.
+        db._DB_PATH = original_path
+
+
+def test_offline_review_accepts_real_temp_path_and_denies_live_flag_after_restart(store):
+    from app.services.gamma_tranche_review_claims import _strictly_disposable_review_database
+    assert _strictly_disposable_review_database(db._DB_PATH)
+    prepared_terminal_lineage()
+    before = _hold()
+    assert before.held_for_review and not before.execution_authorized
+    import os
+    original = os.environ.get("STERLING_LIVE_EXECUTION", "")
+    os.environ["STERLING_LIVE_EXECUTION"] = "true"
+    try:
+        assert db.init()
+        after = _hold()
+        assert after.reason == "live_execution_environment_refused"
+        assert not after.held_for_review and not after.execution_authorized
+    finally:
+        os.environ["STERLING_LIVE_EXECUTION"] = original
+    replay = _hold()
+    assert replay.held_for_review and replay.replay
+
+
+def _child_review_command(script, path):
+    """Spawn an independent Python interpreter with zero broker credentials."""
+    import os
+    import sys
+    from pathlib import Path
+
+    backend = str(Path(__file__).resolve().parents[2])
+    env = {**os.environ, "PYTHONPATH": backend,
+           "STERLING_UNDER_TEST": "1", "STERLING_LIVE_EXECUTION": "0"}
+    # No broker environment secrets are needed for these synthetic reviews.
+    for name in list(env):
+        if any(part in name.upper() for part in ("KITE_API_KEY", "KITE_API_SECRET", "KITE_ACCESS_TOKEN")):
+            env.pop(name, None)
+    return [sys.executable, "-c", script, path], env, backend
+
+
+def test_review_hold_is_idempotent_across_separate_python_processes(store):
+    import json
+    import subprocess
+
+    prepared_terminal_lineage()
+    script = '''
+import json, sys
+from app.services import db
+from app.services.gamma_tranche_review_claims import hold_terminal_child_review
+db._DB_PATH = sys.argv[1]
+assert db.init()
+result = hold_terminal_child_review(
+    uid="tranche-review-user", account_id="acct-tranche", strategy_id="gamma-unwind",
+    signal_id="gamma:partial", exchange="NFO", symbol="SYNTHETIC26NOV25000CE",
+    product="NRML",
+)
+print(json.dumps({"ok": result.held_for_review, "replay": result.replay,
+                  "reason": result.reason, "authorized": result.execution_authorized}))
+'''
+    args, env, cwd = _child_review_command(script, db._DB_PATH)
+    first = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    second = subprocess.Popen(args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    out1, err1 = first.communicate(timeout=30)
+    out2, err2 = second.communicate(timeout=30)
+    assert first.returncode == second.returncode == 0, (err1[-500:], err2[-500:])
+    rows = [json.loads(out1.strip().splitlines()[-1]), json.loads(out2.strip().splitlines()[-1])]
+    assert all(row["ok"] and not row["authorized"] for row in rows)
+    assert sorted(row["replay"] for row in rows) == [False, True]
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
+
+
+def test_os_crash_in_review_insert_rolls_back_claim_and_can_restart(store):
+    import subprocess
+
+    prepared_terminal_lineage()
+    script = '''
+import os, sys
+from app.services import db
+from app.services import gamma_tranche_review_claims as claims
+db._DB_PATH = sys.argv[1]
+assert db.init()
+original = claims._schema
+def crash_schema(conn):
+    original(conn)
+    conn.create_function("terminate_process", 0, lambda: os._exit(79))
+    conn.execute("""CREATE TEMP TRIGGER crash_before_commit
+        AFTER INSERT ON gamma_terminal_review_holds
+        BEGIN SELECT terminate_process(); END""")
+claims._schema = crash_schema
+claims.hold_terminal_child_review(
+    uid="tranche-review-user", account_id="acct-tranche", strategy_id="gamma-unwind",
+    signal_id="gamma:partial", exchange="NFO", symbol="SYNTHETIC26NOV25000CE",
+    product="NRML",
+)
+'''
+    args, env, cwd = _child_review_command(script, db._DB_PATH)
+    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 79, result.stderr[-800:]
+    with db._conn() as conn:
+        row = conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone()
+        assert row is None  # DDL and INSERT were one interrupted transaction.
+        assert conn.execute("SELECT COUNT(*) FROM kite_order_intents").fetchone()[0] == 1
+    restarted = _hold()
+    assert restarted.held_for_review and not restarted.replay and not restarted.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM gamma_terminal_review_holds").fetchone()[0] == 1

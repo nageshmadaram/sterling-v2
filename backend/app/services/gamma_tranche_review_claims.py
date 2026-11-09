@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 import sqlite3
+import tempfile
 import time
 from math import isclose
 
@@ -54,6 +56,32 @@ def _schema(conn: sqlite3.Connection) -> None:
     )""")
 
 
+def _strictly_disposable_review_database(path: str) -> bool:
+    """Limit offline review writes to a real file below the system temp root.
+
+    The shared disposable-path helper intentionally tolerates any basename
+    containing 'test'; that is too permissive for a durable review claim.
+    Resolve symlinks and enforce an actual temp directory boundary, not a
+    filename heuristic, URI or checkout-relative path.
+    """
+    if (type(path) is not str or not path or path == ":memory:"
+            or path.startswith("file:") or not os.path.isabs(path)
+            or os.path.islink(path)):
+        return False
+    try:
+        temp_root = os.path.realpath(tempfile.gettempdir())
+        resolved = os.path.realpath(path)
+        if os.path.commonpath((temp_root, resolved)) != temp_root:
+            return False
+        if resolved == temp_root or not resolved.startswith(temp_root + os.sep):
+            return False
+        if not resolved.lower().endswith((".db", ".sqlite", ".sqlite3")):
+            return False
+        return os.path.isdir(os.path.dirname(resolved))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
 def hold_terminal_child_review(
     *, uid: str, account_id: str, strategy_id: str, signal_id: str,
     exchange: str, symbol: str, product: str,
@@ -70,8 +98,16 @@ def hold_terminal_child_review(
 
     # Intentional hard kill-switch, independent of the global broker switch.
     # No invocation may alter an operator's persistent/live database.
-    if not (db.under_test() and db.is_disposable_path(db._DB_PATH)):
+    if not (db.under_test()
+            and db.is_disposable_path(db._DB_PATH)
+            and _strictly_disposable_review_database(db._DB_PATH)):
         return stop("offline_disposable_test_database_required")
+    # A review helper must not be callable in a process explicitly configured
+    # to allow broker execution, even if its database happens to be temporary.
+    if str(os.environ.get("STERLING_LIVE_EXECUTION", "0")).strip().lower() not in {
+        "", "0", "false", "off"
+    }:
+        return stop("live_execution_environment_refused")
     if not db.is_available():
         return stop("review_storage_unavailable")
 
