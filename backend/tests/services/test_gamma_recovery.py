@@ -371,6 +371,51 @@ async def test_gamma_exit_missing_canonical_holding_never_disarms_stop(env):
 
 
 @pytest.mark.asyncio
+async def test_gamma_preexisting_immutable_exit_does_not_disarm_stop(env):
+    """A reserved conflicting identity stays blocked without touching the GTT."""
+    from app.services.kite_engine import order_journal
+
+    pos = await _armed(env, qty=50)
+    before = pos.gtt_id
+    previous = order_journal.reserve(
+        uid=UID, account_id="acct-live", strategy_id=runner.STRATEGY_ID,
+        generation_id=runner.CONTRACT_VERSION,
+        signal_id=f"{pos.signal_id}:reduce:exit", exchange="NFO",
+        symbol=SYMBOL, side="SELL", quantity=40,
+        payload={"intent_type": "EXIT", "reduction_kind": "exit", "product": "NRML"},
+    )
+    assert previous.state == "RESERVED"
+
+    ok, status = await runner._execute_exit(
+        UID, pos, market_ltp=88.0, reason="SL",
+    )
+    assert (ok, status) == (False, "canonical_exit_intent_already_recorded")
+    assert pos.gtt_id == before and not pos.exiting
+    assert env.broker.deleted == [] and env.broker.place_order_calls == []
+    assert order_journal.get(previous.intent_key).state == "RESERVED"
+
+
+@pytest.mark.asyncio
+async def test_gamma_unreadable_prior_exit_journal_keeps_protection(env, monkeypatch):
+    """An unreadable identity preflight must not cancel a live stop."""
+    from app.services.kite_engine import order_journal
+
+    pos = await _armed(env, qty=50)
+    before = pos.gtt_id
+
+    def unreadable(**_kwargs):
+        raise RuntimeError("offline identity storage unavailable")
+
+    monkeypatch.setattr(order_journal, "identity_exists", unreadable)
+    ok, status = await runner._execute_exit(
+        UID, pos, market_ltp=88.0, reason="SL",
+    )
+    assert (ok, status) == (False, "canonical_exit_identity_unverified")
+    assert pos.gtt_id == before and not pos.exiting
+    assert env.broker.deleted == [] and env.broker.place_order_calls == []
+
+
+@pytest.mark.asyncio
 async def test_gamma_adoption_sees_only_unowned_same_contract_inventory(env, monkeypatch):
     from app.services import snapback_reconciliation as recon
 
@@ -1086,18 +1131,19 @@ async def test_flatten_all_refuses_reusing_immutable_partial_exit_intent(env, mo
     env.broker.place_order = place
     result = await runner.flatten_all(UID, env.broker)
 
-    # The first order was confirmed partially filled (20/50). The second
-    # reduction would reuse the first order's immutable canonical signal ID
-    # with a different requested quantity (30): the journal correctly rejects
-    # this identity conflict. Never send a new SELL without a distinct,
-    # durable remaining-quantity intent and reconciled canonical inventory.
-    assert any("immutable_intent_conflict" in str(message)
+    # The first order partially filled 20/50. The remaining 30 cannot reuse
+    # the same immutable intent. Reject before cancelling the newly rearmed GTT
+    # and before another broker send; this does not solve tranche migration.
+    assert any("canonical exit identity already recorded" in str(message)
                for _kind, message in env.notes)
     assert result["closed"] == 0 and result["failed"]
-    assert "submit_failed" in result["failed"][0]
+    assert "canonical_exit_intent_already_recorded" in result["failed"][0]
     assert [c["qty"] for c in env.broker.place_order_calls] == [50]
     assert env.broker.net_qty == 30
-    assert store.get(UID, SYMBOL).quantity == 30
+    remaining = store.get(UID, SYMBOL)
+    assert remaining.quantity == 30 and remaining.gtt_id
+    assert not remaining.exiting
+    assert any(g["id"] == remaining.gtt_id for g in env.broker.gtts)
 
 
 # ===================================================================== finding 10

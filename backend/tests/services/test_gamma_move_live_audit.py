@@ -709,6 +709,24 @@ def test_synchronised_broker_stop_is_not_rewritten_every_scheduler_pass():
     assert runner._protection_due("u1", pos) is True
 
 
+def test_first_protection_check_is_due_at_fresh_process_uptime(monkeypatch):
+    """A freshly started runner has no broker-check timestamp, not time zero."""
+    pos = _position()
+    pos.stop_mode = "both"
+    pos.gtt_id = 55
+    pos.gtt_qty = int(pos.quantity)
+    pos.gtt_at = pos.stop
+    key = ("u1", pos.instrument.tradingsymbol)
+    assert key not in runner._protection_checked_at
+
+    # CI hosts can start with monotonic uptime below the recheck interval.
+    with monkeypatch.context() as scoped:
+        scoped.setattr(runner.time, "monotonic", lambda: 1.0)
+        assert runner._protection_due("u1", pos) is True
+        assert runner._protection_due("u1", pos) is False
+    assert runner._protection_checked_at[key] == 1.0
+
+
 def test_unprotected_position_is_always_due():
     pos = _position()
     pos.stop_mode = "both"

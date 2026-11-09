@@ -143,6 +143,30 @@ def make_key(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
     return sha256(_json(["kite-intent-v2", *values]).encode()).hexdigest()
 
 
+def identity_exists(*, uid: str, account_id: str, strategy_id: str,
+                    signal_id: str, exchange: str, symbol: str,
+                    side: str) -> bool:
+    """Read whether an immutable canonical identity was already reserved.
+
+    This mirrors the legacy-key-aware identity columns queried by ``reserve``;
+    it does NOT create or authorize an intent. Callers must still let the
+    transactional reservation enforce uniqueness at submission time. A DB
+    failure is propagated so pre-disarm callers can fail closed.
+    """
+    _ready()
+    make_key(uid=uid, account_id=account_id, strategy_id=strategy_id,
+             generation_id="read-only", signal_id=signal_id, exchange=exchange,
+             symbol=symbol, side=side)
+    with db._conn() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM kite_order_intents WHERE uid=? AND account_id=? "
+            "AND strategy_id=? AND signal_id=? AND exchange=? "
+            "AND symbol=? AND side=? LIMIT 1",
+            (uid, account_id, strategy_id, signal_id, exchange, symbol, side),
+        ).fetchone()
+    return row is not None
+
+
 def _mode_admission(conn, *, uid, account_id, strategy_id, payload, now):
     policy = (payload or {}).get('mode_policy')
     if not policy:

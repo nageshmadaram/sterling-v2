@@ -45,6 +45,37 @@ def args(client=None, **overrides):
     return req
 
 
+def test_read_only_immutable_identity_preflight_is_scoped_and_non_mutating(isolated):
+    identity = dict(uid="synthetic-user", account_id="acct-1",
+                    strategy_id="synthetic-legacy",
+                    signal_id="stable-entry-1:reduce:exit",
+                    exchange="NFO", symbol="SYNTHETIC26NOV25000CE",
+                    side="SELL")
+    assert order_journal.identity_exists(**identity) is False
+    intent = order_journal.reserve(
+        **identity, generation_id="gen-1", quantity=10,
+        payload={"intent_type": "EXIT", "product": "MIS", "reduction_kind": "exit"},
+    )
+    assert order_journal.identity_exists(**identity) is True
+    for altered in (
+        {"uid": "different-user"}, {"account_id": "other-account"},
+        {"strategy_id": "other-strategy"}, {"signal_id": "other-signal"},
+        {"exchange": "BFO"}, {"symbol": "OTHER"}, {"side": "BUY"},
+    ):
+        assert order_journal.identity_exists(**{**identity, **altered}) is False
+    assert order_journal.get(intent.intent_key).state == "RESERVED"
+
+
+def test_read_only_immutable_identity_preflight_fails_on_missing_database(isolated, monkeypatch):
+    monkeypatch.setattr(db, "is_available", lambda: False)
+    with pytest.raises(RuntimeError, match="durable_order_journal_unavailable"):
+        order_journal.identity_exists(
+            uid="synthetic-user", account_id="acct-1", strategy_id="synthetic-legacy",
+            signal_id="stable-entry-1:reduce:exit", exchange="NFO",
+            symbol="SYNTHETIC26NOV25000CE", side="SELL",
+        )
+
+
 @pytest.mark.asyncio
 async def test_reduction_requires_real_reconciled_inventory_and_no_implicit_entry(isolated):
     client = PaperBroker()

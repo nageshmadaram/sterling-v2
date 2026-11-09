@@ -1911,6 +1911,28 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
         return False, "broker_account_identity_unverified"
     if not str(pos.signal_id or "").strip():
         return False, "exit_signal_identity_unverified"
+    # Once a canonical exit was reserved under this signal, another pass
+    # cannot use that same immutable identity for a different remainder. Test
+    # journal history *before* disarming the protective GTT. An absent/failed
+    # read never authorizes release; the atomic reserve remains the final gate
+    # against concurrent writers after this read-only preflight.
+    from app.services.kite_engine import order_journal
+    try:
+        previous_exit = order_journal.identity_exists(
+            uid=uid,
+            account_id=str(getattr(client, "_account_id", "") or ""),
+            strategy_id=STRATEGY_ID,
+            signal_id=f"{pos.signal_id}:reduce:exit",
+            exchange=pos.instrument.exchange,
+            symbol=pos.instrument.tradingsymbol,
+            side="SELL",
+        )
+    except Exception as exc:
+        session.note("error", f"canonical exit journal could not be read: {type(exc).__name__}")
+        return False, "canonical_exit_identity_unverified"
+    if previous_exit:
+        session.note("error", "canonical exit identity already recorded; reconcile its intent before further reduction")
+        return False, "canonical_exit_intent_already_recorded"
     # ``forced`` (an operator flatten) is passed only when set: it does not wait out the
     # grace window for a fired stop's resting child.
     released = (await _cancel_protection(uid, client, pos, forced=True) if forced
@@ -1930,7 +1952,6 @@ async def _execute_exit_locked(uid: str, pos: PositionState, *,
     # The SELL's identity is durable BEFORE it leaves: a unique tag and a
     # "submitting" id. A cancelled task, a lost reply or a crash then leaves
     # something reconcile can find in the order book instead of a stranded exit.
-    from app.services.kite_engine import order_journal
     from app.services.canonical_strategy_reduction import submit_reduction
     # The canonical journal's deterministic tag must match the persisted
     # in-flight identity so recovery can bind an ACK lost mid-transport.
@@ -2875,7 +2896,11 @@ def _protection_due(uid: str, pos: PositionState) -> bool:
         and abs(float(pos.gtt_at or 0.0) - float(pos.stop)) < 0.005
     )
     now = time.monotonic()
-    if synced and now - _protection_checked_at.get(key, 0.0) < _PROTECTION_RECHECK_S:
+    last_checked = _protection_checked_at.get(key)
+    # A never-checked stop must get its first broker verification even when
+    # this process has been alive for less than the recheck interval. A
+    # synthetic timestamp of zero is not evidence of an actual prior read.
+    if synced and last_checked is not None and now - last_checked < _PROTECTION_RECHECK_S:
         return False
     _protection_checked_at[key] = now
     return True
