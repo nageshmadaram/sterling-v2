@@ -53,6 +53,33 @@ def test_ambiguous_state_is_not_silently_normalized(data):
         normalize_broker_read(snapshot(**data))
 
 
+@pytest.mark.parametrize("data", [
+    {"account_configured": 1},
+    {"stored_session_present": "false"},
+    {"active_account_feed_bound": 1},
+    {"feed_connected": "true"},
+    {"shared_owner_feed": 0},
+    {"view": []},
+    {"subscribed_count": -1},
+    {"subscribed_count": True},
+    {"last_tick_ms": -10},
+    {"last_tick_ms": False},
+    {"subscribed_count": 4},
+    {"last_tick_ms": 7},
+])
+def test_malformed_or_unbound_feed_fields_are_refused(data):
+    with pytest.raises(ValueError, match="inconsistent_canonical_broker_read_evidence"):
+        normalize_broker_read(snapshot(**data))
+
+
+def test_unbound_feed_metadata_refused_by_http_route(client, monkeypatch):
+    monkeypatch.setattr(endpoint, "session_feed_snapshot",
+                        lambda _: snapshot(subscribed_count=3))
+    response = client.get("/api/v1/platform/broker/summary")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Scoped broker read unavailable"
+
+
 def test_simulation_never_reports_new_trading_authority():
     read = normalize_broker_read(snapshot(
         view="simulation", shared_owner_feed=True, account_configured=True,

@@ -37,6 +37,17 @@ def normalize_broker_read(snapshot: SessionFeedSnapshot) -> BrokerReadModel:
     connected = snapshot["feed_connected"]
     shared = snapshot["shared_owner_feed"]
     view = snapshot["view"]
+    subscriptions = snapshot["subscribed_count"]
+    last_tick_ms = snapshot["last_tick_ms"]
+
+    # A malformed feed snapshot must not become a plausible status response.
+    # bool is a subclass of int; check exact types to reject fabricated counts.
+    if (any(type(flag) is not bool for flag in (configured, token, bound, connected, shared))
+            or type(view) is not str
+            or type(subscriptions) is not int or subscriptions < 0
+            or type(last_tick_ms) is not int or last_tick_ms < 0
+            or (not bound and (subscriptions != 0 or last_tick_ms != 0))):
+        raise ValueError("inconsistent_canonical_broker_read_evidence")
 
     if (view not in {"live", "simulation"}
             or shared != (view == "simulation")
@@ -68,6 +79,6 @@ def normalize_broker_read(snapshot: SessionFeedSnapshot) -> BrokerReadModel:
         "feed_bound_to_active_account": bound,
         "feed_connected": connected,
         "shared_owner_feed": shared,
-        "subscriptions_count": snapshot["subscribed_count"] if bound else 0,
-        "last_tick_ms": snapshot["last_tick_ms"] if bound else 0,
+        "subscriptions_count": subscriptions if bound else 0,
+        "last_tick_ms": last_tick_ms if bound else 0,
     }
