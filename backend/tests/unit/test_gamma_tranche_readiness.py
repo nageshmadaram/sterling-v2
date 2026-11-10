@@ -1354,20 +1354,26 @@ def test_offline_canonical_child_refuses_user_scope_and_tampered_ledger(store):
     assert result.reason in {'parent_signed_execution_disagrees', 'signed_fill_proof_changed'}
 
 
-def test_offline_canonical_child_journal_send_refusal_survives_real_payload_replay(store):
+def test_offline_canonical_child_journal_refuses_public_replay_but_preserves_gated_replay(store):
     prepared_terminal_lineage()
     child_result = _offline_child()
     child = order_journal.get(child_result.child_intent_key)
     assert child
-    replayed = order_journal.reserve(
-        uid=UID, account_id=ACCOUNT, strategy_id='gamma-unwind',
-        generation_id='arbitrary-new-generation', signal_id=child.signal_id,
-        exchange='NFO', symbol=SYMBOL, side='SELL', quantity=30,
-        payload=child.payload,
-    )
-    assert replayed.intent_key == child.intent_key
-    assert not order_journal.claim_submission(replayed.intent_key)
-    assert order_journal.get(replayed.intent_key).state == 'RESERVED'
+    # The generic reservation path must never mint or replay review-only
+    # evidence, even when supplied with an identical immutable payload.
+    with pytest.raises(ValueError, match='reserved_gamma_review_marker'):
+        order_journal.reserve(
+            uid=UID, account_id=ACCOUNT, strategy_id='gamma-unwind',
+            generation_id='arbitrary-new-generation', signal_id=child.signal_id,
+            exchange='NFO', symbol=SYMBOL, side='SELL', quantity=30,
+            payload=child.payload,
+        )
+    replayed = _offline_child()
+    assert replayed.reserved_for_review and replayed.replay
+    assert replayed.child_intent_key == child.intent_key
+    assert not replayed.execution_authorized
+    assert not order_journal.claim_submission(child.intent_key)
+    assert order_journal.get(child.intent_key).state == 'RESERVED'
 
 
 def test_offline_child_two_processes_get_one_durable_canonical_record(store):
@@ -1468,3 +1474,40 @@ def test_canonical_regular_reservation_cannot_convert_offline_child_into_live_or
         )
     assert not order_journal.claim_submission(child.intent_key)
     assert order_journal.get(child.intent_key).state == 'RESERVED'
+
+
+@pytest.mark.parametrize("marker", [True, False, 0, None, "true", {"untrusted": True}])
+def test_public_reservation_cannot_mint_reserved_gamma_review_marker(store, marker):
+    """Only the separately guarded offline helper may create review evidence."""
+    with pytest.raises(ValueError, match="reserved_gamma_review_marker"):
+        order_journal.reserve(
+            uid=UID, account_id=ACCOUNT, strategy_id="gamma-unwind",
+            generation_id="untrusted", signal_id="synthetic:review:child",
+            exchange="NFO", symbol=SYMBOL, side="SELL", quantity=1,
+            payload={"gamma_terminal_review_only": marker},
+        )
+    assert order_journal.unresolved(UID, ACCOUNT) == []
+
+
+@pytest.mark.parametrize("marker", [False, 0, None, "true"])
+def test_preexisting_nonboolean_gamma_marker_fails_closed(store, marker):
+    """Malformed legacy markers must not become executable or resettable."""
+    intent = order_journal.reserve(
+        uid=UID, account_id=ACCOUNT, strategy_id="gamma-unwind",
+        generation_id="legacy", signal_id="legacy:review:child",
+        exchange="NFO", symbol=SYMBOL, side="SELL", quantity=1,
+        payload={"intent_type": "EXIT"},
+    )
+    # Simulates a pre-existing legacy/malformed row without using the public API.
+    import json
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_order_intents SET payload_json=? WHERE intent_key=?",
+            (json.dumps({"gamma_terminal_review_only": marker}), intent.intent_key),
+        )
+    assert not order_journal.claim_submission(intent.intent_key)
+    with pytest.raises(ValueError, match="gamma_offline_review_intent_immutable"):
+        order_journal.transition(intent.intent_key, "CANCELLED")
+    with pytest.raises(ValueError, match="gamma_offline_review_intent_immutable"):
+        order_journal.clear_for_tests(UID)
+    assert order_journal.get(intent.intent_key).state == "RESERVED"

@@ -94,3 +94,27 @@ def wipe_tenants():
                      "(SELECT trade_id FROM trade_journal_trades WHERE uid=?)", (OWNER,))
         conn.execute("DELETE FROM trade_journal_trades WHERE uid=?", (OWNER,))
         conn.execute("DELETE FROM trade_journal_skips WHERE uid=?", (OWNER,))
+
+
+def seed_legacy_immutable_review_intent():
+    """Inject frozen evidence directly for reset tests; never through live reserve().
+
+    This fixture deliberately models an existing on-disk review row without
+    granting the general journal API permission to mint such records.
+    """
+    import json
+    from app.services import db
+    from app.services.kite_engine import order_journal
+
+    intent = order_journal.reserve(
+        uid=SIM_UID, account_id=SIM_ACCOUNT_ID, strategy_id="gamma-unwind",
+        generation_id="synthetic-review", signal_id="synthetic:review:child",
+        exchange="NFO", symbol="SYNTHETIC26NOV25000CE", side="SELL",
+        quantity=1, payload={"intent_type": "EXIT"},
+    )
+    with db._conn() as conn:
+        conn.execute(
+            "UPDATE kite_order_intents SET payload_json=? WHERE intent_key=?",
+            (json.dumps({"gamma_terminal_review_only": True}), intent.intent_key),
+        )
+    return order_journal.get(intent.intent_key)

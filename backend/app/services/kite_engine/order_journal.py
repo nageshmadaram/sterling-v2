@@ -13,6 +13,8 @@ from app.services import db
 
 TERMINAL = {"FILLED", "REJECTED", "CANCELLED"}
 UNRESOLVED = {"RESERVED", "SUBMITTING", "UNKNOWN", "SUBMITTED", "PARTIAL"}
+# Reserved for the separately gated, offline-only Gamma review-child writer.
+_GAMMA_REVIEW_MARKER = "gamma_terminal_review_only"
 
 
 @dataclass(frozen=True)
@@ -225,6 +227,13 @@ def reserve(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
         available_capital = _amount(available_capital, "available_capital", zero=True)
     if payload is not None and not isinstance(payload, dict):
         raise ValueError("invalid_payload")
+    # Do not let the general-purpose reservation path mint permanent review
+    # evidence. The offline child writer validates a disposable database, a
+    # durable review hold and the exact parent lineage before INSERT itself.
+    # Even false/null/non-boolean markers are reserved to prevent ambiguous
+    # rows from being treated as ordinary executable intents on restart.
+    if payload is not None and _GAMMA_REVIEW_MARKER in payload:
+        raise ValueError("reserved_gamma_review_marker")
     encoded = _json(payload or {})
     key = make_key(uid=uid, account_id=account_id, strategy_id=strategy_id,
                    generation_id=generation_id, signal_id=signal_id, exchange=exchange,
@@ -270,7 +279,7 @@ def _require_mutable_intent(intent: Intent) -> None:
     must never alter the frozen offline evidence or change its replay outcome.
     This check runs inside the same journal transaction as the mutation.
     """
-    if intent.payload.get("gamma_terminal_review_only") is True:
+    if _GAMMA_REVIEW_MARKER in intent.payload:
         raise ValueError("gamma_offline_review_intent_immutable")
 
 
@@ -282,7 +291,7 @@ def claim_submission(intent_key: str) -> bool:
         # executable broker orders. Even a direct call to claim_submission must
         # not turn one into SUBMITTING. This is defense in depth on the only
         # canonical RESERVED -> SUBMITTING broker-send admission transition.
-        if intent.payload.get("gamma_terminal_review_only") is True:
+        if _GAMMA_REVIEW_MARKER in intent.payload:
             return False
         changed = conn.execute("""UPDATE kite_order_intents SET state='SUBMITTING',updated_ms=?
             WHERE intent_key=? AND state='RESERVED' AND reconciliation_required=0""",
