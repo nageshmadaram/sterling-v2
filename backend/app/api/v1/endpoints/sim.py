@@ -122,6 +122,7 @@ async def reset_health(user: UserContext = Depends(require_admin)) -> Dict[str, 
     uid, account_id = tenant.scope_ids(owner)
     try:
         fence = order_journal.simulation_reset_fence_state(uid)
+        checkpoint = order_journal.simulation_reset_checkpoint_state(uid)
         control = db.get_execution_control(uid=uid, account_id=account_id)
     except Exception as exc:
         raise HTTPException(503, detail=_detail(
@@ -131,6 +132,7 @@ async def reset_health(user: UserContext = Depends(require_admin)) -> Dict[str, 
     recovery_state = control["recovery_state"]
     return {
         "fence_state": fence or "CLEAR",
+        "checkpoint": checkpoint,
         "recovery_required": bool(fence) or recovery_state != "CLEAN",
         "automatic_release_allowed": False,
         "control_plane": {

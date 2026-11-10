@@ -430,3 +430,27 @@ def test_reset_arriving_between_api_admission_and_boot_returns_sanitized_refusal
         assert response.json()['detail']['code'] == 'simulation_reset_fenced'
         assert kite_accounts.sim_account_for(OWNER) is None
     order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_reset_health_exposes_stage_without_reset_token(client, live):
+    from app.services.kite_engine import order_journal
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    order_journal.checkpoint_simulation_reset(SIM_UID, token, 'virtual_ledger')
+    health = client.get(f'{URL}/reset-health')
+    assert health.status_code == 200
+    assert health.json()['fence_state'] == 'ACTIVE'
+    assert health.json()['checkpoint'] == {'state': 'ACTIVE', 'stage': 'virtual_ledger'}
+    assert token not in health.text
+    assert health.json()['automatic_release_allowed'] is False
+
+
+def test_corrupt_reset_checkpoint_is_sanitized_and_fail_closed(client, live):
+    from app.services.kite_engine import order_journal
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with db._conn() as conn:
+        conn.execute('UPDATE system_config SET value=? WHERE key=?',
+                     ('PRIVATE_CORRUPT_CHECKPOINT', 'simulation_reset_checkpoint_v1:' + SIM_UID))
+    health = client.get(f'{URL}/reset-health')
+    assert health.status_code == 503
+    assert 'PRIVATE_CORRUPT_CHECKPOINT' not in health.text
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'

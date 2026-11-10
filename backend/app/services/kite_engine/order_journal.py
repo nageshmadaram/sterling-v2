@@ -17,6 +17,12 @@ UNRESOLVED = {"RESERVED", "SUBMITTING", "UNKNOWN", "SUBMITTED", "PARTIAL"}
 # Reserved for the separately gated, offline-only Gamma review-child writer.
 _GAMMA_REVIEW_MARKER = "gamma_terminal_review_only"
 _RESET_FENCE_PREFIX = "simulation_reset_fence_v1:"
+_RESET_CHECKPOINT_PREFIX = "simulation_reset_checkpoint_v1:"
+_RESET_STAGES = (
+    "fenced", "disarmed", "virtual_ledger", "journal_rows", "order_books",
+    "ema_trend_books", "snapback_books", "config_rows", "memory", "tenant",
+    "control_plane", "complete",
+)
 
 
 @dataclass(frozen=True)
@@ -101,6 +107,78 @@ def _reset_fence(conn, uid: str) -> Optional[dict]:
     return value
 
 
+def _reset_checkpoint(conn, uid: str) -> Optional[dict]:
+    """Validate a durable reset checkpoint, including internal token (never exposed)."""
+    row = conn.execute(
+        "SELECT value FROM system_config WHERE key=?", (_RESET_CHECKPOINT_PREFIX + uid,),
+    ).fetchone()
+    if row is None:
+        return None  # older fence versions had no checkpoint
+    try:
+        cp = json.loads(row["value"])
+        if (type(cp) is not dict or set(cp) != {"state", "stage", "token"}
+                or cp["state"] not in {"ACTIVE", "FAILED", "COMPLETE"}
+                or cp["stage"] not in _RESET_STAGES
+                or type(cp["token"]) is not str or len(cp["token"]) != 32
+                or any(c not in "0123456789abcdef" for c in cp["token"])
+                or ((cp["stage"] == "complete") != (cp["state"] == "COMPLETE"))):
+            raise ValueError("invalid_checkpoint")
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ValueError("simulation_reset_checkpoint_invalid") from exc
+    return cp
+
+
+def _assert_reset_checkpoint_consistent(fence: Optional[dict], cp: Optional[dict]) -> None:
+    if cp is None:
+        return  # backwards-compatible read-only diagnosis of a legacy fence
+    if fence is None:
+        if cp["state"] != "COMPLETE":
+            raise ValueError("simulation_reset_checkpoint_inconsistent")
+    elif cp["token"] != fence["token"] or cp["state"] != fence["state"]:
+        raise ValueError("simulation_reset_checkpoint_inconsistent")
+
+
+def simulation_reset_checkpoint_state(uid: str) -> dict:
+    """Read-only forensic stage; never disclose a reset token or release a fence."""
+    _text(uid, "uid")
+    _ready()
+    with db._conn() as conn:
+        fence = _reset_fence(conn, uid)
+        cp = _reset_checkpoint(conn, uid)
+        _assert_reset_checkpoint_consistent(fence, cp)
+    if cp is not None:
+        return {"state": cp["state"], "stage": cp["stage"]}
+    if fence is not None:
+        return {"state": "UNKNOWN", "stage": "unknown"}
+    return {"state": "CLEAR", "stage": "none"}
+
+
+def checkpoint_simulation_reset(uid: str, token: str, stage: str) -> None:
+    """Durably acknowledge only the contiguous, successfully committed reset prefix.
+
+    It is deliberately not a cross-database transaction. A checkpoint follows
+    each externally completed step, so a process death may leave its value
+    behind the work already done but never prove future steps complete.
+    """
+    _text(uid, "uid")
+    _text(token, "reset_token")
+    if stage not in _RESET_STAGES or stage == "complete":
+        raise ValueError("invalid_simulation_reset_stage")
+    with _transaction() as conn:
+        fence = _reset_fence(conn, uid)
+        cp = _reset_checkpoint(conn, uid)
+        _assert_reset_checkpoint_consistent(fence, cp)
+        if (fence is None or fence["state"] != "ACTIVE" or fence["token"] != token
+                or cp is None or cp["state"] != "ACTIVE"):
+            raise ValueError("simulation_reset_fence_mismatch")
+        if _RESET_STAGES.index(stage) < _RESET_STAGES.index(cp["stage"]):
+            raise ValueError("simulation_reset_checkpoint_regression")
+        conn.execute(
+            "UPDATE system_config SET value=? WHERE key=?",
+            (_json({"state": "ACTIVE", "stage": stage, "token": token}), _RESET_CHECKPOINT_PREFIX + uid),
+        )
+
+
 def _require_no_simulation_reset(conn, uid: str) -> None:
     """Refuse a writer in a fenced virtual tenant, including after a crash."""
     if _reset_fence(conn, uid) is not None:
@@ -150,12 +228,19 @@ def begin_simulation_reset(uid: str) -> str:
     with _transaction() as conn:
         _assert_tenant_cleanup_safe(conn, uid)
         prior = _reset_fence(conn, uid)
+        checkpoint = _reset_checkpoint(conn, uid)
+        _assert_reset_checkpoint_consistent(prior, checkpoint)
         if prior is not None and prior["state"] == "ACTIVE":
             raise ValueError("simulation_reset_in_progress")
         conn.execute(
             "INSERT INTO system_config(key,value) VALUES (?,?) "
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (_RESET_FENCE_PREFIX + uid, _json({"state": "ACTIVE", "token": token})),
+        )
+        conn.execute(
+            "INSERT INTO system_config(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_RESET_CHECKPOINT_PREFIX + uid, _json({"state": "ACTIVE", "stage": "fenced", "token": token})),
         )
     return token
 
@@ -168,6 +253,8 @@ def finish_simulation_reset(uid: str, token: str, *, success: bool) -> None:
         raise ValueError("invalid_reset_outcome")
     with _transaction() as conn:
         current = _reset_fence(conn, uid)
+        checkpoint = _reset_checkpoint(conn, uid)
+        _assert_reset_checkpoint_consistent(current, checkpoint)
         if current is None or current["state"] != "ACTIVE" or current["token"] != token:
             raise ValueError("simulation_reset_fence_mismatch")
         if success:
@@ -175,6 +262,13 @@ def finish_simulation_reset(uid: str, token: str, *, success: bool) -> None:
         else:
             conn.execute("UPDATE system_config SET value=? WHERE key=?", (
                 _json({"state": "FAILED", "token": token}), _RESET_FENCE_PREFIX + uid,
+            ))
+        if checkpoint is not None:
+            state = "COMPLETE" if success else "FAILED"
+            stage = "complete" if success else checkpoint["stage"]
+            conn.execute("UPDATE system_config SET value=? WHERE key=?", (
+                _json({"state": state, "stage": stage, "token": token}),
+                _RESET_CHECKPOINT_PREFIX + uid,
             ))
 
 

@@ -476,7 +476,13 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
 
     def step(name: str, fn: Callable[[], object]) -> None:
         try:
-            cleared[name] = fn()
+            value = fn()
+            # Only advance the durable checkpoint while EVERY earlier stage
+            # was confirmed. Later cleanup may run after one failure, but an
+            # operator must not infer that an incomplete reset was successful.
+            if not failed and name != "recovery_control":
+                order_journal.checkpoint_simulation_reset(uid, reset_token, name)
+            cleared[name] = value
         except Exception as exc:  # noqa: BLE001 - keep going; the report says what did not clear
             failed[name] = f"{type(exc).__name__}: {exc}"
             log.error("simulation reset: %s failed: %s", name, exc)
@@ -520,7 +526,11 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
                 failed[f"disarm_{strategy}"] = str(exc)
         try:
             _settle_sim_master(owner)
+            if not failed:
+                order_journal.checkpoint_simulation_reset(uid, reset_token, "disarmed")
             account = sim_runtime.reset_owner(owner, capital=capital, reset_token=reset_token)
+            if not failed:
+                order_journal.checkpoint_simulation_reset(uid, reset_token, "virtual_ledger")
         except Exception as exc:  # noqa: BLE001 - preserve a fail-closed durable fence
             try:
                 _mark_reset_incomplete(owner)

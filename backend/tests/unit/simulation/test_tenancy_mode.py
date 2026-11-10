@@ -1158,3 +1158,107 @@ def test_unmanaged_raw_sqlite_connection_is_fail_closed_even_without_fence(tenan
     with db._conn() as conn:
         conn.execute('UPDATE sim_accounts SET cash=? WHERE owner=?', (old['cash'] - 1, OWNER))
     assert led.account(OWNER)['cash'] == old['cash'] - 1
+
+
+def test_simulation_reset_persists_confirmed_stage_and_safe_completion(tenants):
+    result = mode.reset_simulation(OWNER)
+    assert result['ok'] is True
+    checkpoint = order_journal.simulation_reset_checkpoint_state(SIM_UID)
+    assert checkpoint == {'state': 'COMPLETE', 'stage': 'complete'}
+    assert order_journal.simulation_reset_fence_state(SIM_UID) is None
+    assert 'token' not in str(checkpoint).lower()
+
+
+def test_failed_cross_store_reset_keeps_last_confirmed_checkpoint(tenants, monkeypatch):
+    from app.services import trade_journal
+    def fail(_uid):
+        raise RuntimeError('PRIVATE_BACKEND_FAILURE')
+    with monkeypatch.context() as patch:
+        patch.setattr(trade_journal, 'purge_simulation', fail)
+        result = mode.reset_simulation(OWNER)
+    assert result['ok'] is False
+    checkpoint = order_journal.simulation_reset_checkpoint_state(SIM_UID)
+    assert checkpoint == {'state': 'FAILED', 'stage': 'virtual_ledger'}
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'FAILED'
+    assert 'PRIVATE_BACKEND_FAILURE' not in str(checkpoint)
+
+
+def test_reset_checkpoint_is_monotone_and_token_bound(tenants):
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {'state': 'ACTIVE', 'stage': 'fenced'}
+    with pytest.raises(ValueError, match='simulation_reset_fence_mismatch'):
+        order_journal.checkpoint_simulation_reset(SIM_UID, 'wrong', 'journal_rows')
+    with pytest.raises(ValueError, match='invalid_simulation_reset_stage'):
+        order_journal.checkpoint_simulation_reset(SIM_UID, token, 'unknown_stage')
+    order_journal.checkpoint_simulation_reset(SIM_UID, token, 'virtual_ledger')
+    with pytest.raises(ValueError, match='simulation_reset_checkpoint_regression'):
+        order_journal.checkpoint_simulation_reset(SIM_UID, token, 'disarmed')
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {'state': 'ACTIVE', 'stage': 'virtual_ledger'}
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {'state': 'FAILED', 'stage': 'virtual_ledger'}
+    with pytest.raises(ValueError, match='simulation_reset_fence_mismatch'):
+        order_journal.checkpoint_simulation_reset(SIM_UID, token, 'journal_rows')
+
+
+def test_checkpoint_survives_process_death_without_releasing_active_fence(tenants):
+    import os
+    import subprocess
+    import sys
+    code = '''
+from app.services import db
+from app.services.kite_engine import order_journal
+assert db.init()
+uid='sim:default'
+tok=order_journal.begin_simulation_reset(uid)
+order_journal.checkpoint_simulation_reset(uid, tok, 'virtual_ledger')
+import os
+os._exit(79)
+'''
+    env = dict(os.environ, STERLING_DB_PATH=str(db._DB_PATH), STERLING_UNDER_TEST='1')
+    result = subprocess.run([sys.executable, '-c', code], env=env,
+                            text=True, capture_output=True, timeout=25)
+    assert result.returncode == 79
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {'state': 'ACTIVE', 'stage': 'virtual_ledger'}
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    with pytest.raises(mode.ModeBlocked, match='An earlier simulation reset remains active'):
+        mode.reset_simulation(OWNER)
+
+
+def test_late_cleanup_failure_cannot_advance_past_missing_stage(tenants, monkeypatch):
+    def fail(_uid, _account_id):
+        raise RuntimeError('PRIVATE_LATE_STAGE_FAILURE')
+    with monkeypatch.context() as patch:
+        patch.setattr(mode, '_purge_snapback_books', fail)
+        result = mode.reset_simulation(OWNER)
+    assert result['ok'] is False and 'snapback_books' in result['failed']
+    assert 'config_rows' in result['cleared']  # cleanup continued, but does not certify completeness
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {
+        'state': 'FAILED', 'stage': 'ema_trend_books',
+    }
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'FAILED'
+    assert mode.reset_simulation(OWNER)['ok'] is True  # explicit retry replaces generation
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {
+        'state': 'COMPLETE', 'stage': 'complete',
+    }
+
+
+def test_inconsistent_or_missing_checkpoint_never_claims_clean(tenants):
+    import json
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with db._conn() as conn:
+        conn.execute('DELETE FROM system_config WHERE key=?',
+                     ('simulation_reset_fence_v1:' + SIM_UID,))
+    with pytest.raises(ValueError, match='simulation_reset_checkpoint_inconsistent'):
+        order_journal.simulation_reset_checkpoint_state(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_checkpoint_inconsistent'):
+        order_journal.begin_simulation_reset(SIM_UID)
+    with db._conn() as conn:
+        conn.execute('INSERT INTO system_config(key,value) VALUES (?,?)',
+                     ('simulation_reset_fence_v1:' + SIM_UID,
+                      json.dumps({'state': 'ACTIVE', 'token': token})))
+        conn.execute('DELETE FROM system_config WHERE key=?',
+                     ('simulation_reset_checkpoint_v1:' + SIM_UID,))
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {
+        'state': 'UNKNOWN', 'stage': 'unknown',
+    }
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
