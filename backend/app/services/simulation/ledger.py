@@ -184,6 +184,12 @@ class SimLedger:
         with self._connect() as c:
             c.row_factory = sqlite3.Row
             self._ensure_schema(c)
+            if self._factory is None:
+                # Production read helpers may not expose a writable raw SQLite
+                # handle outside an authorized owner-scoped transaction.
+                # This protects accidental SQL writes, not privileged callers
+                # that bypass SimLedger or deliberately reconfigure PRAGMAs.
+                c.execute("PRAGMA query_only=ON")
             yield c
 
     def _ensure_schema(self, c) -> None:
@@ -225,24 +231,34 @@ class SimLedger:
         with self._lock:
             previous = getattr(self._local, "tx", None)
             inherited_token = getattr(self._local, "reset_token", None)
+            previous_owner = getattr(self._local, "owner", None)
+            scoped_owner = self._owner(owner) if owner is not None else previous_owner
             token = reset_token if reset_token is not None else inherited_token
+            if self._factory is None and scoped_owner is None:
+                raise ValueError("simulation_owner_scope_required")
             if previous is not None:
-                if owner is not None:
-                    self._check_writer_fence(previous, owner, token)
+                if previous_owner is not None and scoped_owner != previous_owner:
+                    raise ValueError("simulation_owner_scope_mismatch")
+                if reset_token is not None and reset_token != inherited_token:
+                    raise ValueError("simulation_reset_fenced")
+                if scoped_owner is not None:
+                    self._check_writer_fence(previous, scoped_owner, token)
                 yield self
                 return
             with self._connect() as c:
                 c.row_factory = sqlite3.Row
                 self._ensure_schema(c)
                 c.execute("BEGIN IMMEDIATE")
-                if owner is not None:
-                    self._check_writer_fence(c, owner, token)
+                if scoped_owner is not None:
+                    self._check_writer_fence(c, scoped_owner, token)
                 self._local.tx = c
+                self._local.owner = scoped_owner
                 self._local.reset_token = token
                 try:
                     yield self
                 finally:
                     self._local.tx = None
+                    self._local.owner = None
                     self._local.reset_token = None
 
     @contextmanager
@@ -268,9 +284,9 @@ class SimLedger:
             raise ValueError("owner uid is required")
         return value
 
-    def next_id(self, name: str) -> int:
-        """A globally unique, ever-increasing id (survives reset: ids are never reused)."""
-        with self.transaction():
+    def next_id(self, name: str, *, owner: Optional[str] = None) -> int:
+        """A global monotone id, allocated only inside an admitted owner scope."""
+        with self.transaction(owner=owner):
             with self._cx() as c:
                 row = c.execute("SELECT value FROM sim_sequences WHERE name=?", (name,)).fetchone()
                 value = (row[0] if row else 0) + 1

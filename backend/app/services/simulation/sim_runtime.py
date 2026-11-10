@@ -368,7 +368,7 @@ def set_capital(owner: str, amount: float, *, ledger: Optional[SimLedger] = None
     if order_journal.simulation_reset_fence_state(uid) is not None:
         raise ValueError("simulation_reset_fenced")
     led = ledger or get_ledger()
-    with led.transaction():
+    with led.transaction(owner=o):
         with led._cx() as conn:
             # Recheck under the ledger's own SQLite writer lock. A reset
             # beginning after the advisory check cannot interleave here on
