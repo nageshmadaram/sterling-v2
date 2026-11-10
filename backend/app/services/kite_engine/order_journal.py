@@ -263,6 +263,17 @@ def reserve(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
         return _get(conn, key)
 
 
+def _require_mutable_intent(intent: Intent) -> None:
+    """Review-only Gamma child rows are immutable, not just non-submittable.
+
+    A fabricated ACK/observation, projection acknowledgement or cancellation
+    must never alter the frozen offline evidence or change its replay outcome.
+    This check runs inside the same journal transaction as the mutation.
+    """
+    if intent.payload.get("gamma_terminal_review_only") is True:
+        raise ValueError("gamma_offline_review_intent_immutable")
+
+
 def claim_submission(intent_key: str) -> bool:
     """Only the winning durable RESERVED→SUBMITTING CAS may call the broker."""
     with _transaction() as conn:
@@ -307,6 +318,7 @@ def transition(intent_key: str, state: str, *, order_id: str="", error: str="") 
       "PARTIAL":{"CANCELLED","UNKNOWN"}}
     with _transaction() as conn:
         intent = _get(conn, intent_key)
+        _require_mutable_intent(intent)
         current=intent.state
         if state != current and state not in allowed.get(current,set()):
             raise ValueError(f"invalid_intent_transition:{current}->{state}")
@@ -378,6 +390,7 @@ def acknowledge(intent_key: str, order_id: str) -> Intent:
     _text(order_id, "order_id")
     with _transaction() as conn:
         current = _get(conn, intent_key)
+        _require_mutable_intent(current)
         _check_order_id(conn, current, order_id)
         if current.state == "RESERVED":
             raise ValueError("unclaimed_acknowledgement")
@@ -391,6 +404,7 @@ def submission_uncertain(intent_key: str, error: str) -> Intent:
     """Timeout cannot erase stronger broker evidence delivered concurrently."""
     with _transaction() as conn:
         current = _get(conn, intent_key)
+        _require_mutable_intent(current)
         if current.state == "SUBMITTING":
             conn.execute("UPDATE kite_order_intents SET state='UNKNOWN',error=?,updated_ms=? WHERE intent_key=?",
                          (error, int(time.time() * 1000), intent_key))
@@ -440,7 +454,7 @@ def mark_projected(intent_key: str, projection_version: int) -> bool:
     """Acknowledge exactly the saved registry snapshot, never a newer fill."""
     _quantity(projection_version, zero=True)
     with _transaction() as conn:
-        _get(conn, intent_key)
+        _require_mutable_intent(_get(conn, intent_key))
         changed = conn.execute("""UPDATE kite_order_intents SET projection_pending=0
             WHERE intent_key=? AND projection_version=? AND projection_pending=1""",
             (intent_key, projection_version)).rowcount
@@ -486,6 +500,7 @@ def _observe_order(intent_key: str, *, status: str, order_id: str,
     encoded_raw = _json(raw or {})
     with _transaction() as conn:
         current = _get(conn, intent_key)
+        _require_mutable_intent(current)
         _check_order_id(conn, current, order_id)
         if conn.execute("SELECT 1 FROM kite_order_observations WHERE intent_key=? AND fingerprint=?",
                         (intent_key, fingerprint)).fetchone():
