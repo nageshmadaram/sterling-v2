@@ -13,7 +13,7 @@ from app.core import lane_registry
 from app.services import db, gamma_move, live_safety
 from app.services import trade_journal as journal
 from app.services.exchanges.kite import accounts as kite_accounts
-from app.services.kite_engine import positions
+from app.services.kite_engine import order_journal, positions
 from app.services.kite_engine import state as engine_state
 from app.services.simulation import mode, tenant
 from app.services.simulation.ledger import get_ledger
@@ -184,6 +184,42 @@ def test_reset_needs_an_explicit_confirm(client, live):
         assert response.status_code == 422, (body, response.text)
     assert get_ledger().account(OWNER)["cash"] == 999_500                       # nothing wiped
     assert gamma_move.get_config(SIM_UID).auto_execute is True
+
+
+
+def test_reset_api_refuses_immutable_gamma_child_without_partial_wipe(client, live):
+    _put(client, "gamma", "SIMULATION")
+    get_ledger().adjust_cash(OWNER, -500)
+    protected = order_journal.reserve(
+        uid=SIM_UID, account_id=SIM_ACCOUNT_ID, strategy_id="gamma-unwind",
+        generation_id="synthetic-review", signal_id="synthetic:review:child",
+        exchange="NFO", symbol="SYNTHETIC26NOV25000CE", side="SELL",
+        quantity=1, payload={"gamma_terminal_review_only": True},
+    )
+    response = client.post(f"{URL}/reset", json={"confirm": True})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "immutable_review_evidence"
+    assert get_ledger().account(OWNER)["cash"] == 999_500
+    assert mode.strategy_state(OWNER, "gamma")["mode"] == "SIMULATION"
+    assert order_journal.get(protected.intent_key).state == "RESERVED"
+
+
+def test_reset_http_preflight_outage_is_503_without_secret_or_wipe(
+    client, live, monkeypatch,
+):
+    _put(client, "gamma", "SIMULATION")
+    from app.services.kite_engine import order_journal as journal
+
+    def unavailable(_uid):
+        raise RuntimeError("SYNTHETIC_DB_SECRET")
+
+    monkeypatch.setattr(journal, "assert_cleanup_safe", unavailable)
+    response = client.post(f"{URL}/reset", json={"confirm": True})
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "simulation_reset_preflight_unavailable"
+    assert "SYNTHETIC_DB_SECRET" not in response.text
+    assert mode.strategy_state(OWNER, "gamma")["mode"] == "SIMULATION"
+    assert get_ledger().account(OWNER)["cash"] == 1_000_000
 
 
 def test_reset_wipes_the_simulation_and_reports_status(client, live):

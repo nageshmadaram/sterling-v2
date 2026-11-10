@@ -472,6 +472,29 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
             log.error("simulation reset: %s failed: %s", name, exc)
 
     with _lock:
+        # Reset is a multi-store operation. A known immutable Gamma review
+        # child must abort BEFORE disarming strategies, resetting virtual cash,
+        # deleting trade journals, or clearing the recovery fence. The journal
+        # also repeats this check inside its own transaction at purge time.
+        from app.services.kite_engine import order_journal
+        try:
+            order_journal.assert_cleanup_safe(uid)
+        except ValueError as exc:
+            if str(exc) == "gamma_offline_review_intent_immutable":
+                raise ModeBlocked(
+                    "immutable_review_evidence",
+                    "Simulation reset refused: immutable offline review evidence exists.",
+                    ["Resolve the non-executable Gamma review child before resetting the tenant."],
+                ) from exc
+            raise ModeUnavailable(
+                "simulation_reset_preflight_unavailable",
+                "Simulation reset evidence could not be verified.",
+            ) from exc
+        except Exception as exc:
+            raise ModeUnavailable(
+                "simulation_reset_preflight_unavailable",
+                "Simulation reset evidence could not be verified.",
+            ) from exc
         for strategy in ALL_STRATEGIES:                          # nothing may originate while it is wiped
             try:
                 _disarm(uid, strategy)

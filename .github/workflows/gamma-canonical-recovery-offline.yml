@@ -24,6 +24,10 @@ on:
       - 'backend/app/services/canonical_fill_reconciliation.py'
       - 'backend/app/services/execution_service.py'
       - 'backend/app/services/kite_engine/order_journal.py'
+      - 'backend/app/services/simulation/mode.py'
+      - 'backend/app/api/v1/endpoints/sim.py'
+      - 'backend/tests/unit/simulation/test_tenancy_mode.py'
+      - 'backend/tests/unit/simulation/test_tenancy_api.py'
 
 permissions:
   contents: read
@@ -73,3 +77,17 @@ jobs:
             tests/unit/test_canonical_fresh_reduction_proof.py \
             tests/unit/test_gamma_tranche_readiness.py \
             tests/unit/test_gamma_broker_protection_review.py
+
+      - name: Synthetic simulation reset refusal and ordinary reset regression
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          STERLING_LIVE_EXECUTION: '0'
+          PYTHONPATH: '.:tests/unit/simulation'
+        run: |
+          python -m pytest -q --tb=short \
+            tests/unit/simulation/test_tenancy_mode.py \
+            tests/unit/simulation/test_tenancy_api.py \
+            tests/unit/simulation/test_tenancy_boot.py

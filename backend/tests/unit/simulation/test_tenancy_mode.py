@@ -435,6 +435,51 @@ def _dirty_the_tenant():
     assert _journal_counts(SIM_UID) == (1, 1)
 
 
+
+def test_simulation_reset_preflights_frozen_gamma_journal_before_any_mutation(tenants):
+    """An immutable review child must never produce a partial simulation wipe."""
+    mode.set_mode(OWNER, "gamma", "SIMULATION")
+    get_ledger().adjust_cash(OWNER, -12_345)
+    protected = order_journal.reserve(
+        uid=SIM_UID, account_id=SIM_ACCOUNT_ID, strategy_id="gamma-unwind",
+        generation_id="synthetic-review", signal_id="synthetic:review:child",
+        exchange="NFO", symbol="SYNTHETIC26NOV25000CE", side="SELL",
+        quantity=1, payload={"gamma_terminal_review_only": True},
+    )
+    cash = get_ledger().account(OWNER)["cash"]
+    before = _modes()
+    before_control = db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)
+    with pytest.raises(mode.ModeBlocked) as blocked:
+        mode.reset_simulation(OWNER)
+    assert blocked.value.code == "immutable_review_evidence"
+    assert get_ledger().account(OWNER)["cash"] == cash
+    assert _modes() == before and before["gamma"] == "SIMULATION"
+    assert db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID) == before_control
+    assert order_journal.get(protected.intent_key).state == "RESERVED"
+    assert not order_journal.claim_submission(protected.intent_key)
+
+
+def test_simulation_reset_unavailable_preflight_does_not_modify_virtual_tenant(
+    tenants, monkeypatch,
+):
+    from app.services.kite_engine import order_journal as journal
+    mode.set_mode(OWNER, "gamma", "SIMULATION")
+    get_ledger().adjust_cash(OWNER, -2345)
+    cash = get_ledger().account(OWNER)["cash"]
+    before = _modes()
+
+    def unavailable(_uid):
+        raise RuntimeError("SYNTHETIC_DB_SECRET")
+
+    monkeypatch.setattr(journal, "assert_cleanup_safe", unavailable)
+    with pytest.raises(mode.ModeUnavailable) as blocked:
+        mode.reset_simulation(OWNER)
+    assert blocked.value.code == "simulation_reset_preflight_unavailable"
+    assert "SYNTHETIC_DB_SECRET" not in blocked.value.message
+    assert get_ledger().account(OWNER)["cash"] == cash
+    assert _modes() == before
+
+
 def test_reset_wipes_the_virtual_tenant_and_starts_it_fresh():
     _dirty_the_tenant()
     result = mode.reset_simulation(OWNER)
