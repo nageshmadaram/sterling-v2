@@ -12,6 +12,8 @@ from app.engines.sterling_kite_engine.regime import compute_regime
 from app.engines.sterling_kite_engine.exits import trail_exit_index
 from app.services.kite_engine import market_hours as mh, scanner, sizing, monitor, positions, state, service
 from app.services.kite_engine import backtest as bt
+from app.services import db
+from app.services.execution_service import ExecutionResult
 
 IST = ZoneInfo('Asia/Kolkata')
 def dt(day='2026-09-07', clock='10:15'):
@@ -118,8 +120,9 @@ def test_replay_enters_next_raw_open(monkeypatch):
     assert run.trades[0].exit_ms == 27 and run.trades[0].exit_premium == o[27]
 
 class ExitBroker:
-    # This double has simulated holdings and no authenticated broker identity.
+    # A paper-only synthetic broker double. Never an authenticated Kite session.
     _is_paper = True
+    _account_id = 'audit-synthetic-account'
     calls=0
     async def place_order_option(self,*args,**kw):
         self.calls+=1
@@ -128,10 +131,48 @@ class ExitBroker:
         return {'net':[{'tradingsymbol':'OPT','quantity':50}]}
 
 
+@pytest.fixture
+def canonical_monitor_fixture(monkeypatch, tmp_path):
+    """Exercise monitor integration with the canonical inventory gate intact.
+
+    Only the downstream canonical sender is replaced by a deterministic paper
+    transport. The separately tested CanonicalExecutionService owns its actual
+    journal, UNKNOWN and fresh-broker-evidence semantics.
+    """
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'monitor_synthetic.sqlite'))
+    assert db.init()
+
+    def inventory(uid, net=50):
+        db.set_inventory('audit-synthetic-account', uid, 'OPT', net, exchange='NFO')
+
+    async def synthetic_canonical_submit(*, client, uid, symbol, quantity, product, side, **_other):
+        # The monitor has already run reduction_inventory_refusal; keep the
+        # independent on-disk check in the fake rather than bypassing it.
+        from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+        assert reduction_inventory_refusal(client=client, uid=uid, exchange='NFO',
+                                           symbol=symbol, quantity=quantity, side=side) is None
+        claim = positions.get(uid, symbol)
+        assert claim is not None and claim.exit_tag
+        try:
+            result = await client.place_order_option(
+                symbol, side.lower(), quantity,
+                tag=claim.exit_tag, product=product,
+            )
+        except TimeoutError:
+            return ExecutionResult(False, 'UNKNOWN', error='offline ACK lost')
+        return ExecutionResult(True, 'ACKNOWLEDGED',
+                               order_id=str(result['order_id']))
+
+    monkeypatch.setattr('app.services.canonical_strategy_reduction.submit_reduction',
+                        synthetic_canonical_submit)
+    return inventory
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize('direction,quantity',[('long',-50),('short',50)])
-async def test_exit_never_increases_opposite_broker_exposure(direction,quantity):
+async def test_exit_never_increases_opposite_broker_exposure(direction,quantity,canonical_monitor_fixture):
     uid='audit_direction_'+direction; positions.reset(uid); monitor.forget_holdings(uid)
+    canonical_monitor_fixture(uid, 50 if direction == 'long' else -50)
     p=positions.register(positions.OpenPosition(uid=uid,symbol='OPT',exchange='NFO',qty=50,
         direction=direction,status=positions.OPEN,stop_premium=80))
     class OppositeBroker(ExitBroker):
@@ -143,8 +184,9 @@ async def test_exit_never_increases_opposite_broker_exposure(direction,quantity)
     assert p.pnl_reconciliation_required
 
 @pytest.mark.asyncio
-async def test_ack_is_not_fill_and_pending_survives_reload(monkeypatch):
+async def test_ack_is_not_fill_and_pending_survives_reload(monkeypatch,canonical_monitor_fixture):
     uid='audit_ack'; positions.reset(uid); state.reset(uid)
+    canonical_monitor_fixture(uid)
     persisted={}
     monkeypatch.setattr(positions.db,'set_config',lambda key,value:persisted.__setitem__(key,value))
     monkeypatch.setattr(positions.db,'get_config_strict',lambda key:persisted.get(key))
@@ -234,8 +276,9 @@ def test_enabled_liquidity_gate_fails_closed(quote):
     assert service._passes_liquidity(quote,5,100)[0] is False
 
 @pytest.mark.asyncio
-async def test_accepted_exit_timeout_recovers_by_unique_tag_without_resend():
+async def test_accepted_exit_timeout_recovers_by_unique_tag_without_resend(canonical_monitor_fixture):
     uid='audit_timeout'; positions.reset(uid); state.reset(uid)
+    canonical_monitor_fixture(uid)
     p=positions.register(positions.OpenPosition(uid=uid,symbol='OPT',exchange='NFO',qty=50,
         entry_premium=100,fill_price=100,stop_premium=80,status=positions.OPEN,order_id='entry'))
     class AcceptedTimeout(ExitBroker):
@@ -267,8 +310,9 @@ async def test_accepted_exit_timeout_recovers_by_unique_tag_without_resend():
         {"quantity": 25},
     ],
 )
-async def test_unknown_exit_tag_recovery_requires_exact_broker_identity(identity_override):
+async def test_unknown_exit_tag_recovery_requires_exact_broker_identity(identity_override,canonical_monitor_fixture):
     uid='audit_timeout_identity'; positions.reset(uid); state.reset(uid)
+    canonical_monitor_fixture(uid)
     p=positions.register(positions.OpenPosition(
         uid=uid,symbol='OPT',exchange='NFO',qty=50,entry_premium=100,
         fill_price=100,stop_premium=80,status=positions.OPEN,order_id='entry',
@@ -300,3 +344,24 @@ async def test_unknown_exit_tag_recovery_requires_exact_broker_identity(identity
     assert p.status == positions.OPEN
     assert p.exit_order_id == 'unknown'
     assert broker.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_monitor_exit_refuses_missing_canonical_inventory_without_sender(monkeypatch, tmp_path):
+    """Missing inventory is not permission to remove a stop or submit a SELL."""
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'audit_missing_inventory.sqlite'))
+    assert db.init()
+    uid = 'audit_missing_inventory'
+    positions.reset(uid)
+    monitor.forget_holdings(uid)
+    p = positions.register(positions.OpenPosition(
+        uid=uid, symbol='OPT', exchange='NFO', qty=50, status=positions.OPEN,
+        account_id='audit-synthetic-account', product='NRML',
+        entry_premium=100, fill_price=100, stop_premium=80,
+    ))
+    broker = ExitBroker()
+    broker.calls = 0
+    assert await monitor._exit_position(broker, uid, p, 75) is False
+    assert broker.calls == 0
+    assert p.status == positions.OPEN
+    assert p.exit_order_id == ''

@@ -10,6 +10,7 @@ on:
       - 'backend/tests/services/test_gamma_move_production.py'
       - 'backend/tests/services/test_canonical_fill_reconciliation.py'
       - 'backend/tests/unit/test_canonical_strategy_reduction.py'
+      - 'backend/tests/engines/sterling_kite_engine/test_production_audit.py'
       - 'backend/tests/unit/test_canonical_execution_convergence.py'
       - 'backend/tests/unit/test_canonical_fresh_reduction_proof.py'
       - 'backend/tests/unit/test_gamma_tranche_readiness.py'
@@ -82,6 +83,7 @@ jobs:
             tests/services/test_gamma_move_production.py \
             tests/services/test_canonical_fill_reconciliation.py \
             tests/unit/test_canonical_strategy_reduction.py \
+            tests/engines/sterling_kite_engine/test_production_audit.py \
             tests/unit/test_canonical_execution_convergence.py \
             tests/unit/test_canonical_fresh_reduction_proof.py \
             tests/unit/test_gamma_tranche_readiness.py \
