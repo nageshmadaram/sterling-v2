@@ -25,6 +25,9 @@ on:
       - 'backend/app/services/execution_service.py'
       - 'backend/app/services/kite_engine/order_journal.py'
       - 'backend/app/services/simulation/mode.py'
+      - 'backend/app/services/simulation/tenant.py'
+      - 'backend/app/services/simulation/sim_runtime.py'
+      - 'backend/tests/unit/simulation/test_sim_runtime.py'
       - 'backend/app/api/v1/endpoints/sim.py'
       - 'backend/tests/unit/simulation/test_tenancy_mode.py'
       - 'backend/tests/unit/simulation/test_tenancy_api.py'
@@ -90,4 +93,5 @@ jobs:
           python -m pytest -q --tb=short \
             tests/unit/simulation/test_tenancy_mode.py \
             tests/unit/simulation/test_tenancy_api.py \
-            tests/unit/simulation/test_tenancy_boot.py
+            tests/unit/simulation/test_tenancy_boot.py \
+            tests/unit/simulation/test_sim_runtime.py

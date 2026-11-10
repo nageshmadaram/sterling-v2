@@ -107,6 +107,25 @@ def _require_no_simulation_reset(conn, uid: str) -> None:
         raise ValueError("simulation_reset_fenced")
 
 
+def assert_simulation_boot_permitted(uid: str, *, reset_token: Optional[str] = None) -> None:
+    """Refuse ordinary virtual-tenant bootstrap while reset recovery is fenced.
+
+    The coordinator can bootstrap during its own ACTIVE reset only by presenting
+    its exact durable token. This checks admission under SQLite's writer lock;
+    it is not an ACID transaction across the separately stored virtual ledger.
+    """
+    _text(uid, "uid")
+    with _transaction() as conn:
+        fence = _reset_fence(conn, uid)
+        if fence is None:
+            if reset_token is not None:
+                raise ValueError("simulation_reset_fenced")
+            return
+        if (fence["state"] != "ACTIVE" or not reset_token
+                or fence["token"] != reset_token):
+            raise ValueError("simulation_reset_fenced")
+
+
 def simulation_reset_fence_state(uid: str) -> Optional[str]:
     """Read-only operational diagnosis; never grants execution or release."""
     _text(uid, "uid")

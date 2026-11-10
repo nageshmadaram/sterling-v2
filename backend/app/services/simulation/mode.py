@@ -542,7 +542,7 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
         step("snapback_books", lambda: _purge_snapback_books(uid, account_id))
         step("config_rows", lambda: _purge_config_rows(uid))
         step("memory", lambda: _forget_memory(uid))
-        step("tenant", lambda: tenant.boot_tenant(owner))        # account, limits on the (kept) virtual capital
+        step("tenant", lambda: tenant.boot_tenant(owner, reset_token=reset_token))  # reset-owned bootstrap
         if failed:
             # An incomplete reset must not declare the recovery state CLEAN.
             step("recovery_control", lambda: _mark_reset_incomplete(owner))

@@ -80,7 +80,8 @@ def test_the_same_owner_is_served_from_either_view(client, live):
 
 
 # ── who may call ─────────────────────────────────────────────────────────────
-ROUTES = [("GET", "/status", None), ("PUT", "/strategy/gamma/mode", {"mode": "SIMULATION"}),
+ROUTES = [("GET", "/status", None), ("GET", "/reset-health", None),
+          ("PUT", "/strategy/gamma/mode", {"mode": "SIMULATION"}),
           ("POST", "/reset", {"confirm": True}), ("PUT", "/capital", {"capital": 500000})]
 
 
@@ -104,7 +105,8 @@ def test_every_sim_route_is_covered_by_the_owner_only_table_above():
     spec = main.app.openapi()["paths"]
     published = {(verb.upper(), path[len("/api/v1/sim"):]) for path, ops in spec.items()
                  if path.startswith("/api/v1/sim/") for verb in ops}
-    assert published == {("GET", "/status"), ("PUT", "/strategy/{strategy}/mode"), ("POST", "/reset"),
+    assert published == {("GET", "/status"), ("GET", "/reset-health"),
+                         ("PUT", "/strategy/{strategy}/mode"), ("POST", "/reset"),
                          ("PUT", "/capital")}
 
 
@@ -347,3 +349,84 @@ def test_reset_http_corrupt_durable_fence_fails_closed_503_without_leak(client, 
     assert response.json()['detail']['code'] == 'simulation_reset_preflight_unavailable'
     assert 'private_invalid_fence_marker' not in response.text
     assert get_ledger().account(OWNER)['cash'] == 1_000_000
+
+
+@pytest.mark.parametrize('fence_state', ['ACTIVE', 'FAILED'])
+def test_reset_health_is_read_only_and_fenced_capital_status_refuse(client, live, fence_state):
+    """A crashed/reset-failed tenant must not be changed by status or capital APIs."""
+    from app.services.kite_engine import order_journal
+    acct = get_ledger().account(OWNER)
+    if acct is None:
+        get_ledger().ensure_account(OWNER)
+    original = get_ledger().account(OWNER)['capital']
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    if fence_state == 'FAILED':
+        order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    health = client.get(f'{URL}/reset-health')
+    assert health.status_code == 200, health.text
+    body = health.json()
+    assert body['fence_state'] == fence_state
+    assert body['recovery_required'] is True
+    assert body['automatic_release_allowed'] is False
+    assert 'token' not in str(body).lower()
+    assert client.get(f'{URL}/status').status_code == 409
+    capital = client.put(f'{URL}/capital', json={'capital': original + 123})
+    assert capital.status_code == 409
+    assert capital.json()['detail']['code'] == 'simulation_reset_fenced'
+    assert get_ledger().account(OWNER)['capital'] == original
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == fence_state
+
+
+def test_reset_health_uninitialized_is_read_only_and_owner_only(client):
+    from app.services.kite_engine import order_journal
+    before = kite_accounts.sim_account_for(OWNER)
+    assert before is None
+    health = client.get(f'{URL}/reset-health')
+    assert health.status_code == 200
+    body = health.json()
+    assert body['fence_state'] == 'CLEAR'
+    assert body['automatic_release_allowed'] is False
+    assert kite_accounts.sim_account_for(OWNER) is None
+    assert order_journal.simulation_reset_fence_state(SIM_UID) is None
+    assert client.get(f'{URL}/reset-health', headers={'X-User-Id': 'intern'}).status_code == 403
+
+
+def test_reset_health_corrupt_fence_returns_sanitized_503_without_mutation(client, live):
+    with db._conn() as conn:
+        conn.execute('INSERT INTO system_config(key,value) VALUES (?,?)',
+                     ('simulation_reset_fence_v1:' + SIM_UID, 'PRIVATE_CORRUPT_FENCE'))
+    before = get_ledger().account(OWNER)['cash']
+    for method, path, body in [('GET', '/reset-health', None), ('PUT', '/capital', {'capital': 123456}),
+                                ('GET', '/status', None)]:
+        response = client.request(method, URL + path, json=body)
+        assert response.status_code == 503
+        assert 'PRIVATE_CORRUPT_FENCE' not in response.text
+    assert get_ledger().account(OWNER)['cash'] == before
+
+
+def test_fenced_status_does_not_create_virtual_account(client, live):
+    from app.services.kite_engine import order_journal
+    assert kite_accounts.sim_account_for(OWNER) is None
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    response = client.get(f'{URL}/status')
+    assert response.status_code == 409
+    assert kite_accounts.sim_account_for(OWNER) is None
+    health = client.get(f'{URL}/reset-health')
+    assert health.status_code == 200 and health.json()['fence_state'] == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_reset_arriving_between_api_admission_and_boot_returns_sanitized_refusal(client, live, monkeypatch):
+    """A second-process reset after a clean API preflight cannot become 500."""
+    from app.api.v1.endpoints import sim as sim_api
+    from app.services.kite_engine import order_journal
+    assert kite_accounts.sim_account_for(OWNER) is None
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    monkeypatch.setattr(sim_api, '_require_unfenced_simulation', lambda _owner: None)
+    for method, path, body in [('GET', '/status', None),
+                                ('PUT', '/capital', {'capital': 123456})]:
+        response = client.request(method, URL + path, json=body)
+        assert response.status_code == 409, response.text
+        assert response.json()['detail']['code'] == 'simulation_reset_fenced'
+        assert kite_accounts.sim_account_for(OWNER) is None
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)

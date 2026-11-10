@@ -14,7 +14,12 @@ TODAY = "2026-10-12"
 
 
 @pytest.fixture(autouse=True)
-def _fresh_runtime():
+def _fresh_runtime(monkeypatch):
+    from app.services.kite_engine import order_journal
+    # This isolated virtual-exchange suite has no canonical journal backing.
+    # Explicitly model an unfenced tenant; integration tests exercise real fences.
+    monkeypatch.setattr(order_journal, "simulation_reset_fence_state", lambda _uid: None)
+    monkeypatch.setattr(order_journal, "_require_no_simulation_reset", lambda _conn, _uid: None)
     rt.forget_exchanges()
     rt._state.update(passes=0, last_pass_ms=0, last_error="", last_report={})
     yield
