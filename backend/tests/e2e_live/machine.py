@@ -173,14 +173,30 @@ class LiveMachine:
         # (a stray requests/httpx call to a real host, a websocket) must fail loudly.
         attempts = self._network_attempts
 
-        def _no_connect(sock, address, *args, **kwargs):  # noqa: ANN001
+        def _stack_labels():
             import traceback
 
-            frames = [f"{f.filename.split('/backend/')[-1]}:{f.lineno}:{f.name}"
-                      for f in traceback.extract_stack() if "/backend/app/" in f.filename]
-            attempts.append((address, frames[-6:]))
-            raise OSError(f"network access is blocked in the offline admission dry run: {address!r}")
+            # Expose safe file/function labels, never network credentials,
+            # request bodies or source text. Calls made by asyncio/httpcore
+            # threads often have NO /backend/app frames at the socket layer.
+            return [f"{f.filename.split('/site-packages/')[-1].split('/backend/')[-1]}:{f.lineno}:{f.name}"
+                    for f in traceback.extract_stack()[-14:]]
 
+        def _no_connect(sock, address, *args, **kwargs):  # noqa: ANN001
+            attempts.append(("socket", address, _stack_labels()))
+            raise OSError("network access is blocked in the offline admission dry run")
+
+        real_getaddrinfo = socket.getaddrinfo
+
+        def _no_external_dns(host, port, *a, **k):
+            # Reject unwanted egress before DNS. This also catches hosts that
+            # cannot resolve on developer machines but DO resolve in CI.
+            if str(host or "").lower() not in {"localhost", "127.0.0.1", "::1"}:
+                attempts.append(("dns", str(host), _stack_labels()))
+                raise OSError("external DNS is blocked in the offline admission dry run")
+            return real_getaddrinfo(host, port, *a, **k)
+
+        mp.setattr(socket, "getaddrinfo", _no_external_dns)
         mp.setattr(socket.socket, "connect", _no_connect)
         mp.setattr(socket, "create_connection",
                    lambda address, *a, **k: _no_connect(None, address))
@@ -298,6 +314,17 @@ class LiveMachine:
         # ``main`` re-imports below; its import-time ``.env`` export must not bring the
         # operator's real settings back after ``install()`` removed them from the environment.
         isolate_dotenv(self.m("app.core.runtime_env"))
+        # The login-url route performs a *real* GET to kite.zerodha.com to
+        # diagnose invalid keys. Keep the production probe in its own tests;
+        # this synthetic fake-Kite machine must never even attempt DNS. The
+        # process-local stand-in accepts only this harness's exact fake key.
+        login_preflight = self.m("app.services.exchanges.kite.login_preflight")
+
+        async def _synthetic_login_key_preflight(key: str) -> None:
+            if key != ACCOUNT_API_KEY:
+                raise ValueError(login_preflight.INVALID_KEY_MESSAGE)
+
+        self.monkeypatch.setattr(login_preflight, "check_login_key", _synthetic_login_key_preflight)
         # The entire offline broker scenario advances a frozen clock. Do not
         # let the CI host's unrelated NTP service decide whether these synthetic
         # market-time orders are admissible. Patch the real clock-probe seam

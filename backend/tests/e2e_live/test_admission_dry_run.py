@@ -492,3 +492,16 @@ async def test_unsynchronised_synthetic_clock_still_blocks_snapback_entry(machin
     outcome = await S.drive_snapback(machine)
     assert not outcome.ordered
     assert not machine.exchange.entry_posts()
+
+
+@pytest.mark.asyncio
+async def test_offline_login_key_preflight_rejects_wrong_key_without_any_dns(machine):
+    """The fake login guard is strict; only its designated fake API key is accepted."""
+    machine.fresh_process()
+    preflight = machine.m('app.services.exchanges.kite.login_preflight')
+    await preflight.check_login_key(ACCOUNT_API_KEY)
+    with pytest.raises(ValueError, match='Update the API key'):
+        await preflight.check_login_key('a-synthetic-but-unauthorized-key')
+    with pytest.raises(ValueError, match='Update the API key'):
+        await preflight.check_login_key('')
+    assert machine.network_attempts == []

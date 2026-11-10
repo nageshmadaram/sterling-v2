@@ -11,6 +11,9 @@ on:
       - 'backend/tests/services/test_canonical_fill_reconciliation.py'
       - 'backend/tests/unit/test_canonical_strategy_reduction.py'
       - 'backend/tests/engines/sterling_kite_engine/test_production_audit.py'
+      - 'backend/app/services/exchanges/kite/login_preflight.py'
+      - 'backend/tests/test_kite_login_preflight.py'
+      - 'backend/tests/test_kite_mobile_login.py'
       - 'backend/tests/e2e_live/machine.py'
       - 'backend/tests/e2e_live/test_admission_dry_run.py'
       - 'backend/tests/e2e_live/test_sim_e2e.py'
@@ -109,6 +112,18 @@ jobs:
             tests/unit/simulation/test_sim_runtime.py \
             tests/unit/simulation/test_sim_ledger.py \
             tests/unit/simulation/test_sim_virtual_exchange.py
+
+      - name: Isolated Kite login key preflight and mobile login regressions
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          STERLING_LIVE_EXECUTION: '0'
+        run: |
+          python -m pytest -q --tb=short \
+            tests/test_kite_login_preflight.py \
+            tests/test_kite_mobile_login.py
 
       - name: Synthetic Snapback admission, simulation and journal E2E (offline fake Kite)
         working-directory: backend
