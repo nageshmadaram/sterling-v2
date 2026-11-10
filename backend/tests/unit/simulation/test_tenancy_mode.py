@@ -976,3 +976,60 @@ def test_virtual_ledger_write_txn_finishes_before_competing_reset_fence(tenants)
     with pytest.raises(ValueError, match='simulation_reset_fenced'):
         led.put_order(OWNER, {**doc, 'order_id':'fence-race-2'})
     order_journal.finish_simulation_reset(SIM_UID, result['token'], success=False)
+
+
+def test_unscoped_ledger_connection_is_read_only_on_real_application_db(tenants):
+    """Read helpers must not expose a silent raw owner-write bypass."""
+    import sqlite3
+    ledger = get_ledger()
+    before = ledger.account(OWNER)
+    with pytest.raises(sqlite3.OperationalError):
+        with ledger._cx() as conn:
+            conn.execute("UPDATE sim_accounts SET cash=0 WHERE owner=?", (OWNER,))
+    assert ledger.account(OWNER) == before
+
+
+def test_unscoped_ledger_transaction_refused_for_real_application_db(tenants):
+    """A generic BEGIN IMMEDIATE has no tenant authorization context."""
+    ledger = get_ledger()
+    before = ledger.account(OWNER)
+    with pytest.raises(ValueError, match="simulation_owner_scope_required"):
+        with ledger.transaction():
+            with ledger._cx() as conn:
+                conn.execute("UPDATE sim_accounts SET cash=0 WHERE owner=?", (OWNER,))
+    assert ledger.account(OWNER) == before
+
+
+def test_global_sequence_cannot_advance_without_owner_scope(tenants):
+    ledger = get_ledger()
+    with pytest.raises(ValueError, match="simulation_owner_scope_required"):
+        ledger.next_id("order")
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(ValueError, match="simulation_reset_fenced"):
+        ledger.next_id("order", owner=OWNER)
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    # Other tenant may still reserve a global id after owner-scoped validation.
+    allowed = ledger.next_id('order', owner='independent-sequence-owner')
+    assert type(allowed) is int and allowed > 0
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_nested_owner_transaction_cannot_switch_tenant_scope(tenants):
+    ledger = get_ledger()
+    original = ledger.account(OWNER)
+    with ledger.transaction(owner=OWNER):
+        with pytest.raises(ValueError, match="simulation_owner_scope_mismatch"):
+            with ledger.transaction(owner='another-virtual-owner'):
+                ledger.adjust_cash('another-virtual-owner', -10)
+        # A refused scope change must not poison the outer valid owner transaction.
+        ledger.adjust_cash(OWNER, -15)
+    assert ledger.account(OWNER)['cash'] == original['cash'] - 15
+    assert ledger.account('another-virtual-owner') is None
+
+
+def test_owner_scoped_sequence_inside_existing_owner_transaction(tenants):
+    ledger = get_ledger()
+    with ledger.transaction(owner=OWNER):
+        a = ledger.next_id('order')
+        b = ledger.next_id('order', owner=OWNER)
+    assert b == a + 1
