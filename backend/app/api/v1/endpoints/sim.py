@@ -75,6 +75,72 @@ def _live_session(owner: str) -> Dict[str, Any]:
     return {"available": True, "detail": ""}
 
 
+def _require_unfenced_simulation(owner: str) -> None:
+    """Gate mutation-capable status/bootstrap/capital routes before side effects."""
+    from app.services.kite_engine import order_journal
+
+    uid, _ = tenant.scope_ids(owner)
+    try:
+        state = order_journal.simulation_reset_fence_state(uid)
+    except Exception as exc:
+        raise HTTPException(503, detail=_detail(
+            "simulation_reset_fence_unavailable",
+            "Simulation reset recovery status could not be verified.",
+        )) from exc
+    if state is not None:
+        raise HTTPException(409, detail=_detail(
+            "simulation_reset_fenced",
+            "Simulation reset recovery is required; virtual account changes are blocked.",
+        ))
+
+
+def _boot_or_refuse(owner: str) -> None:
+    """Translate a reset racing between API preflight and virtual bootstrap."""
+    try:
+        tenant.boot_tenant(owner)
+    except ValueError as exc:
+        if str(exc) == "simulation_reset_fenced":
+            raise HTTPException(409, detail=_detail(
+                "simulation_reset_fenced", "Simulation reset recovery is required.",
+            )) from exc
+        raise HTTPException(503, detail=_detail(
+            "simulation_tenant_unavailable", "Simulation tenant could not be prepared.",
+        )) from exc
+    except Exception as exc:
+        raise HTTPException(503, detail=_detail(
+            "simulation_tenant_unavailable", "Simulation tenant could not be prepared.",
+        )) from exc
+
+
+@router.get("/reset-health")
+async def reset_health(user: UserContext = Depends(require_admin)) -> Dict[str, Any]:
+    """Owner-only, read-only recovery diagnosis; never shows tokens or clears fences."""
+    from app.services import db
+    from app.services.kite_engine import order_journal
+
+    owner = owner_of(user)
+    uid, account_id = tenant.scope_ids(owner)
+    try:
+        fence = order_journal.simulation_reset_fence_state(uid)
+        control = db.get_execution_control(uid=uid, account_id=account_id)
+    except Exception as exc:
+        raise HTTPException(503, detail=_detail(
+            "simulation_reset_fence_unavailable",
+            "Simulation reset recovery status could not be verified.",
+        )) from exc
+    recovery_state = control["recovery_state"]
+    return {
+        "fence_state": fence or "CLEAR",
+        "recovery_required": bool(fence) or recovery_state != "CLEAN",
+        "automatic_release_allowed": False,
+        "control_plane": {
+            "initialized": bool(control.get("initialized")),
+            "operator_state": control["operator_state"],
+            "recovery_state": recovery_state,
+        },
+    }
+
+
 def build_status(owner: str) -> Dict[str, Any]:
     from app.services.simulation import sim_runtime
 
@@ -97,8 +163,9 @@ def build_status(owner: str) -> Dict[str, Any]:
 @router.get("/status")
 async def sim_status(user: UserContext = Depends(require_admin)) -> Dict[str, Any]:
     owner = owner_of(user)
+    _require_unfenced_simulation(owner)
     if kite_accounts.sim_account_for(owner) is None:
-        tenant.boot_tenant(owner)                   # the first look creates the virtual account
+        _boot_or_refuse(owner)  # only ordinary, non-fenced first look creates the tenant
     return build_status(owner)
 
 
@@ -133,10 +200,19 @@ async def put_capital(body: CapitalBody, user: UserContext = Depends(require_adm
     from app.services.simulation import sim_runtime
 
     owner = owner_of(user)
-    tenant.boot_tenant(owner)
+    _require_unfenced_simulation(owner)
+    _boot_or_refuse(owner)
     try:
         sim_runtime.set_capital(owner, body.capital)
         tenant.apply_capital_limits(owner, body.capital)
     except ValueError as exc:
+        if str(exc) == "simulation_reset_fenced":
+            raise HTTPException(409, detail=_detail(
+                "simulation_reset_fenced", "Simulation reset recovery is required.",
+            )) from exc
         raise HTTPException(422, detail=_detail("invalid_capital", str(exc))) from exc
+    except Exception as exc:
+        raise HTTPException(503, detail=_detail(
+            "simulation_capital_unavailable", "Simulation capital update could not be verified.",
+        )) from exc
     return build_status(owner)

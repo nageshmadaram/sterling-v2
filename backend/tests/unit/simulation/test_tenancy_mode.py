@@ -698,3 +698,131 @@ def test_unconfirmed_reset_finalize_never_claims_clean_control_plane(tenants, mo
     with pytest.raises(mode.ModeBlocked) as blocked:
         mode.reset_simulation(OWNER)
     assert blocked.value.code == 'simulation_reset_in_progress'
+
+
+@pytest.mark.parametrize('fence_state', ['ACTIVE', 'FAILED'])
+def test_recovery_and_boot_refuse_to_reactivate_fenced_tenant(tenants, monkeypatch, fence_state):
+    import asyncio
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    if fence_state == 'FAILED':
+        order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        tenant.boot_tenant(OWNER)
+    assert tenant._needs_recovery(OWNER) is False
+
+    async def check():
+        from app.services.exchanges.kite import accounts as ka
+        called = []
+        async def disallowed(_account):
+            called.append('client')
+            raise AssertionError('should never fetch client while fenced')
+        monkeypatch.setattr(ka, 'acquire_client', disallowed)
+        return await tenant.recover_tenant(OWNER)
+
+    result = asyncio.run(check())
+    assert result['status'] == 'simulation_reset_fenced'
+    assert result['fence_state'] == fence_state
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == fence_state
+
+
+def test_reset_internal_boot_requires_exact_durable_reset_token(tenants):
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        tenant.boot_tenant(OWNER)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        tenant.boot_tenant(OWNER, reset_token='invalid')
+    tenant.boot_tenant(OWNER, reset_token=token)
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        tenant.boot_tenant(OWNER, reset_token=token)
+
+
+def test_direct_runtime_capital_write_refuses_durable_fence(tenants):
+    from app.services.simulation import sim_runtime
+    original = get_ledger().account(OWNER)['capital']
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        sim_runtime.set_capital(OWNER, original + 1)
+    assert get_ledger().account(OWNER)['capital'] == original
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('fence_state', ['ACTIVE', 'FAILED'])
+@pytest.mark.parametrize('session_open', [True, False])
+async def test_virtual_runtime_pass_never_evaluates_fenced_owner(tenants, fence_state, session_open):
+    from app.services.simulation import sim_runtime
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    if fence_state == 'FAILED':
+        order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    evaluated = []
+    report = await sim_runtime.run_pass(
+        owners=[OWNER], force=False,
+        session_open=lambda _now: session_open,
+        exchange_for=lambda _owner: evaluated.append('built') or None,
+    )
+    assert evaluated == []
+    assert report['owners'] == []
+    assert report['snapshots'] == 0
+    assert report['errors'][OWNER] == 'simulation_reset_fenced'
+
+
+@pytest.mark.asyncio
+async def test_virtual_runtime_corrupt_fence_fails_closed_without_evaluation(tenants):
+    from app.services.simulation import sim_runtime
+    with db._conn() as conn:
+        conn.execute('INSERT INTO system_config(key,value) VALUES (?,?)',
+                     ('simulation_reset_fence_v1:' + SIM_UID, 'PRIVATE_CORRUPT_MARKER'))
+    evaluated = []
+    report = await sim_runtime.run_pass(
+        owners=[OWNER], force=True,
+        session_open=lambda _now: True,
+        exchange_for=lambda _owner: evaluated.append('built') or None,
+    )
+    assert evaluated == [] and report['snapshots'] == 0
+    assert report['errors'][OWNER] == 'simulation_reset_fence_unavailable'
+    assert 'PRIVATE_CORRUPT_MARKER' not in str(report)
+
+
+@pytest.mark.asyncio
+async def test_fenced_runtime_keeps_other_virtual_owner_running(tenants):
+    from app.services.simulation import sim_runtime
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    evaluated = []
+
+    class FakeExchange:
+        async def evaluate(self):
+            return {'done': True}
+
+    report = await sim_runtime.run_pass(owners=[OWNER, 'unrelated-owner'], force=True,
+        session_open=lambda _now: True,
+        exchange_for=lambda owner: evaluated.append(owner) or FakeExchange())
+    assert report['errors'].get(OWNER) == 'simulation_reset_fenced'
+    assert 'unrelated-owner' in evaluated and OWNER not in evaluated
+    assert [item['owner'] for item in report['owners']] == ['unrelated-owner']
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_fenced_tick_path_refuses_to_queue_runtime_evaluation(tenants, monkeypatch):
+    from app.services.simulation import sim_runtime
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    sim_runtime._watch[OWNER] = {1001: [('down', 100.0)]}
+    assert sim_runtime.on_ticks(OWNER, [{'instrument_token': 1001, 'last_price': 90.0}]) is False
+    assert OWNER not in sim_runtime._inflight
+    sim_runtime._watch.pop(OWNER, None)
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_direct_capital_write_checks_durable_fence_inside_ledger_writer_lock(tenants, monkeypatch):
+    """An earlier clean preflight cannot authorize a later fenced cash change."""
+    from app.services.simulation import sim_runtime
+    old = get_ledger().account(OWNER)['capital']
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    # Model a stale preflight return: the transactional writer check must still
+    # observe the on-disk fence, not trust the earlier observation.
+    monkeypatch.setattr(order_journal, 'simulation_reset_fence_state', lambda _uid: None)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        sim_runtime.set_capital(OWNER, old + 9)
+    assert get_ledger().account(OWNER)['capital'] == old
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)

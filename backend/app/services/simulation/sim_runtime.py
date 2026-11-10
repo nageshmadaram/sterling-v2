@@ -104,6 +104,22 @@ def _pass_lock() -> asyncio.Lock:
 
 
 # ── one pass ──────────────────────────────────────────────────────────────────────────────
+def _reset_fence_blocker(owner: str) -> str | None:
+    """Advisory admission for virtual runtime work, never a broker or reset unlock.
+
+    A failed/missing/unreadable canonical journal cannot establish that a
+    virtual tenant is safe to evaluate. This read precedes each pass; it does
+    not replace cross-database transactional fencing of individual writes.
+    """
+    from app.services.kite_engine import order_journal
+
+    try:
+        state = order_journal.simulation_reset_fence_state(sim_uid(owner_uid(owner)))
+    except Exception:
+        return "simulation_reset_fence_unavailable"
+    return "simulation_reset_fenced" if state is not None else None
+
+
 async def run_pass(*, owners: Optional[List[str]] = None, now: Optional[datetime] = None, force: bool = False,
                    ledger: Optional[SimLedger] = None, session_open: Optional[Callable[[datetime], bool]] = None,
                    exchange_for: Optional[Callable[[str], VirtualExchange]] = None) -> dict:
@@ -119,7 +135,13 @@ async def run_pass(*, owners: Optional[List[str]] = None, now: Optional[datetime
         build = exchange_for or (lambda o: runtime_exchange(o, ledger=led))
         async with _pass_lock():
             targets = [owner_uid(o) for o in owners] if owners is not None else led.owners_with_open_state()
+            admitted = []
             for owner in targets:
+                blocker = _reset_fence_blocker(owner)
+                if blocker:
+                    report["errors"][owner] = blocker
+                    continue
+                admitted.append(owner)
                 try:
                     ex = build(owner)
                     if live:
@@ -129,7 +151,7 @@ async def run_pass(*, owners: Optional[List[str]] = None, now: Optional[datetime
                 except Exception as exc:  # noqa: BLE001 - one owner's trouble never stops the others
                     report["errors"][owner] = f"{type(exc).__name__}: {exc}"
                     log.warning("sim runtime: pass failed for %s: %s", owner, exc)
-            for owner in targets:
+            for owner in admitted:
                 try:
                     refresh_watch(owner, ledger=led)
                 except Exception as exc:  # noqa: BLE001
@@ -152,6 +174,8 @@ def _snapshot_all(led: SimLedger, moment: datetime, owners: Optional[List[str]])
     bucket = int(moment.timestamp() // SNAPSHOT_EVERY_S)
     written = 0
     for owner in ([owner_uid(o) for o in owners] if owners is not None else led.owners()):
+        if _reset_fence_blocker(owner):
+            continue
         if _last_snapshot_bucket.get(owner) == bucket:
             continue
         try:
@@ -193,6 +217,8 @@ def on_ticks(owner: str, ticks: List[dict]) -> bool:
     the tick fan-out as is. Needs a running event loop."""
     try:
         o = owner_uid(owner)
+        if _reset_fence_blocker(o):
+            return False
         rules = _watch.get(o)
         if not rules or o in _inflight:
             return False
@@ -328,8 +354,26 @@ def _resume_own_halt(owner: str) -> None:
 
 
 def set_capital(owner: str, amount: float, *, ledger: Optional[SimLedger] = None) -> dict:
-    """Set the starting virtual capital; cash moves by the same difference."""
-    return (ledger or get_ledger()).set_capital(owner_uid(owner), float(amount))
+    """Update virtual capital only inside a journal-fence-checked ledger transaction.
+
+    The default SimLedger and journal share a SQLite file, so this transaction
+    serializes the reset-fence check and cash write. Other simulation stores and
+    externally supplied ledger connection factories are NOT made atomic here.
+    """
+    from app.services.kite_engine import order_journal
+
+    o = owner_uid(owner)
+    uid = sim_uid(o)
+    if order_journal.simulation_reset_fence_state(uid) is not None:
+        raise ValueError("simulation_reset_fenced")
+    led = ledger or get_ledger()
+    with led.transaction():
+        with led._cx() as conn:
+            # Recheck under the ledger's own SQLite writer lock. A reset
+            # beginning after the advisory check cannot interleave here on
+            # the default shared journal/ledger database.
+            order_journal._require_no_simulation_reset(conn, uid)
+        return led.set_capital(o, float(amount))
 
 
 __all__ = [

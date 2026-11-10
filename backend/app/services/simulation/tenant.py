@@ -73,6 +73,14 @@ async def recover_tenant(owner: str, *, service=None, client=None) -> dict:
     virtual client: an order left SUBMITTING by a crash is matched against the virtual order
     book, and the tenant's control row returns to CLEAN once nothing is unsettled.
     """
+    # Recovery must not clear a fenced tenant's execution control plane or
+    # consult its virtual broker client during an incomplete/crashed reset.
+    from app.services.kite_engine import order_journal
+    uid, _ = scope_ids(owner)
+    fence_state = order_journal.simulation_reset_fence_state(uid)
+    if fence_state is not None:
+        return {"status": "simulation_reset_fenced", "fence_state": fence_state}
+
     from app.services.exchanges.kite import accounts as kite_accounts
 
     account = kite_accounts.sim_account_for(owner)
@@ -91,6 +99,8 @@ def _needs_recovery(owner: str) -> bool:
 
     uid, account_id = scope_ids(owner)
     try:
+        if order_journal.simulation_reset_fence_state(uid) is not None:
+            return False  # recovery is intentionally blocked until reset is reconciled
         control = db.get_execution_control(uid=uid, account_id=account_id)
         if control.get("recovery_state") != "CLEAN" or not int(control.get("initialized", 0) or 0):
             return True
@@ -152,10 +162,13 @@ def apply_capital_limits(owner: str, capital: float | None = None):
     return live_safety.configure_daily_loss(cfg, uid=uid)
 
 
-def boot_tenant(owner: str):
-    """Everything the tenant needs before an engine scans it. Idempotent; the boot step."""
+def boot_tenant(owner: str, *, reset_token: str | None = None):
+    """Prepare a virtual tenant, refusing a reset fence unless owned by reset."""
     from app.services.exchanges.kite import accounts as kite_accounts
+    from app.services.kite_engine import order_journal
 
+    uid, _ = scope_ids(owner)
+    order_journal.assert_simulation_boot_permitted(uid, reset_token=reset_token)
     account = kite_accounts.ensure_sim_account(owner)
     from app.services.simulation.ledger import get_ledger
 
