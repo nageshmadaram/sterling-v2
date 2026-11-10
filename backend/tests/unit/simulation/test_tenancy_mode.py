@@ -1033,3 +1033,128 @@ def test_owner_scoped_sequence_inside_existing_owner_transaction(tenants):
         a = ledger.next_id('order')
         b = ledger.next_id('order', owner=OWNER)
     assert b == a + 1
+
+
+@pytest.mark.parametrize('kind', ['account_update', 'account_delete', 'order_insert',
+                                  'order_update', 'order_delete', 'gtt_insert'])
+@pytest.mark.parametrize('marker_state', ['ACTIVE', 'FAILED'])
+def test_raw_sql_cannot_mutate_fenced_virtual_books(tenants, kind, marker_state):
+    """The DB must refuse normal raw SQLite DML after reset admission or crash."""
+    import sqlite3
+    led = get_ledger()
+    order = {'order_id': 'existing', 'exchange': 'NFO', 'tradingsymbol': 'SYNTHETIC26NOV26000CE',
+             'status': 'OPEN', '_sim': {'day': '2026-11-10'}}
+    led.put_order(OWNER, order)
+    baseline = led.account(OWNER)
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    if marker_state == 'FAILED':
+        order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    statements = {
+        'account_update': ('UPDATE sim_accounts SET cash=0 WHERE owner=?', (OWNER,)),
+        'account_delete': ('DELETE FROM sim_accounts WHERE owner=?', (OWNER,)),
+        'order_insert': ("INSERT INTO sim_orders(owner,order_id,day,status,exchange,tradingsymbol,placed_ms,updated_ms,doc) VALUES(?,?,?,?,?,?,?,?,?)",
+                         (OWNER, 'intruder', '2026-11-10', 'OPEN', 'NFO', 'SYNTHETIC26NOV26000CE', 1, 1, '{}')),
+        'order_update': ("UPDATE sim_orders SET status='COMPLETE' WHERE owner=?", (OWNER,)),
+        'order_delete': ('DELETE FROM sim_orders WHERE owner=?', (OWNER,)),
+        'gtt_insert': ("INSERT INTO sim_gtts(owner,trigger_id,status,exchange,tradingsymbol,created_ms,updated_ms,doc) VALUES(?,?,?,?,?,?,?,?)",
+                       (OWNER, 4983, 'active', 'NFO', 'SYNTHETIC26NOV26000CE', 1, 1, '{}')),
+    }
+    sql, args = statements[kind]
+    with pytest.raises(sqlite3.DatabaseError):
+        with db._conn() as conn:
+            conn.execute(sql, args)
+    assert led.account(OWNER) == baseline
+    assert [o['order_id'] for o in led.orders(OWNER)] == ['existing']
+    assert led.gtts(OWNER) == []
+
+
+def test_raw_sql_fence_guard_installed_for_all_tenant_owned_tables(tenants):
+    """Every direct INSERT/UPDATE/DELETE into a virtual tenant table is checked."""
+    with db._conn() as conn:
+        actual = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'sim_reset_guard_%'")}
+    from app.services.simulation.ledger import _OWNED_TABLES
+    expected = {f'sim_reset_guard_{table}_{op}'
+                for table in ('sim_accounts', *_OWNED_TABLES)
+                for op in ('insert', 'update', 'delete')}
+    assert expected <= actual
+
+
+def test_fenced_owner_raw_dml_does_not_block_another_tenant(tenants):
+    led = get_ledger()
+    led.ensure_account('independent-owner')
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with db._conn() as conn:
+        conn.execute('UPDATE sim_accounts SET cash=555 WHERE owner=?', ('independent-owner',))
+    assert led.account('independent-owner')['cash'] == 555
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_reset_coordinator_is_only_writer_permitted_during_active_raw_sql_fence(tenants):
+    led = get_ledger()
+    led.put_order(OWNER, {'order_id': 'cleanup-test', 'exchange': 'NFO',
+                          'tradingsymbol': 'SYNTHETIC26NOV26000CE', 'status': 'OPEN',
+                          '_sim': {'day': '2026-11-10'}})
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        led.reset(OWNER, reset_token='incorrect')
+    reset = led.reset(OWNER, reset_token=token)
+    assert reset['cash'] == reset['capital']
+    assert led.orders(OWNER) == []
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        led.reset(OWNER, reset_token=token)
+
+
+def test_raw_sql_reset_fence_survives_new_python_process(tenants):
+    """Durable guards remain effective after process restart, not only in memory."""
+    import os
+    import subprocess
+    import sys
+
+    led = get_ledger()
+    before = led.account(OWNER)
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    env = dict(os.environ, STERLING_DB_PATH=str(db._DB_PATH), STERLING_UNDER_TEST='1')
+    code = '''
+from app.services import db
+with db._conn() as conn:
+    conn.execute("UPDATE sim_accounts SET cash=12345 WHERE owner=?", ("default",))
+'''
+    for state in ('ACTIVE', 'FAILED'):
+        if state == 'FAILED':
+            order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+        result = subprocess.run([sys.executable, '-c', code], env=env,
+                                text=True, capture_output=True, timeout=20)
+        assert result.returncode != 0
+        assert 'simulation_reset_fenced' in result.stderr
+        assert led.account(OWNER) == before
+
+
+def test_raw_sql_trigger_is_fail_closed_on_corrupt_marker(tenants):
+    import sqlite3
+    led = get_ledger()
+    before = led.account(OWNER)
+    with db._conn() as conn:
+        conn.execute('INSERT INTO system_config(key,value) VALUES (?,?)',
+                     ('simulation_reset_fence_v1:' + SIM_UID, 'CORRUPTED_PRIVACY_MARKER'))
+    with pytest.raises(sqlite3.DatabaseError):
+        with db._conn() as conn:
+            conn.execute('UPDATE sim_accounts SET cash=0 WHERE owner=?', (OWNER,))
+    assert led.account(OWNER) == before
+
+
+def test_unmanaged_raw_sqlite_connection_is_fail_closed_even_without_fence(tenants):
+    """Bypassing the registered app connection is not a supported write path."""
+    import sqlite3
+    led = get_ledger()
+    old = led.account(OWNER)
+    with pytest.raises(sqlite3.DatabaseError):
+        with sqlite3.connect(db._DB_PATH, timeout=15) as conn:
+            conn.execute('UPDATE sim_accounts SET cash=? WHERE owner=?', (old['cash'] - 1, OWNER))
+    assert led.account(OWNER) == old
+    # The legitimate application connection keeps ordinary unfenced writes.
+    with db._conn() as conn:
+        conn.execute('UPDATE sim_accounts SET cash=? WHERE owner=?', (old['cash'] - 1, OWNER))
+    assert led.account(OWNER)['cash'] == old['cash'] - 1

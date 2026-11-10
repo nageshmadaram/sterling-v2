@@ -198,6 +198,9 @@ class SimLedger:
             return
         for ddl in _DDL:
             c.execute(ddl)
+        if self._factory is None:
+            from app.services.simulation.sim_reset_sql_fences import install
+            install(c)
         self._schema_key = key
 
     def _check_writer_fence(self, conn, owner: str, reset_token: Optional[str]) -> None:
@@ -219,6 +222,14 @@ class SimLedger:
         if (fence["state"] != "ACTIVE" or reset_token is None
                 or reset_token != fence["token"]):
             raise ValueError("simulation_reset_fenced")
+        # This is the only grant path for the trigger's connection-local
+        # callback. The fence token was checked under BEGIN IMMEDIATE, so
+        # no other process may replace the marker before this commit.
+        permitted_owner = self._owner(owner)
+        conn.create_function(
+            "sterling_sim_reset_write_allowed", 1,
+            lambda row_owner: 1 if row_owner == permitted_owner else 0,
+        )
 
     @contextmanager
     def transaction(self, owner: Optional[str] = None, *,

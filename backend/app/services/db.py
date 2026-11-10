@@ -687,6 +687,10 @@ def _create_tables(conn: sqlite3.Connection) -> None:
         "ON navigator_calibration_state(report_id)"
     )
 
+    # Install durable per-owner guards on virtual tables already present at
+    # startup; SimLedger installs them when virtual tables are created later.
+    from app.services.simulation.sim_reset_sql_fences import install as _install_sim_guards
+    _install_sim_guards(conn)
     conn.commit()
 
 
@@ -731,6 +735,10 @@ def _conn():
     _refuse_live_db_under_test()
     c = sqlite3.connect(_DB_PATH, timeout=30.0)
     c.row_factory = sqlite3.Row
+    # Refuse fenced virtual-table writes from ordinary raw SQL connections.
+    # The reset coordinator may override this only on its own verified,
+    # short-lived ledger transaction connection.
+    c.create_function("sterling_sim_reset_write_allowed", 1, lambda _owner: 0)
     _configure(c)
     try:
         yield c
