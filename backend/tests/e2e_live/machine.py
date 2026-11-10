@@ -298,6 +298,14 @@ class LiveMachine:
         # ``main`` re-imports below; its import-time ``.env`` export must not bring the
         # operator's real settings back after ``install()`` removed them from the environment.
         isolate_dotenv(self.m("app.core.runtime_env"))
+        # The entire offline broker scenario advances a frozen clock. Do not
+        # let the CI host's unrelated NTP service decide whether these synthetic
+        # market-time orders are admissible. Patch the real clock-probe seam
+        # per simulated process; production and negative clock tests are intact.
+        preflight = self.m("app.services.snapback_preflight")
+        preflight._ntp_synchronised = lambda: (True, "synthetic_synchronised_clock")
+        health = self.m("app.services.snapback_health")
+        health._env_cache.update(at=0.0, errors=[])
         if self.entry_gates_satisfied:
             # The deployment ceremonies (static-egress registration, broker binding) are a
             # different subject from the one these tests drive; patch their public seams on

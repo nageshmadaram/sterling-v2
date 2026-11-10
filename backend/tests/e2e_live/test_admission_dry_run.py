@@ -473,3 +473,22 @@ async def test_a_manual_snapback_click_reaches_the_broker_with_auto_off(machine)
     assert outcome.ordered, f"the manual Snapback arm was refused: {_explain(outcome)} {outcome.first_refusal}"
     assert outcome.protected, f"the manual Snapback entry is not protected: {outcome}"
     assert outcome.detail["positions"][0]["hedge_qty"] > 0
+
+
+@pytest.mark.asyncio
+async def test_unsynchronised_synthetic_clock_still_blocks_snapback_entry(machine):
+    """Fixture clock success is not a production bypass: an explicit bad probe fences entry."""
+    await _fresh_live_machine(machine)
+    S.configure_snapback(machine)
+    preflight = machine.m('app.services.snapback_preflight')
+    health = machine.m('app.services.snapback_health')
+    preflight._ntp_synchronised = lambda: (False, 'synthetic_undisciplined_clock')
+    health._env_cache.update(at=0.0, errors=[])
+    dispatcher = machine.m('app.services.snapback_dispatcher').get_dispatcher()
+    await dispatcher.cycle(UID)
+    readiness = machine.m('app.services.snapback_readiness')
+    assert 'clock_unsynchronised' in readiness.gate_blockers(UID)
+    assert not machine.exchange.entry_posts()
+    outcome = await S.drive_snapback(machine)
+    assert not outcome.ordered
+    assert not machine.exchange.entry_posts()

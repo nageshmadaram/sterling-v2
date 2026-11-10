@@ -11,6 +11,10 @@ on:
       - 'backend/tests/services/test_canonical_fill_reconciliation.py'
       - 'backend/tests/unit/test_canonical_strategy_reduction.py'
       - 'backend/tests/engines/sterling_kite_engine/test_production_audit.py'
+      - 'backend/tests/e2e_live/machine.py'
+      - 'backend/tests/e2e_live/test_admission_dry_run.py'
+      - 'backend/tests/e2e_live/test_sim_e2e.py'
+      - 'backend/tests/e2e_live/test_trade_journal_e2e.py'
       - 'backend/tests/unit/test_canonical_execution_convergence.py'
       - 'backend/tests/unit/test_canonical_fresh_reduction_proof.py'
       - 'backend/tests/unit/test_gamma_tranche_readiness.py'
@@ -105,3 +109,16 @@ jobs:
             tests/unit/simulation/test_sim_runtime.py \
             tests/unit/simulation/test_sim_ledger.py \
             tests/unit/simulation/test_sim_virtual_exchange.py
+
+      - name: Synthetic Snapback admission, simulation and journal E2E (offline fake Kite)
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          DEFAULT_UNDERLYING: NIFTY
+        run: |
+          python -m pytest -q --tb=short \
+            tests/e2e_live/test_admission_dry_run.py \
+            tests/e2e_live/test_sim_e2e.py \
+            tests/e2e_live/test_trade_journal_e2e.py
