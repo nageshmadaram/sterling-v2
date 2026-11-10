@@ -1267,3 +1267,82 @@ async def test_verified_working_exit_cancels_exact_id_then_reconciles_partial():
     assert result.status == "CANCELLED"
     assert result.filled_quantity == 3
     assert result.average_price == 80
+
+
+@pytest.mark.asyncio
+async def test_unknown_exit_cannot_resend_after_real_python_process_restart(isolated, tmp_path):
+    """A second Python process must not reclaim/send an UNKNOWN canonical SELL.
+
+    The broker is an in-memory fake, the journal is a disposable SQLite file,
+    and the child has no real Kite account, credentials or network transport.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    from concurrent.futures import ThreadPoolExecutor
+    import httpx
+
+    db.set_inventory('acct-1', 'synthetic-user', 'SYNTHETIC26NOV25000CE', 10, exchange='NFO')
+    first_client = PaperBroker(error=httpx.ReadTimeout('synthetic lost acknowledgement'))
+    first = await submit_reduction(**args(first_client))
+    assert first.status == 'UNKNOWN' and not first.success
+    assert len(first_client.calls) == 1
+    assert order_journal.get(first.intent_key).state == 'UNKNOWN'
+
+    child_code = r'''
+import asyncio
+import json
+from app.services import db
+from app.services.canonical_strategy_reduction import submit_reduction
+from app.services.kite_engine import order_journal
+assert db.init(), 'disposable order journal must be readable'
+class OfflineBroker:
+    _is_paper = True
+    _account_id = 'acct-1'
+    def __init__(self):
+        self.calls = 0
+    async def place_order(self, *a, **kw):
+        self.calls += 1
+        raise RuntimeError('a duplicate broker send was attempted')
+async def run():
+    client = OfflineBroker()
+    result = await submit_reduction(
+        client=client, uid='synthetic-user', strategy_id='synthetic-legacy',
+        generation_id='independent-process-restart', signal_id='stable-entry-1',
+        exchange='NFO', symbol='SYNTHETIC26NOV25000CE',
+        quantity=10, product='MIS', order_type='limit_order',
+        limit_price=80.0, kind='exit', reason='recovered after UNKNOWN',
+    )
+    saved = order_journal.get(result.intent_key) if result.intent_key else None
+    print(json.dumps({
+        'status': result.status,
+        'intent_key': result.intent_key,
+        'journal_state': saved.state if saved else None,
+        'broker_calls': client.calls,
+        'reclaimable': order_journal.claim_submission(saved.intent_key) if saved else None,
+    }))
+asyncio.run(run())
+'''
+    env = dict(os.environ)
+    env.update(STERLING_DB_PATH=str(db._DB_PATH), STERLING_UNDER_TEST='1',
+               ENVIRONMENT='test', PAPER_TRADING='true',
+               REAL_PUBLIC_DATA='false', STERLING_LIVE_EXECUTION='0')
+    cwd = Path(__file__).resolve().parents[2]
+
+    def new_process(_index):
+        return subprocess.run([sys.executable, '-c', child_code], cwd=cwd,
+                              env=env, text=True, capture_output=True, timeout=45)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        attempts = list(pool.map(new_process, range(3)))
+    for proc in attempts:
+        assert proc.returncode == 0, proc.stderr[-1500:]
+        data = json.loads(proc.stdout.strip().splitlines()[-1])
+        assert data == {
+            'status': 'UNKNOWN', 'intent_key': first.intent_key,
+            'journal_state': 'UNKNOWN', 'broker_calls': 0, 'reclaimable': False,
+        }
+    assert len(first_client.calls) == 1
+    assert order_journal.get(first.intent_key).state == 'UNKNOWN'
