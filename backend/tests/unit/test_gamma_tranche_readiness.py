@@ -1188,16 +1188,50 @@ def test_offline_canonical_child_fails_closed_if_review_parent_proof_changes(sto
     assert not order_journal.claim_submission(first.child_intent_key)
 
 
-def test_offline_canonical_child_cannot_reuse_cancelled_child(store):
+def test_offline_canonical_child_cannot_transition_or_release_its_review_hold(store):
     prepared_terminal_lineage()
     first = _offline_child()
     assert first.reserved_for_review
-    assert order_journal.transition(first.child_intent_key, 'CANCELLED').state == 'CANCELLED'
+    with pytest.raises(ValueError, match='gamma_offline_review_intent_immutable'):
+        order_journal.transition(first.child_intent_key, 'CANCELLED')
+    assert order_journal.get(first.child_intent_key).state == 'RESERVED'
     result = _offline_child()
-    assert result.reason == 'immutable_child_identity_conflict'
-    assert not result.reserved_for_review
+    assert result.reserved_for_review and result.replay
+    assert not result.execution_authorized
     with db._conn() as conn:
         assert conn.execute('SELECT COUNT(*) FROM kite_order_intents').fetchone()[0] == 2
+
+
+@pytest.mark.parametrize('mutation', [
+    'transition', 'acknowledge', 'uncertain', 'observe', 'mark_projected',
+])
+def test_offline_canonical_child_refuses_all_public_journal_mutations(store, mutation):
+    """No direct journal API may convert review evidence into a broker order."""
+    prepared_terminal_lineage()
+    child_result = _offline_child()
+    assert child_result.reserved_for_review
+    key = child_result.child_intent_key
+    calls = {
+        'transition': lambda: order_journal.transition(key, 'CANCELLED'),
+        'acknowledge': lambda: order_journal.acknowledge(key, 'FAKE-BROKER-ACK'),
+        'uncertain': lambda: order_journal.submission_uncertain(key, 'fake-timeout'),
+        'observe': lambda: order_journal.observe_order(
+            key, status='COMPLETE', order_id='FAKE-BROKER-ACK',
+            filled_quantity=30, average_price=88.0),
+        'mark_projected': lambda: order_journal.mark_projected(key, 0),
+    }
+    with pytest.raises(ValueError, match='gamma_offline_review_intent_immutable'):
+        calls[mutation]()
+    child = order_journal.get(key)
+    assert child.state == 'RESERVED' and not child.order_id
+    assert not child.reconciliation_required and not child.projection_pending
+    assert not order_journal.claim_submission(key)
+    with db._conn() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM kite_order_observations WHERE intent_key=?',
+                            (key,)).fetchone()[0] == 0
+    replay = _offline_child()
+    assert replay.reserved_for_review and replay.replay
+    assert not replay.execution_authorized
 
 
 def test_offline_canonical_child_after_review_checkpoint_recovers_without_resend(store):
