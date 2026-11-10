@@ -383,7 +383,7 @@ class VirtualExchange:
         ex, side = str(exchange).upper(), str(transaction_type).upper()
         meta = await self.quotes.instrument(ex, tradingsymbol)
         book = await self.quotes.book(ex, tradingsymbol, fresh=True)       # an order meets the market as it is now
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             settings = self.ledger.settings(self.owner)
             self._validate(exchange=ex, side=side, quantity=quantity, product=product, order_type=order_type,
                            price=price, trigger=trigger_price, validity=validity, variety=variety, meta=meta,
@@ -406,7 +406,7 @@ class VirtualExchange:
             raise _order_error(f"Order cannot be modified: it is {order['status']}.")
         meta = self._meta_of(order)
         book = await self.quotes.book(meta.exchange, meta.symbol, fresh=True)
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             order = self.ledger.get_order(self.owner, str(order_id))
             if order is None or order["status"] not in OPEN_STATUSES:
                 raise _order_error("Order cannot be modified: it is no longer open.")
@@ -440,7 +440,7 @@ class VirtualExchange:
         return {"order_id": str(order_id)}
 
     async def cancel_order(self, order_id: str, *, variety: str = K.VARIETY_REGULAR) -> dict:
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             order = self.ledger.get_order(self.owner, str(order_id))
             if order is None:
                 raise _input("Order not found", 404)
@@ -493,7 +493,7 @@ class VirtualExchange:
         meta = await self.quotes.instrument(ex, tradingsymbol)
         book = await self.quotes.book(ex, tradingsymbol)
         body = {"trigger_type": trigger_type, "last_price": last_price, "trigger_values": trigger_values, "orders": orders}
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             trigger_id = 9_000_000_000 + self.ledger.next_id("gtt")
             self.ledger.put_gtt(self.owner, self._gtt_doc(trigger_id, body, meta, book.ltp))
         return {"trigger_id": trigger_id}
@@ -511,7 +511,7 @@ class VirtualExchange:
         meta = await self.quotes.instrument(ex, tradingsymbol)
         book = await self.quotes.book(ex, tradingsymbol)
         body = {"trigger_type": trigger_type, "last_price": last_price, "trigger_values": trigger_values, "orders": orders}
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             current = self.ledger.get_gtt(self.owner, int(trigger_id))
             if current is None or current["status"] != ACTIVE_GTT:
                 raise _input("Trigger not found", 404)
@@ -519,7 +519,7 @@ class VirtualExchange:
         return {"trigger_id": int(trigger_id)}
 
     async def delete_gtt(self, trigger_id) -> dict:
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             current = self.ledger.get_gtt(self.owner, int(trigger_id))
             if current is None or current["status"] != ACTIVE_GTT:
                 raise _input("Trigger not found", 404)        # a spent trigger cannot be deleted
@@ -572,7 +572,7 @@ class VirtualExchange:
     def expire_day_orders(self) -> int:
         """DAY orders lapse at the close of their own exchange (and any left over from an earlier day)."""
         now, today, expired = self.now(), self.today(), 0
-        with self.ledger.transaction():
+        with self.ledger.transaction(owner=self.owner):
             for order in self.ledger.open_orders(self.owner):
                 if order["_sim"]["day"] < today or now.time() >= _close_of(now.date(), order["exchange"]):
                     order["cancelled_quantity"], order["pending_quantity"] = int(order["pending_quantity"]), 0
@@ -596,7 +596,7 @@ class VirtualExchange:
         if keys:
             priced = books if books is not None else await self.quotes.books(sorted(keys), strict=False)
             report["unpriced"] = len(keys - set(priced))
-            with self.ledger.transaction():
+            with self.ledger.transaction(owner=self.owner):
                 # The first read only chose what to price; the world may have moved while the quotes
                 # were fetched (a stop cancelled, an order filled), so act on what is true now.
                 settings = self.ledger.settings(self.owner)

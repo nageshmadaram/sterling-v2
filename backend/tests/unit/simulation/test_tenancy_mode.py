@@ -607,14 +607,14 @@ def test_reset_writes_durable_fence_before_virtual_cash_mutation(tenants, monkey
     original = sim_runtime.reset_owner
     observed = []
 
-    def before_cash(owner, *, capital=None):
+    def before_cash(owner, *, capital=None, reset_token=None):
         assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
         with pytest.raises(ValueError, match='simulation_reset_fenced'):
             order_journal.reserve(uid=SIM_UID, account_id=SIM_ACCOUNT_ID,
                 strategy_id='gamma-unwind', generation_id='g', signal_id='pending',
                 exchange='NFO', symbol='SYNTHETIC26NOV26000CE', side='SELL', quantity=1)
         observed.append(True)
-        return original(owner, capital=capital)
+        return original(owner, capital=capital, reset_token=reset_token)
 
     monkeypatch.setattr(sim_runtime, 'reset_owner', before_cash)
     assert mode.reset_simulation(OWNER)['ok']
@@ -826,3 +826,153 @@ def test_direct_capital_write_checks_durable_fence_inside_ledger_writer_lock(ten
         sim_runtime.set_capital(OWNER, old + 9)
     assert get_ledger().account(OWNER)['capital'] == old
     order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+@pytest.mark.parametrize('mutation', [
+    'account', 'cash', 'capital', 'setting', 'order', 'history',
+    'gtt', 'mark', 'fill', 'snapshot', 'reset', 'owned_transaction',
+])
+def test_durable_reset_fence_refuses_individual_virtual_ledger_writers(tenants, mutation):
+    """Direct virtual-ledger writers must not bypass a crash-safe reset fence."""
+    from app.services.simulation.charges import compute_charges
+    from app.services.simulation.ledger import get_ledger
+
+    led = get_ledger()
+    order = {
+        'order_id': 'synthetic-order-1', 'exchange': 'NFO',
+        'tradingsymbol': 'SYNTHETIC26NOV26000CE', 'product': 'NRML',
+        'transaction_type': 'BUY', 'status': 'OPEN',
+        'exchange_update_timestamp': '2026-11-10 10:00:00',
+        '_sim': {'day': '2026-11-10'},
+    }
+    gtt = {
+        'id': 998877, 'status': 'active',
+        'condition': {'exchange': 'NFO', 'tradingsymbol': 'SYNTHETIC26NOV26000CE'},
+    }
+    view = led.account_view(OWNER, '2026-11-10')
+    charges = compute_charges(exchange='NFO', tradingsymbol='SYNTHETIC26NOV26000CE',
+                              side='BUY', quantity=1, price=100, instrument_type='CE')
+    writers = {
+        'account': lambda: led.ensure_account(OWNER),
+        'cash': lambda: led.adjust_cash(OWNER, -10),
+        'capital': lambda: led.set_capital(OWNER, 900_000),
+        'setting': lambda: led.set_setting(OWNER, 'slippage_ticks', 2),
+        'order': lambda: led.put_order(OWNER, order),
+        'history': lambda: led.add_history(OWNER, order),
+        'gtt': lambda: led.put_gtt(OWNER, gtt),
+        'mark': lambda: led.set_mark(OWNER, 'NFO', 'SYNTHETIC26NOV26000CE', 'NRML', 99),
+        'fill': lambda: led.record_fill(OWNER, order=order, quantity=1, price=100,
+                                       charges=charges,
+                                       meta={'instrument_type':'CE', 'tradingsymbol':order['tradingsymbol']},
+                                       day='2026-11-10'),
+        'snapshot': lambda: led.add_snapshot(OWNER, view),
+        'reset': lambda: led.reset(OWNER),
+        'owned_transaction': lambda: _in_owned_transaction(led, OWNER),
+    }
+    before = led.account(OWNER)
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        writers[mutation]()
+    assert led.account(OWNER) == before
+    assert led.orders(OWNER) == [] and led.gtts(OWNER) == []
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def _in_owned_transaction(ledger, owner):
+    with ledger.transaction(owner=owner):
+        ledger.next_id('order')
+
+
+def test_virtual_reset_coordinator_requires_matching_token_to_clear_books(tenants):
+    led = get_ledger()
+    led.adjust_cash(OWNER, -123)
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        led.reset(OWNER, reset_token='wrong')
+    result = led.reset(OWNER, reset_token=token)
+    assert result['cash'] == result['capital'] == 1_000_000
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        led.reset(OWNER, reset_token=token)
+
+
+def test_fenced_virtual_ledger_blocks_one_owner_not_others(tenants):
+    led = get_ledger()
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    assert led.ensure_account('independent-virtual-owner')['cash'] == 1_000_000
+    led.put_order('independent-virtual-owner', {
+        'order_id': 'other1', 'exchange': 'NFO',
+        'tradingsymbol': 'SYNTHETIC26NOV26000CE', 'status': 'OPEN',
+        '_sim': {'day':'2026-11-10'},
+    })
+    assert len(led.orders('independent-virtual-owner')) == 1
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+@pytest.mark.asyncio
+async def test_virtual_exchange_order_and_gtt_refuse_an_active_reset_before_order_id(tenants, clock):
+    """The actual virtual-exchange routes acquire the owned fence before ids or fills."""
+    from app.services.simulation.virtual_exchange import VirtualExchange
+    from tests.unit.simulation.sim_fakes import FakeReal, quote_source
+    from tests.unit.simulation.test_sim_virtual_exchange import mkt, oco
+
+    real = FakeReal(owner=OWNER, clock=clock)
+    ex = VirtualExchange(OWNER, get_ledger(), quote_source(real, clock), clock=clock)
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    for invoke in (lambda: mkt(ex, 'BUY'), lambda: oco(ex)):
+        with pytest.raises(ValueError, match='simulation_reset_fenced'):
+            await invoke()
+    assert get_ledger().orders(OWNER) == []
+    assert get_ledger().gtts(OWNER) == []
+    assert real.writes == []
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_virtual_ledger_write_txn_finishes_before_competing_reset_fence(tenants):
+    """A committed owner write precedes the competing reset, or is refused after it."""
+    import threading
+
+    led = get_ledger()
+    entered, release, reset_done = threading.Event(), threading.Event(), threading.Event()
+    result = {'errors': []}
+    doc = {'order_id':'fence-race-1', 'exchange':'NFO',
+           'tradingsymbol':'SYNTHETIC26NOV26000CE', 'status':'OPEN',
+           '_sim':{'day':'2026-11-10'}}
+
+    def writer():
+        try:
+            with led.transaction(owner=OWNER):
+                entered.set()
+                assert release.wait(timeout=12)
+                led.put_order(OWNER, doc)
+        except BaseException as exc:
+            result['errors'].append(('writer', str(exc)))
+
+    def resetter():
+        try:
+            result['token'] = order_journal.begin_simulation_reset(SIM_UID)
+        except BaseException as exc:
+            result['errors'].append(('resetter', str(exc)))
+        finally:
+            reset_done.set()
+
+    first = threading.Thread(target=writer, daemon=True)
+    second = threading.Thread(target=resetter, daemon=True)
+    first.start()
+    assert entered.wait(timeout=6)
+    second.start()
+    try:
+        assert not reset_done.wait(timeout=0.15)
+    finally:
+        release.set()
+        first.join(timeout=12)
+        second.join(timeout=12)
+    assert not first.is_alive() and not second.is_alive()
+    assert result['errors'] == []
+    assert reset_done.is_set()
+    assert get_ledger().get_order(OWNER, 'fence-race-1')['status'] == 'OPEN'
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        led.put_order(OWNER, {**doc, 'order_id':'fence-race-2'})
+    order_journal.finish_simulation_reset(SIM_UID, result['token'], success=False)

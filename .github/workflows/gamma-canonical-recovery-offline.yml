@@ -27,6 +27,10 @@ on:
       - 'backend/app/services/simulation/mode.py'
       - 'backend/app/services/simulation/tenant.py'
       - 'backend/app/services/simulation/sim_runtime.py'
+      - 'backend/app/services/simulation/ledger.py'
+      - 'backend/app/services/simulation/virtual_exchange.py'
+      - 'backend/tests/unit/simulation/test_sim_ledger.py'
+      - 'backend/tests/unit/simulation/test_sim_virtual_exchange.py'
       - 'backend/tests/unit/simulation/test_sim_runtime.py'
       - 'backend/app/api/v1/endpoints/sim.py'
       - 'backend/tests/unit/simulation/test_tenancy_mode.py'
@@ -94,4 +98,6 @@ jobs:
             tests/unit/simulation/test_tenancy_mode.py \
             tests/unit/simulation/test_tenancy_api.py \
             tests/unit/simulation/test_tenancy_boot.py \
-            tests/unit/simulation/test_sim_runtime.py
+            tests/unit/simulation/test_sim_runtime.py \
+            tests/unit/simulation/test_sim_ledger.py \
+            tests/unit/simulation/test_sim_virtual_exchange.py

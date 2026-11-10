@@ -172,7 +172,7 @@ def boot_tenant(owner: str, *, reset_token: str | None = None):
     account = kite_accounts.ensure_sim_account(owner)
     from app.services.simulation.ledger import get_ledger
 
-    get_ledger().ensure_account(owner)
+    account_state = get_ledger().ensure_account(owner, reset_token=reset_token)
     ensure_control_plane(owner)
-    apply_capital_limits(owner)
+    apply_capital_limits(owner, capital=float(account_state["capital"]))
     return account

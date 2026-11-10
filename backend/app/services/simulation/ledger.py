@@ -32,7 +32,7 @@ from datetime import timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
 from app.services.simulation.charges import Charges, KIND_FUTURE, KIND_OPTION, instrument_kind
-from app.services.simulation.identity import owner_uid
+from app.services.simulation.identity import owner_uid, sim_uid
 
 IST = timezone(timedelta(hours=5, minutes=30))
 DEFAULT_CAPITAL = 1_000_000.0
@@ -168,7 +168,15 @@ class SimLedger:
         return db._DB_PATH
 
     @contextmanager
-    def _cx(self) -> Iterator[Any]:
+    def _cx(self, *, write_owner: Optional[str] = None,
+            reset_token: Optional[str] = None) -> Iterator[Any]:
+        if write_owner is not None:
+            # A write is not authorized by a prior read; the check and mutation
+            # share the same SQLite write transaction for the production store.
+            with self.transaction(owner=write_owner, reset_token=reset_token):
+                with self._cx() as c:
+                    yield c
+            return
         tx = getattr(self._local, "tx", None)
         if tx is not None:
             yield tx
@@ -186,22 +194,56 @@ class SimLedger:
             c.execute(ddl)
         self._schema_key = key
 
+    def _check_writer_fence(self, conn, owner: str, reset_token: Optional[str]) -> None:
+        """Inspect the journal's durable reset marker under this ledger write lock.
+
+        The optional connection factory is the existing isolated fake-ledger
+        testing seam. The application default uses the same SQLite file as the
+        canonical journal; custom factories do not claim production fencing.
+        """
+        if self._factory is not None:
+            return
+        from app.services.kite_engine import order_journal
+
+        fence = order_journal._reset_fence(conn, sim_uid(self._owner(owner)))
+        if fence is None:
+            if reset_token is not None:
+                raise ValueError("simulation_reset_fenced")
+            return
+        if (fence["state"] != "ACTIVE" or reset_token is None
+                or reset_token != fence["token"]):
+            raise ValueError("simulation_reset_fenced")
+
     @contextmanager
-    def transaction(self) -> Iterator["SimLedger"]:
-        """One atomic unit of work. Re-entrant; no awaits belong inside."""
+    def transaction(self, owner: Optional[str] = None, *,
+                    reset_token: Optional[str] = None) -> Iterator["SimLedger"]:
+        """One atomic owner-scoped write unit, re-entrant, without awaits.
+
+        Scope checks and writes are serialized in the default shared SQLite
+        database with the reset coordinator's BEGIN IMMEDIATE transaction.
+        """
         with self._lock:
-            if getattr(self._local, "tx", None) is not None:
+            previous = getattr(self._local, "tx", None)
+            inherited_token = getattr(self._local, "reset_token", None)
+            token = reset_token if reset_token is not None else inherited_token
+            if previous is not None:
+                if owner is not None:
+                    self._check_writer_fence(previous, owner, token)
                 yield self
                 return
             with self._connect() as c:
                 c.row_factory = sqlite3.Row
                 self._ensure_schema(c)
                 c.execute("BEGIN IMMEDIATE")
+                if owner is not None:
+                    self._check_writer_fence(c, owner, token)
                 self._local.tx = c
+                self._local.reset_token = token
                 try:
                     yield self
                 finally:
                     self._local.tx = None
+                    self._local.reset_token = None
 
     @contextmanager
     def savepoint(self) -> Iterator[None]:
@@ -237,9 +279,10 @@ class SimLedger:
                 return int(value)
 
     # ── accounts, cash, settings ──────────────────────────────────────────────────────
-    def ensure_account(self, owner: str, *, capital: float = DEFAULT_CAPITAL) -> dict:
+    def ensure_account(self, owner: str, *, capital: float = DEFAULT_CAPITAL,
+                       reset_token: Optional[str] = None) -> dict:
         o = self._owner(owner)
-        with self._cx() as c:
+        with self._cx(write_owner=o, reset_token=reset_token) as c:
             c.execute("INSERT OR IGNORE INTO sim_accounts(owner, capital, cash, created_ms, updated_ms) "
                       "VALUES(?,?,?,?,?)", (o, float(capital), float(capital), now_ms(), now_ms()))
             return dict(c.execute("SELECT * FROM sim_accounts WHERE owner=?", (o,)).fetchone())
@@ -258,7 +301,7 @@ class SimLedger:
 
     def adjust_cash(self, owner: str, delta: float) -> float:
         o = self._owner(owner)
-        with self.transaction():
+        with self.transaction(owner=o):
             acct = self.ensure_account(o)
             cash = round(float(acct["cash"]) + float(delta), 2)
             with self._cx() as c:
@@ -271,7 +314,7 @@ class SimLedger:
         if not amount > 0:
             raise ValueError("capital must be positive")
         o = self._owner(owner)
-        with self.transaction():
+        with self.transaction(owner=o):
             acct = self.ensure_account(o)
             cash = round(float(acct["cash"]) + (amount - float(acct["capital"])), 2)
             with self._cx() as c:
@@ -279,10 +322,11 @@ class SimLedger:
                           (amount, cash, now_ms(), o))
             return self.account(o)
 
-    def reset(self, owner: str, *, capital: Optional[float] = None) -> dict:
+    def reset(self, owner: str, *, capital: Optional[float] = None,
+              reset_token: Optional[str] = None) -> dict:
         """Wipe the owner's virtual books (orders, fills, positions, GTTs, charges, equity)."""
         o = self._owner(owner)
-        with self.transaction():
+        with self.transaction(owner=o, reset_token=reset_token):
             acct = self.ensure_account(o)
             cap = float(capital) if capital is not None else float(acct["capital"])
             if not cap > 0:
@@ -320,7 +364,7 @@ class SimLedger:
         if key == "futures_margin_pct" and not 0 < parsed <= 1:
             raise SettingsError("futures_margin_pct must be in (0, 1]")
         o = self._owner(owner)
-        with self._cx() as c:
+        with self._cx(write_owner=o) as c:
             c.execute("INSERT INTO sim_settings(owner, key, value) VALUES(?,?,?) "
                       "ON CONFLICT(owner, key) DO UPDATE SET value=excluded.value", (o, key, str(parsed)))
         return self.settings(o)
@@ -329,7 +373,7 @@ class SimLedger:
     def put_order(self, owner: str, doc: dict) -> None:
         o = self._owner(owner)
         sim = doc.get("_sim") or {}
-        with self._cx() as c:
+        with self._cx(write_owner=o) as c:
             c.execute(
                 "INSERT INTO sim_orders(owner, order_id, day, status, exchange, tradingsymbol, placed_ms, "
                 "updated_ms, doc) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(owner, order_id) DO UPDATE SET "
@@ -359,7 +403,7 @@ class SimLedger:
 
     def add_history(self, owner: str, doc: dict) -> None:
         o = self._owner(owner)
-        with self._cx() as c:
+        with self._cx(write_owner=o) as c:
             seq = c.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM sim_order_history WHERE owner=? AND order_id=?",
                             (o, str(doc["order_id"]))).fetchone()[0]
             c.execute("INSERT INTO sim_order_history(owner, order_id, seq, ts_ms, status, doc) VALUES(?,?,?,?,?,?)",
@@ -375,7 +419,7 @@ class SimLedger:
     def put_gtt(self, owner: str, doc: dict) -> None:
         o = self._owner(owner)
         cond = doc.get("condition") or {}
-        with self._cx() as c:
+        with self._cx(write_owner=o) as c:
             c.execute(
                 "INSERT INTO sim_gtts(owner, trigger_id, status, exchange, tradingsymbol, created_ms, updated_ms, doc) "
                 "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(owner, trigger_id) DO UPDATE SET status=excluded.status, "
@@ -423,7 +467,7 @@ class SimLedger:
         """Record the latest REAL price seen for a position (never an invented one)."""
         if not price or price <= 0:
             return
-        with self._cx() as c:
+        with self._cx(write_owner=self._owner(owner)) as c:
             c.execute("UPDATE sim_positions SET last_price=?, last_price_ms=? "
                       "WHERE owner=? AND exchange=? AND tradingsymbol=? AND product=?",
                       (float(price), now_ms(), self._owner(owner), exchange, tradingsymbol, product))
@@ -437,7 +481,7 @@ class SimLedger:
         side = str(order["transaction_type"]).upper()
         key = (order["exchange"], order["tradingsymbol"], order["product"])
         signed = qty if side == "BUY" else -qty
-        with self.transaction():
+        with self.transaction(owner=o):
             self.ensure_account(o)
             pos = self.get_position(o, *key) or {"quantity": 0, "avg_price": 0.0, "instrument_token": 0}
             old, avg = int(pos["quantity"]), float(pos["avg_price"])
@@ -557,7 +601,7 @@ class SimLedger:
 
     # ── equity snapshots ──────────────────────────────────────────────────────────────
     def add_snapshot(self, owner: str, view: dict, *, ts_ms: Optional[int] = None) -> None:
-        with self._cx() as c:
+        with self._cx(write_owner=self._owner(owner)) as c:
             c.execute("INSERT OR REPLACE INTO sim_equity(owner, ts_ms, cash, blocked, unrealised, equity, "
                       "realised_day, charges_day, positions) VALUES(?,?,?,?,?,?,?,?,?)",
                       (self._owner(owner), int(ts_ms or now_ms()), view["cash"], view["blocked_margin"],

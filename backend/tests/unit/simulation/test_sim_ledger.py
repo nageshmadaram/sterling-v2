@@ -1,5 +1,6 @@
 """The virtual books: accounting, owner isolation, reset, persistence."""
 import pytest
+import sqlite3
 
 from app.services.simulation import charges as ch
 from app.services.simulation.ledger import DEFAULT_CAPITAL, SettingsError, SimLedger, public
@@ -167,11 +168,13 @@ def test_state_survives_a_new_ledger_instance(db_factory):
 def test_the_default_connection_is_the_application_database(tmp_path, monkeypatch):
     from app.services import db
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "app.db"))
+    assert db.init()  # production initializes the canonical control schema first
     one = SimLedger()
     one.ensure_account("default")
     one.set_capital("default", 123_456.0)
     assert SimLedger().account("default")["capital"] == 123_456.0
     monkeypatch.setattr(db, "_DB_PATH", str(tmp_path / "other.db"))        # another database, another books
+    assert db.init()
     assert SimLedger().account("default") is None
 
 
@@ -240,3 +243,13 @@ def test_a_savepoint_undoes_only_its_own_writes(ledger):
     with ledger.savepoint():                                        # usable on its own too
         ledger.adjust_cash("o", 1.0)
     assert ledger.cash("o") == DEFAULT_CAPITAL - 100.0
+
+
+def test_an_uninitialized_application_db_refuses_direct_virtual_mutation(tmp_path, monkeypatch):
+    """Missing canonical journal/control tables are NOT equivalent to no reset fence."""
+    from app.services import db
+    monkeypatch.setattr(db, '_DB_PATH', str(tmp_path / 'not-initialized.db'))
+    test_ledger = SimLedger()
+    with pytest.raises(sqlite3.OperationalError, match='no such table: system_config'):
+        test_ledger.ensure_account('owner')
+    assert test_ledger.account('owner') is None
