@@ -121,7 +121,10 @@ async def reset(body: ResetBody, user: UserContext = Depends(require_admin)) -> 
                                                 "Resetting wipes every virtual order, position, trade and journal row; "
                                                 "send {\"confirm\": true}."))
     log.warning("simulation reset requested by %s", user.username or user.user_id)
-    result = sim_mode.reset_simulation(owner, capital=body.capital)
+    try:
+        result = sim_mode.reset_simulation(owner, capital=body.capital)
+    except sim_mode.ModeError as exc:
+        raise _refuse(exc) from exc
     return {**result, "status": build_status(owner)}
 
 

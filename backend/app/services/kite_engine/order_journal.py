@@ -552,6 +552,26 @@ def _observe_order(intent_key: str, *, status: str, order_id: str,
             delta_qty if reason == "accepted" else 0, delta_value if reason == "accepted" else 0, reason)
 
 
+def _assert_tenant_cleanup_safe(conn, uid: str) -> None:
+    """Check owned review rows under a caller-held SQLite transaction."""
+    rows = conn.execute(
+        "SELECT * FROM kite_order_intents WHERE uid=?", (uid,),
+    ).fetchall()
+    for row in rows:
+        _require_mutable_intent(_row(row))
+
+
+def assert_cleanup_safe(uid: str) -> None:
+    """Preflight simulation reset before other subsystems can be modified.
+
+    Advisory only: another process can change the database after return.
+    clear_for_tests still repeats the check with its own durable write lock.
+    """
+    _text(uid, "uid")
+    with _transaction() as conn:
+        _assert_tenant_cleanup_safe(conn, uid)
+
+
 def clear_for_tests(uid: str) -> None:
     """Clear ordinary tenant simulation data, not immutable review evidence.
 
@@ -563,11 +583,7 @@ def clear_for_tests(uid: str) -> None:
     """
     _text(uid, "uid")
     with _transaction() as conn:
-        rows = conn.execute(
-            "SELECT * FROM kite_order_intents WHERE uid=?", (uid,),
-        ).fetchall()
-        for row in rows:
-            _require_mutable_intent(_row(row))
+        _assert_tenant_cleanup_safe(conn, uid)
         conn.execute("DELETE FROM kite_order_observations WHERE intent_key IN (SELECT intent_key FROM kite_order_intents WHERE uid=?)", (uid,))
         conn.execute("DELETE FROM kite_fill_ledger WHERE uid=?",(uid,))
         conn.execute("DELETE FROM kite_order_intents WHERE uid=?",(uid,))
