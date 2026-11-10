@@ -14,6 +14,9 @@ on:
       - 'backend/app/services/exchanges/kite/login_preflight.py'
       - 'backend/tests/test_kite_login_preflight.py'
       - 'backend/tests/test_kite_mobile_login.py'
+      - 'scripts/serve_frontend.mjs'
+      - 'scripts/public_static_asset.mjs'
+      - 'backend/tests/test_public_access_stack.py'
       - 'README.md'
       - 'backend/tests/unit/test_live_only_config_surface.py'
       - 'backend/tests/e2e_live/machine.py'
@@ -114,6 +117,15 @@ jobs:
             tests/unit/simulation/test_sim_runtime.py \
             tests/unit/simulation/test_sim_ledger.py \
             tests/unit/simulation/test_sim_virtual_exchange.py
+
+      - name: Synthetic gateway availability, asset denial and identity tests
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          STERLING_LIVE_EXECUTION: '0'
+        run: python -m pytest -q --tb=short tests/test_public_access_stack.py
 
       - name: Preproduction operator-documentation and live-config safety assertions
         working-directory: backend
