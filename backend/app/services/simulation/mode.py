@@ -480,7 +480,10 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
         try:
             order_journal.assert_cleanup_safe(uid)
         except ValueError as exc:
-            if str(exc) == "gamma_offline_review_intent_immutable":
+            if str(exc) in {
+                "gamma_offline_review_intent_immutable",
+                "gamma_offline_review_hold_immutable",
+            }:
                 raise ModeBlocked(
                     "immutable_review_evidence",
                     "Simulation reset refused: immutable offline review evidence exists.",

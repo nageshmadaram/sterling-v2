@@ -306,3 +306,20 @@ def test_a_misconfigured_owner_is_a_503_not_a_crash(client, live, monkeypatch):
     monkeypatch.setenv("STERLING_OWNER_UID", "sim:default")
     response = client.get(f"{URL}/status")
     assert response.status_code == 503 and response.json()["detail"]["code"] == "owner_misconfigured"
+
+
+def test_reset_http_refuses_hold_only_preflight_before_any_wipe(client, live, monkeypatch):
+    """The earliest persisted Gamma review checkpoint has no child yet."""
+    _put(client, "gamma", "SIMULATION")
+    get_ledger().adjust_cash(OWNER, -700)
+    from app.services.kite_engine import order_journal as journal
+
+    def held(_uid):
+        raise ValueError("gamma_offline_review_hold_immutable")
+
+    monkeypatch.setattr(journal, "assert_cleanup_safe", held)
+    response = client.post(f"{URL}/reset", json={"confirm": True})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "immutable_review_evidence"
+    assert get_ledger().account(OWNER)["cash"] == 999_300
+    assert mode.strategy_state(OWNER, "gamma")["mode"] == "SIMULATION"

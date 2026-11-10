@@ -568,6 +568,20 @@ def _assert_tenant_cleanup_safe(conn, uid: str) -> None:
     ).fetchall()
     for row in rows:
         _require_mutable_intent(_row(row))
+    # The offline Gamma proof is durably held BEFORE the test-only child
+    # exists. A crash between these commits leaves REVIEW_HELD without a
+    # marked child; erasing the parent would invalidate its recovery proof.
+    # The table is optional in ordinary installations, but if it exists and
+    # is unreadable we propagate the error rather than assume no review hold.
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' "
+        "AND name='gamma_terminal_review_holds'"
+    ).fetchone():
+        if conn.execute(
+            "SELECT 1 FROM gamma_terminal_review_holds WHERE uid=? LIMIT 1",
+            (uid,),
+        ).fetchone():
+            raise ValueError("gamma_offline_review_hold_immutable")
 
 
 def assert_cleanup_safe(uid: str) -> None:
