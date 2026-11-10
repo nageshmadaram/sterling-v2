@@ -453,4 +453,12 @@ def test_corrupt_reset_checkpoint_is_sanitized_and_fail_closed(client, live):
     health = client.get(f'{URL}/reset-health')
     assert health.status_code == 503
     assert 'PRIVATE_CORRUPT_CHECKPOINT' not in health.text
-    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    # Read-only admission now validates checkpoint consistency too: malformed
+    # evidence cannot report a safe/known fence state. The durable marker itself
+    # must still exist, and the API response must conceal its contents.
+    with pytest.raises(ValueError, match='simulation_reset_checkpoint_invalid'):
+        order_journal.simulation_reset_fence_state(SIM_UID)
+    with db._conn() as conn:
+        marker = conn.execute('SELECT value FROM system_config WHERE key=?',
+                              ('simulation_reset_fence_v1:' + SIM_UID,)).fetchone()
+    assert marker is not None and token in marker['value']

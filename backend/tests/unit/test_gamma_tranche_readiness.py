@@ -1633,6 +1633,14 @@ def test_sim_reset_fence_blocks_ordinary_journal_and_requires_exact_token(store)
     with pytest.raises(ValueError, match='simulation_reset_fence_mismatch'):
         order_journal.finish_simulation_reset(uid, token, success=True)
     order_journal.clear_for_tests(uid, reset_token=next_token)
+    # This journal-only test verifies the token; complete the synthetic
+    # checkpoint explicitly before testing the fence release transition.
+    for stage in (
+        "disarmed", "virtual_ledger", "journal_rows", "order_books",
+        "ema_trend_books", "snapback_books", "config_rows", "memory",
+        "tenant", "control_plane",
+    ):
+        order_journal.checkpoint_simulation_reset(uid, next_token, stage)
     order_journal.finish_simulation_reset(uid, next_token, success=True)
     assert order_journal.simulation_reset_fence_state(uid) is None
     assert order_journal.get(row.intent_key) is None
