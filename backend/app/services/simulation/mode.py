@@ -520,7 +520,7 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
                 failed[f"disarm_{strategy}"] = str(exc)
         try:
             _settle_sim_master(owner)
-            account = sim_runtime.reset_owner(owner, capital=capital)  # never skip resetting virtual cash
+            account = sim_runtime.reset_owner(owner, capital=capital, reset_token=reset_token)
         except Exception as exc:  # noqa: BLE001 - preserve a fail-closed durable fence
             try:
                 _mark_reset_incomplete(owner)

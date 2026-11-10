@@ -328,11 +328,12 @@ def status(owner: str, *, ledger: Optional[SimLedger] = None, day: Optional[str]
             "differences": list(DIFFERENCES)}
 
 
-def reset_owner(owner: str, *, capital: Optional[float] = None, ledger: Optional[SimLedger] = None) -> dict:
+def reset_owner(owner: str, *, capital: Optional[float] = None,
+                ledger: Optional[SimLedger] = None, reset_token: Optional[str] = None) -> dict:
     """Wipe the owner's virtual books (orders, fills, positions, GTTs, charges, equity); keep capital and settings."""
     led = ledger or get_ledger()
     o = owner_uid(owner)
-    account = led.reset(o, capital=capital)
+    account = led.reset(o, capital=capital, reset_token=reset_token)
     _resume_own_halt(o)
     _exchanges.pop(o, None)
     _last_snapshot_bucket.pop(o, None)
