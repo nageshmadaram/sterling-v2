@@ -1511,3 +1511,73 @@ def test_preexisting_nonboolean_gamma_marker_fails_closed(store, marker):
     with pytest.raises(ValueError, match="gamma_offline_review_intent_immutable"):
         order_journal.clear_for_tests(UID)
     assert order_journal.get(intent.intent_key).state == "RESERVED"
+
+
+@pytest.mark.parametrize('operation', ['preflight', 'journal_cleanup'])
+def test_review_hold_before_child_is_immutable_cleanup_evidence(store, operation):
+    """Crash after REVIEW_HELD must not allow parent proof to be erased."""
+    prepared_terminal_lineage()
+    held = _hold()
+    parent = order_journal.get(held.parent_intent_key)
+    assert held.held_for_review and not held.execution_authorized
+    assert order_journal.get(held.candidate_intent_key) is None
+    with db._conn() as conn:
+        before = {
+            'intents': conn.execute('SELECT COUNT(*) FROM kite_order_intents WHERE uid=?', (UID,)).fetchone()[0],
+            'increments': conn.execute('SELECT COUNT(*) FROM kite_execution_increments WHERE uid=?', (UID,)).fetchone()[0],
+            'holds': conn.execute('SELECT COUNT(*) FROM gamma_terminal_review_holds WHERE uid=?', (UID,)).fetchone()[0],
+        }
+    with pytest.raises(ValueError, match='gamma_offline_review_hold_immutable'):
+        if operation == 'preflight':
+            order_journal.assert_cleanup_safe(UID)
+        else:
+            order_journal.clear_for_tests(UID)
+    with db._conn() as conn:
+        assert before == {
+            'intents': conn.execute('SELECT COUNT(*) FROM kite_order_intents WHERE uid=?', (UID,)).fetchone()[0],
+            'increments': conn.execute('SELECT COUNT(*) FROM kite_execution_increments WHERE uid=?', (UID,)).fetchone()[0],
+            'holds': conn.execute('SELECT COUNT(*) FROM gamma_terminal_review_holds WHERE uid=?', (UID,)).fetchone()[0],
+        }
+    assert order_journal.get(parent.intent_key) == parent
+    replay = _hold()
+    assert replay.held_for_review and replay.replay and not replay.execution_authorized
+
+
+def test_review_hold_in_other_tenant_does_not_block_ordinary_cleanup(store):
+    prepared_terminal_lineage()
+    assert _hold().held_for_review
+    ordinary = order_journal.reserve(
+        uid='unrelated-simulation-user', account_id='unrelated-account',
+        strategy_id='sterling-kite', generation_id='g-1',
+        signal_id='s-1', exchange='NFO', symbol='OTHER26NOV26000CE',
+        side='BUY', quantity=1,
+    )
+    order_journal.assert_cleanup_safe('unrelated-simulation-user')
+    order_journal.clear_for_tests('unrelated-simulation-user')
+    assert order_journal.get(ordinary.intent_key) is None
+    assert _hold().held_for_review
+
+
+def test_review_hold_created_after_preflight_still_blocks_journal_purge(store):
+    """The purge-time writer lock revalidates an earlier clean preflight."""
+    parent = prepared_terminal_lineage()
+    order_journal.assert_cleanup_safe(UID)
+    held = _hold()  # analogous to an intervening independent offline writer
+    assert held.held_for_review and not held.execution_authorized
+    with pytest.raises(ValueError, match='gamma_offline_review_hold_immutable'):
+        order_journal.clear_for_tests(UID)
+    assert order_journal.get(parent.intent_key) is not None
+    assert _hold().replay
+
+
+def test_unreadable_existing_review_hold_schema_never_means_no_hold(store):
+    """A broken review evidence table cannot silently permit deletion."""
+    prepared_terminal_lineage()
+    with db._conn() as conn:
+        conn.execute('CREATE TABLE gamma_terminal_review_holds (broken_schema TEXT)')
+    import sqlite3
+    with pytest.raises(sqlite3.OperationalError):
+        order_journal.assert_cleanup_safe(UID)
+    with pytest.raises(sqlite3.OperationalError):
+        order_journal.clear_for_tests(UID)
+    assert order_journal.unresolved(UID, ACCOUNT) == []
