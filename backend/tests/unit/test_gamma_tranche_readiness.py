@@ -1234,6 +1234,78 @@ def test_offline_canonical_child_refuses_all_public_journal_mutations(store, mut
     assert not replay.execution_authorized
 
 
+
+def test_simulation_cleanup_cannot_erase_immutable_offline_child(store):
+    """Cleanup must not delete the child, parent, observations or signed fill."""
+    prepared_terminal_lineage()
+    result = _offline_child()
+    assert result.reserved_for_review and not result.execution_authorized
+    # Populate the legacy journal-fill table that clear_for_tests actually
+    # deletes, rather than checking only signed execution increments.
+    assert order_journal.record_fill(
+        account_id=ACCOUNT, uid=UID, symbol=SYMBOL,
+        order_id="SYNTHETIC-JOURNAL-FILL", trade_id="FILL-1",
+        side="BUY", quantity=1, price=100.0,
+    )
+    with db._conn() as conn:
+        before = {
+            "intents": conn.execute(
+                "SELECT COUNT(*) FROM kite_order_intents WHERE uid=?", (UID,)
+            ).fetchone()[0],
+            "observations": conn.execute(
+                "SELECT COUNT(*) FROM kite_order_observations"
+            ).fetchone()[0],
+            "increments": conn.execute(
+                "SELECT COUNT(*) FROM kite_execution_increments"
+            ).fetchone()[0],
+            "journal_fills": conn.execute(
+                "SELECT COUNT(*) FROM kite_fill_ledger WHERE uid=?", (UID,)
+            ).fetchone()[0],
+            "holds": conn.execute(
+                "SELECT COUNT(*) FROM gamma_terminal_review_holds"
+            ).fetchone()[0],
+        }
+    with pytest.raises(ValueError, match="gamma_offline_review_intent_immutable"):
+        order_journal.clear_for_tests(UID)
+    with db._conn() as conn:
+        assert before == {
+            "intents": conn.execute(
+                "SELECT COUNT(*) FROM kite_order_intents WHERE uid=?", (UID,)
+            ).fetchone()[0],
+            "observations": conn.execute(
+                "SELECT COUNT(*) FROM kite_order_observations"
+            ).fetchone()[0],
+            "increments": conn.execute(
+                "SELECT COUNT(*) FROM kite_execution_increments"
+            ).fetchone()[0],
+            "journal_fills": conn.execute(
+                "SELECT COUNT(*) FROM kite_fill_ledger WHERE uid=?", (UID,)
+            ).fetchone()[0],
+            "holds": conn.execute(
+                "SELECT COUNT(*) FROM gamma_terminal_review_holds"
+            ).fetchone()[0],
+        }
+    assert order_journal.get(result.child_intent_key).state == "RESERVED"
+    assert not order_journal.claim_submission(result.child_intent_key)
+    assert _offline_child().replay
+
+
+def test_simulation_cleanup_still_clears_ordinary_journal_user(store):
+    """Review-only guard must not block legitimate unrelated simulation reset."""
+    prepared_terminal_lineage()
+    review_child = _offline_child()
+    assert review_child.reserved_for_review
+    ordinary = order_journal.reserve(
+        uid="unrelated-simulation-user", account_id="simulation-account",
+        strategy_id="sterling-kite", generation_id="test-1",
+        signal_id="simulated-entry", exchange="NFO",
+        symbol="SYNTHETIC26NOV26000CE", side="BUY", quantity=1,
+    )
+    order_journal.clear_for_tests("unrelated-simulation-user")
+    assert order_journal.get(ordinary.intent_key) is None
+    assert order_journal.get(review_child.child_intent_key).state == "RESERVED"
+    assert not order_journal.claim_submission(review_child.child_intent_key)
+
 def test_offline_canonical_child_after_review_checkpoint_recovers_without_resend(store):
     prepared_terminal_lineage()
     checkpoint = _hold()
