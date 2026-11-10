@@ -1262,3 +1262,27 @@ def test_inconsistent_or_missing_checkpoint_never_claims_clean(tenants):
         'state': 'UNKNOWN', 'stage': 'unknown',
     }
     assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+
+
+def test_reset_cannot_report_success_without_final_control_plane_checkpoint(tenants):
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    for stage in ('fenced', 'disarmed', 'virtual_ledger', 'journal_rows'):
+        order_journal.checkpoint_simulation_reset(SIM_UID, token, stage)
+    with pytest.raises(ValueError, match='simulation_reset_incomplete'):
+        order_journal.finish_simulation_reset(SIM_UID, token, success=True)
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    assert order_journal.simulation_reset_checkpoint_state(SIM_UID) == {
+        'state': 'ACTIVE', 'stage': 'journal_rows',
+    }
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_missing_fence_with_incomplete_checkpoint_fails_ordinary_runtime_admission(tenants):
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with db._conn() as conn:
+        conn.execute('DELETE FROM system_config WHERE key=?',
+                     ('simulation_reset_fence_v1:' + SIM_UID,))
+    with pytest.raises(ValueError, match='simulation_reset_checkpoint_inconsistent'):
+        order_journal.simulation_reset_fence_state(SIM_UID)
+    with pytest.raises(ValueError, match='simulation_reset_checkpoint_inconsistent'):
+        tenant.boot_tenant(OWNER)

@@ -214,7 +214,11 @@ class SimLedger:
             return
         from app.services.kite_engine import order_journal
 
-        fence = order_journal._reset_fence(conn, sim_uid(self._owner(owner)))
+        uid = sim_uid(self._owner(owner))
+        fence = order_journal._reset_fence(conn, uid)
+        order_journal._assert_reset_checkpoint_consistent(
+            fence, order_journal._reset_checkpoint(conn, uid),
+        )
         if fence is None:
             if reset_token is not None:
                 raise ValueError("simulation_reset_fenced")

@@ -180,8 +180,10 @@ def checkpoint_simulation_reset(uid: str, token: str, stage: str) -> None:
 
 
 def _require_no_simulation_reset(conn, uid: str) -> None:
-    """Refuse a writer in a fenced virtual tenant, including after a crash."""
-    if _reset_fence(conn, uid) is not None:
+    """Refuse a fenced writer or corrupted/inconsistent checkpoint evidence."""
+    fence = _reset_fence(conn, uid)
+    _assert_reset_checkpoint_consistent(fence, _reset_checkpoint(conn, uid))
+    if fence is not None:
         raise ValueError("simulation_reset_fenced")
 
 
@@ -195,6 +197,7 @@ def assert_simulation_boot_permitted(uid: str, *, reset_token: Optional[str] = N
     _text(uid, "uid")
     with _transaction() as conn:
         fence = _reset_fence(conn, uid)
+        _assert_reset_checkpoint_consistent(fence, _reset_checkpoint(conn, uid))
         if fence is None:
             if reset_token is not None:
                 raise ValueError("simulation_reset_fenced")
@@ -210,6 +213,8 @@ def simulation_reset_fence_state(uid: str) -> Optional[str]:
     _ready()
     with db._conn() as conn:
         fence = _reset_fence(conn, uid)
+        checkpoint = _reset_checkpoint(conn, uid)
+        _assert_reset_checkpoint_consistent(fence, checkpoint)
     return fence["state"] if fence else None
 
 
@@ -258,6 +263,11 @@ def finish_simulation_reset(uid: str, token: str, *, success: bool) -> None:
         if current is None or current["state"] != "ACTIVE" or current["token"] != token:
             raise ValueError("simulation_reset_fence_mismatch")
         if success:
+            # The caller must prove that the full required reset protocol has
+            # reached its final confirmed stage before removing the fence.
+            # A token alone proves identity, NOT cleanup completeness.
+            if checkpoint is None or checkpoint["stage"] != "control_plane":
+                raise ValueError("simulation_reset_incomplete")
             conn.execute("DELETE FROM system_config WHERE key=?", (_RESET_FENCE_PREFIX + uid,))
         else:
             conn.execute("UPDATE system_config SET value=? WHERE key=?", (
