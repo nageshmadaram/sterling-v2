@@ -28,6 +28,8 @@ on:
       - 'backend/app/services/simulation/tenant.py'
       - 'backend/app/services/simulation/sim_runtime.py'
       - 'backend/app/services/simulation/ledger.py'
+      - 'backend/app/services/simulation/sim_reset_sql_fences.py'
+      - 'backend/app/services/db.py'
       - 'backend/app/services/simulation/virtual_exchange.py'
       - 'backend/tests/unit/simulation/test_sim_ledger.py'
       - 'backend/tests/unit/simulation/test_sim_virtual_exchange.py'
