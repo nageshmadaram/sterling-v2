@@ -121,6 +121,12 @@ def reserve_offline_canonical_terminal_child(
             if conn.execute("PRAGMA synchronous").fetchone()[0] != 2:
                 return refuse("full_sync_unavailable")
             conn.execute("BEGIN IMMEDIATE")
+            try:
+                order_journal._require_no_simulation_reset(conn, uid)
+            except ValueError as exc:
+                if str(exc) == "simulation_reset_fenced":
+                    return refuse("simulation_reset_fenced")
+                raise
             hold = conn.execute(
                 "SELECT * FROM gamma_terminal_review_holds WHERE account_id=? "
                 "AND exchange=? AND symbol=?",

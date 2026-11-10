@@ -1581,3 +1581,180 @@ def test_unreadable_existing_review_hold_schema_never_means_no_hold(store):
     with pytest.raises(sqlite3.OperationalError):
         order_journal.clear_for_tests(UID)
     assert order_journal.unresolved(UID, ACCOUNT) == []
+
+
+def test_sim_reset_fence_blocks_new_gamma_review_hold_before_its_insert(store, monkeypatch):
+    """No review proof may enter the journal after a reset takes its durable fence."""
+    # The simulation owner is intentionally the same scope as the review
+    # fixture. A real broker is never contacted by these synthetic tests.
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], 'UID', 'sim:tranche-review-user')
+    monkeypatch.setattr(sys.modules[__name__], 'ID', {**ID, 'uid': 'sim:tranche-review-user'})
+    prepared_terminal_lineage()
+    token = order_journal.begin_simulation_reset(UID)
+    blocked = _hold()
+    assert blocked.reason == 'simulation_reset_fenced'
+    assert not blocked.held_for_review and not blocked.execution_authorized
+    blocked_child = _offline_child()
+    assert blocked_child.reason == 'simulation_reset_fenced'
+    assert not blocked_child.reserved_for_review and not blocked_child.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone() is None
+    order_journal.finish_simulation_reset(UID, token, success=False)
+    assert _hold().reason == 'simulation_reset_fenced'
+
+
+def test_sim_reset_fence_blocks_ordinary_journal_and_requires_exact_token(store):
+    uid = 'sim:reset-fenced'
+    row = order_journal.reserve(
+        uid=uid, account_id='SIM-UNIT', strategy_id='sterling-kite',
+        generation_id='one', signal_id='one', exchange='NFO', symbol='UNIT26NOV26000CE',
+        side='BUY', quantity=1,
+    )
+    token = order_journal.begin_simulation_reset(uid)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        order_journal.reserve(
+            uid=uid, account_id='SIM-UNIT', strategy_id='sterling-kite',
+            generation_id='two', signal_id='two', exchange='NFO', symbol='UNIT26NOV26000CE',
+            side='BUY', quantity=1,
+        )
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        order_journal.claim_submission(row.intent_key)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        order_journal.clear_for_tests(uid)
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        order_journal.clear_for_tests(uid, reset_token='wrong')
+    order_journal.finish_simulation_reset(uid, token, success=False)
+    assert order_journal.simulation_reset_fence_state(uid) == 'FAILED'
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        order_journal.claim_submission(row.intent_key)
+    next_token = order_journal.begin_simulation_reset(uid)
+    assert next_token != token
+    with pytest.raises(ValueError, match='simulation_reset_fence_mismatch'):
+        order_journal.finish_simulation_reset(uid, token, success=True)
+    order_journal.clear_for_tests(uid, reset_token=next_token)
+    order_journal.finish_simulation_reset(uid, next_token, success=True)
+    assert order_journal.simulation_reset_fence_state(uid) is None
+    assert order_journal.get(row.intent_key) is None
+
+
+def test_sim_reset_fence_survives_an_ungraceful_independent_process(store):
+    import subprocess
+    import json
+    code = '''
+import os, sys
+from app.services import db
+from app.services.kite_engine import order_journal
+db._DB_PATH = sys.argv[1]
+assert db.init()
+order_journal.begin_simulation_reset("sim:crash-test")
+os._exit(79)
+'''
+    args, env, cwd = _child_review_command(code, db._DB_PATH)
+    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 79, result.stderr[-500:]
+    assert order_journal.simulation_reset_fence_state('sim:crash-test') == 'ACTIVE'
+    with pytest.raises(ValueError, match='simulation_reset_in_progress'):
+        order_journal.begin_simulation_reset('sim:crash-test')
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        order_journal.reserve(
+            uid='sim:crash-test', account_id='SIM-CRASH', strategy_id='gamma-unwind',
+            generation_id='g', signal_id='s', exchange='NFO', symbol='CRASH26NOV26000CE',
+            side='SELL', quantity=1,
+        )
+
+
+def test_sim_reset_fence_rejects_invalid_or_live_scope(store):
+    with pytest.raises(ValueError, match='simulation_reset_requires_virtual_uid'):
+        order_journal.begin_simulation_reset('live-trader')
+    with db._conn() as conn:
+        conn.execute('INSERT INTO system_config(key,value) VALUES (?,?)',
+                     ('simulation_reset_fence_v1:sim:broken', '{not-json'))
+    with pytest.raises(ValueError, match='simulation_reset_fence_invalid'):
+        order_journal.begin_simulation_reset('sim:broken')
+    with pytest.raises(ValueError, match='simulation_reset_fence_invalid'):
+        order_journal.reserve(
+            uid='sim:broken', account_id='SIM-BROKEN', strategy_id='gamma-unwind',
+            generation_id='g', signal_id='s', exchange='NFO', symbol='BROKEN26NOV26000CE',
+            side='SELL', quantity=1,
+        )
+
+
+def test_separate_process_cannot_create_gamma_hold_while_reset_fenced(store, monkeypatch):
+    import subprocess
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], 'UID', 'sim:tranche-review-user')
+    monkeypatch.setattr(sys.modules[__name__], 'ID', {**ID, 'uid': 'sim:tranche-review-user'})
+    parent = prepared_terminal_lineage()
+    token = order_journal.begin_simulation_reset(UID)
+    script = '''
+import sys
+from app.services import db
+from app.services.gamma_tranche_review_claims import hold_terminal_child_review
+db._DB_PATH = sys.argv[1]
+assert db.init()
+result = hold_terminal_child_review(
+    uid="sim:tranche-review-user", account_id="acct-tranche",
+    strategy_id="gamma-unwind", signal_id="gamma:partial", exchange="NFO",
+    symbol="SYNTHETIC26NOV25000CE", product="NRML",
+)
+assert result.reason == "simulation_reset_fenced", result
+assert not result.held_for_review and not result.execution_authorized
+print(result.reason)
+'''
+    args, env, cwd = _child_review_command(script, db._DB_PATH)
+    result = subprocess.run(args, cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr[-900:]
+    assert 'simulation_reset_fenced' in result.stdout
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone() is None
+    assert order_journal.get(parent.intent_key) is not None
+    assert order_journal.simulation_reset_fence_state(UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(UID, token, success=False)
+
+
+def test_intervening_reset_after_read_only_gamma_preview_blocks_hold(store, monkeypatch):
+    import sys
+    from app.services import gamma_tranche_review_claims as claims
+    monkeypatch.setattr(sys.modules[__name__], 'UID', 'sim:tranche-review-user')
+    monkeypatch.setattr(sys.modules[__name__], 'ID', {**ID, 'uid': 'sim:tranche-review-user'})
+    prepared_terminal_lineage()
+    original_preview = claims.preview_terminal_child_identity
+
+    def race_preview(**kwargs):
+        preview = original_preview(**kwargs)
+        assert preview.identifiable_for_review
+        assert order_journal.begin_simulation_reset(UID)
+        return preview
+
+    monkeypatch.setattr(claims, 'preview_terminal_child_identity', race_preview)
+    result = _hold()
+    assert result.reason == 'simulation_reset_fenced'
+    assert not result.held_for_review and not result.execution_authorized
+    with db._conn() as conn:
+        assert conn.execute("SELECT name FROM sqlite_master WHERE name='gamma_terminal_review_holds'").fetchone() is None
+
+
+@pytest.mark.parametrize('mutation', ['transition', 'ack', 'timeout', 'observe', 'project', 'record_fill'])
+def test_sim_reset_fence_refuses_all_journal_write_variants(store, mutation):
+    uid = 'sim:fence-variants'
+    item = order_journal.reserve(uid=uid, account_id='SIM-VARIANTS',
+        strategy_id='gamma-unwind', generation_id='g', signal_id='s',
+        exchange='NFO', symbol='VARIANTS26NOV26000CE', side='SELL', quantity=1)
+    assert order_journal.claim_submission(item.intent_key)
+    token = order_journal.begin_simulation_reset(uid)
+    calls = {
+        'transition': lambda: order_journal.transition(item.intent_key, 'UNKNOWN'),
+        'ack': lambda: order_journal.acknowledge(item.intent_key, 'BROKER-1'),
+        'timeout': lambda: order_journal.submission_uncertain(item.intent_key, 'timeout'),
+        'observe': lambda: order_journal.observe_order(item.intent_key, status='COMPLETE',
+            order_id='BROKER-1', filled_quantity=1, average_price=1),
+        'project': lambda: order_journal.mark_projected(item.intent_key, 0),
+        'record_fill': lambda: order_journal.record_fill(account_id='SIM-VARIANTS',
+            order_id='BROKER-1', trade_id='TRADE-1', uid=uid,
+            symbol='VARIANTS26NOV26000CE', side='SELL', quantity=1, price=1),
+    }
+    with pytest.raises(ValueError, match='simulation_reset_fenced'):
+        calls[mutation]()
+    assert order_journal.get(item.intent_key).state == 'SUBMITTING'
+    order_journal.finish_simulation_reset(uid, token, success=False)

@@ -137,6 +137,12 @@ def hold_terminal_child_review(
             if conn.execute("PRAGMA synchronous").fetchone()[0] != 2:
                 raise RuntimeError("full_synchronous_durability_not_supported")
             conn.execute("BEGIN IMMEDIATE")
+            try:
+                order_journal._require_no_simulation_reset(conn, uid)
+            except ValueError as exc:
+                if str(exc) == "simulation_reset_fenced":
+                    return stop("simulation_reset_fenced")
+                raise
             _schema(conn)
             parent = conn.execute(
                 "SELECT * FROM kite_order_intents WHERE intent_key=?",

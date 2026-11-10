@@ -345,6 +345,16 @@ def set_mode(owner: str, strategy: str, mode: str, *, allow_live: bool = True) -
             if not before["live"]["armed"]:
                 _require_clear(owner, "AUTO")
         elif mode == SIMULATION:
+            # A failed/crashed reset must not permit re-arming a virtual strategy.
+            from app.services.kite_engine import order_journal
+            try:
+                if order_journal.simulation_reset_fence_state(uid) is not None:
+                    raise ModeBlocked("simulation_reset_fenced", "Simulation reset recovery is required.")
+            except ModeError:
+                raise
+            except Exception as exc:
+                raise ModeUnavailable("simulation_reset_fence_unavailable",
+                                      "Simulation reset state could not be verified.") from exc
             try:
                 tenant.boot_tenant(owner)
             except Exception as exc:  # noqa: BLE001
@@ -401,10 +411,10 @@ def _purge_config_rows(uid: str) -> int:
     return len(keys)
 
 
-def _purge_order_books(uid: str) -> None:
+def _purge_order_books(uid: str, *, reset_token: str | None = None) -> None:
     from app.services.kite_engine import execution_lease, fill_ledger, order_journal
 
-    order_journal.clear_for_tests(uid)           # intents, observations and fills of this tenant only
+    order_journal.clear_for_tests(uid, reset_token=reset_token)           # intents, observations and fills of this tenant only
     fill_ledger.clear_for_tests(uid)
     execution_lease.clear_for_tests(uid)
 
@@ -472,13 +482,13 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
             log.error("simulation reset: %s failed: %s", name, exc)
 
     with _lock:
-        # Reset is a multi-store operation. A known immutable Gamma review
-        # child must abort BEFORE disarming strategies, resetting virtual cash,
-        # deleting trade journals, or clearing the recovery fence. The journal
-        # also repeats this check inside its own transaction at purge time.
+        # The canonical journal writer lock atomically verifies immutable
+        # evidence AND commits a durable reset fence. All offline Gamma review
+        # writers check that fence under the same SQLite writer lock; neither
+        # another process nor a crash can reopen review admission mid-reset.
         from app.services.kite_engine import order_journal
         try:
-            order_journal.assert_cleanup_safe(uid)
+            reset_token = order_journal.begin_simulation_reset(uid)
         except ValueError as exc:
             if str(exc) in {
                 "gamma_offline_review_intent_immutable",
@@ -488,6 +498,11 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
                     "immutable_review_evidence",
                     "Simulation reset refused: immutable offline review evidence exists.",
                     ["Resolve the non-executable Gamma review child before resetting the tenant."],
+                ) from exc
+            if str(exc) == "simulation_reset_in_progress":
+                raise ModeBlocked(
+                    "simulation_reset_in_progress",
+                    "An earlier simulation reset remains active or requires manual recovery.",
                 ) from exc
             raise ModeUnavailable(
                 "simulation_reset_preflight_unavailable",
@@ -503,19 +518,63 @@ def reset_simulation(owner: str, *, capital: float | None = None) -> dict:
                 _disarm(uid, strategy)
             except Exception as exc:  # noqa: BLE001
                 failed[f"disarm_{strategy}"] = str(exc)
-        _settle_sim_master(owner)
-        account = sim_runtime.reset_owner(owner, capital=capital)  # the one step that must not be skipped
+        try:
+            _settle_sim_master(owner)
+            account = sim_runtime.reset_owner(owner, capital=capital)  # never skip resetting virtual cash
+        except Exception as exc:  # noqa: BLE001 - preserve a fail-closed durable fence
+            try:
+                _mark_reset_incomplete(owner)
+            except Exception:
+                log.error("simulation reset: unable to set recovery-required after interruption")
+            try:
+                order_journal.finish_simulation_reset(uid, reset_token, success=False)
+            except Exception:
+                # ACTIVE persists across process death; never infer success.
+                log.error("simulation reset: durable interruption fence remains unresolved")
+            raise ModeUnavailable(
+                "simulation_reset_interrupted",
+                "Simulation reset was interrupted; recovery is required.",
+            ) from exc
         step("journal_rows", lambda: trade_journal.purge_simulation(uid))
-        step("order_books", lambda: _purge_order_books(uid))
+        step("order_books", lambda: _purge_order_books(uid, reset_token=reset_token))
         from app.services.ema_trend.repository import reset_owner as _reset_ema_owner
         step("ema_trend_books", lambda: _reset_ema_owner(owner))
         step("snapback_books", lambda: _purge_snapback_books(uid, account_id))
         step("config_rows", lambda: _purge_config_rows(uid))
         step("memory", lambda: _forget_memory(uid))
         step("tenant", lambda: tenant.boot_tenant(owner))        # account, limits on the (kept) virtual capital
-        step("control_plane", lambda: _reset_control_plane(owner))
+        if failed:
+            # An incomplete reset must not declare the recovery state CLEAN.
+            step("recovery_control", lambda: _mark_reset_incomplete(owner))
+        else:
+            step("control_plane", lambda: _reset_control_plane(owner))
+        try:
+            order_journal.finish_simulation_reset(uid, reset_token, success=not failed)
+        except Exception as exc:
+            # The durable ACTIVE marker remains fail-closed if finalization
+            # cannot be proven, including if the process dies mid-reset.
+            try:
+                _mark_reset_incomplete(owner)
+            except Exception:
+                log.error("simulation reset: unable to mark recovery-required after failed finalization")
+            raise ModeUnavailable(
+                "simulation_reset_finalize_unavailable",
+                "Simulation reset completion could not be verified.",
+            ) from exc
     return {"ok": not failed, "cleared": sorted(cleared), "failed": failed, "capital": float(account["capital"]),
             "cash": float(account["cash"]), "strategies": modes(owner)}
+
+
+def _mark_reset_incomplete(owner: str) -> None:
+    """Keep the virtual tenant in recovery when any reset substep failed."""
+    from app.services import db
+
+    uid, account_id = tenant.scope_ids(owner)
+    db.set_execution_control(
+        operator_state="HALTED", recovery_state="RECOVERY_REQUIRED",
+        reason_code="SIM_RESET_INCOMPLETE", reason="virtual reset incomplete; manual review required",
+        actor=tenant.ACTOR, uid=uid, account_id=account_id,
+    )
 
 
 def _reset_control_plane(owner: str) -> None:

@@ -86,6 +86,7 @@ def wipe_tenants():
         db.set_config(key, "")
     with db._conn() as c:
         c.execute("DELETE FROM execution_control WHERE uid=?", (SIM_UID,))
+        c.execute("DELETE FROM system_config WHERE key=?", ("simulation_reset_fence_v1:" + SIM_UID,))
         c.execute("DELETE FROM kite_order_intents WHERE uid IN (?, ?)", (SIM_UID, OWNER))
     get_ledger().reset(OWNER, capital=DEFAULT_CAPITAL)
     journal.purge_simulation(SIM_UID)
