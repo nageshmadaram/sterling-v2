@@ -163,14 +163,24 @@ def gateway(tmp_path, callback_port):
  import os
  shell=tmp_path/'shell.json'
  shell.write_text(json.dumps({'html':'<html>Telegram Mini App</html>','headers':{'content-type':'text/html'}}))
- process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],env={**os.environ,'STERLING_TMA_SHELL_CACHE':str(shell),'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':str(callback_port),
+ # This fixture tests public asset denial with a READY synthetic frontend.
+ # An absent release correctly yields 503 *before* static path inspection;
+ # accidental dependence on a developer's frontend/dist masked that fact.
+ public=tmp_path/'synthetic-dist'
+ (public/'assets').mkdir(parents=True)
+ (public/'index.html').write_text('<html>STERLING SYNTHETIC APP</html>')
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],env={**os.environ,'STERLING_STATIC_ROOT':str(public),'STERLING_TMA_SHELL_CACHE':str(shell),'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':str(callback_port),
      'STERLING_STACK_STATUS_FILE':str(tmp_path/'status.json'),
      'STERLING_API_TARGET':f'http://127.0.0.1:{backend.server_port}'},stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  origin=f'http://127.0.0.1:{port}'
  try:
   for _ in range(50):
-   try:urllib.request.urlopen(origin+'/__sterling_web_health',timeout=.2);break
-   except Exception:time.sleep(.05)
+   try:
+    with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=.2) as response:
+     if json.load(response)['ready']:break
+   except Exception:pass
+   time.sleep(.05)
+  else:pytest.fail('Synthetic frontend build did not become ready')
   yield origin
  finally:process.terminate();process.wait(5);backend.shutdown();backend.server_close()
 
@@ -1687,3 +1697,32 @@ def test_publisher_current_rejects_untrusted_or_incomplete_symlink_target(tmp_pa
  assert publisher.current()==''
  (incomplete/'index.html').write_text('MANAGED')
  assert publisher.current()=='b'*40
+
+
+def test_unpublished_static_release_fails_closed_with_503(tmp_path):
+ """A missing frontend release must not be confused with a missing public asset."""
+ with socket.socket() as sock:
+  sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
+ unpublished=tmp_path/'no-static-build-present'
+ process=subprocess.Popen(['node',str(ROOT/'scripts/serve_frontend.mjs')],
+   env={**os.environ,'STERLING_WEB_PORT':str(port),'STERLING_CALLBACK_PORT':'0',
+        'STERLING_STATIC_ROOT':str(unpublished)},
+   stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ origin=f'http://127.0.0.1:{port}'
+ try:
+  for _ in range(60):
+   try:
+    with urllib.request.urlopen(origin+'/__sterling_web_health',timeout=.2) as response:
+     status=json.load(response)
+     assert status['ready'] is False and status['release_commit'] is None
+     break
+   except (OSError,urllib.error.URLError):
+    time.sleep(.05)
+  else:pytest.fail('Offline gateway never became reachable')
+  for path in ('/', '/assets/missing.js', '/private/.env'):
+   with pytest.raises(urllib.error.HTTPError) as unready:
+    urllib.request.urlopen(origin+path,timeout=2)
+   assert unready.value.code==503
+   assert b'Frontend release unavailable' in unready.value.read()
+ finally:
+  process.terminate();process.wait(5)

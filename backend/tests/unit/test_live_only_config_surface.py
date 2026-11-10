@@ -94,9 +94,14 @@ def client():
 
 
 def test_health_reports_live_execution_not_paper_trading(client):
+    from app.core import lane_registry
+
     body = client.get("/health").json()
     assert "paper_trading" not in body
-    assert body["live_execution"] is True
+    # The health response must reflect the process-level kill switch. A CI job
+    # that explicitly sets STERLING_LIVE_EXECUTION=0 must report False; a test
+    # must never require enabling live broker routing to be considered green.
+    assert body["live_execution"] is bool(lane_registry.LIVE_EXECUTION_ENABLED)
     assert "environment" in body
 
 
