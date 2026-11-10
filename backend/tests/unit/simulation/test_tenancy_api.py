@@ -208,7 +208,7 @@ def test_reset_http_preflight_outage_is_503_without_secret_or_wipe(
     def unavailable(_uid):
         raise RuntimeError("SYNTHETIC_DB_SECRET")
 
-    monkeypatch.setattr(journal, "assert_cleanup_safe", unavailable)
+    monkeypatch.setattr(journal, "begin_simulation_reset", unavailable)
     response = client.post(f"{URL}/reset", json={"confirm": True})
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "simulation_reset_preflight_unavailable"
@@ -317,9 +317,33 @@ def test_reset_http_refuses_hold_only_preflight_before_any_wipe(client, live, mo
     def held(_uid):
         raise ValueError("gamma_offline_review_hold_immutable")
 
-    monkeypatch.setattr(journal, "assert_cleanup_safe", held)
+    monkeypatch.setattr(journal, "begin_simulation_reset", held)
     response = client.post(f"{URL}/reset", json={"confirm": True})
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "immutable_review_evidence"
     assert get_ledger().account(OWNER)["cash"] == 999_300
     assert mode.strategy_state(OWNER, "gamma")["mode"] == "SIMULATION"
+
+
+def test_reset_http_refuses_stale_durable_active_fence_without_cash_wipe(client, live):
+    _put(client, 'gamma', 'SIMULATION')
+    get_ledger().adjust_cash(OWNER, -419)
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    result = client.post(f'{URL}/reset', json={'confirm': True})
+    assert result.status_code == 409
+    assert result.json()['detail']['code'] == 'simulation_reset_in_progress'
+    assert get_ledger().account(OWNER)['cash'] == 999_581
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_reset_http_corrupt_durable_fence_fails_closed_503_without_leak(client, live):
+    _put(client, 'gamma', 'SIMULATION')
+    with db._conn() as conn:
+        conn.execute('INSERT INTO system_config(key,value) VALUES (?,?)',
+            ('simulation_reset_fence_v1:' + SIM_UID, 'private_invalid_fence_marker'))
+    response = client.post(f'{URL}/reset', json={'confirm': True})
+    assert response.status_code == 503
+    assert response.json()['detail']['code'] == 'simulation_reset_preflight_unavailable'
+    assert 'private_invalid_fence_marker' not in response.text
+    assert get_ledger().account(OWNER)['cash'] == 1_000_000

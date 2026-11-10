@@ -7,6 +7,7 @@ from hashlib import sha256
 import json
 from math import isfinite, isclose
 import time
+from uuid import uuid4
 from typing import Any, Dict, List, Optional
 
 from app.services import db
@@ -15,6 +16,7 @@ TERMINAL = {"FILLED", "REJECTED", "CANCELLED"}
 UNRESOLVED = {"RESERVED", "SUBMITTING", "UNKNOWN", "SUBMITTED", "PARTIAL"}
 # Reserved for the separately gated, offline-only Gamma review-child writer.
 _GAMMA_REVIEW_MARKER = "gamma_terminal_review_only"
+_RESET_FENCE_PREFIX = "simulation_reset_fence_v1:"
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,87 @@ def _transaction():
 
 def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def _reset_fence(conn, uid: str) -> Optional[dict]:
+    """Read a durable per-tenant reset state from the canonical SQLite store.
+
+    Missing means idle. Existing malformed records are never interpreted as idle.
+    Called under the same BEGIN IMMEDIATE writer lock as review evidence writes.
+    """
+    row = conn.execute(
+        "SELECT value FROM system_config WHERE key=?", (_RESET_FENCE_PREFIX + uid,),
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        value = json.loads(row["value"])
+        if (type(value) is not dict or set(value) != {"state", "token"}
+                or value["state"] not in {"ACTIVE", "FAILED"}
+                or type(value["token"]) is not str or len(value["token"]) != 32
+                or any(c not in "0123456789abcdef" for c in value["token"])):
+            raise ValueError("invalid_marker")
+    except (ValueError, TypeError, KeyError) as exc:
+        raise ValueError("simulation_reset_fence_invalid") from exc
+    return value
+
+
+def _require_no_simulation_reset(conn, uid: str) -> None:
+    """Refuse a writer in a fenced virtual tenant, including after a crash."""
+    if _reset_fence(conn, uid) is not None:
+        raise ValueError("simulation_reset_fenced")
+
+
+def simulation_reset_fence_state(uid: str) -> Optional[str]:
+    """Read-only operational diagnosis; never grants execution or release."""
+    _text(uid, "uid")
+    _ready()
+    with db._conn() as conn:
+        fence = _reset_fence(conn, uid)
+    return fence["state"] if fence else None
+
+
+def begin_simulation_reset(uid: str) -> str:
+    """Atomically validate immutable evidence and durably fence review writers.
+
+    A failed prior reset can be retried only by a new explicit reset call; a
+    stale ACTIVE marker, including after process death, requires manual review.
+    """
+    from app.services.simulation.identity import is_sim_uid
+
+    _text(uid, "uid")
+    if not is_sim_uid(uid):
+        raise ValueError("simulation_reset_requires_virtual_uid")
+    token = uuid4().hex
+    with _transaction() as conn:
+        _assert_tenant_cleanup_safe(conn, uid)
+        prior = _reset_fence(conn, uid)
+        if prior is not None and prior["state"] == "ACTIVE":
+            raise ValueError("simulation_reset_in_progress")
+        conn.execute(
+            "INSERT INTO system_config(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (_RESET_FENCE_PREFIX + uid, _json({"state": "ACTIVE", "token": token})),
+        )
+    return token
+
+
+def finish_simulation_reset(uid: str, token: str, *, success: bool) -> None:
+    """Conclude a fenced reset. Failure remains durable and fail-closed."""
+    _text(uid, "uid")
+    _text(token, "reset_token")
+    if type(success) is not bool:
+        raise ValueError("invalid_reset_outcome")
+    with _transaction() as conn:
+        current = _reset_fence(conn, uid)
+        if current is None or current["state"] != "ACTIVE" or current["token"] != token:
+            raise ValueError("simulation_reset_fence_mismatch")
+        if success:
+            conn.execute("DELETE FROM system_config WHERE key=?", (_RESET_FENCE_PREFIX + uid,))
+        else:
+            conn.execute("UPDATE system_config SET value=? WHERE key=?", (
+                _json({"state": "FAILED", "token": token}), _RESET_FENCE_PREFIX + uid,
+            ))
 
 
 def _text(value: str, label: str) -> str:
@@ -240,6 +323,7 @@ def reserve(*, uid: str, account_id: str, strategy_id: str, generation_id: str,
                    symbol=symbol, side=side)
     now = int(time.time() * 1000)
     with _transaction() as conn:
+        _require_no_simulation_reset(conn, uid)
         # Match legacy draft identities too; changing key encoding must not resend.
         rows = conn.execute("""SELECT * FROM kite_order_intents WHERE uid=? AND account_id=?
             AND strategy_id=? AND signal_id=? AND exchange=? AND symbol=? AND side=?""",
@@ -287,6 +371,7 @@ def claim_submission(intent_key: str) -> bool:
     """Only the winning durable RESERVED→SUBMITTING CAS may call the broker."""
     with _transaction() as conn:
         intent = _get(conn, intent_key)
+        _require_no_simulation_reset(conn, intent.uid)
         # Offline canonical child prototypes are durable review evidence, never
         # executable broker orders. Even a direct call to claim_submission must
         # not turn one into SUBMITTING. This is defense in depth on the only
@@ -327,6 +412,7 @@ def transition(intent_key: str, state: str, *, order_id: str="", error: str="") 
       "PARTIAL":{"CANCELLED","UNKNOWN"}}
     with _transaction() as conn:
         intent = _get(conn, intent_key)
+        _require_no_simulation_reset(conn, intent.uid)
         _require_mutable_intent(intent)
         current=intent.state
         if state != current and state not in allowed.get(current,set()):
@@ -399,6 +485,7 @@ def acknowledge(intent_key: str, order_id: str) -> Intent:
     _text(order_id, "order_id")
     with _transaction() as conn:
         current = _get(conn, intent_key)
+        _require_no_simulation_reset(conn, current.uid)
         _require_mutable_intent(current)
         _check_order_id(conn, current, order_id)
         if current.state == "RESERVED":
@@ -413,6 +500,7 @@ def submission_uncertain(intent_key: str, error: str) -> Intent:
     """Timeout cannot erase stronger broker evidence delivered concurrently."""
     with _transaction() as conn:
         current = _get(conn, intent_key)
+        _require_no_simulation_reset(conn, current.uid)
         _require_mutable_intent(current)
         if current.state == "SUBMITTING":
             conn.execute("UPDATE kite_order_intents SET state='UNKNOWN',error=?,updated_ms=? WHERE intent_key=?",
@@ -463,7 +551,9 @@ def mark_projected(intent_key: str, projection_version: int) -> bool:
     """Acknowledge exactly the saved registry snapshot, never a newer fill."""
     _quantity(projection_version, zero=True)
     with _transaction() as conn:
-        _require_mutable_intent(_get(conn, intent_key))
+        intent = _get(conn, intent_key)
+        _require_no_simulation_reset(conn, intent.uid)
+        _require_mutable_intent(intent)
         changed = conn.execute("""UPDATE kite_order_intents SET projection_pending=0
             WHERE intent_key=? AND projection_version=? AND projection_pending=1""",
             (intent_key, projection_version)).rowcount
@@ -509,6 +599,7 @@ def _observe_order(intent_key: str, *, status: str, order_id: str,
     encoded_raw = _json(raw or {})
     with _transaction() as conn:
         current = _get(conn, intent_key)
+        _require_no_simulation_reset(conn, current.uid)
         _require_mutable_intent(current)
         _check_order_id(conn, current, order_id)
         if conn.execute("SELECT 1 FROM kite_order_observations WHERE intent_key=? AND fingerprint=?",
@@ -593,9 +684,10 @@ def assert_cleanup_safe(uid: str) -> None:
     _text(uid, "uid")
     with _transaction() as conn:
         _assert_tenant_cleanup_safe(conn, uid)
+        _require_no_simulation_reset(conn, uid)
 
 
-def clear_for_tests(uid: str) -> None:
+def clear_for_tests(uid: str, *, reset_token: Optional[str] = None) -> None:
     """Clear ordinary tenant simulation data, not immutable review evidence.
 
     Simulation reset still uses this legacy name outside pytest. If the tenant
@@ -607,6 +699,13 @@ def clear_for_tests(uid: str) -> None:
     _text(uid, "uid")
     with _transaction() as conn:
         _assert_tenant_cleanup_safe(conn, uid)
+        fence = _reset_fence(conn, uid)
+        if fence is not None:
+            if (fence["state"] != "ACTIVE" or not reset_token
+                    or fence["token"] != reset_token):
+                raise ValueError("simulation_reset_fenced")
+        elif reset_token is not None:
+            raise ValueError("simulation_reset_fence_mismatch")
         conn.execute("DELETE FROM kite_order_observations WHERE intent_key IN (SELECT intent_key FROM kite_order_intents WHERE uid=?)", (uid,))
         conn.execute("DELETE FROM kite_fill_ledger WHERE uid=?",(uid,))
         conn.execute("DELETE FROM kite_order_intents WHERE uid=?",(uid,))
@@ -617,7 +716,8 @@ def record_fill(*, account_id: str, order_id: str, trade_id: str, uid: str,
                 exchange_ts_ms: int=0, raw: Optional[Dict[str, Any]]=None) -> bool:
     """Insert one immutable fill. False means exact broker execution already consumed."""
     _ready(); now=int(time.time()*1000)
-    with db._conn() as conn:
+    with _transaction() as conn:
+        _require_no_simulation_reset(conn, uid)
         before=conn.total_changes
         conn.execute("""INSERT OR IGNORE INTO kite_fill_ledger
           (account_id,order_id,trade_id,uid,symbol,side,quantity,price,fees,

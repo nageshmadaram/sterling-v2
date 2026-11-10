@@ -466,7 +466,7 @@ def test_simulation_reset_unavailable_preflight_does_not_modify_virtual_tenant(
     def unavailable(_uid):
         raise RuntimeError("SYNTHETIC_DB_SECRET")
 
-    monkeypatch.setattr(journal, "assert_cleanup_safe", unavailable)
+    monkeypatch.setattr(journal, "begin_simulation_reset", unavailable)
     with pytest.raises(mode.ModeUnavailable) as blocked:
         mode.reset_simulation(OWNER)
     assert blocked.value.code == "simulation_reset_preflight_unavailable"
@@ -561,7 +561,7 @@ def test_reset_lifts_the_tenants_own_halt_and_never_touches_the_global_one(monke
 def test_reset_only_ever_names_the_sim_tenant(monkeypatch):
     """The wipe is built from tenant.scope_ids(owner): a real uid/account id can never be passed through it."""
     seen = []
-    monkeypatch.setattr(mode, "_purge_order_books", lambda uid: seen.append(("books", uid)))
+    monkeypatch.setattr(mode, "_purge_order_books", lambda uid, *, reset_token=None: seen.append(("books", uid)))
     monkeypatch.setattr(mode, "_purge_snapback_books", lambda uid, account: seen.append(("snap", uid, account)))
     monkeypatch.setattr(mode, "_purge_config_rows", lambda uid: seen.append(("cfg", uid)))
     monkeypatch.setattr(mode, "_forget_memory", lambda uid: seen.append(("mem", uid)))
@@ -600,3 +600,101 @@ def test_a_failed_journal_purge_is_reported_by_the_reset_not_swallowed(monkeypat
     assert journal.list_trades([SIM_UID])["total"] == 1                     # nothing was cleared, and we were told
     assert mode.reset_simulation(OWNER)["ok"] is True                       # a retry finishes the job
     assert journal.list_trades([SIM_UID])["total"] == 0
+
+
+def test_reset_writes_durable_fence_before_virtual_cash_mutation(tenants, monkeypatch):
+    from app.services.simulation import sim_runtime
+    original = sim_runtime.reset_owner
+    observed = []
+
+    def before_cash(owner, *, capital=None):
+        assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+        with pytest.raises(ValueError, match='simulation_reset_fenced'):
+            order_journal.reserve(uid=SIM_UID, account_id=SIM_ACCOUNT_ID,
+                strategy_id='gamma-unwind', generation_id='g', signal_id='pending',
+                exchange='NFO', symbol='SYNTHETIC26NOV26000CE', side='SELL', quantity=1)
+        observed.append(True)
+        return original(owner, capital=capital)
+
+    monkeypatch.setattr(sim_runtime, 'reset_owner', before_cash)
+    assert mode.reset_simulation(OWNER)['ok']
+    assert observed == [True]
+    assert order_journal.simulation_reset_fence_state(SIM_UID) is None
+
+
+def test_crashed_simulation_reset_fence_blocks_reset_and_rearming(tenants):
+    mode.set_mode(OWNER, 'gamma', 'SIMULATION')
+    get_ledger().adjust_cash(OWNER, -123)
+    cash = get_ledger().account(OWNER)['cash']
+    token = order_journal.begin_simulation_reset(SIM_UID)
+    with pytest.raises(mode.ModeBlocked) as refused:
+        mode.reset_simulation(OWNER)
+    assert refused.value.code == 'simulation_reset_in_progress'
+    with pytest.raises(mode.ModeBlocked) as refused_arm:
+        mode.set_mode(OWNER, 'gamma', 'SIMULATION')
+    assert refused_arm.value.code == 'simulation_reset_fenced'
+    assert get_ledger().account(OWNER)['cash'] == cash
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    order_journal.finish_simulation_reset(SIM_UID, token, success=False)
+
+
+def test_failed_simulation_reset_retains_fence_and_recovery_state(tenants, monkeypatch):
+    from app.services import trade_journal as journal
+    mode.set_mode(OWNER, 'gamma', 'SIMULATION')
+    original = journal.purge_simulation
+
+    def fail(_uid):
+        raise RuntimeError('synthetic failure')
+
+    monkeypatch.setattr(journal, 'purge_simulation', fail)
+    result = mode.reset_simulation(OWNER)
+    assert not result['ok'] and 'journal_rows' in result['failed']
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'FAILED'
+    control = db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)
+    assert control['recovery_state'] == 'RECOVERY_REQUIRED'
+    with pytest.raises(mode.ModeBlocked, match='Simulation reset recovery'):
+        mode.set_mode(OWNER, 'gamma', 'SIMULATION')
+    monkeypatch.setattr(journal, 'purge_simulation', original)
+    assert mode.reset_simulation(OWNER)['ok']
+    assert order_journal.simulation_reset_fence_state(SIM_UID) is None
+    assert db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)['recovery_state'] == 'CLEAN'
+
+
+def test_unexpected_reset_interruption_persists_failed_fence_and_halts_tenant(tenants, monkeypatch):
+    from app.services.simulation import sim_runtime
+    mode.set_mode(OWNER, 'gamma', 'SIMULATION')
+    original = sim_runtime.reset_owner
+
+    def interrupted(*_args, **_kw):
+        raise RuntimeError('synthetic_private_reset_failure')
+
+    monkeypatch.setattr(sim_runtime, 'reset_owner', interrupted)
+    with pytest.raises(mode.ModeUnavailable) as error:
+        mode.reset_simulation(OWNER)
+    assert error.value.code == 'simulation_reset_interrupted'
+    assert 'synthetic_private' not in error.value.message
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'FAILED'
+    control = db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)
+    assert control['recovery_state'] == 'RECOVERY_REQUIRED'
+    monkeypatch.setattr(sim_runtime, 'reset_owner', original)
+    assert mode.reset_simulation(OWNER)['ok'] is True
+    assert order_journal.simulation_reset_fence_state(SIM_UID) is None
+
+
+def test_unconfirmed_reset_finalize_never_claims_clean_control_plane(tenants, monkeypatch):
+    original = order_journal.finish_simulation_reset
+
+    def failed_finalize(*_args, **_kw):
+        raise RuntimeError('synthetic_private_finalize_failure')
+
+    monkeypatch.setattr(order_journal, 'finish_simulation_reset', failed_finalize)
+    with pytest.raises(mode.ModeUnavailable) as error:
+        mode.reset_simulation(OWNER)
+    assert error.value.code == 'simulation_reset_finalize_unavailable'
+    assert 'synthetic_private' not in error.value.message
+    assert order_journal.simulation_reset_fence_state(SIM_UID) == 'ACTIVE'
+    assert db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)['recovery_state'] == 'RECOVERY_REQUIRED'
+    monkeypatch.setattr(order_journal, 'finish_simulation_reset', original)
+    with pytest.raises(mode.ModeBlocked) as blocked:
+        mode.reset_simulation(OWNER)
+    assert blocked.value.code == 'simulation_reset_in_progress'
