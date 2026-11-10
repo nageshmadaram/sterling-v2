@@ -6,7 +6,7 @@ import json
 import time
 
 import pytest
-from tenancy_support import OWNER, SIM_ACCOUNT_ID, SIM_UID, unprotected_position, wipe_tenants
+from tenancy_support import seed_legacy_immutable_review_intent, OWNER, SIM_ACCOUNT_ID, SIM_UID, unprotected_position, wipe_tenants
 
 from app.services import db, gamma_move, snapback
 from app.services import trade_journal as journal
@@ -440,12 +440,7 @@ def test_simulation_reset_preflights_frozen_gamma_journal_before_any_mutation(te
     """An immutable review child must never produce a partial simulation wipe."""
     mode.set_mode(OWNER, "gamma", "SIMULATION")
     get_ledger().adjust_cash(OWNER, -12_345)
-    protected = order_journal.reserve(
-        uid=SIM_UID, account_id=SIM_ACCOUNT_ID, strategy_id="gamma-unwind",
-        generation_id="synthetic-review", signal_id="synthetic:review:child",
-        exchange="NFO", symbol="SYNTHETIC26NOV25000CE", side="SELL",
-        quantity=1, payload={"gamma_terminal_review_only": True},
-    )
+    protected = seed_legacy_immutable_review_intent()
     cash = get_ledger().account(OWNER)["cash"]
     before = _modes()
     before_control = db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)

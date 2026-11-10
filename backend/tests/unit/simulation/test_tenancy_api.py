@@ -6,7 +6,7 @@ import time
 
 import pytest
 from starlette.testclient import TestClient
-from tenancy_support import OWNER, SIM_ACCOUNT_ID, SIM_UID, live_account, unprotected_position, wipe_tenants
+from tenancy_support import seed_legacy_immutable_review_intent, OWNER, SIM_ACCOUNT_ID, SIM_UID, live_account, unprotected_position, wipe_tenants
 
 import main
 from app.core import lane_registry
@@ -190,12 +190,7 @@ def test_reset_needs_an_explicit_confirm(client, live):
 def test_reset_api_refuses_immutable_gamma_child_without_partial_wipe(client, live):
     _put(client, "gamma", "SIMULATION")
     get_ledger().adjust_cash(OWNER, -500)
-    protected = order_journal.reserve(
-        uid=SIM_UID, account_id=SIM_ACCOUNT_ID, strategy_id="gamma-unwind",
-        generation_id="synthetic-review", signal_id="synthetic:review:child",
-        exchange="NFO", symbol="SYNTHETIC26NOV25000CE", side="SELL",
-        quantity=1, payload={"gamma_terminal_review_only": True},
-    )
+    protected = seed_legacy_immutable_review_intent()
     response = client.post(f"{URL}/reset", json={"confirm": True})
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "immutable_review_evidence"
