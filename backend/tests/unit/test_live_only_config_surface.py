@@ -142,9 +142,14 @@ def test_docs_do_not_describe_a_non_live_mode(path):
 
 def test_readme_distinguishes_simulation_from_real_broker_execution():
     body = _text(REPO / "README.md")
-    assert "Live view places real broker orders" in body
-    assert "Simulation uses a separate virtual workspace" in body
-    assert "does not certify real broker execution" in body
+    # A local live-capable transport is NOT production authorization. The
+    # preproduction README deliberately replaced the old live-selling claim.
+    assert "Pre-production review only" in body
+    assert "production deployment NO-GO" in body
+    assert "live broker order routing" in body
+    assert "live trading NOT AUTHORIZED" in body
+    assert "Simulation is isolated and does not certify broker execution" in body
+    assert "Live view places real broker orders" not in body
 
 
 @pytest.mark.parametrize(
