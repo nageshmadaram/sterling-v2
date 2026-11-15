@@ -13,6 +13,7 @@ on:
       - 'backend/tests/engines/sterling_kite_engine/test_production_audit.py'
       - 'backend/tests/engines/sterling_kite_engine/test_execution_identity.py'
       - 'backend/tests/engines/sterling_kite_engine/test_fired_child_exits.py'
+      - 'backend/tests/engines/sterling_kite_engine/test_product_persistence.py'
       - 'backend/app/services/exchanges/kite/login_preflight.py'
       - 'backend/tests/test_kite_login_preflight.py'
       - 'backend/tests/test_kite_mobile_login.py'
@@ -101,6 +102,7 @@ jobs:
             tests/engines/sterling_kite_engine/test_production_audit.py \
             tests/engines/sterling_kite_engine/test_execution_identity.py \
             tests/engines/sterling_kite_engine/test_fired_child_exits.py \
+            tests/engines/sterling_kite_engine/test_product_persistence.py \
             tests/unit/test_canonical_execution_convergence.py \
             tests/unit/test_canonical_fresh_reduction_proof.py \
             tests/unit/test_gamma_tranche_readiness.py \
