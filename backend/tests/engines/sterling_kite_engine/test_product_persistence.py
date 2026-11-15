@@ -10,6 +10,7 @@ from app.services.kite_engine.canonical_entry import STRATEGY_ID as KITE_STRATEG
 from app.services import db
 from app.services.kite_engine import execution_lifecycle as life
 from app.services.kite_engine import monitor, order_journal as journal, positions, protection
+from app.services.execution_service import ExecutionResult
 
 
 def _entry(product="MIS"):
@@ -45,9 +46,29 @@ def _client(product="MIS"):
     )
 
 
+@pytest.fixture
+def synthetic_product_exit(monkeypatch):
+    """Only the final synthetic submit is mocked; inventory gate stays real."""
+    async def final_recorder(*, client, uid, exchange, symbol, quantity, product, side, **_kwargs):
+        from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+        from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
+
+        assert reduction_inventory_refusal(client=client, uid=uid, exchange=exchange,
+                                           symbol=symbol, quantity=quantity, side=side) is None
+        claim = positions.get(uid, symbol)
+        assert claim is not None and claim.exit_order_id == "submitting" and claim.exit_tag
+        with canonical_broker_capability(f"synthetic-product-exit:{uid}:{symbol}", intent=INTENT_REDUCE):
+            response = await client.place_order_option(
+                symbol, side.lower(), quantity, product=product, tag=claim.exit_tag,
+            )
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id=str(response["order_id"]))
+
+    monkeypatch.setattr("app.services.canonical_strategy_reduction.submit_reduction", final_recorder)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("product", ["MIS", "NRML", "CNC"])
-async def test_journal_product_survives_recovery_reload_protection_and_exit(product):
+async def test_journal_product_survives_recovery_reload_protection_and_exit(product, synthetic_product_exit):
     intent, order = _entry(product)
     journal.transition(intent.intent_key, "UNKNOWN")
     client = _client(product)
@@ -56,6 +77,10 @@ async def test_journal_product_survives_recovery_reload_protection_and_exit(prod
     await life.recover(client, intent.uid)
     held = positions.get(intent.uid, "OPT")
     assert held.product == product and held.qty == 50
+    from app.services.kite_engine import fill_ledger
+    signed = fill_ledger.inventory("account", intent.uid, "OPT")
+    assert signed is not None and signed.net_quantity == 50
+    assert not signed.reconciliation_required
     if product == "MIS":
         assert held.gtt_id == 0 and not held.protection_pending
         client.place_gtt.assert_not_awaited()
@@ -184,3 +209,22 @@ async def test_unknown_broker_mode_never_enters_paper_protection_or_exit(mode):
     client.place_gtt.assert_not_awaited()
     client.delete_gtt.assert_not_awaited()
     client.place_order_option.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_recovered_stop_is_not_cancelled_for_wrong_broker_product(synthetic_product_exit):
+    """The same symbol held in a different product is not this position."""
+    intent, order = _entry("NRML")
+    journal.transition(intent.intent_key, "UNKNOWN")
+    client = _client("NRML")
+    client.get_orders.return_value = [order]
+    await life.recover(client, intent.uid)
+    held = positions.get(intent.uid, "OPT")
+    assert held is not None and held.gtt_id == 42 and held.product == "NRML"
+    client.get_positions_raw.return_value = {"net": [
+        dict(tradingsymbol="OPT", exchange="NFO", product="MIS", quantity=50),
+    ]}
+    assert not await monitor._exit_position(client, intent.uid, held, 100, reason="manual")
+    client.delete_gtt.assert_not_awaited()
+    client.place_order_option.assert_not_awaited()
+    assert held.gtt_id == 42 and held.exit_order_id == "" and held.status == positions.OPEN
