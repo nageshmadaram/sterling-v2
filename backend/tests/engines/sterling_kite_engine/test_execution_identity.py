@@ -7,6 +7,8 @@ import pytest
 from app.services.exchanges.kite import accounts
 from app.services.exchanges.kite.models import KiteAccountCreate, KiteAccountUpdate
 from app.services.kite_engine import monitor, positions, state
+from app.services import db
+from app.services.execution_service import ExecutionResult
 
 
 @pytest.mark.asyncio
@@ -212,10 +214,38 @@ async def test_pending_entry_cancel_ack_without_terminal_history_preserves_prote
     assert p.gtt_id == 123
 
 
+@pytest.fixture
+def canonical_exit_double(monkeypatch):
+    """Synthetic inventory + final transport seam for monitor-only testing.
+
+    The real inventory admission remains enabled. The canonical journal's
+    send/restart/UNKNOWN protocol is tested separately in its own unit suite.
+    """
+    async def final_paper_transport(*, client, uid, exchange, symbol, quantity, product, side, **kwargs):
+        from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+        assert reduction_inventory_refusal(client=client, uid=uid, exchange=exchange,
+                                           symbol=symbol, quantity=quantity, side=side) is None
+        claim = positions.get(uid, symbol)
+        assert claim is not None and claim.exit_order_id == "submitting" and claim.exit_tag
+        from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
+        with canonical_broker_capability(f"synthetic-holdings-exit:{uid}:{symbol}", intent=INTENT_REDUCE):
+            reply = await client.place_order_option(symbol, side.lower(), quantity, product=product,
+                                                    tag=claim.exit_tag)
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id=str(reply["order_id"]))
+
+    monkeypatch.setattr("app.services.canonical_strategy_reduction.submit_reduction", final_paper_transport)
+
+    def inventory(uid, quantity):
+        db.set_inventory("account-a", uid, "OPT", quantity, exchange="NFO")
+
+    return inventory
+
+
 @pytest.mark.asyncio
-async def test_live_exit_rechecks_matching_holdings_after_gtt_cancel(monkeypatch):
+async def test_live_exit_rechecks_matching_holdings_after_gtt_cancel(monkeypatch, canonical_exit_double):
     uid = "identity-fresh-exit"
     p = _position(uid)
+    canonical_exit_double(uid, 50)
     client = _client()
     client.get_positions_raw.side_effect = [{"net": [_row(50)]}, {"net": [_row(10)]}]
     cancel = AsyncMock(return_value=monitor.pstop.CANCELLED)
@@ -245,9 +275,10 @@ async def test_live_exit_storage_failure_precedes_broker_mutation(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_final_holdings_failure_after_confirmed_cancel_allows_protection_repair(monkeypatch):
+async def test_final_holdings_failure_after_confirmed_cancel_allows_protection_repair(monkeypatch, canonical_exit_double):
     uid = "identity-postcancel-read"
     p = _position(uid)
+    canonical_exit_double(uid, 50)
     client = _client()
     client.get_positions_raw.side_effect = [{"net": [_row(50)]}, TimeoutError("unavailable")]
     cancel = AsyncMock(return_value=monitor.pstop.CANCELLED)
@@ -255,3 +286,17 @@ async def test_final_holdings_failure_after_confirmed_cancel_allows_protection_r
     assert not await monitor._exit_position(client, uid, p, 79)
     assert p.gtt_id == 0 and not p.protection_pending
     client.place_order_option.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_canonical_inventory_never_disarms_live_protection(monkeypatch, canonical_exit_double):
+    """No inventory means no GTT cancellation, even with matching raw holdings."""
+    uid = "identity-missing-canonical-proof"
+    p = _position(uid)
+    client = _client()
+    cancel = AsyncMock(return_value=monitor.pstop.CANCELLED)
+    monkeypatch.setattr(monitor.pstop, "cancel_stop_result", cancel)
+    assert not await monitor._exit_position(client, uid, p, 79)
+    cancel.assert_not_awaited()
+    client.place_order_option.assert_not_awaited()
+    assert p.gtt_id == 123 and p.exit_order_id == "" and p.status == positions.OPEN

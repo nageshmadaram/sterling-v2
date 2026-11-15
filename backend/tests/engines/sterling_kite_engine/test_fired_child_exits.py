@@ -20,6 +20,9 @@ from app.services.exchanges.kite.errors import KiteOrderError
 from app.services.kite_engine import monitor
 from app.services.kite_engine import positions as pos
 from app.services.kite_engine import protective_stop as ps
+from app.services import db
+from app.services.kite_engine import fill_ledger
+from app.services.execution_service import ExecutionResult
 from tests.engines.sterling_kite_engine.test_protection import _FakeClient, _held
 
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -39,6 +42,32 @@ def _no_network(monkeypatch):
     monitor._exit_refused_at.clear()
     monkeypatch.setattr("app.services.kite_engine.monitor.state.clear_auto_open",
                         lambda *a, **k: None)
+    # The fired-child suite verifies protective-order sequencing and position
+    # projection, not CanonicalExecutionService transport. Keep the real
+    # inventory preflight, replacing only the final synthetic send with this
+    # controlled paper-only recorder. Dedicated canonical tests verify journal
+    # claim/UNKNOWN, twice-fresh broker reads and subprocess restart behavior.
+    async def synthetic_final_send(*, client, uid, exchange, symbol, quantity, product,
+                                   side, **_kwargs):
+        from app.services.canonical_strategy_reduction import reduction_inventory_refusal
+        refusal = reduction_inventory_refusal(client=client, uid=uid, exchange=exchange,
+                                             symbol=symbol, quantity=quantity, side=side)
+        assert refusal is None, f"test fixture missing canonical inventory: {refusal}"
+        current = pos.get(uid, symbol)
+        assert current is not None and current.exit_order_id == "submitting" and current.exit_tag
+        try:
+            from app.services.snapback_family_mode import INTENT_REDUCE, canonical_broker_capability
+            with canonical_broker_capability(f"synthetic-exit:{uid}:{symbol}", intent=INTENT_REDUCE):
+                result = await client.place_order_option(symbol, side.lower(), quantity,
+                                                         tag=current.exit_tag, product=product)
+        except Exception as exc:
+            if ps.is_definitive_refusal(exc):
+                return ExecutionResult(False, "REJECTED", error=str(exc))
+            return ExecutionResult(False, "UNKNOWN", error="synthetic broker ACK uncertain")
+        return ExecutionResult(True, "ACKNOWLEDGED", order_id=str(result["order_id"]))
+
+    monkeypatch.setattr("app.services.canonical_strategy_reduction.submit_reduction",
+                        synthetic_final_send)
 
 
 def _stamp(seconds_ago: float) -> str:
@@ -103,6 +132,20 @@ class _FiredChildClient(_FakeClient):
 def _position(uid: str, **kw):
     p = _held(uid, stop=80.0, **kw)
     p.product = "NRML"
+    # Seed broker-like immutable entry FILL evidence for the synthetic holding.
+    # A mere `db.set_inventory(50)` is NOT sufficient: fill_ledger.record() fully
+    # replays its signed events, so a child SELL(20) against an eventless row
+    # correctly becomes -20. The fixture must contain its matching BUY(50)
+    # to prove a residual +30, rather than fabricating a canonical projection.
+    entry = fill_ledger.record(
+        account_id=p.account_id, uid=uid, symbol=p.symbol, exchange=p.exchange,
+        side="BUY" if p.direction == "long" else "SELL", order_id=p.order_id,
+        cumulative_quantity=int(p.qty),
+        cumulative_value=int(p.qty) * float(p.entry_premium),
+        source="entry", lot_size=int(p.lot_size or 0),
+    )
+    assert entry.accepted and not entry.reconciliation_required
+    assert entry.inventory.net_quantity == (p.qty if p.direction == "long" else -p.qty)
     return p
 
 
@@ -138,6 +181,9 @@ async def test_part_filled_stale_child_is_booked_and_only_the_rest_is_sold():
     held = pos.get("fc-part", SYMBOL)
     assert held.qty == 30
     assert held.exit_fills.get("CHILD-1") == 20, "the child's fill is booked once, by id"
+    signed = fill_ledger.inventory(held.account_id, "fc-part", SYMBOL)
+    assert signed is not None and signed.net_quantity == 30
+    assert signed.reconciliation_required is False
 
 
 @pytest.mark.asyncio
@@ -543,3 +589,17 @@ async def test_a_fired_stop_whose_child_cannot_be_identified_holds_even_a_forced
 
     assert sold is False
     assert client.sells == [] and client.cancelled_orders == []
+
+
+@pytest.mark.asyncio
+async def test_unreconciled_child_position_cannot_disarm_its_stop():
+    """A position cache without canonical entry evidence cannot release protection."""
+    uid = "fc-unreconciled-inventory"
+    p = _held(uid, stop=80.0)
+    p.product = "NRML"
+    client = _FiredChildClient(filled_at_cancel=20)
+    assert db.get_inventory_strict(p.account_id, uid, p.symbol) is None
+    sold = await monitor._exit_position(client, uid, p, 60.0, price_stop_exit=True)
+    assert sold is False
+    assert client.cancelled_orders == [] and client.sells == []
+    assert p.gtt_id and not p.exit_order_id and p.status == pos.OPEN
