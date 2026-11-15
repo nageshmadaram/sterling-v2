@@ -50,6 +50,7 @@ on:
       - 'backend/app/api/v1/endpoints/sim.py'
       - 'backend/tests/unit/simulation/test_tenancy_mode.py'
       - 'backend/tests/unit/simulation/test_tenancy_api.py'
+      - 'backend/tests/unit/simulation/test_tenancy_boot.py'
 
 permissions:
   contents: read
@@ -113,10 +114,22 @@ jobs:
           python -m pytest -q --tb=short \
             tests/unit/simulation/test_tenancy_mode.py \
             tests/unit/simulation/test_tenancy_api.py \
-            tests/unit/simulation/test_tenancy_boot.py \
             tests/unit/simulation/test_sim_runtime.py \
             tests/unit/simulation/test_sim_ledger.py \
             tests/unit/simulation/test_sim_virtual_exchange.py
+
+      - name: Simulation lifespan startup with forbidden Telegram egress
+        working-directory: backend
+        env:
+          ENVIRONMENT: test
+          PAPER_TRADING: 'true'
+          REAL_PUBLIC_DATA: 'false'
+          STERLING_LIVE_EXECUTION: '0'
+          PYTHONPATH: '.:tests/unit/simulation'
+          STERLING_DB_PATH: /tmp/sterling-v2-synthetic-tenancy-boot.sqlite
+          TELEGRAM_BOT_TOKEN: SYNTHETIC_TEST_BOT_TOKEN
+          TELEGRAM_CHAT_ID: '123456'
+        run: python -m pytest -q --tb=short tests/unit/simulation/test_tenancy_boot.py
 
       - name: Synthetic gateway availability, asset denial and identity tests
         working-directory: backend

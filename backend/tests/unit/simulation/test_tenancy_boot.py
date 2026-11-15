@@ -16,6 +16,16 @@ from app.services.simulation import identity, sim_runtime, tenant
 
 @pytest.fixture(autouse=True)
 def _clean(monkeypatch):
+    # This suite tests simulated startup, not Telegram delivery. The real app
+    # boots supervised Telegram tasks; never let imported host credentials or
+    # a stored token cause external HTTP during these socket-denied tests.
+    from app.services.notifications import telegram as tg
+
+    for key in ("TELEGRAM_TOKEN", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setattr(tg, "TELEGRAM_TOKEN", "")
+    monkeypatch.setattr(tg, "TELEGRAM_CHAT_ID", "")
+    monkeypatch.setattr(tg, "restore_legacy_config_from_store", lambda: None)
     wipe_tenants()
     monkeypatch.delenv("STERLING_OWNER_UID", raising=False)
     yield
@@ -43,7 +53,10 @@ def test_startup_creates_the_tenant_and_runs_the_sim_loop_beside_live():
         control = db.get_execution_control(uid=SIM_UID, account_id=SIM_ACCOUNT_ID)
         assert (control["operator_state"], control["recovery_state"]) == ("RUNNING", "CLEAN")
         assert sim_runtime.is_running() is True
-        assert client.get("/api/v1/sim/status").json()["runtime"]["running"] is True
+        # The runtime itself is running, but an anonymous or non-owner HTTP
+        # caller must NOT be granted owner-only simulation status.
+        forbidden = client.get("/api/v1/sim/status", headers={"X-User-Id": "intern"})
+        assert forbidden.status_code == 403
     assert sim_runtime.is_running() is False                                # stopped with the app
 
 
@@ -93,7 +106,9 @@ def test_a_failing_sim_runtime_never_stops_live_startup_or_shutdown(monkeypatch)
     monkeypatch.setattr(live_runtime, "stop_live_runtime", spy_stop)
     with TestClient(main.app) as client:
         assert sim_runtime.is_running() is False
-        assert client.get("/api/v1/sim/status").status_code == 200           # the API still answers
+        # Failure of an unrelated virtual worker does not bypass route auth.
+        assert client.get("/api/v1/sim/status", headers={"X-User-Id": "intern"}).status_code == 403
+        assert client.get("/health").status_code in (200, 503)
     assert stopped == [1]
 
 
@@ -124,3 +139,13 @@ def test_the_configured_owner_never_resolves_to_a_sim_identity(monkeypatch):
     with pytest.raises(ValueError):
         tenant.configured_owner_uid()
     assert identity.sim_uid("boss") == "sim:boss"
+
+
+def test_sim_startup_does_not_consume_environment_telegram_credentials(monkeypatch):
+    """A synthetic process cannot use a developer/CI Telegram bot token."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "SYNTHETIC_NOT_A_REAL_BOT_TOKEN")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "123456")
+    with TestClient(main.app) as client:
+        assert client.get("/health").status_code in (200, 503)
+        assert sim_runtime.is_running() is True
+    assert sim_runtime.is_running() is False
